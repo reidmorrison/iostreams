@@ -61,12 +61,44 @@ module RocketJob
       @@extensions.delete(extension.to_sym)
     end
 
-    # Returns a Reader for reading a file by checking its extension for supported
-    # conversions, or an explicit list of streams to apply to this reader
+    # Returns a Reader for reading a file / stream
+    #
+    # Parameters
+    #   file_name_or_io [String|IO]
+    #     The file_name of the file to write to, or an IO Stream that implements
+    #     #read.
+    #
+    #   streams [Symbol|Array]
+    #     The formats/streams that be used to convert the data whilst it is
+    #     being read.
+    #     When nil, the file_name will be inspected to try and determine what
+    #     streams should be applied.
+    #     Default: nil
+    #
+    # Stream types / extensions supported:
+    #   .zip       Zip File                                   [ :zip ]
+    #   .gz, .gzip GZip File                                  [ :gzip ]
+    #   .enc       File Encrypted using symmetric encryption  [ :enc ]
+    #   other      All other extensions will be returned as:  [ :file ]
+    #
+    # When a file is encrypted, it may also be compressed:
+    #   .zip.enc  [ :zip, :enc ]
+    #   .gz.enc   [ :gz,  :enc ]
+    #
+    # Example: Zip
+    #   RocketJob::Streams.reader('myfile.zip') { |file| puts file.read }
+    #
+    # Example: Encrypted Zip
+    #   RocketJob::Streams.reader('myfile.zip.enc') { |file| puts file.read }
+    #
+    # Example: Explicitly set the streams
+    #   RocketJob::Streams.reader('myfile.zip.enc', [:zip, :enc]) { |file| puts file.read }
+    #
+    # Example: Supply custom options
+    #   RocketJob::Streams.reader('myfile.csv.enc', [enc: { compress: true }]) { |file| puts file.read }
     def self.reader(file_name_or_io, streams=nil, &block)
       unless streams
-        raise ArgumentError.new("RocketJob Cannot detect the format when reading from a stream") unless file_name_or_io.is_a?(String)
-        streams = streams_for_file_name(file_name_or_io)
+        streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [ :file ]
       end
       stream_classes = readers_for(streams)
       if stream_classes.size == 1
@@ -78,12 +110,44 @@ module RocketJob
       end
     end
 
-    # Returns a Reader for reading a file by checking its extension for supported
-    # conversions, or an explicit list of streams to apply to this reader
+    # Returns a Writer for writing to a file / stream
+    #
+    # Parameters
+    #   file_name_or_io [String|IO]
+    #     The file_name of the file to write to, or an IO Stream that implements
+    #     #write.
+    #
+    #   streams [Symbol|Array]
+    #     The formats/streams that be used to convert the data whilst it is
+    #     being written.
+    #     When nil, the file_name will be inspected to try and determine what
+    #     streams should be applied.
+    #     Default: nil
+    #
+    # Stream types / extensions supported:
+    #   .zip       Zip File                                   [ :zip ]
+    #   .gz, .gzip GZip File                                  [ :gzip ]
+    #   .enc       File Encrypted using symmetric encryption  [ :enc ]
+    #   other      All other extensions will be returned as:  [ :file ]
+    #
+    # When a file is encrypted, it may also be compressed:
+    #   .zip.enc  [ :zip, :enc ]
+    #   .gz.enc   [ :gz,  :enc ]
+    #
+    # Example: Zip
+    #   RocketJob::Streams.writer('myfile.zip') { |file| file.write(data) }
+    #
+    # Example: Encrypted Zip
+    #   RocketJob::Streams.writer('myfile.zip.enc') { |file| file.write(data) }
+    #
+    # Example: Explicitly set the streams
+    #   RocketJob::Streams.writer('myfile.zip.enc', [:zip, :enc]) { |file| file.write(data) }
+    #
+    # Example: Supply custom options
+    #   RocketJob::Streams.writer('myfile.csv.enc', [enc: { compress: true }]) { |file| file.write(data) }
     def self.writer(file_name_or_io, streams=nil, &block)
       unless streams
-        raise ArgumentError.new("RocketJob Cannot detect the format when writing to a stream") unless file_name_or_io.is_a?(String)
-        streams = streams_for_file_name(file_name_or_io)
+        streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [ :file ]
       end
       stream_classes = writers_for(streams)
       if stream_classes.size == 1
