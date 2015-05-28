@@ -37,16 +37,6 @@ module RocketJob
       extensions
     end
 
-    # Returns [Array] list of stream readers matching the supplied list
-    def self.readers_for(params)
-      streams_for(params, :reader)
-    end
-
-    # Returns [Array] list of stream readers matching the supplied list
-    def self.writers_for(params)
-      streams_for(params, :writer)
-    end
-
     Extension = Struct.new(:reader_class, :writer_class)
 
     # Register a file extension and the reader and writer classes to use to format it
@@ -97,17 +87,7 @@ module RocketJob
     # Example: Supply custom options
     #   RocketJob::Streams.reader('myfile.csv.enc', [enc: { compress: true }]) { |file| puts file.read }
     def self.reader(file_name_or_io, streams=nil, &block)
-      unless streams
-        streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [ :file ]
-      end
-      stream_classes = readers_for(streams)
-      if stream_classes.size == 1
-        stream_classes.first.open(file_name_or_io, &block)
-      else
-        # Daisy chain multiple streams together
-        last = stream_classes.inject(block){ |inner, stream_class| -> io { stream_class.open(io, &inner) } }
-        last.call(file_name_or_io)
-      end
+      stream(:reader, file_name_or_io, streams, &block)
     end
 
     # Returns a Writer for writing to a file / stream
@@ -146,35 +126,58 @@ module RocketJob
     # Example: Supply custom options
     #   RocketJob::Streams.writer('myfile.csv.enc', [enc: { compress: true }]) { |file| file.write(data) }
     def self.writer(file_name_or_io, streams=nil, &block)
-      unless streams
-        streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [ :file ]
-      end
-      stream_classes = writers_for(streams)
-      if stream_classes.size == 1
-        stream_classes.first.open(file_name_or_io, &block)
-      else
-        # Daisy chain multiple streams together
-        last = stream_classes.inject(block){ |inner, stream_class| -> io { stream_class.open(io, &inner) } }
-        last.call(file_name_or_io)
-      end
+      stream(:writer, file_name_or_io, streams, &block)
     end
 
     ##########################################################################
     private
 
+    # Struct to hold the Stream and options if any
+    StreamStruct = Struct.new(:klass, :options)
+
+    # Returns a reader or writer stream
+    def self.stream(type, file_name_or_io, streams=nil, &block)
+      unless streams
+        streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [ :file ]
+      end
+      stream_structs = streams_for(type, streams)
+      if stream_structs.size == 1
+        stream_struct = stream_structs.first
+        stream_struct.klass.open(file_name_or_io, stream_struct.options, &block)
+      else
+        # Daisy chain multiple streams together
+        last = stream_structs.inject(block){ |inner, stream_struct| -> io { stream_struct.klass.open(io, stream_struct.options, &inner) } }
+        last.call(file_name_or_io)
+      end
+    end
+
     # type: :reader or :writer
-    def self.streams_for(params, type)
+    def self.streams_for(type, params)
       if params.is_a?(Symbol)
-        [ ( @@extensions[params] || raise(ArgumentError, "Unknown Stream type: #{params.inspect}") ).send("#{type}_class") ]
+        [ stream_struct_for_stream(type, params) ]
       elsif params.is_a?(Array)
-        params.collect { |stream| ( @@extensions[stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}") ).send("#{type}_class") }
+        a = []
+        params.each do |stream|
+          if stream.is_a?(Hash)
+            stream.each_pair { |stream_sym, options| a << stream_struct_for_stream(type, stream_sym, options) }
+          else
+            a << stream_struct_for_stream(type, stream)
+          end
+        end
+        a
       elsif params.is_a?(Hash)
         a = []
-        params.each_pair { |stream, options| a << ( @@extensions[stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}") ).send("#{type}_class") }
+        params.each_pair { |stream, options| a << stream_struct_for_stream(type, stream, options) }
         a
       else
         raise ArgumentError, "Invalid params supplied: #{params.inspect}"
       end
+    end
+
+    def self.stream_struct_for_stream(type, stream, options={})
+      ext   = @@extensions[stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+      klass = ext.send("#{type}_class")
+      StreamStruct.new(klass, options)
     end
 
     register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer)
