@@ -23,8 +23,17 @@ module RocketJob
     #   .zip.enc  [ :zip, :enc ]
     #   .gz.enc   [ :gz,  :enc ]
     #
-    # Example:
+    # Example Zip file:
     #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.zip')
+    #   => [ :zip ]
+    #
+    # Example Encrypted Gzip file:
+    #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv.gz.enc')
+    #   => [ :gz, :enc ]
+    #
+    # Example plain text / binary file:
+    #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
+    #   => [ :file ]
     def self.streams_for_file_name(file_name)
       raise ArgumentError.new("RocketJob Cannot detect file format when uploading a stream") unless file_name.is_a?(String)
       parts = file_name.split('.')
@@ -40,12 +49,21 @@ module RocketJob
     Extension = Struct.new(:reader_class, :writer_class)
 
     # Register a file extension and the reader and writer classes to use to format it
+    #
+    # Example:
+    #   # MyXls::Reader and MyXls::Writer must implement .open
+    #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
     def self.register_extension(extension, reader_class, writer_class)
       raise "Invalid extension #{extension.inspect}" unless extension.to_s =~ /\A\w+\Z/
       @@extensions[extension.to_sym] = Extension.new(reader_class, writer_class)
     end
 
     # De-Register a file extension
+    #
+    # Returns [Symbol] the extension removed, or nil if the extension was not registered
+    #
+    # Example:
+    #   register_extension(:xls)
     def self.deregister_extension(extension)
       raise "Invalid extension #{extension.inspect}" unless extension.to_s =~ /\A\w+\Z/
       @@extensions.delete(extension.to_sym)
@@ -76,16 +94,25 @@ module RocketJob
     #   .gz.enc   [ :gz,  :enc ]
     #
     # Example: Zip
-    #   RocketJob::Streams.reader('myfile.zip') { |file| puts file.read }
+    #   RocketJob::Streams.reader('myfile.zip') do |stream|
+    #     puts stream.read
+    #   end
     #
     # Example: Encrypted Zip
-    #   RocketJob::Streams.reader('myfile.zip.enc') { |file| puts file.read }
+    #   RocketJob::Streams.reader('myfile.zip.enc') do |stream|
+    #     puts stream.read
+    #   end
     #
     # Example: Explicitly set the streams
-    #   RocketJob::Streams.reader('myfile.zip.enc', [:zip, :enc]) { |file| puts file.read }
+    #   RocketJob::Streams.reader('myfile.zip.enc', [:zip, :enc]) do |stream|
+    #     puts stream.read
+    #   end
     #
     # Example: Supply custom options
-    #   RocketJob::Streams.reader('myfile.csv.enc', [enc: { compress: true }]) { |file| puts file.read }
+    #   # Encrypt the file and get Symmetric Encryption to also compress it
+    #   RocketJob::Streams.reader('myfile.csv.enc', [:enc]) do |stream|
+    #     puts stream.read
+    #   end
     def self.reader(file_name_or_io, streams=nil, &block)
       stream(:reader, file_name_or_io, streams, &block)
     end
@@ -115,18 +142,46 @@ module RocketJob
     #   .gz.enc   [ :gz,  :enc ]
     #
     # Example: Zip
-    #   RocketJob::Streams.writer('myfile.zip') { |file| file.write(data) }
+    #   RocketJob::Streams.writer('myfile.zip') do |stream|
+    #     stream.write(data)
+    #   end
     #
     # Example: Encrypted Zip
-    #   RocketJob::Streams.writer('myfile.zip.enc') { |file| file.write(data) }
+    #   RocketJob::Streams.writer('myfile.zip.enc') do |stream|
+    #     stream.write(data)
+    #   end
     #
     # Example: Explicitly set the streams
-    #   RocketJob::Streams.writer('myfile.zip.enc', [:zip, :enc]) { |file| file.write(data) }
+    #   RocketJob::Streams.writer('myfile.zip.enc', [:zip, :enc]) do |stream|
+    #     stream.write(data)
+    #   end
     #
     # Example: Supply custom options
-    #   RocketJob::Streams.writer('myfile.csv.enc', [enc: { compress: true }]) { |file| file.write(data) }
+    #   RocketJob::Streams.writer('myfile.csv.enc', [enc: { compress: true }]) do |stream|
+    #     stream.write(data)
+    #   end
     def self.writer(file_name_or_io, streams=nil, &block)
       stream(:writer, file_name_or_io, streams, &block)
+    end
+
+    # Copies the source stream to the target stream
+    # Returns [Integer] the number of bytes copied
+    #
+    # Example:
+    #   RocketJob::Streams.reader('a.csv') do |source_stream|
+    #     RocketJob::Streams.writer('b.csv.enc') do |target_stream|
+    #       RocketJob::Streams.copy(source_stream, target_stream)
+    #     end
+    #   end
+    def self.copy(source_stream, target_stream, buffer_size=65536)
+      bytes = 0
+      loop do
+        data = source_stream.read(buffer_size)
+        break unless data
+        bytes += data.size
+        target_stream.write(data)
+      end
+      bytes
     end
 
     ##########################################################################
