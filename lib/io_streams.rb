@@ -35,7 +35,8 @@ module RocketJob
     #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
     #   => [ :file ]
     def self.streams_for_file_name(file_name)
-      raise ArgumentError.new("RocketJob Cannot detect file format when uploading a stream") unless file_name.is_a?(String)
+      raise ArgumentError.new("File name cannot be nil") if file_name.nil?
+      raise ArgumentError.new("RocketJob Cannot detect file format when uploading to stream: #{file_name.inspect}") unless file_name.is_a?(String)
       parts = file_name.split('.')
       extensions = []
       while extension = parts.pop
@@ -175,9 +176,8 @@ module RocketJob
     #   end
     def self.copy(source_stream, target_stream, buffer_size=65536)
       bytes = 0
-      loop do
-        data = source_stream.read(buffer_size)
-        break unless data
+      while data = source_stream.read(buffer_size)
+        break if data.size == 0
         bytes += data.size
         target_stream.write(data)
       end
