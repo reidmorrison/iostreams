@@ -161,6 +161,11 @@ module RocketJob
     #   RocketJob::Streams.writer('myfile.csv.enc', [enc: { compress: true }]) do |stream|
     #     stream.write(data)
     #   end
+    #
+    # Example: Set internal filename when creating a zip file
+    #   RocketJob::Streams.writer('myfile.csv.zip', zip: { zip_file_name: 'myfile.csv' }) do |stream|
+    #     stream.write(data)
+    #   end
     def self.writer(file_name_or_io, streams=nil, &block)
       stream(:writer, file_name_or_io, streams, &block)
     end
