@@ -35,7 +35,7 @@ module RocketJob
         options.each { |option| raise ArgumentError.new("Unknown RocketJob::Streams::Zip option: #{option.inspect}") }
 
         temp_file     = nil
-        file_name     = if file_name_or_io.is_a?(String)
+        file_name     = unless file_name_or_io.respond_to?(:write)
           file_name_or_io
         else
           # Since ZIP cannot be streamed, download to a local file before streaming

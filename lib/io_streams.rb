@@ -36,7 +36,7 @@ module RocketJob
     #   => [ :file ]
     def self.streams_for_file_name(file_name)
       raise ArgumentError.new("File name cannot be nil") if file_name.nil?
-      raise ArgumentError.new("RocketJob Cannot detect file format when uploading to stream: #{file_name.inspect}") unless file_name.is_a?(String)
+      raise ArgumentError.new("RocketJob Cannot detect file format when uploading to stream: #{file_name.inspect}") if file_name.respond_to?(:read)
       parts = file_name.split('.')
       extensions = []
       while extension = parts.pop
@@ -198,7 +198,8 @@ module RocketJob
     # Returns a reader or writer stream
     def self.stream(type, file_name_or_io, streams=nil, &block)
       unless streams
-        streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [ :file ]
+        respond_to = type == :reader ? :read : :write
+        streams = file_name_or_io.respond_to?(respond_to) ? [ :file ] : streams_for_file_name(file_name_or_io)
       end
       stream_structs = streams_for(type, streams)
       if stream_structs.size == 1

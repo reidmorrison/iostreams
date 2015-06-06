@@ -3,7 +3,7 @@ module RocketJob
     class GzipWriter
       # Write to a file / stream, compressing with GZip
       def self.open(file_name_or_io, _=nil, &block)
-        if file_name_or_io.is_a?(String)
+        unless file_name_or_io.respond_to?(:write)
           Zlib::GzipWriter.open(file_name_or_io, &block)
         else
           begin

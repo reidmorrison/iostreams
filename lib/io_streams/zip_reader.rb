@@ -35,14 +35,14 @@ module RocketJob
         #
         # Note: The stream currently only supports #read
         def self.open(file_name_or_io, _=nil, &block)
-          fin = file_name_or_io.is_a?(String) ? Java::JavaIo::FileInputStream.new(file_name_or_io) : file_name_or_io.to_inputstream
+          fin = file_name_or_io.respond_to?(:read) ? file_name_or_io.to_inputstream : Java::JavaIo::FileInputStream.new(file_name_or_io)
           zin = Java::JavaUtilZip::ZipInputStream.new(fin)
           entry = zin.get_next_entry
           block.call(zin.to_io,
             { name: entry.name, compressed_size: entry.compressed_size, time: entry.time, size: entry.size, comment: entry.comment })
         ensure
           zin.close if zin
-          fin.close if fin && file_name_or_io.is_a?(String)
+          fin.close if fin && !file_name_or_io.respond_to?(:read)
         end
 
       else
@@ -58,7 +58,7 @@ module RocketJob
         # The input stream from the first file found in the zip file is passed
         # to the supplied block
         def self.open(file_name_or_io, _=nil, &block)
-          if file_name_or_io.is_a?(String)
+          unless file_name_or_io.respond_to?(:read)
             ::Zip::File.open(file_name_or_io) do |zip_file|
               raise 'The zip archive did not have any files in it.' if zip_file.count == 0
               raise 'The zip archive has more than one file in it.' if zip_file.count != 1
