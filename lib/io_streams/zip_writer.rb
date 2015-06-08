@@ -32,29 +32,28 @@ module RocketJob
         options       = options.dup
         zip_file_name = options.delete(:zip_filename) || options.delete(:zip_file_name) || 'file'
         buffer_size   = options.delete(:buffer_size) || 65536
-        options.each { |option| raise ArgumentError.new("Unknown RocketJob::Streams::Zip option: #{option.inspect}") }
+        raise(ArgumentError, "Unknown RocketJob::Streams::ZipWriter option: #{options.inspect}") if options.size > 0
 
-        temp_file     = nil
-        file_name     = unless file_name_or_io.respond_to?(:write)
-          file_name_or_io
-        else
+        # File name supplied
+        return write_file(file_name_or_io, zip_file_name, &block) unless file_name_or_io.respond_to?(:write)
+
+        # Stream supplied
+        begin
           # Since ZIP cannot be streamed, download to a local file before streaming
           temp_file = Tempfile.new('rocket_job')
-          temp_file.to_path
-        end
+          file_name = temp_file.to_path
+          write_file(file_name, zip_file_name, &block)
 
-        write_file(file_name, zip_file_name, &block)
-
-        if temp_file
           # Stream temp file into output stream
           File.open(file_name, 'rb') do |file|
             while chunk = file.read(buffer_size)
+              break if chunk.size == 0
               file_name_or_io.write(chunk)
             end
           end
+        ensure
+          temp_file.delete if temp_file
         end
-      ensure
-        temp_file.delete if temp_file
       end
 
       private

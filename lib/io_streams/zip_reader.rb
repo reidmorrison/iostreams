@@ -1,48 +1,71 @@
 module RocketJob
   module Streams
     class ZipReader
+      # Read from a zip file or stream, decompressing the contents as it is read
+      # The input stream from the first file found in the zip file is passed
+      # to the supplied block
+      #
+      # Example:
+      #   RocketJob::Reader::Zip.read('abc.zip') do |io_stream, source|
+      #     # Display header info
+      #     puts source.inspect
+      #
+      #     # Read 256 bytes at a time
+      #     while data = io_stream.read(256)
+      #       puts data
+      #     end
+      #   end
+      #
+      # Example:
+      #   File.open('myfile.zip') do |io|
+      #     RocketJob::Reader::Zip.input_stream(io) do |io_stream, source|
+      #       # Display header info
+      #       puts source.inspect
+      #
+      #       # Read 256 bytes at a time
+      #       while data = io_stream.read(256)
+      #         puts data
+      #       end
+      #     end
+      #   end
+      #
+      # Note: The stream currently only supports #read
+      def self.open(file_name_or_io, options={}, &block)
+        options       = options.dup
+        buffer_size   = options.delete(:buffer_size) || 65536
+        raise(ArgumentError, "Unknown RocketJob::Streams::ZipReader option: #{options.inspect}") if options.size > 0
+
+        # File name supplied
+        return read_file(file_name_or_io, &block) unless file_name_or_io.respond_to?(:read)
+
+        # Stream supplied
+        begin
+          # Since ZIP cannot be streamed, download unzipped data to a local file before streaming
+          temp_file = Tempfile.new('rocket_job')
+          file_name = temp_file.to_path
+          # Stream zip stream into temp file
+          File.open(file_name, 'wb') do |file|
+            while chunk = file_name_or_io.read(buffer_size)
+              break if chunk.size == 0
+              file.write(chunk)
+            end
+          end
+          read_file(file_name, &block)
+        ensure
+          temp_file.delete if temp_file
+        end
+      end
+
       if defined?(JRuby)
         # Java has built-in support for Zip files
-        # https://github.com/jruby/jruby/wiki/CallingJavaFromJRuby
-
-        # Read from a zip file or stream, decompressing the contents as it is read
-        # The input stream from the first file found in the zip file is passed
-        # to the supplied block
-        #
-        # Example:
-        #   RocketJob::Reader::Zip.read('abc.zip') do |io_stream, source|
-        #     # Display header info
-        #     puts source.inspect
-        #
-        #     # Read 256 bytes at a time
-        #     while data = io_stream.read(256)
-        #       puts data
-        #     end
-        #   end
-        #
-        # Example:
-        #   File.open('myfile.zip') do |io|
-        #     RocketJob::Reader::Zip.input_stream(io) do |io_stream, source|
-        #       # Display header info
-        #       puts source.inspect
-        #
-        #       # Read 256 bytes at a time
-        #       while data = io_stream.read(256)
-        #         puts data
-        #       end
-        #     end
-        #   end
-        #
-        # Note: The stream currently only supports #read
-        def self.open(file_name_or_io, _=nil, &block)
-          fin = file_name_or_io.respond_to?(:read) ? file_name_or_io.to_inputstream : Java::JavaIo::FileInputStream.new(file_name_or_io)
+        def self.read_file(file_name, &block)
+          fin = Java::JavaIo::FileInputStream.new(file_name)
           zin = Java::JavaUtilZip::ZipInputStream.new(fin)
-          entry = zin.get_next_entry
-          block.call(zin.to_io,
-            { name: entry.name, compressed_size: entry.compressed_size, time: entry.time, size: entry.size, comment: entry.comment })
+          zin.get_next_entry
+          block.call(zin.to_io)
         ensure
           zin.close if zin
-          fin.close if fin && !file_name_or_io.respond_to?(:read)
+          fin.close if fin
         end
 
       else
@@ -57,34 +80,13 @@ module RocketJob
         # Read from a zip file or stream, decompressing the contents as it is read
         # The input stream from the first file found in the zip file is passed
         # to the supplied block
-        def self.open(file_name_or_io, _=nil, &block)
-          unless file_name_or_io.respond_to?(:read)
-            ::Zip::File.open(file_name_or_io) do |zip_file|
-              raise 'The zip archive did not have any files in it.' if zip_file.count == 0
-              raise 'The zip archive has more than one file in it.' if zip_file.count != 1
-              entry = zip_file.first
-              entry.get_input_stream do |io_stream|
-                if block.arity == 1
-                  block.call(io_stream)
-                else
-                  block.call(io_stream,
-                    { name: entry.name, compressed_size: entry.compressed_size, time: entry.time, size: entry.size, comment: entry.comment })
-                end
-              end
-            end
-          else
-            begin
-              zin = ::Zip::InputStream.new(file_name_or_io)
-              entry = zin.get_next_entry
-              if block.arity == 1
-                block.call(zin)
-              else
-                block.call(zin,
-                  { name: entry.name, compressed_size: entry.compressed_size, time: entry.time, size: entry.size, comment: entry.comment })
-              end
-            ensure
-              zin.close if zin
-            end
+        def self.read_file(file_name, &block)
+          begin
+            zin = ::Zip::InputStream.new(file_name)
+            zin.get_next_entry
+            block.call(zin)
+          ensure
+            zin.close if zin
           end
         end
 
