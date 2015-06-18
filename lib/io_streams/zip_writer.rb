@@ -30,9 +30,13 @@ module RocketJob
       #
       def self.open(file_name_or_io, options={}, &block)
         options       = options.dup
-        zip_file_name = options.delete(:zip_filename) || options.delete(:zip_file_name) || 'file'
+        zip_file_name = options.delete(:zip_file_name)
         buffer_size   = options.delete(:buffer_size) || 65536
         raise(ArgumentError, "Unknown RocketJob::Streams::ZipWriter option: #{options.inspect}") if options.size > 0
+
+        # Default the name of the file within the zip to the supplied file_name without the zip extension
+        zip_file_name = file_name_or_io.to_s[0..-5] if zip_file_name.nil? && !file_name_or_io.respond_to?(:write) && (file_name_or_io =~ /\.(zip)\z/)
+        zip_file_name ||= 'file'
 
         # File name supplied
         return write_file(file_name_or_io, zip_file_name, &block) unless file_name_or_io.respond_to?(:write)
