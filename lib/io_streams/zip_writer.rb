@@ -71,7 +71,7 @@ module RocketJob
           io = zout.to_io
           block.call(io)
         ensure
-          io.close if io
+          io.close if io && !io.closed?
           out.close if out
         end
 

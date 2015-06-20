@@ -1,4 +1,5 @@
 require_relative '../test_helper'
+require 'zip'
 
 # Unit Test for RocketJob::Streams::Zip
 module Streams
