@@ -10,9 +10,7 @@ module RocketJob
             io = ::Zlib::GzipReader.new(file_name_or_io)
             block.call(io)
           ensure
-            # TODO Look into issue when streams are chained and one closes it before
-            #      the others are finished
-            #io.close if io
+            io.close if io && (io.respond_to?(:closed?) && !io.closed?)
           end
         end
       end

@@ -45,16 +45,10 @@ module RocketJob
         begin
           # Since ZIP cannot be streamed, download to a local file before streaming
           temp_file = Tempfile.new('rocket_job')
-          file_name = temp_file.to_path
-          write_file(file_name, zip_file_name, &block)
+          write_file(temp_file.to_path, zip_file_name, &block)
 
           # Stream temp file into output stream
-          File.open(file_name, 'rb') do |file|
-            while chunk = file.read(buffer_size)
-              break if chunk.size == 0
-              file_name_or_io.write(chunk)
-            end
-          end
+          RocketJob::Streams.copy(temp_file, file_name_or_io, buffer_size)
         ensure
           temp_file.delete if temp_file
         end

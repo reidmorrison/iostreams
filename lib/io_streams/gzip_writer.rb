@@ -10,7 +10,7 @@ module RocketJob
             io = Zlib::GzipWriter.new(file_name_or_io)
             block.call(io)
           ensure
-            io.close if io
+            io.close if io && (io.respond_to?(:closed?) && !io.closed?)
           end
         end
       end

@@ -40,16 +40,15 @@ module RocketJob
 
         # Stream supplied
         begin
-          # Since ZIP cannot be streamed, download unzipped data to a local file before streaming
+          # Since ZIP cannot be streamed, download un-zipped data to a local file before streaming
           temp_file = Tempfile.new('rocket_job')
           file_name = temp_file.to_path
+
           # Stream zip stream into temp file
           File.open(file_name, 'wb') do |file|
-            while chunk = file_name_or_io.read(buffer_size)
-              break if chunk.size == 0
-              file.write(chunk)
-            end
+            RocketJob::Streams.copy(file_name_or_io, file, buffer_size)
           end
+
           read_file(file_name, &block)
         ensure
           temp_file.delete if temp_file
@@ -86,7 +85,12 @@ module RocketJob
             zin.get_next_entry
             block.call(zin)
           ensure
-            zin.close if zin
+            begin
+              zin.close if zin
+            rescue IOError
+              # Ignore file already closed errors since Zip::InputStream
+              # does not have a #closed? method
+            end
           end
         end
 
