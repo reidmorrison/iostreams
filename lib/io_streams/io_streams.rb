@@ -1,11 +1,4 @@
 module IOStreams
-  autoload :FileReader, 'rocket_job/streams/file_reader'
-  autoload :FileWriter, 'rocket_job/streams/file_writer'
-  autoload :GzipReader, 'rocket_job/streams/gzip_reader'
-  autoload :GzipWriter, 'rocket_job/streams/gzip_writer'
-  autoload :ZipReader,  'rocket_job/streams/zip_reader'
-  autoload :ZipWriter,  'rocket_job/streams/zip_writer'
-
   # A registry to hold formats for processing files during upload or download
   @@extensions = ThreadSafe::Hash.new
 
@@ -240,7 +233,8 @@ module IOStreams
     StreamStruct.new(klass, options)
   end
 
-  register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer)
+  # Register File extensions
+  register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer) if defined?(SymmetricEncryption)
   register_extension(:file, Streams::FileReader,         Streams::FileWriter)
   register_extension(:gz,   Streams::GzipReader,         Streams::GzipWriter)
   register_extension(:gzip, Streams::GzipReader,         Streams::GzipWriter)

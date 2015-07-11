@@ -22,8 +22,8 @@ un-encrypted data.
 
 ## Notes
 
-    Due to the nature of Zip, both its Reader and Writer methods will create
-    a temp file. Recommended to use Gzip over Zip since it can be streamed.
+* Due to the nature of Zip, both its Reader and Writer methods will create
+  a temp file. Recommended to use Gzip over Zip since it can be streamed.
 
 ## Meta
 
