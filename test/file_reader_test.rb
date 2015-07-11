@@ -1,9 +1,9 @@
-require_relative '../test_helper'
+require_relative 'test_helper'
 
-# Unit Test for RocketJob::Streams::File
+# Unit Test for IOStreams::File
 module Streams
   class FileReaderTest < Minitest::Test
-    context RocketJob::Streams::FileReader do
+    context IOStreams::File::Reader do
       setup do
         @file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt')
         @data      = File.read(@file_name)
@@ -11,14 +11,14 @@ module Streams
 
       context '.open' do
         should 'file' do
-          result = RocketJob::Streams::FileReader.open(@file_name) do |io|
+          result = IOStreams::File::Reader.open(@file_name) do |io|
             io.read
           end
           assert_equal @data, result
         end
         should 'stream' do
           result = File.open(@file_name) do |file|
-            RocketJob::Streams::FileReader.open(file) do |io|
+            IOStreams::File::Reader.open(file) do |io|
               io.read
             end
           end

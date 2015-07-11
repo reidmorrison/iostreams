@@ -1,9 +1,9 @@
-require_relative '../test_helper'
+require_relative 'test_helper'
 
-# Unit Test for RocketJob::Streams::File
+# Unit Test for IOStreams::File
 module Streams
   class FileWriterTest < Minitest::Test
-    context RocketJob::Streams::FileWriter do
+    context IOStreams::File::Writer do
       setup do
         @file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt')
         @data      = File.read(@file_name)
@@ -13,7 +13,7 @@ module Streams
         should 'file' do
           temp_file = Tempfile.new('rocket_job')
           file_name = temp_file.to_path
-          RocketJob::Streams::FileWriter.open(file_name) do |io|
+          IOStreams::File::Writer.open(file_name) do |io|
             io.write(@data)
           end
           result = File.read(file_name)
@@ -21,7 +21,7 @@ module Streams
         end
         should 'stream' do
           io_string = StringIO.new
-          RocketJob::Streams::FileWriter.open(io_string) do |io|
+          IOStreams::File::Writer.open(io_string) do |io|
             io.write(@data)
           end
           assert_equal @data, io_string.string

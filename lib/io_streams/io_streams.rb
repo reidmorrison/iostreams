@@ -1,3 +1,4 @@
+require 'thread_safe'
 module IOStreams
   # A registry to hold formats for processing files during upload or download
   @@extensions = ThreadSafe::Hash.new
@@ -87,23 +88,23 @@ module IOStreams
   #   .gz.enc   [ :gz,  :enc ]
   #
   # Example: Zip
-  #   RocketJob::Streams.reader('myfile.zip') do |stream|
+  #   IOStreams.reader('myfile.zip') do |stream|
   #     puts stream.read
   #   end
   #
   # Example: Encrypted Zip
-  #   RocketJob::Streams.reader('myfile.zip.enc') do |stream|
+  #   IOStreams.reader('myfile.zip.enc') do |stream|
   #     puts stream.read
   #   end
   #
   # Example: Explicitly set the streams
-  #   RocketJob::Streams.reader('myfile.zip.enc', [:zip, :enc]) do |stream|
+  #   IOStreams.reader('myfile.zip.enc', [:zip, :enc]) do |stream|
   #     puts stream.read
   #   end
   #
   # Example: Supply custom options
   #   # Encrypt the file and get Symmetric Encryption to also compress it
-  #   RocketJob::Streams.reader('myfile.csv.enc', [:enc]) do |stream|
+  #   IOStreams.reader('myfile.csv.enc', [:enc]) do |stream|
   #     puts stream.read
   #   end
   def self.reader(file_name_or_io, streams=nil, &block)
@@ -135,27 +136,27 @@ module IOStreams
   #   .gz.enc   [ :gz,  :enc ]
   #
   # Example: Zip
-  #   RocketJob::Streams.writer('myfile.zip') do |stream|
+  #   IOStreams.writer('myfile.zip') do |stream|
   #     stream.write(data)
   #   end
   #
   # Example: Encrypted Zip
-  #   RocketJob::Streams.writer('myfile.zip.enc') do |stream|
+  #   IOStreams.writer('myfile.zip.enc') do |stream|
   #     stream.write(data)
   #   end
   #
   # Example: Explicitly set the streams
-  #   RocketJob::Streams.writer('myfile.zip.enc', [:zip, :enc]) do |stream|
+  #   IOStreams.writer('myfile.zip.enc', [:zip, :enc]) do |stream|
   #     stream.write(data)
   #   end
   #
   # Example: Supply custom options
-  #   RocketJob::Streams.writer('myfile.csv.enc', [enc: { compress: true }]) do |stream|
+  #   IOStreams.writer('myfile.csv.enc', [enc: { compress: true }]) do |stream|
   #     stream.write(data)
   #   end
   #
   # Example: Set internal filename when creating a zip file
-  #   RocketJob::Streams.writer('myfile.csv.zip', zip: { zip_file_name: 'myfile.csv' }) do |stream|
+  #   IOStreams.writer('myfile.csv.zip', zip: { zip_file_name: 'myfile.csv' }) do |stream|
   #     stream.write(data)
   #   end
   def self.writer(file_name_or_io, streams=nil, &block)
@@ -166,9 +167,9 @@ module IOStreams
   # Returns [Integer] the number of bytes copied
   #
   # Example:
-  #   RocketJob::Streams.reader('a.csv') do |source_stream|
-  #     RocketJob::Streams.writer('b.csv.enc') do |target_stream|
-  #       RocketJob::Streams.copy(source_stream, target_stream)
+  #   IOStreams.reader('a.csv') do |source_stream|
+  #     IOStreams.writer('b.csv.enc') do |target_stream|
+  #       IOStreams.copy(source_stream, target_stream)
   #     end
   #   end
   def self.copy(source_stream, target_stream, buffer_size=65536)
@@ -235,8 +236,8 @@ module IOStreams
 
   # Register File extensions
   register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer) if defined?(SymmetricEncryption)
-  register_extension(:file, Streams::FileReader,         Streams::FileWriter)
-  register_extension(:gz,   Streams::GzipReader,         Streams::GzipWriter)
-  register_extension(:gzip, Streams::GzipReader,         Streams::GzipWriter)
-  register_extension(:zip,  Streams::ZipReader,          Streams::ZipWriter)
+  register_extension(:file, IOStreams::File::Reader,         IOStreams::File::Writer)
+  register_extension(:gz,   IOStreams::Gzip::Reader,         IOStreams::Gzip::Writer)
+  register_extension(:gzip, IOStreams::Gzip::Reader,         IOStreams::Gzip::Writer)
+  register_extension(:zip,  IOStreams::Zip::Reader,          IOStreams::Zip::Writer)
 end

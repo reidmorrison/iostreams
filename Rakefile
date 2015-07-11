@@ -2,17 +2,17 @@ require 'rake/clean'
 require 'rake/testtask'
 
 $LOAD_PATH.unshift File.expand_path("../lib", __FILE__)
-require 'rocket_job/version'
+require 'io_streams/version'
 
 task :gem do
-  system "gem build rocket_job.gemspec"
+  system "gem build iostreams.gemspec"
 end
 
 task :publish => :gem do
-  system "git tag -a v#{RocketJob::VERSION} -m 'Tagging #{RocketJob::VERSION}'"
+  system "git tag -a v#{IOStreams::VERSION} -m 'Tagging #{IOStreams::VERSION}'"
   system "git push --tags"
-  system "gem push rocket_job-#{RocketJob::VERSION}.gem"
-  system "rm rocket_job-#{RocketJob::VERSION}.gem"
+  system "gem push iostreams-#{IOStreams::VERSION}.gem"
+  system "rm iostreams-#{IOStreams::VERSION}.gem"
 end
 
 desc "Run Test Suite"

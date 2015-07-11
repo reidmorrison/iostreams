@@ -1,10 +1,10 @@
-require_relative '../test_helper'
+require_relative 'test_helper'
 require 'zip'
 
-# Unit Test for RocketJob::Streams::Zip
+# Unit Test for IOStreams::Zip
 module Streams
   class ZipWriterTest < Minitest::Test
-    context RocketJob::Streams::ZipWriter do
+    context IOStreams::Zip::Writer do
       setup do
         file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt')
         @data      = File.read(file_name)
@@ -14,7 +14,7 @@ module Streams
         should 'file' do
           temp_file = Tempfile.new('rocket_job')
           file_name = temp_file.to_path
-          RocketJob::Streams::ZipWriter.open(file_name, zip_file_name: 'text.txt') do |io|
+          IOStreams::Zip::Writer.open(file_name, zip_file_name: 'text.txt') do |io|
             io.write(@data)
           end
           result = Zip::File.open(file_name) do |zip_file|
@@ -26,7 +26,7 @@ module Streams
 
         should 'stream' do
           io_string = StringIO.new(''.force_encoding('ASCII-8BIT'))
-          RocketJob::Streams::ZipWriter.open(io_string) do |io|
+          IOStreams::Zip::Writer.open(io_string) do |io|
             io.write(@data)
           end
           io = StringIO.new(io_string.string)
