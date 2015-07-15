@@ -6,6 +6,3 @@ rvm:
   - 2.2
   - jruby-1.7
   - rbx
-
-services:
-  - mongodb

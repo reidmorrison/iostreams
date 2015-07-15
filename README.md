@@ -1,4 +1,4 @@
-# iostreams
+# iostreams[![Build Status](https://secure.travis-ci.org/rocketjob/iostreams.png?branch=master)](http://travis-ci.org/rocketjob/iostreams) ![](http://ruby-gem-downloads-badge.herokuapp.com/iostreams?type=total)
 
 Ruby Input and Output streaming with support for Zip, Gzip, and Encryption.
 
@@ -23,7 +23,8 @@ un-encrypted data.
 ## Notes
 
 * Due to the nature of Zip, both its Reader and Writer methods will create
-  a temp file. Recommended to use Gzip over Zip since it can be streamed.
+  a temp file when reading from or writing to a stream.
+  Recommended to use Gzip over Zip since it can be streamed.
 
 ## Meta
 
