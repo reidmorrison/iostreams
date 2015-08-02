@@ -13,8 +13,8 @@ module IOStreams
       #     end
       #   end
       def self.open(file_name_or_io, options={}, &block)
-        options       = options.dup
-        buffer_size   = options.delete(:buffer_size) || 65536
+        options     = options.dup
+        buffer_size = options.delete(:buffer_size) || 65536
         raise(ArgumentError, "Unknown IOStreams::Zip::Reader option: #{options.inspect}") if options.size > 0
 
         # File name supplied
@@ -54,7 +54,7 @@ module IOStreams
         begin
           require 'zip'
         rescue LoadError => exc
-          puts "Please install gem rubyzip so that RocketJob can read Zip files in Ruby MRI"
+          puts 'Please install gem rubyzip so that RocketJob can read Zip files in Ruby MRI'
           raise(exc)
         end
 

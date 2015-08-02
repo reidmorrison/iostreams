@@ -28,9 +28,9 @@ module IOStreams
   #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
   #   => [ :file ]
   def self.streams_for_file_name(file_name)
-    raise ArgumentError.new("File name cannot be nil") if file_name.nil?
+    raise ArgumentError.new('File name cannot be nil') if file_name.nil?
     raise ArgumentError.new("RocketJob Cannot detect file format when uploading to stream: #{file_name.inspect}") if file_name.respond_to?(:read)
-    parts = file_name.split('.')
+    parts      = file_name.split('.')
     extensions = []
     while extension = parts.pop
       break unless @@extensions[extension.to_sym]
@@ -192,7 +192,7 @@ module IOStreams
   def self.stream(type, file_name_or_io, streams=nil, &block)
     unless streams
       respond_to = type == :reader ? :read : :write
-      streams = file_name_or_io.respond_to?(respond_to) ? [ :file ] : streams_for_file_name(file_name_or_io)
+      streams    = file_name_or_io.respond_to?(respond_to) ? [:file] : streams_for_file_name(file_name_or_io)
     end
     stream_structs = streams_for(type, streams)
     if stream_structs.size == 1
@@ -200,7 +200,7 @@ module IOStreams
       stream_struct.klass.open(file_name_or_io, stream_struct.options, &block)
     else
       # Daisy chain multiple streams together
-      last = stream_structs.inject(block){ |inner, stream_struct| -> io { stream_struct.klass.open(io, stream_struct.options, &inner) } }
+      last = stream_structs.inject(block) { |inner, stream_struct| -> io { stream_struct.klass.open(io, stream_struct.options, &inner) } }
       last.call(file_name_or_io)
     end
   end
@@ -208,7 +208,7 @@ module IOStreams
   # type: :reader or :writer
   def self.streams_for(type, params)
     if params.is_a?(Symbol)
-      [ stream_struct_for_stream(type, params) ]
+      [stream_struct_for_stream(type, params)]
     elsif params.is_a?(Array)
       a = []
       params.each do |stream|
@@ -235,6 +235,7 @@ module IOStreams
   end
 
   # Register File extensions
+  # @formatter:off
   register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer) if defined?(SymmetricEncryption)
   register_extension(:file, IOStreams::File::Reader,         IOStreams::File::Writer)
   register_extension(:gz,   IOStreams::Gzip::Reader,         IOStreams::Gzip::Writer)

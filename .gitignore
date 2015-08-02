@@ -2,6 +2,7 @@
 *.rbc
 *.log
 /.config
+/.idea
 /coverage/
 /InstalledFiles
 /pkg/

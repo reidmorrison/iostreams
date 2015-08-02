@@ -67,7 +67,7 @@ module IOStreams
         begin
           require 'zip'
         rescue LoadError => exc
-          puts "Please install gem rubyzip so that RocketJob can read Zip files in Ruby MRI"
+          puts 'Please install gem rubyzip so that RocketJob can read Zip files in Ruby MRI'
           raise(exc)
         end
 
