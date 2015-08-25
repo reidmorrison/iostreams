@@ -44,31 +44,34 @@ module IOStreams
       #
       #     :strip_non_printable [true|false]
       #       Strip all non-printable characters read from the file
-      #       Default: true
+      #       Default: true iff :encoding is UTF8_ENCODING, otherwise false
       #
-      #     :utf8 [true|false]
-      #       Force encoding to UTF-8 for all data being read
-      #       Default: true
+      #     :encoding
+      #       Force encoding to this encoding for all data being read
+      #       Default: UTF8_ENCODING
+      #       Set to nil to disable encoding
       def initialize(input_stream, options={})
         @input_stream        = input_stream
         options              = options.dup
         @delimiter           = options.delete(:delimiter)
         @buffer_size         = options.delete(:buffer_size) || 65536
+        @encoding            = options.has_key?(:encoding) ? options.delete(:encoding) : UTF8_ENCODING
         @strip_non_printable = options.delete(:strip_non_printable)
-        @strip_non_printable = true if @strip_non_printable.nil?
-        @utf8                = options.delete(:utf8)
-        @utf8                = true if @utf8.nil?
-        raise ArgumentError.new("Unknown IOStreams::DelimitedReader#initialize options: #{options.inspect}") if options.size > 0
+        @strip_non_printable = @strip_non_printable.nil? && (@encoding == UTF8_ENCODING)
+        raise ArgumentError.new("Unknown IOStreams::Delimited::Reader#initialize options: #{options.inspect}") if options.size > 0
 
-        @delimiter.force_encoding(UTF8_ENCODING) if @delimiter && @utf8
+        @delimiter.force_encoding(UTF8_ENCODING) if @delimiter && @encoding
         @buffer = ''
       end
 
       # Returns each line at a time to to the supplied block
       def each_line(&block)
+        partial = nil
         loop do
-          partial = ''
-          break if read_chunk == 0
+          if read_chunk == 0
+            block.call(partial) if partial
+            return
+          end
 
           self.delimiter ||= detect_delimiter
           end_index      ||= (delimiter.size + 1) * -1
@@ -77,11 +80,12 @@ module IOStreams
             if line.end_with?(delimiter)
               # Strip off delimiter
               block.call(line[0..end_index])
+              partial = nil
             else
               partial = line
             end
           end
-          @buffer = partial
+          @buffer = partial.nil? ? '' : partial
         end
       end
 
@@ -98,20 +102,17 @@ module IOStreams
         # Strip out non-printable characters before converting to UTF-8
         chunk = chunk.scan(/[[:print:]]|\r|\n/).join if @strip_non_printable
 
-        @buffer << (@utf8 ? chunk.force_encoding(UTF8_ENCODING) : chunk)
+        @buffer << (@encoding ? chunk.force_encoding(@encoding) : chunk)
         chunk.size
       end
 
       # Auto detect text line delimiter
       def detect_delimiter
-        if @buffer =~ /\r\n?|\n/
+        if @buffer =~ /\r\n|\n\r|\n/
           $&
         elsif @buffer.size <= @buffer_size
           # Handle one line files that are smaller than the buffer size
           "\n"
-        else
-          # TODO Add custom Exception
-          raise "Malformed data. Could not find \\r\\n or \\n within the buffer_size of #{@buffer_size}. Read #{@buffer.size} bytes from stream"
         end
       end
 
