@@ -12,5 +12,9 @@ module IOStreams
     autoload :Reader,  'io_streams/zip/reader'
     autoload :Writer,  'io_streams/zip/writer'
   end
+  module Delimited
+    autoload :Reader,  'io_streams/delimited/reader'
+    autoload :Writer,  'io_streams/delimited/writer'
+  end
 end
 require 'io_streams/io_streams'
