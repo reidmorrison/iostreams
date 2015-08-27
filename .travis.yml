@@ -10,4 +10,4 @@ rvm:
 
 # Make Travis use JRuby 9K GA
 before_install:
-	- 'if [[ "$TRAVIS_RUBY_VERSION" =~ "jruby-9.0.0.0" ]]; then rvm get head && rvm reload && rvm use --install $TRAVIS_RUBY_VERSION; fi'
+  - 'if [[ "$TRAVIS_RUBY_VERSION" =~ "jruby-9.0.0.0" ]]; then rvm get head && rvm reload && rvm use --install $TRAVIS_RUBY_VERSION; fi'
