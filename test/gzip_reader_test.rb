@@ -6,8 +6,8 @@ module Streams
     context IOStreams::Gzip::Reader do
       setup do
         @file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt.gz')
-        @gzip_data  = File.open(@file_name, 'rb') { |f| f.read }
-        @data       = Zlib::GzipReader.open(@file_name) {|gz| gz.read }
+        @gzip_data = File.open(@file_name, 'rb') { |f| f.read }
+        @data      = Zlib::GzipReader.open(@file_name) { |gz| gz.read }
       end
 
       context '.open' do

@@ -7,7 +7,7 @@ module Streams
     context IOStreams::Zip::Writer do
       setup do
         file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt')
-        @data      = File.read(file_name)
+        @data     = File.read(file_name)
       end
 
       context '.open' do
@@ -29,11 +29,11 @@ module Streams
           IOStreams::Zip::Writer.open(io_string) do |io|
             io.write(@data)
           end
-          io = StringIO.new(io_string.string)
+          io     = StringIO.new(io_string.string)
           result = nil
           begin
-            zin = ::Zip::InputStream.new(io)
-            entry = zin.get_next_entry
+            zin    = ::Zip::InputStream.new(io)
+            entry  = zin.get_next_entry
             result = zin.read
           ensure
             zin.close if zin

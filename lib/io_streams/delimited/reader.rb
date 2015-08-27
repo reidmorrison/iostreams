@@ -108,7 +108,7 @@ module IOStreams
 
       # Auto detect text line delimiter
       def detect_delimiter
-        if @buffer =~ /\r\n|\n\r|\n/
+        if @buffer =~ /\r\n|\n\r|\n|\r/
           $&
         elsif @buffer.size <= @buffer_size
           # Handle one line files that are smaller than the buffer size

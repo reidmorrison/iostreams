@@ -22,7 +22,7 @@ module Streams
           end
           assert_equal @data, lines
         end
-        
+
         should 'each_line stream' do
           lines = []
           File.open(@file_name) do |file|
@@ -33,7 +33,7 @@ module Streams
           assert_equal @data, lines
         end
 
-        ["\r\n", "\n\r", "\n"].each do |delimiter|
+        ["\r\n", "\n\r", "\n", "\r"].each do |delimiter|
           should "autodetect delimiter: #{delimiter.inspect}" do
             lines  = []
             stream = StringIO.new(@data.join(delimiter))

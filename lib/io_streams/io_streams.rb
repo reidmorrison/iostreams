@@ -3,8 +3,8 @@ module IOStreams
   # A registry to hold formats for processing files during upload or download
   @@extensions = ThreadSafe::Hash.new
 
-  UTF8_ENCODING      = Encoding.find('UTF-8').freeze
-  BINARY_ENCODING    = Encoding.find('BINARY').freeze
+  UTF8_ENCODING   = Encoding.find('UTF-8').freeze
+  BINARY_ENCODING = Encoding.find('BINARY').freeze
 
   # Returns [Array] the formats required to process the file by looking at
   # its extension(s)

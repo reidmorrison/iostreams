@@ -6,7 +6,7 @@ module Streams
     context IOStreams::Gzip::Writer do
       setup do
         @file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt.gz')
-        @data = Zlib::GzipReader.open(@file_name) {|gz| gz.read }
+        @data      = Zlib::GzipReader.open(@file_name) { |gz| gz.read }
       end
 
       context '.open' do
@@ -16,7 +16,7 @@ module Streams
           IOStreams::Gzip::Writer.open(file_name) do |io|
             io.write(@data)
           end
-          result = Zlib::GzipReader.open(file_name) {|gz| gz.read }
+          result = Zlib::GzipReader.open(file_name) { |gz| gz.read }
           temp_file.delete
           assert_equal @data, result
         end
@@ -25,8 +25,8 @@ module Streams
           IOStreams::Gzip::Writer.open(io_string) do |io|
             io.write(@data)
           end
-          io = StringIO.new(io_string.string)
-          gz = Zlib::GzipReader.new(io)
+          io   = StringIO.new(io_string.string)
+          gz   = Zlib::GzipReader.new(io)
           data = gz.read
           gz.close
           assert_equal @data, data
