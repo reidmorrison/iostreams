@@ -4,14 +4,14 @@ require 'zip'
 # Unit Test for IOStreams::Zip
 module Streams
   class ZipWriterTest < Minitest::Test
-    context IOStreams::Zip::Writer do
-      setup do
+    describe IOStreams::Zip::Writer do
+      before do
         file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt')
         @data     = File.read(file_name)
       end
 
-      context '.open' do
-        should 'file' do
+      describe '.open' do
+        it 'file' do
           temp_file = Tempfile.new('rocket_job')
           file_name = temp_file.to_path
           IOStreams::Zip::Writer.open(file_name, zip_file_name: 'text.txt') do |io|
@@ -24,7 +24,7 @@ module Streams
           assert_equal @data, result
         end
 
-        should 'stream' do
+        it 'stream' do
           io_string = StringIO.new(''.force_encoding('ASCII-8BIT'))
           IOStreams::Zip::Writer.open(io_string) do |io|
             io.write(@data)

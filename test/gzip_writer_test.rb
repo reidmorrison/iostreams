@@ -3,14 +3,14 @@ require_relative 'test_helper'
 # Unit Test for IOStreams::Gzip
 module Streams
   class GzipWriterTest < Minitest::Test
-    context IOStreams::Gzip::Writer do
-      setup do
+    describe IOStreams::Gzip::Writer do
+      before do
         @file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt.gz')
         @data      = Zlib::GzipReader.open(@file_name) { |gz| gz.read }
       end
 
-      context '.open' do
-        should 'file' do
+      describe '.open' do
+        it 'file' do
           temp_file = Tempfile.new('rocket_job')
           file_name = temp_file.to_path
           IOStreams::Gzip::Writer.open(file_name) do |io|
@@ -20,7 +20,7 @@ module Streams
           temp_file.delete
           assert_equal @data, result
         end
-        should 'stream' do
+        it 'stream' do
           io_string = StringIO.new(''.force_encoding('ASCII-8BIT'))
           IOStreams::Gzip::Writer.open(io_string) do |io|
             io.write(@data)
