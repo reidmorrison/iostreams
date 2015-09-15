@@ -1,5 +1,4 @@
 require_relative 'test_helper'
-require_relative '../lib/io_streams/xlsx/reader'
 
 module Streams
   describe IOStreams::Xlsx::Reader do
