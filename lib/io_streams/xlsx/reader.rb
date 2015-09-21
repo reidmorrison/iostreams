@@ -4,6 +4,7 @@ rescue LoadError => e
   puts "Install the 'creek' gem for xlsx streaming support"
   raise(e)
 end
+require 'csv'
 
 module IOStreams
   module Xlsx
@@ -16,7 +17,7 @@ module IOStreams
 
       def each_line(&block)
         worksheet.rows.each do |row|
-          block.call(row.values)
+          block.call(row.values.to_csv(row_sep: nil))
         end
       end
 
@@ -44,7 +45,7 @@ module IOStreams
           end
         end
 
-        block.call(self.new(Creek::Book.new(file_name)))
+        block.call(self.new(Creek::Book.new(file_name, check_file_extension: false)))
       ensure
         temp_file.delete if temp_file
       end

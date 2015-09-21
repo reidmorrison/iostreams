@@ -3,8 +3,8 @@ require_relative 'test_helper'
 module Streams
   describe IOStreams::Xlsx::Reader do
     XLSX_CONTENTS = [
-      ["first column", "second column", "third column"],
-      ["data 1",       "data 2",        "more data"],
+      "first column,second column,third column",
+      "data 1,data 2,more data",
     ]
 
     describe '.open' do
