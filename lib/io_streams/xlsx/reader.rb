@@ -35,14 +35,14 @@ module IOStreams
         raise(ArgumentError, "Unknown IOStreams::Xlsx::Reader option: #{options.inspect}") if options.size > 0
 
         if file_name_or_io.respond_to?(:read)
-          file_name = file_name_or_io
-        else
           temp_file = Tempfile.new('rocket_job_xlsx')
           file_name = temp_file.to_path
 
           ::File.open(file_name, 'wb') do |file|
             IOStreams.copy(file_name_or_io, file, buffer_size)
           end
+        else
+          file_name = file_name_or_io
         end
 
         block.call(self.new(Creek::Book.new(file_name, check_file_extension: false)))
