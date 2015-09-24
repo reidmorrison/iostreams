@@ -16,5 +16,8 @@ module IOStreams
     autoload :Reader, 'io_streams/delimited/reader'
     autoload :Writer, 'io_streams/delimited/writer'
   end
+  module Xlsx
+    autoload :Reader, 'io_streams/xlsx/reader'
+  end
 end
 require 'io_streams/io_streams'

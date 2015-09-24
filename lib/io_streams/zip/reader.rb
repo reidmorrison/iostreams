@@ -6,7 +6,7 @@ module IOStreams
       # to the supplied block
       #
       # Example:
-      #   IOStreams::ZipReader.open('abc.zip') do |io_stream|
+      #   IOStreams::Zip::Reader.open('abc.zip') do |io_stream|
       #     # Read 256 bytes at a time
       #     while data = io_stream.read(256)
       #       puts data
