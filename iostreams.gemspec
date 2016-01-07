@@ -19,5 +19,5 @@ Gem::Specification.new do |s|
   s.license     = "Apache License V2.0"
   s.has_rdoc    = true
   s.add_dependency 'symmetric-encryption', '~> 3.0'
-  s.add_dependency 'thread_safe'
+  s.add_dependency 'concurrent-ruby'
 end

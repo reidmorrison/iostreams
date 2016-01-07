@@ -4,10 +4,11 @@ module IOStreams
       # Write a single file in Zip format to the supplied output file name
       #
       # Parameters
-      #   zip_file_name [String]
+      #   file_name_or_io [String]
       #     Full path and filename for the output zip file
       #
-      #   file_name [String]
+      # Options
+      #   :file_name [String]
       #     Name of the file within the Zip Stream
       #
       # The stream supplied to the block only responds to #write
@@ -23,7 +24,7 @@ module IOStreams
       #   is automatically created under the covers
       def self.open(file_name_or_io, options={}, &block)
         options       = options.dup
-        zip_file_name = options.delete(:zip_file_name)
+        zip_file_name = options.delete(:file_name) || options.delete(:zip_file_name)
         buffer_size   = options.delete(:buffer_size) || 65536
         raise(ArgumentError, "Unknown IOStreams::Zip::Writer option: #{options.inspect}") if options.size > 0
 

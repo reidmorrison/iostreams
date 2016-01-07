@@ -6,7 +6,6 @@ rvm:
   - 2.2
   - jruby-1.7
   - jruby-9.0.0.0
-  - rbx
 
 # Make Travis use JRuby 9K GA
 before_install:

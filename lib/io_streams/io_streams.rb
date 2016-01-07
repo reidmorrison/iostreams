@@ -1,7 +1,7 @@
-require 'thread_safe'
+require 'concurrent'
 module IOStreams
   # A registry to hold formats for processing files during upload or download
-  @@extensions = ThreadSafe::Hash.new
+  @@extensions = Concurrent::Hash.new
 
   UTF8_ENCODING   = Encoding.find('UTF-8').freeze
   BINARY_ENCODING = Encoding.find('BINARY').freeze
@@ -183,6 +183,22 @@ module IOStreams
       target_stream.write(data)
     end
     bytes
+  end
+
+  # Returns [true|false] whether the supplied file_name_or_io is a reader stream
+  def self.reader_stream?(file_name_or_io)
+    file_name_or_io.respond_to?(:read)
+  end
+
+  # Returns [true|false] whether the supplied file_name_or_io is a reader stream
+  def self.writer_stream?(file_name_or_io)
+    file_name_or_io.respond_to?(:write)
+  end
+
+  # Returns [true|false] whether the file is compressed
+  # Note: Currently only looks at the file name extension
+  def self.compressed?(file_name)
+    !(file_name =~ /\.(zip|gz|gzip|xls.|)\z/i).nil?
   end
 
   ##########################################################################
