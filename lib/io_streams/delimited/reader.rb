@@ -5,7 +5,7 @@ module IOStreams
 
       # Read from a file or stream
       def self.open(file_name_or_io, options={}, &block)
-        if file_name_or_io.respond_to?(:read)
+        if IOStreams.reader_stream?(file_name_or_io)
           block.call(new(file_name_or_io, options))
         else
           ::File.open(file_name_or_io, 'rb') do |io|
@@ -25,16 +25,14 @@ module IOStreams
       #     The input stream that implements #read
       #
       #   options
-      #     :delimiter[Symbol|String]
+      #     :delimiter[String]
       #       Line / Record delimiter to use to break the stream up into records
-      #         nil
-      #           Automatically detect line endings and break up by line
-      #           Searches for the first "\r\n" or "\n" and then uses that as the
-      #           delimiter for all subsequent records
-      #         String:
-      #           Any string to break the stream up by
-      #           The records when saved will not include this delimiter
+      #         Any string to break the stream up by
+      #         The records when saved will not include this delimiter
       #       Default: nil
+      #         Automatically detect line endings and break up by line
+      #         Searches for the first "\r\n" or "\n" and then uses that as the
+      #         delimiter for all subsequent records
       #
       #     :buffer_size [Integer]
       #       Maximum size of the buffer into which to read the stream into for
@@ -44,7 +42,7 @@ module IOStreams
       #
       #     :strip_non_printable [true|false]
       #       Strip all non-printable characters read from the file
-      #       Default: true iff :encoding is UTF8_ENCODING, otherwise false
+      #       Default: false
       #
       #     :encoding
       #       Force encoding to this encoding for all data being read
@@ -65,7 +63,7 @@ module IOStreams
       end
 
       # Returns each line at a time to to the supplied block
-      def each_line(&block)
+      def each(&block)
         partial = nil
         loop do
           if read_chunk == 0
@@ -89,8 +87,28 @@ module IOStreams
         end
       end
 
+      alias_method :each_line, :each
+
+      # Reads length bytes from the I/O stream.
+      # Not recommended, but available if someone calls #read on this delimited reader
+      def read(length = nil, outbuf = nil)
+        if length
+          while (@buffer.size < length) && (read_chunk > 0)
+          end
+          data = @buffer.slice!(0, length)
+          outbuf << data if outbuf
+          data
+        else
+          while read_chunk > 0
+          end
+          @buffer
+        end
+      end
+
       ##########################################################################
       private
+
+      NOT_PRINTABLE = Regexp.compile(/[^[:print:]|\r|\n]/)
 
       # Returns [Integer] the number of bytes read into the internal buffer
       # Returns 0 on EOF
@@ -100,7 +118,7 @@ module IOStreams
         return 0 unless chunk
 
         # Strip out non-printable characters before converting to UTF-8
-        chunk = chunk.scan(/[[:print:]]|\r|\n/).join if @strip_non_printable
+        chunk.gsub!(NOT_PRINTABLE, '') if @strip_non_printable
 
         @buffer << (@encoding ? chunk.force_encoding(@encoding) : chunk)
         chunk.size

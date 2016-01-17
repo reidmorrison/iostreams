@@ -18,7 +18,7 @@ module IOStreams
         raise(ArgumentError, "Unknown IOStreams::Zip::Reader option: #{options.inspect}") if options.size > 0
 
         # File name supplied
-        return read_file(file_name_or_io, &block) unless file_name_or_io.respond_to?(:read)
+        return read_file(file_name_or_io, &block) unless IOStreams.reader_stream?(file_name_or_io)
 
         # Stream supplied
         begin

@@ -110,7 +110,7 @@ module IOStreams
   #   IOStreams.reader('myfile.csv.enc', [:enc]) do |stream|
   #     puts stream.read
   #   end
-  def self.reader(file_name_or_io, streams=nil, &block)
+  def self.reader(file_name_or_io, streams = nil, &block)
     stream(:reader, file_name_or_io, streams, &block)
   end
 
@@ -162,7 +162,7 @@ module IOStreams
   #   IOStreams.writer('myfile.csv.zip', zip: { zip_file_name: 'myfile.csv' }) do |stream|
   #     stream.write(data)
   #   end
-  def self.writer(file_name_or_io, streams=nil, &block)
+  def self.writer(file_name_or_io, streams = nil, &block)
     stream(:writer, file_name_or_io, streams, &block)
   end
 
@@ -201,6 +201,27 @@ module IOStreams
     !(file_name =~ /\.(zip|gz|gzip|xls.|)\z/i).nil?
   end
 
+  # Deletes the specified stream from the supplied streams if present
+  # Returns deleted stream, or nil if not found
+  def self.delete_stream(stream, streams)
+    raise(ArgumentError, "Argument :streams must be an array: #{streams.inspect}") unless stream.respond_to?(:each_with_index)
+    raise(ArgumentError, "Argument :stream must be a symbol: #{stream.inspect}") unless stream.is_a?(Symbol)
+
+    streams.delete_if do |_stream|
+      stream_key = _stream.is_a?(Symbol) ? _stream : _stream.keys.first
+      stream == stream_key
+    end
+  end
+
+  # Returns [true|false] whether the stream starts with a delimited reader or writer
+  def self.delimited_stream?(streams)
+    stream = streams.first
+    raise(ArgumentError, 'Cannot call IOStreams.delimited_stream? against an empty stream') unless stream
+
+    # TODO Need to figure out a way so that this is not hard-coded
+    [:xlsx, :xlsm, :delimited].include?(stream.is_a?(Symbol) ? stream : stream.keys.first)
+  end
+
   ##########################################################################
   private
 
@@ -208,7 +229,7 @@ module IOStreams
   StreamStruct = Struct.new(:klass, :options)
 
   # Returns a reader or writer stream
-  def self.stream(type, file_name_or_io, streams=nil, &block)
+  def self.stream(type, file_name_or_io, streams = nil, &block)
     unless streams
       respond_to = type == :reader ? :read : :write
       streams    = file_name_or_io.respond_to?(respond_to) ? [:file] : streams_for_file_name(file_name_or_io)
@@ -255,9 +276,13 @@ module IOStreams
 
   # Register File extensions
   # @formatter:off
-  register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer) if defined?(SymmetricEncryption)
-  register_extension(:file, IOStreams::File::Reader,         IOStreams::File::Writer)
-  register_extension(:gz,   IOStreams::Gzip::Reader,         IOStreams::Gzip::Writer)
-  register_extension(:gzip, IOStreams::Gzip::Reader,         IOStreams::Gzip::Writer)
-  register_extension(:zip,  IOStreams::Zip::Reader,          IOStreams::Zip::Writer)
+  register_extension(:enc,       SymmetricEncryption::Reader,  SymmetricEncryption::Writer) if defined?(SymmetricEncryption)
+  register_extension(:file,      IOStreams::File::Reader,      IOStreams::File::Writer)
+  register_extension(:gz,        IOStreams::Gzip::Reader,      IOStreams::Gzip::Writer)
+  register_extension(:gzip,      IOStreams::Gzip::Reader,      IOStreams::Gzip::Writer)
+  register_extension(:zip,       IOStreams::Zip::Reader,       IOStreams::Zip::Writer)
+  register_extension(:delimited, IOStreams::Delimited::Reader, IOStreams::Delimited::Writer)
+  register_extension(:xlsx,      IOStreams::Xlsx::Reader,      nil)
+  register_extension(:xlsm,      IOStreams::Xlsx::Reader,      nil)
+  register_extension(:csv,       IOStreams::CSV::Reader,       IOStreams::CSV::Writer)
 end

@@ -3,7 +3,7 @@ module IOStreams
     class Reader
       # Read from a gzip file or stream, decompressing the contents as it is read
       def self.open(file_name_or_io, _=nil, &block)
-        unless file_name_or_io.respond_to?(:read)
+        unless IOStreams.reader_stream?(file_name_or_io)
           ::Zlib::GzipReader.open(file_name_or_io, &block)
         else
           begin

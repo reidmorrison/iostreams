@@ -3,7 +3,7 @@ module IOStreams
     class Writer
       # Write to a file / stream, compressing with GZip
       def self.open(file_name_or_io, _=nil, &block)
-        unless file_name_or_io.respond_to?(:write)
+        unless IOStreams.writer_stream?(file_name_or_io)
           Zlib::GzipWriter.open(file_name_or_io, &block)
         else
           begin

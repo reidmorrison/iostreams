@@ -16,6 +16,7 @@ module Streams
           end
           assert_equal @data, result
         end
+
         it 'stream' do
           result = File.open(@file_name) do |file|
             IOStreams::File::Reader.open(file) do |io|

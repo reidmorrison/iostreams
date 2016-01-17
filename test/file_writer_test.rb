@@ -19,6 +19,7 @@ module Streams
           result = File.read(file_name)
           assert_equal @data, result
         end
+
         it 'stream' do
           io_string = StringIO.new
           IOStreams::File::Writer.open(io_string) do |io|

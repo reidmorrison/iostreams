@@ -33,7 +33,7 @@ module IOStreams
         zip_file_name ||= 'file'
 
         # File name supplied
-        return write_file(file_name_or_io, zip_file_name, &block) unless file_name_or_io.respond_to?(:write)
+        return write_file(file_name_or_io, zip_file_name, &block) unless IOStreams.writer_stream?(file_name_or_io)
 
         # Stream supplied
         begin

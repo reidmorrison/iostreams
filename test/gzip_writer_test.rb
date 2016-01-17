@@ -20,6 +20,7 @@ module Streams
           temp_file.delete
           assert_equal @data, result
         end
+
         it 'stream' do
           io_string = StringIO.new(''.force_encoding('ASCII-8BIT'))
           IOStreams::Gzip::Writer.open(io_string) do |io|

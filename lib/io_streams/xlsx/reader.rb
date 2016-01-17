@@ -21,7 +21,7 @@ module IOStreams
         end
       end
 
-      # Read from a xlsx file or stream.
+      # Read from a xlsx, or xlsm file or stream.
       #
       # Example:
       #   IOStreams::Xlsx::Reader.open('spreadsheet.xlsx') do |spreadsheet_stream|
@@ -34,7 +34,7 @@ module IOStreams
         buffer_size = options.delete(:buffer_size) || 65536
         raise(ArgumentError, "Unknown IOStreams::Xlsx::Reader option: #{options.inspect}") if options.size > 0
 
-        if file_name_or_io.respond_to?(:read)
+        if IOStreams.reader_stream?(file_name_or_io)
           temp_file = Tempfile.new('rocket_job_xlsx')
           file_name = temp_file.to_path
 

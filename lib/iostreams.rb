@@ -1,5 +1,9 @@
 require 'io_streams/version'
 module IOStreams
+  module CSV
+    autoload :Reader, 'io_streams/csv/reader'
+    autoload :Writer, 'io_streams/csv/writer'
+  end
   module File
     autoload :Reader, 'io_streams/file/reader'
     autoload :Writer, 'io_streams/file/writer'
