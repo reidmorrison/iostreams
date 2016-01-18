@@ -204,10 +204,9 @@ module IOStreams
   # Deletes the specified stream from the supplied streams if present
   # Returns deleted stream, or nil if not found
   def self.delete_stream(stream, streams)
-    raise(ArgumentError, "Argument :streams must be an array: #{streams.inspect}") unless stream.respond_to?(:each_with_index)
     raise(ArgumentError, "Argument :stream must be a symbol: #{stream.inspect}") unless stream.is_a?(Symbol)
 
-    streams.delete_if do |_stream|
+    Array(streams).delete_if do |_stream|
       stream_key = _stream.is_a?(Symbol) ? _stream : _stream.keys.first
       stream == stream_key
     end
@@ -215,8 +214,8 @@ module IOStreams
 
   # Returns [true|false] whether the stream starts with a delimited reader or writer
   def self.delimited_stream?(streams)
-    stream = streams.first
-    raise(ArgumentError, 'Cannot call IOStreams.delimited_stream? against an empty stream') unless stream
+    stream = Array(streams).first
+    return false unless stream
 
     # TODO Need to figure out a way so that this is not hard-coded
     [:xlsx, :xlsm, :delimited].include?(stream.is_a?(Symbol) ? stream : stream.keys.first)

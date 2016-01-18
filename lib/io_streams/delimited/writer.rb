@@ -27,24 +27,23 @@ module IOStreams
       #     The output stream that implements #write
       #
       #   options
-      #     :delimiter[Symbol|String]
-      #       Line / Record delimiter to use to break the stream up into records
-      #         Any string to break the stream up by
-      #         The records when saved will not include this delimiter
-      #       Default: "\n"
-      #
-      #     :strip_non_printable [true|false]
-      #       Strip all non-printable characters read from the file
-      #       Default: false
+      #     delimiter: [String]
+      #       Add the specified delimiter after every record when writing it
+      #       to the output stream
+      #       Default: OS Specific. Linux: "\n"
       #
       #     :encoding
       #       Force encoding to this encoding for all data being read
       #       Default: UTF8_ENCODING
       #       Set to nil to disable encoding
+      #
+      #     :strip_non_printable [true|false]
+      #       Strip all non-printable characters read from the file
+      #       Default: false
       def initialize(output_stream, options={})
         @output_stream       = output_stream
         options              = options.dup
-        @delimiter           = options.has_key?(:delimiter) ? options.delete(:delimiter) : "\n"
+        @delimiter           = options.has_key?(:delimiter) ? options.delete(:delimiter) : $/.dup
         @encoding            = options.has_key?(:encoding) ? options.delete(:encoding) : UTF8_ENCODING
         @strip_non_printable = options.delete(:strip_non_printable)
         @strip_non_printable = @strip_non_printable.nil? && (@encoding == UTF8_ENCODING)
