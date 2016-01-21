@@ -283,5 +283,5 @@ module IOStreams
   register_extension(:delimited, IOStreams::Delimited::Reader, IOStreams::Delimited::Writer)
   register_extension(:xlsx,      IOStreams::Xlsx::Reader,      nil)
   register_extension(:xlsm,      IOStreams::Xlsx::Reader,      nil)
-  register_extension(:csv,       IOStreams::CSV::Reader,       IOStreams::CSV::Writer)
+  #register_extension(:csv,       IOStreams::CSV::Reader,       IOStreams::CSV::Writer)
 end

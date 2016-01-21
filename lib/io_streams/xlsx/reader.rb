@@ -5,16 +5,6 @@ module IOStreams
     class Reader
       attr_reader :worksheet
 
-      def initialize(workbook)
-        @worksheet = workbook.sheets[0]
-      end
-
-      def each_line(&block)
-        worksheet.rows.each do |row|
-          block.call(row.values.to_csv(row_sep: nil))
-        end
-      end
-
       # Read from a xlsx, or xlsm file or stream.
       #
       # Example:
@@ -49,6 +39,17 @@ module IOStreams
       ensure
         temp_file.delete if temp_file
       end
+
+      def initialize(workbook)
+        @worksheet = workbook.sheets[0]
+      end
+
+      # Returns each [Array] row from the spreadsheet
+      def each(&block)
+        worksheet.rows.each { |row| block.call(row.values) }
+      end
+
+      alias_method :each_line, :each
 
     end
   end

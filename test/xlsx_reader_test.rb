@@ -2,10 +2,12 @@ require_relative 'test_helper'
 
 module Streams
   describe IOStreams::Xlsx::Reader do
-    XLSX_CONTENTS = [
-      "first column,second column,third column",
-      "data 1,data 2,more data",
-    ]
+    before do
+      @xlsx_contents = [
+        ['first column', 'second column', 'third column'],
+        ['data 1', 'data 2', 'more data']
+      ]
+    end
 
     describe '.open' do
       let(:file_name) { File.join(File.dirname(__FILE__), 'files', 'spreadsheet.xlsx') }
@@ -18,9 +20,9 @@ module Streams
         it 'returns the contents of the file' do
           rows = []
           IOStreams::Xlsx::Reader.open(@file) do |spreadsheet|
-            spreadsheet.each_line { |row| rows << row }
+            spreadsheet.each { |row| rows << row }
           end
-          assert_equal(XLSX_CONTENTS, rows)
+          assert_equal(@xlsx_contents, rows)
         end
       end
 
@@ -30,11 +32,11 @@ module Streams
           rows = []
           File.open(file_name) do |file|
             IOStreams::Xlsx::Reader.open(file) do |spreadsheet|
-              spreadsheet.each_line { |row| rows << row }
+              spreadsheet.each { |row| rows << row }
             end
           end
 
-          assert_equal(XLSX_CONTENTS, rows)
+          assert_equal(@xlsx_contents, rows)
         end
       end
     end
