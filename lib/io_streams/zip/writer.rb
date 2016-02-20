@@ -32,6 +32,15 @@ module IOStreams
         zip_file_name = file_name_or_io.to_s[0..-5] if zip_file_name.nil? && !file_name_or_io.respond_to?(:write) && (file_name_or_io =~ /\.(zip)\z/)
         zip_file_name ||= 'file'
 
+        if !defined?(JRuby) && !defined?(::Zip)
+          # MRI needs Ruby Zip, since it only has native support for GZip
+          begin
+            require 'zip'
+          rescue LoadError => exc
+            raise(LoadError, "Install gem 'rubyzip' to read and write Zip files: #{exc.message}")
+          end
+        end
+
         # File name supplied
         return write_file(file_name_or_io, zip_file_name, &block) unless IOStreams.writer_stream?(file_name_or_io)
 
@@ -64,14 +73,6 @@ module IOStreams
         end
 
       else
-        # MRI needs Ruby Zip, since it only has native support for GZip
-        begin
-          require 'zip'
-        rescue LoadError => exc
-          puts 'Please install gem rubyzip so that RocketJob can read Zip files in Ruby MRI'
-          raise(exc)
-        end
-
         def self.write_file(file_name, zip_file_name, &block)
           zos = ::Zip::OutputStream.new(file_name)
           zos.put_next_entry(zip_file_name)

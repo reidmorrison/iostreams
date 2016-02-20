@@ -16,7 +16,7 @@ Gem::Specification.new do |s|
   #s.executables = ['iostreams']
   s.files       = Dir["lib/**/*", "bin/*", "LICENSE.txt", "Rakefile", "README.md"]
   s.test_files  = Dir["test/**/*"]
-  s.license     = "Apache License V2.0"
+  s.license     = "Apache-2.0"
   s.has_rdoc    = true
   s.add_dependency 'symmetric-encryption', '~> 3.0'
   s.add_dependency 'concurrent-ruby'

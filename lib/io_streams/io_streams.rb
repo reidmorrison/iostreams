@@ -32,7 +32,7 @@ module IOStreams
   #   => [ :file ]
   def self.streams_for_file_name(file_name)
     raise ArgumentError.new('File name cannot be nil') if file_name.nil?
-    raise ArgumentError.new("RocketJob Cannot detect file format when uploading to stream: #{file_name.inspect}") if file_name.respond_to?(:read)
+    raise ArgumentError.new("File name must be a string: #{file_name.inspect}, class: #{file_name.class}") unless file_name.is_a?(String)
     parts      = file_name.split('.')
     extensions = []
     while extension = parts.pop

@@ -17,6 +17,15 @@ module IOStreams
         buffer_size = options.delete(:buffer_size) || 65536
         raise(ArgumentError, "Unknown IOStreams::Zip::Reader option: #{options.inspect}") if options.size > 0
 
+        if !defined?(JRuby) && !defined?(::Zip)
+          # MRI needs Ruby Zip, since it only has native support for GZip
+          begin
+            require 'zip'
+          rescue LoadError => exc
+            raise(LoadError, "Install gem 'rubyzip' to read and write Zip files: #{exc.message}")
+          end
+        end
+
         # File name supplied
         return read_file(file_name_or_io, &block) unless IOStreams.reader_stream?(file_name_or_io)
 
@@ -50,13 +59,6 @@ module IOStreams
         end
 
       else
-        # MRI needs Ruby Zip, since it only has native support for GZip
-        begin
-          require 'zip'
-        rescue LoadError => exc
-          puts 'Please install gem rubyzip so that RocketJob can read Zip files in Ruby MRI'
-          raise(exc)
-        end
 
         # Read from a zip file or stream, decompressing the contents as it is read
         # The input stream from the first file found in the zip file is passed

@@ -1,7 +1,7 @@
 module IOStreams
   module Delimited
     class Reader
-      attr_accessor :delimiter
+      attr_accessor :delimiter, :buffer_size, :encoding, :strip_non_printable
 
       # Read from a file or stream
       def self.open(file_name_or_io, options={}, &block)
@@ -54,8 +54,7 @@ module IOStreams
         @delimiter           = options.delete(:delimiter)
         @buffer_size         = options.delete(:buffer_size) || 65536
         @encoding            = options.has_key?(:encoding) ? options.delete(:encoding) : UTF8_ENCODING
-        @strip_non_printable = options.delete(:strip_non_printable)
-        @strip_non_printable = @strip_non_printable.nil? && (@encoding == UTF8_ENCODING)
+        @strip_non_printable = options.delete(:strip_non_printable) || false
         raise ArgumentError.new("Unknown IOStreams::Delimited::Reader#initialize options: #{options.inspect}") if options.size > 0
 
         @delimiter.force_encoding(UTF8_ENCODING) if @delimiter && @encoding
