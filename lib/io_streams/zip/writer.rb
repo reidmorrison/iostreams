@@ -7,8 +7,7 @@ module IOStreams
       #   file_name_or_io [String]
       #     Full path and filename for the output zip file
       #
-      # Options
-      #   :file_name [String]
+      #   zip_file_name: [String]
       #     Name of the file within the Zip Stream
       #
       # The stream supplied to the block only responds to #write
@@ -22,14 +21,9 @@ module IOStreams
       # Notes:
       # - Since Zip cannot write to streams, if a stream is supplied, a temp file
       #   is automatically created under the covers
-      def self.open(file_name_or_io, options={}, &block)
-        options       = options.dup
-        zip_file_name = options.delete(:file_name) || options.delete(:zip_file_name)
-        buffer_size   = options.delete(:buffer_size) || 65536
-        raise(ArgumentError, "Unknown IOStreams::Zip::Writer option: #{options.inspect}") if options.size > 0
-
+      def self.open(file_name_or_io, zip_file_name: nil, buffer_size: 65536, &block)
         # Default the name of the file within the zip to the supplied file_name without the zip extension
-        zip_file_name = file_name_or_io.to_s[0..-5] if zip_file_name.nil? && !file_name_or_io.respond_to?(:write) && (file_name_or_io =~ /\.(zip)\z/)
+        zip_file_name = file_name_or_io.to_s[0..-5] if zip_file_name.nil? && !IOStreams.writer_stream?(file_name_or_io) && (file_name_or_io =~ /\.(zip)\z/)
         zip_file_name ||= 'file'
 
         if !defined?(JRuby) && !defined?(::Zip)

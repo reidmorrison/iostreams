@@ -13,16 +13,12 @@ module IOStreams
       #       puts line
       #     end
       #   end
-      def self.open(file_name_or_io, options={}, &block)
+      def self.open(file_name_or_io, buffer_size: 65536, &block)
         begin
           require 'creek' unless defined?(Creek::Book)
         rescue LoadError => e
           raise(LoadError, "Please install the 'creek' gem for xlsx streaming support. #{e.message}")
         end
-
-        options     = options.dup
-        buffer_size = options.delete(:buffer_size) || 65536
-        raise(ArgumentError, "Unknown IOStreams::Xlsx::Reader option: #{options.inspect}") if options.size > 0
 
         if IOStreams.reader_stream?(file_name_or_io)
           temp_file = Tempfile.new('rocket_job_xlsx')

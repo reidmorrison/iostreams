@@ -4,12 +4,12 @@ module IOStreams
       attr_accessor :delimiter, :buffer_size, :encoding, :strip_non_printable
 
       # Read from a file or stream
-      def self.open(file_name_or_io, options={}, &block)
+      def self.open(file_name_or_io, delimiter: nil, buffer_size: 65536, encoding: UTF8_ENCODING, strip_non_printable: false)
         if IOStreams.reader_stream?(file_name_or_io)
-          block.call(new(file_name_or_io, options))
+          yield new(file_name_or_io, delimiter: delimiter, buffer_size: buffer_size, encoding: encoding, strip_non_printable: strip_non_printable)
         else
           ::File.open(file_name_or_io, 'rb') do |io|
-            block.call(new(io, options))
+            yield new(io, delimiter: delimiter, buffer_size: buffer_size, encoding: encoding, strip_non_printable: strip_non_printable)
           end
         end
       end
@@ -24,38 +24,35 @@ module IOStreams
       #   input_stream
       #     The input stream that implements #read
       #
-      #   options
-      #     :delimiter[String]
-      #       Line / Record delimiter to use to break the stream up into records
-      #         Any string to break the stream up by
-      #         The records when saved will not include this delimiter
-      #       Default: nil
-      #         Automatically detect line endings and break up by line
-      #         Searches for the first "\r\n" or "\n" and then uses that as the
-      #         delimiter for all subsequent records
+      #   delimiter: [String]
+      #     Line / Record delimiter to use to break the stream up into records
+      #       Any string to break the stream up by
+      #       The records when saved will not include this delimiter
+      #     Default: nil
+      #       Automatically detect line endings and break up by line
+      #       Searches for the first "\r\n" or "\n" and then uses that as the
+      #       delimiter for all subsequent records
       #
-      #     :buffer_size [Integer]
-      #       Maximum size of the buffer into which to read the stream into for
-      #       processing.
-      #       Must be large enough to hold the entire first line and its delimiter(s)
-      #       Default: 65536 ( 64K )
+      #   buffer_size: [Integer]
+      #     Maximum size of the buffer into which to read the stream into for
+      #     processing.
+      #     Must be large enough to hold the entire first line and its delimiter(s)
+      #     Default: 65536 ( 64K )
       #
-      #     :strip_non_printable [true|false]
-      #       Strip all non-printable characters read from the file
-      #       Default: false
+      #   strip_non_printable: [true|false]
+      #     Strip all non-printable characters read from the file
+      #     Default: false
       #
-      #     :encoding
-      #       Force encoding to this encoding for all data being read
-      #       Default: UTF8_ENCODING
-      #       Set to nil to disable encoding
-      def initialize(input_stream, options={})
+      #   encoding:
+      #     Force encoding to this encoding for all data being read
+      #     Default: UTF8_ENCODING
+      #     Set to nil to disable encoding
+      def initialize(input_stream, delimiter: nil, buffer_size: 65536, encoding: UTF8_ENCODING, strip_non_printable: false)
         @input_stream        = input_stream
-        options              = options.dup
-        @delimiter           = options.delete(:delimiter)
-        @buffer_size         = options.delete(:buffer_size) || 65536
-        @encoding            = options.has_key?(:encoding) ? options.delete(:encoding) : UTF8_ENCODING
-        @strip_non_printable = options.delete(:strip_non_printable) || false
-        raise ArgumentError.new("Unknown IOStreams::Delimited::Reader#initialize options: #{options.inspect}") if options.size > 0
+        @delimiter           = delimiter
+        @buffer_size         = buffer_size
+        @encoding            = encoding
+        @strip_non_printable = strip_non_printable
 
         @delimiter.force_encoding(UTF8_ENCODING) if @delimiter && @encoding
         @buffer = ''

@@ -12,11 +12,7 @@ module IOStreams
       #       puts data
       #     end
       #   end
-      def self.open(file_name_or_io, options={}, &block)
-        options     = options.dup
-        buffer_size = options.delete(:buffer_size) || 65536
-        raise(ArgumentError, "Unknown IOStreams::Zip::Reader option: #{options.inspect}") if options.size > 0
-
+      def self.open(file_name_or_io, buffer_size: 65536, &block)
         if !defined?(JRuby) && !defined?(::Zip)
           # MRI needs Ruby Zip, since it only has native support for GZip
           begin

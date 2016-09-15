@@ -4,12 +4,12 @@ module IOStreams
       attr_accessor :delimiter
 
       # Write delimited records/lines to a file or stream
-      def self.open(file_name_or_io, options={}, &block)
+      def self.open(file_name_or_io, delimiter: $/, encoding: UTF8_ENCODING, strip_non_printable: false)
         if IOStreams.writer_stream?(file_name_or_io)
-          block.call(new(file_name_or_io, options))
+          yield new(file_name_or_io, delimiter: delimiter, encoding: encoding, strip_non_printable: strip_non_printable)
         else
           ::File.open(file_name_or_io, 'wb') do |io|
-            block.call(new(io, options))
+            yield new(io, delimiter: delimiter, encoding: encoding, strip_non_printable: strip_non_printable)
           end
         end
       end
@@ -26,28 +26,24 @@ module IOStreams
       #   output_stream
       #     The output stream that implements #write
       #
-      #   options
-      #     delimiter: [String]
-      #       Add the specified delimiter after every record when writing it
-      #       to the output stream
-      #       Default: OS Specific. Linux: "\n"
+      #   delimiter: [String]
+      #     Add the specified delimiter after every record when writing it
+      #     to the output stream
+      #     Default: OS Specific. Linux: "\n"
       #
-      #     :encoding
-      #       Force encoding to this encoding for all data being read
-      #       Default: UTF8_ENCODING
-      #       Set to nil to disable encoding
+      #   encoding:
+      #     Force encoding to this encoding for all data being read
+      #     Default: UTF8_ENCODING
+      #     Set to nil to disable encoding
       #
-      #     :strip_non_printable [true|false]
-      #       Strip all non-printable characters read from the file
-      #       Default: false
-      def initialize(output_stream, options={})
+      #   strip_non_printable: [true|false]
+      #     Strip all non-printable characters read from the file
+      #     Default: false
+      def initialize(output_stream, delimiter: $/, encoding: UTF8_ENCODING, strip_non_printable: false)
         @output_stream       = output_stream
-        options              = options.dup
-        @delimiter           = options.has_key?(:delimiter) ? options.delete(:delimiter) : $/.dup
-        @encoding            = options.has_key?(:encoding) ? options.delete(:encoding) : UTF8_ENCODING
-        @strip_non_printable = options.delete(:strip_non_printable)
-        @strip_non_printable = @strip_non_printable.nil? && (@encoding == UTF8_ENCODING)
-        raise ArgumentError.new("Unknown IOStreams::Delimited::Writer#initialize options: #{options.inspect}") if options.size > 0
+        @delimiter           = delimiter.dup
+        @encoding            = encoding
+        @strip_non_printable = strip_non_printable
         @delimiter.force_encoding(UTF8_ENCODING) if @delimiter
       end
 
