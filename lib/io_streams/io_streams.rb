@@ -51,7 +51,7 @@ module IOStreams
   #   # MyXls::Reader and MyXls::Writer must implement .open
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
   def self.register_extension(extension, reader_class, writer_class)
-    raise "Invalid extension #{extension.inspect}" unless extension.to_s =~ /\A\w+\Z/
+    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
     @@extensions[extension.to_sym] = Extension.new(reader_class, writer_class)
   end
 
@@ -62,7 +62,7 @@ module IOStreams
   # Example:
   #   register_extension(:xls)
   def self.deregister_extension(extension)
-    raise "Invalid extension #{extension.inspect}" unless extension.to_s =~ /\A\w+\Z/
+    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
     @@extensions.delete(extension.to_sym)
   end
 
@@ -239,7 +239,7 @@ module IOStreams
       stream_struct.klass.open(file_name_or_io, stream_struct.options, &block)
     else
       # Daisy chain multiple streams together
-      last = stream_structs.inject(block) { |inner, stream_struct| -> io { stream_struct.klass.open(io, stream_struct.options, &inner) } }
+      last = stream_structs.inject(block) { |inner, ss| -> io { ss.klass.open(io, ss.options, &inner) } }
       last.call(file_name_or_io)
     end
   end
@@ -283,5 +283,7 @@ module IOStreams
   register_extension(:delimited, IOStreams::Delimited::Reader, IOStreams::Delimited::Writer)
   register_extension(:xlsx,      IOStreams::Xlsx::Reader,      nil)
   register_extension(:xlsm,      IOStreams::Xlsx::Reader,      nil)
+  register_extension(:pgp,       IOStreams::Pgp::Reader,       IOStreams::Pgp::Writer)
+  register_extension(:gpg,       IOStreams::Pgp::Reader,       IOStreams::Pgp::Writer)
   #register_extension(:csv,       IOStreams::CSV::Reader,       IOStreams::CSV::Writer)
 end

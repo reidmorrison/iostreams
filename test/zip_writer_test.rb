@@ -33,7 +33,7 @@ module Streams
           result = nil
           begin
             zin    = ::Zip::InputStream.new(io)
-            entry  = zin.get_next_entry
+            zin.get_next_entry
             result = zin.read
           ensure
             zin.close if zin

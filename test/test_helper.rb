@@ -17,3 +17,12 @@ SymmetricEncryption.cipher = SymmetricEncryption::Cipher.new(
   encoding:    :base64strict
 )
 
+# Test PGP Keys
+unless IOStreams::Pgp.has_key?(email: 'sender@example.org')
+  puts 'Generating test PGP key: sender@example.org'
+  IOStreams::Pgp.generate_key(name: 'Sender', email: 'sender@example.org', passphrase: 'sender_passphrase', key_length: 2048)
+end
+unless IOStreams::Pgp.has_key?(email: 'receiver@example.org')
+  puts 'Generating test PGP key: receiver@example.org'
+  IOStreams::Pgp.generate_key(name: 'Receiver', email: 'receiver@example.org', passphrase: 'receiver_passphrase', key_length: 2048)
+end

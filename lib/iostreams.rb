@@ -12,6 +12,7 @@ module IOStreams
     autoload :Reader, 'io_streams/gzip/reader'
     autoload :Writer, 'io_streams/gzip/writer'
   end
+  autoload :Pgp,      'io_streams/pgp'
   module Zip
     autoload :Reader, 'io_streams/zip/reader'
     autoload :Writer, 'io_streams/zip/writer'
