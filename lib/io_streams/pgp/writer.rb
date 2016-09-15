@@ -35,9 +35,18 @@ module IOStreams
           cmd << " --passphrase \"#{signer_passphrase}\"" if signer_passphrase
           cmd << " --recipient \"#{recipient}\" -o \"#{file_name_or_io}\""
           Open3.popen2e(cmd) do |stdin, out, waith_thr|
-            yield(stdin)
-            stdin.close
-            raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name_or_io}: #{out.read.chomp}") unless waith_thr.value.success?
+            begin
+              yield(stdin)
+              stdin.close
+            rescue Errno::EPIPE
+              # Ignore broken pipe because gpg terminates early due to an error
+              ::File.delete(file_name_or_io)
+              raise(Pgp::Failure, "GPG Failed writing to encrypted file: #{file_name_or_io}: #{out.read.chomp}")
+            end
+            unless waith_thr.value.success?
+              ::File.delete(file_name_or_io)
+              raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name_or_io}: #{out.read.chomp}")
+            end
           end
         end
       end
