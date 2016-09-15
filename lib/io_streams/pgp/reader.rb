@@ -24,7 +24,13 @@ module IOStreams
           Open3.popen3("gpg --batch --no-tty --yes --decrypt --passphrase-fd 0 #{file_name_or_io}") do |stdin, stdout, stderr, waith_thr|
             stdin.puts(passphrase) if passphrase
             stdin.close
-            result = yield(stdout)
+            result =
+              begin
+                yield(stdout)
+              rescue Errno::EPIPE
+                # Ignore broken pipe because gpg terminates early due to an error
+                raise(Pgp::Failure, "GPG Failed reading from encrypted file: #{file_name_or_io}: #{stderr.read.chomp}")
+              end
             raise(Pgp::Failure, "GPG Failed to decrypt file: #{file_name_or_io}: #{stderr.read.chomp}") unless waith_thr.value.success?
             result
           end

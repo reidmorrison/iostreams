@@ -44,7 +44,10 @@ module Streams
         it 'fails with bad recipient' do
           assert_raises IOStreams::Pgp::Failure do
             IOStreams::Pgp::Writer.open(@file_name, recipient: 'BAD@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
-              1000.times { io.write(@data) }
+              io.write(@data)
+              # Allow process to terminate
+              sleep 1
+              io.write(@data)
             end
           end
         end
