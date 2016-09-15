@@ -116,7 +116,7 @@ module IOStreams
       Open3.popen2e(cmd) do |stdin, out, waith_thr|
         output = out.read.chomp
         if waith_thr.value.success?
-          return false if output.downcase.include?('no public key')
+          return false if output =~ /(public key not found|No public key)/i
           raise(Pgp::Failure, "GPG Failed to delete keys for #{email}: #{output}") if output.include?('error')
           true
         else
@@ -134,7 +134,7 @@ module IOStreams
           end
           false
         else
-          return false if output.downcase.include?('no public key')
+          return false if output =~ /(public key not found|No public key)/i
           raise(Pgp::Failure, "GPG Failed calling gpg to list keys for #{email}: #{output}")
         end
       end
