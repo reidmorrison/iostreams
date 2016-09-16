@@ -4,7 +4,7 @@ module IOStreams
   module Pgp
     class Reader
       # Passphrase to use to open the private key to decrypt the received file
-      def self.default_passphrase=(passphrase)
+      def self.default_passphrase=(default_passphrase)
         @default_passphrase = default_passphrase
       end
 
@@ -39,6 +39,8 @@ module IOStreams
       end
 
       private
+
+      @default_passphrase = nil
 
       def self.default_passphrase
         @default_passphrase
