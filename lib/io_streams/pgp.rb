@@ -68,6 +68,15 @@ module IOStreams
   # Limitations
   # - Designed for processing larger files since a process is spawned for each file processed.
   # - For small in memory files or individual emails, use the 'opengpgme' library.
+  #
+  # Compression Performance:
+  #   Running tests on an Early 2015 Macbook Pro Dual Core with Ruby v2.3.1
+  #
+  #   Input file: test.log 3.6GB
+  #     :none:  size: 3.6GB  write:  52s  read:  45s
+  #     :zip:   size: 411MB  write:  75s  read:  31s
+  #     :zlib:  size: 241MB  write:  66s  read:  23s  ( 756KB Memory )
+  #     :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
   module Pgp
     autoload :Reader, 'io_streams/pgp/reader'
     autoload :Writer, 'io_streams/pgp/writer'

@@ -4,8 +4,9 @@ module Streams
   class PgpWriterTest < Minitest::Test
     describe IOStreams::Pgp::Writer do
       before do
-        file_name  = File.join(File.dirname(__FILE__), 'files', 'text.txt')
-        @data      = File.read(file_name)
+        file_name = File.join(File.dirname(__FILE__), 'files', 'text.txt')
+        @data     = File.read(file_name)
+
         @temp_file = Tempfile.new('iostreams')
         @file_name = @temp_file.to_path
       end
@@ -15,13 +16,27 @@ module Streams
       end
 
       describe '.open' do
-        it 'writes encrypted file' do
-          IOStreams::Pgp::Writer.open(@file_name, recipient: 'receiver@example.org') do |io|
+        it 'writes encrypted text file' do
+          IOStreams::Pgp::Writer.open(@file_name, recipient: 'receiver@example.org', binary: false) do |io|
             io.write(@data)
           end
 
-          result = IOStreams::Pgp::Reader.open(@file_name, passphrase: 'receiver_passphrase') { |file| file.read }
+          result = IOStreams::Pgp::Reader.open(@file_name, passphrase: 'receiver_passphrase', binary: false) { |file| file.read }
           assert_equal @data, result
+        end
+
+        it 'writes encrypted binary file' do
+          binary_file_name = File.join(File.dirname(__FILE__), 'files', 'spreadsheet.xlsx')
+          binary_data      = File.open(binary_file_name, 'rb') { |file| file.read }
+
+          File.open(binary_file_name, 'rb') do |input|
+            IOStreams::Pgp::Writer.open(@file_name, recipient: 'receiver@example.org') do |output|
+              IOStreams.copy(input, output, 65535)
+            end
+          end
+
+          result = IOStreams::Pgp::Reader.open(@file_name, passphrase: 'receiver_passphrase') { |file| file.read }
+          assert_equal binary_data, result
         end
 
         it 'writes and signs encrypted file' do

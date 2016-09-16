@@ -14,7 +14,7 @@ module IOStreams
       #   Or, the IO stream to receive the decrypted contents
       # passphrase: [String]
       #   Pass phrase for private key to decrypt the file with
-      def self.open(file_name_or_io, passphrase: self.default_passphrase)
+      def self.open(file_name_or_io, passphrase: self.default_passphrase, binary: true)
         raise(ArgumentError, 'Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase') unless passphrase
 
         if IOStreams.reader_stream?(file_name_or_io)
@@ -26,6 +26,7 @@ module IOStreams
             stdin.close
             result =
               begin
+                stdout.binmode if binary
                 yield(stdout)
               rescue Errno::EPIPE
                 # Ignore broken pipe because gpg terminates early due to an error
