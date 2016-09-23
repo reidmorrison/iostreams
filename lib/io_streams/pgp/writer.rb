@@ -68,7 +68,7 @@ module IOStreams
               raise(Pgp::Failure, "GPG Failed writing to encrypted file: #{file_name_or_io}: #{out.read.chomp}")
             end
             unless waith_thr.value.success?
-              ::File.delete(file_name_or_io)
+              ::File.delete(file_name_or_io) if ::File.exist?(file_name_or_io)
               raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name_or_io}: #{out.read.chomp}")
             end
           end
