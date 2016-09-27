@@ -13,6 +13,10 @@ module IOStreams
     autoload :Writer, 'io_streams/gzip/writer'
   end
   autoload :Pgp,      'io_streams/pgp'
+  module SFTP
+    autoload :Reader, 'io_streams/sftp/reader'
+    autoload :Writer, 'io_streams/sftp/writer'
+  end
   module Zip
     autoload :Reader, 'io_streams/zip/reader'
     autoload :Writer, 'io_streams/zip/writer'

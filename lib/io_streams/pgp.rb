@@ -87,6 +87,23 @@ module IOStreams
     # Generate a new ultimate trusted local public and private key
     # Returns [String] the key id for the generated key
     # Raises an exception if it fails to generate the key
+    #
+    # name: [String]
+    #   Name of who owns the key, such as organization
+    #
+    # email: [String]
+    #   Email address for the key
+    #
+    # comment: [String]
+    #   Optional comment to add to the generated key
+    #
+    # passphrase [String]
+    #   Optional passphrase to secure the key with.
+    #   Highly Recommended.
+    #   To generate a good passphrase:
+    #     `SecureRandom.urlsafe_base64(128)`
+    #
+    # See `man gpg` for the remaining options
     def self.generate_key(name:, email:, comment: nil, passphrase: nil, key_type: 'RSA', key_length: 4096, subkey_type: 'RSA', subkey_length: key_length, expire_date: nil)
       Open3.popen2e('gpg --batch --gen-key') do |stdin, out, waith_thr|
         stdin.puts "Key-Type: #{key_type}" if key_type
@@ -117,7 +134,17 @@ module IOStreams
     # Delete a secret and public keys using its email
     # Returns false if no key was found
     # Raises an exception if it fails to delete the key
-    def self.delete_keys(email:, secret: false, public: true)
+    #
+    # email: [String] Email address for the key
+    #
+    # public: [true|false]
+    #   Whether to delete the public key
+    #   Default: true
+    #
+    # secret: [true|false]
+    #   Whether to delete the secret key
+    #   Default: false
+    def self.delete_keys(email:, public: true, secret: false)
       cmd = "for i in `gpg --with-colons --fingerprint #{email} | grep \"^fpr\" | cut -d: -f10`; do\n"
       cmd << "gpg --batch --delete-secret-keys \"$i\" ;\n" if secret
       cmd << "gpg --batch --delete-keys \"$i\" ;\n" if public
@@ -146,6 +173,39 @@ module IOStreams
           return false if output =~ /(public key not found|No public key)/i
           raise(Pgp::Failure, "GPG Failed calling gpg to list keys for #{email}: #{output}")
         end
+      end
+    end
+
+    # Returns [String] the key for the supplied email address
+    #
+    # email: [String] Email address for requested key
+    #
+    # ascii: [true|false]
+    #   Whether to export as ASCII text instead of binary format
+    #   Default: true
+    #
+    # secret: [true|false]
+    #   Whether to export the private key
+    #   Default: false
+    def self.export(email:, ascii: true, secret: false)
+      armor            = ascii ? ' --armor' : nil
+      cmd              = secret ? '--export-secret-keys' : '--export'
+      out, err, status = Open3.capture3("gpg#{armor} #{cmd} #{email}", binmode: true)
+      if status.success? && out.length > 0
+        out
+      else
+        raise(Pgp::Failure, "GPG Failed reading key: #{email}: #{err} #{out}")
+      end
+    end
+
+    # Imports the supplied public/private key
+    # Returns [String] the output returned from the import command
+    def self.import(key)
+      out, err, status = Open3.capture3('gpg --import', binmode: true, stdin_data: key)
+      if status.success? && out.length > 0
+        out
+      else
+        raise(Pgp::Failure, "GPG Failed importing key: #{err} #{out}")
       end
     end
 
