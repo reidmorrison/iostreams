@@ -64,7 +64,7 @@ module IOStreams
               stdin.close
             rescue Errno::EPIPE
               # Ignore broken pipe because gpg terminates early due to an error
-              ::File.delete(file_name_or_io)
+              ::File.delete(file_name_or_io) if ::File.exist?(file_name_or_io)
               raise(Pgp::Failure, "GPG Failed writing to encrypted file: #{file_name_or_io}: #{out.read.chomp}")
             end
             unless waith_thr.value.success?

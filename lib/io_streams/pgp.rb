@@ -176,6 +176,25 @@ module IOStreams
       end
     end
 
+    # Returns [String] the first fingerprint for the supplied email
+    # Returns nil if no fingerprint was found
+    def self.fingerprint(email:)
+      Open3.popen2e("gpg --list-keys --fingerprint --with-colons #{email}") do |stdin, out, waith_thr|
+        output = out.read.chomp
+        if waith_thr.value.success?
+          output.each_line do |line|
+            if match = line.match(/\Afpr.*::([^\:]*):\Z/)
+              return match[1]
+            end
+          end
+          nil
+        else
+          return if output =~ /(public key not found|No public key)/i
+          raise(Pgp::Failure, "GPG Failed calling gpg to list keys for #{email}: #{output}")
+        end
+      end
+    end
+
     # Returns [String] the key for the supplied email address
     #
     # email: [String] Email address for requested key
@@ -206,6 +225,26 @@ module IOStreams
         out
       else
         raise(Pgp::Failure, "GPG Failed importing key: #{err} #{out}")
+      end
+    end
+
+    # Set the trust level for an existing key.
+    #
+    # Returns [String] output if the trust was successfully updated
+    # Returns nil if the email was not found
+    #
+    # After importing keys, they are not trusted and the relevant trust level must be set.
+    #   Default: 5 : Ultimate
+    def self.set_trust(email:, level: 5)
+      fingerprint = fingerprint(email: email)
+      return unless fingerprint
+
+      trust            = "#{fingerprint}:#{level + 1}:\n"
+      out, err, status = Open3.capture3('gpg --import-ownertrust', stdin_data: trust)
+      if status.success?
+        err
+      else
+        raise(Pgp::Failure, "GPG Failed trusting key: #{err} #{out}")
       end
     end
 

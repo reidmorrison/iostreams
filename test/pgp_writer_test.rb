@@ -76,9 +76,9 @@ module Streams
         end
 
         it 'fails with stream output' do
-          io = StringIO.new
+          string_io = StringIO.new
           assert_raises NotImplementedError do
-            IOStreams::Pgp::Writer.open(io, recipient: 'receiver@example.org') do |io|
+            IOStreams::Pgp::Writer.open(string_io, recipient: 'receiver@example.org') do |io|
               io.write(@data)
             end
           end

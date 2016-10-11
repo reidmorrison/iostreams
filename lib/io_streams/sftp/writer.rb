@@ -58,8 +58,8 @@ module IOStreams
         mode                   = binary ? 'wb' : 'w'
 
         Net::SFTP.start(host, user, options) do |sftp|
-          sftp.session.exec!("mkdir -p '#{File.dirname(file_name)}'") if mkdir
-          sftp.file.open(file_name, mode, & block)
+          sftp.session.exec!("mkdir -p '#{::File.dirname(file_name)}'") if mkdir
+          sftp.file.open(file_name, mode, &block)
         end
       end
 
