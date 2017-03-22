@@ -1,7 +1,7 @@
 require 'concurrent'
 module IOStreams
   # A registry to hold formats for processing files during upload or download
-  @@extensions = Concurrent::Hash.new
+  @@extensions = Concurrent::Map.new
 
   UTF8_ENCODING   = Encoding.find('UTF-8').freeze
   BINARY_ENCODING = Encoding.find('BINARY').freeze

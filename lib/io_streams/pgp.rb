@@ -166,7 +166,7 @@ module IOStreams
         output = out.read.chomp
         if waith_thr.value.success?
           output.each_line do |line|
-            return true if line.match(/\Auid.*::([^\:]*):\Z/)
+            return true if line.include?(email)
           end
           false
         else

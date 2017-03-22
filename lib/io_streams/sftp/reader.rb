@@ -15,7 +15,7 @@ module IOStreams
       # Stream to a remote file over sftp.
       #
       # file_name: [String]
-      #   Name of file to write to.
+      #   Name of file to read from.
       #
       # user: [String]
       #   Name of user to login with.

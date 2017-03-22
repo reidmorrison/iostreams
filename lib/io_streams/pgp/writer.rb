@@ -39,7 +39,7 @@ module IOStreams
       # compression: [:none|:zip|:zlib|:bzip2]
       #   Note: Standard PGP only supports :zip.
       #   :zlib is better than zip.
-      #   :bzip2 is best, but uses a lot of memory.
+      #   :bzip2 is best, but uses a lot of memory and is much slower.
       #   Default: :zip
       #
       # compress_level: [Integer]

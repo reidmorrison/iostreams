@@ -3,9 +3,9 @@ bundler_args: --without development
 
 rvm:
   - 2.1.10
-  - 2.2.5
-  - 2.3.1
-  - jruby-9.1.5.0
+  - 2.2.6
+  - 2.3.3
+  - jruby-9.1.6.0
 
 sudo: false
 
