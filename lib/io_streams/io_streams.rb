@@ -175,7 +175,7 @@ module IOStreams
   #       IOStreams.copy(source_stream, target_stream)
   #     end
   #   end
-  def self.copy(source_stream, target_stream, buffer_size=65536)
+  def self.copy(source_stream, target_stream, buffer_size = 65536)
     bytes = 0
     while data = source_stream.read(buffer_size)
       break if data.size == 0
@@ -183,6 +183,20 @@ module IOStreams
       target_stream.write(data)
     end
     bytes
+  end
+
+  # Copies the source file name to the target file name.
+  #
+  # Returns [Integer] the number of bytes copied
+  #
+  # Example:
+  #   IOStreams.copy_file('a.csv', 'b.csv.enc')
+  def self.copy_file(source_file_name, target_file_name, buffer_size = 65536)
+    reader(source_file_name) do |source_stream|
+      writer(target_file_name) do |target_stream|
+        copy(source_stream, target_stream, buffer_size)
+      end
+    end
   end
 
   # Returns [true|false] whether the supplied file_name_or_io is a reader stream
