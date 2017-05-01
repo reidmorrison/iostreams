@@ -1,7 +1,7 @@
 require 'concurrent'
 module IOStreams
   # A registry to hold formats for processing files during upload or download
-  @@extensions = Concurrent::Map.new
+  @extensions = Concurrent::Map.new
 
   UTF8_ENCODING   = Encoding.find('UTF-8').freeze
   BINARY_ENCODING = Encoding.find('BINARY').freeze
@@ -36,7 +36,7 @@ module IOStreams
     parts      = file_name.split('.')
     extensions = []
     while extension = parts.pop
-      break unless @@extensions[extension.to_sym]
+      break unless @extensions[extension.to_sym]
       extensions.unshift(extension.to_sym)
     end
     extensions << :file if extensions.size == 0
@@ -52,7 +52,7 @@ module IOStreams
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
   def self.register_extension(extension, reader_class, writer_class)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
-    @@extensions[extension.to_sym] = Extension.new(reader_class, writer_class)
+    @extensions[extension.to_sym] = Extension.new(reader_class, writer_class)
   end
 
   # De-Register a file extension
@@ -63,7 +63,7 @@ module IOStreams
   #   register_extension(:xls)
   def self.deregister_extension(extension)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
-    @@extensions.delete(extension.to_sym)
+    @extensions.delete(extension.to_sym)
   end
 
   # Returns a Reader for reading a file / stream
@@ -209,10 +209,16 @@ module IOStreams
     file_name_or_io.respond_to?(:write)
   end
 
-  # Returns [true|false] whether the file is compressed
+  # Returns [true|false] whether the file is compressed.
   # Note: Currently only looks at the file name extension
   def self.compressed?(file_name)
     !(file_name =~ /\.(zip|gz|gzip|xls.|)\z/i).nil?
+  end
+
+  # Returns [true|false] whether the file is encrypted.
+  # Note: Currently only looks at the file name extension
+  def self.encrypted?(file_name)
+    !(file_name =~ /\.(enc|pgp|gpg)\z/i).nil?
   end
 
   # Deletes the specified stream from the supplied streams if present
@@ -282,7 +288,7 @@ module IOStreams
   end
 
   def self.stream_struct_for_stream(type, stream, options={})
-    ext   = @@extensions[stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+    ext   = @extensions[stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
     klass = ext.send("#{type}_class")
     StreamStruct.new(klass, options)
   end

@@ -97,7 +97,7 @@ module IOStreams
       parts      = file_name.split('.')
       extensions = []
       while extension = parts.pop
-        break unless @@extensions[extension.to_sym]
+        break unless @extensions[extension.to_sym]
         extensions.unshift(extension.to_sym)
       end
       extensions << :file if extensions.size == 0
