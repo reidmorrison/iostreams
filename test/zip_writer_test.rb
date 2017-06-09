@@ -32,7 +32,7 @@ module Streams
           io     = StringIO.new(io_string.string)
           result = nil
           begin
-            zin    = ::Zip::InputStream.new(io)
+            zin = ::Zip::InputStream.new(io)
             zin.get_next_entry
             result = zin.read
           ensure

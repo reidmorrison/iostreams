@@ -1,4 +1,5 @@
 require 'io_streams/version'
+#@formatter:off
 module IOStreams
   module CSV
     autoload :Reader, 'io_streams/csv/reader'
