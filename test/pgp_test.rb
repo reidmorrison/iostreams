@@ -1,6 +1,6 @@
 require_relative 'test_helper'
 
-#IOStreams::Pgp.logger = SemanticLogger[IOStreams::Pgp]
+#IOStreams::Pgp.logger = Logger.new(STDOUT)
 
 module Streams
   class PgpTest < Minitest::Test
@@ -118,7 +118,12 @@ module Streams
           assert_equal 'R', key[:key_type]
           assert_equal user_name, key[:name]
           refute key[:private], key
-          assert_equal 'ultimate', key[:trust]
+          ver = IOStreams::Pgp.pgp_version
+          ap "Running PGP tests with #{IOStreams::Pgp.executable} v#{ver}"
+          maint = ver.split('.').last.to_i
+          if (ver.to_f >= 2) && (maint >= 30)
+            assert_equal 'ultimate', key[:trust]
+          end
         end
 
         it 'lists private keys' do

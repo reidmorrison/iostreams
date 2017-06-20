@@ -26,7 +26,7 @@ module IOStreams
   #   # Recipient must also have the senders public key to verify the signature
   #   IOStreams::Pgp::Reader.open('secure.gpg', passphrase: 'receiver_passphrase') do |stream|
   #     while !stream.eof?
-  #       ap stream.read(10)
+  #       p stream.read(10)
   #       puts
   #     end
   #   end
@@ -52,7 +52,7 @@ module IOStreams
   #   # Recipient must also have the senders public key to verify the signature
   #   IOStreams.reader('secure.gpg') do |stream|
   #     while data = stream.read(10)
-  #       ap data
+  #       p data
   #     end
   #   end
   #
@@ -77,6 +77,10 @@ module IOStreams
   #     :zip:   size: 411MB  write:  75s  read:  31s
   #     :zlib:  size: 241MB  write:  66s  read:  23s  ( 756KB Memory )
   #     :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
+  #
+  # Notes:
+  # - Tested against gnupg v1.4.21 and v2.0.30
+  # - Does not work yet with gnupg v2.1. Pull Requests welcome.
   module Pgp
     autoload :Reader, 'io_streams/pgp/reader'
     autoload :Writer, 'io_streams/pgp/writer'
@@ -86,6 +90,16 @@ module IOStreams
 
     class UnsupportedVersion < Failure
     end
+
+    def self.executable
+      @executable
+    end
+
+    def self.executable=(executable)
+      @executable = executable
+    end
+
+    @executable = 'gpg'
 
     # Generate a new ultimate trusted local public and private key.
     #
@@ -121,7 +135,7 @@ module IOStreams
       params << "Expire-Date: #{expire_date}\n" if expire_date
       params << "Passphrase: #{passphrase}\n" if passphrase
       params << '%commit'
-      out, err, status = Open3.capture3('gpg --batch --gen-key', binmode: true, stdin_data: params)
+      out, err, status = Open3.capture3("#{executable} --batch --gen-key", binmode: true, stdin_data: params)
       logger.debug { "IOStreams::Pgp.generate_key output:\n#{out}#{err}" } if logger
       if status.success?
         if match = err.match(/gpg: key ([0-9A-F]+)\s+/)
@@ -149,8 +163,8 @@ module IOStreams
     def self.delete_keys(email:, public: true, private: false)
       version_check
       cmd = "for i in `gpg --with-colons --fingerprint #{email} | grep \"^fpr\" | cut -d: -f10`; do\n"
-      cmd << "gpg --batch --delete-secret-keys \"$i\" ;\n" if private
-      cmd << "gpg --batch --delete-keys \"$i\" ;\n" if public
+      cmd << "#{executable} --batch --delete-secret-keys \"$i\" ;\n" if private
+      cmd << "#{executable} --batch --delete-keys \"$i\" ;\n" if public
       cmd << 'done'
 
       out, err, status = Open3.capture3(cmd, binmode: true)
@@ -184,16 +198,20 @@ module IOStreams
     def self.list_keys(email: nil, key_id: nil, private: false)
       version_check
       cmd              = private ? '--list-secret-keys' : '--list-keys'
-      out, err, status = Open3.capture3("gpg #{cmd} #{email || key_id}", binmode: true)
+      out, err, status = Open3.capture3("#{executable} #{cmd} #{email || key_id}", binmode: true)
       logger.debug { "IOStreams::Pgp.list_keys output:\n#{err}#{out}" } if logger
       if status.success? && out.length > 0
-        # Sample output
+        # v2.0.30 output:
         #   pub   4096R/3A5456F5 2017-06-07
         #   uid       [ unknown] Joe Bloggs <j@bloggs.net>
         #   sub   4096R/2C9B240B 2017-06-07
+        # v1.4 output:
+        #  sec   2048R/27D2E7FA 2016-10-05
+        #  uid                  Receiver <receiver@example.org>
+        #  ssb   2048R/893749EA 2016-10-05
         parse_list_output(out)
       else
-        return [] if err =~ /(key not found|No (public|secret) key)/i
+        return [] if err =~ /(key not found|No (public|secret) key|key not available)/i
         raise(Pgp::Failure, "GPG Failed calling gpg to list keys for #{email || key_id}: #{err}#{out}")
       end
     end
@@ -212,7 +230,7 @@ module IOStreams
     #     email:      [String]
     def self.key_info(key:)
       version_check
-      out, err, status = Open3.capture3('gpg', binmode: true, stdin_data: key)
+      out, err, status = Open3.capture3(executable, binmode: true, stdin_data: key)
       logger.debug { "IOStreams::Pgp.key_info output:\n#{err}#{out}" } if logger
       if status.success? && out.length > 0
         # Sample Output:
@@ -239,9 +257,9 @@ module IOStreams
     #   Default: false
     def self.export(email:, ascii: true, private: false)
       version_check
-      armor            = ascii ? ' --armor' : nil
+      armor            = ascii ? '--armor' : nil
       cmd              = private ? '--export-secret-keys' : '--export'
-      out, err, status = Open3.capture3("gpg#{armor} #{cmd} #{email}", binmode: true)
+      out, err, status = Open3.capture3("#{executable} #{armor} #{cmd} #{email}", binmode: true)
       logger.debug { "IOStreams::Pgp.export output:\n#{err}" } if logger
       if status.success? && out.length > 0
         out
@@ -267,7 +285,7 @@ module IOStreams
     # * Invalidated keys must be removed manually.
     def self.import(key:)
       version_check
-      out, err, status = Open3.capture3('gpg --import', binmode: true, stdin_data: key)
+      out, err, status = Open3.capture3("#{executable} --import", binmode: true, stdin_data: key)
       logger.debug { "IOStreams::Pgp.import output:\n#{err}#{out}" } if logger
       if status.success? && err.length > 0
         # Sample output
@@ -316,7 +334,7 @@ module IOStreams
       return unless fingerprint
 
       trust            = "#{fingerprint}:#{level + 1}:\n"
-      out, err, status = Open3.capture3('gpg --import-ownertrust', stdin_data: trust)
+      out, err, status = Open3.capture3("#{executable} --import-ownertrust", stdin_data: trust)
       logger.debug { "IOStreams::Pgp.set_trust output:\n#{err}#{out}" } if logger
       if status.success?
         err
@@ -328,7 +346,7 @@ module IOStreams
     # DEPRECATED - Use key_ids instead of fingerprints
     def self.fingerprint(email:)
       version_check
-      Open3.popen2e("gpg --list-keys --fingerprint --with-colons #{email}") do |stdin, out, waith_thr|
+      Open3.popen2e("#{executable} --list-keys --fingerprint --with-colons #{email}") do |stdin, out, waith_thr|
         output = out.read.chomp
         if waith_thr.value.success?
           output.each_line do |line|
@@ -351,7 +369,7 @@ module IOStreams
     # Returns [String] the version of pgp currently installed
     def self.pgp_version
       @pgp_version ||= begin
-        out, err, status = Open3.capture3("gpg --version")
+        out, err, status = Open3.capture3("#{executable} --version")
         logger.debug { "IOStreams::Pgp.version output:\n#{err}#{out}" } if logger
         if status.success?
           # Sample output
@@ -395,7 +413,9 @@ module IOStreams
       results = []
       hash    = {}
       out.each_line do |line|
-        if match = line.match(/(pub|sec)\s+(\d+)(.*)\/(\w+)\s+(\S+)/)
+        if match = line.match(/(pub|sec)\s+(\d+)(.*)\/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?/)
+          # Matches: pub  2048R/C7F9D9CB 2016-10-26
+          # Or:      pub  2048R/C7F9D9CB 2016-10-26 Receiver <receiver@example.org>
           hash = {
             private:    match[1] == 'sec',
             key_length: match[2].to_s.to_i,
@@ -403,19 +423,23 @@ module IOStreams
             key_id:     match[4],
             date:       (Date.parse(match[5].to_s) rescue match[5])
           }
-        elsif match = line.match(/uid\s+(.+)<(.+)>/)
-          name         = match[1].strip
-          hash[:email] = match[2].strip
-          if match = name.match(/(\[(.+)\])?(.+)/)
-            trust        = match[2].to_s.strip
-            hash[:trust] = trust unless trust.empty?
-            hash[:name]  = match[3].to_s.strip
-          else
-            hash[:name] = name
+          # Prior to gpg v2.0.30
+          if match[7]
+            hash[:name]  = match[7].strip
+            hash[:email] = match[8].strip
+            results << hash
+            hash = {}
           end
+        elsif match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)<(.+)>/)
+          # Matches:  uid       [ unknown] Joe Bloggs <j@bloggs.net>
+          # Or:       uid                  Joe Bloggs <j@bloggs.net>
+          hash[:email] = match[4].strip
+          hash[:name]  = match[3].to_s.strip
+          hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
           hash = {}
         end
+
       end
       results
     end
