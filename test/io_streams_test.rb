@@ -52,6 +52,33 @@ module Streams
         end
       end
 
+      describe '.streams_for_file_name' do
+        it 'file only' do
+          streams = IOStreams.streams_for_file_name('a.xyz')
+          assert_equal [:file], streams
+        end
+
+        it 'single stream' do
+          streams = IOStreams.streams_for_file_name('a.gz')
+          assert_equal [:gz], streams
+        end
+
+        it 'multiple streams' do
+          streams = IOStreams.streams_for_file_name('a.xlsx.gz')
+          assert_equal [:xlsx, :gz], streams
+        end
+
+        it 'is case-insensitive' do
+          streams = IOStreams.streams_for_file_name('a.GzIp')
+          assert_equal [:gzip], streams
+        end
+
+        it 'multiple streams are case-insensitive' do
+          streams = IOStreams.streams_for_file_name('a.XlsX.Gz')
+          assert_equal [:xlsx, :gz], streams
+        end
+      end
+
     end
   end
 end

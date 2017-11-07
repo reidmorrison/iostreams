@@ -26,3 +26,5 @@ unless IOStreams::Pgp.has_key?(email: 'receiver@example.org')
   puts 'Generating test PGP key: receiver@example.org'
   IOStreams::Pgp.generate_key(name: 'Receiver', email: 'receiver@example.org', passphrase: 'receiver_passphrase', key_length: 2048)
 end
+#IOStreams::Pgp.logger = Logger.new($stdout)
+#IOStreams::Pgp.executable = 'gpg'

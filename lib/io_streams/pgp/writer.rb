@@ -51,13 +51,19 @@ module IOStreams
           raise(NotImplementedError, 'Can only PGP Encrypt directly to a file name. Output to streams are not yet supported.')
         else
           # Write to stdin, with encrypted contents being written to the file
-          cmd = "gpg --batch --no-tty --yes --encrypt"
-          cmd << " --sign --local-user \"#{signer}\"" if signer
-          cmd << " --passphrase \"#{signer_passphrase}\"" if signer_passphrase
-          cmd << " -z #{compress_level}" if compress_level != 6
-          cmd << " --compress-algo #{compression}" unless compression == :none
-          cmd << " --recipient \"#{recipient}\" -o \"#{file_name_or_io}\""
-          Open3.popen2e(cmd) do |stdin, out, waith_thr|
+          command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
+          command << " --sign --local-user \"#{signer}\"" if signer
+          if signer_passphrase
+            command << " --pinentry-mode loopback" if IOStreams::Pgp.pgp_version.to_f >= 2.1
+            command << " --passphrase \"#{signer_passphrase}\""
+          end
+          command << " -z #{compress_level}" if compress_level != 6
+          command << " --compress-algo #{compression}" unless compression == :none
+          command << " --recipient \"#{recipient}\" -o \"#{file_name_or_io}\""
+
+          IOStreams::Pgp.logger.debug { "IOStreams::Pgp::Writer.open: #{command}" } if IOStreams::Pgp.logger
+
+          Open3.popen2e(command) do |stdin, out, waith_thr|
             begin
               stdin.binmode if binary
               yield(stdin)
