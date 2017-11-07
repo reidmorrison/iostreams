@@ -138,9 +138,9 @@ module IOStreams
       command = "#{executable} --batch --gen-key --no-tty --quiet"
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: params)
-      logger.debug { "IOStreams::Pgp.generate_key: command\n#{err}#{out}" } if logger
+      logger.debug { "IOStreams::Pgp.generate_key: #{command}\n#{err}#{out}" } if logger
       if status.success?
-        if match = err.match(/#{executable}: key ([0-9A-F]+)\s+/)
+        if match = err.match(/gpg: key ([0-9A-F]+)\s+/)
           return match[1]
         end
       else
@@ -496,12 +496,12 @@ module IOStreams
       command << "#{executable} --batch --no-tty --yes --delete-#{keys} \"$i\" ;\n"
       command << 'done'
 
-      out, err, status = Open3.capture3(cmd, binmode: true)
+      out, err, status = Open3.capture3(command, binmode: true)
       logger.debug { "IOStreams::Pgp.delete_keys: #{command}\n#{err}: #{out}" } if logger
 
       return false if err =~ /(not found|no public key)/i
       raise(Pgp::Failure, "GPG Failed calling #{executable} to delete #{keys} for #{email}: #{err}: #{out}") unless status.success?
-      raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email}:#{err}: #{out}") if out.include?('error')
+      raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email} #{err.strip}: #{out}") if out.include?('error')
       true
     end
 

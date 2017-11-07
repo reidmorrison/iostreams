@@ -171,7 +171,7 @@ module Streams
 
           assert_equal key[:date], Date.today
           assert_equal email, key[:email]
-          assert_equal generated_key_id, key[:key_id]
+          assert_includes key[:key_id], generated_key_id
           assert_equal 1024, key[:key_length]
           assert_equal 'R', key[:key_type]
           assert_equal user_name, key[:name]
