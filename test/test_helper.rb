@@ -17,6 +17,9 @@ SymmetricEncryption.cipher = SymmetricEncryption::Cipher.new(
   encoding:    :base64strict
 )
 
+#IOStreams::Pgp.logger = Logger.new($stdout)
+#IOStreams::Pgp.executable = 'gpg1'
+
 # Test PGP Keys
 unless IOStreams::Pgp.has_key?(email: 'sender@example.org')
   puts 'Generating test PGP key: sender@example.org'

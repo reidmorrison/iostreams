@@ -122,7 +122,7 @@ module IOStreams
     #     `SecureRandom.urlsafe_base64(128)`
     #
     # See `man gpg` for the remaining options
-    def self.generate_key(name:, email:, comment: nil, passphrase: nil, key_type: 'RSA', key_length: 4096, subkey_type: 'RSA', subkey_length: key_length, expire_date: nil)
+    def self.generate_key(name:, email:, comment: nil, passphrase:, key_type: 'RSA', key_length: 4096, subkey_type: 'RSA', subkey_length: key_length, expire_date: nil)
       version_check
       params = ''
       params << "Key-Type: #{key_type}\n" if key_type
@@ -135,14 +135,16 @@ module IOStreams
       params << "Expire-Date: #{expire_date}\n" if expire_date
       params << "Passphrase: #{passphrase}\n" if passphrase
       params << '%commit'
-      out, err, status = Open3.capture3("#{executable} --batch --gen-key", binmode: true, stdin_data: params)
-      logger.debug { "IOStreams::Pgp.generate_key output:\n#{out}#{err}" } if logger
+      command = "#{executable} --batch --gen-key --no-tty --quiet"
+
+      out, err, status = Open3.capture3(command, binmode: true, stdin_data: params)
+      logger.debug { "IOStreams::Pgp.generate_key: #{command}\n#{err}#{out}" } if logger
       if status.success?
         if match = err.match(/gpg: key ([0-9A-F]+)\s+/)
           return match[1]
         end
       else
-        raise(Pgp::Failure, "GPG Failed to generate key: #{out}#{err}")
+        raise(Pgp::Failure, "GPG Failed to generate key: #{err}#{out}")
       end
     end
 
@@ -162,21 +164,11 @@ module IOStreams
     #   Default: false
     def self.delete_keys(email:, public: true, private: false)
       version_check
-      cmd = "for i in `gpg --with-colons --fingerprint #{email} | grep \"^fpr\" | cut -d: -f10`; do\n"
-      cmd << "#{executable} --batch --delete-secret-keys \"$i\" ;\n" if private
-      cmd << "#{executable} --batch --delete-keys \"$i\" ;\n" if public
-      cmd << 'done'
-
-      out, err, status = Open3.capture3(cmd, binmode: true)
-      logger.debug { "IOStreams::Pgp.delete_keys output:\n#{err}#{out}" } if logger
-
-      if status.success?
-        return false if err =~ /(not found|No public key)/i
-        raise(Pgp::Failure, "GPG Failed to delete keys for #{email}:#{err}#{out}") if out.include?('error')
-        true
-      else
-        raise(Pgp::Failure, "GPG Failed calling gpg to delete private keys for #{email}: #{err}#{out}")
-      end
+      method_name = pgp_version.to_f >= 2.2 ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
+      status      = false
+      status      = send(method_name, email: email, private: true) if private
+      status      = send(method_name, email: email, private: false) if public
+      status
     end
 
     # Returns [true|false] whether their is a key for the supplied email or key_id
@@ -197,22 +189,16 @@ module IOStreams
     # Returns [] if no keys were found.
     def self.list_keys(email: nil, key_id: nil, private: false)
       version_check
-      cmd              = private ? '--list-secret-keys' : '--list-keys'
-      out, err, status = Open3.capture3("#{executable} #{cmd} #{email || key_id}", binmode: true)
-      logger.debug { "IOStreams::Pgp.list_keys output:\n#{err}#{out}" } if logger
+      cmd     = private ? '--list-secret-keys' : '--list-keys'
+      command = "#{executable} #{cmd} #{email || key_id}"
+
+      out, err, status = Open3.capture3(command, binmode: true)
+      logger.debug { "IOStreams::Pgp.list_keys: #{command}\n#{err}#{out}" } if logger
       if status.success? && out.length > 0
-        # v2.0.30 output:
-        #   pub   4096R/3A5456F5 2017-06-07
-        #   uid       [ unknown] Joe Bloggs <j@bloggs.net>
-        #   sub   4096R/2C9B240B 2017-06-07
-        # v1.4 output:
-        #  sec   2048R/27D2E7FA 2016-10-05
-        #  uid                  Receiver <receiver@example.org>
-        #  ssb   2048R/893749EA 2016-10-05
         parse_list_output(out)
       else
-        return [] if err =~ /(key not found|No (public|secret) key|key not available)/i
-        raise(Pgp::Failure, "GPG Failed calling gpg to list keys for #{email || key_id}: #{err}#{out}")
+        return [] if err =~ /(not found|No (public|secret) key|key not available)/i
+        raise(Pgp::Failure, "GPG Failed calling '#{executable}' to list keys for #{email || key_id}: #{err}#{out}")
       end
     end
 
@@ -230,8 +216,10 @@ module IOStreams
     #     email:      [String]
     def self.key_info(key:)
       version_check
-      out, err, status = Open3.capture3(executable, binmode: true, stdin_data: key)
-      logger.debug { "IOStreams::Pgp.key_info output:\n#{err}#{out}" } if logger
+      command = "#{executable}"
+
+      out, err, status = Open3.capture3(command, binmode: true, stdin_data: key)
+      logger.debug { "IOStreams::Pgp.key_info: #{command}\n#{err}#{out}" } if logger
       if status.success? && out.length > 0
         # Sample Output:
         #
@@ -255,12 +243,21 @@ module IOStreams
     # private: [true|false]
     #   Whether to export the private key
     #   Default: false
-    def self.export(email:, ascii: true, private: false)
+    #
+    # passphrase: [String]
+    #   In order to export a private key the passphrase for the key must be supplied.
+    #   Otherwise a `Inappropriate ioctl for device` error will be returned.
+    def self.export(email:, passphrase: nil, ascii: true, private: false)
       version_check
-      armor            = ascii ? '--armor' : nil
-      cmd              = private ? '--export-secret-keys' : '--export'
-      out, err, status = Open3.capture3("#{executable} #{armor} #{cmd} #{email}", binmode: true)
-      logger.debug { "IOStreams::Pgp.export output:\n#{err}" } if logger
+      raise(ArgumentError, "Missing keyword: passphrase when private: true") if private && passphrase.nil?
+
+      armor    = ascii ? '--armor' : nil
+      cmd      = private ? '--export-secret-keys' : '--export'
+      loopback = pgp_version.to_f >= 2.1 ? '--pinentry-mode loopback' : ''
+      command  = "#{executable} #{loopback} --no-tty --passphrase-fd 0 --batch #{armor} #{cmd} #{email}"
+
+      out, err, status = Open3.capture3(command, binmode: true, stdin_data: "#{passphrase}\n")
+      logger.debug { "IOStreams::Pgp.export: #{command}\n#{err}" } if logger
       if status.success? && out.length > 0
         out
       else
@@ -285,8 +282,10 @@ module IOStreams
     # * Invalidated keys must be removed manually.
     def self.import(key:)
       version_check
-      out, err, status = Open3.capture3("#{executable} --import", binmode: true, stdin_data: key)
-      logger.debug { "IOStreams::Pgp.import output:\n#{err}#{out}" } if logger
+      command = "#{executable} --import"
+
+      out, err, status = Open3.capture3(command, binmode: true, stdin_data: key)
+      logger.debug { "IOStreams::Pgp.import: #{command}\n#{err}#{out}" } if logger
       if status.success? && err.length > 0
         # Sample output
         #
@@ -333,9 +332,10 @@ module IOStreams
       fingerprint = fingerprint(email: email)
       return unless fingerprint
 
+      command          = "#{executable} --import-ownertrust"
       trust            = "#{fingerprint}:#{level + 1}:\n"
-      out, err, status = Open3.capture3("#{executable} --import-ownertrust", stdin_data: trust)
-      logger.debug { "IOStreams::Pgp.set_trust output:\n#{err}#{out}" } if logger
+      out, err, status = Open3.capture3(command, stdin_data: trust)
+      logger.debug { "IOStreams::Pgp.set_trust: #{command}\n#{err}#{out}" } if logger
       if status.success?
         err
       else
@@ -357,7 +357,7 @@ module IOStreams
           nil
         else
           return if output =~ /(public key not found|No public key)/i
-          raise(Pgp::Failure, "GPG Failed calling gpg to list keys for #{email}: #{output}")
+          raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{output}")
         end
       end
     end
@@ -369,11 +369,12 @@ module IOStreams
     # Returns [String] the version of pgp currently installed
     def self.pgp_version
       @pgp_version ||= begin
-        out, err, status = Open3.capture3("#{executable} --version")
-        logger.debug { "IOStreams::Pgp.version output:\n#{err}#{out}" } if logger
+        command          = "#{executable} --version"
+        out, err, status = Open3.capture3(command)
+        logger.debug { "IOStreams::Pgp.version: #{command}\n#{err}#{out}" } if logger
         if status.success?
           # Sample output
-          #   gpg (GnuPG) 2.0.30
+          #   #{executable} (GnuPG) 2.0.30
           #   libgcrypt 1.7.6
           #   Copyright (C) 2015 Free Software Foundation, Inc.
           #   License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
@@ -392,7 +393,7 @@ module IOStreams
           end
         else
           return [] if err =~ /(key not found|No (public|secret) key)/i
-          raise(Pgp::Failure, "GPG Failed calling gpg to list keys for #{email || key_id}: #{err}#{out}")
+          raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email || key_id}: #{err}#{out}")
         end
       end
     end
@@ -406,14 +407,35 @@ module IOStreams
     end
 
     def self.version_check
-      raise(Pgp::UnsupportedVersion, "Version #{pgp_version} of gpg is not yet supported. You are welcome to submit a Pull Request.") if pgp_version.to_f >= 2.1
+      raise(Pgp::UnsupportedVersion, "Version #{pgp_version} of #{executable} is not yet supported. You are welcome to submit a Pull Request.") if pgp_version.to_f >= 2.3
     end
 
+    # v2.2.1 output:
+    #   pub   rsa1024 2017-10-24 [SCEA]
+    #   18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
+    #   uid           [ultimate] Joe Bloggs <pgp_test@iostreams.net>
+    #   sub   rsa1024 2017-10-24 [SEA]
+    # v2.0.30 output:
+    #   pub   4096R/3A5456F5 2017-06-07
+    #   uid       [ unknown] Joe Bloggs <j@bloggs.net>
+    #   sub   4096R/2C9B240B 2017-06-07
+    # v1.4 output:
+    #  sec   2048R/27D2E7FA 2016-10-05
+    #  uid                  Receiver <receiver@example.org>
+    #  ssb   2048R/893749EA 2016-10-05
     def self.parse_list_output(out)
       results = []
       hash    = {}
       out.each_line do |line|
-        if match = line.match(/(pub|sec)\s+(\d+)(.*)\/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?/)
+        if match = line.match(/(pub|sec)\s+(\D+)(\d+)\s+(\d+-\d+-\d+)\s+(.*)/)
+          # v2.2:    pub   rsa1024 2017-10-24 [SCEA]
+          hash = {
+            private:    match[1] == 'sec',
+            key_length: match[3].to_s.to_i,
+            key_type:   match[2],
+            date:       (Date.parse(match[4].to_s) rescue match[4])
+          }
+        elsif match = line.match(/(pub|sec)\s+(\d+)(.*)\/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?/)
           # Matches: pub  2048R/C7F9D9CB 2016-10-26
           # Or:      pub  2048R/C7F9D9CB 2016-10-26 Receiver <receiver@example.org>
           hash = {
@@ -433,15 +455,54 @@ module IOStreams
         elsif match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)<(.+)>/)
           # Matches:  uid       [ unknown] Joe Bloggs <j@bloggs.net>
           # Or:       uid                  Joe Bloggs <j@bloggs.net>
+          # v2.2:     uid           [ultimate] Joe Bloggs <pgp_test@iostreams.net>
           hash[:email] = match[4].strip
           hash[:name]  = match[3].to_s.strip
           hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
           hash = {}
+        elsif match = line.match(/([A-Z0-9]+)/)
+          # v2.2  18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
+          hash[:key_id] ||= match[1]
         end
 
       end
       results
+    end
+
+    def self.delete_public_or_private_keys(email:, private: false)
+      keys = private ? 'secret-keys' : 'keys'
+
+      list = list_keys(email: email, private: private)
+      return false if list.empty?
+
+      list.each do |key_info|
+        if key_id = key_info[:key_id]
+          command          = "#{executable} --batch --no-tty --yes --delete-#{keys} #{key_id}"
+          out, err, status = Open3.capture3(command, binmode: true)
+          logger.debug { "IOStreams::Pgp.delete_keys: #{command}\n#{err}#{out}" } if logger
+
+          raise(Pgp::Failure, "GPG Failed calling #{executable} to delete #{keys} for #{email}: #{err}: #{out}") unless status.success?
+          raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email} #{err.strip}:#{out}") if out.include?('error')
+        end
+      end
+      true
+    end
+
+    def self.delete_public_or_private_keys_v1(email:, private: false)
+      keys = private ? 'secret-keys' : 'keys'
+
+      command = "for i in `#{executable} --list-#{keys} --with-colons --fingerprint #{email} | grep \"^fpr\" | cut -d: -f10`; do\n"
+      command << "#{executable} --batch --no-tty --yes --delete-#{keys} \"$i\" ;\n"
+      command << 'done'
+
+      out, err, status = Open3.capture3(command, binmode: true)
+      logger.debug { "IOStreams::Pgp.delete_keys: #{command}\n#{err}: #{out}" } if logger
+
+      return false if err =~ /(not found|no public key)/i
+      raise(Pgp::Failure, "GPG Failed calling #{executable} to delete #{keys} for #{email}: #{err}: #{out}") unless status.success?
+      raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email} #{err.strip}: #{out}") if out.include?('error')
+      true
     end
 
   end

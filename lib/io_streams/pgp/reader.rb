@@ -20,8 +20,12 @@ module IOStreams
         if IOStreams.reader_stream?(file_name_or_io)
           raise(NotImplementedError, 'Can only PGP Decrypt directly from a file name. Input streams are not yet supported.')
         else
+          loopback = IOStreams::Pgp.pgp_version.to_f >= 2.1 ? '--pinentry-mode loopback' : ''
+          command  = "#{IOStreams::Pgp.executable} #{loopback} --batch --no-tty --yes --decrypt --passphrase-fd 0 #{file_name_or_io}"
+          IOStreams::Pgp.logger.debug { "IOStreams::Pgp::Reader.open: #{command}" } if IOStreams::Pgp.logger
+
           # Read decrypted contents from stdout
-          Open3.popen3("gpg --batch --no-tty --yes --decrypt --passphrase-fd 0 #{file_name_or_io}") do |stdin, stdout, stderr, waith_thr|
+          Open3.popen3(command) do |stdin, stdout, stderr, waith_thr|
             stdin.puts(passphrase) if passphrase
             stdin.close
             result =
