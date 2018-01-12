@@ -12,6 +12,11 @@ Currently streaming classes are available for:
 
 * Zip
 * Gzip
+* BZip2
+* CSV
+* Delimited Lines / Rows
+* PGP
+* Xlsx (Reading)
 * Encryption using [Symmetric Encryption](https://github.com/reidmorrison/symmetric-encryption)
 
 ## Introduction
@@ -147,7 +152,7 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## License
 
-Copyright 2015 Reid Morrison
+Copyright 2018 Reid Morrison
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

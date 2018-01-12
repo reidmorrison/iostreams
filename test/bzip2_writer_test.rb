@@ -30,7 +30,7 @@ module Streams
           IOStreams::Bzip2::Writer.open(io_string) do |io|
             io.write(@data)
           end
-          
+
           io     = StringIO.new(io_string.string)
           rbzip2 = RBzip2.default_adapter::Decompressor.new(io)
           data   = rbzip2.read
