@@ -9,6 +9,10 @@ module IOStreams
     autoload :Reader, 'io_streams/file/reader'
     autoload :Writer, 'io_streams/file/writer'
   end
+  module Bzip2
+    autoload :Reader, 'io_streams/bzip2/reader'
+    autoload :Writer, 'io_streams/bzip2/writer'
+  end
   module Gzip
     autoload :Reader, 'io_streams/gzip/reader'
     autoload :Writer, 'io_streams/gzip/writer'

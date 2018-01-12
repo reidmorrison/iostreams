@@ -298,6 +298,7 @@ module IOStreams
   # @formatter:off
   register_extension(:enc,       SymmetricEncryption::Reader,  SymmetricEncryption::Writer) if defined?(SymmetricEncryption)
   register_extension(:file,      IOStreams::File::Reader,      IOStreams::File::Writer)
+  register_extension(:bz2,       IOStreams::Bzip2::Reader,     IOStreams::Bzip2::Writer)
   register_extension(:gz,        IOStreams::Gzip::Reader,      IOStreams::Gzip::Writer)
   register_extension(:gzip,      IOStreams::Gzip::Reader,      IOStreams::Gzip::Writer)
   register_extension(:zip,       IOStreams::Zip::Reader,       IOStreams::Zip::Writer)

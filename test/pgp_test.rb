@@ -118,7 +118,7 @@ module Streams
           assert_equal 1, keys.size
           assert key = keys.first
 
-          assert_equal key[:date], Date.today
+          assert_equal Date.today, key[:date]
           assert_equal email, key[:email]
           assert_includes key[:key_id], generated_key_id
           assert_equal 1024, key[:key_length]
@@ -137,7 +137,7 @@ module Streams
           assert_equal 1, keys.size
           assert key = keys.first
 
-          assert_equal key[:date], Date.today
+          assert_equal Date.today, key[:date]
           assert_equal email, key[:email]
           assert_includes key[:key_id], generated_key_id
           assert_equal 1024, key[:key_length]
@@ -153,7 +153,7 @@ module Streams
           assert_equal 1, keys.size
           assert key = keys.first
 
-          assert_equal key[:date], Date.today
+          assert_equal Date.today, key[:date]
           assert_equal email, key[:email]
           assert_includes key[:key_id], generated_key_id
           assert_equal 1024, key[:key_length]
@@ -169,7 +169,7 @@ module Streams
           assert_equal 1, keys.size
           assert key = keys.first
 
-          assert_equal key[:date], Date.today
+          assert_equal Date.today, key[:date]
           assert_equal email, key[:email]
           assert_includes key[:key_id], generated_key_id
           assert_equal 1024, key[:key_length]

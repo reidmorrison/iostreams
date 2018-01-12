@@ -7,6 +7,9 @@ require 'iostreams'
 require 'awesome_print'
 require 'symmetric-encryption'
 
+# Since PGP libraries use UTC for Dates
+ENV['TZ']='UTC'
+
 Minitest::Reporters.use! Minitest::Reporters::SpecReporter.new
 
 # Test cipher
