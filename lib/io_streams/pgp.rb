@@ -232,31 +232,21 @@ module IOStreams
       end
     end
 
-    # Returns [String] containing all the keys for the supplied email address.
+    # Returns [String] containing all the public keys for the supplied email address.
     #
     # email: [String] Email address for requested key.
     #
     # ascii: [true|false]
     #   Whether to export as ASCII text instead of binary format
     #   Default: true
-    #
-    # private: [true|false]
-    #   Whether to export the private key
-    #   Default: false
-    #
-    # passphrase: [String]
-    #   In order to export a private key the passphrase for the key must be supplied.
-    #   Otherwise a `Inappropriate ioctl for device` error will be returned.
-    def self.export(email:, passphrase: nil, ascii: true, private: false)
+    def self.export(email:, ascii: true)
       version_check
-      raise(ArgumentError, "Missing keyword: passphrase when private: true") if private && passphrase.nil?
 
       armor    = ascii ? '--armor' : nil
-      cmd      = private ? '--export-secret-keys' : '--export'
       loopback = pgp_version.to_f >= 2.1 ? '--pinentry-mode loopback' : ''
-      command  = "#{executable} #{loopback} --no-tty --passphrase-fd 0 --batch #{armor} #{cmd} #{email}"
+      command  = "#{executable} #{loopback} --no-tty --passphrase-fd 0 --batch #{armor} --export #{email}"
 
-      out, err, status = Open3.capture3(command, binmode: true, stdin_data: "#{passphrase}\n")
+      out, err, status = Open3.capture3(command, binmode: true)
       logger.debug { "IOStreams::Pgp.export: #{command}\n#{err}" } if logger
       if status.success? && out.length > 0
         out

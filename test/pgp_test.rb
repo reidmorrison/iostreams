@@ -26,13 +26,10 @@ module Streams
         IOStreams::Pgp.export(email: email)
       end
 
-      let :private_key do
-        generated_key_id
-        IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
-      end
-
       before do
-        #ap IOStreams::Pgp.list_keys(email: email, private: true)
+        # There is a timing issue with creating and then deleting keys.
+        # Call list_keys again to give GnuPGP time.
+        IOStreams::Pgp.list_keys(email: email, private: true)
         IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
         #ap "KEYS DELETED"
         #ap IOStreams::Pgp.list_keys(email: email, private: true)
@@ -53,6 +50,9 @@ module Streams
       describe '.has_key?' do
         before do
           generated_key_id
+          # There is a timing issue with creating and then immediately using keys.
+          # Call list_keys again to give GnuPGP time.
+          IOStreams::Pgp.list_keys(email: email)
         end
 
         it 'confirms public key' do
@@ -71,11 +71,17 @@ module Streams
 
         it 'deletes existing keys' do
           generated_key_id
+          # There is a timing issue with creating and then deleting keys.
+          # Call list_keys again to give GnuPGP time.
+          IOStreams::Pgp.list_keys(email: email, private: true)
           assert IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
         end
 
         it 'deletes just the private key' do
           generated_key_id
+          # There is a timing issue with creating and then deleting keys.
+          # Call list_keys again to give GnuPGP time.
+          IOStreams::Pgp.list_keys(email: email, private: true)
           assert IOStreams::Pgp.delete_keys(email: email, public: false, private: true)
           refute IOStreams::Pgp.has_key?(key_id: generated_key_id, private: true)
           assert IOStreams::Pgp.has_key?(key_id: generated_key_id, private: false)
@@ -92,18 +98,8 @@ module Streams
           assert ascii_keys =~ /BEGIN PGP PUBLIC KEY BLOCK/, ascii_keys
         end
 
-        it 'exports private keys by email' do
-          assert ascii_keys = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
-          assert ascii_keys =~ /BEGIN PGP PRIVATE KEY BLOCK/, ascii_keys
-        end
-
         it 'exports public keys as binary' do
           assert keys = IOStreams::Pgp.export(email: email, ascii: false)
-          refute keys =~ /BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys
-        end
-
-        it 'exports private keys as binary' do
-          assert keys = IOStreams::Pgp.export(email: email, ascii: false, private: true, passphrase: passphrase)
           refute keys =~ /BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys
         end
       end
@@ -111,6 +107,9 @@ module Streams
       describe '.list_keys' do
         before do
           generated_key_id
+          # There is a timing issue with creating and then immediately using keys.
+          # Call list_keys again to give GnuPGP time.
+          IOStreams::Pgp.list_keys(email: email)
         end
 
         it 'lists public keys' do
@@ -125,7 +124,7 @@ module Streams
           assert_includes ['R', 'rsa'], key[:key_type]
           assert_equal user_name, key[:name]
           refute key[:private], key
-          ver = IOStreams::Pgp.pgp_version
+          ver   = IOStreams::Pgp.pgp_version
           maint = ver.split('.').last.to_i
           if (ver.to_f >= 2) && (maint >= 30)
             assert_equal 'ultimate', key[:trust]
@@ -162,22 +161,6 @@ module Streams
           refute key[:private], key
           refute key.key?(:trust)
         end
-
-        it 'extracts private key info' do
-          skip 'GnuPG v2.1 and above does not allow batch inspection of private keys' if IOStreams::Pgp.pgp_version.to_f >= 2.1
-          assert keys = IOStreams::Pgp.key_info(key: private_key)
-          assert_equal 1, keys.size
-          assert key = keys.first
-
-          assert_equal Date.today, key[:date]
-          assert_equal email, key[:email]
-          assert_includes key[:key_id], generated_key_id
-          assert_equal 1024, key[:key_length]
-          assert_equal 'R', key[:key_type]
-          assert_equal user_name, key[:name]
-          assert key[:private], key
-          refute key.key?(:trust)
-        end
       end
 
       describe '.import' do
@@ -186,15 +169,12 @@ module Streams
           assert_equal [], IOStreams::Pgp.import(key: public_key)
         end
 
-        it 'handle duplicate private key' do
-          generated_key_id
-          assert_equal [], IOStreams::Pgp.import(key: private_key)
-        end
-
         describe 'without keys' do
           before do
-            @public_key  = public_key
-            @private_key = private_key
+            @public_key = public_key
+            # There is a timing issue with creating and then deleting keys.
+            # Call list_keys again to give GnuPGP time.
+            IOStreams::Pgp.list_keys(email: email, private: true)
             IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
           end
 
@@ -209,18 +189,6 @@ module Streams
             refute key[:private], key
           end
 
-          it 'imports ascii private key' do
-            skip 'GnuPG v2.1 and above does not allow batch import of private keys' if IOStreams::Pgp.pgp_version.to_f >= 2.1
-            assert keys = IOStreams::Pgp.import(key: @private_key)
-            assert_equal 1, keys.size
-            assert key = keys.first
-
-            assert_equal email, key[:email]
-            assert_equal generated_key_id, key[:key_id]
-            assert_equal user_name, key[:name]
-            assert key[:private], key
-          end
-
           it 'imports binary public key' do
             assert keys = IOStreams::Pgp.import(key: @public_key)
             assert_equal 1, keys.size
@@ -230,18 +198,6 @@ module Streams
             assert_equal generated_key_id, key[:key_id]
             assert_equal user_name, key[:name]
             refute key[:private], key
-          end
-
-          it 'imports binary private key' do
-            skip 'GnuPG v2.1 and above does not allow batch import of private keys' if IOStreams::Pgp.pgp_version.to_f >= 2.1
-            assert keys = IOStreams::Pgp.import(key: @private_key)
-            assert_equal 1, keys.size
-            assert key = keys.first
-
-            assert_equal email, key[:email]
-            assert_equal generated_key_id, key[:key_id]
-            assert_equal user_name, key[:name]
-            assert key[:private], key
           end
         end
       end
