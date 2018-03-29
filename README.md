@@ -1,6 +1,7 @@
-# iostreams [![Gem Version](https://badge.fury.io/rb/iostreams.svg)](http://badge.fury.io/rb/iostreams) [![Build Status](https://secure.travis-ci.org/rocketjob/iostreams.png?branch=master)](http://travis-ci.org/rocketjob/iostreams) ![](http://ruby-gem-downloads-badge.herokuapp.com/iostreams?type=total)
+# iostreams
+[![Gem Version](https://img.shields.io/gem/v/iostreams.svg)](https://rubygems.org/gems/iostreams) [![Build Status](https://travis-ci.org/rocketjob/iostreams.svg?branch=master)](https://travis-ci.org/rocketjob/iostreams) [![Downloads](https://img.shields.io/gem/dt/iostreams.svg)](https://rubygems.org/gems/iostreams) [![License](https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](http://opensource.org/licenses/Apache-2.0) ![](https://img.shields.io/badge/status-Beta-yellow.svg) [![Gitter chat](https://img.shields.io/badge/IRC%20(gitter)-Support-brightgreen.svg)](https://gitter.im/rocketjob/support)
 
-Ruby Input and Output streaming for Ruby 
+Input and Output streaming for Ruby.
 
 ## Project Status
 
