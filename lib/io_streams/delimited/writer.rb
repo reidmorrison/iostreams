@@ -41,10 +41,12 @@ module IOStreams
       #     Default: false
       def initialize(output_stream, delimiter: $/, encoding: UTF8_ENCODING, strip_non_printable: false)
         @output_stream       = output_stream
-        @delimiter           = delimiter.dup
+        if delimiter
+          @delimiter           = delimiter.dup
+          @delimiter.force_encoding(UTF8_ENCODING)
+        end
         @encoding            = encoding
         @strip_non_printable = strip_non_printable
-        @delimiter.force_encoding(UTF8_ENCODING) if @delimiter
       end
 
       # Write a record or line to the output stream
@@ -53,7 +55,7 @@ module IOStreams
         # Strip out non-printable characters before converting to UTF-8
         chunk = chunk.gsub(NOT_PRINTABLE, '') if @strip_non_printable
         @output_stream.write((@encoding ? chunk.force_encoding(@encoding) : chunk))
-        @output_stream.write(@delimiter)
+        @output_stream.write(@delimiter) if @delimiter
       end
 
       # Write the given string to the underlying stream
