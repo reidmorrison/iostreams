@@ -33,7 +33,7 @@ module IOStreams
 
           # Stream zip stream into temp file
           ::File.open(file_name, 'wb') do |file|
-            IOStreams.copy(file_name_or_io, file, buffer_size)
+            IOStreams.copy(file_name_or_io, file, buffer_size: buffer_size)
           end
 
           read_file(file_name, &block)

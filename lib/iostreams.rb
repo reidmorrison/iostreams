@@ -33,5 +33,24 @@ module IOStreams
   module Xlsx
     autoload :Reader, 'io_streams/xlsx/reader'
   end
+
+  module Tabular
+    autoload :Errors,  'io_streams/tabular/errors'
+    autoload :Header,  'io_streams/tabular/header'
+    autoload :Tabular, 'io_streams/tabular/tabular'
+
+    module Parser
+      autoload :Array, 'io_streams/tabular/parser/array'
+      autoload :Base,  'io_streams/tabular/parser/base'
+      autoload :Csv,   'io_streams/tabular/parser/csv'
+      autoload :Hash,  'io_streams/tabular/parser/hash'
+      autoload :Json,  'io_streams/tabular/parser/json'
+      autoload :Psv,   'io_streams/tabular/parser/psv'
+    end
+
+    module Utility
+      autoload :CSVRow, 'io_streams/tabular/utility/csv_row'
+    end
+  end
 end
 require 'io_streams/io_streams'

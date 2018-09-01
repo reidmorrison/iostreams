@@ -54,6 +54,7 @@ module IOStreams
         @encoding            = encoding
         @strip_non_printable = strip_non_printable
 
+        # TODO: Don't make delimiter utf8 unless it is not already utf-8
         @delimiter.force_encoding(UTF8_ENCODING) if @delimiter && @encoding
         @buffer = ''
       end
@@ -87,6 +88,9 @@ module IOStreams
 
       # Reads length bytes from the I/O stream.
       # Not recommended, but available if someone calls #read on this delimited reader
+      #
+      #
+      # TODO: Remove this method once there is another way to know if it is a reader stream
       def read(length = nil, outbuf = nil)
         if length
           while (@buffer.size < length) && (read_chunk > 0)

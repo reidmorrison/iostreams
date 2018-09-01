@@ -31,7 +31,7 @@ module Streams
 
           File.open(binary_file_name, 'rb') do |input|
             IOStreams::Pgp::Writer.open(@file_name, recipient: 'receiver@example.org') do |output|
-              IOStreams.copy(input, output, 65535)
+              IOStreams.copy(input, output)
             end
           end
 

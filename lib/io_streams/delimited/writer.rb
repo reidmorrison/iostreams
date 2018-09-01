@@ -60,6 +60,9 @@ module IOStreams
 
       # Write the given string to the underlying stream
       # Note: Use of this method not recommended
+      #
+      #
+      # TODO: Remove this method once there is another way to know if it is a writer stream
       def write(string)
         @output_stream.write(string)
       end

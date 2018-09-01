@@ -45,7 +45,7 @@ module IOStreams
           write_file(temp_file.to_path, zip_file_name, &block)
 
           # Stream temp file into output stream
-          IOStreams.copy(temp_file, file_name_or_io, buffer_size)
+          IOStreams.copy(temp_file, file_name_or_io, buffer_size: buffer_size)
         ensure
           temp_file.delete if temp_file
         end
