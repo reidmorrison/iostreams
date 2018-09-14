@@ -1,15 +1,14 @@
 module IOStreams
   module File
     class Writer
-      # Write to a file or stream
-      def self.open(file_name_or_io, _=nil, &block)
-        unless IOStreams.writer_stream?(file_name_or_io)
-          ::File.open(file_name_or_io, 'wb', &block)
-        else
-          block.call(file_name_or_io)
-        end
-      end
+      # Write to a named file
+      # TODO: Add support for mode (text / binary), permissions, buffering, append
+      # TODO: Add encoding support: external_encoding, internal_encoding
+      def self.open(file_name, _=nil, &block)
+        raise(ArgumentError, 'File name must be a string') unless file_name.is_a?(String)
 
+        ::File.open(file_name, 'wb', &block)
+      end
     end
   end
 end

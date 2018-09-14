@@ -1,5 +1,5 @@
 module IOStreams
-  module Tabular
+  class Tabular
     module Errors
       class Error < StandardError;
       end

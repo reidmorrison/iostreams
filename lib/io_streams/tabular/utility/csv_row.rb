@@ -1,6 +1,6 @@
 require 'csv'
 module IOStreams
-  module Tabular
+  class Tabular
     module Utility
       # For parsing a single line of CSV at a time
       # 2 to 3 times better performance than CSV.parse_line and considerably less

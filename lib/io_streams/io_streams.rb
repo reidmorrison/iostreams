@@ -1,71 +1,20 @@
 require 'concurrent'
-module IOStreams
-  # A registry to hold formats for processing files during upload or download
-  @extensions = Concurrent::Map.new
 
+# Streaming library for Ruby
+#
+# Stream types / extensions supported:
+#   .zip       Zip File                                   [ :zip ]
+#   .gz, .gzip GZip File                                  [ :gzip ]
+#   .enc       File Encrypted using symmetric encryption  [ :enc ]
+#   etc...
+#   other      All other extensions will be returned as:  []
+#
+# When a file is encrypted, it may also be compressed:
+#   .zip.enc  [ :zip, :enc ]
+#   .gz.enc   [ :gz,  :enc ]
+module IOStreams
   UTF8_ENCODING   = Encoding.find('UTF-8').freeze
   BINARY_ENCODING = Encoding.find('BINARY').freeze
-
-  # Returns [Array] the formats required to process the file by looking at
-  # its extension(s)
-  #
-  # Extensions supported:
-  #   .zip       Zip File                                      [ :zip ]
-  #   .gz, .gzip GZip File                                     [ :gzip ]
-  #   .enc       File Encrypted using symmetric encryption     [ :enc ]
-  #   etc...
-  #   other      Unrecognized extensions will be returned as:  []
-  #
-  # When a file is encrypted, it may also be compressed:
-  #   .zip.enc  [ :zip, :enc ]
-  #   .gz.enc   [ :gz,  :enc ]
-  #
-  # Example Zip file:
-  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.zip')
-  #   => [ :zip ]
-  #
-  # Example Encrypted Gzip file:
-  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv.gz.enc')
-  #   => [ :gz, :enc ]
-  #
-  # Example plain text / binary file:
-  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
-  #   => [ :file ]
-  def self.streams_for_file_name(file_name)
-    raise ArgumentError.new('File name cannot be nil') if file_name.nil?
-    raise ArgumentError.new("File name must be a string: #{file_name.inspect}, class: #{file_name.class}") unless file_name.is_a?(String)
-    parts      = file_name.split('.')
-    extensions = []
-    while extension = parts.pop
-      sym = extension.downcase.to_sym
-      break unless @extensions[sym]
-      extensions.unshift(sym)
-    end
-    extensions
-  end
-
-  Extension = Struct.new(:reader_class, :writer_class)
-
-  # Register a file extension and the reader and writer classes to use to format it
-  #
-  # Example:
-  #   # MyXls::Reader and MyXls::Writer must implement .open
-  #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
-  def self.register_extension(extension, reader_class, writer_class)
-    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
-    @extensions[extension.nil? ? nil : extension.to_sym] = Extension.new(reader_class, writer_class)
-  end
-
-  # De-Register a file extension
-  #
-  # Returns [Symbol] the extension removed, or nil if the extension was not registered
-  #
-  # Example:
-  #   register_extension(:xls)
-  def self.deregister_extension(extension)
-    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
-    @extensions.delete(extension.to_sym)
-  end
 
   # Returns a Reader for reading a file / stream
   #
@@ -81,15 +30,11 @@ module IOStreams
   #     streams should be applied.
   #     Default: nil
   #
-  # Stream types / extensions supported:
-  #   .zip       Zip File                                   [ :zip ]
-  #   .gz, .gzip GZip File                                  [ :gzip ]
-  #   .enc       File Encrypted using symmetric encryption  [ :enc ]
-  #   other      All other extensions will be returned as:  [ :file ]
-  #
-  # When a file is encrypted, it may also be compressed:
-  #   .zip.enc  [ :zip, :enc ]
-  #   .gz.enc   [ :gz,  :enc ]
+  #   file_name [String]
+  #     When `streams` is not supplied, `file_name` can be used for determining the streams
+  #     to apply to read the file/stream.
+  #     This is particularly useful when `file_name_or_io` is a stream, or a temporary file name.
+  #     Default: nil
   #
   # Example: Zip
   #   IOStreams.reader('myfile.zip') do |stream|
@@ -108,38 +53,36 @@ module IOStreams
   #
   # Example: Supply custom options
   #   # Encrypt the file and get Symmetric Encryption to also compress it
-  #   IOStreams.reader('myfile.csv.enc', [:enc]) do |stream|
+  #   IOStreams.reader('myfile.csv.enc', streams: enc: {compress: true}) do |stream|
   #     puts stream.read
   #   end
   #
   # Note:
   # * Passes the file_name_or_io as-is into the block if it is already a reader stream AND
   #   no streams are passed in.
-  def self.reader(file_name_or_io, streams = nil, &block)
-    return block.call(file_name_or_io) if streams.nil? && IOStreams.reader_stream?(file_name_or_io)
-
-    stream(:reader, file_name_or_io, streams, &block)
+  #
+  # TODO: Add support for different schemes, such as file://, s3://, sftp://
+  def self.reader(file_name_or_io, streams: nil, file_name: nil, &block)
+    stream(:reader, file_name_or_io, streams: streams, file_name: file_name, &block)
   end
 
   # Iterate over a file / stream returning each record/line one at a time.
-  def self.each(file_name_or_io,
+  def self.each_line(file_name_or_io,
     streams: nil,
     delimiter: nil,
     encoding: IOStreams::UTF8_ENCODING,
     strip_non_printable: false,
-    exclude_streams: nil,
     file_name: nil,
     &block)
 
-    # file_name, if supplied contains the original file_name from which the streams need to be derived.
-    file_name = file_name_or_io if file_name.nil? && !IOStreams.reader_stream?(file_name_or_io)
-    streams   ||= IOStreams.streams_for_file_name(file_name) if file_name
-
-    Array(exclude_streams).each { |stream| delete_stream(stream, streams) } if exclude_streams
-
-    streams.unshift(delimited: {delimiter: delimiter, encoding: encoding, strip_non_printable: strip_non_printable}) unless IOStreams.delimited_stream?(streams)
-
-    reader(file_name_or_io, streams) { |io| io.each(&block) }
+    line_reader(file_name_or_io,
+                streams:             streams,
+                delimiter:           delimiter,
+                encoding:            encoding,
+                strip_non_printable: strip_non_printable,
+                file_name:           file_name) do |line_stream|
+      line_stream.each(&block)
+    end
   end
 
   # Returns [Hash] of every record in a file or stream with support for headers.
@@ -151,22 +94,28 @@ module IOStreams
   #
   # Example:
   #   file_name = 'customer_data.csv.pgp'
-  #   IOStreams.tabular_reader(file_name) do |record|
-  #     p record
+  #   IOStreams.each_record(file_name) do |hash|
+  #     p hash
   #   end
-  def self.tabular_reader(file_name_or_io, format: :csv, strip_non_printable: true, **args)
-    tabular        = Tabular::Tabular.new(format: format)
-    process_header = tabular.parse_header?
+  def self.each_record(file_name_or_io,
+    streams: nil,
+    delimiter: nil,
+    encoding: IOStreams::UTF8_ENCODING,
+    strip_non_printable: false,
+    file_name: nil,
+    **args,
+    &block)
 
-    delimited_reader(file_name_or_io, strip_non_printable: strip_non_printable, **args) do |delimited_io|
-      delimited_io.each do |line|
-        if process_header
-          process_header = false
-          tabular.parse_header(line)
-        else
-          yield(tabular.parse(line))
-        end
-      end
+    # TODO: When a file_name is supplied extract the tabular format from the filename. E.g. .csv, .json, etc.
+
+    record_reader(file_name_or_io,
+                  streams:             streams,
+                  delimiter:           delimiter,
+                  encoding:            encoding,
+                  strip_non_printable: strip_non_printable,
+                  file_name:           file_name,
+                  **args) do |record_stream|
+      record_stream.each(&block)
     end
   end
 
@@ -222,10 +171,27 @@ module IOStreams
   # Note:
   # * Passes the file_name_or_io as-is into the block if it is already a writer stream AND
   #   no streams are passed in.
-  def self.writer(file_name_or_io, streams = nil, &block)
-    return block.call(file_name_or_io) if streams.nil? && IOStreams.writer_stream?(file_name_or_io)
+  def self.writer(file_name_or_io, streams: nil, file_name: nil, &block)
+    stream(:writer, file_name_or_io, streams: streams, file_name: file_name, &block)
+  end
 
-    stream(:writer, file_name_or_io, streams, &block)
+  def self.line_writer(file_name_or_io,
+    streams: nil,
+    delimiter: nil,
+    encoding: IOStreams::UTF8_ENCODING,
+    strip_non_printable: false,
+    file_name: nil,
+    &block)
+
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Writer) || file_name_or_io.is_a?(Array)
+
+    writer(file_name_or_io, streams: streams, file_name: file_name) do |io|
+      IOStreams::Line::Writer.open(io,
+                                   delimiter:           delimiter,
+                                   encoding:            encoding,
+                                   strip_non_printable: strip_non_printable,
+                                   &block)
+    end
   end
 
   # Copies the source file/stream to the target file/stream.
@@ -295,12 +261,9 @@ module IOStreams
   #   # Decrypts the file, then compresses it with gzip as it is being streamed into S3.
   #   # Useful for when the entire bucket is encrypted on S3.
   #   IOStreams.copy('a.csv.enc', 's3://my_bucket/b.csv.gz')
-  #
-  # TODO: Need ability to disable csv parsing since we don't want to parse csv to only render csv again.
-  # TODO: On the other hand it would be great to be able to ETL map between CSV files.
-  def self.copy(source_file_name_or_io, target_file_name_or_io, buffer_size: 65536, source_options: nil, target_options: nil)
-    reader(source_file_name_or_io, source_options) do |source_stream|
-      writer(target_file_name_or_io, target_options) do |target_stream|
+  def self.copy(source_file_name_or_io, target_file_name_or_io, buffer_size: 65536, source_options: {}, target_options: {})
+    reader(source_file_name_or_io, **source_options) do |source_stream|
+      writer(target_file_name_or_io, **target_options) do |target_stream|
         bytes = 0
         while data = source_stream.read(buffer_size)
           break if data.size == 0
@@ -345,28 +308,111 @@ module IOStreams
     end
   end
 
-  # Returns [true|false] whether the stream starts with a delimited reader or writer
-  def self.delimited_stream?(streams)
-    stream = Array(streams).first
-    return false unless stream
+  # Returns [Array] the formats required to process the file by looking at
+  # its extension(s)
+  #
+  # Example Zip file:
+  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.zip')
+  #   => [ :zip ]
+  #
+  # Example Encrypted Gzip file:
+  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv.gz.enc')
+  #   => [ :gz, :enc ]
+  #
+  # Example plain text / binary file:
+  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
+  #   => [ :file ]
+  def self.streams_for_file_name(file_name, type = :stream)
+    raise ArgumentError.new('File name cannot be nil') if file_name.nil?
+    raise ArgumentError.new("File name must be a string: #{file_name.inspect}, class: #{file_name.class}") unless file_name.is_a?(String)
+    parts      = file_name.split('.')
+    extensions = []
+    while extension = parts.pop
+      sym = extension.downcase.to_sym
+      break unless @extensions[sym]
+      extensions.unshift(sym)
+    end
+    extensions
+  end
 
-    # TODO Need to figure out a way so that this is not hard-coded
-    [:xlsx, :xlsm, :delimited].include?(stream.is_a?(Symbol) ? stream : stream.keys.first)
+  Extension = Struct.new(:reader_class, :writer_class, :type)
+
+  # Register a file extension and the reader and writer classes to use to format it
+  #
+  # Example:
+  #   # MyXls::Reader and MyXls::Writer must implement .open
+  #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
+  def self.register_extension(extension, reader_class, writer_class, type = :stream)
+    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
+    @extensions[extension.nil? ? nil : extension.to_sym] = Extension.new(reader_class, writer_class, type)
+  end
+
+  # De-Register a file extension
+  #
+  # Returns [Symbol] the extension removed, or nil if the extension was not registered
+  #
+  # Example:
+  #   register_extension(:xls)
+  def self.deregister_extension(extension)
+    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
+    @extensions.delete(extension.to_sym)
   end
 
   ##########################################################################
 
   private
 
+  # A registry to hold formats for processing files during upload or download
+  @extensions = Concurrent::Map.new
+
   # Struct to hold the Stream and options if any
   StreamStruct = Struct.new(:klass, :options)
 
-  # Returns a reader or writer stream
-  def self.stream(type, file_name_or_io, streams = nil, &block)
-    unless streams
-      respond_to = type == :reader ? :read : :write
-      streams    = file_name_or_io.respond_to?(respond_to) ? [nil] : streams_for_file_name(file_name_or_io)
+  # Iterate over a file / stream returning each record/line one at a time.
+  def self.line_reader(file_name_or_io, streams: nil, file_name: nil, **args, &block)
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Reader) ||
+      file_name_or_io.is_a?(IOStreams::Xlsx::Reader) ||
+      file_name_or_io.is_a?(Array)
+
+    reader(file_name_or_io, streams: streams, file_name: file_name) do |io|
+      IOStreams::Line::Reader.open(io, **args, &block)
     end
+  end
+
+  # Iterate over a file / stream returning each line as a hash, one at a time.
+  def self.record_reader(file_name_or_io,
+    streams: nil,
+    delimiter: nil,
+    encoding: IOStreams::UTF8_ENCODING,
+    strip_non_printable: false,
+    file_name: nil,
+    **args,
+    &block)
+
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Tabular::Reader)
+
+    line_reader(
+      streams:             streams,
+      delimiter:           delimiter,
+      encoding:            encoding,
+      strip_non_printable: strip_non_printable,
+      file_name:           file_name) do |io|
+
+      IOStreams::Tabular::Reader.open(io, **args, &block)
+    end
+  end
+
+  # Returns a reader or writer stream
+  def self.stream(type, file_name_or_io, streams:, file_name:, &block)
+    streams = streams_for_file_name(file_name) if streams.nil? && file_name
+
+    # Shortcut for when it is already a stream and no further streams need to be applied.
+    return block.call(file_name_or_io) if !file_name_or_io.is_a?(String) && (streams.nil? || streams.empty?)
+
+    if streams.nil?
+      streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [nil]
+    end
+
     stream_structs = streams_for(type, streams)
     if stream_structs.size == 1
       stream_struct = stream_structs.first
@@ -408,26 +454,29 @@ module IOStreams
     StreamStruct.new(klass, options)
   end
 
-  # Register File extensions
-  # @formatter:off
+  # Default reader/writer when no other streams need to be applied.
   register_extension(nil,   IOStreams::File::Reader,     IOStreams::File::Writer)
-  register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer) if defined?(SymmetricEncryption)
+
+  # Register File extensions
   register_extension(:bz2,  IOStreams::Bzip2::Reader,    IOStreams::Bzip2::Writer)
   register_extension(:gz,   IOStreams::Gzip::Reader,     IOStreams::Gzip::Writer)
   register_extension(:gzip, IOStreams::Gzip::Reader,     IOStreams::Gzip::Writer)
   register_extension(:zip,  IOStreams::Zip::Reader,      IOStreams::Zip::Writer)
   register_extension(:pgp,  IOStreams::Pgp::Reader,      IOStreams::Pgp::Writer)
   register_extension(:gpg,  IOStreams::Pgp::Reader,      IOStreams::Pgp::Writer)
-
-  # Needed to wrap with delimited
-  register_extension(:delimited, IOStreams::Delimited::Reader, IOStreams::Delimited::Writer)
-
-  # Tabular Streams
-  register_extension(:csv,  IOStreams::CSV::Reader,  IOStreams::CSV::Writer)
-  # register_extension(:json, IOStreams::JSON::Reader, IOStreams::JSON::Writer)
-  # register_extension(:psv,  IOStreams::PSV::Reader,  IOStreams::PSV::Writer)
   register_extension(:xlsx, IOStreams::Xlsx::Reader, nil)
   register_extension(:xlsm, IOStreams::Xlsx::Reader, nil)
+
+  # Use Symmetric Encryption to encrypt of decrypt files with the `enc` extension
+  # when the gem `symmetric-encryption` has been loaded.
+  if defined?(SymmetricEncryption)
+    register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer)
+  end
+
+  # Tabular Formats
+  # Tabular.register_format(:csv,  IOStreams::CSV::Reader,  IOStreams::CSV::Writer)
+  # Tabular.register_format(:json, IOStreams::JSON::Reader, IOStreams::JSON::Writer)
+  # Tabular.register_format(:psv,  IOStreams::PSV::Reader,  IOStreams::PSV::Writer)
 
   # register_scheme(nil,    IOStreams::File::Reader,  IOStreams::File::Writer)
   # register_scheme(:file,  IOStreams::File::Reader,  IOStreams::File::Writer)

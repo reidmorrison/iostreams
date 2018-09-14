@@ -1,5 +1,5 @@
 module IOStreams
-  module Tabular
+  class Tabular
     # Process files / streams that start with a header.
     class Header
       attr_accessor :columns, :allowed_columns, :required_columns, :skip_unknown

@@ -1,5 +1,5 @@
 module IOStreams
-  module Tabular
+  class Tabular
     module Parser
       class Csv < Base
         attr_reader :csv_parser

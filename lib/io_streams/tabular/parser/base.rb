@@ -1,5 +1,5 @@
 module IOStreams
-  module Tabular
+  class Tabular
     module Parser
       class Base
         # Returns [true|false] whether a header row is required for this format.

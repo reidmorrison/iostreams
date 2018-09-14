@@ -1,6 +1,6 @@
 require 'json'
 module IOStreams
-  module Tabular
+  class Tabular
     module Parser
       class Hash < Base
         def parse(row)

@@ -1,6 +1,6 @@
 require 'json'
 module IOStreams
-  module Tabular
+  class Tabular
     module Parser
       # For parsing a single line of JSON at a time
       class Json < Base

@@ -1,16 +1,14 @@
 module IOStreams
-  module Delimited
+  module Line
     class Reader
-      attr_accessor :delimiter, :buffer_size, :encoding, :strip_non_printable
+      attr_reader :delimiter, :buffer_size, :encoding, :strip_non_printable
 
-      # Read from a file or stream
-      def self.open(file_name_or_io, delimiter: nil, buffer_size: 65536, encoding: UTF8_ENCODING, strip_non_printable: false)
-        if IOStreams.reader_stream?(file_name_or_io)
-          yield new(file_name_or_io, delimiter: delimiter, buffer_size: buffer_size, encoding: encoding, strip_non_printable: strip_non_printable)
+      # Read a line at a time from a file or stream
+      def self.open(file_name_or_io, **args)
+        if file_name_or_io.is_a?(String)
+          IOStreams::File::Reader.open(file_name_or_io) { |io| yield new(io, **args) }
         else
-          ::File.open(file_name_or_io, 'rb') do |io|
-            yield new(io, delimiter: delimiter, buffer_size: buffer_size, encoding: encoding, strip_non_printable: strip_non_printable)
-          end
+          yield new(file_name_or_io, **args)
         end
       end
 
@@ -47,6 +45,12 @@ module IOStreams
       #     Force encoding to this encoding for all data being read
       #     Default: UTF8_ENCODING
       #     Set to nil to disable encoding
+      #
+      # TODO:
+      # - Skip Comment lines. RegExp?
+      # - Skip "empty" / "blank" lines. RegExp?
+      # - Extract header line(s) / first non-comment, non-blank line
+      # - Embedded newline support, RegExp? or Proc?
       def initialize(input_stream, delimiter: nil, buffer_size: 65536, encoding: UTF8_ENCODING, strip_non_printable: false)
         @input_stream        = input_stream
         @delimiter           = delimiter
@@ -54,12 +58,12 @@ module IOStreams
         @encoding            = encoding
         @strip_non_printable = strip_non_printable
 
-        # TODO: Don't make delimiter utf8 unless it is not already utf-8
-        @delimiter.force_encoding(UTF8_ENCODING) if @delimiter && @encoding
+        @delimiter.encode(UTF8_ENCODING) if @delimiter && @encoding
         @buffer = ''
       end
 
-      # Returns each line at a time to to the supplied block
+      # Iterate over every line in the file/stream passing each line to supplied block in turn.
+      # Returns [Integer] the number of lines read from the file/stream.
       def each(&block)
         partial = nil
         loop do
@@ -84,35 +88,17 @@ module IOStreams
         end
       end
 
-      alias_method :each_line, :each
-
-      # Reads length bytes from the I/O stream.
-      # Not recommended, but available if someone calls #read on this delimited reader
-      #
-      #
-      # TODO: Remove this method once there is another way to know if it is a reader stream
-      def read(length = nil, outbuf = nil)
-        if length
-          while (@buffer.size < length) && (read_chunk > 0)
-          end
-          data = @buffer.slice!(0, length)
-          outbuf << data if outbuf
-          data
-        else
-          while read_chunk > 0
-          end
-          @buffer
-        end
-      end
-
-      ##########################################################################
       private
+
+      attr_reader :buffer
+      attr_writer :delimiter
 
       NOT_PRINTABLE = Regexp.compile(/[^[:print:]|\r|\n]/)
 
       # Returns [Integer] the number of bytes read into the internal buffer
       # Returns 0 on EOF
       def read_chunk
+        # TODO: read into existing buffer
         chunk = @input_stream.read(@buffer_size)
         # EOF reached?
         return 0 unless chunk

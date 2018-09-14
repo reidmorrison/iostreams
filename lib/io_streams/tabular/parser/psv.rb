@@ -1,5 +1,5 @@
 module IOStreams
-  module Tabular
+  class Tabular
     module Parser
       # For parsing a single line of Pipe-separated values
       class Psv < Base
