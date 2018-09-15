@@ -1,6 +1,6 @@
 require 'csv'
 module IOStreams
-  class Tabular
+  module Record
     # Converts each line of an input stream into hash for every row
     class Reader
       # Read a record as a Hash at a time from a file or stream.

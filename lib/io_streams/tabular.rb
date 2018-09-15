@@ -30,8 +30,6 @@ module IOStreams
   class Tabular
     autoload :Errors, 'io_streams/tabular/errors'
     autoload :Header, 'io_streams/tabular/header'
-    autoload :Reader, 'io_streams/tabular/reader'
-    autoload :Writer, 'io_streams/tabular/writer'
 
     module Parser
       autoload :Array, 'io_streams/tabular/parser/array'

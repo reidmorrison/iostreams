@@ -389,7 +389,7 @@ module IOStreams
     **args,
     &block)
 
-    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Tabular::Reader)
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Reader)
 
     line_reader(
       streams:             streams,
@@ -398,7 +398,7 @@ module IOStreams
       strip_non_printable: strip_non_printable,
       file_name:           file_name) do |io|
 
-      IOStreams::Tabular::Reader.open(io, **args, &block)
+      IOStreams::Record::Reader.open(io, **args, &block)
     end
   end
 
@@ -472,11 +472,6 @@ module IOStreams
   if defined?(SymmetricEncryption)
     register_extension(:enc,  SymmetricEncryption::Reader, SymmetricEncryption::Writer)
   end
-
-  # Tabular Formats
-  # Tabular.register_format(:csv,  IOStreams::CSV::Reader,  IOStreams::CSV::Writer)
-  # Tabular.register_format(:json, IOStreams::JSON::Reader, IOStreams::JSON::Writer)
-  # Tabular.register_format(:psv,  IOStreams::PSV::Reader,  IOStreams::PSV::Writer)
 
   # register_scheme(nil,    IOStreams::File::Reader,  IOStreams::File::Writer)
   # register_scheme(:file,  IOStreams::File::Reader,  IOStreams::File::Writer)

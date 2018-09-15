@@ -1,7 +1,7 @@
 require_relative 'test_helper'
 
 class TabularReaderTest < Minitest::Test
-  describe IOStreams::Tabular::Reader do
+  describe IOStreams::Record::Reader do
     let :file_name do
       File.join(File.dirname(__FILE__), 'files', 'test.csv')
     end
@@ -19,7 +19,7 @@ class TabularReaderTest < Minitest::Test
     describe '.open' do
       it 'file' do
         rows = []
-        IOStreams::Tabular::Reader.open(file_name) do |io|
+        IOStreams::Record::Reader.open(file_name) do |io|
           io.each { |row| rows << row }
         end
         assert_equal expected, rows
@@ -28,7 +28,7 @@ class TabularReaderTest < Minitest::Test
       it 'stream' do
         rows = []
         IOStreams.line_reader(file_name) do |file|
-          IOStreams::Tabular::Reader.open(file) do |io|
+          IOStreams::Record::Reader.open(file) do |io|
             io.each { |row| rows << row }
           end
         end

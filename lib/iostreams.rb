@@ -35,6 +35,10 @@ module IOStreams
     autoload :Reader, 'io_streams/line/reader'
     autoload :Writer, 'io_streams/line/writer'
   end
+  module Record
+    autoload :Reader, 'io_streams/record/reader'
+    autoload :Writer, 'io_streams/record/writer'
+  end
   module Xlsx
     autoload :Reader, 'io_streams/xlsx/reader'
   end
