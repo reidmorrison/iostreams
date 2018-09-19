@@ -2,6 +2,8 @@ module IOStreams
   module Record
     # Converts each line of an input stream into hash for every row
     class Reader
+      include Enumerable
+
       # Read a record as a Hash at a time from a file or stream.
       def self.open(file_name_or_io, delimiter: nil, buffer_size: 65536, encoding: UTF8_ENCODING, strip_non_printable: false, **args)
         if file_name_or_io.is_a?(String)
@@ -10,7 +12,7 @@ module IOStreams
                                 buffer_size:         buffer_size,
                                 encoding:            encoding,
                                 strip_non_printable: strip_non_printable) do |io|
-            yield new(io, **args)
+            yield new(io, file_name: file_name_or_io, **args)
           end
         else
           yield new(file_name_or_io, **args)

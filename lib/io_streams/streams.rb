@@ -92,7 +92,7 @@ module IOStreams
     #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
     #   => [ :file ]
     def streams_for_file_name(file_name)
-      raise ArgumentError.new("RocketJob Cannot detect file format when uploading to stream: #{file_name.inspect}") if reader_stream?(file_name)
+      raise ArgumentError.new("Cannot auto-detect streams when already a stream: #{file_name.inspect}") if reader_stream?(file_name)
 
       parts      = file_name.split('.')
       extensions = []

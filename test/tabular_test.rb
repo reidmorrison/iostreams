@@ -2,6 +2,14 @@ require_relative 'test_helper'
 
 class TabularTest < Minitest::Test
   describe IOStreams::Tabular do
+    let :format do
+      :csv
+    end
+
+    let :tabular do
+      IOStreams::Tabular.new(columns: ['first_field', 'second', 'third'], format: format)
+    end
+
     describe '#parse_header' do
       it 'parses and sets the csv header' do
         tabular = IOStreams::Tabular.new(format: :csv)
@@ -78,82 +86,98 @@ class TabularTest < Minitest::Test
     end
 
     describe '#record_parse' do
-      before do
-        @tabular = IOStreams::Tabular.new(columns: ['first_field', 'second', 'third'])
-      end
+      describe ':array format' do
+        let :format do
+          :array
+        end
 
-      it 'format :array' do
-        @tabular.format = :array
-        assert hash = @tabular.record_parse([1, 2, 3])
-        assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
+        it 'renders' do
+          assert hash = tabular.record_parse([1, 2, 3])
+          assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
+        end
       end
 
       it 'format :csv' do
-        assert hash = @tabular.record_parse('1,2,3')
+        assert hash = tabular.record_parse('1,2,3')
         assert_equal({'first_field' => '1', 'second' => '2', 'third' => '3'}, hash)
       end
 
-      it 'format :hash' do
-        @tabular.format = :hash
-        assert hash = @tabular.record_parse('first_field' => 1, 'second' => 2, 'third' => 3)
-        assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
+      describe ':hash format' do
+        let :format do
+          :hash
+        end
+
+        it 'renders' do
+          assert hash = tabular.record_parse('first_field' => 1, 'second' => 2, 'third' => 3)
+          assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
+        end
       end
 
-      it 'format :json' do
-        @tabular.format = :json
-        assert hash = @tabular.record_parse('{"first_field":1,"second":2,"third":3}')
-        assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
+      describe ':json format' do
+        let :format do
+          :json
+        end
+
+        it 'renders' do
+          assert hash = tabular.record_parse('{"first_field":1,"second":2,"third":3}')
+          assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
+        end
       end
 
-      it 'format :psv' do
-        @tabular.format = :psv
-        assert hash = @tabular.record_parse('1|2|3')
-        assert_equal({'first_field' => '1', 'second' => '2', 'third' => '3'}, hash)
+      describe ':psv format' do
+        let :format do
+          :psv
+        end
+
+        it 'renders' do
+          assert hash = tabular.record_parse('1|2|3')
+          assert_equal({'first_field' => '1', 'second' => '2', 'third' => '3'}, hash)
+        end
       end
 
       it 'skips columns not in the whitelist' do
-        @tabular.header.allowed_columns = ['first', 'second', 'third', 'fourth', 'fifth']
-        @tabular.cleanse_header!
-        assert hash = @tabular.record_parse('1,2,3')
+        tabular.header.allowed_columns = ['first', 'second', 'third', 'fourth', 'fifth']
+        tabular.cleanse_header!
+        assert hash = tabular.record_parse('1,2,3')
         assert_equal({'second' => '2', 'third' => '3'}, hash)
       end
 
       it 'handles missing values' do
-        assert hash = @tabular.record_parse('1,2')
+        assert hash = tabular.record_parse('1,2')
         assert_equal({'first_field' => '1', 'second' => '2', 'third' => nil}, hash)
       end
     end
 
     describe '#render' do
-      before do
-        @tabular = IOStreams::Tabular.new(columns: ['first_field', 'second', 'third'])
-      end
-
       it 'renders an array of values' do
-        assert csv_string = @tabular.render([5, 6, 9])
+        assert csv_string = tabular.render([5, 6, 9])
         assert_equal '5,6,9', csv_string
       end
 
       it 'renders a hash' do
-        assert csv_string = @tabular.render({'third' => '3', 'first_field' => '1'})
+        assert csv_string = tabular.render({'third' => '3', 'first_field' => '1'})
         assert_equal '1,,3', csv_string
       end
 
       it 'renders a hash including nil and boolean' do
-        assert csv_string = @tabular.render({'third' => true, 'first_field' => false, 'second' => nil})
+        assert csv_string = tabular.render({'third' => true, 'first_field' => false, 'second' => nil})
         assert_equal 'false,,true', csv_string
       end
 
-      it 'renders psv nil and boolean' do
-        @tabular.format = :psv
-        assert psv_string = @tabular.render({'third' => true, 'first_field' => false, 'second' => nil})
-        assert_equal 'false||true', psv_string
-      end
+      describe ':psv format' do
+        let :format do
+          :psv
+        end
 
-      it 'renders psv numeric and pipe data' do
-        @tabular.format = :psv
-        assert psv_string = @tabular.render({'third' => 23, 'first_field' => 'a|b|c', 'second' => '|'})
-        assert_equal 'a:b:c|:|23', psv_string
+        it 'renders psv nil and boolean' do
+          assert psv_string = tabular.render({'third' => true, 'first_field' => false, 'second' => nil})
+          assert_equal 'false||true', psv_string
+        end
+
+        it 'renders psv numeric and pipe data' do
+          assert psv_string = tabular.render({'third' => 23, 'first_field' => 'a|b|c', 'second' => '|'})
+          assert_equal 'a:b:c|:|23', psv_string
+        end
       end
     end
   end

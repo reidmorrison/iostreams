@@ -17,7 +17,7 @@ module IOStreams
                                 delimiter:           delimiter,
                                 encoding:            encoding,
                                 strip_non_printable: strip_non_printable) do |io|
-            yield new(io, **args)
+            yield new(io, file_name: file_name_or_io, **args)
           end
         else
           yield new(file_name_or_io, **args)

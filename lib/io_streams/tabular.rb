@@ -45,13 +45,7 @@ module IOStreams
       autoload :CSVRow, 'io_streams/tabular/utility/csv_row'
     end
 
-    attr_reader :format
-    attr_accessor :header, :parser
-
-    # Returns a parser for parsing and rendering the specified format.
-    def self.parser_for(format)
-      constantize_symbol(format).new
-    end
+    attr_reader :format, :header, :parser
 
     # Parse a delimited data source.
     #
@@ -60,20 +54,20 @@ module IOStreams
     #     :csv, :hash, :array, :json, :psv, :fixed
     #
     #   For all other parameters, see Tabular::Header.new
-    def initialize(format: :csv, **args)
+    def initialize(format: nil, file_name: nil, **args)
       @header = Header.new(**args)
-      @format = format
-      @parser = self.class.parser_for(format)
+      klass   =
+        if file_name && format.nil?
+          self.class.parser_class_for_file_name(file_name)
+        else
+          self.class.parser_class(format)
+        end
+      @parser = klass.new
     end
 
     # Returns [true|false] whether a header row needs to be read first.
     def requires_header?
-      parser.requires_header? && self.class.blank?(header.columns)
-    end
-
-    def format=(format)
-      @format = format
-      @parser = self.class.parser_for(format)
+      parser.requires_header? && IOStreams.blank?(header.columns)
     end
 
     # Returns [Array] the header row/line after parsing and cleansing.
@@ -83,7 +77,7 @@ module IOStreams
     # * Call `parse_header?` first to determine if the header should be parsed first.
     # * The header columns are set after parsing the row, but the header is not cleansed.
     def parse_header(line)
-      return if self.class.blank?(line) || !parser.requires_header?
+      return if IOStreams.blank?(line) || !parser.requires_header?
 
       header.columns = parser.parse(line)
     end
@@ -98,14 +92,14 @@ module IOStreams
     # Returns [Array] the row/line as a parsed Array of values.
     # Returns nil if the row/line is blank.
     def row_parse(line)
-      return if self.class.blank?(line)
+      return if IOStreams.blank?(line)
 
       parser.parse(line)
     end
 
     # Renders the output row
     def render(row)
-      return if self.class.blank?(row)
+      return if IOStreams.blank?(row)
 
       parser.render(row, header)
     end
@@ -116,38 +110,54 @@ module IOStreams
       header.columns
     end
 
+    # Register a file extension and the reader and writer classes to use to format it
+    #
+    # Example:
+    #   # MyXls::Reader and MyXls::Writer must implement .open
+    #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
+    def self.register_extension(extension, parser)
+      raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
+      @extensions[extension.nil? ? nil : extension.to_sym] = parser
+    end
+
+    # De-Register a file extension
+    #
+    # Returns [Symbol] the extension removed, or nil if the extension was not registered
+    #
+    # Example:
+    #   register_extension(:xls)
+    def self.deregister_extension(extension)
+      raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
+      @extensions.delete(extension.to_sym)
+    end
+
     private
 
-    def self.constantize_symbol(symbol, namespace = 'IOStreams::Tabular::Parser')
-      klass = "#{namespace}::#{camelize(symbol.to_s)}"
-      begin
-        if RUBY_VERSION.to_i >= 2
-          Object.const_get(klass)
-        else
-          klass.split('::').inject(Object) { |o, name| o.const_get(name) }
+    # A registry to hold formats for processing files during upload or download
+    @extensions = {}
+
+    def self.parser_class(format)
+      @extensions[format.nil? ? nil : format.to_sym] || raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
+    end
+
+    # Returns the parser to use with tabular for the supplied file_name
+    def self.parser_class_for_file_name(file_name)
+      extension = nil
+      file_name.to_s.split('.').reverse_each do |ext|
+        if @extensions.include?(ext.to_sym)
+          extension = ext.to_sym
+          break
         end
-      rescue NameError
-        raise(ArgumentError, "Could not convert symbol: #{symbol.inspect} to a class in: #{namespace}. Looking for: #{klass}")
       end
+      parser_class(extension)
     end
 
-    # Borrow from Rails, when not running Rails
-    def self.camelize(term)
-      string = term.to_s
-      string = string.sub(/^[a-z\d]*/, &:capitalize)
-      string.gsub!(/(?:_|(\/))([a-z\d]*)/i) { "#{Regexp.last_match(1)}#{Regexp.last_match(2).capitalize}" }
-      string.gsub!('/'.freeze, '::'.freeze)
-      string
-    end
-
-    def self.blank?(value)
-      if value.nil?
-        true
-      elsif value.is_a?(String)
-        value !~ /\S/
-      else
-        value.respond_to?(:empty?) ? value.empty? : !value
-      end
-    end
+    register_extension(nil, IOStreams::Tabular::Parser::Csv)
+    register_extension(:array, IOStreams::Tabular::Parser::Array)
+    register_extension(:csv, IOStreams::Tabular::Parser::Csv)
+    register_extension(:fixed, IOStreams::Tabular::Parser::Fixed)
+    register_extension(:hash, IOStreams::Tabular::Parser::Hash)
+    register_extension(:json, IOStreams::Tabular::Parser::Json)
+    register_extension(:psv, IOStreams::Tabular::Parser::Psv)
   end
 end

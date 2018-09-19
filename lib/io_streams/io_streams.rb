@@ -297,7 +297,7 @@ module IOStreams
   # Example plain text / binary file:
   #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
   #   => [ :file ]
-  def self.streams_for_file_name(file_name, type = :stream)
+  def self.streams_for_file_name(file_name)
     raise ArgumentError.new('File name cannot be nil') if file_name.nil?
     raise ArgumentError.new("File name must be a string: #{file_name.inspect}, class: #{file_name.class}") unless file_name.is_a?(String)
     parts      = file_name.split('.')
@@ -310,16 +310,16 @@ module IOStreams
     extensions
   end
 
-  Extension = Struct.new(:reader_class, :writer_class, :type)
+  Extension = Struct.new(:reader_class, :writer_class)
 
-  # Register a file extension and the reader and writer classes to use to format it
+  # Register a file extension and the reader and writer streaming classes
   #
   # Example:
   #   # MyXls::Reader and MyXls::Writer must implement .open
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
-  def self.register_extension(extension, reader_class, writer_class, type = :stream)
+  def self.register_extension(extension, reader_class, writer_class)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
-    @extensions[extension.nil? ? nil : extension.to_sym] = Extension.new(reader_class, writer_class, type)
+    @extensions[extension.nil? ? nil : extension.to_sym] = Extension.new(reader_class, writer_class)
   end
 
   # De-Register a file extension
@@ -333,12 +333,21 @@ module IOStreams
     @extensions.delete(extension.to_sym)
   end
 
-  ##########################################################################
+  # Helper method: Returns [true|false] if a value is blank?
+  def self.blank?(value)
+    if value.nil?
+      true
+    elsif value.is_a?(String)
+      value !~ /\S/
+    else
+      value.respond_to?(:empty?) ? value.empty? : !value
+    end
+  end
 
   private
 
   # A registry to hold formats for processing files during upload or download
-  @extensions = Concurrent::Map.new
+  @extensions = {}
 
   # Struct to hold the Stream and options if any
   StreamStruct = Struct.new(:klass, :options)
@@ -375,7 +384,7 @@ module IOStreams
       strip_non_printable: strip_non_printable,
       file_name:           file_name) do |io|
 
-      IOStreams::Record::Reader.open(io, **args, &block)
+      IOStreams::Record::Reader.open(io, file_name: file_name, **args, &block)
     end
   end
 

@@ -83,7 +83,7 @@ class IOStreamsTest < Minitest::Test
       end
     end
 
-    describe '.each' do
+    describe '.each_line' do
       it 'returns a line at a time' do
         lines = []
         IOStreams.each_line(source_file_name) { |line| lines << line }

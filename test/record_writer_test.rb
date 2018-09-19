@@ -7,8 +7,16 @@ class RecordWriterTest < Minitest::Test
       File.join(File.dirname(__FILE__), 'files', 'test.csv')
     end
 
+    let :json_file_name do
+      File.join(File.dirname(__FILE__), 'files', 'test.json')
+    end
+
     let :raw_csv_data do
       File.read(csv_file_name)
+    end
+
+    let :raw_json_data do
+      File.read(json_file_name)
     end
 
     let :csv_rows do
@@ -33,13 +41,21 @@ class RecordWriterTest < Minitest::Test
       temp_file.delete
     end
 
-    describe '.open' do
+    describe '#<<' do
       it 'file' do
         IOStreams::Record::Writer.open(file_name) do |io|
           inputs.each { |hash| io << hash }
         end
         result = File.read(file_name)
         assert_equal raw_csv_data, result
+      end
+
+      it 'json file' do
+        IOStreams::Record::Writer.open(file_name, file_name: 'abc.json') do |io|
+          inputs.each { |hash| io << hash }
+        end
+        result = File.read(file_name)
+        assert_equal raw_json_data, result
       end
 
       it 'stream' do

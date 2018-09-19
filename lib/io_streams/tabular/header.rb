@@ -86,7 +86,7 @@ module IOStreams
       #     Only Applies to when the hash is already a Hash.
       #     Useful to turn off narrowing when the input data is already trusted.
       def to_hash(row, cleanse = true)
-        return if Tabular.blank?(row)
+        return if IOStreams.blank?(row)
 
         case row
         when Array
@@ -112,7 +112,7 @@ module IOStreams
 
       def array_to_hash(row)
         h = {}
-        columns.each_with_index { |col, i| h[col] = row[i] unless Tabular.blank?(col) }
+        columns.each_with_index { |col, i| h[col] = row[i] unless IOStreams.blank?(col) }
         h
       end
 
