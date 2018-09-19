@@ -1,13 +1,15 @@
+require 'csv'
 module IOStreams
-  module Record
-    # Example, implied header from first record:
-    #   IOStreams.record_writer do |stream|
-    #     stream << {name: 'Jack', address: 'Somewhere', zipcode: 12345}
-    #     stream << {name: 'Joe', address: 'Lost', zipcode: 32443, age: 23}
+  module Row
+    # Example:
+    #   IOStreams.row_writer do |stream|
+    #     stream << ['name', 'address', 'zipcode']
+    #     stream << ['Jack', 'Somewhere', 12345]
+    #     stream << ['Joe', 'Lost', 32443]
     #   end
     #
     # Output:
-    #   name, add
+    #   ...
     #
     class Writer
       # Write a record as a Hash at a time to a file or stream.
@@ -24,8 +26,7 @@ module IOStreams
         end
       end
 
-      # Create a Tabular writer that takes individual
-      # Parse a delimited data source.
+      # Create a Tabular writer that takes individual rows as arrays.
       #
       # Parameters
       #   delimited: [#<<]
@@ -45,19 +46,17 @@ module IOStreams
         delimited << @tabular.render(columns) if columns && @tabular.requires_header?
       end
 
-      def <<(hash)
-        raise(ArgumentError, 'Must supply a Hash') unless hash.is_a?(Hash)
-        if tabular.requires_header?
-          columns                = hash.keys
-          tabular.header.columns = columns
-          delimited << tabular.render(columns)
-        end
-        delimited << tabular.render(hash)
+      # Supply a hash or an array to render
+      def <<(array)
+        raise(ArgumentError, 'Must supply an Array') unless array.is_a?(Array)
+        # If header (columns) was not supplied as an argument, assume first line is the header.
+        tabular.header.columns = array if tabular.requires_header?
+        delimited << tabular.render(array)
       end
 
       private
 
-      attr_reader :tabular, :delimited, :cleanse_header
+      attr_reader :tabular, :delimited
     end
   end
 end

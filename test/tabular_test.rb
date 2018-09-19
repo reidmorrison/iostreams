@@ -77,49 +77,49 @@ class TabularTest < Minitest::Test
       end
     end
 
-    describe '#parse' do
+    describe '#record_parse' do
       before do
         @tabular = IOStreams::Tabular.new(columns: ['first_field', 'second', 'third'])
       end
 
       it 'format :array' do
         @tabular.format = :array
-        assert hash = @tabular.parse([1, 2, 3])
+        assert hash = @tabular.record_parse([1, 2, 3])
         assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
       end
 
       it 'format :csv' do
-        assert hash = @tabular.parse('1,2,3')
+        assert hash = @tabular.record_parse('1,2,3')
         assert_equal({'first_field' => '1', 'second' => '2', 'third' => '3'}, hash)
       end
 
       it 'format :hash' do
         @tabular.format = :hash
-        assert hash = @tabular.parse('first_field' => 1, 'second' => 2, 'third' => 3)
+        assert hash = @tabular.record_parse('first_field' => 1, 'second' => 2, 'third' => 3)
         assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
       end
 
       it 'format :json' do
         @tabular.format = :json
-        assert hash = @tabular.parse('{"first_field":1,"second":2,"third":3}')
+        assert hash = @tabular.record_parse('{"first_field":1,"second":2,"third":3}')
         assert_equal({'first_field' => 1, 'second' => 2, 'third' => 3}, hash)
       end
 
       it 'format :psv' do
         @tabular.format = :psv
-        assert hash = @tabular.parse('1|2|3')
+        assert hash = @tabular.record_parse('1|2|3')
         assert_equal({'first_field' => '1', 'second' => '2', 'third' => '3'}, hash)
       end
 
       it 'skips columns not in the whitelist' do
         @tabular.header.allowed_columns = ['first', 'second', 'third', 'fourth', 'fifth']
         @tabular.cleanse_header!
-        assert hash = @tabular.parse('1,2,3')
+        assert hash = @tabular.record_parse('1,2,3')
         assert_equal({'second' => '2', 'third' => '3'}, hash)
       end
 
       it 'handles missing values' do
-        assert hash = @tabular.parse('1,2')
+        assert hash = @tabular.record_parse('1,2')
         assert_equal({'first_field' => '1', 'second' => '2', 'third' => nil}, hash)
       end
     end

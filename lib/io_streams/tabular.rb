@@ -16,10 +16,10 @@ module IOStreams
   #   tabular.cleanse_header!
   #   # => ["first_field", "second", "third"]
   #
-  #   tabular.parse("1,2,3")
+  #   tabular.record_parse("1,2,3")
   #   # => {"first_field"=>"1", "second"=>"2", "third"=>"3"}
   #
-  #   tabular.parse([1,2,3])
+  #   tabular.record_parse([1,2,3])
   #   # => {"first_field"=>1, "second"=>2, "third"=>3}
   #
   #   tabular.render([5,6,9])
@@ -82,19 +82,25 @@ module IOStreams
     # Notes:
     # * Call `parse_header?` first to determine if the header should be parsed first.
     # * The header columns are set after parsing the row, but the header is not cleansed.
-    def parse_header(row)
-      return if self.class.blank?(row) || !parser.requires_header?
+    def parse_header(line)
+      return if self.class.blank?(line) || !parser.requires_header?
 
-      header.columns = parser.parse(row)
+      header.columns = parser.parse(line)
     end
 
-    # Returns [Hash] the row/line as a hash.
-    # Returns nil if the row/line is blank.
-    def parse(row)
-      return if self.class.blank?(row)
+    # Returns [Hash<String,Object>] the line as a hash.
+    # Returns nil if the line is blank.
+    def record_parse(line)
+      line = row_parse(line)
+      header.to_hash(line) if line
+    end
 
-      row = parser.parse(row)
-      header.to_hash(row)
+    # Returns [Array] the row/line as a parsed Array of values.
+    # Returns nil if the row/line is blank.
+    def row_parse(line)
+      return if self.class.blank?(line)
+
+      parser.parse(line)
     end
 
     # Renders the output row

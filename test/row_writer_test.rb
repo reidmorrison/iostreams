@@ -1,8 +1,8 @@
 require_relative 'test_helper'
 require 'csv'
 
-class RecordWriterTest < Minitest::Test
-  describe IOStreams::Record::Writer do
+class RowWriterTest < Minitest::Test
+  describe IOStreams::Row::Writer do
     let :csv_file_name do
       File.join(File.dirname(__FILE__), 'files', 'test.csv')
     end
@@ -13,12 +13,6 @@ class RecordWriterTest < Minitest::Test
 
     let :csv_rows do
       CSV.read(csv_file_name)
-    end
-
-    let :inputs do
-      rows   = csv_rows.dup
-      header = rows.shift
-      rows.collect { |row| header.zip(row).to_h }
     end
 
     let :temp_file do
@@ -35,8 +29,8 @@ class RecordWriterTest < Minitest::Test
 
     describe '.open' do
       it 'file' do
-        IOStreams::Record::Writer.open(file_name) do |io|
-          inputs.each { |hash| io << hash }
+        IOStreams::Row::Writer.open(file_name) do |io|
+          csv_rows.each { |array| io << array }
         end
         result = File.read(file_name)
         assert_equal raw_csv_data, result
@@ -45,8 +39,8 @@ class RecordWriterTest < Minitest::Test
       it 'stream' do
         io_string = StringIO.new
         IOStreams::Line::Writer.open(io_string) do |io|
-          IOStreams::Record::Writer.open(io) do |stream|
-            inputs.each { |row| stream << row }
+          IOStreams::Row::Writer.open(io) do |stream|
+            csv_rows.each { |array| stream << array }
           end
         end
         assert_equal raw_csv_data, io_string.string

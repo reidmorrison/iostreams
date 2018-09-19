@@ -60,27 +60,13 @@ module IOStreams
   # Note:
   # * Passes the file_name_or_io as-is into the block if it is already a reader stream AND
   #   no streams are passed in.
-  #
-  # TODO: Add support for different schemes, such as file://, s3://, sftp://
   def self.reader(file_name_or_io, streams: nil, file_name: nil, &block)
     stream(:reader, file_name_or_io, streams: streams, file_name: file_name, &block)
   end
 
-  # Iterate over a file / stream returning each record/line one at a time.
-  def self.each_line(file_name_or_io,
-    streams: nil,
-    delimiter: nil,
-    encoding: IOStreams::UTF8_ENCODING,
-    strip_non_printable: false,
-    file_name: nil,
-    &block)
-
-    line_reader(file_name_or_io,
-                streams:             streams,
-                delimiter:           delimiter,
-                encoding:            encoding,
-                strip_non_printable: strip_non_printable,
-                file_name:           file_name) do |line_stream|
+  # Iterate over a file / stream returning one line at a time.
+  def self.each_line(file_name_or_io, **args, &block)
+    line_reader(file_name_or_io, **args) do |line_stream|
       line_stream.each(&block)
     end
   end
@@ -97,24 +83,8 @@ module IOStreams
   #   IOStreams.each_record(file_name) do |hash|
   #     p hash
   #   end
-  def self.each_record(file_name_or_io,
-    streams: nil,
-    delimiter: nil,
-    encoding: IOStreams::UTF8_ENCODING,
-    strip_non_printable: false,
-    file_name: nil,
-    **args,
-    &block)
-
-    # TODO: When a file_name is supplied extract the tabular format from the filename. E.g. .csv, .json, etc.
-
-    record_reader(file_name_or_io,
-                  streams:             streams,
-                  delimiter:           delimiter,
-                  encoding:            encoding,
-                  strip_non_printable: strip_non_printable,
-                  file_name:           file_name,
-                  **args) do |record_stream|
+  def self.each_record(file_name_or_io, **args, &block)
+    record_reader(file_name_or_io,**args) do |record_stream|
       record_stream.each(&block)
     end
   end
@@ -175,22 +145,27 @@ module IOStreams
     stream(:writer, file_name_or_io, streams: streams, file_name: file_name, &block)
   end
 
-  def self.line_writer(file_name_or_io,
-    streams: nil,
-    delimiter: nil,
-    encoding: IOStreams::UTF8_ENCODING,
-    strip_non_printable: false,
-    file_name: nil,
-    &block)
-
+  def self.line_writer(file_name_or_io, streams: nil, file_name: nil, **args, &block)
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Writer) || file_name_or_io.is_a?(Array)
 
     writer(file_name_or_io, streams: streams, file_name: file_name) do |io|
-      IOStreams::Line::Writer.open(io,
-                                   delimiter:           delimiter,
-                                   encoding:            encoding,
-                                   strip_non_printable: strip_non_printable,
-                                   &block)
+      IOStreams::Line::Writer.open(io, **args, &block)
+    end
+  end
+
+  def self.row_writer(file_name_or_io, streams: nil, file_name: nil, **args, &block)
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Row::Writer)
+
+    line_writer(file_name_or_io, streams: streams, file_name: file_name) do |io|
+      IOStreams::Row::Writer.open(io, **args, &block)
+    end
+  end
+
+  def self.record_writer(file_name_or_io, streams: nil, file_name: nil, **args, &block)
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Writer)
+
+    line_writer(file_name_or_io, streams: streams, file_name: file_name) do |io|
+      IOStreams::Record::Writer.open(io, **args, &block)
     end
   end
 
@@ -391,6 +366,8 @@ module IOStreams
 
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Reader)
 
+    # TODO: When a file_name is supplied extract the tabular format from the filename. E.g. .csv, .json, etc.
+
     line_reader(
       streams:             streams,
       delimiter:           delimiter,
@@ -404,6 +381,8 @@ module IOStreams
 
   # Returns a reader or writer stream
   def self.stream(type, file_name_or_io, streams:, file_name:, &block)
+    # TODO: Add support for different schemes, such as file://, s3://, sftp://
+
     streams = streams_for_file_name(file_name) if streams.nil? && file_name
 
     # Shortcut for when it is already a stream and no further streams need to be applied.

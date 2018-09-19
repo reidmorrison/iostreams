@@ -34,10 +34,8 @@ module IOStreams
 
         # Returns [String] fixed format values extracted from the supplied hash.
         # String will be encoded to `encoding`
-        def render(hash, _header)
-          unless row.is_a?(Hash)
-            raise(Tabular::Errors::TypeMismatch, "Format is :fixed. Invalid render input: #{row.class.name}")
-          end
+        def render(row, header)
+          hash = header.to_hash(row)
 
           result = encoding.nil? ? '' : ''.encode(encoding)
           fixed_format.each do |map|

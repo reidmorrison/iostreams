@@ -1,10 +1,6 @@
 require 'io_streams/version'
 #@formatter:off
 module IOStreams
-  # module CSV
-  #   autoload :Reader, 'io_streams/csv/reader'
-  #   autoload :Writer, 'io_streams/csv/writer'
-  # end
   module Bzip2
     autoload :Reader, 'io_streams/bzip2/reader'
     autoload :Writer, 'io_streams/bzip2/writer'
@@ -38,6 +34,10 @@ module IOStreams
   module Record
     autoload :Reader, 'io_streams/record/reader'
     autoload :Writer, 'io_streams/record/writer'
+  end
+  module Row
+    autoload :Reader, 'io_streams/row/reader'
+    autoload :Writer, 'io_streams/row/writer'
   end
   module Xlsx
     autoload :Reader, 'io_streams/xlsx/reader'

@@ -1,8 +1,8 @@
 module IOStreams
-  module Record
-    # Converts each line of an input stream into hash for every row
+  module Row
+    # Converts each line of an input stream into an array for every line
     class Reader
-      # Read a record as a Hash at a time from a file or stream.
+      # Read a line as an Array at a time from a file or stream.
       def self.open(file_name_or_io, delimiter: nil, buffer_size: 65536, encoding: UTF8_ENCODING, strip_non_printable: false, **args)
         if file_name_or_io.is_a?(String)
           IOStreams.line_reader(file_name_or_io,
@@ -17,8 +17,7 @@ module IOStreams
         end
       end
 
-      # Create a Tabular reader to return the stream as Hash records
-      # Parse a delimited data source.
+      # Create a Tabular reader to return the stream rows as arrays.
       #
       # Parameters
       #   delimited: [#each]
@@ -37,10 +36,11 @@ module IOStreams
       def each
         delimited.each do |line|
           if tabular.requires_header?
-            tabular.parse_header(line)
+            columns = tabular.parse_header(line)
             tabular.cleanse_header! if cleanse_header
+            yield columns
           else
-            yield tabular.record_parse(line)
+            yield tabular.row_parse(line)
           end
         end
       end

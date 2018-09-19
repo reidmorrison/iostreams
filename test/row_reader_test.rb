@@ -1,25 +1,19 @@
 require_relative 'test_helper'
 
-class RecordReaderTest < Minitest::Test
-  describe IOStreams::Record::Reader do
+class RowReaderTest < Minitest::Test
+  describe IOStreams::Row::Reader do
     let :file_name do
       File.join(File.dirname(__FILE__), 'files', 'test.csv')
     end
 
-    let :csv_rows do
-      CSV.read(file_name)
-    end
-
     let :expected do
-      rows   = csv_rows.dup
-      header = rows.shift.map(&:strip)
-      rows.collect { |row| header.zip(row).to_h }
+      CSV.read(file_name)
     end
 
     describe '.open' do
       it 'file' do
         rows = []
-        IOStreams::Record::Reader.open(file_name) do |io|
+        IOStreams::Row::Reader.open(file_name) do |io|
           io.each { |row| rows << row }
         end
         assert_equal expected, rows
@@ -28,7 +22,7 @@ class RecordReaderTest < Minitest::Test
       it 'stream' do
         rows = []
         IOStreams.line_reader(file_name) do |file|
-          IOStreams::Record::Reader.open(file) do |io|
+          IOStreams::Row::Reader.open(file) do |io|
             io.each { |row| rows << row }
           end
         end
