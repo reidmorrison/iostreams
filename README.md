@@ -5,20 +5,31 @@ Input and Output streaming for Ruby.
 
 ## Project Status
 
-Beta - Feedback on the API is welcome. API is subject to change.
+Production Ready, but API is subject to breaking changes until V1 is released.
 
 ## Features
 
-Currently streaming classes are available for:
+Supported file / stream types:
 
 * Zip
 * Gzip
 * BZip2
 * CSV
-* Delimited Lines / Rows
-* PGP
+* PGP (Uses GnuPG)
 * Xlsx (Reading)
 * Encryption using [Symmetric Encryption](https://github.com/reidmorrison/symmetric-encryption)
+
+Streaming support currently under development:
+
+* S3
+* SFTP
+
+Supported file formats:
+
+* CSV
+* Fixed width formats
+* JSON
+* PSV
 
 ## Introduction
 
@@ -75,36 +86,155 @@ through the entire file.
 Where possible each stream never goes to disk, which for example could expose
 un-encrypted data.
 
-## Architecture
+## Examples
 
-Streams are chained together by passing the 
+While decompressing the file, display 128 characters at a time from the file.
 
-Every Reader or Writer is invoked by calling its `.open` method and passing the block
-that must be invoked for the duration of that stream.
+~~~ruby
+require 'iostreams'
+IOStreams.reader('abc.csv') do |io|
+  p data while (data = io.read(128))
+end
+~~~
 
-The above block is passed the stream that needs to be encoded/decoded using that
-Reader or Writer every time the `#read` or `#write` method is called on it.
+While decompressing the file, display one line at a time from the file.
 
-### Readers
+~~~ruby
+IOStreams.each_line('abc.csv') do |line|
+  puts line
+end
+~~~
 
-Each reader stream must implement: `#read`
+While decompressing the file, display each row from the csv file as an array.
 
-### Writer
+~~~ruby
+IOStreams.each_row('abc.csv') do |array|
+  p array
+end
+~~~
 
-Each writer stream must implement: `#write`
+While decompressing the file, display each record from the csv file as a hash.
+The first line is assumed to be the header row.
 
-### Optional methods
+~~~ruby
+IOStreams.each_record('abc.csv') do |hash|
+  p hash
+end
+~~~
 
-The following methods on the stream are useful for both Readers and Writers
+Display each line from the array as a hash.
+The first line is assumed to be the header row.
 
-### close
+~~~ruby
+array = [
+  'name, address, zip_code',
+  'Jack, Down Under, 12345'
+]
+IOStreams.each_record(array) do |hash|
+  p hash
+end
+~~~
 
-Close the stream, and cleanup any buffers, etc.
+Write data while compressing the file.
 
-### closed?
+~~~ruby
+IOStreams.writer('abc.csv') do |io|
+  io.write('This')
+  io.write(' is ')
+  io.write(" one line\n")
+end
+~~~
 
-Has the stream already been closed? Useful, when child streams have already closed the stream
-so that `#close` is not called more than once on a stream.
+Write a line at a time while compressing the file.
+
+~~~ruby
+IOStreams.line_writer('abc.csv') do |file|
+  file << 'these'
+  file << 'are'
+  file << 'all'
+  file << 'separate'
+  file << 'lines'
+end
+~~~
+
+Write an array (row) at a time while compressing the file.
+Each array is converted to csv before being compressed with zip.
+
+~~~ruby
+IOStreams.row_writer('abc.csv') do |io|
+  io << %w[name address zip_code]
+  io << %w[Jack There 1234]
+  io << ['Joe', 'Over There somewhere', 1234]
+end
+~~~
+
+Write a hash (record) at a time while compressing the file.
+Each hash is converted to csv before being compressed with zip.
+The header row is extracted from the first hash supplied.
+
+~~~ruby
+IOStreams.record_writer('abc.csv') do |stream|
+  stream << {name: 'Jack', address: 'There', zip_code: 1234}
+  stream << {name: 'Joe', address: 'Over There somewhere', zip_code: 1234}
+end
+~~~
+
+Write to a string IO for testing, supplying the filename so that the streams can be determined.
+
+~~~ruby
+io = StringIO.new
+IOStreams::Tabular::Writer(io, file_name: 'abc.csv') do |stream|
+  stream << {name: 'Jack', address: 'There', zip_code: 1234}
+  stream << {name: 'Joe', address: 'Over There somewhere', zip_code: 1234}
+end
+puts io.string
+~~~
+
+Read a CSV file and write the output to an encrypted file in JSON format.
+
+~~~ruby
+IOStreams.record_writer('sample.json.enc') do |output|
+  IOStreams.each_record('sample.csv') do |record|
+    output << record
+  end
+end
+~~~
+
+## Copying between files
+
+Stream based file copying. Changes the file type without changing the file format. For example, compress or encrypt. 
+
+Encrypt the contents of the file `sample.json` and write to `sample.json.enc`
+
+~~~ruby
+IOStreams.copy('sample.json', 'sample.json.enc')
+~~~
+
+Encrypt and compress the contents of the file `sample.json` with Symmetric Encryption and write to `sample.json.enc`
+
+~~~ruby
+IOStreams.copy('sample.json', 'sample.json.enc', target_options: {streams: {enc: {compress: true}}})
+~~~
+
+Encrypt and compress the contents of the file `sample.json` with pgp and write to `sample.json.enc`
+
+~~~ruby
+IOStreams.copy('sample.json', 'sample.json.pgp', target_options: {streams: {pgp: {recipient: 'sender@example.org'}}})
+~~~
+
+Decrypt the file `abc.csv.enc` and write it to `xyz.csv`.
+
+~~~ruby
+IOStreams.copy('abc.csv.enc', 'xyz.csv')
+~~~
+
+Read `ABC`, PGP encrypt the file and write to `xyz.csv.pgp`, applying 
+
+~~~ruby
+IOStreams.copy('ABC', 'xyz.csv.pgp',
+               source_options: [:enc],
+               target_options: [pgp: {email_recipient: 'a@a.com'})
+~~~
 
 ## Notes
 
@@ -114,33 +244,10 @@ so that `#close` is not called more than once on a stream.
 * Zip becomes exponentially slower with very large files, especially files
   that exceed 4GB when uncompressed. Highly recommend using GZip for large files.
 
-## Future
-
-Below are just some of the streams that are envisaged for `iostreams`:
-* PGP reader and write
-    * Read and write PGP encrypted files
-* CSV
-    * Read and write CSV data, reading data back as Arrays and writing Arrays as CSV text
-* Delimited Text Stream
-    * Autodetect Windows/Linux line endings and return a line at a time
-* MongoFS
-    * Read and write file streams to and from MongoFS
-    
-For example:
-```ruby
-# Read a CSV file, delimited with Windows line endings, compressed with GZip, and encrypted with PGP:
-IOStreams.reader('hello.csv.gz.pgp', [:csv, :delimited, :gz, :pgp]) do |reader|
-  # Returns an Array at a time
-  reader.each do |row|
-    puts "Read: #{row.inspect}"
-  end
-end
-```
-
 To completely implement io streaming for Ruby will take a lot more input and thoughts
 from the Ruby community. This gem represents a starting point to get the discussion going.
 
-By keeping this gem in Beta state and not going V1, we can change the interface as needed
+By keeping this gem a 0.x version and not going V1, we can change the interface as needed
 to implement community feedback.
 
 ## Versioning
