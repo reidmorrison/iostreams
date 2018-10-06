@@ -5,7 +5,7 @@ module IOStreams
       # For parsing a single line of JSON at a time
       class Json < Base
         def parse(row)
-          raise(Tabular::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
+          raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
 
           JSON.parse(row)
         end

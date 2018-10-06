@@ -28,7 +28,6 @@ module IOStreams
   #   tabular.render({"third"=>"3", "first_field"=>"1" })
   #   # => "1,,3"
   class Tabular
-    autoload :Errors, 'io_streams/tabular/errors'
     autoload :Header, 'io_streams/tabular/header'
 
     module Parser
@@ -66,8 +65,13 @@ module IOStreams
     end
 
     # Returns [true|false] whether a header row needs to be read first.
-    def requires_header?
+    def parse_header?
       parser.requires_header? && IOStreams.blank?(header.columns)
+    end
+
+    # Returns [true|false] whether a header row show be rendered on output.
+    def render_header?
+      parser.requires_header?
     end
 
     # Returns [Array] the header row/line after parsing and cleansing.
@@ -110,54 +114,58 @@ module IOStreams
       header.columns
     end
 
-    # Register a file extension and the reader and writer classes to use to format it
+    # Register a format and the parser class for it.
     #
     # Example:
-    #   # MyXls::Reader and MyXls::Writer must implement .open
-    #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
-    def self.register_extension(extension, parser)
-      raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
-      @extensions[extension.nil? ? nil : extension.to_sym] = parser
+    #   register_format(:csv, IOStreams::Tabular::Parser::Csv)
+    def self.register_format(format, parser)
+      raise(ArgumentError, "Invalid format #{format.inspect}") unless format.nil? || format.to_s =~ /\A\w+\Z/
+      @formats[format.nil? ? nil : format.to_sym] = parser
     end
 
-    # De-Register a file extension
+    # De-Register a file format
     #
-    # Returns [Symbol] the extension removed, or nil if the extension was not registered
+    # Returns [Symbol] the format removed, or nil if the format was not registered
     #
     # Example:
     #   register_extension(:xls)
-    def self.deregister_extension(extension)
-      raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
-      @extensions.delete(extension.to_sym)
+    def self.deregister_format(format)
+      raise(ArgumentError, "Invalid format #{format.inspect}") unless format.to_s =~ /\A\w+\Z/
+      @formats.delete(format.to_sym)
+    end
+
+    # Returns [Array<Symbol>] the list of registered formats
+    def self.registered_formats
+      @formats.keys
     end
 
     private
 
     # A registry to hold formats for processing files during upload or download
-    @extensions = {}
+    @formats = {}
 
     def self.parser_class(format)
-      @extensions[format.nil? ? nil : format.to_sym] || raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
+      @formats[format.nil? ? nil : format.to_sym] || raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
     end
 
     # Returns the parser to use with tabular for the supplied file_name
     def self.parser_class_for_file_name(file_name)
-      extension = nil
+      format = nil
       file_name.to_s.split('.').reverse_each do |ext|
-        if @extensions.include?(ext.to_sym)
-          extension = ext.to_sym
+        if @formats.include?(ext.to_sym)
+          format = ext.to_sym
           break
         end
       end
-      parser_class(extension)
+      parser_class(format)
     end
 
-    register_extension(nil, IOStreams::Tabular::Parser::Csv)
-    register_extension(:array, IOStreams::Tabular::Parser::Array)
-    register_extension(:csv, IOStreams::Tabular::Parser::Csv)
-    register_extension(:fixed, IOStreams::Tabular::Parser::Fixed)
-    register_extension(:hash, IOStreams::Tabular::Parser::Hash)
-    register_extension(:json, IOStreams::Tabular::Parser::Json)
-    register_extension(:psv, IOStreams::Tabular::Parser::Psv)
+    register_format(nil, IOStreams::Tabular::Parser::Csv)
+    register_format(:array, IOStreams::Tabular::Parser::Array)
+    register_format(:csv, IOStreams::Tabular::Parser::Csv)
+    register_format(:fixed, IOStreams::Tabular::Parser::Fixed)
+    register_format(:hash, IOStreams::Tabular::Parser::Hash)
+    register_format(:json, IOStreams::Tabular::Parser::Json)
+    register_format(:psv, IOStreams::Tabular::Parser::Psv)
   end
 end

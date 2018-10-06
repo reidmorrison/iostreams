@@ -5,13 +5,15 @@ module IOStreams
       include Enumerable
 
       # Read a record as a Hash at a time from a file or stream.
-      def self.open(file_name_or_io, delimiter: nil, buffer_size: 65536, encoding: UTF8_ENCODING, strip_non_printable: false, **args)
+      def self.open(file_name_or_io, delimiter: nil, buffer_size: 65536, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args)
         if file_name_or_io.is_a?(String)
           IOStreams.line_reader(file_name_or_io,
-                                delimiter:           delimiter,
-                                buffer_size:         buffer_size,
-                                encoding:            encoding,
-                                strip_non_printable: strip_non_printable) do |io|
+                                delimiter:      delimiter,
+                                buffer_size:    buffer_size,
+                                encoding:       encoding,
+                                encode_cleaner: encode_cleaner,
+                                encode_replace: encode_replace
+          ) do |io|
             yield new(io, file_name: file_name_or_io, **args)
           end
         else
@@ -38,7 +40,7 @@ module IOStreams
 
       def each
         delimited.each do |line|
-          if tabular.requires_header?
+          if tabular.parse_header?
             tabular.parse_header(line)
             tabular.cleanse_header! if cleanse_header
           else

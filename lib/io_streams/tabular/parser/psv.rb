@@ -7,7 +7,7 @@ module IOStreams
         # Returns nil if the row is blank.
         def parse_header(row)
           unless row.is_a?(String)
-            raise(Tabular::Errors::InvalidHeader, "Format is :psv. Invalid input header: #{row.class.name}")
+            raise(IOStreams::Errors::InvalidHeader, "Format is :psv. Invalid input header: #{row.class.name}")
           end
 
           row.split('|')
@@ -15,7 +15,7 @@ module IOStreams
 
         # Returns [Array] the parsed PSV line
         def parse(row)
-          raise(Tabular::Errors::TypeMismatch, "Format is :psv. Invalid input: #{row.class.name}") unless row.is_a?(String)
+          raise(IOStreams::Errors::TypeMismatch, "Format is :psv. Invalid input: #{row.class.name}") unless row.is_a?(String)
 
           row.split('|')
         end

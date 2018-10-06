@@ -60,20 +60,20 @@ module IOStreams
   # Note:
   # * Passes the file_name_or_io as-is into the block if it is already a reader stream AND
   #   no streams are passed in.
-  def self.reader(file_name_or_io, streams: nil, file_name: nil, &block)
-    stream(:reader, file_name_or_io, streams: streams, file_name: file_name, &block)
+  def self.reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, &block)
+    stream(:reader, file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, &block)
   end
 
   # Iterate over a file / stream returning one line at a time.
-  def self.each_line(file_name_or_io, **args, &block)
-    line_reader(file_name_or_io, **args) do |line_stream|
+  def self.each_line(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
+    line_reader(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, **args) do |line_stream|
       line_stream.each(&block)
     end
   end
 
   # Iterate over a file / stream returning one line at a time.
-  def self.each_row(file_name_or_io, **args, &block)
-    row_reader(file_name_or_io, **args) do |row_stream|
+  def self.each_row(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
+    row_reader(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, **args) do |row_stream|
       row_stream.each(&block)
     end
   end
@@ -90,8 +90,8 @@ module IOStreams
   #   IOStreams.each_record(file_name) do |hash|
   #     p hash
   #   end
-  def self.each_record(file_name_or_io, **args, &block)
-    record_reader(file_name_or_io, **args) do |record_stream|
+  def self.each_record(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
+    record_reader(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, **args) do |record_stream|
       record_stream.each(&block)
     end
   end
@@ -148,32 +148,32 @@ module IOStreams
   # Note:
   # * Passes the file_name_or_io as-is into the block if it is already a writer stream AND
   #   no streams are passed in.
-  def self.writer(file_name_or_io, streams: nil, file_name: nil, &block)
-    stream(:writer, file_name_or_io, streams: streams, file_name: file_name, &block)
+  def self.writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, &block)
+    stream(:writer, file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, &block)
   end
 
-  def self.line_writer(file_name_or_io, streams: nil, file_name: nil, **args, &block)
+  def self.line_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Writer) || file_name_or_io.is_a?(Array)
 
-    writer(file_name_or_io, streams: streams, file_name: file_name) do |io|
+    writer(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace) do |io|
       IOStreams::Line::Writer.open(io, **args, &block)
     end
   end
 
-  def self.row_writer(file_name_or_io, streams: nil, file_name: nil, **args, &block)
+  def self.row_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Row::Writer)
 
-    line_writer(file_name_or_io, streams: streams, file_name: file_name) do |io|
+    line_writer(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace) do |io|
       file_name = file_name_or_io if file_name.nil? && file_name_or_io.is_a?(String)
 
       IOStreams::Row::Writer.open(io, file_name: file_name, **args, &block)
     end
   end
 
-  def self.record_writer(file_name_or_io, streams: nil, file_name: nil, **args, &block)
+  def self.record_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Writer)
 
-    line_writer(file_name_or_io, streams: streams, file_name: file_name) do |io|
+    line_writer(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace) do |io|
       file_name = file_name_or_io if file_name.nil? && file_name_or_io.is_a?(String)
 
       IOStreams::Record::Writer.open(io, file_name: file_name, **args, &block)
@@ -311,12 +311,12 @@ module IOStreams
   end
 
   # Iterate over a file / stream returning each record/line one at a time.
-  def self.line_reader(file_name_or_io, streams: nil, file_name: nil, **args, &block)
+  def self.line_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Reader) ||
       file_name_or_io.is_a?(IOStreams::Xlsx::Reader) ||
       file_name_or_io.is_a?(Array)
 
-    reader(file_name_or_io, streams: streams, file_name: file_name) do |io|
+    reader(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace) do |io|
       IOStreams::Line::Reader.open(io, **args, &block)
     end
   end
@@ -325,9 +325,10 @@ module IOStreams
   def self.row_reader(file_name_or_io,
     streams: nil,
     delimiter: nil,
-    encoding: IOStreams::UTF8_ENCODING,
-    strip_non_printable: false,
     file_name: nil,
+    encoding: nil,
+    encode_cleaner: nil,
+    encode_replace: nil,
     **args,
     &block)
 
@@ -335,12 +336,13 @@ module IOStreams
 
     line_reader(
       file_name_or_io,
-      streams:             streams,
-      delimiter:           delimiter,
-      encoding:            encoding,
-      strip_non_printable: strip_non_printable,
-      file_name:           file_name) do |io|
-
+      streams:        streams,
+      delimiter:      delimiter,
+      file_name:      file_name,
+      encoding:       encoding,
+      encode_cleaner: encode_cleaner,
+      encode_replace: encode_replace
+    ) do |io|
       file_name = file_name_or_io if file_name.nil? && file_name_or_io.is_a?(String)
       IOStreams::Row::Reader.open(io, file_name: file_name, **args, &block)
     end
@@ -350,9 +352,10 @@ module IOStreams
   def self.record_reader(file_name_or_io,
     streams: nil,
     delimiter: nil,
-    encoding: IOStreams::UTF8_ENCODING,
-    strip_non_printable: false,
     file_name: nil,
+    encoding: nil,
+    encode_cleaner: nil,
+    encode_replace: nil,
     **args,
     &block)
 
@@ -360,11 +363,13 @@ module IOStreams
 
     line_reader(
       file_name_or_io,
-      streams:             streams,
-      delimiter:           delimiter,
-      encoding:            encoding,
-      strip_non_printable: strip_non_printable,
-      file_name:           file_name) do |io|
+      streams:        streams,
+      delimiter:      delimiter,
+      file_name:      file_name,
+      encoding:       encoding,
+      encode_cleaner: encode_cleaner,
+      encode_replace: encode_replace
+    ) do |io|
 
       file_name = file_name_or_io if file_name.nil? && file_name_or_io.is_a?(String)
       IOStreams::Record::Reader.open(io, file_name: file_name, **args, &block)
@@ -414,7 +419,7 @@ module IOStreams
   StreamStruct = Struct.new(:klass, :options)
 
   # Returns a reader or writer stream
-  def self.stream(type, file_name_or_io, streams:, file_name:, &block)
+  def self.stream(type, file_name_or_io, streams:, file_name:, encoding: nil, encode_cleaner: nil, encode_replace: nil, &block)
     # TODO: Add support for different schemes, such as file://, s3://, sftp://
 
     streams = streams_for_file_name(file_name) if streams.nil? && file_name
@@ -427,6 +432,17 @@ module IOStreams
     end
 
     stream_structs = streams_for(type, streams)
+
+    # Add encoding stream if any of its options are present
+    if encoding || encode_cleaner || encode_replace
+      klass                    = type == :reader ? IOStreams::Encode::Reader : IOStreams::Encode::Writer
+      options                  = {}
+      options[:encoding]       = encoding if encoding
+      options[:encode_cleaner] = encode_cleaner if encode_cleaner
+      options[:encode_replace] = encode_replace if encode_replace
+      stream_structs.unshift(StreamStruct.new(klass, options))
+    end
+
     if stream_structs.size == 1
       stream_struct = stream_structs.first
       stream_struct.klass.open(file_name_or_io, stream_struct.options, &block)

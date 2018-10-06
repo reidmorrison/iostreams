@@ -6,13 +6,13 @@ module IOStreams
         # Returns [Array<String>] the header row.
         # Returns nil if the row is blank.
         def parse_header(row)
-          raise(Tabular::Errors::InvalidHeader, "Format is :array. Invalid input header: #{row.class.name}") unless row.is_a?(::Array)
+          raise(IOStreams::Errors::InvalidHeader, "Format is :array. Invalid input header: #{row.class.name}") unless row.is_a?(::Array)
           row
         end
 
         # Returns Array
         def parse(row)
-          raise(Tabular::Errors::TypeMismatch, "Format is :array. Invalid input: #{row.class.name}") unless row.is_a?(::Array)
+          raise(IOStreams::Errors::TypeMismatch, "Format is :array. Invalid input: #{row.class.name}") unless row.is_a?(::Array)
           row
         end
 

@@ -1,6 +1,8 @@
 require 'io_streams/version'
 #@formatter:off
 module IOStreams
+  autoload :Errors,  'io_streams/errors'
+
   module Bzip2
     autoload :Reader, 'io_streams/bzip2/reader'
     autoload :Writer, 'io_streams/bzip2/writer'
@@ -27,6 +29,10 @@ module IOStreams
     autoload :Writer, 'io_streams/zip/writer'
   end
 
+  module Encode
+    autoload :Reader, 'io_streams/encode/reader'
+    autoload :Writer, 'io_streams/encode/writer'
+  end
   module Line
     autoload :Reader, 'io_streams/line/reader'
     autoload :Writer, 'io_streams/line/writer'

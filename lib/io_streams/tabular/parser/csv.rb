@@ -11,14 +11,14 @@ module IOStreams
         # Returns [Array<String>] the header row.
         # Returns nil if the row is blank.
         def parse_header(row)
-          raise(Tabular::Errors::InvalidHeader, "Format is :csv. Invalid input header: #{row.class.name}") unless row.is_a?(String)
+          raise(IOStreams::Errors::InvalidHeader, "Format is :csv. Invalid input header: #{row.class.name}") unless row.is_a?(String)
 
           csv_parser.parse(row)
         end
 
         # Returns [Array] the parsed CSV line
         def parse(row)
-          raise(Tabular::Errors::TypeMismatch, "Format is :csv. Invalid input: #{row.class.name}") unless row.is_a?(String)
+          raise(IOStreams::Errors::TypeMismatch, "Format is :csv. Invalid input: #{row.class.name}") unless row.is_a?(String)
 
           csv_parser.parse(row)
         end

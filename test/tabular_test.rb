@@ -60,7 +60,7 @@ class TabularTest < Minitest::Test
 
         it 'raises exception for columns not in the whitelist' do
           tabular = IOStreams::Tabular.new(columns: ['   first ', 'Unknown Column', 'thirD   '], allowed_columns: @allowed_columns, skip_unknown: false)
-          exc     = assert_raises IOStreams::Tabular::Errors::InvalidHeader do
+          exc     = assert_raises IOStreams::Errors::InvalidHeader do
             tabular.cleanse_header!
           end
           assert_equal 'Unknown columns after cleansing: Unknown Column', exc.message
@@ -69,7 +69,7 @@ class TabularTest < Minitest::Test
         it 'raises exception missing required columns' do
           required = ['first', 'second', 'fifth']
           tabular  = IOStreams::Tabular.new(columns: ['   first ', 'Second', 'thirD   '], allowed_columns: @allowed_columns, required_columns: required)
-          exc      = assert_raises IOStreams::Tabular::Errors::InvalidHeader do
+          exc      = assert_raises IOStreams::Errors::InvalidHeader do
             tabular.cleanse_header!
           end
           assert_equal 'Missing columns after cleansing: fifth', exc.message
@@ -77,7 +77,7 @@ class TabularTest < Minitest::Test
 
         it 'raises exception when no columns left' do
           tabular = IOStreams::Tabular.new(columns: ['one', 'two', 'three'], allowed_columns: @allowed_columns)
-          exc     = assert_raises IOStreams::Tabular::Errors::InvalidHeader do
+          exc     = assert_raises IOStreams::Errors::InvalidHeader do
             tabular.cleanse_header!
           end
           assert_equal 'All columns are unknown after cleansing: one,two,three', exc.message

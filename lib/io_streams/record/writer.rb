@@ -11,12 +11,14 @@ module IOStreams
     #
     class Writer
       # Write a record as a Hash at a time to a file or stream.
-      def self.open(file_name_or_io, delimiter: $/, encoding: UTF8_ENCODING, strip_non_printable: false, **args)
+      def self.open(file_name_or_io, delimiter: $/, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args)
         if file_name_or_io.is_a?(String)
           IOStreams.line_writer(file_name_or_io,
-                                delimiter:           delimiter,
-                                encoding:            encoding,
-                                strip_non_printable: strip_non_printable) do |io|
+                                delimiter:      delimiter,
+                                encoding:       encoding,
+                                encode_cleaner: encode_cleaner,
+                                encode_replace: encode_replace
+          ) do |io|
             yield new(io, file_name: file_name_or_io, **args)
           end
         else
@@ -42,12 +44,12 @@ module IOStreams
         @delimited = delimited
 
         # Render header line when `columns` is supplied.
-        delimited << @tabular.render(columns) if columns && @tabular.requires_header?
+        delimited << @tabular.render(columns) if columns && @tabular.render_header?
       end
 
       def <<(hash)
         raise(ArgumentError, 'Must supply a Hash') unless hash.is_a?(Hash)
-        if tabular.requires_header?
+        if tabular.parse_header?
           columns                = hash.keys
           tabular.header.columns = columns
           delimited << tabular.render(columns)

@@ -61,17 +61,17 @@ module IOStreams
         end
 
         if !skip_unknown && !ignored_columns.empty?
-          raise(IOStreams::Tabular::Errors::InvalidHeader, "Unknown columns after cleansing: #{ignored_columns.join(',')}")
+          raise(IOStreams::Errors::InvalidHeader, "Unknown columns after cleansing: #{ignored_columns.join(',')}")
         end
 
         if ignored_columns.size == columns.size
-          raise(IOStreams::Tabular::Errors::InvalidHeader, "All columns are unknown after cleansing: #{ignored_columns.join(',')}")
+          raise(IOStreams::Errors::InvalidHeader, "All columns are unknown after cleansing: #{ignored_columns.join(',')}")
         end
 
         if required_columns
           missing_columns = required_columns - columns
           unless missing_columns.empty?
-            raise(IOStreams::Tabular::Errors::InvalidHeader, "Missing columns after cleansing: #{missing_columns.join(',')}")
+            raise(IOStreams::Errors::InvalidHeader, "Missing columns after cleansing: #{missing_columns.join(',')}")
           end
         end
 
@@ -90,12 +90,12 @@ module IOStreams
 
         case row
         when Array
-          raise(Tabular::Errors::InvalidHeader, "Missing mandatory header when trying to convert a row into a hash") unless columns
+          raise(IOStreams::Errors::InvalidHeader, "Missing mandatory header when trying to convert a row into a hash") unless columns
           array_to_hash(row)
         when Hash
           cleanse && columns ? cleanse_hash(row) : row
         else
-          raise(Tabular::Errors::TypeMismatch, "Don't know how to convert #{row.class.name} to a Hash")
+          raise(IOStreams::Errors::TypeMismatch, "Don't know how to convert #{row.class.name} to a Hash")
         end
       end
 
@@ -104,7 +104,7 @@ module IOStreams
           row = cleanse_hash(row) if cleanse
           row = columns.collect { |column| row[column] }
         end
-        raise(Tabular::Errors::TypeMismatch, "Don't know how to convert #{row.class.name} to an Array without the header columns being set.") unless row.is_a?(Array)
+        raise(IOStreams::Errors::TypeMismatch, "Don't know how to convert #{row.class.name} to an Array without the header columns being set.") unless row.is_a?(Array)
         row
       end
 

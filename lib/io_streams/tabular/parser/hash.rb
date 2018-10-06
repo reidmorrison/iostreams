@@ -4,7 +4,7 @@ module IOStreams
     module Parser
       class Hash < Base
         def parse(row)
-          raise(Tabular::Errors::TypeMismatch, "Format is :hash. Invalid input: #{row.class.name}") unless row.is_a?(::Hash)
+          raise(IOStreams::Errors::TypeMismatch, "Format is :hash. Invalid input: #{row.class.name}") unless row.is_a?(::Hash)
           row
         end
 

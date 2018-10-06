@@ -1,7 +1,7 @@
 module IOStreams
   module Line
     class Writer
-      attr_reader :delimiter, :encoding, :strip_non_printable
+      attr_reader :delimiter
 
       # Write a line at a time to a file or stream
       def self.open(file_name_or_io, **args)
@@ -12,13 +12,10 @@ module IOStreams
         end
       end
 
-      NOT_PRINTABLE = Regexp.compile(/[^[:print:]]/)
-
-      # A delimited stream writer that will write to the supplied output stream
+      # A delimited stream writer that will write to the supplied output stream.
       #
-      # The output stream should be binary with no text conversions performed
-      # since `strip_non_printable` will be applied to the binary stream before
-      # converting to UTF-8
+      # The output stream will have the encoding of data written to it.
+      # To change the output encoding, use IOStreams::Encode::Writer.
       #
       # Parameters
       #   output_stream
@@ -28,22 +25,9 @@ module IOStreams
       #     Add the specified delimiter after every record when writing it
       #     to the output stream
       #     Default: OS Specific. Linux: "\n"
-      #
-      #   encoding:
-      #     Encode data before writing to the output stream.
-      #     Default: UTF8_ENCODING
-      #     Set to nil to disable encoding
-      #
-      #   strip_non_printable: [true|false]
-      #     Strip all non-printable characters before writing to the file / stream.
-      #     Default: false
-      #
-      # TODO: Support replacement character for invalid characters
-      def initialize(output_stream, delimiter: $/, encoding: UTF8_ENCODING, strip_non_printable: false)
-        @output_stream       = output_stream
-        @delimiter           = delimiter.encode(encoding) if delimiter && encoding
-        @encoding            = encoding
-        @strip_non_printable = strip_non_printable
+      def initialize(output_stream, delimiter: $/)
+        @output_stream = output_stream
+        @delimiter     = delimiter
       end
 
       # Write a line to the output stream
@@ -52,8 +36,8 @@ module IOStreams
       #   IOStreams.line_writer('a.txt') do |stream|
       #     stream << 'first line' << 'second line'
       #   end
-      def <<(record)
-        write(record)
+      def <<(data)
+        write(data)
         self
       end
 
@@ -65,17 +49,9 @@ module IOStreams
       #     count = stream.write('first line')
       #     puts "Wrote #{count} bytes to the output file, including the delimiter"
       #   end
-      def write(record)
-        chunk = record.to_s
-        chunk.gsub!(NOT_PRINTABLE, '') if strip_non_printable
-        count = output_stream.write((encoding ? chunk.encode(encoding) : chunk))
-        count += output_stream.write(delimiter) if delimiter
-        count
+      def write(data)
+        @output_stream.write(data.to_s + delimiter)
       end
-
-      private
-
-      attr_reader :output_stream
     end
   end
 end

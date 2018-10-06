@@ -2,7 +2,7 @@ module IOStreams
   module Bzip2
     class Reader
       # Read from a Bzip2 file or stream, decompressing the contents as it is read
-      def self.open(file_name_or_io, _=nil, &block)
+      def self.open(file_name_or_io, **args, &block)
         begin
           require 'rbzip2' unless defined?(RBzip2)
         rescue LoadError => e

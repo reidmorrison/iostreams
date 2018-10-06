@@ -55,7 +55,7 @@ module IOStreams
         # String will be encoded to `encoding`
         def parse(line)
           unless line.is_a?(String)
-            raise(Tabular::Errors::TypeMismatch, "Format is :fixed. Invalid parse input: #{line.class.name}")
+            raise(IOStreams::Errors::TypeMismatch, "Format is :fixed. Invalid parse input: #{line.class.name}")
           end
 
           hash  = {}
