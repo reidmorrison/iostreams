@@ -6,12 +6,16 @@ class EncodeWriterTest < Minitest::Test
       [
         "New M\xE9xico,NE".b,
         'good line',
-        "New M\xE9xico,SF".b
+        "New M\xE9xico,\x07SF".b
       ].join("\n").encode('BINARY')
     end
 
     let :cleansed_data do
       bad_data.gsub("\xE9".b, '?')
+    end
+
+    let :stripped_data do
+      cleansed_data.gsub("\x07", '')
     end
 
     describe '#<<' do
@@ -50,6 +54,15 @@ class EncodeWriterTest < Minitest::Test
         end
         assert_equal 'UTF-8', io.string.encoding.to_s
         assert_equal cleansed_data, io.string
+      end
+
+      it 'stream as utf-8 with replacement and printable cleansing' do
+        io = StringIO.new('')
+        IOStreams::Encode::Writer.open(io, encoding: 'UTF-8', encode_replace: '?', encode_cleaner: :printable) do |encoded|
+          encoded << bad_data
+        end
+        assert_equal 'UTF-8', io.string.encoding.to_s
+        assert_equal stripped_data, io.string
       end
     end
 

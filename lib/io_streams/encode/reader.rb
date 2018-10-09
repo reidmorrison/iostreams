@@ -7,7 +7,7 @@ module IOStreams
       # Builtin strip options to apply after encoding the read data.
       CLEANSE_RULES = {
         # Strips all non printable characters
-        non_printable: -> (data) { data.gsub!(NOT_PRINTABLE, '') || data }
+        printable: -> (data) { data.gsub!(NOT_PRINTABLE, '') || data }
       }
 
       # Read a line at a time from a file or stream
@@ -41,7 +41,7 @@ module IOStreams
       #   encode_cleaner: [nil|symbol|Proc]
       #     Cleanse data read from the input stream.
       #     nil:           No cleansing
-      #     :non_printable Cleanse all non-printable characters except \r and \n
+      #     :printable Cleanse all non-printable characters except \r and \n
       #     Proc/lambda    Proc to call after every read to cleanse the data
       #     Default: nil
       def initialize(input_stream, encoding: 'UTF-8', encode_cleaner: nil, encode_replace: nil)
@@ -61,8 +61,19 @@ module IOStreams
 
       # Returns [String] data returned from the input stream.
       # Returns [nil] if end of file and no further data was read.
-      def read(size = nil, buffer = nil)
-        block = @read_cache_buffer ? @input_stream.read(size, @read_cache_buffer) : @input_stream.read(size)
+      def read(size = nil)
+        block =
+          if @read_cache_buffer
+            begin
+              @input_stream.read(size, @read_cache_buffer)
+            rescue ArgumentError
+              # Handle arity of -1 when just 0..1
+              @read_cache_buffer = nil
+              @input_stream.read(size)
+            end
+          else
+            @input_stream.read(size)
+          end
 
         # EOF reached?
         return unless block

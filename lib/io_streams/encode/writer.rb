@@ -35,7 +35,7 @@ module IOStreams
       #   encode_cleaner: [nil|symbol|Proc]
       #     Cleanse data read from the input stream.
       #     nil:           No cleansing
-      #     :non_printable Cleanse all non-printable characters except \r and \n
+      #     :printable Cleanse all non-printable characters except \r and \n
       #     Proc/lambda    Proc to call after every read to cleanse the data
       #     Default: nil
       def initialize(output_stream, encoding: 'UTF-8', encode_cleaner: nil, encode_replace: nil)
