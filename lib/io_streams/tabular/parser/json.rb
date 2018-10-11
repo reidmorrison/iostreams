@@ -5,6 +5,8 @@ module IOStreams
       # For parsing a single line of JSON at a time
       class Json < Base
         def parse(row)
+          return row if row.is_a?(::Hash)
+
           raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
 
           JSON.parse(row)

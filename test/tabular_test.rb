@@ -135,6 +135,47 @@ class TabularTest < Minitest::Test
         end
       end
 
+      describe ':fixed format' do
+        let :tabular do
+          layout = [
+            {key: 'name', size: 23},
+            {key: 'address', size: 40},
+            {key: 'zip', size: 5}
+          ]
+          IOStreams::Tabular.new(columns: ['name', 'address', 'zip', 'phone'], format: :fixed, format_options: {layout: layout})
+        end
+
+        it 'parses to hash' do
+          assert hash = tabular.record_parse('Jack                   over there                              34618')
+          assert_equal({'name' => 'Jack', 'address' => 'over there', 'zip' => '34618'}, hash)
+        end
+
+        it 'parses short string' do
+          # TODO: Raise exception on lines that are too short?
+          assert hash = tabular.record_parse('Jack                   over th')
+          assert_equal({'name' => 'Jack', 'address' => 'over th', 'zip' => ''}, hash)
+        end
+
+        it 'parses longer string' do
+          # TODO: Raise exception on lines that are too long?
+          assert hash = tabular.record_parse('Jack                   over there                              34618........................................')
+          assert_equal({'name' => 'Jack', 'address' => 'over there', 'zip' => '34618'}, hash)
+        end
+
+        it 'parses empty strings' do
+          assert hash = tabular.record_parse('                                                               34618')
+          assert_equal({'name' => '', 'address' => '', 'zip' => '34618'}, hash)
+        end
+
+        it 'parses nil data as nil' do
+          refute tabular.record_parse(nil)
+        end
+
+        it 'parses empty string as nil' do
+          refute tabular.record_parse('')
+        end
+      end
+
       it 'skips columns not in the whitelist' do
         tabular.header.allowed_columns = ['first', 'second', 'third', 'fourth', 'fifth']
         tabular.cleanse_header!
@@ -177,6 +218,41 @@ class TabularTest < Minitest::Test
         it 'renders psv numeric and pipe data' do
           assert psv_string = tabular.render({'third' => 23, 'first_field' => 'a|b|c', 'second' => '|'})
           assert_equal 'a:b:c|:|23', psv_string
+        end
+      end
+
+      describe ':fixed format' do
+        let :tabular do
+          layout = [
+            {key: 'name', size: 23},
+            {key: 'address', size: 40},
+            {key: 'zip', size: 5}
+          ]
+          IOStreams::Tabular.new(columns: ['name', 'address', 'zip', 'phone'], format: :fixed, format_options: {layout: layout})
+        end
+
+        it 'renders fixed data' do
+          assert string = tabular.render({'name' => 'Jack', 'address' => 'over there', 'zip' => 34618, 'phone' => '5551231234'})
+          assert_equal 'Jack                   over there                              34618', string
+        end
+
+        it 'truncates long data' do
+          assert string = tabular.render({'name' => 'Jack', 'address' => 'over there', 'zip' => 3461832653653265, 'phone' => '5551231234'})
+          assert_equal 'Jack                   over there                              34618', string
+        end
+
+        it 'renders nil as empty string' do
+          assert string = tabular.render('zip' => 3461832653653265)
+          assert_equal '                                                               34618', string
+        end
+
+        it 'renders boolean' do
+          assert string = tabular.render({'name' => true, 'address' => false, 'zip' => nil, 'phone' => '5551231234'})
+          assert_equal 'true                   false                                        ', string
+        end
+
+        it 'renders no data as nil' do
+          refute tabular.render({})
         end
       end
     end

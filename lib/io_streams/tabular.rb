@@ -53,7 +53,7 @@ module IOStreams
     #     :csv, :hash, :array, :json, :psv, :fixed
     #
     #   For all other parameters, see Tabular::Header.new
-    def initialize(format: nil, file_name: nil, **args)
+    def initialize(format: nil, file_name: nil, format_options: nil, **args)
       @header = Header.new(**args)
       klass   =
         if file_name && format.nil?
@@ -61,7 +61,7 @@ module IOStreams
         else
           self.class.parser_class(format)
         end
-      @parser = klass.new
+      @parser = format_options ? klass.new(format_options) : klass.new
     end
 
     # Returns [true|false] whether a header row needs to be read first.
