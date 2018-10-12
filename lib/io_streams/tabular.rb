@@ -108,6 +108,14 @@ module IOStreams
       parser.render(row, header)
     end
 
+    # Returns [String] the header rendered for the output format
+    # Return nil if no header is required.
+    def render_header
+      return unless render_header?
+
+      parser.render(header.columns, header)
+    end
+
     # Returns [Array<String>] the cleansed columns
     def cleanse_header!
       header.cleanse!
