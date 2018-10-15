@@ -45,7 +45,7 @@ module IOStreams
 
       def each
         delimited.each do |line|
-          if tabular.parse_header?
+          if tabular.header?
             columns = tabular.parse_header(line)
             tabular.cleanse_header! if cleanse_header
             yield columns

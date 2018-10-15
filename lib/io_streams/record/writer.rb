@@ -44,22 +44,18 @@ module IOStreams
         @delimited = delimited
 
         # Render header line when `columns` is supplied.
-        delimited << @tabular.render(columns) if columns && @tabular.render_header?
+        @delimited << @tabular.render_header if columns && @tabular.requires_header?
       end
 
       def <<(hash)
         raise(ArgumentError, 'Must supply a Hash') unless hash.is_a?(Hash)
-        if tabular.parse_header?
-          columns                = hash.keys
-          tabular.header.columns = columns
-          delimited << tabular.render(columns)
+        if @tabular.header?
+          # Extract header from the keys from the first row when not supplied above.
+          @tabular.header.columns = hash.keys
+          @delimited << @tabular.render_header
         end
-        delimited << tabular.render(hash)
+        @delimited << @tabular.render(hash)
       end
-
-      private
-
-      attr_reader :tabular, :delimited, :cleanse_header
     end
   end
 end

@@ -6,6 +6,9 @@ module IOStreams
     class InvalidHeader < Error;
     end
 
+    class MissingHeader < Error;
+    end
+
     class TypeMismatch < Error;
     end
 

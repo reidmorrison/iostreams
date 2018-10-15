@@ -45,20 +45,20 @@ module IOStreams
         @delimited = delimited
 
         # Render header line when `columns` is supplied.
-        delimited << @tabular.render(columns) if columns && @tabular.render_header?
+        delimited << @tabular.render_header if columns && @tabular.requires_header?
       end
 
       # Supply a hash or an array to render
       def <<(array)
         raise(ArgumentError, 'Must supply an Array') unless array.is_a?(Array)
-        # If header (columns) was not supplied as an argument, assume first line is the header.
-        tabular.header.columns = array if tabular.render_header?
-        delimited << tabular.render(array)
+        if @tabular.header?
+          # If header (columns) was not supplied as an argument, assume first line is the header.
+          @tabular.header.columns = array
+          @delimited << @tabular.render_header
+        else
+          @delimited << @tabular.render(array)
+        end
       end
-
-      private
-
-      attr_reader :tabular, :delimited
     end
   end
 end

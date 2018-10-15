@@ -64,13 +64,13 @@ module IOStreams
       @parser = format_options ? klass.new(format_options) : klass.new
     end
 
-    # Returns [true|false] whether a header row needs to be read first.
-    def parse_header?
+    # Returns [true|false] whether a header is still required in order to parse or render the current format.
+    def header?
       parser.requires_header? && IOStreams.blank?(header.columns)
     end
 
     # Returns [true|false] whether a header row show be rendered on output.
-    def render_header?
+    def requires_header?
       parser.requires_header?
     end
 
@@ -78,7 +78,7 @@ module IOStreams
     # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
     #
     # Notes:
-    # * Call `parse_header?` first to determine if the header should be parsed first.
+    # * Call `header?` first to determine if the header should be parsed first.
     # * The header columns are set after parsing the row, but the header is not cleansed.
     def parse_header(line)
       return if IOStreams.blank?(line) || !parser.requires_header?
@@ -111,7 +111,11 @@ module IOStreams
     # Returns [String] the header rendered for the output format
     # Return nil if no header is required.
     def render_header
-      return unless render_header?
+      return unless requires_header?
+
+      if IOStreams.blank?(header.columns)
+        raise(Errors::MissingHeader, "Header columns must be set before attempting to render a header for format: #{format.inspect}")
+      end
 
       parser.render(header.columns, header)
     end
