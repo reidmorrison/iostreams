@@ -39,19 +39,15 @@ module IOStreams
       end
 
       def each
-        delimited.each do |line|
-          if tabular.header?
-            tabular.parse_header(line)
-            tabular.cleanse_header! if cleanse_header
+        @delimited.each do |line|
+          if @tabular.header?
+            @tabular.parse_header(line)
+            @tabular.cleanse_header! if @cleanse_header
           else
-            yield tabular.record_parse(line)
+            yield @tabular.record_parse(line)
           end
         end
       end
-
-      private
-
-      attr_reader :tabular, :delimited, :cleanse_header
     end
   end
 end

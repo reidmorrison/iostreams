@@ -3,50 +3,40 @@ require 'csv'
 module IOStreams
   module Xlsx
     class Reader
-      attr_reader :worksheet
+      # Convert a xlsx, or xlsm file or stream into CSV format.
+      def self.open(file_name_or_io, _ = nil)
+        if file_name_or_io.is_a?(String)
+          file_name = file_name_or_io
+        else
+          temp_file = Tempfile.new('iostreams_xlsx')
+          IOStreams.copy(file_name_or_io, temp_file)
+          file_name = temp_file.to_path
+        end
 
-      # Read from a xlsx, or xlsm file or stream.
-      #
-      # Example:
-      #   IOStreams::Xlsx::Reader.open('spreadsheet.xlsx') do |spreadsheet_stream|
-      #     spreadsheet_stream.each_line do |line|
-      #       puts line
-      #     end
-      #   end
-      def self.open(file_name_or_io, buffer_size: 65536, &block)
+        csv_temp_file = Tempfile.new('iostreams_csv')
+        new(file_name).each { |lines| csv_temp_file << lines.to_csv }
+        csv_temp_file.rewind
+        yield csv_temp_file
+      ensure
+        temp_file.delete if temp_file
+        csv_temp_file.delete if csv_temp_file
+      end
+
+      def initialize(file_name)
         begin
           require 'creek' unless defined?(Creek::Book)
         rescue LoadError => e
           raise(LoadError, "Please install the 'creek' gem for xlsx streaming support. #{e.message}")
         end
 
-        if IOStreams.reader_stream?(file_name_or_io)
-          temp_file = Tempfile.new('rocket_job_xlsx')
-          file_name = temp_file.to_path
-
-          ::File.open(file_name, 'wb') do |file|
-            IOStreams.copy(file_name_or_io, file, buffer_size: buffer_size)
-          end
-        else
-          file_name = file_name_or_io
-        end
-
-        block.call(self.new(Creek::Book.new(file_name, check_file_extension: false)))
-      ensure
-        temp_file.delete if temp_file
-      end
-
-      def initialize(workbook)
+        workbook   = Creek::Book.new(file_name, check_file_extension: false)
         @worksheet = workbook.sheets[0]
       end
 
       # Returns each [Array] row from the spreadsheet
-      def each(&block)
-        worksheet.rows.each { |row| block.call(row.values) }
+      def each
+        @worksheet.rows.each { |row| yield row.values }
       end
-
-      alias_method :each_line, :each
-
     end
   end
 end

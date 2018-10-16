@@ -44,7 +44,7 @@ module IOStreams
   #
   #   # Generate encrypted file for a specific recipient and sign it with senders credentials
   #   data = %w(this is some data that should be encrypted using pgp)
-  #   IOStreams.writer('secure.gpg', pgp: {recipient: 'receiver@example.org'}) do |output|
+  #   IOStreams.writer('secure.gpg', streams: {pgp: {recipient: 'receiver@example.org'}}) do |output|
   #     data.each { |word| output.puts(word) }
   #   end
   #

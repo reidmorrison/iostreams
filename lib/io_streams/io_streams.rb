@@ -185,7 +185,6 @@ module IOStreams
   #
   # Example: Copy between 2 files
   #   IOStreams.copy('a.csv', 'b.csv')
-  #   # TODO: The above will convert the csv file to a Hash and then back to write it to the target file.
   #
   # Example: Read content from a Xlsx file and write it out in CSV form.
   #   IOStreams.copy('a.xlsx', 'b.csv')
@@ -313,7 +312,6 @@ module IOStreams
   # Iterate over a file / stream returning each record/line one at a time.
   def self.line_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Reader) ||
-      file_name_or_io.is_a?(IOStreams::Xlsx::Reader) ||
       file_name_or_io.is_a?(Array)
 
     reader(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace) do |io|
@@ -321,7 +319,7 @@ module IOStreams
     end
   end
 
-  # Iterate over a file / stream returning each line as a hash, one at a time.
+  # Iterate over a file / stream returning each line as an array, one at a time.
   def self.row_reader(file_name_or_io,
     streams: nil,
     delimiter: nil,
@@ -359,7 +357,7 @@ module IOStreams
     **args,
     &block)
 
-    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Reader) || file_name_or_io.is_a?(IOStreams::Xlsx::Reader)
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Reader)
 
     line_reader(
       file_name_or_io,

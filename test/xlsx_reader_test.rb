@@ -1,4 +1,5 @@
 require_relative 'test_helper'
+require 'csv'
 
 class XlsxReaderTest
   describe IOStreams::Xlsx::Reader do
@@ -17,23 +18,19 @@ class XlsxReaderTest
       describe 'with a file path' do
         it 'returns the contents of the file' do
           rows = []
-          IOStreams::Xlsx::Reader.open(file_name) do |stream|
-            stream.each { |row| rows << row }
-          end
-          assert_equal xlsx_contents, rows
+          csv  = IOStreams::Xlsx::Reader.open(file_name, &:read)
+          assert_equal xlsx_contents, CSV.parse(csv)
         end
       end
 
       describe 'with a file stream' do
         it 'returns the contents of the file' do
-          rows = []
-          File.open(file_name) do |file|
-            IOStreams::Xlsx::Reader.open(file) do |stream|
-              stream.each { |row| rows << row }
-            end
+          csv = ''
+          File.open(file_name, 'rb') do |file|
+            csv = IOStreams::Xlsx::Reader.open(file, &:read)
           end
 
-          assert_equal xlsx_contents, rows
+          assert_equal xlsx_contents, CSV.parse(csv)
         end
       end
     end
