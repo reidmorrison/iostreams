@@ -1,4 +1,9 @@
 require 'concurrent'
+# Load Symmetric Encryption if present so that its reader and writer can be registered
+begin
+  require 'symmetric-encryption'
+rescue LoadError
+end
 
 # Streaming library for Ruby
 #

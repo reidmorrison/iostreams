@@ -24,7 +24,7 @@ class EncodeReaderTest < Minitest::Test
           input = StringIO.new(bad_data)
           IOStreams::Encode::Reader.open(input, encoding: 'UTF-8') do |io|
             assert_raises ::Encoding::UndefinedConversionError do
-              ap io.read.encoding
+              io.read.encoding
             end
           end
         end
