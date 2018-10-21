@@ -142,7 +142,7 @@ class TabularTest < Minitest::Test
             {key: 'address', size: 40},
             {key: 'zip', size: 5}
           ]
-          IOStreams::Tabular.new(columns: ['name', 'address', 'zip', 'phone'], format: :fixed, format_options: {layout: layout})
+          IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
         end
 
         it 'parses to hash' do
@@ -228,7 +228,7 @@ class TabularTest < Minitest::Test
             {key: 'address', size: 40},
             {key: 'zip', size: 5}
           ]
-          IOStreams::Tabular.new(columns: ['name', 'address', 'zip', 'phone'], format: :fixed, format_options: {layout: layout})
+          IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
         end
 
         it 'renders fixed data' do
