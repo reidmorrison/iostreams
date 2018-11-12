@@ -115,7 +115,13 @@ module IOStreams
 
         block =
           if @read_cache_buffer
-            @input_stream.read(@buffer_size, @read_cache_buffer)
+            begin
+              @input_stream.read(@buffer_size, @read_cache_buffer)
+            rescue ArgumentError
+              # Handle arity of -1 when just 0..1
+              @read_cache_buffer = nil
+              @input_stream.read(@buffer_size)
+            end
           else
             @input_stream.read(@buffer_size)
           end
