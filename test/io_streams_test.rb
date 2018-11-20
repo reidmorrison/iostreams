@@ -18,6 +18,18 @@ class IOStreamsTest < Minitest::Test
       temp_file.path
     end
 
+    let :bad_data do
+      [
+        "New M\xE9xico,NE".b,
+        'good line',
+        "New M\xE9xico,\x07SF".b
+      ].join("\n").encode('BINARY')
+    end
+
+    let :stripped_data do
+      bad_data.gsub("\xE9".b, '').gsub("\x07", '')
+    end
+
     after do
       temp_file.delete
     end
@@ -86,8 +98,19 @@ class IOStreamsTest < Minitest::Test
     describe '.each_line' do
       it 'returns a line at a time' do
         lines = []
-        IOStreams.each_line(source_file_name) { |line| lines << line }
+        count = IOStreams.each_line(source_file_name) { |line| lines << line }
         assert_equal data.lines.map(&:strip), lines
+        assert_equal data.lines.count, count
+      end
+
+      it 'strips non-printable characters' do
+        input = StringIO.new(bad_data)
+        lines = []
+        count = IOStreams.each_line(input, encoding: 'UTF-8', encode_cleaner: :printable, encode_replace: '') do |line|
+          lines << line
+        end
+        assert_equal stripped_data.lines.map(&:strip), lines
+        assert_equal stripped_data.lines.count, count
       end
     end
 

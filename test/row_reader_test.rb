@@ -13,20 +13,22 @@ class RowReaderTest < Minitest::Test
     describe '.open' do
       it 'file' do
         rows = []
-        IOStreams::Row::Reader.open(file_name) do |io|
+        count = IOStreams::Row::Reader.open(file_name) do |io|
           io.each { |row| rows << row }
         end
         assert_equal expected, rows
+        assert_equal expected.size, count
       end
 
       it 'stream' do
         rows = []
-        IOStreams.line_reader(file_name) do |file|
+        count = IOStreams.line_reader(file_name) do |file|
           IOStreams::Row::Reader.open(file) do |io|
             io.each { |row| rows << row }
           end
         end
         assert_equal expected, rows
+        assert_equal expected.size, count
       end
     end
 

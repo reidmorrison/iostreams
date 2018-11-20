@@ -19,39 +19,43 @@ class LineReaderTest < Minitest::Test
     describe '#each' do
       it 'each_line file' do
         lines = []
-        IOStreams::Line::Reader.open(file_name) do |io|
+        count = IOStreams::Line::Reader.open(file_name) do |io|
           io.each { |line| lines << line }
         end
         assert_equal data, lines
+        assert_equal data.size, count
       end
 
       it 'each_line stream' do
         lines = []
-        File.open(file_name) do |file|
+        count = File.open(file_name) do |file|
           IOStreams::Line::Reader.open(file) do |io|
             io.each { |line| lines << line }
           end
         end
         assert_equal data, lines
+        assert_equal data.size, count
       end
 
       ["\r\n", "\n", "\r"].each do |delimiter|
         it "autodetect delimiter: #{delimiter.inspect}" do
           lines  = []
           stream = StringIO.new(data.join(delimiter))
-          IOStreams::Line::Reader.open(stream, buffer_size: 15) do |io|
+          count = IOStreams::Line::Reader.open(stream, buffer_size: 15) do |io|
             io.each { |line| lines << line }
           end
           assert_equal data, lines
+          assert_equal data.size, count
         end
 
         it "single read autodetect delimiter: #{delimiter.inspect}" do
           lines  = []
           stream = StringIO.new(data.join(delimiter))
-          IOStreams::Line::Reader.open(stream) do |io|
+          count = IOStreams::Line::Reader.open(stream) do |io|
             io.each { |line| lines << line }
           end
           assert_equal data, lines
+          assert_equal data.size, count
         end
       end
 
@@ -59,10 +63,11 @@ class LineReaderTest < Minitest::Test
         it "reads delimited #{delimiter.inspect}" do
           lines  = []
           stream = StringIO.new(data.join(delimiter))
-          IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
+          count = IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
             io.each { |line| lines << line }
           end
           assert_equal data, lines
+          assert_equal data.size, count
         end
       end
 
@@ -70,10 +75,11 @@ class LineReaderTest < Minitest::Test
         delimiter = "\x01"
         lines     = []
         stream    = StringIO.new(data.join(delimiter).encode('ASCII-8BIT'))
-        IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
+        count = IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
           io.each { |line| lines << line }
         end
         assert_equal data, lines
+        assert_equal data.size, count
       end
 
       describe '#readline' do

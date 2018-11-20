@@ -61,7 +61,7 @@ module IOStreams
         # Auto-detect windows/linux line endings if not supplied. \n or \r\n
         @delimiter = delimiter || auto_detect_line_endings
 
-        unless eof?
+        if @buffer
           # Change the delimiters encoding to match that of the input stream
           @delimiter      = @delimiter.encode(@buffer.encoding)
           @delimiter_size = @delimiter.size
@@ -73,7 +73,10 @@ module IOStreams
       # Note:
       # * The line delimiter is _not_ returned.
       def each
-        yield(readline) until eof?
+        until eof?
+          line = readline
+          yield(line) unless line.nil?
+        end
         line_count
       end
 
@@ -88,6 +91,7 @@ module IOStreams
         if index
           data    = @buffer.slice(0, index)
           @buffer = @buffer.slice(index + @delimiter_size, @buffer.size)
+          @line_count += 1
         elsif @eof && @buffer.empty?
           data    = nil
           @buffer = nil
@@ -95,9 +99,9 @@ module IOStreams
           # Last line without delimiter
           data    = @buffer
           @buffer = nil
+          @line_count += 1
         end
 
-        @line_count += 1
         data
       end
 
@@ -130,8 +134,6 @@ module IOStreams
         if block.nil?
           @eof = true
           return false
-        elsif block.size < @buffer_size
-          @eof = true
         end
 
         if @buffer

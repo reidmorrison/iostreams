@@ -316,8 +316,7 @@ module IOStreams
 
   # Iterate over a file / stream returning each record/line one at a time.
   def self.line_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
-    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Reader) ||
-      file_name_or_io.is_a?(Array)
+    return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Reader) || file_name_or_io.is_a?(Array)
 
     reader(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace) do |io|
       IOStreams::Line::Reader.open(io, **args, &block)
@@ -427,8 +426,14 @@ module IOStreams
 
     streams = streams_for_file_name(file_name) if streams.nil? && file_name
 
-    # Shortcut for when it is already a stream and no further streams need to be applied.
-    return block.call(file_name_or_io) if !file_name_or_io.is_a?(String) && (streams.nil? || streams.empty?)
+    # Shortcut for when it is already a stream
+    if !file_name_or_io.is_a?(String) && (streams.nil? || streams.empty?)
+      if encoding || encode_cleaner || encode_replace
+        return IOStreams::Encode::Reader.open(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, &block)
+      else
+        return block.call(file_name_or_io)
+      end
+    end
 
     if streams.nil?
       streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [nil]
