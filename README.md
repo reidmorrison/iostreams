@@ -236,6 +236,129 @@ IOStreams.copy('ABC', 'xyz.csv.pgp',
                target_options: [pgp: {email_recipient: 'a@a.com'})
 ~~~
 
+## Philosopy
+
+IOStreams can be used to work against a single stream. it's real capability becomes apparent when chainging together
+multiple streams to process data, without loading entire files into memory.
+
+#### Linux Pipes
+
+Linux has built-in support for streaming using the `|` (pipe operator) to send the output from one process to another. 
+
+Example: count the number of lines in a compressed file: 
+
+    gunzip -c hello.csv.gz | wc -l
+
+The file `hello.csv.gz` is uncompressed and returned to standard output, which in turn is piped into the standard
+input for `wc -l`, which counts the number of lines in the uncompressed data.
+
+As each block of data is returned from `gunzip` it is immediately passed into `wc` so that it 
+can start counting lines of uncompressed data, without waiting until the entire file is decompressed. 
+The uncompressed contents of the file are not written to disk before passing to `wc -l` and the file is not loaded
+into memory before passing to `wc -l`.
+
+In this way extremely large files can be processed with very little memory being used.
+
+#### Push Model
+
+In the Linux pipes example above this would be considered a "push model" where each task in the list pushes
+its output to the input of the next task.
+
+A major challenge or disadvantage with the push model is that buffering would need to occur between tasks since 
+each task could complete at very different speeds. To prevent large memory usage the standard output from a previous
+task would have to be blocked to try and make it slow down.
+
+#### Pull Model
+
+Another approach with multiple tasks that need to process a single stream, is to move to a "pull model" where the
+task at the end of the list pulls a block from a previous task when it is ready to process it.
+
+#### IOStreams
+
+IOStreams uses the pull model when reading data, where each stream performs a read against the previous stream 
+when it is ready for more data.
+
+When writing to an output stream, IOStreams uses the push model, where each block of data that is ready to be written
+is pushed to the task/stream in the list. The write push only returns once it has traversed all the way down to
+the final task / stream in the list, this avoids complex buffering issues between each task / stream in the list.
+
+Example: Implementing in Ruby: `gunzip -c hello.csv.gz | wc -l`
+
+~~~ruby
+  line_count = 0
+  IOStreams::Gzip::Reader.open("hello.csv.gz") do |input|
+    IOStreams::Line::Reader.open(input) do |lines|
+      lines.each { line_count += 1}
+    end
+  end
+  puts "hello.csv.gz contains #{line_count} lines"
+~~~
+
+Since IOStreams can autodetect file types based on the file extension, `IOStreams.reader` can figure which stream
+to start with:
+~~~ruby
+  line_count = 0
+  IOStreams.reader("hello.csv.gz") do |input|
+    IOStreams::Line::Reader.open(input) do |lines|
+      lines.each { line_count += 1}
+    end
+  end
+  puts "hello.csv.gz contains #{line_count} lines"
+~~~
+
+Since we know we want a line reader, it can be simplified using `IOStreams.line_reader`:
+~~~ruby
+  line_count = 0
+  IOStreams.line_reader("hello.csv.gz") do |lines|
+    lines.each { line_count += 1}
+  end
+  puts "hello.csv.gz contains #{line_count} lines"
+~~~
+
+It can be simplified even further using `IOStreams.each_line`:
+~~~ruby
+  line_count = 0
+  IOStreams.each_line("hello.csv.gz") { line_count += 1}
+  puts "hello.csv.gz contains #{line_count} lines"
+~~~
+
+The benefit in all of the above cases is that the file can be any arbitrary size and only one block of the file
+is held in memory at any time.
+
+#### Chaining
+
+In the above example only 2 streams were used. Streams can be nested as deep as necessary to process data.
+
+Example, search for all occurrences of the word apple, cleansing the input data stream of non printable characters 
+and converting to valid US ASCII.
+
+~~~ruby
+  apple_count = 0
+  IOStreams::Gzip::Reader.open("hello.csv.gz") do |input|
+    IOStreams::Encode::Reader.open(input, 
+                                   encoding:       'US-ASCII', 
+                                   encode_replace: '', 
+                                   encode_cleaner: :printable) do |cleansed|
+      IOStreams::Line::Reader.open(cleansed) do |lines|
+        lines.each { |line| apple_count += line.scan('apple').count}
+      end
+  end
+  puts "Found the word 'apple' #{apple_count} times in hello.csv.gz"
+~~~
+
+Let IOStreams perform the above stream chaining automatically under the covers:
+~~~ruby
+  apple_count = 0
+  IOStreams.each_line("hello.csv.gz", 
+                      encoding:       'US-ASCII', 
+                      encode_replace: '', 
+                      encode_cleaner: :printable) do |line|
+    apple_count += line.scan('apple').count
+  end
+
+  puts "Found the word 'apple' #{apple_count} times in hello.csv.gz"
+~~~
+
 ## Notes
 
 * Due to the nature of Zip, both its Reader and Writer methods will create
