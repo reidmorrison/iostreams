@@ -1,3 +1,4 @@
+require 'csv'
 module IOStreams
   class Tabular
     module Parser
@@ -5,7 +6,7 @@ module IOStreams
         attr_reader :csv_parser
 
         def initialize
-          @csv_parser = Utility::CSVRow.new
+          @csv_parser = Utility::CSVRow.new unless RUBY_VERSION.to_f >= 2.6
         end
 
         # Returns [Array<String>] the header row.
@@ -15,7 +16,7 @@ module IOStreams
 
           raise(IOStreams::Errors::InvalidHeader, "Format is :csv. Invalid input header: #{row.class.name}") unless row.is_a?(String)
 
-          csv_parser.parse(row)
+          parse_line(row)
         end
 
         # Returns [Array] the parsed CSV line
@@ -24,15 +25,38 @@ module IOStreams
 
           raise(IOStreams::Errors::TypeMismatch, "Format is :csv. Invalid input: #{row.class.name}") unless row.is_a?(String)
 
-          csv_parser.parse(row)
+          parse_line(row)
         end
 
         # Return the supplied array as a single line CSV string.
         def render(row, header)
           array = header.to_array(row)
-          csv_parser.to_csv(array)
+          render_array(array)
         end
 
+        private
+
+        if RUBY_VERSION.to_f >= 2.6
+          # About 10 times slower than the approach used in Ruby 2.5 and earlier,
+          # but at least it works on Ruby 2.6 and above.
+          def parse_line(line)
+            return if IOStreams.blank?(line)
+
+            CSV.parse_line(line)
+          end
+
+          def render_array(array)
+            CSV.generate_line(array, encoding: 'UTF-8', row_sep: '')
+          end
+        else
+          def parse_line(line)
+            csv_parser.parse(line)
+          end
+
+          def render_array(array)
+            csv_parser.to_csv(array)
+          end
+        end
       end
     end
   end

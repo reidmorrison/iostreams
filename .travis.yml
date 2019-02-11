@@ -6,11 +6,12 @@ rvm:
   - 2.3.8
   - 2.4.5
   - 2.5.3
+  - 2.6.1
   - jruby-9.2.5.0
 
 matrix:
   allow_failures:
-  - rvm: jruby-9.2.5.0
+    - rvm: jruby-9.2.5.0
 
 sudo: false
 

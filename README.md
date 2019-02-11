@@ -7,23 +7,6 @@ Input and Output streaming for Ruby.
 
 Production Ready, but API is subject to breaking changes until V1 is released.
 
-
-#### Ruby 2.6 Support
-
-Note that Ruby 2.6 is not currently supported when processing CSV files. All other stream types
-work. Ruby 2.6 completely changed the CSV library, but still failed to make an efficient API
-available for processing a single line of CSV data.
-
-Looking for a CSV parsing library that supports:
-- Highly performant single line CSV parsing into an array of strings.
-- Human readable CSV files that are not necessarily conformant to the CSV specification but are still
-  valid according to the spirit of CSV. 
-  For example:
-  - `"Invalid spaces after",     "the comma.", "Yet, still valid for processing purposes."`
-- Works on Ruby v2.2 through v2.6. 
-
-Track the status of Ruby 2.6 Support on: [Github](https://github.com/rocketjob/iostreams/issues/4)
-
 ## Features
 
 Supported file / stream types:
