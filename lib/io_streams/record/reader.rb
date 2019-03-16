@@ -32,14 +32,14 @@ module IOStreams
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
       #   For all other parameters, see Tabular::Header.new
-      def initialize(delimited, cleanse_header: true, **args)
+      def initialize(line_reader, cleanse_header: true, **args)
         @tabular        = IOStreams::Tabular.new(**args)
-        @delimited      = delimited
+        @line_reader      = line_reader
         @cleanse_header = cleanse_header
       end
 
       def each
-        @delimited.each do |line|
+        @line_reader.each do |line|
           if @tabular.header?
             @tabular.parse_header(line)
             @tabular.cleanse_header! if @cleanse_header
