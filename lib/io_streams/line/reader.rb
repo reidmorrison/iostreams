@@ -85,6 +85,8 @@ module IOStreams
         line_count
       end
 
+      # Reads each line per the @delimeter. It will account for embedded lines provided they are within double quotes.
+      # The embedded_within argument is set in IOStreams::LineReader
       def readline
         line = _readline
         if line && @embedded_within
