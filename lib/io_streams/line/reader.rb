@@ -1,7 +1,7 @@
 module IOStreams
   module Line
     class Reader
-      attr_reader :delimiter, :buffer_size, :line_count
+      attr_reader :delimiter, :buffer_size, :line_number
 
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` characters are read.
       MAX_BLOCKS_MULTIPLIER = 100
@@ -20,7 +20,7 @@ module IOStreams
       # Create a delimited stream reader from the supplied input stream.
       #
       # Lines returned will be in the encoding of the input stream.
-      # To change the encoding of retruned lines, use IOStreams::Encode::Reader.
+      # To change the encoding of returned lines, use IOStreams::Encode::Reader.
       #
       # Parameters
       #   input_stream
@@ -45,14 +45,15 @@ module IOStreams
       # - Skip "empty" / "blank" lines. RegExp?
       # - Extract header line(s) / first non-comment, non-blank line
       # - Embedded newline support, RegExp? or Proc?
-      def initialize(input_stream, delimiter: nil, buffer_size: 65_536)
-        @input_stream = input_stream
-        @buffer_size  = buffer_size
+      def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
+        @embedded_within = embedded_within
+        @input_stream    = input_stream
+        @buffer_size     = buffer_size
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         @use_read_cache_buffer = !@input_stream.method(:read).arity.between?(0, 1)
 
-        @line_count        = 0
+        @line_number       = 0
         @eof               = false
         @read_cache_buffer = nil
         @buffer            = nil
@@ -73,36 +74,30 @@ module IOStreams
       # Note:
       # * The line delimiter is _not_ returned.
       def each
+        line_count = 0
         until eof?
           line = readline
-          yield(line) unless line.nil?
+          unless line.nil?
+            yield(line)
+            line_count += 1
+          end
         end
         line_count
       end
 
+      # Reads each line per the @delimeter. It will account for embedded lines provided they are within double quotes.
+      # The embedded_within argument is set in IOStreams::LineReader
       def readline
-        return if eof?
-
-        # Keep reading until it finds the delimiter
-        while (index = @buffer.index(@delimiter)).nil? && read_block
+        line = _readline
+        if line && @embedded_within
+          initial_line_number = @line_number
+          while line.count(@embedded_within).odd?
+            raise "Unclosed quoted field on line #{initial_line_number}" if eof? || line.length > @buffer_size * 10
+            line << @delimiter
+            line << _readline
+          end
         end
-
-        # Delimiter found?
-        if index
-          data    = @buffer.slice(0, index)
-          @buffer = @buffer.slice(index + @delimiter_size, @buffer.size)
-          @line_count += 1
-        elsif @eof && @buffer.empty?
-          data    = nil
-          @buffer = nil
-        else
-          # Last line without delimiter
-          data    = @buffer
-          @buffer = nil
-          @line_count += 1
-        end
-
-        data
+        line
       end
 
       # Returns whether the end of file has been reached for this stream
@@ -111,6 +106,31 @@ module IOStreams
       end
 
       private
+
+      def _readline
+        return if eof?
+
+        # Keep reading until it finds the delimiter
+        while (index = @buffer.index(@delimiter)).nil? && read_block
+        end
+
+        # Delimiter found?
+        if index
+          data         = @buffer.slice(0, index)
+          @buffer      = @buffer.slice(index + @delimiter_size, @buffer.size)
+          @line_number += 1
+        elsif @eof && @buffer.empty?
+          data    = nil
+          @buffer = nil
+        else
+          # Last line without delimiter
+          data         = @buffer
+          @buffer      = nil
+          @line_number += 1
+        end
+
+        data
+      end
 
       # Returns [Integer] the number of characters read into the internal buffer
       # Returns 0 on EOF

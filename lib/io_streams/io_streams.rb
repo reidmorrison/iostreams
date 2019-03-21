@@ -70,6 +70,15 @@ module IOStreams
   end
 
   # Iterate over a file / stream returning one line at a time.
+  # Embedded lines (within double quotes) will be skipped if
+  #   1. The file name contains .csv
+  #   2. Or the embedded_within argument is set
+  #
+  # Example: Supply custom options
+  #   IOStreams.each_line(file_name, embedded_within: '"') do |line|
+  #     puts line
+  #   end
+  #
   def self.each_line(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
     line_reader(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, **args) do |line_stream|
       line_stream.each(&block)
@@ -77,6 +86,15 @@ module IOStreams
   end
 
   # Iterate over a file / stream returning one line at a time.
+  # Embedded lines (within double quotes) will be skipped if
+  #   1. The file name contains .csv
+  #   2. Or the embedded_within argument is set
+  #
+  # Example: Supply custom options
+  #   IOStreams.each_row(file_name, embedded_within: '"') do |line|
+  #     puts line
+  #   end
+  #
   def self.each_row(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
     row_reader(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace, **args) do |row_stream|
       row_stream.each(&block)
@@ -89,6 +107,15 @@ module IOStreams
   #
   # Each record / line is returned one at a time so that very large files
   # can be read without having to load the entire file into memory.
+  #
+  # Embedded lines (within double quotes) will be skipped if
+  #   1. The file name contains .csv
+  #   2. Or the embedded_within argument is set
+  #
+  # Example: Supply custom options
+  #   IOStreams.each_record(file_name, embedded_within: '"') do |line|
+  #     puts line
+  #   end
   #
   # Example:
   #   file_name = 'customer_data.csv.pgp'
@@ -315,11 +342,20 @@ module IOStreams
   end
 
   # Iterate over a file / stream returning each record/line one at a time.
-  def self.line_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
+  # It will apply the embedded_within argument if the file or input_stream contain .csv in its name.
+  def self.line_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, embedded_within: nil, **args, &block)
+
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Line::Reader) || file_name_or_io.is_a?(Array)
 
+    # TODO: needs to be improved
+    if embedded_within.nil? && file_name_or_io.is_a?(String)
+      embedded_within = '"' if file_name_or_io.include?('.csv')
+    elsif embedded_within.nil? && file_name
+      embedded_within = '"' if file_name.include?('.csv')
+    end
+
     reader(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace) do |io|
-      IOStreams::Line::Reader.open(io, **args, &block)
+      IOStreams::Line::Reader.open(io, embedded_within: embedded_within, **args, &block)
     end
   end
 
@@ -331,6 +367,7 @@ module IOStreams
     encoding: nil,
     encode_cleaner: nil,
     encode_replace: nil,
+    embedded_within: nil,
     **args,
     &block)
 
@@ -338,12 +375,13 @@ module IOStreams
 
     line_reader(
       file_name_or_io,
-      streams:        streams,
-      delimiter:      delimiter,
-      file_name:      file_name,
-      encoding:       encoding,
-      encode_cleaner: encode_cleaner,
-      encode_replace: encode_replace
+      streams:         streams,
+      delimiter:       delimiter,
+      file_name:       file_name,
+      encoding:        encoding,
+      encode_cleaner:  encode_cleaner,
+      encode_replace:  encode_replace,
+      embedded_within: embedded_within
     ) do |io|
       file_name = file_name_or_io if file_name.nil? && file_name_or_io.is_a?(String)
       IOStreams::Row::Reader.open(io, file_name: file_name, **args, &block)
@@ -358,20 +396,22 @@ module IOStreams
     encoding: nil,
     encode_cleaner: nil,
     encode_replace: nil,
+    embedded_within: nil,
     **args,
     &block)
 
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Reader)
 
-    line_reader(
-      file_name_or_io,
-      streams:        streams,
-      delimiter:      delimiter,
-      file_name:      file_name,
-      encoding:       encoding,
-      encode_cleaner: encode_cleaner,
-      encode_replace: encode_replace
+    line_reader(file_name_or_io,
+      streams:         streams,
+      delimiter:       delimiter,
+      file_name:       file_name,
+      encoding:        encoding,
+      encode_cleaner:  encode_cleaner,
+      encode_replace:  encode_replace,
+      embedded_within: embedded_within
     ) do |io|
+
 
       file_name = file_name_or_io if file_name.nil? && file_name_or_io.is_a?(String)
       IOStreams::Record::Reader.open(io, file_name: file_name, **args, &block)

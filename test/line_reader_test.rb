@@ -6,6 +6,14 @@ class LineReaderTest < Minitest::Test
       File.join(File.dirname(__FILE__), 'files', 'text.txt')
     end
 
+    let :csv_file do
+      File.join(File.dirname(__FILE__), 'files', 'embedded_lines_test.csv')
+    end
+
+    let :unclosed_quote_file do
+      File.join(File.dirname(__FILE__), 'files', 'unclosed_quote_test.csv')
+    end
+
     let :data do
       data = []
       File.open(file_name, 'rt') do |file|
@@ -14,6 +22,47 @@ class LineReaderTest < Minitest::Test
         end
       end
       data
+    end
+
+    # Test file has embedded new lines in row 2, 3 and 4
+    #
+    #  name, description, zip
+    # "\nJack","Firstname is Jack","234567"
+    # "John","Firstname\n is John","234568"
+    # "Zack","Firstname is Zack","234568\n"
+    #
+    describe 'embedded_within_quotes' do
+      describe 'csv file' do
+
+        it 'fails to keep embedded lines if flag is not set' do
+          lines = []
+          IOStreams::Line::Reader.open(csv_file) do |io|
+            io.each do |line|
+              lines << line
+            end
+          end
+          assert_equal 7, lines.count
+        end
+
+        it 'keeps embedded lines if flag is set' do
+          lines = []
+          IOStreams::Line::Reader.open(csv_file, embedded_within: '"') do |io|
+            io.each do |line|
+              lines << line
+            end
+          end
+          assert_equal 4, lines.count
+        end
+
+        it 'raises error for unclosed quote' do
+          assert_raises(RuntimeError) do
+            IOStreams::Line::Reader.open(unclosed_quote_file, embedded_within: '"') do |io|
+              io.each do |line|
+              end
+            end
+          end
+        end
+      end
     end
 
     describe '#each' do
@@ -41,7 +90,7 @@ class LineReaderTest < Minitest::Test
         it "autodetect delimiter: #{delimiter.inspect}" do
           lines  = []
           stream = StringIO.new(data.join(delimiter))
-          count = IOStreams::Line::Reader.open(stream, buffer_size: 15) do |io|
+          count  = IOStreams::Line::Reader.open(stream, buffer_size: 15) do |io|
             io.each { |line| lines << line }
           end
           assert_equal data, lines
@@ -51,7 +100,7 @@ class LineReaderTest < Minitest::Test
         it "single read autodetect delimiter: #{delimiter.inspect}" do
           lines  = []
           stream = StringIO.new(data.join(delimiter))
-          count = IOStreams::Line::Reader.open(stream) do |io|
+          count  = IOStreams::Line::Reader.open(stream) do |io|
             io.each { |line| lines << line }
           end
           assert_equal data, lines
@@ -63,7 +112,7 @@ class LineReaderTest < Minitest::Test
         it "reads delimited #{delimiter.inspect}" do
           lines  = []
           stream = StringIO.new(data.join(delimiter))
-          count = IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
+          count  = IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
             io.each { |line| lines << line }
           end
           assert_equal data, lines
@@ -75,7 +124,7 @@ class LineReaderTest < Minitest::Test
         delimiter = "\x01"
         lines     = []
         stream    = StringIO.new(data.join(delimiter).encode('ASCII-8BIT'))
-        count = IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
+        count     = IOStreams::Line::Reader.open(stream, buffer_size: 15, delimiter: delimiter) do |io|
           io.each { |line| lines << line }
         end
         assert_equal data, lines
