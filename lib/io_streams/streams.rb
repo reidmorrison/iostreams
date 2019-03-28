@@ -81,15 +81,15 @@ module IOStreams
     #   .gz.enc   [ :gz,  :enc ]
     #
     # Example Zip file:
-    #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.zip')
+    #   IOStreams.streams_for_file_name('myfile.zip')
     #   => [ :zip ]
     #
     # Example Encrypted Gzip file:
-    #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv.gz.enc')
+    #   IOStreams.streams_for_file_name('myfile.csv.gz.enc')
     #   => [ :gz, :enc ]
     #
     # Example plain text / binary file:
-    #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
+    #   IOStreams.streams_for_file_name('myfile.csv')
     #   => [ :file ]
     def streams_for_file_name(file_name)
       raise ArgumentError.new("Cannot auto-detect streams when already a stream: #{file_name.inspect}") if reader_stream?(file_name)

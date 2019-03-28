@@ -8,7 +8,7 @@ module IOStreams
         options = IOStreams::S3.parse_uri(uri)
         s3      = region.nil? ? Aws::S3::Resource.new : Aws::S3::Resource.new(region: region)
         object  = s3.bucket(options[:bucket]).object(options[:key])
-        object.upload_stream(**args, &block)
+        object.upload_stream(args, &block)
       end
     end
   end

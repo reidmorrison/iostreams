@@ -30,12 +30,9 @@ class S3ReaderTest < Minitest::Test
       end
 
       it 'does not support streams' do
+        io_string = StringIO.new('data')
         assert_raises ArgumentError do
-          File.open(file_name) do |file|
-            IOStreams::S3::Reader.open(file) do |io|
-              io.read
-            end
-          end
+          IOStreams::S3::Reader.open(io_string) { |io| io.read }
         end
       end
     end

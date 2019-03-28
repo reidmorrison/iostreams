@@ -318,20 +318,21 @@ module IOStreams
   # its extension(s)
   #
   # Example Zip file:
-  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.zip')
+  #   IOStreams.streams_for_file_name('myfile.zip')
   #   => [ :zip ]
   #
   # Example Encrypted Gzip file:
-  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv.gz.enc')
+  #   IOStreams.streams_for_file_name('myfile.csv.gz.enc')
   #   => [ :gz, :enc ]
   #
   # Example plain text / binary file:
-  #   RocketJob::Formatter::Formats.streams_for_file_name('myfile.csv')
-  #   => [ :file ]
+  #   IOStreams.streams_for_file_name('myfile.csv')
+  #   => []
   def self.streams_for_file_name(file_name)
     raise ArgumentError.new('File name cannot be nil') if file_name.nil?
     raise ArgumentError.new("File name must be a string: #{file_name.inspect}, class: #{file_name.class}") unless file_name.is_a?(String)
-    parts      = file_name.split('.')
+
+    parts      = ::File.basename(file_name).split('.')
     extensions = []
     while extension = parts.pop
       sym = extension.downcase.to_sym
@@ -339,6 +340,16 @@ module IOStreams
       extensions.unshift(sym)
     end
     extensions
+  end
+
+  # Extract URI if any was supplied
+  def self.scheme_for_file_name(file_name)
+    raise ArgumentError.new('File name cannot be nil') if file_name.nil?
+    raise ArgumentError.new("File name must be a string: #{file_name.inspect}, class: #{file_name.class}") unless file_name.is_a?(String)
+
+    if matches = file_name.match(/\A(\w+):\/\//)
+      matches[1].downcase.to_sym
+    end
   end
 
   # Iterate over a file / stream returning each record/line one at a time.
@@ -403,13 +414,13 @@ module IOStreams
     return yield(file_name_or_io) if file_name_or_io.is_a?(IOStreams::Record::Reader)
 
     line_reader(file_name_or_io,
-      streams:         streams,
-      delimiter:       delimiter,
-      file_name:       file_name,
-      encoding:        encoding,
-      encode_cleaner:  encode_cleaner,
-      encode_replace:  encode_replace,
-      embedded_within: embedded_within
+                streams:         streams,
+                delimiter:       delimiter,
+                file_name:       file_name,
+                encoding:        encoding,
+                encode_cleaner:  encode_cleaner,
+                encode_replace:  encode_replace,
+                embedded_within: embedded_within
     ) do |io|
 
 
@@ -441,6 +452,16 @@ module IOStreams
     @extensions.delete(extension.to_sym)
   end
 
+  # Register a file extension and the reader and writer streaming classes
+  #
+  # Example:
+  #   # MyXls::Reader and MyXls::Writer must implement .open
+  #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
+  def self.register_scheme(scheme, reader_class, writer_class)
+    raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s =~ /\A\w+\Z/
+    @schemes[scheme.nil? ? nil : scheme.to_sym] = Extension.new(reader_class, writer_class)
+  end
+
   # Helper method: Returns [true|false] if a value is blank?
   def self.blank?(value)
     if value.nil?
@@ -456,6 +477,7 @@ module IOStreams
 
   # A registry to hold formats for processing files during upload or download
   @extensions = {}
+  @schemes    = {}
 
   # Struct to hold the Stream and options if any
   StreamStruct = Struct.new(:klass, :options)
@@ -478,8 +500,10 @@ module IOStreams
     if streams.nil?
       streams = file_name_or_io.is_a?(String) ? streams_for_file_name(file_name_or_io) : [nil]
     end
+    scheme = scheme_for_file_name(file_name_or_io) if file_name_or_io.is_a?(String)
 
     stream_structs = streams_for(type, streams)
+    stream_structs << stream_struct_for_scheme(type, scheme) if stream_structs.empty? || scheme
 
     # Add encoding stream if any of its options are present
     if encoding || encode_cleaner || encode_replace
@@ -506,7 +530,6 @@ module IOStreams
     if params.is_a?(Symbol)
       [stream_struct_for_stream(type, params)]
     elsif params.is_a?(Array)
-      return [stream_struct_for_stream(type, nil)] if params.empty?
       a = []
       params.each do |stream|
         if stream.is_a?(Hash)
@@ -531,8 +554,14 @@ module IOStreams
     StreamStruct.new(klass, options)
   end
 
+  def self.stream_struct_for_scheme(type, scheme, options = {})
+    ext   = @schemes[scheme.nil? ? nil : scheme.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme.inspect}")
+    klass = ext.send("#{type}_class")
+    StreamStruct.new(klass, options)
+  end
+
   # Default reader/writer when no other streams need to be applied.
-  register_extension(nil, IOStreams::File::Reader, IOStreams::File::Writer)
+  # register_extension(nil, IOStreams::File::Reader, IOStreams::File::Writer)
 
   # Register File extensions
   register_extension(:bz2, IOStreams::Bzip2::Reader, IOStreams::Bzip2::Writer)
@@ -550,10 +579,17 @@ module IOStreams
     register_extension(:enc, SymmetricEncryption::Reader, SymmetricEncryption::Writer)
   end
 
-  # register_scheme(nil,    IOStreams::File::Reader,  IOStreams::File::Writer)
-  # register_scheme(:file,  IOStreams::File::Reader,  IOStreams::File::Writer)
+  # Support URI schemes
+  #
+  # Examples:
+  #    path/file_name
+  #    http://hostname/path/file_name
+  #    https://hostname/path/file_name
+  #    sftp://hostname/path/file_name
+  #    s3://bucket/key
+  register_scheme(nil, IOStreams::File::Reader, IOStreams::File::Writer)
   # register_scheme(:http,  IOStreams::HTTP::Reader,  IOStreams::HTTP::Writer)
   # register_scheme(:https, IOStreams::HTTPS::Reader, IOStreams::HTTPS::Writer)
   # register_scheme(:sftp,  IOStreams::SFTP::Reader,  IOStreams::SFTP::Writer)
-  # register_scheme(:s3,    IOStreams::S3::Reader,    IOStreams::S3::Writer)
+  register_scheme(:s3, IOStreams::S3::Reader, IOStreams::S3::Writer)
 end

@@ -95,6 +95,16 @@ class IOStreamsTest < Minitest::Test
       end
     end
 
+    describe '.scheme_for_file_name' do
+      it 'default' do
+        assert_nil IOStreams.scheme_for_file_name('a.xyz')
+      end
+
+      it 's3' do
+        assert_equal :s3, IOStreams.scheme_for_file_name('s3://a.xyz')
+      end
+    end
+
     describe '.each_line' do
       it 'returns a line at a time' do
         lines = []

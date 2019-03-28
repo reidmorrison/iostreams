@@ -13,7 +13,8 @@ module IOStreams
           # Since S3 download only supports a push stream, write it to a tempfile first.
           temp_file = Tempfile.new('rocket_job')
 
-          object.get(response_target: temp_file.to_path, **args)
+          args[:response_target] = temp_file.to_path
+          object.get(args)
 
           block.call(temp_file)
         ensure
