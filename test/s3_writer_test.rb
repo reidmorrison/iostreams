@@ -19,7 +19,11 @@ class FileWriterTest < Minitest::Test
     end
 
     describe '.open' do
-      it 'file' do
+      it 'writes' do
+        unless ENV['S3_BUCKET_NAME']
+          skip "Supply 'S3_BUCKET_NAME' environment variable with S3 bucket name to test with"
+        end
+
         IOStreams::S3::Writer.open(uri) { |io| io.write(raw) }
         result = IOStreams::S3::Reader.open(uri) { |io| io.read }
         assert_equal raw, result
