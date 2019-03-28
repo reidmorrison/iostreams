@@ -7,19 +7,17 @@ end
 require 'uri'
 module IOStreams
   module S3
+    autoload :Reader, 'io_streams/s3/reader'
+    autoload :Writer, 'io_streams/s3/writer'
+
     # Sample URI: s3://mybucket/user/abc.zip
     def self.parse_uri(uri)
-      # 's3://mybucket/user/abc.zip'
       uri = URI.parse(uri)
-      # Filename and bucket only
-      if uri.scheme.nil?
-        segments = uri.path.split('/')
-        raise "S3 URI must at the very least contain '<bucket_name>/<key>'" if (segments.size == 1) || (segments[0] == '')
-        {
-          bucket: segments.shift,
-          key:    segments.join('/')
-        }
-      end
+      raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
+      {
+        bucket: uri.host,
+        key: uri.path.sub(/\A\//, '')
+      }
     end
   end
 end
