@@ -1,9 +1,3 @@
-begin
-  require 'aws-sdk-s3'
-rescue LoadError => exc
-  raise(LoadError, "Install gem 'aws-sdk-s3' to read and write AWS S3 files: #{exc.message}")
-end
-
 require 'uri'
 module IOStreams
   module S3
@@ -16,8 +10,16 @@ module IOStreams
       raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
       {
         bucket: uri.host,
-        key: uri.path.sub(/\A\//, '')
+        key:    uri.path.sub(/\A\//, '')
       }
+    end
+
+    def self.load_dependencies
+      return unless defined?(::Aws::S3::Resource)
+
+      require 'aws-sdk-s3'
+    rescue LoadError => exc
+      raise(LoadError, "Install gem 'aws-sdk-s3' to read and write AWS S3 files: #{exc.message}")
     end
   end
 end
