@@ -15,7 +15,7 @@ module IOStreams
     end
 
     def self.load_dependencies
-      return unless defined?(::Aws::S3::Resource)
+      return if defined?(::Aws::S3::Resource)
 
       require 'aws-sdk-s3'
     rescue LoadError => exc
