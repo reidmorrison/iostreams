@@ -42,6 +42,7 @@ module IOStreams
         begin
           # Since ZIP cannot be streamed, download to a local file before streaming
           temp_file = Tempfile.new('rocket_job')
+          temp_file.binmode
           write_file(temp_file.to_path, zip_file_name, &block)
 
           # Stream temp file into output stream

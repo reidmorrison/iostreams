@@ -9,11 +9,13 @@ module IOStreams
           file_name = file_name_or_io
         else
           temp_file = Tempfile.new('iostreams_xlsx')
+          temp_file.binmode
           IOStreams.copy(file_name_or_io, temp_file)
           file_name = temp_file.to_path
         end
 
         csv_temp_file = Tempfile.new('iostreams_csv')
+        csv_temp_file.binmode
         new(file_name).each { |lines| csv_temp_file << lines.to_csv }
         csv_temp_file.rewind
         yield csv_temp_file
