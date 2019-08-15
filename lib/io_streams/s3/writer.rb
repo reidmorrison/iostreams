@@ -67,7 +67,7 @@ module IOStreams
       #   aborted and this error is raised.  The raised error has a `#errors`
       #   method that returns the failures that caused the upload to be
       #   aborted.
-      def self.open(uri, region: nil, **args, &block)
+      def self.open(uri, region: nil, **args)
         raise(ArgumentError, 'file_name must be a URI string') unless uri.is_a?(String)
 
         IOStreams::S3.load_dependencies
@@ -75,7 +75,10 @@ module IOStreams
         options = IOStreams::S3.parse_uri(uri)
         s3      = region.nil? ? Aws::S3::Resource.new : Aws::S3::Resource.new(region: region)
         object  = s3.bucket(options[:bucket]).object(options[:key])
-        object.upload_stream(args, &block)
+        object.upload_stream(args) do |s3|
+          s3.binmode
+          yield(s3)
+        end
       end
     end
   end

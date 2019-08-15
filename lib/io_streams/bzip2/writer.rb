@@ -9,7 +9,7 @@ module IOStreams
           raise(LoadError, "Please install the 'rbzip2' gem for Bzip2 streaming support. #{e.message}")
         end
 
-        if IOStreams.reader_stream?(file_name_or_io)
+        if IOStreams.writer_stream?(file_name_or_io)
           begin
             io = RBzip2.default_adapter::Compressor.new(file_name_or_io)
             block.call(io)
@@ -17,13 +17,12 @@ module IOStreams
             io.close
           end
         else
-          ::File.open(file_name_or_io, 'wb') do |file|
+          IOStreams::File::Writer.open(file_name_or_io) do |file|
             io = RBzip2.default_adapter::Compressor.new(file)
             block.call(io)
             io.close
           end
         end
-
       end
     end
   end

@@ -42,6 +42,10 @@ module IOStreams
     autoload :Reader, 'io_streams/row/reader'
     autoload :Writer, 'io_streams/row/writer'
   end
+  module SymmetricEncryption
+    autoload :Reader, 'io_streams/symmetric_encryption/reader'
+    autoload :Writer, 'io_streams/symmetric_encryption/writer'
+  end
   module Xlsx
     autoload :Reader, 'io_streams/xlsx/reader'
   end

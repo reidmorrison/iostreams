@@ -69,6 +69,7 @@ module IOStreams
 
       else
         def self.write_file(file_name, zip_file_name, &block)
+          IOStreams.mkpath(file_name)
           zos = ::Zip::OutputStream.new(file_name)
           zos.put_next_entry(zip_file_name)
           block.call(zos)

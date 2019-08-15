@@ -45,38 +45,39 @@ module IOStreams
       # compress_level: [Integer]
       #   Compression level
       #   Default: 6
-      def self.open(file_name_or_io, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, binary: true, compression: :zip, compress_level: 6)
+      def self.open(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, binary: true, compression: :zip, compress_level: 6)
         compress_level = 0 if compression == :none
-        if IOStreams.writer_stream?(file_name_or_io)
+        if IOStreams.writer_stream?(file_name)
           raise(NotImplementedError, 'Can only PGP Encrypt directly to a file name. Output to streams are not yet supported.')
-        else
-          # Write to stdin, with encrypted contents being written to the file
-          command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
-          command << " --sign --local-user \"#{signer}\"" if signer
-          if signer_passphrase
-            command << " --pinentry-mode loopback" if IOStreams::Pgp.pgp_version.to_f >= 2.1
-            command << " --passphrase \"#{signer_passphrase}\""
+        end
+        IOStreams.mkpath(file_name)
+
+        # Write to stdin, with encrypted contents being written to the file
+        command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
+        command << " --sign --local-user \"#{signer}\"" if signer
+        if signer_passphrase
+          command << " --pinentry-mode loopback" if IOStreams::Pgp.pgp_version.to_f >= 2.1
+          command << " --passphrase \"#{signer_passphrase}\""
+        end
+        command << " -z #{compress_level}" if compress_level != 6
+        command << " --compress-algo #{compression}" unless compression == :none
+        command << " --recipient \"#{recipient}\" -o \"#{file_name}\""
+
+        IOStreams::Pgp.logger.debug { "IOStreams::Pgp::Writer.open: #{command}" } if IOStreams::Pgp.logger
+
+        Open3.popen2e(command) do |stdin, out, waith_thr|
+          begin
+            stdin.binmode if binary
+            yield(stdin)
+            stdin.close
+          rescue Errno::EPIPE
+            # Ignore broken pipe because gpg terminates early due to an error
+            ::File.delete(file_name) if ::File.exist?(file_name)
+            raise(Pgp::Failure, "GPG Failed writing to encrypted file: #{file_name}: #{out.read.chomp}")
           end
-          command << " -z #{compress_level}" if compress_level != 6
-          command << " --compress-algo #{compression}" unless compression == :none
-          command << " --recipient \"#{recipient}\" -o \"#{file_name_or_io}\""
-
-          IOStreams::Pgp.logger.debug { "IOStreams::Pgp::Writer.open: #{command}" } if IOStreams::Pgp.logger
-
-          Open3.popen2e(command) do |stdin, out, waith_thr|
-            begin
-              stdin.binmode if binary
-              yield(stdin)
-              stdin.close
-            rescue Errno::EPIPE
-              # Ignore broken pipe because gpg terminates early due to an error
-              ::File.delete(file_name_or_io) if ::File.exist?(file_name_or_io)
-              raise(Pgp::Failure, "GPG Failed writing to encrypted file: #{file_name_or_io}: #{out.read.chomp}")
-            end
-            unless waith_thr.value.success?
-              ::File.delete(file_name_or_io) if ::File.exist?(file_name_or_io)
-              raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name_or_io}: #{out.read.chomp}")
-            end
+          unless waith_thr.value.success?
+            ::File.delete(file_name) if ::File.exist?(file_name)
+            raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name}: #{out.read.chomp}")
           end
         end
       end

@@ -1,9 +1,5 @@
 require 'concurrent'
-# Load Symmetric Encryption if present so that its reader and writer can be registered
-begin
-  require 'symmetric-encryption'
-rescue LoadError
-end
+require 'fileutils'
 
 # Streaming library for Ruby
 #
@@ -473,6 +469,12 @@ module IOStreams
     end
   end
 
+  # Used by writers that can write directly to file to create the target path
+  def self.mkpath(file_name)
+    path = ::File.dirname(file_name)
+    FileUtils.mkdir_p(path) unless ::File.exist?(path)
+  end
+
   private
 
   # A registry to hold formats for processing files during upload or download
@@ -484,7 +486,7 @@ module IOStreams
 
   # Returns a reader or writer stream
   def self.stream(type, file_name_or_io, streams:, file_name:, encoding: nil, encode_cleaner: nil, encode_replace: nil, &block)
-    # TODO: Add support for different schemes, such as file://, s3://, sftp://
+    raise(ArgumentError, 'IOStreams call is missing mandatory block') if block.nil?
 
     streams = streams_for_file_name(file_name) if streams.nil? && file_name
 
@@ -565,6 +567,7 @@ module IOStreams
 
   # Register File extensions
   register_extension(:bz2, IOStreams::Bzip2::Reader, IOStreams::Bzip2::Writer)
+  register_extension(:enc, IOStreams::SymmetricEncryption::Reader, IOStreams::SymmetricEncryption::Writer)
   register_extension(:gz, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
   register_extension(:gzip, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
   register_extension(:zip, IOStreams::Zip::Reader, IOStreams::Zip::Writer)
@@ -572,12 +575,6 @@ module IOStreams
   register_extension(:gpg, IOStreams::Pgp::Reader, IOStreams::Pgp::Writer)
   register_extension(:xlsx, IOStreams::Xlsx::Reader, nil)
   register_extension(:xlsm, IOStreams::Xlsx::Reader, nil)
-
-  # Use Symmetric Encryption to encrypt of decrypt files with the `enc` extension
-  # when the gem `symmetric-encryption` has been loaded.
-  if defined?(SymmetricEncryption)
-    register_extension(:enc, SymmetricEncryption::Reader, SymmetricEncryption::Writer)
-  end
 
   # Support URI schemes
   #
