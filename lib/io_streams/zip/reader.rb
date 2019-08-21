@@ -12,7 +12,7 @@ module IOStreams
       #       puts data
       #     end
       #   end
-      def self.open(file_name_or_io, buffer_size: 65536, &block)
+      def self.open(file_name_or_io, &block)
         if !defined?(JRuby) && !defined?(::Zip)
           # MRI needs Ruby Zip, since it only has native support for GZip
           begin
@@ -25,21 +25,10 @@ module IOStreams
         # File name supplied
         return read_file(file_name_or_io, &block) unless IOStreams.reader_stream?(file_name_or_io)
 
-        # Stream supplied
-        begin
-          # Since ZIP cannot be streamed, download un-zipped data to a local file before streaming
-          temp_file = Tempfile.new('rocket_job')
-          temp_file.binmode
-          file_name = temp_file.to_path
-
-          # Stream zip stream into temp file
-          ::File.open(file_name, 'wb') do |file|
-            IOStreams.copy(file_name_or_io, file, buffer_size: buffer_size)
-          end
-
-          read_file(file_name, &block)
-        ensure
-          temp_file.delete if temp_file
+        # ZIP can only work against a file, not a stream, so create temp file.
+        IOStreams::Path.temp_file_name('iostreams_zip') do |temp_file_name|
+          IOStreams.copy(file_name_or_io, temp_file_name, target_options: {streams: []})
+          read_file(temp_file_name, &block)
         end
       end
 

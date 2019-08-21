@@ -13,15 +13,13 @@ module IOStreams
 
         begin
           # Since S3 download only supports a push stream, write it to a tempfile first.
-          temp_file = Tempfile.new('rocket_job')
-          temp_file.binmode
+          IOStreams::Path.temp_file_name('iostreams_s3') do |file_name|
+            args[:response_target] = file_name
+            object.get(args)
 
-          args[:response_target] = temp_file.to_path
-          object.get(args)
-
-          block.call(temp_file)
-        ensure
-          temp_file.delete if temp_file
+            # Return a read stream
+            IOStreams::File::Reader.open(file_name, &block)
+          end
         end
       end
     end

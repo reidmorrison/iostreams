@@ -12,6 +12,9 @@ module IOStreams
     class TypeMismatch < Error;
     end
 
+    class CommunicationsFailure < Error;
+    end
+
     # When the specified delimiter is not found in the supplied stream / file
     class DelimiterNotFound < Error;
     end

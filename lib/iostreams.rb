@@ -15,6 +15,10 @@ module IOStreams
     autoload :Reader, 'io_streams/gzip/reader'
     autoload :Writer, 'io_streams/gzip/writer'
   end
+  module HTTP
+    autoload :Reader, 'io_streams/http/reader'
+  end
+  autoload :Path,     'io_streams/path'
   autoload :Pgp,      'io_streams/pgp'
   autoload :S3,       'io_streams/s3'
   module SFTP

@@ -38,17 +38,10 @@ module IOStreams
         # File name supplied
         return write_file(file_name_or_io, zip_file_name, &block) unless IOStreams.writer_stream?(file_name_or_io)
 
-        # Stream supplied
-        begin
-          # Since ZIP cannot be streamed, download to a local file before streaming
-          temp_file = Tempfile.new('rocket_job')
-          temp_file.binmode
-          write_file(temp_file.to_path, zip_file_name, &block)
-
-          # Stream temp file into output stream
-          IOStreams.copy(temp_file, file_name_or_io, buffer_size: buffer_size)
-        ensure
-          temp_file.delete if temp_file
+        # ZIP can only work against a file, not a stream, so create temp file.
+        IOStreams::Path.temp_file_name('iostreams_zip') do |temp_file_name|
+          write_file(temp_file_name, zip_file_name, &block)
+          IOStreams.copy(temp_file_name, file_name_or_io, source_options: {streams: []})
         end
       end
 

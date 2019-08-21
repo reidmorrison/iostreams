@@ -4,24 +4,24 @@ module IOStreams
   module Xlsx
     class Reader
       # Convert a xlsx, or xlsm file or stream into CSV format.
-      def self.open(file_name_or_io, _ = nil)
-        if file_name_or_io.is_a?(String)
-          file_name = file_name_or_io
-        else
-          temp_file = Tempfile.new('iostreams_xlsx')
-          temp_file.binmode
-          IOStreams.copy(file_name_or_io, temp_file)
-          file_name = temp_file.to_path
-        end
+      def self.open(file_name_or_io, _ = nil, &block)
+        return extract_csv(file_name_or_io, &block) if file_name_or_io.is_a?(String)
 
-        csv_temp_file = Tempfile.new('iostreams_csv')
-        csv_temp_file.binmode
-        new(file_name).each { |lines| csv_temp_file << lines.to_csv }
-        csv_temp_file.rewind
-        yield csv_temp_file
-      ensure
-        temp_file.delete if temp_file
-        csv_temp_file.delete if csv_temp_file
+        # Creek gem can only work against a file, not a stream, so create temp file.
+        IOStreams::Path.temp_file_name('iostreams_xlsx') do |temp_file_name|
+          IOStreams.copy(file_name_or_io, temp_file_name, target_options: {streams: []})
+          extract_csv(temp_file_name, &block)
+        end
+      end
+
+      # Convert the spreadsheet to csv in a tempfile
+      def self.extract_csv(file_name, &block)
+        IOStreams::Path.temp_file_name('iostreams_csv') do |temp_file_name|
+          IOStreams::File::Writer.open(temp_file_name) do |io|
+            new(file_name).each { |lines| io << lines.to_csv }
+          end
+          IOStreams::File::Reader.open(temp_file_name, &block)
+        end
       end
 
       def initialize(file_name)

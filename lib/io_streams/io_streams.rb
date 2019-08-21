@@ -585,8 +585,8 @@ module IOStreams
   #    sftp://hostname/path/file_name
   #    s3://bucket/key
   register_scheme(nil, IOStreams::File::Reader, IOStreams::File::Writer)
-  # register_scheme(:http,  IOStreams::HTTP::Reader,  IOStreams::HTTP::Writer)
-  # register_scheme(:https, IOStreams::HTTPS::Reader, IOStreams::HTTPS::Writer)
+  register_scheme(:http,  IOStreams::HTTP::Reader,  nil)
+  register_scheme(:https, IOStreams::HTTP::Reader, nil)
   # register_scheme(:sftp,  IOStreams::SFTP::Reader,  IOStreams::SFTP::Writer)
   register_scheme(:s3, IOStreams::S3::Reader, IOStreams::S3::Writer)
 end
