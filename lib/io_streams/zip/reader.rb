@@ -12,7 +12,7 @@ module IOStreams
       #       puts data
       #     end
       #   end
-      def self.open(file_name_or_io, &block)
+      def self.open(file_name_or_io, _ = nil, &block)
         if !defined?(JRuby) && !defined?(::Zip)
           # MRI needs Ruby Zip, since it only has native support for GZip
           begin
