@@ -40,7 +40,7 @@ module IOStreams
           # About 10 times slower than the approach used in Ruby 2.5 and earlier,
           # but at least it works on Ruby 2.6 and above.
           def parse_line(line)
-            return if IOStreams.blank?(line)
+            return if IOStreams::Utils.blank?(line)
 
             CSV.parse_line(line)
           end

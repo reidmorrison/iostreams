@@ -425,7 +425,52 @@ module IOStreams
     end
   end
 
-  Extension = Struct.new(:reader_class, :writer_class)
+  # Return the complete path including supplied elements.
+  #
+  # Example:
+  #    IOStreams.path('sample')
+  #    # => "/default_root/sample"
+  #
+  #    IOStreams.path('file.xls')
+  #    # => "/default_root/file.xls"
+  #
+  #    IOStreams.path('sample', root: :ftp)
+  #    # => "/ftp_root/sample"
+  #
+  #    IOStreams.path('sample', 'file.xls', root: :ftp)
+  #    # => "/ftp_root/sample/file.xls"
+  #
+  # Notes:
+  # * Add the root path first against which this path is permitted to operate.
+  #     `IOStreams.add_root_path(:default, "/usr/local/var/files")`
+  def self.path(*elements, root: :default)
+    root_path(root).join(*elements)
+  end
+
+  # When using a full path, without needing the root prefixed.
+  def self.full_path(*elements)
+    path = ::File.join(*elements)
+    uri  = URI.parse(path)
+    IOStreams.scheme(uri.scheme).path_class.new(path)
+  end
+
+  # Return named root path
+  def self.root_path(root = :default)
+    @roots_paths[root.to_sym] || raise(ArgumentError, "Unknown root: #{root.inspect}")
+  end
+
+  # Add a named root path
+  def self.add_root_path(root, path)
+    raise(ArgumentError, "Invalid root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
+
+    uri                       = URI.parse(path.to_s)
+    path_class                = IOStreams.scheme(uri.scheme).path_class
+    @roots_paths[root.to_sym] = path_class.new(path)
+  end
+
+  def self.root_paths
+    @roots_paths.dup
+  end
 
   # Register a file extension and the reader and writer streaming classes
   #
@@ -453,33 +498,22 @@ module IOStreams
   # Example:
   #   # MyXls::Reader and MyXls::Writer must implement .open
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
-  def self.register_scheme(scheme, reader_class, writer_class)
+  def self.register_scheme(scheme, reader_class, writer_class, path_class = nil)
     raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s =~ /\A\w+\Z/
-    @schemes[scheme.nil? ? nil : scheme.to_sym] = Extension.new(reader_class, writer_class)
-  end
-
-  # Helper method: Returns [true|false] if a value is blank?
-  def self.blank?(value)
-    if value.nil?
-      true
-    elsif value.is_a?(String)
-      value !~ /\S/
-    else
-      value.respond_to?(:empty?) ? value.empty? : !value
-    end
-  end
-
-  # Used by writers that can write directly to file to create the target path
-  def self.mkpath(file_name)
-    path = ::File.dirname(file_name)
-    FileUtils.mkdir_p(path) unless ::File.exist?(path)
+    @schemes[scheme.nil? ? nil : scheme.to_sym] = Scheme.new(reader_class, writer_class, path_class)
   end
 
   private
 
+  # Hold root paths
+  @roots_paths = {}
+
   # A registry to hold formats for processing files during upload or download
   @extensions = {}
   @schemes    = {}
+
+  Extension = Struct.new(:reader_class, :writer_class)
+  Scheme    = Struct.new(:reader_class, :writer_class, :path_class)
 
   # Struct to hold the Stream and options if any
   StreamStruct = Struct.new(:klass, :options)
@@ -556,9 +590,12 @@ module IOStreams
     StreamStruct.new(klass, options)
   end
 
-  def self.stream_struct_for_scheme(type, scheme, options = {})
-    ext   = @schemes[scheme.nil? ? nil : scheme.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme.inspect}")
-    klass = ext.send("#{type}_class")
+  def self.scheme(scheme_name)
+    @schemes[scheme_name.nil? ? nil : scheme_name.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
+  end
+
+  def self.stream_struct_for_scheme(type, scheme_name, options = {})
+    klass = scheme(scheme_name).send("#{type}_class")
     StreamStruct.new(klass, options)
   end
 
@@ -584,9 +621,9 @@ module IOStreams
   #    https://hostname/path/file_name
   #    sftp://hostname/path/file_name
   #    s3://bucket/key
-  register_scheme(nil, IOStreams::File::Reader, IOStreams::File::Writer)
-  register_scheme(:http,  IOStreams::HTTP::Reader,  nil)
+  register_scheme(nil, IOStreams::File::Reader, IOStreams::File::Writer, IOStreams::File::Path)
+  register_scheme(:http, IOStreams::HTTP::Reader, nil)
   register_scheme(:https, IOStreams::HTTP::Reader, nil)
-  # register_scheme(:sftp,  IOStreams::SFTP::Reader,  IOStreams::SFTP::Writer)
-  register_scheme(:s3, IOStreams::S3::Reader, IOStreams::S3::Writer)
+  register_scheme(:sftp, IOStreams::SFTP::Reader, IOStreams::SFTP::Writer)
+  register_scheme(:s3, IOStreams::S3::Reader, IOStreams::S3::Writer, IOStreams::S3::Path)
 end

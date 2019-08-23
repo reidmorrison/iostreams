@@ -39,7 +39,7 @@ module IOStreams
         return write_file(file_name_or_io, zip_file_name, &block) unless IOStreams.writer_stream?(file_name_or_io)
 
         # ZIP can only work against a file, not a stream, so create temp file.
-        IOStreams::Path.temp_file_name('iostreams_zip') do |temp_file_name|
+        IOStreams::File::Path.temp_file_name('iostreams_zip') do |temp_file_name|
           write_file(temp_file_name, zip_file_name, &block)
           IOStreams.copy(temp_file_name, file_name_or_io, source_options: {streams: []})
         end
@@ -62,7 +62,7 @@ module IOStreams
 
       else
         def self.write_file(file_name, zip_file_name, &block)
-          IOStreams.mkpath(file_name)
+          IOStreams::File::Path.mkpath(file_name)
           zos = ::Zip::OutputStream.new(file_name)
           zos.put_next_entry(zip_file_name)
           block.call(zos)

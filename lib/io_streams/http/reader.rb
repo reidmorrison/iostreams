@@ -55,7 +55,7 @@ module IOStreams
             raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}") unless response.is_a?(Net::HTTPSuccess)
 
             # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-            IOStreams::Path.temp_file_name('iostreams_http') do |file_name|
+            IOStreams::File::Path.temp_file_name('iostreams_http') do |file_name|
               IOStreams::File::Writer.open(file_name) do |io|
                 response.read_body { |chunk| io.write(chunk) }
               end

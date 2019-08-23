@@ -8,7 +8,7 @@ module IOStreams
         return extract_csv(file_name_or_io, &block) if file_name_or_io.is_a?(String)
 
         # Creek gem can only work against a file, not a stream, so create temp file.
-        IOStreams::Path.temp_file_name('iostreams_xlsx') do |temp_file_name|
+        IOStreams::File::Path.temp_file_name('iostreams_xlsx') do |temp_file_name|
           IOStreams.copy(file_name_or_io, temp_file_name, target_options: {streams: []})
           extract_csv(temp_file_name, &block)
         end
@@ -16,7 +16,7 @@ module IOStreams
 
       # Convert the spreadsheet to csv in a tempfile
       def self.extract_csv(file_name, &block)
-        IOStreams::Path.temp_file_name('iostreams_csv') do |temp_file_name|
+        IOStreams::File::Path.temp_file_name('iostreams_csv') do |temp_file_name|
           IOStreams::File::Writer.open(temp_file_name) do |io|
             new(file_name).each { |lines| io << lines.to_csv }
           end

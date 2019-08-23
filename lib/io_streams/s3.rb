@@ -1,6 +1,7 @@
 require 'uri'
 module IOStreams
   module S3
+    autoload :Path, 'io_streams/s3/path'
     autoload :Reader, 'io_streams/s3/reader'
     autoload :Writer, 'io_streams/s3/writer'
 

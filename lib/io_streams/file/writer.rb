@@ -9,7 +9,7 @@ module IOStreams
       def self.open(file_name, **args, &block)
         raise(ArgumentError, 'File name must be a string') unless file_name.is_a?(String)
 
-        IOStreams.mkpath(file_name)
+        IOStreams::File::Path.mkpath(file_name)
         begin
           ::File.open(file_name, 'wb', &block)
         rescue StandardError => e

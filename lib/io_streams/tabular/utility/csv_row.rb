@@ -23,7 +23,7 @@ module IOStreams
         #   line [String]
         #     A single line of CSV data without any line terminators
         def parse(line)
-          return if IOStreams.blank?(line)
+          return if IOStreams::Utils.blank?(line)
           return if @skip_lines and @skip_lines.match line
 
           in_extended_col = false

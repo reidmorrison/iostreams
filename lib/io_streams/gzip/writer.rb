@@ -4,7 +4,7 @@ module IOStreams
       # Write to a file / stream, compressing with GZip
       def self.open(file_name_or_io, **args, &block)
         unless IOStreams.writer_stream?(file_name_or_io)
-          IOStreams.mkpath(file_name_or_io)
+          IOStreams::File::Path.mkpath(file_name_or_io)
           Zlib::GzipWriter.open(file_name_or_io, &block)
         else
           begin

@@ -31,11 +31,15 @@ class PgpReaderTest < Minitest::Test
         end
       end
 
-      it 'fails with stream input' do
-        io = StringIO.new
-        assert_raises NotImplementedError do
-          IOStreams::Pgp::Reader.open(io, passphrase: 'BAD') { |file| file.read }
+      it 'streams input' do
+        IOStreams::Pgp::Writer.open(temp_file.path, recipient: 'receiver@example.org') do |io|
+          io.write(decrypted)
         end
+
+        encrypted = IOStreams::File::Reader.open(temp_file.path, &:read)
+        io        = StringIO.new(encrypted)
+        result = IOStreams::Pgp::Reader.open(io, passphrase: 'receiver_passphrase', &:read)
+        assert_equal decrypted, result
       end
 
     end

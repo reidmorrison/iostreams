@@ -45,13 +45,22 @@ module IOStreams
       # compress_level: [Integer]
       #   Compression level
       #   Default: 6
-      def self.open(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, binary: true, compression: :zip, compress_level: 6)
+      def self.open(file_name_or_io, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, binary: true, compression: :zip, compress_level: 6, &block)
         compress_level = 0 if compression == :none
-        if IOStreams.writer_stream?(file_name)
-          raise(NotImplementedError, 'Can only PGP Encrypt directly to a file name. Output to streams are not yet supported.')
-        end
-        IOStreams.mkpath(file_name)
 
+        if file_name_or_io.is_a?(String)
+          IOStreams::File::Path.mkpath(file_name_or_io)
+          return write_file(file_name_or_io, recipient: recipient, signer: signer, signer_passphrase: signer_passphrase, binary: binary, compression: compression, compress_level: compress_level, &block)
+        end
+
+        # PGP can only work against a file, not a stream, so create temp file.
+        IOStreams::File::Path.temp_file_name('iostreams_pgp') do |temp_file_name|
+          write_file(temp_file_name, recipient: recipient, signer: signer, signer_passphrase: signer_passphrase, binary: binary, compression: compression, compress_level: compress_level, &block)
+          IOStreams.copy(temp_file_name, file_name_or_io, source_options: {streams: []})
+        end
+      end
+
+      def self.write_file(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, binary: true, compression: :zip, compress_level: 6)
         # Write to stdin, with encrypted contents being written to the file
         command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
         command << " --sign --local-user \"#{signer}\"" if signer

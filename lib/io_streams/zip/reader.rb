@@ -26,7 +26,7 @@ module IOStreams
         return read_file(file_name_or_io, &block) unless IOStreams.reader_stream?(file_name_or_io)
 
         # ZIP can only work against a file, not a stream, so create temp file.
-        IOStreams::Path.temp_file_name('iostreams_zip') do |temp_file_name|
+        IOStreams::File::Path.temp_file_name('iostreams_zip') do |temp_file_name|
           IOStreams.copy(file_name_or_io, temp_file_name, target_options: {streams: []})
           read_file(temp_file_name, &block)
         end

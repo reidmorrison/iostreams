@@ -35,5 +35,5 @@ end
 
 # Test paths
 root = File.expand_path(File.join(__dir__, '../tmp'))
-IOStreams::Path.add_root(:default, File.join(root, 'default'))
-IOStreams::Path.add_root(:downloads, File.join(root, 'downloads'))
+IOStreams.add_root_path(:default, File.join(root, 'default'))
+IOStreams.add_root_path(:downloads, File.join(root, 'downloads'))

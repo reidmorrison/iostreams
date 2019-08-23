@@ -25,7 +25,7 @@ class PgpWriterTest < Minitest::Test
           io.write(decrypted)
         end
 
-        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase', binary: false) { |file| file.read }
+        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase', binary: false, &:read)
         assert_equal decrypted, result
       end
 
@@ -39,7 +39,7 @@ class PgpWriterTest < Minitest::Test
           end
         end
 
-        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase') { |file| file.read }
+        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase', &:read)
         assert_equal binary_data, result
       end
 
@@ -48,7 +48,7 @@ class PgpWriterTest < Minitest::Test
           io.write(decrypted)
         end
 
-        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase') { |file| file.read }
+        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase', &:read)
         assert_equal decrypted, result
       end
 
@@ -80,14 +80,17 @@ class PgpWriterTest < Minitest::Test
         end
       end
 
-      it 'fails with stream output' do
-        string_io = StringIO.new
-        assert_raises NotImplementedError do
-          IOStreams::Pgp::Writer.open(string_io, recipient: 'receiver@example.org') do |io|
-            io.write(decrypted)
-          end
+      it 'writes to a stream' do
+        io_string = StringIO.new(''.b)
+        IOStreams::Pgp::Writer.open(io_string, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
+          io.write(decrypted)
         end
+
+        io     = StringIO.new(io_string.string)
+        result = IOStreams::Pgp::Reader.open(io, passphrase: 'receiver_passphrase', &:read)
+        assert_equal decrypted, result
       end
+
     end
   end
 end

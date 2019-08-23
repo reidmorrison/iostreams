@@ -57,10 +57,11 @@ module IOStreams
         @eof               = false
         @read_cache_buffer = nil
         @buffer            = nil
+        @delimiter         = delimiter
 
         read_block
         # Auto-detect windows/linux line endings if not supplied. \n or \r\n
-        @delimiter = delimiter || auto_detect_line_endings
+        @delimiter ||= auto_detect_line_endings
 
         if @buffer
           # Change the delimiters encoding to match that of the input stream
