@@ -425,50 +425,69 @@ module IOStreams
     end
   end
 
-  # Return the complete path including supplied elements.
+  # Returns [Path] instance for the supplied complete path with optional scheme.
   #
   # Example:
-  #    IOStreams.path('sample')
-  #    # => "/default_root/sample"
+  #    IOStreams.path("/usr", "local", "sample")
+  #    # => #<IOStreams::File::Path:0x00007fec66e59b60 @path="/usr/local/sample">
   #
-  #    IOStreams.path('file.xls')
-  #    # => "/default_root/file.xls"
+  #    IOStreams.path("/usr", "local", "sample").to_s
+  #    # => "/usr/local/sample"
   #
-  #    IOStreams.path('sample', root: :ftp)
-  #    # => "/ftp_root/sample"
+  #    IOStreams.path("s3://mybucket/path/file.xls")
+  #    # => #<IOStreams::S3::Path:0x00007fec66e3a288, @path="s3://mybucket/path/file.xls">
   #
-  #    IOStreams.path('sample', 'file.xls', root: :ftp)
-  #    # => "/ftp_root/sample/file.xls"
+  #    IOStreams.path("s3://mybucket/path/file.xls").to_s
+  #    # => "s3://mybucket/path/file.xls"
   #
-  # Notes:
-  # * Add the root path first against which this path is permitted to operate.
-  #     `IOStreams.add_root_path(:default, "/usr/local/var/files")`
-  def self.path(*elements, root: :default)
-    root_path(root).join(*elements)
-  end
-
-  # When using a full path, without needing the root prefixed.
-  def self.full_path(*elements)
+  #    IOStreams.path("file.xls")
+  #    # => #<IOStreams::File::Path:0x00007fec6be6aaf0 @path="file.xls">
+  #
+  #    IOStreams.path("files", "file.xls").to_s
+  #    # => "files/file.xls"
+  def self.path(*elements)
     path = ::File.join(*elements)
     uri  = URI.parse(path)
     IOStreams.scheme(uri.scheme).path_class.new(path)
   end
 
+  # Join the supplied path elements to a root path.
+  #
+  # Example:
+  #    IOStreams.add_root(:default, "tmp/export")
+  #
+  #    IOStreams.join('file.xls')
+  #    # => #<IOStreams::File::Path:0x00007fec70391bd8 @path="tmp/export/sample">
+  #
+  #    IOStreams.join('file.xls').to_s
+  #    # => "tmp/export/sample"
+  #
+  #    IOStreams.join('sample', 'file.xls', root: :ftp)
+  #    # => #<IOStreams::File::Path:0x00007fec6ee329b8 @path="tmp/ftp/sample/file.xls">
+  #
+  #    IOStreams.join('sample', 'file.xls', root: :ftp).to_s
+  #    # => "tmp/ftp/sample/file.xls"
+  #
+  # Notes:
+  # * Add the root path first against which this path is permitted to operate.
+  #     `IOStreams.add_root(:default, "/usr/local/var/files")`
+  def self.join(*elements, root: :default)
+    root(root).join(*elements)
+  end
+
   # Return named root path
-  def self.root_path(root = :default)
+  def self.root(root = :default)
     @roots_paths[root.to_sym] || raise(ArgumentError, "Unknown root: #{root.inspect}")
   end
 
   # Add a named root path
-  def self.add_root_path(root, path)
+  def self.add_root(root, *elements)
     raise(ArgumentError, "Invalid root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
 
-    uri                       = URI.parse(path.to_s)
-    path_class                = IOStreams.scheme(uri.scheme).path_class
-    @roots_paths[root.to_sym] = path_class.new(path)
+    @roots_paths[root.to_sym] = path(*elements)
   end
 
-  def self.root_paths
+  def self.roots
     @roots_paths.dup
   end
 
