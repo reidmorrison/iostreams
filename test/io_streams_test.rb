@@ -30,6 +30,22 @@ class IOStreamsTest < Minitest::Test
       bad_data.gsub("\xE9".b, '').gsub("\x07", '')
     end
 
+    let :multiple_zip_file_name do
+      File.join(File.dirname(__FILE__), 'files', 'multiple_files.zip')
+    end
+
+    let :zip_gz_file_name do
+      File.join(File.dirname(__FILE__), 'files', 'text.zip.gz')
+    end
+
+    let :contents_test_txt do
+      File.read(File.join(File.dirname(__FILE__), 'files', 'text.txt'))
+    end
+
+    let :contents_test_json do
+      File.read(File.join(File.dirname(__FILE__), 'files', 'test.json'))
+    end
+
     after do
       temp_file.delete
     end
@@ -124,5 +140,20 @@ class IOStreamsTest < Minitest::Test
       end
     end
 
+    describe '.reader' do
+      it 'reads a zip file' do
+        result = IOStreams.reader(multiple_zip_file_name, streams: {zip: {entry_file_name: 'test.json'}}) do |io|
+          io.read
+        end
+        assert_equal contents_test_json, result
+      end
+
+      it 'reads a zip file from within a gz file' do
+        result = IOStreams.reader(zip_gz_file_name) do |io|
+          io.read
+        end
+        assert_equal contents_test_txt, result
+      end
+    end
   end
 end
