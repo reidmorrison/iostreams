@@ -13,7 +13,7 @@ module IOStreams
         begin
           ::File.open(file_name, 'wb', &block)
         rescue StandardError => e
-          File.unlink(file_name) if File.exist?(file_name)
+          ::File.unlink(file_name) if ::File.exist?(file_name)
           raise(e)
         end
       end

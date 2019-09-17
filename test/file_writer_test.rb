@@ -21,6 +21,21 @@ class FileWriterTest < Minitest::Test
         assert_equal raw, result
       end
 
+      it 'cleans up failed upload' do
+        temp_file = Tempfile.new('rocket_job')
+        file_name = temp_file.to_path
+        begin
+          IOStreams::File::Writer.open(file_name) do |io|
+            io.write("hello world")
+            assert File.exist?(file_name)
+            raise(ArgumentError, "Oh no")
+          end
+        rescue ArgumentError
+        end
+
+        refute File.exist?(file_name)
+      end
+
       it 'does not support streams' do
         io_string = StringIO.new
         assert_raises ArgumentError do
