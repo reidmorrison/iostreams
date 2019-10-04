@@ -1,15 +1,12 @@
 module IOStreams
   module Line
-    class Writer
+    class Writer < IOStreams::Writer
       attr_reader :delimiter
 
-      # Write a line at a time to a file or stream
-      def self.open(file_name_or_io, **args)
-        if file_name_or_io.is_a?(String)
-          IOStreams::File::Writer.open(file_name_or_io) { |io| yield new(io, **args) }
-        else
-          yield new(file_name_or_io, **args)
-        end
+      # Write a line at a time to a stream.
+      def self.stream(output_stream, **args, &block)
+        # Pass-through if already a line writer
+        output_stream.is_a?(self.class) ? block.call(output_stream) : new(output_stream, **args, &block)
       end
 
       # A delimited stream writer that will write to the supplied output stream.
@@ -26,8 +23,8 @@ module IOStreams
       #     to the output stream
       #     Default: OS Specific. Linux: "\n"
       def initialize(output_stream, delimiter: $/)
-        @output_stream = output_stream
-        @delimiter     = delimiter
+        super(output_stream)
+        @delimiter = delimiter
       end
 
       # Write a line to the output stream
@@ -50,7 +47,7 @@ module IOStreams
       #     puts "Wrote #{count} bytes to the output file, including the delimiter"
       #   end
       def write(data)
-        @output_stream.write(data.to_s + delimiter)
+        output_stream.write(data.to_s + delimiter)
       end
     end
   end

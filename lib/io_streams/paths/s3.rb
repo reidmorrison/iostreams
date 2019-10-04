@@ -1,11 +1,12 @@
+# frozen_string_literal: true
 module IOStreams
-  module S3
-    class Writer
-      # Write to AWS S3
-      #
+  module Paths
+    class S3 < IOStreams::Path
+      attr_reader :bucket, :key, :s3, :region
+
       # Arguments:
       #
-      # uri: [String]
+      # url: [String]
       #   Prefix must be: `s3://`
       #   followed by bucket name,
       #   followed by path and file_name (key).
@@ -16,6 +17,8 @@ module IOStreams
       # region: [String]
       #   AWS Region.
       #   Default: ENV['AWS_REGION'], or supplied by ruby driver
+      #
+      # Writer specific options:
       #
       # thread_count: [Integer]
       #   The number of parallel multipart uploads
@@ -61,24 +64,101 @@ module IOStreams
       #   object_lock_mode: "GOVERNANCE", # accepts GOVERNANCE, COMPLIANCE
       #   object_lock_retain_until_date: Time.now,
       #   object_lock_legal_hold_status: "ON", # accepts ON, OFF
+      def initialize(url, region: nil, **args)
+        Utils.load_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Resource)
+
+        parse_url(url)
+
+        # https://aws.amazon.com/blogs/developer/using-resources/
+        @s3      = region.nil? ? Aws::S3::Resource.new : Aws::S3::Resource.new(region: region)
+        @object  = s3.bucket(bucket).object(key)
+        @region  = region
+        @options = args
+        super(url)
+      end
+
+      # S3 logically creates paths when a key is set.
+      def mkpath
+        self
+      end
+
+      def mkdir
+        self
+      end
+
+      def exist?
+        object.exists?
+      end
+
+      def size
+        object.size
+      end
+
+      def delete
+        object.delete
+        self
+      end
+
+      # Read from AWS S3 file.
+      def reader(**args, &block)
+        # Since S3 download only supports a push stream, write it to a tempfile first.
+        IOStreams::File::Path.temp_file_name('iostreams_s3') do |file_name|
+          args[:response_target] = file_name
+          object.get(args)
+
+          # Return a read stream
+          IOStreams::Paths::File.new(file_name).reader { |io| streams.reader(io, &block) }
+        end
+      end
+
+      # Write to AWS S3
       #
       # Raises [MultipartUploadError] If an object is being uploaded in
       #   parts, and the upload can not be completed, then the upload is
       #   aborted and this error is raised.  The raised error has a `#errors`
       #   method that returns the failures that caused the upload to be
       #   aborted.
-      def self.open(uri, region: nil, **args)
-        raise(ArgumentError, 'file_name must be a URI string') unless uri.is_a?(String)
-
-        IOStreams::S3.load_dependencies
-
-        options = IOStreams::S3.parse_uri(uri)
-        s3      = region.nil? ? Aws::S3::Resource.new : Aws::S3::Resource.new(region: region)
-        object  = s3.bucket(options[:bucket]).object(options[:key])
-        object.upload_stream(args) do |s3|
-          s3.binmode
-          yield(s3)
+      def writer(&block)
+        # S3 upload hangs with large files, write it to a tempfile first.
+        IOStreams::Paths::File.temp_file_name('iostreams_s3') do |file_name|
+          IOStreams::Paths::File.new(file_name).writer do |io|
+            streams.reader(io) do
+              # TODO copy
+            end
+          end
         end
+        # TODO: Use this code once the S3 bug is fixed
+        # object.upload_stream(@options) do |s3|
+        #   s3.binmode
+        #   streams.reader(io, &block)
+        # end
+      end
+
+      def each(pattern = "*", case_sensitive: false, directories: false, hidden: false)
+        existing_files = s3_bucket.objects(prefix: root).collect(&:key)
+
+        flags = 0
+        flags |= File::FNM_CASEFOLD unless case_sensitive
+        flags |= File::FNM_DOTMATCH unless hidden
+
+        Pathname.glob(pattern, flags) do |full_path|
+          next if !directories && full_path.directory?
+
+          yield(self.class.new(full_path.to_s))
+        end
+        # File.fnmatch(pattern, path, File::FNM_EXTGLOB)
+        # Dir.glob
+      end
+
+      private
+
+      # Sample URI: s3://mybucket/user/abc.zip
+      def parse_uri(uri)
+        uri = URI.parse(uri)
+        raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
+
+        @bucket = uri.host
+        @key    = uri.path.sub(/\A\//, '')
       end
     end
   end

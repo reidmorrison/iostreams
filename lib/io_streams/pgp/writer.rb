@@ -2,7 +2,7 @@ require 'open3'
 
 module IOStreams
   module Pgp
-    class Writer
+    class Writer < IOStreams::Writer
       # Sign all encrypted files with this users key.
       # Default: Do not sign encyrpted files.
       def self.default_signer=(default_signer)
@@ -15,11 +15,10 @@ module IOStreams
         @default_signer_passphrase = default_signer_passphrase
       end
 
-      # Write to a PGP / GPG file or stream, encrypting the contents as it is written
+      # Write to a PGP / GPG file, encrypting the contents as it is written.
       #
-      # file_name_or_io: [String|IO]
+      # file_name: [String]
       #   Name of file to write to.
-      #   Or, the IO stream to write the encrypted contents to.
       #
       # recipient: [String]
       #   Email of user for which to encypt the file.
@@ -32,10 +31,6 @@ module IOStreams
       #   Passphrase to use to open the private key when signing the file.
       #   Default: default_signer_passphrase
       #
-      # binary: [true|false]
-      #   Whether to write binary data.
-      #   Default: true
-      #
       # compression: [:none|:zip|:zlib|:bzip2]
       #   Note: Standard PGP only supports :zip.
       #   :zlib is better than zip.
@@ -45,22 +40,9 @@ module IOStreams
       # compress_level: [Integer]
       #   Compression level
       #   Default: 6
-      def self.open(file_name_or_io, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, binary: true, compression: :zip, compress_level: 6, &block)
+      def self.file(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, compression: :zip, compress_level: 6)
         compress_level = 0 if compression == :none
 
-        if file_name_or_io.is_a?(String)
-          IOStreams::File::Path.mkpath(file_name_or_io)
-          return write_file(file_name_or_io, recipient: recipient, signer: signer, signer_passphrase: signer_passphrase, binary: binary, compression: compression, compress_level: compress_level, &block)
-        end
-
-        # PGP can only work against a file, not a stream, so create temp file.
-        IOStreams::File::Path.temp_file_name('iostreams_pgp') do |temp_file_name|
-          write_file(temp_file_name, recipient: recipient, signer: signer, signer_passphrase: signer_passphrase, binary: binary, compression: compression, compress_level: compress_level, &block)
-          IOStreams.copy(temp_file_name, file_name_or_io, source_options: {streams: []})
-        end
-      end
-
-      def self.write_file(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, binary: true, compression: :zip, compress_level: 6)
         # Write to stdin, with encrypted contents being written to the file
         command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
         command << " --sign --local-user \"#{signer}\"" if signer
@@ -76,7 +58,7 @@ module IOStreams
 
         Open3.popen2e(command) do |stdin, out, waith_thr|
           begin
-            stdin.binmode if binary
+            stdin.binmode
             yield(stdin)
             stdin.close
           rescue Errno::EPIPE
@@ -103,7 +85,6 @@ module IOStreams
       def self.default_signer
         @default_signer
       end
-
     end
   end
 end

@@ -1,6 +1,6 @@
 module IOStreams
   module Line
-    class Reader
+    class Reader < IOStreams::Reader
       attr_reader :delimiter, :buffer_size, :line_number
 
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` characters are read.
@@ -8,13 +8,10 @@ module IOStreams
 
       LINEFEED_REGEXP = Regexp.compile(/\r\n|\n|\r/).freeze
 
-      # Read a line at a time from a file or stream
-      def self.open(file_name_or_io, **args)
-        if file_name_or_io.is_a?(String)
-          IOStreams::File::Reader.open(file_name_or_io) { |io| yield new(io, **args) }
-        else
-          yield new(file_name_or_io, **args)
-        end
+      # Read a line at a time from a stream
+      def self.stream(input_stream, **args, &block)
+        # Pass-through if already a line reader
+        input_stream.is_a?(self.class) ? block.call(input_stream) : new(input_stream, **args, &block)
       end
 
       # Create a delimited stream reader from the supplied input stream.
@@ -46,8 +43,9 @@ module IOStreams
       # - Extract header line(s) / first non-comment, non-blank line
       # - Embedded newline support, RegExp? or Proc?
       def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
+        super(input_stream)
+
         @embedded_within = embedded_within
-        @input_stream    = input_stream
         @buffer_size     = buffer_size
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.

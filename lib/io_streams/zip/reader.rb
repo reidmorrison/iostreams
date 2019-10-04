@@ -1,6 +1,6 @@
 module IOStreams
   module Zip
-    class Reader
+    class Reader < IOStreams::Reader
       # Read from a zip file or stream, decompressing the contents as it is read
       # The input stream from the first file found in the zip file is passed
       # to the supplied block.

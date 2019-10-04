@@ -1,6 +1,6 @@
 module IOStreams
   module Zip
-    class Writer
+    class Writer < IOStreams::Writer
       # Write a single file in Zip format to the supplied output file name
       #
       # Parameters
