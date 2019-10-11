@@ -4,9 +4,11 @@ module IOStreams
       attr_reader :delimiter
 
       # Write a line at a time to a stream.
-      def self.stream(output_stream, **args, &block)
+      def self.stream(output_stream, original_file_name: nil, **args, &block)
         # Pass-through if already a line writer
-        output_stream.is_a?(self.class) ? block.call(output_stream) : new(output_stream, **args, &block)
+        return block.call(output_stream) if output_stream.is_a?(self.class)
+
+        yield new(output_stream, **args)
       end
 
       # A delimited stream writer that will write to the supplied output stream.

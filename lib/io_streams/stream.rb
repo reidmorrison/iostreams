@@ -84,7 +84,7 @@ module IOStreams
     #   no streams are passed in.
     #
     def reader(&block)
-      streams.execute(:reader, &block)
+      streams.reader(io_stream, &block)
     end
 
     # Iterate over a file / stream returning one line at a time.
@@ -98,7 +98,7 @@ module IOStreams
     #   end
     #
     def each_line(**args, &block)
-#    return enum_for __method__ unless block_given?
+      #    return enum_for __method__ unless block_given?
       line_reader(**args) { |line_stream| line_stream.each(&block) }
     end
 
@@ -216,7 +216,7 @@ module IOStreams
     # * Passes the file_name_or_io as-is into the block if it is already a writer stream AND
     #   no streams are passed in.
     def writer(&block)
-      execute(:writer, &block)
+      streams.writer(&block)
     end
 
     def line_writer(**args)
@@ -246,6 +246,5 @@ module IOStreams
     def streams
       @streams ||= IOStreams::Streams.new
     end
-
   end
 end

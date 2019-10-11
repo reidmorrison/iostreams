@@ -1,6 +1,6 @@
 module IOStreams
   module Paths
-    class SFtp < IOStreams::Path
+    class SFTP < IOStreams::Path
       include SemanticLogger::Loggable if defined?(SemanticLogger)
 
       attr_reader :host, :username, :mkdir, :options
@@ -24,7 +24,7 @@ module IOStreams
       #
       # **args
       #   Any other options supported by Net::SSH.start
-      def initialize(file_name, username:, password:, host:, port: 22, max_pkt_size: 65536, logger: nil, **args, &block)
+      def initialize(file_name, username:, password:, host:, port: 22, max_pkt_size: 65_536, logger: nil, **args)
         Utils.load_dependency('net-sftp', 'net/sftp') unless defined?(Net::SFTP)
 
         logger                 ||= self.logger if defined?(SemanticLogger)
@@ -79,7 +79,6 @@ module IOStreams
         end
         result
       end
-
     end
   end
 end

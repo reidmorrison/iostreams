@@ -32,7 +32,7 @@ class FileWriterTest < Minitest::Test
       it 'does not support streams' do
         io_string = StringIO.new
         assert_raises ArgumentError do
-          IOStreams::S3::Writer.open(io_string) { |io|  io.write(raw) }
+          IOStreams::S3::Writer.open(io_string) { |io| io.write(raw) }
         end
       end
     end

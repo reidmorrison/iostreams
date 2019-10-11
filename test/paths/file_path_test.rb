@@ -13,7 +13,7 @@ module IOStreams
         end
 
         it 'supplies new temp file_name' do
-          file_name = nil
+          file_name  = nil
           file_name2 = nil
           IOStreams::File::Path.temp_file_name('base', '.ext') { |name| file_name = name }
           IOStreams::File::Path.temp_file_name('base', '.ext') { |name| file_name2 = name }

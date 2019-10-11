@@ -1,5 +1,5 @@
 require 'io_streams/version'
-#@formatter:off
+# @formatter:off
 module IOStreams
   autoload :Errors,   'io_streams/errors'
   autoload :Path,     'io_streams/path'
@@ -15,6 +15,7 @@ module IOStreams
     autoload :File,   'io_streams/paths/file'
     autoload :HTTP,   'io_streams/paths/http'
     autoload :S3,     'io_streams/paths/s3'
+    autoload :SFTP,   'io_streams/paths/sftp'
   end
 
   module Bzip2

@@ -71,13 +71,13 @@ module IOStreams
 
     # Returns [true|false] whether the file is compressed based on its file extensions.
     def compressed?
-      # TODO Look at streams?
+      # TODO: Look at streams?
       !(path =~ /\.(zip|gz|gzip|xls.|)\z/i).nil?
     end
 
     # Returns [true|false] whether the file is encrypted based on its file extensions.
     def encrypted?
-      # TODO Look at streams?
+      # TODO: Look at streams?
       !(path =~ /\.(enc|pgp|gpg)\z/i).nil?
     end
 

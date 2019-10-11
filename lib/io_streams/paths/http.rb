@@ -55,12 +55,15 @@ module IOStreams
             if response.is_a?(Net::HTTPUnauthorized)
               raise(IOStreams::Errors::CommunicationsFailure, "Authorization Required: Invalid :username or :password.")
             end
+
             if response.is_a?(Net::HTTPRedirection)
               new_uri = response['location']
               return handle_redirects(new_uri, http_redirect_count: http_redirect_count - 1, &block)
             end
 
-            raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}") unless response.is_a?(Net::HTTPSuccess)
+            unless response.is_a?(Net::HTTPSuccess)
+              raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}")
+            end
 
             # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
             IOStreams::Paths::File.temp_file_name('iostreams_http') do |file_name|

@@ -52,7 +52,7 @@ module IOStreams
   def self.path(*elements)
     path = ::File.join(*elements)
     uri  = URI.parse(path)
-    IOStreams.scheme(uri.scheme).path_class.new(path)
+    IOStreams.scheme(uri.scheme).new(path)
   end
 
   # For an existing IO Stream
@@ -60,10 +60,8 @@ module IOStreams
   # IOStreams.io(io).file_name('blah.zip').encoding('BINARY').each_line(...)
   # IOStreams.io(io).file_name('blah.csv.zip').each_line(...)
   # IOStreams.io(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
-  def self.io(io)
-    path = ::File.join(*elements)
-    uri  = URI.parse(path)
-    IOStreams.scheme(uri.scheme).path_class.new(path)
+  def self.io(io_stream)
+    IOStreams::Stream.new(io_stream)
   end
 
   # For processing by either a file name or an open IO stream.
@@ -223,14 +221,15 @@ module IOStreams
   #   # Decrypts the file, then compresses it with gzip as it is being streamed into S3.
   #   # Useful for when the entire bucket is encrypted on S3.
   #   IOStreams.copy('a.csv.enc', 's3://my_bucket/b.csv.gz')
-  def self.copy(source_file_name_or_io, target_file_name_or_io, buffer_size: 65536, source_options: {}, target_options: {})
+  def self.copy(source_file_name_or_io, target_file_name_or_io, buffer_size: 65_536, source_options: {}, target_options: {})
     bytes = 0
     # TODO: prevent stream conversions when reader and writer streams are the same!
     reader(source_file_name_or_io, **source_options) do |source_stream|
       writer(target_file_name_or_io, **target_options) do |target_stream|
-        # Todo: Use IO.copy ?
+        # TODO: Use IO.copy ?
         while data = source_stream.read(buffer_size)
-          break if data.size == 0
+          break if data.empty?
+
           bytes += data.size
           target_stream.write(data)
         end
@@ -349,7 +348,7 @@ module IOStreams
   @schemes    = {}
 
   def self.build_path(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil)
-    path           = Path.new(file_name_or_io)
+    path           = file_name_or_io.is_a?(String) ? Path.new(file_name_or_io) : Stream.new(file_name_or_io)
     path.file_name = file_name if file_name
 
     apply_old_style_streams(path, streams) if streams

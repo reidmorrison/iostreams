@@ -1,4 +1,3 @@
-# frozen_string_literal: true
 module IOStreams
   module Paths
     class S3 < IOStreams::Path
@@ -123,7 +122,7 @@ module IOStreams
         IOStreams::Paths::File.temp_file_name('iostreams_s3') do |file_name|
           IOStreams::Paths::File.new(file_name).writer do |io|
             streams.reader(io) do
-              # TODO copy
+              # TODO: copy
             end
           end
         end
@@ -158,7 +157,7 @@ module IOStreams
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
 
         @bucket = uri.host
-        @key    = uri.path.sub(/\A\//, '')
+        @key    = uri.path.sub(%r{\A/}, '')
       end
     end
   end

@@ -4,7 +4,7 @@ module IOStreams
       attr_reader :encoding, :cleaner
 
       # Write a line at a time to a file or stream
-      def self.stream(input_stream, **args)
+      def self.stream(input_stream, original_file_name: nil, **args)
         yield new(input_stream, **args)
       end
 

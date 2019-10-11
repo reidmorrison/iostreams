@@ -27,19 +27,19 @@ class RowWriterTest < Minitest::Test
       temp_file.delete
     end
 
-    describe '.open' do
+    describe '.stream' do
       it 'file' do
-        IOStreams::Row::Writer.open(file_name) do |io|
+        IOStreams::Row::Writer.file(file_name) do |io|
           csv_rows.each { |array| io << array }
         end
-        result = File.read(file_name)
+        result = ::File.read(file_name)
         assert_equal raw_csv_data, result
       end
 
-      it 'stream' do
+      it 'streams' do
         io_string = StringIO.new
-        IOStreams::Line::Writer.open(io_string) do |io|
-          IOStreams::Row::Writer.open(io) do |stream|
+        IOStreams::Line::Writer.stream(io_string) do |io|
+          IOStreams::Row::Writer.stream(io) do |stream|
             csv_rows.each { |array| stream << array }
           end
         end

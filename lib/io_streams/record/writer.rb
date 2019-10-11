@@ -9,7 +9,7 @@ module IOStreams
       # Write a record as a Hash at a time to a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
-      def self.stream(line_writer, **args, &block)
+      def self.stream(line_writer, original_file_name: nil, **args, &block)
         # Pass-through if already a record writer
         line_writer.is_a?(self.class) ? block.call(line_writer) : new(line_writer, **args, &block)
       end
@@ -27,8 +27,9 @@ module IOStreams
       #   For all other parameters, see Tabular::Header.new
       def initialize(line_writer, columns: nil, **args)
         unless line_writer.respond_to?(:<<)
-          raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<")
+          raise(ArgumentError, 'Stream must be a IOStreams::Line::Writer or implement #<<')
         end
+
         @tabular     = IOStreams::Tabular.new(columns: columns, **args)
         @line_writer = line_writer
 

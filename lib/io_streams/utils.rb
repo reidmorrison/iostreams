@@ -1,8 +1,8 @@
 module IOStreams
   module Utils
     # Lazy load dependent gem so that it remains a soft dependency.
-    def self.load_dependency(gem_name, stream_type)
-      require gem_name
+    def self.load_dependency(gem_name, stream_type, require_name = gem_name)
+      require require_name
     rescue LoadError => e
       raise(LoadError, "Please install the gem '#{gem_name}' to support #{stream_type}. #{e.message}")
     end

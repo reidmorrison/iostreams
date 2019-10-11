@@ -12,9 +12,18 @@ module IOStreams
       #
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
-      def self.stream(line_writer, **args, &block)
+      def self.stream(line_writer, original_file_name: nil, **args)
         # Pass-through if already a row writer
-        line_writer.is_a?(self.class) ? block.call(line_writer) : new(line_writer, **args, &block)
+        return block.call(line_writer) if line_writer.is_a?(self.class)
+
+        yield new(line_writer, **args)
+      end
+
+      # When writing to a file also add the line writer stream
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
+        IOStreams::Line::Writer.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
+          stream(io, original_file_name: original_file_name, **args, &block)
+        end
       end
 
       # Create a Tabular writer that takes individual rows as arrays.
@@ -29,8 +38,9 @@ module IOStreams
       #   For all other parameters, see Tabular::Header.new
       def initialize(line_writer, columns: nil, **args)
         unless line_writer.respond_to?(:<<)
-          raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<")
+          raise(ArgumentError, 'Stream must be a IOStreams::Line::Writer or implement #<<')
         end
+
         @tabular     = IOStreams::Tabular.new(columns: columns, **args)
         @line_writer = line_writer
 

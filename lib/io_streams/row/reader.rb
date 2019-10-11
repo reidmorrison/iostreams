@@ -5,9 +5,18 @@ module IOStreams
       # Read a line as an Array at a time from a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :each
-      def self.stream(line_reader, **args, &block)
+      def self.stream(line_reader, original_file_name: nil, **args, &block)
         # Pass-through if already a record reader
-        line_reader.is_a?(self.class) ? block.call(line_reader) : new(line_reader, **args, &block)
+        return block.call(line_reader) if line_reader.is_a?(self.class)
+
+        yield new(line_reader, **args)
+      end
+
+      # When reading from a file also add the line writer stream
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
+        IOStreams::Line::Reader.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
+          stream(io, original_file_name: original_file_name, **args, &block)
+        end
       end
 
       # Create a Tabular reader to return the stream rows as arrays.
@@ -24,6 +33,7 @@ module IOStreams
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
+
         @tabular        = IOStreams::Tabular.new(**args)
         @line_reader    = line_reader
         @cleanse_header = cleanse_header

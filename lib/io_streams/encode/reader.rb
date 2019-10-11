@@ -7,8 +7,8 @@ module IOStreams
       # Builtin strip options to apply after encoding the read data.
       CLEANSE_RULES = {
         # Strips all non printable characters
-        printable: -> (data) { data.gsub!(NOT_PRINTABLE, '') || data }
-      }
+        printable: ->(data) { data.gsub!(NOT_PRINTABLE, '') || data }
+      }.freeze
 
       # Read a line at a time from a file or stream
       def self.stream(input_stream, **args)

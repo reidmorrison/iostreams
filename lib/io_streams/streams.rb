@@ -44,14 +44,14 @@ module IOStreams
       end
     end
 
-    def reader(file_name_or_io, &block)
+    def reader(io_stream, &block)
       streams = build_streams(:reader)
-      execute(streams, file_name_or_io, &block)
+      execute(streams, io_stream, &block)
     end
 
-    def writer(file_name_or_io, &block)
+    def writer(io_stream, &block)
       streams = build_streams(:writer)
-      execute(streams, file_name_or_io, &block)
+      execute(streams, io_stream, &block)
     end
 
     private
@@ -76,7 +76,7 @@ module IOStreams
     end
 
     def class_for_stream(type, stream)
-      ext = IOStreams::Parser.extensions[stream.nil? ? nil : stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+      ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
       ext.send("#{type}_class")
     end
 
@@ -86,7 +86,7 @@ module IOStreams
       extensions = []
       while extension = parts.pop
         sym = extension.downcase.to_sym
-        break unless IOStreams::Parser.extensions[sym]
+        break unless IOStreams.extensions[sym]
 
         extensions.unshift(sym)
       end
@@ -94,16 +94,16 @@ module IOStreams
     end
 
     # Executes the streams that need to be executed.
-    def execute(streams, file_name_or_io, &block)
+    def execute(streams, io_stream, &block)
       raise(ArgumentError, 'IOStreams call is missing mandatory block') if block.nil?
 
       if streams.size == 1
         klass, opts = streams.first
-        klass.open(file_name_or_io, opts, &block)
+        klass.stream(io_stream, opts, &block)
       else
         # Daisy chain multiple streams together
-        last = streams.keys.inject(block) { |inner, klass| -> io { klass.open(io, streams[klass], &inner) } }
-        last.call(file_name_or_io)
+        last = streams.keys.inject(block) { |inner, klass| ->(io) { klass.stream(io, streams[klass], &inner) } }
+        last.call(io_stream)
       end
     end
   end

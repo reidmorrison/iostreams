@@ -3,16 +3,22 @@ require 'open3'
 module IOStreams
   module Pgp
     class Writer < IOStreams::Writer
-      # Sign all encrypted files with this users key.
-      # Default: Do not sign encyrpted files.
-      def self.default_signer=(default_signer)
-        @default_signer = default_signer
-      end
+      class << self
+        # Sign all encrypted files with this users key.
+        # Default: Do not sign encrypted files.
+        attr_writer :default_signer
 
-      # Passphrase to use to open the private key when signing the file.
-      # Default: None.
-      def self.default_signer_passphrase=(default_signer_passphrase)
-        @default_signer_passphrase = default_signer_passphrase
+        # Passphrase to use to open the private key when signing the file.
+        # Default: None.
+        attr_writer :default_signer_passphrase
+
+        private
+
+        attr_reader :default_signer_passphrase
+        attr_reader :default_signer
+
+        @default_signer_passphrase = nil
+        @default_signer            = nil
       end
 
       # Write to a PGP / GPG file, encrypting the contents as it is written.
@@ -40,7 +46,7 @@ module IOStreams
       # compress_level: [Integer]
       #   Compression level
       #   Default: 6
-      def self.file(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, compression: :zip, compress_level: 6)
+      def self.file(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, compression: :zip, compress_level: 6, original_file_name: nil)
         compress_level = 0 if compression == :none
 
         # Write to stdin, with encrypted contents being written to the file
@@ -54,7 +60,7 @@ module IOStreams
         command << " --compress-algo #{compression}" unless compression == :none
         command << " --recipient \"#{recipient}\" -o \"#{file_name}\""
 
-        IOStreams::Pgp.logger.debug { "IOStreams::Pgp::Writer.open: #{command}" } if IOStreams::Pgp.logger
+        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: #{command}" }
 
         Open3.popen2e(command) do |stdin, out, waith_thr|
           begin
@@ -73,18 +79,6 @@ module IOStreams
         end
       end
 
-      private
-
-      @default_signer_passphrase = nil
-      @default_signer            = nil
-
-      def self.default_signer_passphrase
-        @default_signer_passphrase
-      end
-
-      def self.default_signer
-        @default_signer
-      end
     end
   end
 end

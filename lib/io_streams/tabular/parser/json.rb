@@ -7,7 +7,9 @@ module IOStreams
         def parse(row)
           return row if row.is_a?(::Hash)
 
-          raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
+          unless row.is_a?(String)
+            raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}")
+          end
 
           JSON.parse(row)
         end

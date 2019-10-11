@@ -3,7 +3,9 @@ module IOStreams
     class Reader < IOStreams::Reader
       # read from a file/stream using Symmetric Encryption
       def self.stream(input_stream, **args, &block)
-        Utils.load_dependency('symmetric-encryption', '.enc streaming') unless defined?(SymmetricEncryption)
+        unless defined?(SymmetricEncryption)
+          Utils.load_dependency('symmetric-encryption', '.enc streaming')
+        end
 
         ::SymmetricEncryption::Reader.open(input_stream, **args, &block)
       end
