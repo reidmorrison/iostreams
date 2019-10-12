@@ -14,9 +14,9 @@ module IOStreams
     # - Cannot set both `stream` and `option`
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
-      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams::Parser.extensions.include?(stream)
+      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @streams
-      raise(ArgumentError, "Cannot call both #option unless the `file_name` was already set}") unless file_name
+      raise(ArgumentError, "Cannot call #option unless the `file_name` was already set}") unless file_name
 
       @options ||= {}
       if opts = @options[stream]
@@ -34,7 +34,7 @@ module IOStreams
         @streams = {}
         return
       end
-      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams::Parser.extensions.include?(stream)
+      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
 
       @streams ||= {}
       if opts = @streams[stream]
@@ -60,7 +60,6 @@ module IOStreams
     # Parameters
     #   type: [:reader|writer]
     def build_streams(type)
-      p "file_name: #{file_name}"
       built_streams = {}
       if streams
         streams.each_pair { |stream, opts| built_streams[class_for_stream(type, stream)] = opts }
@@ -102,7 +101,9 @@ module IOStreams
     def execute(streams, io_stream, &block)
       raise(ArgumentError, 'IOStreams call is missing mandatory block') if block.nil?
 
-      if streams.size == 1
+      if streams.empty?
+        block.call(io_stream)
+      elsif streams.size == 1
         klass, opts = streams.first
         klass.stream(io_stream, opts, &block)
       else

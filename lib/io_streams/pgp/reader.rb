@@ -21,7 +21,7 @@ module IOStreams
       #
       # passphrase: [String]
       #   Pass phrase for private key to decrypt the file with
-      def self.file(file_name, passphrase: self.default_passphrase, binary: true)
+      def self.file(file_name, passphrase: self.default_passphrase)
         raise(ArgumentError, 'Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase') unless passphrase
 
         loopback = IOStreams::Pgp.pgp_version.to_f >= 2.1 ? '--pinentry-mode loopback' : ''
@@ -34,7 +34,7 @@ module IOStreams
           stdin.close
           result =
             begin
-              stdout.binmode if binary
+              stdout.binmode
               yield(stdout)
             rescue Errno::EPIPE
               # Ignore broken pipe because gpg terminates early due to an error
