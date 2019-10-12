@@ -43,7 +43,7 @@ class RecordWriterTest < Minitest::Test
 
     describe '#<<' do
       it 'file' do
-        IOStreams::Record::Writer.open(file_name) do |io|
+        IOStreams::Record::Writer.file(file_name) do |io|
           inputs.each { |hash| io << hash }
         end
         result = File.read(file_name)
@@ -51,7 +51,7 @@ class RecordWriterTest < Minitest::Test
       end
 
       it 'json file' do
-        IOStreams::Record::Writer.open(file_name, file_name: 'abc.json') do |io|
+        IOStreams::Record::Writer.file(file_name, file_name: 'abc.json') do |io|
           inputs.each { |hash| io << hash }
         end
         result = File.read(file_name)
@@ -60,8 +60,8 @@ class RecordWriterTest < Minitest::Test
 
       it 'stream' do
         io_string = StringIO.new
-        IOStreams::Line::Writer.open(io_string) do |io|
-          IOStreams::Record::Writer.open(io) do |stream|
+        IOStreams::Line::Writer.stream(io_string) do |io|
+          IOStreams::Record::Writer.stream(io) do |stream|
             inputs.each { |row| stream << row }
           end
         end

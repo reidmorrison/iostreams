@@ -22,16 +22,16 @@ class XlsxReaderTest
         end
       end
 
-      # describe 'with a file stream' do
-      #   it 'returns the contents of the file' do
-      #     csv = ''
-      #     File.open(file_name, 'rb') do |file|
-      #       csv = IOStreams::Xlsx::Reader.stream(file, &:read)
-      #     end
-      #
-      #     assert_equal xlsx_contents, CSV.parse(csv)
-      #   end
-      # end
+      describe 'with a file stream' do
+        it 'returns the contents of the file' do
+          csv = ''
+          File.open(file_name, 'rb') do |file|
+            csv = IOStreams::Xlsx::Reader.stream(file, &:read)
+          end
+
+          assert_equal xlsx_contents, CSV.parse(csv)
+        end
+      end
     end
   end
 end

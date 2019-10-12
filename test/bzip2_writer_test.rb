@@ -18,9 +18,9 @@ class Bzip2WriterTest < Minitest::Test
       temp_file.delete
     end
 
-    describe '.open' do
+    describe '.file' do
       it 'file' do
-        IOStreams::Bzip2::Writer.open(file_name) do |io|
+        IOStreams::Bzip2::Writer.file(file_name) do |io|
           io.write(decompressed)
         end
 
@@ -34,7 +34,7 @@ class Bzip2WriterTest < Minitest::Test
 
       it 'stream' do
         io_string = StringIO.new(''.b)
-        IOStreams::Bzip2::Writer.open(io_string) do |io|
+        IOStreams::Bzip2::Writer.stream(io_string) do |io|
           io.write(decompressed)
         end
 

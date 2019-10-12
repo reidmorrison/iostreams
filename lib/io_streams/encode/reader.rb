@@ -11,7 +11,7 @@ module IOStreams
       }.freeze
 
       # Read a line at a time from a file or stream
-      def self.stream(input_stream, **args)
+      def self.stream(input_stream, original_file_name: nil, **args)
         yield new(input_stream, **args)
       end
 

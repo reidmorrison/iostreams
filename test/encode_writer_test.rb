@@ -22,7 +22,7 @@ class EncodeWriterTest < Minitest::Test
       it 'file' do
         temp_file = Tempfile.new('rocket_job')
         file_name = temp_file.to_path
-        IOStreams::Encode::Writer.open(file_name, encoding: 'ASCII-8BIT') do |io|
+        IOStreams::Encode::Writer.file(file_name, encoding: 'ASCII-8BIT') do |io|
           io << bad_data
         end
         result = File.read(file_name, mode: 'rb')
@@ -31,7 +31,7 @@ class EncodeWriterTest < Minitest::Test
 
       it 'stream' do
         io = StringIO.new(''.b)
-        IOStreams::Encode::Writer.open(io, encoding: 'ASCII-8BIT') do |encoded|
+        IOStreams::Encode::Writer.stream(io, encoding: 'ASCII-8BIT') do |encoded|
           encoded << bad_data
         end
         assert_equal 'ASCII-8BIT', io.string.encoding.to_s
@@ -41,7 +41,7 @@ class EncodeWriterTest < Minitest::Test
       it 'stream as utf-8' do
         io = StringIO.new('')
         assert_raises Encoding::UndefinedConversionError do
-          IOStreams::Encode::Writer.open(io, encoding: 'UTF-8') do |encoded|
+          IOStreams::Encode::Writer.stream(io, encoding: 'UTF-8') do |encoded|
             encoded << bad_data
           end
         end
@@ -49,7 +49,7 @@ class EncodeWriterTest < Minitest::Test
 
       it 'stream as utf-8 with replacement' do
         io = StringIO.new('')
-        IOStreams::Encode::Writer.open(io, encoding: 'UTF-8', encode_replace: '?') do |encoded|
+        IOStreams::Encode::Writer.stream(io, encoding: 'UTF-8', replace: '?') do |encoded|
           encoded << bad_data
         end
         assert_equal 'UTF-8', io.string.encoding.to_s
@@ -58,7 +58,7 @@ class EncodeWriterTest < Minitest::Test
 
       it 'stream as utf-8 with replacement and printable cleansing' do
         io = StringIO.new('')
-        IOStreams::Encode::Writer.open(io, encoding: 'UTF-8', encode_replace: '?', encode_cleaner: :printable) do |encoded|
+        IOStreams::Encode::Writer.stream(io, encoding: 'UTF-8', replace: '?', cleaner: :printable) do |encoded|
           encoded << bad_data
         end
         assert_equal 'UTF-8', io.string.encoding.to_s
@@ -70,7 +70,7 @@ class EncodeWriterTest < Minitest::Test
       it 'returns byte count' do
         io_string = StringIO.new(''.b)
         count     = 0
-        IOStreams::Encode::Writer.open(io_string, encoding: 'ASCII-8BIT') do |io|
+        IOStreams::Encode::Writer.stream(io_string, encoding: 'ASCII-8BIT') do |io|
           count += io.write(bad_data)
         end
         assert_equal bad_data, io_string.string

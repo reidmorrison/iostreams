@@ -30,22 +30,22 @@ class ZipWriterTest < Minitest::Test
         assert_equal decompressed, result
       end
 
-      # it 'stream' do
-      #   io_string = StringIO.new(''.b)
-      #   IOStreams::Zip::Writer.stream(io_string) do |io|
-      #     io.write(decompressed)
-      #   end
-      #   io     = StringIO.new(io_string.string)
-      #   result = nil
-      #   begin
-      #     zin = ::Zip::InputStream.new(io)
-      #     zin.get_next_entry
-      #     result = zin.read
-      #   ensure
-      #     zin.close if zin
-      #   end
-      #   assert_equal decompressed, result
-      # end
+      it 'stream' do
+        io_string = StringIO.new(''.b)
+        IOStreams::Zip::Writer.stream(io_string) do |io|
+          io.write(decompressed)
+        end
+        io     = StringIO.new(io_string.string)
+        result = nil
+        begin
+          zin = ::Zip::InputStream.new(io)
+          zin.get_next_entry
+          result = zin.read
+        ensure
+          zin.close if zin
+        end
+        assert_equal decompressed, result
+      end
     end
   end
 end

@@ -60,15 +60,20 @@ module IOStreams
     # Parameters
     #   type: [:reader|writer]
     def build_streams(type)
+      p "file_name: #{file_name}"
       built_streams = {}
       if streams
         streams.each_pair { |stream, opts| built_streams[class_for_stream(type, stream)] = opts }
       elsif file_name
-        # Add encoding stream first if the option was supplied.
-        if opts = options[:encoding]
-          built_streams[class_for_stream(type, :encoding)] = opts
+        if options
+          # Add encoding stream first if the option was supplied.
+          if opts = options[:encoding]
+            built_streams[class_for_stream(type, :encoding)] = opts
+          end
+          parse_extensions.each { |stream| built_streams[class_for_stream(type, stream)] = options[stream] || {} }
+        else
+          parse_extensions.each { |stream| built_streams[class_for_stream(type, stream)] = {} }
         end
-        parse_extensions.each { |stream| built_streams[class_for_stream(type, stream)] = options[stream] || {} }
       else
         raise(ArgumentError, "Either call #stream or #file_name in order to build the required streams")
       end

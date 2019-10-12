@@ -22,7 +22,7 @@ module IOStreams
       # When writing to a file also add the line writer stream
       def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
         IOStreams::Line::Writer.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
-          stream(io, original_file_name: original_file_name, **args, &block)
+          yield new(io, **args, &block)
         end
       end
 

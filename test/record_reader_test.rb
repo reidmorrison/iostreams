@@ -23,7 +23,7 @@ class RecordReaderTest < Minitest::Test
     describe '#each' do
       it 'csv file' do
         records = []
-        IOStreams::Record::Reader.open(file_name, cleanse_header: false) do |io|
+        IOStreams::Record::Reader.file(file_name, cleanse_header: false) do |io|
           io.each { |row| records << row }
         end
         assert_equal expected, records
@@ -31,7 +31,7 @@ class RecordReaderTest < Minitest::Test
 
       it 'json file' do
         records = []
-        IOStreams::Record::Reader.open(json_file_name, cleanse_header: false) do |input|
+        IOStreams::Record::Reader.file(json_file_name, cleanse_header: false, format: :json) do |input|
           input.each { |row| records << row }
         end
         assert_equal expected, records
@@ -39,8 +39,8 @@ class RecordReaderTest < Minitest::Test
 
       it 'stream' do
         rows = []
-        IOStreams.line_reader(file_name) do |file|
-          IOStreams::Record::Reader.open(file, cleanse_header: false) do |io|
+        IOStreams::Line::Reader.file(file_name) do |file|
+          IOStreams::Record::Reader.stream(file, cleanse_header: false) do |io|
             io.each { |row| rows << row }
           end
         end
@@ -50,7 +50,7 @@ class RecordReaderTest < Minitest::Test
 
     describe '#collect' do
       it 'json file' do
-        records = IOStreams::Record::Reader.open(json_file_name) do |input|
+        records = IOStreams::Record::Reader.file(json_file_name, format: :json) do |input|
           input.collect { |record| record["state"] }
         end
         assert_equal expected.collect { |record| record["state"] }, records

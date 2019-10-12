@@ -12,7 +12,7 @@ class GzipReaderTest < Minitest::Test
 
     describe '.open' do
       it 'file' do
-        result = IOStreams::Gzip::Reader.open(file_name) do |io|
+        result = IOStreams::Gzip::Reader.file(file_name) do |io|
           io.read
         end
         assert_equal decompressed, result
@@ -20,7 +20,7 @@ class GzipReaderTest < Minitest::Test
 
       it 'stream' do
         result = File.open(file_name) do |file|
-          IOStreams::Gzip::Reader.open(file) do |io|
+          IOStreams::Gzip::Reader.stream(file) do |io|
             io.read
           end
         end

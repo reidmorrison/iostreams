@@ -15,30 +15,30 @@ class PgpReaderTest < Minitest::Test
       temp_file.delete
     end
 
-    describe '.open' do
+    describe '.file' do
       it 'reads encrypted file' do
-        IOStreams::Pgp::Writer.open(temp_file.path, recipient: 'receiver@example.org') do |io|
+        IOStreams::Pgp::Writer.file(temp_file.path, recipient: 'receiver@example.org') do |io|
           io.write(decrypted)
         end
 
-        result = IOStreams::Pgp::Reader.open(temp_file.path, passphrase: 'receiver_passphrase') { |file| file.read }
+        result = IOStreams::Pgp::Reader.file(temp_file.path, passphrase: 'receiver_passphrase') { |file| file.read }
         assert_equal decrypted, result
       end
 
       it 'fails with bad passphrase' do
         assert_raises IOStreams::Pgp::Failure do
-          IOStreams::Pgp::Reader.open(temp_file.path, passphrase: 'BAD') { |file| file.read }
+          IOStreams::Pgp::Reader.file(temp_file.path, passphrase: 'BAD') { |file| file.read }
         end
       end
 
       it 'streams input' do
-        IOStreams::Pgp::Writer.open(temp_file.path, recipient: 'receiver@example.org') do |io|
+        io_string = StringIO.new(''.b)
+        IOStreams::Pgp::Writer.stream(io_string, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
           io.write(decrypted)
         end
 
-        encrypted = IOStreams::File::Reader.open(temp_file.path, &:read)
-        io        = StringIO.new(encrypted)
-        result    = IOStreams::Pgp::Reader.open(io, passphrase: 'receiver_passphrase', &:read)
+        io     = StringIO.new(io_string.string)
+        result = IOStreams::Pgp::Reader.stream(io, passphrase: 'receiver_passphrase', &:read)
         assert_equal decrypted, result
       end
 

@@ -19,13 +19,13 @@ class PgpWriterTest < Minitest::Test
       temp_file.delete
     end
 
-    describe '.open' do
+    describe '.file' do
       it 'writes encrypted text file' do
-        IOStreams::Pgp::Writer.open(file_name, recipient: 'receiver@example.org', binary: false) do |io|
+        IOStreams::Pgp::Writer.file(file_name, recipient: 'receiver@example.org') do |io|
           io.write(decrypted)
         end
 
-        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase', binary: false, &:read)
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: 'receiver_passphrase', &:read)
         assert_equal decrypted, result
       end
 
@@ -34,28 +34,28 @@ class PgpWriterTest < Minitest::Test
         binary_data      = File.open(binary_file_name, 'rb') { |file| file.read }
 
         File.open(binary_file_name, 'rb') do |input|
-          IOStreams::Pgp::Writer.open(file_name, recipient: 'receiver@example.org') do |output|
-            IOStreams.copy(input, output)
+          IOStreams::Pgp::Writer.file(file_name, recipient: 'receiver@example.org') do |output|
+            IO.copy_stream(input, output)
           end
         end
 
-        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase', &:read)
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: 'receiver_passphrase', &:read)
         assert_equal binary_data, result
       end
 
       it 'writes and signs encrypted file' do
-        IOStreams::Pgp::Writer.open(file_name, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
+        IOStreams::Pgp::Writer.file(file_name, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
           io.write(decrypted)
         end
 
-        result = IOStreams::Pgp::Reader.open(file_name, passphrase: 'receiver_passphrase', &:read)
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: 'receiver_passphrase', &:read)
         assert_equal decrypted, result
       end
 
       it 'fails with bad signer passphrase' do
         skip 'GnuPG v2.1 and above passes when it should not' if IOStreams::Pgp.pgp_version.to_f >= 2.1
         assert_raises IOStreams::Pgp::Failure do
-          IOStreams::Pgp::Writer.open(file_name, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'BAD') do |io|
+          IOStreams::Pgp::Writer.file(file_name, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'BAD') do |io|
             io.write(decrypted)
           end
         end
@@ -63,7 +63,7 @@ class PgpWriterTest < Minitest::Test
 
       it 'fails with bad recipient' do
         assert_raises IOStreams::Pgp::Failure do
-          IOStreams::Pgp::Writer.open(file_name, recipient: 'BAD@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
+          IOStreams::Pgp::Writer.file(file_name, recipient: 'BAD@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
             io.write(decrypted)
             # Allow process to terminate
             sleep 1
@@ -74,7 +74,7 @@ class PgpWriterTest < Minitest::Test
 
       it 'fails with bad signer' do
         assert_raises IOStreams::Pgp::Failure do
-          IOStreams::Pgp::Writer.open(file_name, recipient: 'receiver@example.org', signer: 'BAD@example.org', signer_passphrase: 'sender_passphrase') do |io|
+          IOStreams::Pgp::Writer.file(file_name, recipient: 'receiver@example.org', signer: 'BAD@example.org', signer_passphrase: 'sender_passphrase') do |io|
             io.write(decrypted)
           end
         end
@@ -82,12 +82,12 @@ class PgpWriterTest < Minitest::Test
 
       it 'writes to a stream' do
         io_string = StringIO.new(''.b)
-        IOStreams::Pgp::Writer.open(io_string, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
+        IOStreams::Pgp::Writer.stream(io_string, recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |io|
           io.write(decrypted)
         end
 
         io     = StringIO.new(io_string.string)
-        result = IOStreams::Pgp::Reader.open(io, passphrase: 'receiver_passphrase', &:read)
+        result = IOStreams::Pgp::Reader.stream(io, passphrase: 'receiver_passphrase', &:read)
         assert_equal decrypted, result
       end
 

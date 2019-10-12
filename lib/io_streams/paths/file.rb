@@ -9,9 +9,11 @@ module IOStreams
       def self.temp_file_name(basename, extension = '')
         result = nil
         ::Dir::Tmpname.create([basename, extension]) do |tmpname|
-          result = yield(tmpname)
-        ensure
-          ::File.unlink(tmpname) if ::File.exist?(tmpname)
+          begin
+            result = yield(tmpname)
+          ensure
+            ::File.unlink(tmpname) if ::File.exist?(tmpname)
+          end
         end
         result
       end
@@ -20,9 +22,11 @@ module IOStreams
       def self.temp_file(basename, extension = '')
         result = nil
         ::Dir::Tmpname.create([basename, extension]) do |tmpname|
-          result = yield(new(tmpname).stream(:none))
-        ensure
-          ::File.unlink(tmpname) if ::File.exist?(tmpname)
+          begin
+            result = yield(new(tmpname).stream(:none))
+          ensure
+            ::File.unlink(tmpname) if ::File.exist?(tmpname)
+          end
         end
         result
       end

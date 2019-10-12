@@ -6,16 +6,16 @@ module IOStreams
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :each
       def self.stream(line_reader, original_file_name: nil, **args, &block)
-        # Pass-through if already a record reader
+        # Pass-through if already a row reader
         return block.call(line_reader) if line_reader.is_a?(self.class)
 
         yield new(line_reader, **args)
       end
 
-      # When reading from a file also add the line writer stream
-      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
+      # When reading from a file also add the line reader stream
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
         IOStreams::Line::Reader.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
-          stream(io, original_file_name: original_file_name, **args, &block)
+          yield new(io, **args)
         end
       end
 

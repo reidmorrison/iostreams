@@ -10,8 +10,17 @@ module IOStreams
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
       def self.stream(line_writer, original_file_name: nil, **args, &block)
-        # Pass-through if already a record writer
-        line_writer.is_a?(self.class) ? block.call(line_writer) : new(line_writer, **args, &block)
+        # Pass-through if already a row writer
+        return block.call(line_writer) if line_writer.is_a?(self.class)
+
+        yield new(line_writer, **args)
+      end
+
+      # When writing to a file also add the line writer stream
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
+        IOStreams::Line::Writer.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
+          yield new(io, **args, &block)
+        end
       end
 
       # Create a Tabular writer that takes individual
