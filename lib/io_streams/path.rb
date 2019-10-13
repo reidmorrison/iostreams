@@ -107,7 +107,7 @@ module IOStreams
     private
 
     def streams
-      @streams ||= IOStreams::Streams.new(file_name: path)
+      @streams ||= IOStreams::Streams.new(path)
     end
   end
 end

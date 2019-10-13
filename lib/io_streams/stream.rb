@@ -144,7 +144,7 @@ module IOStreams
     # Iterate over a file / stream returning each record/line one at a time.
     # It will apply the embedded_within argument if the file or input_stream contain .csv in its name.
     def line_reader(embedded_within: nil, **args)
-      embedded_within = '"' if embedded_within.nil? && file_name&.include?('.csv')
+      embedded_within = '"' if embedded_within.nil? && streams.file_name&.include?('.csv')
 
       reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
     end
@@ -216,7 +216,7 @@ module IOStreams
     # * Passes the file_name_or_io as-is into the block if it is already a writer stream AND
     #   no streams are passed in.
     def writer(&block)
-      streams.writer(&block)
+      streams.writer(io_stream, &block)
     end
 
     def line_writer(**args)
@@ -231,14 +231,10 @@ module IOStreams
       line_writer(delimiter: delimiter) { |io| yield IOStreams::Record::Writer.new(io, **args) }
     end
 
-    # Set the original file_name
-    def file_name=(file_name)
-      streams.file_name = file_name
-    end
-
-    # The original file_name
-    def file_name
-      streams.file_name
+    # Set/get the original file_name
+    def file_name(file_name = :none)
+      file_name == :none ? streams.file_name : streams.file_name = file_name
+      self
     end
 
     private

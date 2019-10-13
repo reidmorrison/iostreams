@@ -1,22 +1,22 @@
-require_relative 'test_helper'
+require_relative '../test_helper'
 
-module IOStreams
-  class FilePathTest < Minitest::Test
-    describe IOStreams::File::Path do
-      let(:path) { IOStreams::File::Path.new('/tmp/iostreams/some_test_path').delete(recursively: true) }
-      let(:path_with_file_name) { IOStreams::File::Path.new('/tmp/iostreams/some_test_path/test_file.txt').delete }
+module Paths
+  class FileTest < Minitest::Test
+    describe IOStreams::Paths::File do
+      let(:path) { IOStreams::Paths::File.new('/tmp/iostreams/some_test_path').delete(recursively: true) }
+      let(:path_with_file_name) { IOStreams::Paths::File.new('/tmp/iostreams/some_test_path/test_file.txt').delete }
 
       describe '.temp_file_name' do
         it 'returns value from block' do
-          result = IOStreams::File::Path.temp_file_name('base', '.ext') { |name| 257 }
+          result = IOStreams::Paths::File.temp_file_name('base', '.ext') { |name| 257 }
           assert_equal 257, result
         end
 
         it 'supplies new temp file_name' do
           file_name  = nil
           file_name2 = nil
-          IOStreams::File::Path.temp_file_name('base', '.ext') { |name| file_name = name }
-          IOStreams::File::Path.temp_file_name('base', '.ext') { |name| file_name2 = name }
+          IOStreams::Paths::File.temp_file_name('base', '.ext') { |name| file_name = name }
+          IOStreams::Paths::File.temp_file_name('base', '.ext') { |name| file_name2 = name }
           refute_equal file_name, file_name2
         end
       end
@@ -24,7 +24,7 @@ module IOStreams
       describe '.mkpath' do
         it 'makes path skipping file_name' do
           new_path = path.join('test_mkpath.xls')
-          IOStreams::File::Path.mkpath(new_path.to_s)
+          IOStreams::Paths::File.mkpath(new_path.to_s)
 
           assert ::File.exist?(path.to_s)
           refute ::File.exist?(new_path.to_s)

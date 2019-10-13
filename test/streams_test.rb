@@ -146,18 +146,26 @@ class StreamsTest < Minitest::Test
     end
 
     describe '#parse_extensions' do
-      it 'xlsx' do
+      it 'single stream' do
         streams = IOStreams::Streams.new('my/path/abc.xlsx')
-        assert_equal([:xlsx], streams.send(:parse_extensions))
+        assert_equal %i[xlsx], streams.send(:parse_extensions)
       end
 
-      it 'csv' do
+      it 'empty' do
         streams = IOStreams::Streams.new('my/path/abc.csv')
-        assert_equal([], streams.send(:parse_extensions))
+        assert_equal [], streams.send(:parse_extensions)
       end
 
       it 'handles multiple extensions' do
-        assert_equal(%i[xlsx zip gz pgp], streams.send(:parse_extensions))
+        assert_equal %i[xlsx zip gz pgp], streams.send(:parse_extensions)
+      end
+
+      describe 'case-insensitive' do
+        let(:file_name) {'a.XlsX.GzIp'}
+
+        it 'is case-insensitive' do
+          assert_equal %i[xlsx gzip], streams.send(:parse_extensions)
+        end
       end
     end
 
@@ -167,7 +175,13 @@ class StreamsTest < Minitest::Test
         assert_equal(expected, streams.send(:build_streams, :reader))
       end
 
-      it 'with options' do
+      it 'with encode option' do
+        expected = {IOStreams::Xlsx::Reader => {}, IOStreams::Zip::Reader => {}, IOStreams::Gzip::Reader => {}, IOStreams::Pgp::Reader => {}}
+        streams.option(:encode, encoding: 'BINARY')
+        assert_equal(expected, streams.send(:build_streams, :reader))
+      end
+
+      it 'with streams' do
         streams.option(:pgp, passphrase: 'unlock-me')
         expected = {IOStreams::Xlsx::Reader => {}, IOStreams::Zip::Reader => {}, IOStreams::Gzip::Reader => {}, IOStreams::Pgp::Reader => {passphrase: 'unlock-me'}}
         assert_equal(expected, streams.send(:build_streams, :reader))

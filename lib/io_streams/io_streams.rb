@@ -21,7 +21,7 @@ module IOStreams
   #
   # Example:
   #    IOStreams.path("/usr", "local", "sample")
-  #    # => #<IOStreams::File::Path:0x00007fec66e59b60 @path="/usr/local/sample">
+  #    # => #<IOStreams::Paths::File:0x00007fec66e59b60 @path="/usr/local/sample">
   #
   #    IOStreams.path("/usr", "local", "sample").to_s
   #    # => "/usr/local/sample"
@@ -33,7 +33,7 @@ module IOStreams
   #    # => "s3://mybucket/path/file.xls"
   #
   #    IOStreams.path("file.xls")
-  #    # => #<IOStreams::File::Path:0x00007fec6be6aaf0 @path="file.xls">
+  #    # => #<IOStreams::Paths::File:0x00007fec6be6aaf0 @path="file.xls">
   #
   #    IOStreams.path("files", "file.xls").to_s
   #    # => "files/file.xls"
@@ -75,13 +75,13 @@ module IOStreams
   #    IOStreams.add_root(:default, "tmp/export")
   #
   #    IOStreams.join('file.xls')
-  #    # => #<IOStreams::File::Path:0x00007fec70391bd8 @path="tmp/export/sample">
+  #    # => #<IOStreams::Paths::File:0x00007fec70391bd8 @path="tmp/export/sample">
   #
   #    IOStreams.join('file.xls').to_s
   #    # => "tmp/export/sample"
   #
   #    IOStreams.join('sample', 'file.xls', root: :ftp)
-  #    # => #<IOStreams::File::Path:0x00007fec6ee329b8 @path="tmp/ftp/sample/file.xls">
+  #    # => #<IOStreams::Paths::File:0x00007fec6ee329b8 @path="tmp/ftp/sample/file.xls">
   #
   #    IOStreams.join('sample', 'file.xls', root: :ftp).to_s
   #    # => "tmp/ftp/sample/file.xls"
@@ -221,21 +221,13 @@ module IOStreams
   #   # Decrypts the file, then compresses it with gzip as it is being streamed into S3.
   #   # Useful for when the entire bucket is encrypted on S3.
   #   IOStreams.copy('a.csv.enc', 's3://my_bucket/b.csv.gz')
-  def self.copy(source_file_name_or_io, target_file_name_or_io, buffer_size: 65_536, source_options: {}, target_options: {})
-    bytes = 0
+  def self.copy(source_file_name_or_io, target_file_name_or_io, buffer_size: nil, source_options: {}, target_options: {})
     # TODO: prevent stream conversions when reader and writer streams are the same!
     reader(source_file_name_or_io, **source_options) do |source_stream|
       writer(target_file_name_or_io, **target_options) do |target_stream|
-        # TODO: Use IO.copy ?
-        while data = source_stream.read(buffer_size)
-          break if data.empty?
-
-          bytes += data.size
-          target_stream.write(data)
-        end
+        IO.copy_stream(source_stream, target_stream)
       end
     end
-    bytes
   end
 
   # Returns [true|false] whether the supplied file_name_or_io is a reader stream
@@ -348,13 +340,19 @@ module IOStreams
   @schemes    = {}
 
   def self.build_path(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil)
-    path           = file_name_or_io.is_a?(String) ? Path.new(file_name_or_io) : Stream.new(file_name_or_io)
-    path.file_name = file_name if file_name
+    path = new(file_name_or_io)
+    path.file_name(file_name) if file_name
 
     apply_old_style_streams(path, streams) if streams
 
     if encoding || encode_cleaner || encode_replace
-      path = path.option(:encode, encoding: encoding, cleaner: encode_cleaner, replace: encode_replace)
+      if file_name_or_io.is_a?(String)
+        path.option(:encode, encoding: encoding, cleaner: encode_cleaner, replace: encode_replace)
+      else
+        path.stream(:encode, encoding: encoding, cleaner: encode_cleaner, replace: encode_replace)
+      end
+    elsif !file_name_or_io.is_a?(String) && streams.nil?
+      path.stream(:none)
     end
 
     path

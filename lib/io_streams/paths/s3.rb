@@ -66,7 +66,7 @@ module IOStreams
       def initialize(url, region: nil, **args)
         Utils.load_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Resource)
 
-        parse_url(url)
+        parse_uri(url)
 
         # https://aws.amazon.com/blogs/developer/using-resources/
         @s3      = region.nil? ? Aws::S3::Resource.new : Aws::S3::Resource.new(region: region)
@@ -101,7 +101,7 @@ module IOStreams
       # Read from AWS S3 file.
       def reader(**args, &block)
         # Since S3 download only supports a push stream, write it to a tempfile first.
-        IOStreams::File::Path.temp_file_name('iostreams_s3') do |file_name|
+        IOStreams::Paths::File.temp_file_name('iostreams_s3') do |file_name|
           args[:response_target] = file_name
           object.get(args)
 
