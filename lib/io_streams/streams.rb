@@ -24,15 +24,17 @@ module IOStreams
       else
         @options[stream] = options.dup
       end
+      self
     end
 
     def stream(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @options
+
       # To prevent any streams from being applied supply a stream named `:none`
       if stream == :none
         @streams = {}
-        return
+        return self
       end
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
 
@@ -42,6 +44,7 @@ module IOStreams
       else
         @streams[stream] = options.dup
       end
+      self
     end
 
     def reader(io_stream, &block)

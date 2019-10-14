@@ -208,7 +208,6 @@ class StreamsTest < Minitest::Test
 
       it 'chains blocks in 2 element stream' do
         streams_hash = {SimpleStream => {arg: 'first'}, SimpleStream2 => {arg: 'second'}}
-        puts "Hash has #{streams_hash.size}"
         string_io = StringIO.new
         streams.send(:execute, streams_hash, string_io) { |io| io.write('last') }
         assert_equal 'second>first>last', string_io.string
