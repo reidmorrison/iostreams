@@ -1,3 +1,5 @@
+require "uri"
+
 module IOStreams
   module Paths
     class S3 < IOStreams::Path
@@ -101,12 +103,12 @@ module IOStreams
       # Read from AWS S3 file.
       def reader(**args, &block)
         # Since S3 download only supports a push stream, write it to a tempfile first.
-        IOStreams::Paths::File.temp_file_name('iostreams_s3') do |file_name|
+        Utils.temp_file_name('iostreams_s3') do |file_name|
           args[:response_target] = file_name
           object.get(args)
 
-          # Return a read stream
-          IOStreams::Paths::File.new(file_name).reader { |io| streams.reader(io, &block) }
+          # Return a read stream to the temp file
+          ::File.new(file_name, 'rb', &block)
         end
       end
 
@@ -119,8 +121,8 @@ module IOStreams
       #   aborted.
       def writer(&block)
         # S3 upload hangs with large files, write it to a tempfile first.
-        IOStreams::Paths::File.temp_file_name('iostreams_s3') do |file_name|
-          IOStreams::Paths::File.new(file_name).writer do |io|
+        Utils.temp_file_name('iostreams_s3') do |file_name|
+          ::File.open(file_name, 'wb') do |io|
             streams.reader(io) do
               # TODO: copy
             end
@@ -133,7 +135,7 @@ module IOStreams
         # end
       end
 
-      def each(pattern = "*", case_sensitive: false, directories: false, hidden: false)
+      def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
         existing_files = s3_bucket.objects(prefix: root).collect(&:key)
 
         flags = 0

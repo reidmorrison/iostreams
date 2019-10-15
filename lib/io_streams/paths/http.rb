@@ -66,12 +66,10 @@ module IOStreams
             end
 
             # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-            IOStreams::Paths::File.temp_file_name('iostreams_http') do |file_name|
-              IOStreams::Paths::File.new(file_name).writer do |io|
-                response.read_body { |chunk| io.write(chunk) }
-              end
+            Utils.temp_file_name('iostreams_http') do |file_name|
+              ::File.open(file_name, 'wb') { |io| response.read_body { |chunk| io.write(chunk) } }
               # Return a read stream
-              result = IOStreams::Paths::File.new(file_name).reader(&block)
+              result = ::File.open(temp_file_name, 'rb', &block)
             end
           end
         end

@@ -3,9 +3,9 @@ module IOStreams
     # When a Writer does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(output_stream, original_file_name: nil, **args, &block)
-      IOStreams::Paths::File.temp_file_name("iostreams_writer") do |temp_file_name|
-        file(temp_file_name, original_file_name: original_file_name, **args, &block)
-        ::File.open(temp_file_name, 'rb') { |source| ::IO.copy_stream(source, output_stream) }
+      Utils.temp_file_name("iostreams_writer") do |file_name|
+        file(file_name, original_file_name: original_file_name, **args, &block)
+        ::File.open(file_name, 'rb') { |source| ::IO.copy_stream(source, output_stream) }
       end
     end
 

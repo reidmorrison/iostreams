@@ -1,3 +1,5 @@
+require 'uri'
+
 # Streaming library for Ruby
 #
 # Stream types / extensions supported:
@@ -48,7 +50,7 @@ module IOStreams
   def self.path(*elements)
     path = ::File.join(*elements)
     uri  = URI.parse(path)
-    IOStreams.scheme(uri.scheme).new(path)
+    scheme(uri.scheme).new(path)
   end
 
   # For an existing IO Stream
@@ -95,14 +97,24 @@ module IOStreams
     Paths::File.temp_file(*args)
   end
 
-  # Return named root path
+  # Returns [IOStreams::Paths::File] current or named users home path
+  def self.home(username = nil)
+    IOStreams::Paths::File.new(Dir.home(username))
+  end
+
+  # Returns [IOStreams::Paths::File] the current working path for this process.
+  def self.working_path
+    IOStreams::Paths::File.new(Dir.pwd)
+  end
+
+  # Returns [IOStreams::Paths::File] the default root path, or the named root path
   def self.root(root = :default)
-    @root_paths[root.to_sym] || raise(ArgumentError, "Unknown root: #{root.inspect}")
+    @root_paths[root.to_sym] || raise(ArgumentError, "Root: #{root.inspect} has not been registered.")
   end
 
   # Add a named root path
   def self.add_root(root, *elements)
-    raise(ArgumentError, "Invalid root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
+    raise(ArgumentError, "Invalid characters in root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
 
     @root_paths[root.to_sym] = path(*elements)
   end
@@ -134,7 +146,7 @@ module IOStreams
 
   # Registered file extensions
   def self.extensions
-    @extensions
+    @extensions.dup
   end
 
   # Register a file extension and the reader and writer streaming classes
@@ -148,7 +160,7 @@ module IOStreams
   end
 
   def self.schemes
-    @schemes
+    @schemes.dup
   end
 
   def self.scheme(scheme_name)

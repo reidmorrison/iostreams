@@ -17,5 +17,20 @@ module IOStreams
         value.respond_to?(:empty?) ? value.empty? : !value
       end
     end
+
+    # Yields the path to a temporary file_name.
+    #
+    # File is deleted upon completion if present.
+    def self.temp_file_name(basename, extension = '')
+      result = nil
+      ::Dir::Tmpname.create([basename, extension]) do |tmpname|
+        begin
+          result = yield(tmpname)
+        ensure
+          ::File.unlink(tmpname) if ::File.exist?(tmpname)
+        end
+      end
+      result
+    end
   end
 end

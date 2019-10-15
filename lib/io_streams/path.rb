@@ -27,10 +27,18 @@ module IOStreams
     # Runs the pattern from the current path, returning the complete path for located files.
     #
     # See IOStreams::Paths::File.each for arguments.
-    def each(pattern = "*", **args)
-      self.class.each(File.join(path, pattern), **args)
+    def each_child(pattern = "**/*", **args, &block)
+      raise NotImplementedError
     end
 
+    # Returns [Array] of child files based on the supplied pattern
+    def children(*args, **kargs)
+      paths = []
+      each_child(*args, **kargs) { |path| paths << yield(path) }
+      paths
+    end
+
+    # Returns [String] the current path.
     def to_s
       path
     end
@@ -81,11 +89,6 @@ module IOStreams
       !(path =~ /\.(enc|pgp|gpg)\z/i).nil?
     end
 
-    # Extract URI scheme if any was supplied
-    def scheme
-      @scheme ||= URI.parse(path).scheme
-    end
-
     # TODO: WIP:
     #
     # Example:
@@ -103,6 +106,11 @@ module IOStreams
     #     IOStreams.copy(path, target, source_options: source_options, target_options: target_options, buffer_size: buffer_size, &block)
     #   end
     # end
+
+    # Paths are sortable by name
+    def <=>(other)
+      path.to_s <=> other.to_s
+    end
 
     private
 

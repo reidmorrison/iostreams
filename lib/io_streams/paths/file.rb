@@ -3,38 +3,10 @@ require 'fileutils'
 module IOStreams
   module Paths
     class File < IOStreams::Path
-      # Yields the path to a temporary file_name.
-      #
-      # File is deleted upon completion if present.
-      def self.temp_file_name(basename, extension = '')
-        result = nil
-        ::Dir::Tmpname.create([basename, extension]) do |tmpname|
-          begin
-            result = yield(tmpname)
-          ensure
-            ::File.unlink(tmpname) if ::File.exist?(tmpname)
-          end
-        end
-        result
-      end
-
-      # Returns a path to a temporary file
+      # Returns a path to a temporary file.
+      # Temporary file is deleted upon block completion if present.
       def self.temp_file(basename, extension = '')
-        result = nil
-        ::Dir::Tmpname.create([basename, extension]) do |tmpname|
-          begin
-            result = yield(new(tmpname).stream(:none))
-          ensure
-            ::File.unlink(tmpname) if ::File.exist?(tmpname)
-          end
-        end
-        result
-      end
-
-      # Used by writers that can write directly to file to create the target path
-      def self.mkpath(path)
-        dir = ::File.dirname(path)
-        FileUtils.mkdir_p(dir) unless ::File.exist?(dir)
+        Utils.temp_file_name(basename, extension) { |file_name| yield(new(file_name).stream(:none)) }
       end
 
       # Yields Paths within the current path.
@@ -131,22 +103,22 @@ module IOStreams
       #    File.fnmatch(pattern, 'c:/a/b/c/foo', File::FNM_PATHNAME)  #=> true
       #    File.fnmatch(pattern, 'a/.b/c/foo', File::FNM_PATHNAME)    #=> false
       #    File.fnmatch(pattern, 'a/.b/c/foo', File::FNM_PATHNAME | File::FNM_DOTMATCH) #=> true
-      def self.each(pattern = "*", case_sensitive: false, directories: false, hidden: false)
+      def each_child(pattern = "**/*", case_sensitive: false, directories: false, hidden: false)
         flags = 0
-        flags |= File::FNM_CASEFOLD unless case_sensitive
-        flags |= File::FNM_DOTMATCH unless hidden
+        flags |= ::File::FNM_CASEFOLD unless case_sensitive
+        flags |= ::File::FNM_DOTMATCH unless hidden
 
-        Pathname.glob(pattern, flags) do |full_path|
-          next if !directories && full_path.directory?
+        # Dir.each_child("testdir") {|x| puts "Got #{x}" }
+        Dir.glob(::File.join(path, pattern), flags) do |full_path|
+          next if !directories && ::File.directory?(full_path)
 
-          yield(self.class.new(full_path.to_s))
+          yield(self.class.new(full_path))
         end
-        # File.fnmatch(pattern, path, File::FNM_EXTGLOB)
-        # Dir.glob
       end
 
       def mkpath
-        self.class.mkpath(path)
+        dir = ::File.dirname(path)
+        FileUtils.mkdir_p(dir) unless ::File.exist?(dir)
         self
       end
 
@@ -185,7 +157,7 @@ module IOStreams
       #   If an exception is raised whilst the file is being written to the file is removed to
       #   prevent incomplete / partial files from being created.
       def writer(&block)
-        self.class.mkpath(path)
+        mkpath
         begin
           ::File.open(path, 'wb') { |io| streams.writer(io, &block) }
         rescue StandardError => e
