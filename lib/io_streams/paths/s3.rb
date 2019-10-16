@@ -153,7 +153,7 @@ module IOStreams
       #
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
-      def initialize(url, region: nil, **args)
+      def initialize(url, region: ENV["AWS_REGION"], **args)
         Utils.load_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Resource)
 
         parse_uri(url)
@@ -166,6 +166,16 @@ module IOStreams
         super(url)
       end
 
+      def delete
+        # TODO: Handle when file does not exist
+        object.delete
+        self
+      end
+
+      def exist?
+        object.exists?
+      end
+
       # S3 logically creates paths when a key is set.
       def mkpath
         self
@@ -175,17 +185,8 @@ module IOStreams
         self
       end
 
-      def exist?
-        object.exists?
-      end
-
       def size
         object.size
-      end
-
-      def delete
-        object.delete
-        self
       end
 
       # TODO: delete_all
@@ -194,11 +195,16 @@ module IOStreams
       def reader(&block)
         # Since S3 download only supports a push stream, write it to a tempfile first.
         Utils.temp_file_name("iostreams_s3") do |file_name|
-          s3.get_object(response_target: file_name, bucket: bucket_name, key: key)
+          read_file(file_name)
 
           # Return a read stream to the temp file
           ::File.new(file_name, 'rb', &block)
         end
+      end
+
+      # Shortcut method if caller has a filename already with no other streams applied:
+      def read_file(file_name)
+        s3.get_object(response_target: file_name, bucket: bucket_name, key: key)
       end
 
       # Write to AWS S3
@@ -214,19 +220,28 @@ module IOStreams
           ::File.open(file_name, "wb", &block)
 
           # Upload file once all data has been written to it
-          s3.put_object(@options.merge(bucket: bucket_name, key: key, body: file_name))
+          write_file(file_name)
         end
       end
 
+      # Shortcut method if caller has a filename already with no other streams applied:
+      def write_file(file_name)
+        s3.put_object(@options.merge(bucket: bucket_name, key: key, body: file_name))
+      end
+
+      # Notes:
+      # - With S3 all lookups are recursive regardless of whether the pattern includes `**`.
+      #   This is because the object list call only takes a key prefix.
       def each_child(pattern = "**/*", case_sensitive: false, directories: false, hidden: false)
         raise(NotImplementedError, "AWS S3 #each_child does not yet return directories") if directories
 
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
         prefix  = matcher.path.to_s
-        s3_bucket.objects(prefix: prefix) do |object|
+        s3_bucket.objects(prefix: prefix, delimiter: "/") do |object|
           file_name = object.key
           next unless matcher.match?(file_name)
-          yield(self.class.new(file_name))
+
+          yield self.class.new(file_name)
         end
       end
 

@@ -41,26 +41,6 @@ class StreamTest < Minitest::Test
     let(:string_io) { StringIO.new(data) }
     let(:stream) { IOStreams::Stream.new(string_io) }
 
-    describe '.each_line' do
-      it 'returns a line at a time' do
-        lines = []
-        stream.stream(:none)
-        count = stream.each_line { |line| lines << line }
-        assert_equal data.lines.map(&:strip), lines
-        assert_equal data.lines.count, count
-      end
-
-      it 'strips non-printable characters' do
-        input  = StringIO.new(bad_data)
-        lines  = []
-        stream = IOStreams::Stream.new(input)
-        stream.stream(:encode, encoding: 'UTF-8', cleaner: :printable, replace: '')
-        count = stream.each_line { |line| lines << line }
-        assert_equal stripped_data.lines.map(&:strip), lines
-        assert_equal stripped_data.lines.count, count
-      end
-    end
-
     describe '.reader' do
       it 'reads a zip file' do
         File.open(multiple_zip_file_name, 'rb') do |io|
@@ -81,5 +61,56 @@ class StreamTest < Minitest::Test
         end
       end
     end
+
+    describe '.line_reader' do
+    end
+
+    describe '.row_reader' do
+    end
+
+    describe '.record_reader' do
+    end
+
+    describe '.each_line' do
+      it 'returns a line at a time' do
+        lines = []
+        stream.stream(:none)
+        count = stream.each_line { |line| lines << line }
+        assert_equal data.lines.map(&:strip), lines
+        assert_equal data.lines.count, count
+      end
+
+      it 'strips non-printable characters' do
+        input  = StringIO.new(bad_data)
+        lines  = []
+        stream = IOStreams::Stream.new(input)
+        stream.stream(:encode, encoding: 'UTF-8', cleaner: :printable, replace: '')
+        count = stream.each_line { |line| lines << line }
+        assert_equal stripped_data.lines.map(&:strip), lines
+        assert_equal stripped_data.lines.count, count
+      end
+    end
+
+    describe '.each_row' do
+    end
+
+    describe '.each_record' do
+    end
+
+    describe '.writer' do
+    end
+
+    describe '.writer' do
+    end
+
+    describe '.line_writer' do
+    end
+
+    describe '.row_writer' do
+    end
+
+    describe '.record_writer' do
+    end
+
   end
 end

@@ -34,8 +34,10 @@ module IOStreams
         # ::File.fnmatch?(pattern, absolute_file_name, flags)
       end
 
+      # Whether this pattern includes a recursive match.
+      # I.e. Includes `**` anywhere in the path
       def recursive?
-        @recursive
+        @recursive ||= pattern.include?("**")
       end
 
       # # Returns whether the pattern is actually a pattern or just a file exists check.
@@ -59,7 +61,7 @@ module IOStreams
           @pattern = elements[-1]
         else
           @path    = path.join(*elements[0..index - 1])
-          @pattern = elements[index..-1]
+          @pattern = ::File.join(elements[index..-1])
         end
       end
 
