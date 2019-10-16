@@ -67,13 +67,29 @@ module IOStreams
       raise NotImplementedError
     end
 
-    # Delete the file.
+    # When path is a file, deletes this file.
+    # When path is a directory, attempts to delete this directory. If the directory contains
+    # any children it will fail.
+    #
+    # Returns self
+    #
+    # Notes:
+    # * No error is raised if the file or directory is not present.
+    # * Only the file is removed, not any of the parent paths.
+    def delete
+      raise NotImplementedError
+    end
+
+    # When path is a directory ,deletes this directory and all its children.
+    # When path is a file ,deletes this file.
+    #
     # Returns self
     #
     # Notes:
     # * No error is raised if the file is not present.
     # * Only the file is removed, not any of the parent paths.
-    def delete
+    # * All children paths and files will be removed.
+    def delete_all
       raise NotImplementedError
     end
 
@@ -89,23 +105,13 @@ module IOStreams
       !(path =~ /\.(enc|pgp|gpg)\z/i).nil?
     end
 
-    # TODO: WIP:
-    #
-    # Example:
-    #   source = IOStreams.path('abc/file.xls')
-    #   target = IOStreams.path('abc/file.xls.enc')
-    # def copy(target, source_options: {}, target_options: {}, buffer_size: 65536, &block)
-    #   if target.is_a?(self.class)
-    #     target_options = target_options.dup
-    #     source_options = source_options.dup
-    #
-    #     target_options[:streams] ||= target.streams
-    #     source_options[:streams] ||= streams
-    #     IOStreams.copy(path, target.path, source_options: source_options, target_options: target_options, buffer_size: buffer_size, &block)
-    #   else
-    #     IOStreams.copy(path, target, source_options: source_options, target_options: target_options, buffer_size: buffer_size, &block)
-    #   end
-    # end
+    # TODO: Other possible methods:
+    # - rename - File.rename
+    # - rmtree - delete everything under this path - FileUtils.rm_r
+    # - directory?
+    # - file?
+    # - empty?
+    # - find(ignore_error: true) - Find.find
 
     # Paths are sortable by name
     def <=>(other)

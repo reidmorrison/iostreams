@@ -59,11 +59,15 @@ module IOStreams
   # IOStreams.io(io).file_name('blah.csv.zip').each_line(...)
   # IOStreams.io(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
   def self.io(io_stream)
-    IOStreams::Stream.new(io_stream)
+    return io_stream if io_stream.is_a?(Stream)
+
+    Stream.new(io_stream)
   end
 
   # For processing by either a file name or an open IO stream.
   def self.new(file_name_or_io)
+    return file_name_or_io if file_name_or_io.is_a?(Stream)
+
     file_name_or_io.is_a?(String) ? path(file_name_or_io) : io(file_name_or_io)
   end
 

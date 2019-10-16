@@ -1,11 +1,11 @@
-require 'fileutils'
+require "fileutils"
 
 module IOStreams
   module Paths
     class File < IOStreams::Path
       # Returns a path to a temporary file.
       # Temporary file is deleted upon block completion if present.
-      def self.temp_file(basename, extension = '')
+      def self.temp_file(basename, extension = "")
         Utils.temp_file_name(basename, extension) { |file_name| yield(new(file_name).stream(:none)) }
       end
 
@@ -28,21 +28,21 @@ module IOStreams
       # Parameters:
       #   pattern [String]
       #     The pattern is not a regexp, it is a string that may contain the following metacharacters:
-      #     `*`    Matches all regular files.
-      #     `c*`   Matches all regular files beginning with `c`.
-      #     `*c`   Matches all regular files ending with `c`.
-      #     `\*c*` Matches all regular files that have `c` in them.
+      #     `*`      Matches all regular files.
+      #     `c*`     Matches all regular files beginning with `c`.
+      #     `*c`     Matches all regular files ending with `c`.
+      #     `*c*`    Matches all regular files that have `c` in them.
       #
-      #     `**` Matches recursively into subdirectories.
+      #     `**`     Matches recursively into subdirectories.
       #
-      #     `?` Matches any one character.
+      #     `?`      Matches any one character.
       #
-      #     `[set]` Matches any one character in the supplied `set`.
+      #     `[set]`  Matches any one character in the supplied `set`.
       #     `[^set]` Does not matches any one character in the supplied `set`.
       #
-      #     `\` Escapes the next metacharacter..
+      #     `\`      Escapes the next metacharacter.
       #
-      #     `{a,b}` Matches on either pattern `a` or pattern `b`.
+      #     `{a,b}`  Matches on either pattern `a` or pattern `b`.
       #
       #   case_sensitive [true|false]
       #     Whether the pattern is case-sensitive.
@@ -55,54 +55,38 @@ module IOStreams
       #
       # Examples:
       #
-      #    File.fnmatch('cat',       'cat')        #=> true  # match entire string
-      #    File.fnmatch('cat',       'category')   #=> false # only match partial string
+      # Pattern:    File name:       match?   Reason                        Options
+      # =========== ================ ======   ============================= ===========================
+      # "cat"       "cat"            true     # Match entire string
+      # "cat"       "category"       false    # Only match partial string
       #
-      #    File.fnmatch('c{at,ub}s', 'cats')                    #=> false # { } isn't supported by default
-      #    File.fnmatch('c{at,ub}s', 'cats', File::FNM_EXTGLOB) #=> true  # { } is supported on FNM_EXTGLOB
+      # "c{at,ub}s" "cats"           true     # { } is supported
       #
-      #    File.fnmatch('c?t',     'cat')          #=> true  # '?' match only 1 character
-      #    File.fnmatch('c??t',    'cat')          #=> false # ditto
-      #    File.fnmatch('c*',      'cats')         #=> true  # '*' match 0 or more characters
-      #    File.fnmatch('c*t',     'c/a/b/t')      #=> true  # ditto
-      #    File.fnmatch('ca[a-z]', 'cat')          #=> true  # inclusive bracket expression
-      #    File.fnmatch('ca[^t]',  'cat')          #=> false # exclusive bracket expression ('^' or '!')
+      # "c?t"       "cat"            true     # "?" match only 1 character
+      # "c??t"      "cat"            false    # ditto
+      # "c*"        "cats"           true     # "*" match 0 or more characters
+      # "c*t"       "c/a/b/t"        true     # ditto
+      # "ca[a-z]"   "cat"            true     # inclusive bracket expression
+      # "ca[^t]"    "cat"            false    # exclusive bracket expression ("^" or "!")
       #
-      #    File.fnmatch('cat', 'CAT')                     #=> false # case sensitive
-      #    File.fnmatch('cat', 'CAT', File::FNM_CASEFOLD) #=> true  # case insensitive
+      # "cat"       "CAT"            false    # case sensitive              {case_sensitive: false}
+      # "cat"       "CAT"            true     # case insensitive
       #
-      #    File.fnmatch('?',   '/', File::FNM_PATHNAME)  #=> false # wildcard doesn't match '/' on FNM_PATHNAME
-      #    File.fnmatch('*',   '/', File::FNM_PATHNAME)  #=> false # ditto
-      #    File.fnmatch('[/]', '/', File::FNM_PATHNAME)  #=> false # ditto
+      # "\?"        "?"              true     # escaped wildcard becomes ordinary
+      # "\a"        "a"              true     # escaped ordinary remains ordinary
+      # "[\?]"      "?"              true     # can escape inside bracket expression
       #
-      #    File.fnmatch('\?',   '?')                       #=> true  # escaped wildcard becomes ordinary
-      #    File.fnmatch('\a',   'a')                       #=> true  # escaped ordinary remains ordinary
-      #    File.fnmatch('\a',   '\a', File::FNM_NOESCAPE)  #=> true  # FNM_NOESCAPE makes '\' ordinary
-      #    File.fnmatch('[\?]', '?')                       #=> true  # can escape inside bracket expression
+      # "*"         ".profile"       false    # wildcard doesn't match leading
+      # "*"         ".profile"       true     # period by default.
+      # ".*"        ".profile"       true                                   {hidden: true}
       #
-      #    File.fnmatch('*',   '.profile')                      #=> false # wildcard doesn't match leading
-      #    File.fnmatch('*',   '.profile', File::FNM_DOTMATCH)  #=> true  # period by default.
-      #    File.fnmatch('.*',  '.profile')                      #=> true
-      #
-      #    rbfiles = '**' '/' '*.rb' # you don't have to do like this. just write in single string.
-      #    File.fnmatch(rbfiles, 'main.rb')                    #=> false
-      #    File.fnmatch(rbfiles, './main.rb')                  #=> false
-      #    File.fnmatch(rbfiles, 'lib/song.rb')                #=> true
-      #    File.fnmatch('**.rb', 'main.rb')                    #=> true
-      #    File.fnmatch('**.rb', './main.rb')                  #=> false
-      #    File.fnmatch('**.rb', 'lib/song.rb')                #=> true
-      #    File.fnmatch('*',           'dave/.profile')                      #=> true
-      #
-      #    pattern = '*' '/' '*'
-      #    File.fnmatch(pattern, 'dave/.profile', File::FNM_PATHNAME)  #=> false
-      #    File.fnmatch(pattern, 'dave/.profile', File::FNM_PATHNAME | File::FNM_DOTMATCH) #=> true
-      #
-      #    pattern = '**' '/' 'foo'
-      #    File.fnmatch(pattern, 'a/b/c/foo', File::FNM_PATHNAME)     #=> true
-      #    File.fnmatch(pattern, '/a/b/c/foo', File::FNM_PATHNAME)    #=> true
-      #    File.fnmatch(pattern, 'c:/a/b/c/foo', File::FNM_PATHNAME)  #=> true
-      #    File.fnmatch(pattern, 'a/.b/c/foo', File::FNM_PATHNAME)    #=> false
-      #    File.fnmatch(pattern, 'a/.b/c/foo', File::FNM_PATHNAME | File::FNM_DOTMATCH) #=> true
+      # "**/*.rb"   "main.rb"        false
+      # "**/*.rb"   "./main.rb"      false
+      # "**/*.rb"   "lib/song.rb"    true
+      # "**.rb"     "main.rb"        true
+      # "**.rb"     "./main.rb"      false
+      # "**.rb"     "lib/song.rb"    true
+      # "*"         "dave/.profile"  true
       def each_child(pattern = "**/*", case_sensitive: false, directories: false, hidden: false)
         flags = 0
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
@@ -135,31 +119,34 @@ module IOStreams
         ::File.size(path)
       end
 
-      def delete(recursively: false)
-        return self unless ::File.exist?(path)
+      def delete
+        return self unless exist?
 
-        if ::File.directory?(path)
-          recursively ? FileUtils.remove_dir(path) : Dir.delete(path)
-        else
-          ::File.unlink(path)
-        end
+        ::File.directory?(path) ? Dir.delete(path) : ::File.unlink(path)
         self
       end
 
-      # Read from a named file
-      def reader(&block)
-        ::File.open(path, 'rb') { |io| streams.reader(io, &block) }
+      def delete_all
+        return self unless exist?
+
+        ::File.directory?(path) ? FileUtils.remove_dir(path) : ::File.unlink(path)
+        self
       end
 
-      # Write to a named file
+      # Read from file
+      def reader(&block)
+        ::File.open(path, "rb") { |io| streams.reader(io, &block) }
+      end
+
+      # Write to file
       #
       # Note:
       #   If an exception is raised whilst the file is being written to the file is removed to
       #   prevent incomplete / partial files from being created.
-      def writer(&block)
-        mkpath
+      def writer(create_path: true, &block)
+        mkpath if create_path
         begin
-          ::File.open(path, 'wb') { |io| streams.writer(io, &block) }
+          ::File.open(path, "wb") { |io| streams.writer(io, &block) }
         rescue StandardError => e
           ::File.unlink(path) if ::File.exist?(path)
           raise(e)

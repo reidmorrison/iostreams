@@ -87,6 +87,52 @@ module IOStreams
       streams.reader(io_stream, &block)
     end
 
+    # Read an entire file into memory.
+    #
+    # Notes:
+    # - Use with caution since large files can cause a denial of service since
+    #   this method will load the entire file into memory.
+    # - Recommend using instead `#reader`, `#each_line`, or `#each_record` to read a
+    #   block into memory at a time.
+    def read(*args)
+      reader { |stream| stream.read(*args) }
+    end
+
+    # Copy from another stream, path, file_name or IO instance.
+    #
+    # Parameters:
+    #   stream [IOStreams::Path|String<file_name>|IO]
+    #     The stream to read from.
+    #
+    #   :convert [true|false]
+    #     Whether to apply the stream conversions during the copy.
+    #     Default: true
+    #
+    # Examples:
+    #
+    # # Copy and convert streams based on file extensions
+    # IOStreams.path("target_file.json").copy("source_file_name.csv.gz")
+    #
+    # # Copy "as-is" without any automated stream conversions
+    # IOStreams.path("target_file.json").copy("source_file_name.csv.gz", convert: false)
+    #
+    # # Advanced copy with custom stream conversions on source and target.
+    # source = IOStreams.path("source_file").stream(encoding: "BINARY")
+    # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy(source)
+    def copy(source, convert: true)
+      if convert
+        stream = IOStreams.new(source)
+        streams.writer(io_stream) do |target|
+          stream.reader { |src| IO.copy_stream(src, target) }
+        end
+      else
+        stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
+        streams.dup.stream(:none).writer(io_stream) do |target|
+          stream.stream(:none).reader { |src| IO.copy_stream(src, target) }
+        end
+      end
+    end
+
     # Iterate over a file / stream returning one line at a time.
     # Embedded lines (within double quotes) will be skipped if
     #   1. The file name contains .csv
@@ -219,6 +265,17 @@ module IOStreams
       streams.writer(io_stream, &block)
     end
 
+    # Write entire string to file.
+    #
+    # Notes:
+    # - Use with caution since preparing large amounts of data in memory can cause a denial of service
+    #   since all the data for the file needs to be resident in memory before writing.
+    # - Recommend using instead `#writer`, `#line_writer`, or `#row_writer` to write a
+    #   block of memory at a time.
+    def write(data)
+      writer { |stream| stream.write(data) }
+    end
+
     def line_writer(**args)
       writer { |io| yield IOStreams::Line::Writer.new(io, **args) }
     end
@@ -235,6 +292,79 @@ module IOStreams
     def file_name(file_name = :none)
       file_name == :none ? streams.file_name : streams.file_name = file_name
       self
+    end
+
+    # Returns [String] the last component of this path.
+    # Returns `nil` if no `file_name` was set.
+    #
+    # Parameters:
+    #   suffix: [String]
+    #     When supplied the `suffix` is removed from the file_name before being returned.
+    #     Use `.*` to remove any extension.
+    #
+    #   IOStreams.path("/home/gumby/work/ruby.rb").basename         #=> "ruby.rb"
+    #   IOStreams.path("/home/gumby/work/ruby.rb").basename(".rb")  #=> "ruby"
+    #   IOStreams.path("/home/gumby/work/ruby.rb").basename(".*")   #=> "ruby"
+    def basename(suffix = nil)
+      file_name = streams.file_name
+      return unless file_name
+
+      suffix.nil? ? ::File.basename(file_name) : ::File.basename(file_name, suffix)
+    end
+
+    # Returns [String] the directory for this file.
+    # Returns `nil` if no `file_name` was set.
+    #
+    # If `path` does not include a directory name the "." is returned.
+    #
+    #   IOStreams.path("test.rb").dirname         #=> "."
+    #   IOStreams.path("a/b/d/test.rb").dirname   #=> "a/b/d"
+    #   IOStreams.path(".a/b/d/test.rb").dirname  #=> ".a/b/d"
+    #   IOStreams.path("foo.").dirname            #=> "."
+    #   IOStreams.path("test").dirname            #=> "."
+    #   IOStreams.path(".profile").dirname        #=> "."
+    def dirname
+      file_name = streams.file_name
+      ::File.dirname(file_name) if file_name
+    end
+
+    # Returns [String] the extension for this file including the last period.
+    # Returns `nil` if no `file_name` was set.
+    #
+    # If `path` is a dotfile, or starts with a period, then the starting
+    # dot is not considered part of the extension.
+    #
+    # An empty string will also be returned when the period is the last character in the `path`.
+    #
+    #   IOStreams.path("test.rb").extname         #=> ".rb"
+    #   IOStreams.path("a/b/d/test.rb").extname   #=> ".rb"
+    #   IOStreams.path(".a/b/d/test.rb").extname  #=> ".rb"
+    #   IOStreams.path("foo.").extname            #=> ""
+    #   IOStreams.path("test").extname            #=> ""
+    #   IOStreams.path(".profile").extname        #=> ""
+    #   IOStreams.path(".profile.sh").extname     #=> ".sh"
+    def extname
+      file_name = streams.file_name
+      ::File.extname(file_name) if file_name
+    end
+
+    # Returns [String] the extension for this file _without_ the last period.
+    # Returns `nil` if no `file_name` was set.
+    #
+    # If `path` is a dotfile, or starts with a period, then the starting
+    # dot is not considered part of the extension.
+    #
+    # An empty string will also be returned when the period is the last character in the `path`.
+    #
+    #   IOStreams.path("test.rb").extension         #=> "rb"
+    #   IOStreams.path("a/b/d/test.rb").extension   #=> "rb"
+    #   IOStreams.path(".a/b/d/test.rb").extension  #=> "rb"
+    #   IOStreams.path("foo.").extension            #=> ""
+    #   IOStreams.path("test").extension            #=> ""
+    #   IOStreams.path(".profile").extension        #=> ""
+    #   IOStreams.path(".profile.sh").extension     #=> "sh"
+    def extension
+      extname&.sub(/^\./, '')
     end
 
     private

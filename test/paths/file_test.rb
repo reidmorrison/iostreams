@@ -3,7 +3,7 @@ require_relative '../test_helper'
 module Paths
   class FileTest < Minitest::Test
     describe IOStreams::Paths::File do
-      let(:root) { IOStreams::Paths::File.new("/tmp/iostreams").delete(recursively: true) }
+      let(:root) { IOStreams::Paths::File.new("/tmp/iostreams").delete_all }
       let(:directory) { root.join('/some_test_dir') }
       let(:data) { "Hello World" }
       let(:file_path) do
