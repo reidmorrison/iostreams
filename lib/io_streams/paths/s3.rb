@@ -3,7 +3,7 @@ require "uri"
 module IOStreams
   module Paths
     class S3 < IOStreams::Path
-      attr_reader :bucket_name, :key, :s3, :region
+      attr_reader :bucket_name, :key, :client
 
       # Arguments:
       #
@@ -15,36 +15,10 @@ module IOStreams
       #     s3://my-bucket-name/file_name.txt
       #     s3://my-bucket-name/some_path/file_name.csv
       #
-      # region: [String]
-      #   AWS Region.
-      #   Default: ENV['AWS_REGION'], or supplied by ruby driver
-      #
       # Writer specific options:
-      #
-      # thread_count: [Integer]
-      #   The number of parallel multipart uploads
-      #   Default: 10
-      #
-      # tempfile: [Boolean]
-      #   Normally read data is stored in memory when building the parts in order to complete
-      #   the underlying multipart upload. By passing `:tempfile => true` data read will be
-      #   temporarily stored on disk reducing the memory footprint vastly.
-      #   Default: false
-      #
-      # part_size: [Integer]
-      #   Define how big each part size but the last should be.
-      #   Default: 5 * 1024 * 1024
-      #
-      # Other options extracted from AWS source code:
       #
       # @option params [String] :acl
       #   The canned ACL to apply to the object.
-      #
-      # @option params [String, IO] :body
-      #   Object data.
-      #
-      # @option params [required, String] :bucket
-      #   Name of the bucket to which the PUT operation was initiated.
       #
       # @option params [String] :cache_control
       #   Specifies caching behavior along the request/reply chain.
@@ -153,27 +127,27 @@ module IOStreams
       #
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
-      def initialize(url, region: ENV["AWS_REGION"], **args)
+      def initialize(url, client: Aws::S3::Client.new, **args)
         Utils.load_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Resource)
 
-        parse_uri(url)
+        uri = URI.parse(url)
+        raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
 
-        # https://aws.amazon.com/blogs/developer/using-resources/
-        @s3      = region.nil? ? Aws::S3::Resource.new : Aws::S3::Resource.new(region: region)
-        @bucket  = s3.bucket(bucket_name)
-        @region  = region
-        @options = args
+        @bucket_name = uri.host
+        @key         = uri.path.sub(%r{\A/}, '')
+        @client      = client
+        @options     = args
         super(url)
       end
 
       def delete
         # TODO: Handle when file does not exist
-        object.delete
+        client.delete_object(bucket: bucket_name, key: key)
         self
       end
 
       def exist?
-        object.exists?
+        resp = client.head_object(bucket: bucket_name, key: key)
       end
 
       # S3 logically creates paths when a key is set.
@@ -186,7 +160,8 @@ module IOStreams
       end
 
       def size
-        object.size
+        resp = client.head_object(bucket: bucket_name, key: key)
+        resp.content_length
       end
 
       # TODO: delete_all
@@ -204,7 +179,7 @@ module IOStreams
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def read_file(file_name)
-        s3.get_object(response_target: file_name, bucket: bucket_name, key: key)
+        client.get_object(@options.merge(response_target: file_name, bucket: bucket_name, key: key))
       end
 
       # Write to AWS S3
@@ -226,7 +201,7 @@ module IOStreams
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def write_file(file_name)
-        s3.put_object(@options.merge(bucket: bucket_name, key: key, body: file_name))
+        client.put_object(@options.merge(bucket: bucket_name, key: key, body: file_name))
       end
 
       # Notes:
@@ -237,27 +212,19 @@ module IOStreams
 
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
         prefix  = matcher.path.to_s
-        s3_bucket.objects(prefix: prefix, delimiter: "/") do |object|
-          file_name = object.key
-          next unless matcher.match?(file_name)
+        marker  = nil
+        loop do
+          # Fetches upto 1,000 entries at a time
+          resp = client.list_objects(bucket: bucket_name, prefix: prefix, delimiter: "/", marker: marker)
+          resp.contents.each do |object|
+            file_name = object.key
+            next unless matcher.match?(file_name)
 
-          yield self.class.new(file_name)
+            yield self.class.new(file_name)
+          end
+          marker = resp.next_marker
+          break if marker.nil?
         end
-      end
-
-      private
-
-      def object
-        @object ||= bucket.object(path)
-      end
-
-      # Sample URI: s3://mybucket/user/abc.zip
-      def parse_uri(uri)
-        uri = URI.parse(uri)
-        raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
-
-        @bucket_name = uri.host
-        @key         = uri.path.sub(%r{\A/}, '')
       end
     end
   end
