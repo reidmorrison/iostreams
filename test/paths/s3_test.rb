@@ -10,7 +10,7 @@ module Paths
       end
 
       let :file_name do
-        File.join(File.dirname(__FILE__), 'files', 'text.txt')
+        File.join(File.dirname(__FILE__), '..', 'files', 'text.txt')
       end
 
       let :raw do
@@ -99,30 +99,45 @@ module Paths
 
       describe '#each_child' do
         # TODO: case_sensitive: false, directories: false, hidden: false
-        let(:files_for_test) { %w[abd/test1.txt xyz/test2.csv abd/test5.file] }
+        let(:abd_file_names) { %w[abd/test1.txt abd/test5.file abd/extra/file.csv] }
+        let(:files_for_test) { abd_file_names + %w[xyz/test2.csv xyz/another.csv] }
+
+        let :each_root do
+          root_path.join('each_child_test')
+        end
 
         let :multiple_paths do
-          files_for_test.collect { |file_name| root_path.join(file_name) }
+          files_for_test.collect { |file_name| each_root.join(file_name) }
         end
 
         let :write_raw_data do
-          multiple_paths.each { |path| path.write(raw) }
+          multiple_paths.each { |path| path.write(raw) unless path.exist? }
         end
 
         it 'existing file returns just the file itself' do
           # Glorified exists call
-          assert_equal [existing_path.to_s], existing_path.children
+          assert_equal [each_root.join('readme').to_s], each_root.children("readme").collect(&:to_s)
+        end
+
+        it 'missing file does nothing' do
+          # Glorified exists call
+          assert_equal [], missing_path.children("readme").collect(&:to_s)
         end
 
         it 'returns all the children' do
           write_raw_data
-          # Glorified exists call
-          assert_equal [existing_path.to_s], existing_path.children
+          assert_equal multiple_paths.collect(&:to_s).sort, each_root.children.collect(&:to_s).sort
+        end
+
+        it 'returns all the children under a sub-dir' do
+          write_raw_data
+          expected = abd_file_names.collect { |file_name| each_root.join(file_name) }
+          assert_equal expected.collect(&:to_s).sort, each_root.children("abd/*").collect(&:to_s).sort
         end
 
         it 'missing path' do
           count = 0
-          missing_path.each { |_| count += 1 }
+          missing_path.each_child { |_| count += 1 }
           assert_equal 0, count
         end
       end

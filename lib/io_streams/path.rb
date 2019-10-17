@@ -34,7 +34,7 @@ module IOStreams
     # Returns [Array] of child files based on the supplied pattern
     def children(*args, **kargs)
       paths = []
-      each_child(*args, **kargs) { |path| paths << yield(path) }
+      each_child(*args, **kargs) { |path| paths << path }
       paths
     end
 

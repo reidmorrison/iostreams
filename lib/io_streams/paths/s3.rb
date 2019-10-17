@@ -127,15 +127,15 @@ module IOStreams
       #
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
-      def initialize(url, client: Aws::S3::Client.new, **args)
-        Utils.load_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Resource)
+      def initialize(url, client: nil, **args)
+        Utils.load_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Client)
 
         uri = URI.parse(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
 
         @bucket_name = uri.host
         @key         = uri.path.sub(%r{\A/}, '')
-        @client      = client
+        @client      = client || ::Aws::S3::Client.new
         @options     = args
         super(url)
       end
@@ -144,10 +144,15 @@ module IOStreams
         # TODO: Handle when file does not exist
         client.delete_object(bucket: bucket_name, key: key)
         self
+      rescue Aws::S3::Errors::NotFound
+        self
       end
 
       def exist?
-        resp = client.head_object(bucket: bucket_name, key: key)
+        client.head_object(bucket: bucket_name, key: key)
+        true
+      rescue Aws::S3::Errors::NotFound
+        false
       end
 
       # S3 logically creates paths when a key is set.
@@ -160,8 +165,9 @@ module IOStreams
       end
 
       def size
-        resp = client.head_object(bucket: bucket_name, key: key)
-        resp.content_length
+        client.head_object(bucket: bucket_name, key: key).content_length
+      rescue Aws::S3::Errors::NotFound
+        nil
       end
 
       # TODO: delete_all
@@ -172,14 +178,15 @@ module IOStreams
         Utils.temp_file_name("iostreams_s3") do |file_name|
           read_file(file_name)
 
-          # Return a read stream to the temp file
-          ::File.new(file_name, 'rb', &block)
+          ::File.open(file_name, 'rb') { |io| io.read }
         end
       end
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def read_file(file_name)
-        client.get_object(@options.merge(response_target: file_name, bucket: bucket_name, key: key))
+        ::File.open(file_name, 'wb') do |file|
+          client.get_object(@options.merge(response_target: file, bucket: bucket_name, key: key))
+        end
       end
 
       # Write to AWS S3
@@ -192,16 +199,26 @@ module IOStreams
       def writer(&block)
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
         Utils.temp_file_name("iostreams_s3") do |file_name|
-          ::File.open(file_name, "wb", &block)
+          result = ::File.open(file_name, "wb", &block)
 
-          # Upload file once all data has been written to it
+          # Upload file only once all data has been written to it
           write_file(file_name)
+          result
         end
       end
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def write_file(file_name)
-        client.put_object(@options.merge(bucket: bucket_name, key: key, body: file_name))
+        if ::File.size(file_name) > 5 * 1024 * 1024
+          # Use multipart file upload
+          s3  = Aws::S3::Resource.new(client: client)
+          obj = s3.bucket(bucket_name).object(key)
+          obj.upload_file(file_name)
+        else
+          ::File.open(file_name, 'rb') do |file|
+            client.put_object(@options.merge(bucket: bucket_name, key: key, body: file))
+          end
+        end
       end
 
       # Notes:
@@ -210,21 +227,30 @@ module IOStreams
       def each_child(pattern = "**/*", case_sensitive: false, directories: false, hidden: false)
         raise(NotImplementedError, "AWS S3 #each_child does not yet return directories") if directories
 
+        # key_path  = URI.parse(path).path.sub(%r{\A/}, '')
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
-        prefix  = matcher.path.to_s
-        marker  = nil
+
+        # When the pattern includes an exact file name without any pattern characters
+        if matcher.pattern.nil?
+          yield(matcher.path) if matcher.path.exist?
+          return
+        end
+
+        prefix = URI.parse(matcher.path.to_s).path.sub(%r{\A/}, '')
+        token  = nil
         loop do
           # Fetches upto 1,000 entries at a time
-          resp = client.list_objects(bucket: bucket_name, prefix: prefix, delimiter: "/", marker: marker)
+          resp = client.list_objects_v2(bucket: bucket_name, prefix: prefix, continuation_token: token)
           resp.contents.each do |object|
-            file_name = object.key
+            file_name = ::File.join("s3://", resp.name, object.key)
             next unless matcher.match?(file_name)
 
             yield self.class.new(file_name)
           end
-          marker = resp.next_marker
-          break if marker.nil?
+          token = resp.next_continuation_token
+          break if token.nil?
         end
+        nil
       end
     end
   end

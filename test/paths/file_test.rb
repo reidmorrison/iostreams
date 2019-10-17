@@ -49,20 +49,20 @@ module Paths
 
         it 'find all files' do
           expected = [file_path.to_s, file_path2.to_s]
-          actual   = root.children { |path| path.to_s }
+          actual   = root.children.collect(&:to_s)
           assert_equal expected, actual.sort
         end
 
         it 'find matches case-insensitive' do
           expected = [file_path.to_s, file_path2.to_s]
-          actual   = root.children("**/Test*.TXT") { |path| path.to_s }
+          actual   = root.children("**/Test*.TXT").collect(&:to_s)
           assert_equal expected, actual.sort
         end
 
         it 'find matches case-sensitive' do
           skip "TODO"
           expected = [file_path.to_s, file_path2.to_s]
-          actual   = root.children("**/Test*.TXT", case_sensitive: true) { |path| path.to_s }
+          actual   = root.children("**/Test*.TXT", case_sensitive: true).collect(&:to_s)
           refute_equal expected, actual.sort
         end
       end

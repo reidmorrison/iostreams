@@ -25,25 +25,16 @@ module IOStreams
       end
 
       # Returns whether the relative `file_name` matches
-      def relative_match?(relative_file_name)
+      def match?(file_name)
+        relative_file_name = file_name.sub(path.to_s, '').sub(%r{\A/}, '')
         ::File.fnmatch?(pattern, relative_file_name, flags)
-      end
-
-      def absolute_match?(_absolute_file_name)
-        raise NotImplementedError
-        # ::File.fnmatch?(pattern, absolute_file_name, flags)
       end
 
       # Whether this pattern includes a recursive match.
       # I.e. Includes `**` anywhere in the path
       def recursive?
-        @recursive ||= pattern.include?("**")
+        @recursive ||= pattern.nil? ? false : pattern.include?("**")
       end
-
-      # # Returns whether the pattern is actually a pattern or just a file exists check.
-      # def pattern?
-      #
-      # end
 
       private
 
@@ -56,9 +47,8 @@ module IOStreams
           @pattern = pattern
         elsif index.nil?
           # No index means it has no pattern.
-          # TODO: Could be optimized into an existence check instead of iterating over every element.
-          @path    = elements.size > 1 ? path.join(*elements[0..-2]) : path
-          @pattern = elements[-1]
+          @path    = path.join(pattern)
+          @pattern = nil
         else
           @path    = path.join(*elements[0..index - 1])
           @pattern = ::File.join(elements[index..-1])
