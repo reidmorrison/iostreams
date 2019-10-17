@@ -5,9 +5,34 @@ module IOStreams
     class HTTP < IOStreams::Path
       attr_reader :username, :password, :http_redirect_count
 
+      # Stream to/from a remote file over http(s).
+      #
+      # Parameters:
+      #   url: [String]
+      #      URI of the file to download.
+      #     Example:
+      #       https://www5.fdic.gov/idasp/Offices2.zip
+      #       http://hostname/path/file_name
+      #
+      #     Full url showing all the optional elements that can be set via the url:
+      #       https://username:password@hostname/path/file_name
+      #
+      #   username: [String]
+      #     When supplied, basic authentication is used with the username and password.
+      #
+      #   password: [String]
+      #     Password to use use with basic authentication when the username is supplied.
+      #
+      #   http_redirect_count: [Integer]
+      #     Maximum number of http redirects to follow.
       def initialize(url, username: nil, password: nil, http_redirect_count: 10)
-        @username            = username
-        @password            = password
+        uri = URI.parse(url)
+        unless %w[http https].include?(uri.scheme)
+          raise(ArgumentError, "Invalid URL. Required Format: 'http://<host_name>/<file_name>', or 'https://<host_name>/<file_name>'")
+        end
+
+        @username            = username || uri.user
+        @password            = password || uri.password
         @http_redirect_count = http_redirect_count
         super(url)
       end
@@ -20,23 +45,10 @@ module IOStreams
       # Read the file without unzipping and streaming the first file in the zip:
       #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').stream(:none).reader {|file| puts file.read}
       #
-      # Parameters:
-      #   url: [String|URI]
-      #      URI of the file to download.
-      #     Example:
-      #       https://www5.fdic.gov/idasp/Offices2.zip
-      #
-      #   :username
-      #     When supplied, basic authentication is used with the username and password.
-      #     Default: nil
-      #
-      #   :password
-      #     Password to use use with basic authentication when the username is supplied.
-      #
       # Notes:
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
       def reader(&block)
-        handle_redirects(uri, http_redirect_count, &block)
+        handle_redirects(path, http_redirect_count, &block)
       end
 
       def handle_redirects(uri, http_redirect_count, &block)
@@ -69,7 +81,7 @@ module IOStreams
             Utils.temp_file_name('iostreams_http') do |file_name|
               ::File.open(file_name, 'wb') { |io| response.read_body { |chunk| io.write(chunk) } }
               # Return a read stream
-              result = ::File.open(temp_file_name, 'rb', &block)
+              result = ::File.open(file_name, 'rb', &block)
             end
           end
         end

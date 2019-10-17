@@ -222,12 +222,10 @@ module IOStreams
       end
 
       # Notes:
-      # - With S3 all lookups are recursive regardless of whether the pattern includes `**`.
-      #   This is because the object list call only takes a key prefix.
+      # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
       def each_child(pattern = "**/*", case_sensitive: false, directories: false, hidden: false)
         raise(NotImplementedError, "AWS S3 #each_child does not yet return directories") if directories
 
-        # key_path  = URI.parse(path).path.sub(%r{\A/}, '')
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
 
         # When the pattern includes an exact file name without any pattern characters

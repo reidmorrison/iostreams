@@ -3,7 +3,7 @@ module IOStreams
     class SFTP < IOStreams::Path
       include SemanticLogger::Loggable if defined?(SemanticLogger)
 
-      attr_reader :host, :username, :mkdir, :options
+      attr_reader :hostname, :username, :file_name, :create_path, :options
 
       # Stream to a remote file over sftp.
       #
@@ -24,18 +24,33 @@ module IOStreams
       #
       # **args
       #   Any other options supported by Net::SSH.start
-      def initialize(file_name, username:, password:, host:, port: 22, max_pkt_size: 65_536, logger: nil, **args)
+      #
+      # Examples:
+      #
+      # # Sample URL
+      #   sftp://hostname/path/file_name
+      #
+      # # Full url showing all the optional elements that can be set via the url:
+      #   sftp://username:password@hostname:22/path/file_name
+      def initialize(url, username:, password:, port: nil, max_pkt_size: 65_536, logger: nil, create_path: false, **args)
         Utils.load_dependency('net-sftp', 'net/sftp') unless defined?(Net::SFTP)
+
+        uri = URI.parse(url)
+        raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
+
+        @hostname              = uri.hostname
+        @file_name             = uri.path
+        @mkdir                 = false
+        @username              = username || uri.user
+        @create_path           = create_path
 
         logger                 ||= self.logger if defined?(SemanticLogger)
         options                = args.dup
         options[:logger]       = logger
-        options[:port]         = port
+        options[:port]         = port || uri.port || 22
         options[:max_pkt_size] = max_pkt_size
-        options[:password]     = password
+        options[:password]     = password || uri.password
         @options               = options
-        @mkdir                 = false
-        @username              = username
         super(file_name)
       end
 
@@ -57,7 +72,7 @@ module IOStreams
       # - raises Net::SFTP::StatusException when the file could not be read.
       def reader(&block)
         result = nil
-        Net::SFTP.start(host, username, options) do |sftp|
+        Net::SFTP.start(hostname, username, options) do |sftp|
           result = sftp.file.open(file_name, 'rb', &block)
         end
         result
@@ -73,8 +88,8 @@ module IOStreams
       #     end
       def writer(&block)
         result = nil
-        Net::SFTP.start(host, username, options) do |sftp|
-          sftp.session.exec!("mkdir -p '#{::File.dirname(file_name)}'") if mkdir
+        Net::SFTP.start(hostname, username, options) do |sftp|
+          sftp.session.exec!("mkdir -p '#{::File.dirname(file_name)}'") if create_path
           result = sftp.file.open(file_name, 'wb', &block)
         end
         result
