@@ -17,7 +17,7 @@ module IOStreams
       #   IOStreams.path(file_name).option(:encode, encoding: "BINARY").reader { |f| f.read(100) }
       #
       #   io_stream = StringIO.new("Hello World")
-      #   IOStreams.io(io_stream).reader { |f| f.read(100) }
+      #   IOStreams.stream(io_stream).reader { |f| f.read(100) }
       def reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
         path.reader(&block)
@@ -48,7 +48,7 @@ module IOStreams
       #   IOStreams.path(file_name).option(:encode, encoding: "BINARY").writer { |f| f.write("Hello World") }
       #
       #   io_stream = StringIO.new("Hello World")
-      #   IOStreams.io(io_stream).writer { |f| f.write("Hello World") }
+      #   IOStreams.stream(io_stream).writer { |f| f.write("Hello World") }
       def writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
         path.writer(&block)
@@ -194,13 +194,7 @@ module IOStreams
         apply_old_style_streams(path, streams) if streams
 
         if encoding || encode_cleaner || encode_replace
-          if file_name_or_io.is_a?(String)
-            path.option(:encode, encoding: encoding, cleaner: encode_cleaner, replace: encode_replace)
-          else
-            path.stream(:encode, encoding: encoding, cleaner: encode_cleaner, replace: encode_replace)
-          end
-        elsif !file_name_or_io.is_a?(String) && streams.nil?
-          path.stream(:none)
+          path.option_or_stream(:encode, encoding: encoding, cleaner: encode_cleaner, replace: encode_replace)
         end
 
         path

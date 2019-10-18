@@ -38,6 +38,25 @@ module IOStreams
       self
     end
 
+    # Adds the options for the specified stream as an option,
+    # but if streams have already been added it is instead added as a stream.
+    def option_or_stream(stream, **options)
+      streams.option_or_stream(stream, **options)
+      self
+    end
+
+    # Return the options already set for either a stream or option.
+    def setting(stream)
+      streams.setting(stream)
+      self
+    end
+
+    # Returns [Hash<Symbol:Hash>] the pipeline of streams
+    # with their options that will be applied when the reader or writer is invoked.
+    def pipeline
+      streams.pipeline
+    end
+
     # Returns a Reader for reading a file / stream
     #
     # Parameters

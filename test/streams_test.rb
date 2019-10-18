@@ -161,7 +161,7 @@ class StreamsTest < Minitest::Test
       end
 
       describe 'case-insensitive' do
-        let(:file_name) {'a.XlsX.GzIp'}
+        let(:file_name) { 'a.XlsX.GzIp' }
 
         it 'is case-insensitive' do
           assert_equal %i[xlsx gzip], streams.send(:parse_extensions)
@@ -169,22 +169,34 @@ class StreamsTest < Minitest::Test
       end
     end
 
-    describe '#build_streams' do
-      it 'without options' do
-        expected = {IOStreams::Xlsx::Reader => {}, IOStreams::Zip::Reader => {}, IOStreams::Gzip::Reader => {}, IOStreams::Pgp::Reader => {}}
-        assert_equal(expected, streams.send(:build_streams, :reader))
+    describe '#pipeline' do
+      it 'with stream and file name' do
+        expected = {enc: {compress: false}}
+        streams.stream(:enc, compress: false)
+        assert_equal expected, streams.pipeline
       end
 
-      it 'with encode option' do
-        expected = {IOStreams::Xlsx::Reader => {}, IOStreams::Zip::Reader => {}, IOStreams::Gzip::Reader => {}, IOStreams::Pgp::Reader => {}}
+      it 'no file name, streams, or options' do
+        expected = {}
+        streams  = IOStreams::Streams.new
+        assert_equal expected, streams.pipeline
+      end
+
+      it 'file name without options' do
+        expected = {:xlsx => {}, :zip => {}, :gz => {}, :pgp => {}}
+        assert_equal expected, streams.pipeline
+      end
+
+      it 'file name with encode option' do
+        expected = {encode: {encoding: 'BINARY'}, :xlsx => {}, :zip => {}, :gz => {}, :pgp => {}}
         streams.option(:encode, encoding: 'BINARY')
-        assert_equal(expected, streams.send(:build_streams, :reader))
+        assert_equal expected, streams.pipeline
       end
 
-      it 'with streams' do
+      it 'file name with option' do
+        expected = {:xlsx => {}, :zip => {}, :gz => {}, :pgp => {passphrase: 'unlock-me'}}
         streams.option(:pgp, passphrase: 'unlock-me')
-        expected = {IOStreams::Xlsx::Reader => {}, IOStreams::Zip::Reader => {}, IOStreams::Gzip::Reader => {}, IOStreams::Pgp::Reader => {passphrase: 'unlock-me'}}
-        assert_equal(expected, streams.send(:build_streams, :reader))
+        assert_equal expected, streams.pipeline
       end
     end
 
@@ -192,7 +204,7 @@ class StreamsTest < Minitest::Test
       it 'directly calls block for an empty stream' do
         string_io = StringIO.new
         value     = nil
-        streams.send(:execute, {}, string_io) do |io|
+        streams.send(:execute, :writer, {}, string_io) do |io|
           assert_equal io, string_io
           value = 32
         end
@@ -200,23 +212,23 @@ class StreamsTest < Minitest::Test
       end
 
       it 'calls last block in one element stream' do
-        streams_hash = {SimpleStream => {arg: 'first'}}
-        string_io    = StringIO.new
-        streams.send(:execute, streams_hash, string_io) { |io| io.write('last') }
+        pipeline  = {simple: {arg: 'first'}}
+        string_io = StringIO.new
+        streams.send(:execute, :writer, pipeline, string_io) { |io| io.write('last') }
         assert_equal 'first>last', string_io.string
       end
 
       it 'chains blocks in 2 element stream' do
-        streams_hash = {SimpleStream => {arg: 'first'}, SimpleStream2 => {arg: 'second'}}
+        pipeline  = {simple: {arg: 'first'}, simple2: {arg: 'second'}}
         string_io = StringIO.new
-        streams.send(:execute, streams_hash, string_io) { |io| io.write('last') }
+        streams.send(:execute, :writer, pipeline, string_io) { |io| io.write('last') }
         assert_equal 'second>first>last', string_io.string
       end
 
       it 'chains blocks in 3 element stream' do
-        streams_hash = {SimpleStream => {arg: 'first'}, SimpleStream2 => {arg: 'second'}, SimpleStream3 => {arg: 'third'}}
-        string_io    = StringIO.new
-        streams.send(:execute, streams_hash, string_io) { |io| io.write('last') }
+        pipeline  = {simple: {arg: 'first'}, simple2: {arg: 'second'}, simple3: {arg: 'third'}}
+        string_io = StringIO.new
+        streams.send(:execute, :writer, pipeline, string_io) { |io| io.write('last') }
         assert_equal 'third>second>first>last', string_io.string
       end
     end
@@ -236,10 +248,8 @@ class StreamsTest < Minitest::Test
       end
     end
 
-    class SimpleStream2 < SimpleStream
-    end
-
-    class SimpleStream3 < SimpleStream
-    end
+    IOStreams.register_extension(:simple, nil, SimpleStream)
+    IOStreams.register_extension(:simple2, nil, SimpleStream)
+    IOStreams.register_extension(:simple3, nil, SimpleStream)
   end
 end

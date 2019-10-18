@@ -54,11 +54,11 @@ module IOStreams
   end
 
   # For an existing IO Stream
-  # IOStreams.io(io).file_name('blah.zip').encoding('BINARY').reader(&:read)
-  # IOStreams.io(io).file_name('blah.zip').encoding('BINARY').each_line(...)
-  # IOStreams.io(io).file_name('blah.csv.zip').each_line(...)
-  # IOStreams.io(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
-  def self.io(io_stream)
+  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').reader(&:read)
+  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').each_line(...)
+  # IOStreams.stream(io).file_name('blah.csv.zip').each_line(...)
+  # IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
+  def self.stream(io_stream)
     return io_stream if io_stream.is_a?(Stream)
 
     Stream.new(io_stream)
@@ -68,7 +68,7 @@ module IOStreams
   def self.new(file_name_or_io)
     return file_name_or_io if file_name_or_io.is_a?(Stream)
 
-    file_name_or_io.is_a?(String) ? path(file_name_or_io) : io(file_name_or_io)
+    file_name_or_io.is_a?(String) ? path(file_name_or_io) : stream(file_name_or_io)
   end
 
   # Join the supplied path elements to a root path.

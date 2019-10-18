@@ -47,44 +47,50 @@ module IOStreams
       self
     end
 
+    def option_or_stream(stream, **options)
+      if streams
+        stream(stream, **options)
+      elsif file_name
+        option(stream, **options)
+      else
+        stream(stream, **options)
+      end
+    end
+
+    # Return the options set for either a stream or option.
+    def setting(stream)
+      return streams[stream] if streams
+      options[stream] if options
+    end
+
     def reader(io_stream, &block)
-      streams = build_streams(:reader)
-      execute(streams, io_stream, &block)
+      execute(:reader, pipeline, io_stream, &block)
     end
 
     def writer(io_stream, &block)
-      streams = build_streams(:writer)
-      execute(streams, io_stream, &block)
+      execute(:writer, pipeline, io_stream, &block)
+    end
+
+    # Returns [Hash<Symbol:Hash>] the pipeline of streams
+    # with their options that will be applied when the reader or writer is invoked.
+    def pipeline
+      return streams.dup.freeze if streams
+      return {}.freeze unless file_name
+
+      built_streams          = {}
+      # Encode stream is always first
+      built_streams[:encode] = options[:encode] if options&.key?(:encode)
+
+      opts = options || {}
+      parse_extensions.each { |stream| built_streams[stream] = opts[stream] || {} }
+      built_streams.freeze
     end
 
     private
 
-    # Returns [Hash<klass, options>] the streams that will be processed.
-    # Parameters
-    #   type: [:reader|writer]
-    def build_streams(type)
-      built_streams = {}
-      if streams
-        streams.each_pair { |stream, opts| built_streams[class_for_stream(type, stream)] = opts }
-      elsif file_name
-        if options
-          # Add encoding stream first if the option was supplied.
-          if opts = options[:encoding]
-            built_streams[class_for_stream(type, :encoding)] = opts
-          end
-          parse_extensions.each { |stream| built_streams[class_for_stream(type, stream)] = options[stream] || {} }
-        else
-          parse_extensions.each { |stream| built_streams[class_for_stream(type, stream)] = {} }
-        end
-      else
-        raise(ArgumentError, "Either call #stream or #file_name in order to build the required streams")
-      end
-      built_streams
-    end
-
     def class_for_stream(type, stream)
       ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
-      ext.send("#{type}_class")
+      ext.send("#{type}_class") || raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
     end
 
     # Returns the streams for the supplied file_name
@@ -101,17 +107,17 @@ module IOStreams
     end
 
     # Executes the streams that need to be executed.
-    def execute(streams, io_stream, &block)
+    def execute(type, pipeline, io_stream, &block)
       raise(ArgumentError, 'IOStreams call is missing mandatory block') if block.nil?
 
-      if streams.empty?
+      if pipeline.empty?
         block.call(io_stream)
-      elsif streams.size == 1
-        klass, opts = streams.first
-        klass.stream(io_stream, opts, &block)
+      elsif pipeline.size == 1
+        stream, opts = pipeline.first
+        class_for_stream(type, stream).stream(io_stream, opts, &block)
       else
         # Daisy chain multiple streams together
-        last = streams.keys.inject(block) { |inner, klass| ->(io) { klass.stream(io, streams[klass], &inner) } }
+        last = pipeline.keys.inject(block) { |inner, stream| ->(io) { class_for_stream(type, stream).stream(io, pipeline[stream], &inner) } }
         last.call(io_stream)
       end
     end
