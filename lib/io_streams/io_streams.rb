@@ -96,9 +96,9 @@ module IOStreams
   end
 
   # Returns a path to a local temporary file.
-  def self.temp_file(*args)
+  def self.temp_file(*args, &block)
     # TODO: Possible enhancement: Add a :temp root so that temp files can be stored anywhere, or the location changed.
-    Paths::File.temp_file(*args)
+    Paths::File.temp_file(*args, &block)
   end
 
   # Returns [IOStreams::Paths::File] current or named users home path

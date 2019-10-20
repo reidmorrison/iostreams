@@ -313,6 +313,11 @@ module IOStreams
       self
     end
 
+    # Set/get the original file_name
+    def file_name=(file_name)
+      streams.file_name = file_name
+    end
+
     # Returns [String] the last component of this path.
     # Returns `nil` if no `file_name` was set.
     #
