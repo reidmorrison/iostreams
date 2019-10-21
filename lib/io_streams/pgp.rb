@@ -311,6 +311,21 @@ module IOStreams
       end
     end
 
+    # Returns [String] email for the supplied after importing and trusting the key
+    #
+    # Notes:
+    # - If the same email address has multiple keys then only the first is currently trusted.
+    def self.import_and_trust(key:)
+      raise(ArgumentError, "Key cannot be empty") if key.nil? || (key == '')
+
+      email = key_info(key: key).first.fetch(:email)
+      raise(ArgumentError, "Recipient email cannot be extracted from supplied key") unless email
+
+      import(key: key)
+      set_trust(email: email)
+      email
+    end
+
     # Set the trust level for an existing key.
     #
     # Returns [String] output if the trust was successfully updated

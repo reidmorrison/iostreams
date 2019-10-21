@@ -111,6 +111,98 @@ module IOStreams
     IOStreams::Paths::File.new(Dir.pwd)
   end
 
+  # Yields Paths within the current path.
+  #
+  # Examples:
+  #
+  # # Return all children in a complete path:
+  # IOStreams.each_child("/exports/files/customer/*") { |path| puts path }
+  #
+  # # Return all children in a complete path on S3:
+  # IOStreams.each_child("s3://my_bucket/exports/files/customer/*") { |path| puts path }
+  #
+  # # Case Insensitive file name lookup:
+  # IOStreams.each_child("/exports/files/customer/R*") { |path| puts path }
+  #
+  # # Case Sensitive file name lookup:
+  # IOStreams.each_child("/exports/files/customer/R*", case_sensitive: true) { |path| puts path }
+  #
+  # # Case Insensitive recursive file name lookup:
+  # IOStreams.each_child("source_files/**/fast*.rb") { |name| puts name }
+  #
+  # Parameters:
+  #   pattern [String]
+  #     The pattern is not a regexp, it is a string that may contain the following metacharacters:
+  #     `*`      Matches all regular files.
+  #     `c*`     Matches all regular files beginning with `c`.
+  #     `*c`     Matches all regular files ending with `c`.
+  #     `*c*`    Matches all regular files that have `c` in them.
+  #
+  #     `**`     Matches recursively into subdirectories.
+  #
+  #     `?`      Matches any one character.
+  #
+  #     `[set]`  Matches any one character in the supplied `set`.
+  #     `[^set]` Does not matches any one character in the supplied `set`.
+  #
+  #     `\`      Escapes the next metacharacter.
+  #
+  #     `{a,b}`  Matches on either pattern `a` or pattern `b`.
+  #
+  #   case_sensitive [true|false]
+  #     Whether the pattern is case-sensitive.
+  #
+  #   directories [true|false]
+  #     Whether to yield directory names.
+  #
+  #   hidden [true|false]
+  #     Whether to yield hidden paths.
+  #
+  # Examples:
+  #
+  # Pattern:    File name:       match?   Reason                        Options
+  # =========== ================ ======   ============================= ===========================
+  # "cat"       "cat"            true     # Match entire string
+  # "cat"       "category"       false    # Only match partial string
+  #
+  # "c{at,ub}s" "cats"           true     # { } is supported
+  #
+  # "c?t"       "cat"            true     # "?" match only 1 character
+  # "c??t"      "cat"            false    # ditto
+  # "c*"        "cats"           true     # "*" match 0 or more characters
+  # "c*t"       "c/a/b/t"        true     # ditto
+  # "ca[a-z]"   "cat"            true     # inclusive bracket expression
+  # "ca[^t]"    "cat"            false    # exclusive bracket expression ("^" or "!")
+  #
+  # "cat"       "CAT"            false    # case sensitive              {case_sensitive: false}
+  # "cat"       "CAT"            true     # case insensitive
+  #
+  # "\?"        "?"              true     # escaped wildcard becomes ordinary
+  # "\a"        "a"              true     # escaped ordinary remains ordinary
+  # "[\?]"      "?"              true     # can escape inside bracket expression
+  #
+  # "*"         ".profile"       false    # wildcard doesn't match leading
+  # "*"         ".profile"       true     # period by default.
+  # ".*"        ".profile"       true                                   {hidden: true}
+  #
+  # "**/*.rb"   "main.rb"        false
+  # "**/*.rb"   "./main.rb"      false
+  # "**/*.rb"   "lib/song.rb"    true
+  # "**.rb"     "main.rb"        true
+  # "**.rb"     "./main.rb"      false
+  # "**.rb"     "lib/song.rb"    true
+  # "*"         "dave/.profile"  true
+  def self.each_child(pattern, case_sensitive: false, directories: false, hidden: false, &block)
+    matcher = Paths::Matcher.new(nil, pattern, case_sensitive: case_sensitive, hidden: hidden)
+
+    # When the pattern includes an exact file name without any pattern characters
+    if matcher.pattern.nil?
+      block.call(matcher.path) if matcher.path.exist?
+      return
+    end
+    matcher.path.each_child(matcher.pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &block)
+  end
+
   # Returns [IOStreams::Paths::File] the default root path, or the named root path
   def self.root(root = :default)
     @root_paths[root.to_sym] || raise(ArgumentError, "Root: #{root.inspect} has not been registered.")

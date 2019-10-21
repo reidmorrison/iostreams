@@ -46,7 +46,10 @@ module IOStreams
       # compress_level: [Integer]
       #   Compression level
       #   Default: 6
-      def self.file(file_name, recipient:, signer: default_signer, signer_passphrase: default_signer_passphrase, compression: :zip, compress_level: 6, original_file_name: nil)
+      def self.file(file_name, recipient: nil, import_and_trust_key: nil, signer: default_signer, signer_passphrase: default_signer_passphrase, compression: :zip, compress_level: 6, original_file_name: nil)
+        raise(ArgumentError, "Either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
+
+        recipient      = IOStreams::Pgp.import_and_trust(key: import_and_trust_key) if import_and_trust_key
         compress_level = 0 if compression == :none
 
         # Write to stdin, with encrypted contents being written to the file

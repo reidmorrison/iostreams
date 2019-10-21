@@ -141,7 +141,6 @@ module IOStreams
       end
 
       def delete
-        # TODO: Handle when file does not exist
         client.delete_object(bucket: bucket_name, key: key)
         self
       rescue Aws::S3::Errors::NotFound
@@ -153,6 +152,21 @@ module IOStreams
         true
       rescue Aws::S3::Errors::NotFound
         false
+      end
+
+      # Moves this file to the `target_path` by copying it to the new name and then deleting the current file.
+      #
+      # Notes:
+      # - Can copy across buckets.
+      def move(target_path)
+        target = IOStreams.new(target_path)
+        return super(target) unless target.is_a?(self.class)
+
+        source_name = ::File.join(bucket_name, key)
+        # TODO: Does/should it also copy metadata?
+        client.copy_object(bucket: target.bucket_name, key: target.key, copy_source: source_name)
+        delete
+        target
       end
 
       # S3 logically creates paths when a key is set.
@@ -223,7 +237,7 @@ module IOStreams
 
       # Notes:
       # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
-      def each_child(pattern = "**/*", case_sensitive: false, directories: false, hidden: false)
+      def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
         raise(NotImplementedError, "AWS S3 #each_child does not yet return directories") if directories
 
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)

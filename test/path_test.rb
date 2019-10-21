@@ -30,6 +30,26 @@ module IOStreams
           assert_equal ::File.join('some_path', 'test', 'second', 'third', 'file.xls'), path.join('some_path', 'test', 'second', 'third', 'file.xls').to_s
         end
       end
+
+      describe '#absolute?' do
+        it 'true on absolute' do
+          assert_equal true, IOStreams::Path.new('/a/b/c/d').absolute?
+        end
+
+        it 'false when not absolute' do
+          assert_equal false, IOStreams::Path.new('a/b/c/d').absolute?
+        end
+      end
+
+      describe '#relatve?' do
+        it 'true on relative' do
+          assert_equal true, IOStreams::Path.new('a/b/c/d').relative?
+        end
+
+        it 'false on absolute' do
+          assert_equal false, IOStreams::Path.new('/a/b/c/d').relative?
+        end
+      end
     end
   end
 end

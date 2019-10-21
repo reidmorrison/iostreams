@@ -87,10 +87,10 @@ module IOStreams
       # "**.rb"     "./main.rb"      false
       # "**.rb"     "lib/song.rb"    true
       # "*"         "dave/.profile"  true
-      def each_child(pattern = "**/*", case_sensitive: false, directories: false, hidden: false)
+      def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
         flags = 0
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
-        flags |= ::File::FNM_DOTMATCH unless hidden
+        flags |= ::File::FNM_DOTMATCH if hidden
 
         # Dir.each_child("testdir") {|x| puts "Got #{x}" }
         Dir.glob(::File.join(path, pattern), flags) do |full_path|
@@ -98,6 +98,20 @@ module IOStreams
 
           yield(self.class.new(full_path))
         end
+      end
+
+      # Moves this file to the `target_path` by copying it to the new name and then deleting the current file.
+      #
+      # Notes:
+      # - Can copy across buckets.
+      def move(target_path)
+        target = IOStreams.new(target_path)
+        return super(target) unless target.is_a?(self.class)
+
+        target.mkpath
+        # In case the file is being moved across partitions
+        FileUtils.move(path, target.to_s)
+        target
       end
 
       def mkpath
@@ -131,6 +145,11 @@ module IOStreams
 
         ::File.directory?(path) ? FileUtils.remove_dir(path) : ::File.unlink(path)
         self
+      end
+
+      # Returns the real path by stripping `.`, `..` and expands any symlinks.
+      def realpath
+        self.class.new(::File.realpath(path))
       end
 
       # Read from file

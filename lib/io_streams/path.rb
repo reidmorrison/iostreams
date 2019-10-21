@@ -24,10 +24,23 @@ module IOStreams
       end
     end
 
+    def relative?
+      !absolute?
+    end
+
+    def absolute?
+      !!(path.strip =~ /\A\//)
+    end
+
+    # By default realpath just returns self.
+    def realpath
+      self
+    end
+
     # Runs the pattern from the current path, returning the complete path for located files.
     #
     # See IOStreams::Paths::File.each for arguments.
-    def each_child(pattern = "**/*", **args, &block)
+    def each_child(pattern = "*", **args, &block)
       raise NotImplementedError
     end
 
@@ -65,6 +78,43 @@ module IOStreams
     # Returns [Integer] size of the file
     def size
       raise NotImplementedError
+    end
+
+    # Cleanup an incomplete write to the target "file" if the copy fails.
+    def copy(source, **args)
+      super(source, **args)
+    rescue StandardError => exc
+      delete
+      raise(exc)
+    end
+
+    # Moves the file by copying it to the new path and then deleting the current path.
+    # Returns [IOStreams::Path] the target path.
+    #
+    # Notes:
+    # - Currently only supports moving individual files, not directories.
+    def move(target_path)
+      target = IOStreams.new(target_path)
+      target.mkpath
+      target.copy(self, convert: false)
+      delete
+      target
+    end
+
+    # Returns [IOStreams::Path] the directory for this file.
+    # Returns `nil` if no `file_name` was set.
+    #
+    # If `path` does not include a directory name then "." is returned.
+    #
+    #   IOStreams.path("test.rb").directory         #=> "."
+    #   IOStreams.path("a/b/d/test.rb").directory   #=> "a/b/d"
+    #   IOStreams.path(".a/b/d/test.rb").directory  #=> ".a/b/d"
+    #   IOStreams.path("foo.").directory            #=> "."
+    #   IOStreams.path("test").directory            #=> "."
+    #   IOStreams.path(".profile").directory        #=> "."
+    def directory
+      file_name = streams.file_name
+      self.class.new(::File.dirname(file_name)) if file_name
     end
 
     # When path is a file, deletes this file.
@@ -116,6 +166,13 @@ module IOStreams
     # Paths are sortable by name
     def <=>(other)
       path.to_s <=> other.to_s
+    end
+
+    def inspect
+      str = "#<#{self.class.name}:#{path}"
+      str << " @streams=#{streams.streams.inspect}" if streams.streams
+      str << " @options=#{streams.options.inspect}" if streams.options
+      str << " pipeline=#{pipeline.inspect}>"
     end
 
     private

@@ -43,15 +43,16 @@ module IOStreams
         index    = elements.find_index { |e| e.match(MATCH_START_CHARS) }
         if index == 0
           # Cannot optimize path since the very first entry contains a wildcard
-          @path    = path
+          @path    = path || IOStreams.path
           @pattern = pattern
         elsif index.nil?
           # No index means it has no pattern.
-          @path    = path.join(pattern)
+          @path    = path.nil? ? IOStreams.path(pattern) : path.join(pattern)
           @pattern = nil
         else
-          @path    = path.join(*elements[0..index - 1])
-          @pattern = ::File.join(elements[index..-1])
+          new_path = elements[0..index - 1].join('/')
+          @path    = path.nil? ? IOStreams.path(new_path) : path.join(new_path)
+          @pattern = elements[index..-1].join('/')
         end
       end
 

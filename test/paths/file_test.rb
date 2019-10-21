@@ -34,7 +34,7 @@ module Paths
         end
       end
 
-      describe '#each' do
+      describe '#each_child' do
         it 'iterates an empty path' do
           none = nil
           directory.join('does_not_exist').mkdir.each_child { |path| none = path }
@@ -49,8 +49,8 @@ module Paths
 
         it 'find all files' do
           expected = [file_path.to_s, file_path2.to_s]
-          actual   = root.children.collect(&:to_s)
-          assert_equal expected, actual.sort
+          actual   = root.children("**/*").collect(&:to_s)
+          assert_equal expected.sort, actual.sort
         end
 
         it 'find matches case-insensitive' do
@@ -107,6 +107,69 @@ module Paths
       describe '#size' do
         it 'of file' do
           assert_equal data.size, file_path.size
+        end
+      end
+
+      describe '#realpath' do
+        it 'already a real path' do
+          path = ::File.expand_path(__dir__, '../files/test.csv')
+          assert_equal path, IOStreams::Paths::File.new(path).realpath.to_s
+        end
+
+        it 'removes ..' do
+          path     = ::File.join(__dir__, '../files/test.csv')
+          realpath = ::File.realpath(path)
+          assert_equal realpath, IOStreams::Paths::File.new(path).realpath.to_s
+        end
+      end
+
+      describe '#move' do
+        it 'move existing file' do
+          IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
+            temp_file.write("Hello World")
+            begin
+              target = temp_file.directory.join("move_test.txt")
+              response = temp_file.move(target)
+              assert_equal target, response
+              assert target.exist?
+              refute temp_file.exist?
+              assert_equal "Hello World", response.read
+              assert_equal target.to_s, response.to_s
+            ensure
+              target&.delete
+            end
+          end
+        end
+
+        it 'missing source file' do
+          IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
+            begin
+              refute temp_file.exist?
+              target = temp_file.directory.join("move_test.txt")
+              assert_raises Errno::ENOENT do
+                temp_file.move(target)
+              end
+              refute target.exist?
+              refute temp_file.exist?
+            end
+          end
+        end
+
+        it 'missing target directories' do
+          IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
+            temp_file.write("Hello World")
+            begin
+              target = temp_file.directory.join("a/b/c/move_test.txt")
+              response = temp_file.move(target)
+              assert_equal target, response
+              assert target.exist?
+              refute temp_file.exist?
+              assert_equal "Hello World", response.read
+              assert_equal target.to_s, response.to_s
+            ensure
+              temp_file.directory.join("a").delete_all
+            end
+          end
         end
       end
 

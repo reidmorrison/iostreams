@@ -126,7 +126,7 @@ module Paths
 
         it 'returns all the children' do
           write_raw_data
-          assert_equal multiple_paths.collect(&:to_s).sort, each_root.children.collect(&:to_s).sort
+          assert_equal multiple_paths.collect(&:to_s).sort, each_root.children("**/*").collect(&:to_s).sort
         end
 
         it 'returns all the children under a sub-dir' do
@@ -139,6 +139,67 @@ module Paths
           count = 0
           missing_path.each_child { |_| count += 1 }
           assert_equal 0, count
+        end
+
+        # Test is here since all the test artifacts have been created already in S3.
+        describe 'IOStreams.each_child' do
+          it 'returns all the children' do
+            write_raw_data
+            children = []
+            IOStreams.each_child(each_root.join("**/*").to_s) { |child| children << child }
+            assert_equal multiple_paths.collect(&:to_s).sort, children.collect(&:to_s).sort
+          end
+        end
+      end
+
+      describe '#move' do
+        it 'moves existing file' do
+          source = root_path.join("move_test_source.txt")
+          begin
+            source.write("Hello World")
+            target   = source.directory.join("move_test_target.txt")
+            response = source.move(target)
+            assert_equal target, response
+            assert target.exist?
+            refute source.exist?
+            assert_equal "Hello World", response.read
+            assert_equal target.to_s, response.to_s
+          ensure
+            source&.delete
+            target&.delete
+          end
+        end
+
+        it 'missing source file' do
+          source = root_path.join("move_test_source.txt")
+          refute source.exist?
+          begin
+            target = source.directory.join("move_test_target.txt")
+            assert_raises Aws::S3::Errors::NoSuchKey do
+              source.move(target)
+            end
+            refute target.exist?
+          ensure
+            source&.delete
+            target&.delete
+          end
+        end
+
+        it 'missing target directories' do
+          source = root_path.join("move_test_source.txt")
+          begin
+            source.write("Hello World")
+            target   = source.directory.join("a/b/c/move_test_target.txt")
+            response = source.move(target)
+            assert_equal target, response
+            assert target.exist?
+            refute source.exist?
+            assert_equal "Hello World", response.read
+            assert_equal target.to_s, response.to_s
+          ensure
+            source&.delete
+            target&.delete
+          end
         end
       end
     end
