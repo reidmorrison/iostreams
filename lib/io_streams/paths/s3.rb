@@ -158,7 +158,7 @@ module IOStreams
       #
       # Notes:
       # - Can copy across buckets.
-      def move(target_path)
+      def move_to(target_path)
         target = IOStreams.new(target_path)
         return super(target) unless target.is_a?(self.class)
 

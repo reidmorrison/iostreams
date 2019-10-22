@@ -81,7 +81,7 @@ module IOStreams
     end
 
     # Cleanup an incomplete write to the target "file" if the copy fails.
-    def copy(source, **args)
+    def copy_from(source, **args)
       super(source, **args)
     rescue StandardError => exc
       delete
@@ -93,10 +93,10 @@ module IOStreams
     #
     # Notes:
     # - Currently only supports moving individual files, not directories.
-    def move(target_path)
+    def move_to(target_path)
       target = IOStreams.new(target_path)
       target.mkpath
-      target.copy(self, convert: false)
+      target.copy_from(self, convert: false)
       delete
       target
     end
@@ -165,7 +165,12 @@ module IOStreams
 
     # Paths are sortable by name
     def <=>(other)
-      path.to_s <=> other.to_s
+      path <=> other.to_s
+    end
+
+    # Compare by path name, ignore streams
+    def ==(other)
+      path == other.to_s
     end
 
     def inspect

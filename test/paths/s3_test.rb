@@ -152,13 +152,13 @@ module Paths
         end
       end
 
-      describe '#move' do
+      describe '#move_to' do
         it 'moves existing file' do
           source = root_path.join("move_test_source.txt")
           begin
             source.write("Hello World")
             target   = source.directory.join("move_test_target.txt")
-            response = source.move(target)
+            response = source.move_to(target)
             assert_equal target, response
             assert target.exist?
             refute source.exist?
@@ -176,7 +176,7 @@ module Paths
           begin
             target = source.directory.join("move_test_target.txt")
             assert_raises Aws::S3::Errors::NoSuchKey do
-              source.move(target)
+              source.move_to(target)
             end
             refute target.exist?
           ensure
@@ -190,7 +190,7 @@ module Paths
           begin
             source.write("Hello World")
             target   = source.directory.join("a/b/c/move_test_target.txt")
-            response = source.move(target)
+            response = source.move_to(target)
             assert_equal target, response
             assert target.exist?
             refute source.exist?

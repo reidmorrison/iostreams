@@ -123,13 +123,13 @@ module Paths
         end
       end
 
-      describe '#move' do
-        it 'move existing file' do
+      describe '#move_to' do
+        it 'move_to existing file' do
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             temp_file.write("Hello World")
             begin
               target = temp_file.directory.join("move_test.txt")
-              response = temp_file.move(target)
+              response = temp_file.move_to(target)
               assert_equal target, response
               assert target.exist?
               refute temp_file.exist?
@@ -147,7 +147,7 @@ module Paths
               refute temp_file.exist?
               target = temp_file.directory.join("move_test.txt")
               assert_raises Errno::ENOENT do
-                temp_file.move(target)
+                temp_file.move_to(target)
               end
               refute target.exist?
               refute temp_file.exist?
@@ -160,7 +160,7 @@ module Paths
             temp_file.write("Hello World")
             begin
               target = temp_file.directory.join("a/b/c/move_test.txt")
-              response = temp_file.move(target)
+              response = temp_file.move_to(target)
               assert_equal target, response
               assert target.exist?
               refute temp_file.exist?

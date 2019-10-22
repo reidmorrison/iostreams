@@ -130,15 +130,15 @@ module IOStreams
     # Examples:
     #
     # # Copy and convert streams based on file extensions
-    # IOStreams.path("target_file.json").copy("source_file_name.csv.gz")
+    # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz")
     #
     # # Copy "as-is" without any automated stream conversions
-    # IOStreams.path("target_file.json").copy("source_file_name.csv.gz", convert: false)
+    # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", convert: false)
     #
     # # Advanced copy with custom stream conversions on source and target.
     # source = IOStreams.path("source_file").stream(encoding: "BINARY")
-    # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy(source)
-    def copy(source, convert: true)
+    # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
+    def copy_from(source, convert: true)
       if convert
         stream = IOStreams.new(source)
         streams.writer(io_stream) do |target|
