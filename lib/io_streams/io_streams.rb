@@ -48,8 +48,11 @@ module IOStreams
   # IOStreams.path('blah.zip').stream(:zip).stream(:encode, encoding: 'BINARY').reader(&:read)
   #
   def self.path(*elements)
-    path = ::File.join(*elements)
-    uri  = URI.parse(path)
+    return elements.first if (elements.size == 1) && elements.first.is_a?(IOStreams::Path)
+
+    elements = elements.collect(&:to_s)
+    path     = ::File.join(*elements)
+    uri      = URI.parse(path)
     scheme(uri.scheme).new(path)
   end
 

@@ -16,6 +16,7 @@ module IOStreams
     def join(*elements)
       return self if elements.empty?
 
+      elements = elements.collect(&:to_s)
       relative = ::File.join(*elements)
       if relative.start_with?(path)
         self.class.new(relative)
