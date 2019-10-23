@@ -3,14 +3,14 @@ require "uri"
 module IOStreams
   module Paths
     class S3 < IOStreams::Path
-      attr_reader :bucket_name, :key, :client
+      attr_reader :bucket_name, :client
 
       # Arguments:
       #
       # url: [String]
       #   Prefix must be: `s3://`
       #   followed by bucket name,
-      #   followed by path and file_name (key).
+      #   followed by key.
       #   Examples:
       #     s3://my-bucket-name/file_name.txt
       #     s3://my-bucket-name/some_path/file_name.csv
@@ -61,9 +61,6 @@ module IOStreams
       #
       # @option params [String] :grant_write_acp
       #   Allows grantee to write the ACL for the applicable object.
-      #
-      # @option params [required, String] :key
-      #   Object key for which the PUT operation was initiated.
       #
       # @option params [Hash<String,String>] :metadata
       #   A map of metadata to store with the object in S3.
@@ -134,21 +131,25 @@ module IOStreams
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
 
         @bucket_name = uri.host
-        @key         = uri.path.sub(%r{\A/}, '')
+        key          = uri.path.sub(%r{\A/}, '')
         @client      = client || ::Aws::S3::Client.new
         @options     = args
-        super(url)
+        super(key)
+      end
+
+      def to_s
+        ::File.join("s3://", bucket_name, path)
       end
 
       def delete
-        client.delete_object(bucket: bucket_name, key: key)
+        client.delete_object(bucket: bucket_name, key: path)
         self
       rescue Aws::S3::Errors::NotFound
         self
       end
 
       def exist?
-        client.head_object(bucket: bucket_name, key: key)
+        client.head_object(bucket: bucket_name, key: path)
         true
       rescue Aws::S3::Errors::NotFound
         false
@@ -162,9 +163,9 @@ module IOStreams
         target = IOStreams.new(target_path)
         return super(target) unless target.is_a?(self.class)
 
-        source_name = ::File.join(bucket_name, key)
+        source_name = ::File.join(bucket_name, path)
         # TODO: Does/should it also copy metadata?
-        client.copy_object(bucket: target.bucket_name, key: target.key, copy_source: source_name)
+        client.copy_object(bucket: target.bucket_name, key: target.path, copy_source: source_name)
         delete
         target
       end
@@ -179,7 +180,7 @@ module IOStreams
       end
 
       def size
-        client.head_object(bucket: bucket_name, key: key).content_length
+        client.head_object(bucket: bucket_name, key: path).content_length
       rescue Aws::S3::Errors::NotFound
         nil
       end
@@ -199,7 +200,7 @@ module IOStreams
       # Shortcut method if caller has a filename already with no other streams applied:
       def read_file(file_name)
         ::File.open(file_name, 'wb') do |file|
-          client.get_object(@options.merge(response_target: file, bucket: bucket_name, key: key))
+          client.get_object(@options.merge(response_target: file, bucket: bucket_name, key: path))
         end
       end
 
@@ -226,11 +227,11 @@ module IOStreams
         if ::File.size(file_name) > 5 * 1024 * 1024
           # Use multipart file upload
           s3  = Aws::S3::Resource.new(client: client)
-          obj = s3.bucket(bucket_name).object(key)
+          obj = s3.bucket(bucket_name).object(path)
           obj.upload_file(file_name)
         else
           ::File.open(file_name, 'rb') do |file|
-            client.put_object(@options.merge(bucket: bucket_name, key: key, body: file))
+            client.put_object(@options.merge(bucket: bucket_name, key: path, body: file))
           end
         end
       end

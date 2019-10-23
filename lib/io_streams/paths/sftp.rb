@@ -3,12 +3,12 @@ module IOStreams
     class SFTP < IOStreams::Path
       include SemanticLogger::Loggable if defined?(SemanticLogger)
 
-      attr_reader :hostname, :username, :file_name, :create_path, :options
+      attr_reader :hostname, :username, :create_path, :options, :url
 
       # Stream to a remote file over sftp.
       #
-      # file_name: [String]
-      #   Name of file to write to.
+      # url: [String]
+      #   "sftp://<host_name>/<file_name>"
       #
       # username: [String]
       #   Name of user to login with.
@@ -39,7 +39,6 @@ module IOStreams
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
 
         @hostname              = uri.hostname
-        @file_name             = uri.path
         @mkdir                 = false
         @username              = username || uri.user
         @create_path           = create_path
@@ -51,7 +50,11 @@ module IOStreams
         options[:max_pkt_size] = max_pkt_size
         options[:password]     = password || uri.password
         @options               = options
-        super(file_name)
+        super(uri.path)
+      end
+
+      def to_s
+        url
       end
 
       def mkdir
@@ -73,7 +76,7 @@ module IOStreams
       def reader(&block)
         result = nil
         Net::SFTP.start(hostname, username, options) do |sftp|
-          result = sftp.file.open(file_name, 'rb', &block)
+          result = sftp.file.open(path, 'rb', &block)
         end
         result
       end
@@ -89,8 +92,8 @@ module IOStreams
       def writer(&block)
         result = nil
         Net::SFTP.start(hostname, username, options) do |sftp|
-          sftp.session.exec!("mkdir -p '#{::File.dirname(file_name)}'") if create_path
-          result = sftp.file.open(file_name, 'wb', &block)
+          sftp.session.exec!("mkdir -p '#{::File.dirname(path)}'") if create_path
+          result = sftp.file.open(path, 'wb', &block)
         end
         result
       end

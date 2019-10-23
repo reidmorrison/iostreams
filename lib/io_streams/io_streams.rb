@@ -47,13 +47,14 @@ module IOStreams
   # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
   # IOStreams.path('blah.zip').stream(:zip).stream(:encode, encoding: 'BINARY').reader(&:read)
   #
-  def self.path(*elements)
-    return elements.first if (elements.size == 1) && elements.first.is_a?(IOStreams::Path)
+  def self.path(*elements, **args)
+    return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
 
     elements = elements.collect(&:to_s)
     path     = ::File.join(*elements)
     uri      = URI.parse(path)
-    scheme(uri.scheme).new(path)
+    klass    = scheme(uri.scheme)
+    args.empty? ? klass.new(path) : klass.new(path, **args)
   end
 
   # For an existing IO Stream

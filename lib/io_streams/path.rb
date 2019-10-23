@@ -1,6 +1,6 @@
 module IOStreams
   class Path < IOStreams::Stream
-    attr_reader :path
+    attr_accessor :path
 
     def initialize(path)
       raise(ArgumentError, 'Path cannot be nil') if path.nil?
@@ -18,11 +18,11 @@ module IOStreams
 
       elements = elements.collect(&:to_s)
       relative = ::File.join(*elements)
-      if relative.start_with?(path)
-        self.class.new(relative)
-      else
-        self.class.new(::File.join(path, relative))
-      end
+
+      new_path         = dup
+      new_path.streams = nil
+      new_path.path    = relative.start_with?(path) ? relative : ::File.join(path, relative)
+      new_path
     end
 
     def relative?
@@ -114,8 +114,10 @@ module IOStreams
     #   IOStreams.path("test").directory            #=> "."
     #   IOStreams.path(".profile").directory        #=> "."
     def directory
-      file_name = streams.file_name
-      self.class.new(::File.dirname(file_name)) if file_name
+      new_path         = dup
+      new_path.streams = nil
+      new_path.path    = ::File.dirname(path)
+      new_path
     end
 
     # When path is a file, deletes this file.
@@ -166,12 +168,12 @@ module IOStreams
 
     # Paths are sortable by name
     def <=>(other)
-      path <=> other.to_s
+      path <=> other.path
     end
 
     # Compare by path name, ignore streams
     def ==(other)
-      path == other.to_s
+      path == other.path
     end
 
     def inspect

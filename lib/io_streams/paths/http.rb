@@ -3,7 +3,7 @@ require 'uri'
 module IOStreams
   module Paths
     class HTTP < IOStreams::Path
-      attr_reader :username, :password, :http_redirect_count
+      attr_reader :username, :password, :http_redirect_count, :url
 
       # Stream to/from a remote file over http(s).
       #
@@ -34,7 +34,12 @@ module IOStreams
         @username            = username || uri.user
         @password            = password || uri.password
         @http_redirect_count = http_redirect_count
-        super(url)
+        @url                 = url
+        super(uri.path)
+      end
+
+      def to_s
+        url
       end
 
       # Read a file using an http get.
@@ -48,7 +53,7 @@ module IOStreams
       # Notes:
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
       def reader(&block)
-        handle_redirects(path, http_redirect_count, &block)
+        handle_redirects(url, http_redirect_count, &block)
       end
 
       def handle_redirects(uri, http_redirect_count, &block)
