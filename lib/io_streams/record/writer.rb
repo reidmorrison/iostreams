@@ -9,9 +9,9 @@ module IOStreams
       # Write a record as a Hash at a time to a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
-      def self.stream(line_writer, original_file_name: nil, **args, &block)
-        # Pass-through if already a row writer
-        return block.call(line_writer) if line_writer.is_a?(self.class)
+      def self.stream(line_writer, original_file_name: nil, **args)
+        # Pass-through if already a record writer
+        return yield(line_writer) if line_writer.is_a?(self.class)
 
         yield new(line_writer, **args)
       end

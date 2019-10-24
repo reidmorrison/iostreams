@@ -9,9 +9,9 @@ module IOStreams
       LINEFEED_REGEXP = Regexp.compile(/\r\n|\n|\r/).freeze
 
       # Read a line at a time from a stream
-      def self.stream(input_stream, original_file_name: nil, **args, &block)
+      def self.stream(input_stream, original_file_name: nil, **args)
         # Pass-through if already a line reader
-        return block.call(input_stream) if input_stream.is_a?(self.class)
+        return yield(input_stream) if input_stream.is_a?(self.class)
 
         yield new(input_stream, **args)
       end

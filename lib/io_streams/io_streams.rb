@@ -50,10 +50,10 @@ module IOStreams
   def self.path(*elements, **args)
     return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
 
-    elements = elements.collect(&:to_s)
-    path     = ::File.join(*elements)
-    uri      = URI.parse(path)
-    klass    = scheme(uri.scheme)
+    elements         = elements.collect(&:to_s)
+    path             = ::File.join(*elements)
+    extracted_scheme = path.include?("://") ? URI.parse(path).scheme : nil
+    klass            = scheme(extracted_scheme)
     args.empty? ? klass.new(path) : klass.new(path, **args)
   end
 

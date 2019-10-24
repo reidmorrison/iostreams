@@ -40,6 +40,7 @@ module IOStreams
         @cleaner          = ::IOStreams::Encode::Reader.send(:extract_cleaner, cleaner)
         @encoding         = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
         @encoding_options = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
+        @replace          = replace
       end
 
       # Write a line to the output stream
@@ -66,7 +67,7 @@ module IOStreams
 
         data  = data.to_s
         block = data.encoding == @encoding ? data : data.encode(@encoding, @encoding_options)
-        block = @cleaner.call(block) if @cleaner
+        block = @cleaner.call(block, @replace) if @cleaner
         @output_stream.write(block)
       end
     end

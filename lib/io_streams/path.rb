@@ -103,7 +103,6 @@ module IOStreams
     end
 
     # Returns [IOStreams::Path] the directory for this file.
-    # Returns `nil` if no `file_name` was set.
     #
     # If `path` does not include a directory name then "." is returned.
     #

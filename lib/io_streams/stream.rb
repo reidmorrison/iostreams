@@ -180,22 +180,32 @@ module IOStreams
       writer { |stream| stream.write(data) }
     end
 
-    def line_writer(**args)
-      writer { |io| yield IOStreams::Line::Writer.new(io, **args) }
+    def line_writer(**args, &block)
+      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Line::Writer)
+
+      writer { |io| IOStreams::Line::Writer.stream(io, **args, &block) }
     end
 
-    def row_writer(delimiter: $/, **args)
-      line_writer(delimiter: delimiter) { |io| yield IOStreams::Row::Writer.new(io, **args) }
+    def row_writer(delimiter: $/, **args, &block)
+      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Row::Writer)
+
+      line_writer(delimiter: delimiter) { |io| IOStreams::Row::Writer.stream(io, **args, &block) }
     end
 
-    def record_writer(delimiter: $/, **args)
-      line_writer(delimiter: delimiter) { |io| yield IOStreams::Record::Writer.new(io, **args) }
+    def record_writer(delimiter: $/, **args, &block)
+      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Record::Writer)
+
+      line_writer(delimiter: delimiter) { |io| IOStreams::Record::Writer.stream(io, **args, &block) }
     end
 
     # Set/get the original file_name
     def file_name(file_name = :none)
-      file_name == :none ? streams.file_name : streams.file_name = file_name
-      self
+      if file_name == :none
+        streams.file_name
+      else
+        streams.file_name = file_name
+        self
+      end
     end
 
     # Set/get the original file_name

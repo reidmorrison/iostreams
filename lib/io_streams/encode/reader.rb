@@ -7,7 +7,9 @@ module IOStreams
       # Builtin strip options to apply after encoding the read data.
       CLEANSE_RULES = {
         # Strips all non printable characters
-        printable: ->(data) { data.gsub!(NOT_PRINTABLE, '') || data }
+        printable: ->(data, _) { data.gsub!(NOT_PRINTABLE, '') || data },
+        # Replaces non printable characters with the value specified in the `replace` option.
+        replace_non_printable: ->(data, replace) { data.gsub!(NOT_PRINTABLE, replace || '') || data }
       }.freeze
 
       # Read a line at a time from a file or stream
@@ -46,6 +48,7 @@ module IOStreams
         @cleaner          = self.class.extract_cleaner(cleaner)
         @encoding         = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
         @encoding_options = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
+        @replace          = replace
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         if replace.nil? && !@input_stream.method(:read).arity.between?(0, 1)
@@ -75,7 +78,7 @@ module IOStreams
         return unless block
 
         block = block.encode(@encoding, @encoding_options) unless block.encoding == @encoding
-        block = @cleaner.call(block) if @cleaner
+        block = @cleaner.call(block, @replace) if @cleaner
         block
       end
 

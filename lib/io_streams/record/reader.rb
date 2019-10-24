@@ -7,9 +7,9 @@ module IOStreams
       # Read a record at a time from a line stream
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :each
-      def self.stream(line_reader, original_file_name: nil, **args, &block)
+      def self.stream(line_reader, original_file_name: nil, **args)
         # Pass-through if already a record reader
-        return block.call(line_reader) if line_reader.is_a?(self.class)
+        return yield(line_reader) if line_reader.is_a?(self.class)
 
         yield new(line_reader, **args)
       end
