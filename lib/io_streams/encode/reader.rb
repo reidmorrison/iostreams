@@ -1,22 +1,20 @@
 module IOStreams
   module Encode
-    class Reader
+    class Reader < IOStreams::Reader
       attr_reader :encoding, :cleaner
 
       NOT_PRINTABLE = Regexp.compile(/[^[:print:]|\r|\n]/).freeze
       # Builtin strip options to apply after encoding the read data.
       CLEANSE_RULES = {
         # Strips all non printable characters
-        printable: -> (data) { data.gsub!(NOT_PRINTABLE, '') || data }
-      }
+        printable: ->(data, _) { data.gsub!(NOT_PRINTABLE, '') || data },
+        # Replaces non printable characters with the value specified in the `replace` option.
+        replace_non_printable: ->(data, replace) { data.gsub!(NOT_PRINTABLE, replace || '') || data }
+      }.freeze
 
       # Read a line at a time from a file or stream
-      def self.open(file_name_or_io, **args)
-        if file_name_or_io.is_a?(String)
-          IOStreams::File::Reader.open(file_name_or_io) { |io| yield new(io, **args) }
-        else
-          yield new(file_name_or_io, **args)
-        end
+      def self.stream(input_stream, original_file_name: nil, **args)
+        yield new(input_stream, **args)
       end
 
       # Apply encoding conversion when reading a stream.
@@ -33,26 +31,27 @@ module IOStreams
       #     Etc.
       #     Default: 'UTF-8'
       #
-      #   encode_replace: [String]
+      #   replace: [String]
       #     The character to replace with when a character cannot be converted to the target encoding.
       #     nil: Don't replace any invalid characters. Encoding::UndefinedConversionError is raised.
       #     Default: nil
       #
-      #   encode_cleaner: [nil|symbol|Proc]
+      #   cleaner: [nil|symbol|Proc]
       #     Cleanse data read from the input stream.
       #     nil:           No cleansing
       #     :printable Cleanse all non-printable characters except \r and \n
       #     Proc/lambda    Proc to call after every read to cleanse the data
       #     Default: nil
-      def initialize(input_stream, encoding: 'UTF-8', encode_cleaner: nil, encode_replace: nil)
-        @input_stream = input_stream
-        @cleaner      = self.class.extract_cleaner(encode_cleaner)
+      def initialize(input_stream, encoding: 'UTF-8', cleaner: nil, replace: nil)
+        super(input_stream)
 
+        @cleaner          = self.class.extract_cleaner(cleaner)
         @encoding         = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
-        @encoding_options = encode_replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: encode_replace}
+        @encoding_options = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
+        @replace          = replace
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
-        if encode_replace.nil? && !@input_stream.method(:read).arity.between?(0, 1)
+        if replace.nil? && !@input_stream.method(:read).arity.between?(0, 1)
           @read_cache_buffer = ''.encode(@encoding)
         else
           @read_cache_buffer = nil
@@ -79,7 +78,7 @@ module IOStreams
         return unless block
 
         block = block.encode(@encoding, @encoding_options) unless block.encoding == @encoding
-        block = @cleaner.call(block) if @cleaner
+        block = @cleaner.call(block, @replace) if @cleaner
         block
       end
 

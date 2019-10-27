@@ -19,7 +19,9 @@ module IOStreams
         def parse(row)
           return row if row.is_a?(::Array)
 
-          raise(IOStreams::Errors::TypeMismatch, "Format is :psv. Invalid input: #{row.class.name}") unless row.is_a?(String)
+          unless row.is_a?(String)
+            raise(IOStreams::Errors::TypeMismatch, "Format is :psv. Invalid input: #{row.class.name}")
+          end
 
           row.split('|')
         end

@@ -14,7 +14,9 @@ module IOStreams
         def parse_header(row)
           return row if row.is_a?(::Array)
 
-          raise(IOStreams::Errors::InvalidHeader, "Format is :csv. Invalid input header: #{row.class.name}") unless row.is_a?(String)
+          unless row.is_a?(String)
+            raise(IOStreams::Errors::InvalidHeader, "Format is :csv. Invalid input header: #{row.class.name}")
+          end
 
           parse_line(row)
         end
@@ -23,7 +25,9 @@ module IOStreams
         def parse(row)
           return row if row.is_a?(::Array)
 
-          raise(IOStreams::Errors::TypeMismatch, "Format is :csv. Invalid input: #{row.class.name}") unless row.is_a?(String)
+          unless row.is_a?(String)
+            raise(IOStreams::Errors::TypeMismatch, "Format is :csv. Invalid input: #{row.class.name}")
+          end
 
           parse_line(row)
         end

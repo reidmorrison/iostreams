@@ -1,15 +1,11 @@
 module IOStreams
   module Encode
-    class Writer
+    class Writer < IOStreams::Writer
       attr_reader :encoding, :cleaner
 
       # Write a line at a time to a file or stream
-      def self.open(file_name_or_io, **args)
-        if file_name_or_io.is_a?(String)
-          IOStreams::File::Writer.open(file_name_or_io) { |io| yield new(io, **args) }
-        else
-          yield new(file_name_or_io, **args)
-        end
+      def self.stream(input_stream, original_file_name: nil, **args)
+        yield new(input_stream, **args)
       end
 
       # A delimited stream writer that will write to the supplied output stream
@@ -27,23 +23,24 @@ module IOStreams
       #     Etc.
       #     Default: 'UTF-8'
       #
-      #   encode_replace: [String]
+      #   replace: [String]
       #     The character to replace with when a character cannot be converted to the target encoding.
       #     nil: Don't replace any invalid characters. Encoding::UndefinedConversionError is raised.
       #     Default: nil
       #
-      #   encode_cleaner: [nil|symbol|Proc]
+      #   cleaner: [nil|symbol|Proc]
       #     Cleanse data read from the input stream.
       #     nil:           No cleansing
       #     :printable Cleanse all non-printable characters except \r and \n
       #     Proc/lambda    Proc to call after every read to cleanse the data
       #     Default: nil
-      def initialize(output_stream, encoding: 'UTF-8', encode_cleaner: nil, encode_replace: nil)
-        @output_stream = output_stream
-        @cleaner       = ::IOStreams::Encode::Reader.send(:extract_cleaner, encode_cleaner)
+      def initialize(output_stream, encoding: 'UTF-8', cleaner: nil, replace: nil)
+        super(output_stream)
 
+        @cleaner          = ::IOStreams::Encode::Reader.send(:extract_cleaner, cleaner)
         @encoding         = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
-        @encoding_options = encode_replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: encode_replace}
+        @encoding_options = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
+        @replace          = replace
       end
 
       # Write a line to the output stream
@@ -70,7 +67,7 @@ module IOStreams
 
         data  = data.to_s
         block = data.encoding == @encoding ? data : data.encode(@encoding, @encoding_options)
-        block = @cleaner.call(block) if @cleaner
+        block = @cleaner.call(block, @replace) if @cleaner
         @output_stream.write(block)
       end
     end

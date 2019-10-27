@@ -1,22 +1,22 @@
 module IOStreams
   module Errors
-    class Error < StandardError;
+    class Error < StandardError
     end
 
-    class InvalidHeader < Error;
+    class InvalidHeader < Error
     end
 
-    class MissingHeader < Error;
+    class MissingHeader < Error
     end
 
-    class TypeMismatch < Error;
+    class TypeMismatch < Error
     end
 
-    class CommunicationsFailure < Error;
+    class CommunicationsFailure < Error
     end
 
     # When the specified delimiter is not found in the supplied stream / file
-    class DelimiterNotFound < Error;
+    class DelimiterNotFound < Error
     end
   end
 end

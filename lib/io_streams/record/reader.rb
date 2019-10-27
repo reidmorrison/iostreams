@@ -1,23 +1,23 @@
 module IOStreams
   module Record
     # Converts each line of an input stream into hash for every row
-    class Reader
+    class Reader < IOStreams::Reader
       include Enumerable
 
-      # Read a record as a Hash at a time from a file or stream.
-      def self.open(file_name_or_io, delimiter: nil, buffer_size: 65536, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args)
-        if file_name_or_io.is_a?(String)
-          IOStreams.line_reader(file_name_or_io,
-                                delimiter:      delimiter,
-                                buffer_size:    buffer_size,
-                                encoding:       encoding,
-                                encode_cleaner: encode_cleaner,
-                                encode_replace: encode_replace
-          ) do |io|
-            yield new(io, file_name: file_name_or_io, **args)
-          end
-        else
-          yield new(file_name_or_io, **args)
+      # Read a record at a time from a line stream
+      # Note:
+      # - The supplied stream _must_ already be a line stream, or a stream that responds to :each
+      def self.stream(line_reader, original_file_name: nil, **args)
+        # Pass-through if already a record reader
+        return yield(line_reader) if line_reader.is_a?(self.class)
+
+        yield new(line_reader, **args)
+      end
+
+      # When reading from a file also add the line reader stream
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
+        IOStreams::Line::Reader.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
+          yield new(io, **args)
         end
       end
 
@@ -33,8 +33,12 @@ module IOStreams
       #
       #   For all other parameters, see Tabular::Header.new
       def initialize(line_reader, cleanse_header: true, **args)
+        unless line_reader.respond_to?(:each)
+          raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
+        end
+
         @tabular        = IOStreams::Tabular.new(**args)
-        @line_reader      = line_reader
+        @line_reader    = line_reader
         @cleanse_header = cleanse_header
       end
 

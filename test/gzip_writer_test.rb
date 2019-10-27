@@ -18,9 +18,9 @@ class GzipWriterTest < Minitest::Test
       temp_file.delete
     end
 
-    describe '.open' do
+    describe '.file' do
       it 'file' do
-        IOStreams::Gzip::Writer.open(file_name) do |io|
+        IOStreams::Gzip::Writer.file(file_name) do |io|
           io.write(decompressed)
         end
         result = Zlib::GzipReader.open(file_name) { |gz| gz.read }
@@ -30,7 +30,7 @@ class GzipWriterTest < Minitest::Test
 
       it 'stream' do
         io_string = StringIO.new(''.b)
-        IOStreams::Gzip::Writer.open(io_string) do |io|
+        IOStreams::Gzip::Writer.stream(io_string) do |io|
           io.write(decompressed)
         end
         io   = StringIO.new(io_string.string)

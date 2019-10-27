@@ -24,10 +24,10 @@ module IOStreams
         #     A single line of CSV data without any line terminators
         def parse(line)
           return if IOStreams::Utils.blank?(line)
-          return if @skip_lines and @skip_lines.match line
+          return if @skip_lines&.match(line)
 
           in_extended_col = false
-          csv             = Array.new
+          csv             = []
           parts           = line.split(@col_sep, -1)
           csv << nil if parts.empty?
 
@@ -36,12 +36,13 @@ module IOStreams
           parts.each do |part|
             if in_extended_col
               # If we are continuing a previous column
-              if part[-1] == @quote_char && part.count(@quote_char) % 2 != 0
+              if part[-1] == @quote_char && part.count(@quote_char).odd?
                 # extended column ends
                 csv.last << part[0..-2]
                 if csv.last =~ @parsers[:stray_quote]
                   raise MalformedCSVError, "Missing or stray quote in line #{lineno + 1}"
                 end
+
                 csv.last.gsub!(@quote_char * 2, @quote_char)
                 in_extended_col = false
               else
@@ -50,7 +51,7 @@ module IOStreams
               end
             elsif part[0] == @quote_char
               # If we are starting a new quoted column
-              if part[-1] != @quote_char || part.count(@quote_char) % 2 != 0
+              if part[-1] != @quote_char || part.count(@quote_char).odd?
                 # start an extended column
                 csv << part[1..-1]
                 csv.last << @col_sep
@@ -61,6 +62,7 @@ module IOStreams
                 if csv.last =~ @parsers[:stray_quote]
                   raise MalformedCSVError, "Missing or stray quote in line #{lineno + 1}"
                 end
+
                 csv.last.gsub!(@quote_char * 2, @quote_char)
               end
             elsif part =~ @parsers[:quote_or_nl]
@@ -90,12 +92,12 @@ module IOStreams
           unconverted = csv.dup if @unconverted_fields
 
           # convert fields, if needed...
-          csv         = convert_fields(csv) unless @use_headers or @converters.empty?
+          csv         = convert_fields(csv) unless @use_headers || @converters.empty?
           # parse out header rows and handle CSV::Row conversions...
           csv         = parse_headers(csv) if @use_headers
 
           # inject unconverted fields and accessor, if requested...
-          if @unconverted_fields and not csv.respond_to? :unconverted_fields
+          if @unconverted_fields && (!csv.respond_to? :unconverted_fields)
             add_unconverted_fields(csv, unconverted)
           end
 
@@ -107,8 +109,7 @@ module IOStreams
           row.map(&@quote).join(@col_sep) + @row_sep # quote and separate
         end
 
-        alias_method :to_csv, :render
-
+        alias to_csv render
       end
     end
   end

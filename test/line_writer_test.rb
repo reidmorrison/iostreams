@@ -18,7 +18,7 @@ class DelimitedWriterTest < Minitest::Test
       it 'file' do
         temp_file = Tempfile.new('rocket_job')
         file_name = temp_file.to_path
-        IOStreams::Line::Writer.open(file_name) do |io|
+        IOStreams::Line::Writer.file(file_name) do |io|
           lines.each { |line| io << line }
         end
         result = File.read(file_name)
@@ -27,7 +27,7 @@ class DelimitedWriterTest < Minitest::Test
 
       it 'stream' do
         io_string = StringIO.new
-        IOStreams::Line::Writer.open(io_string) do |io|
+        IOStreams::Line::Writer.stream(io_string) do |io|
           lines.each { |line| io << line }
         end
         assert_equal raw, io_string.string
@@ -38,7 +38,7 @@ class DelimitedWriterTest < Minitest::Test
       it 'returns byte count' do
         io_string = StringIO.new
         count     = 0
-        IOStreams::Line::Writer.open(io_string) do |io|
+        IOStreams::Line::Writer.stream(io_string) do |io|
           lines.each { |line| count += io.write(line) }
         end
         assert_equal raw, io_string.string

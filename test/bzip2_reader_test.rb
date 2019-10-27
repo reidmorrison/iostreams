@@ -10,9 +10,9 @@ class Bzip2ReaderTest < Minitest::Test
       File.read(File.join(File.dirname(__FILE__), 'files', 'text.txt'))
     end
 
-    describe '.open' do
+    describe '.file' do
       it 'file' do
-        result = IOStreams::Bzip2::Reader.open(file_name) do |io|
+        result = IOStreams::Bzip2::Reader.file(file_name) do |io|
           io.read
         end
         assert_equal decompressed, result
@@ -20,7 +20,7 @@ class Bzip2ReaderTest < Minitest::Test
 
       it 'stream' do
         result = File.open(file_name) do |file|
-          IOStreams::Bzip2::Reader.open(file) do |io|
+          IOStreams::Bzip2::Reader.stream(file) do |io|
             io.read
           end
         end

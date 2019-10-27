@@ -90,7 +90,10 @@ module IOStreams
 
         case row
         when Array
-          raise(IOStreams::Errors::InvalidHeader, "Missing mandatory header when trying to convert a row into a hash") unless columns
+          unless columns
+            raise(IOStreams::Errors::InvalidHeader, 'Missing mandatory header when trying to convert a row into a hash')
+          end
+
           array_to_hash(row)
         when Hash
           cleanse && columns ? cleanse_hash(row) : row
@@ -104,7 +107,11 @@ module IOStreams
           row = cleanse_hash(row) if cleanse
           row = columns.collect { |column| row[column] }
         end
-        raise(IOStreams::Errors::TypeMismatch, "Don't know how to convert #{row.class.name} to an Array without the header columns being set.") unless row.is_a?(Array)
+
+        unless row.is_a?(Array)
+          raise(IOStreams::Errors::TypeMismatch, "Don't know how to convert #{row.class.name} to an Array without the header columns being set.")
+        end
+
         row
       end
 
@@ -140,7 +147,6 @@ module IOStreams
         cleansed.gsub!(/\W+/, '')
         cleansed
       end
-
     end
   end
 end

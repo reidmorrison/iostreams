@@ -22,7 +22,7 @@ class EncodeReaderTest < Minitest::Test
       describe 'replacement' do
         it 'does not strip invalid characters' do
           input = StringIO.new(bad_data)
-          IOStreams::Encode::Reader.open(input, encoding: 'UTF-8') do |io|
+          IOStreams::Encode::Reader.stream(input, encoding: 'UTF-8') do |io|
             assert_raises ::Encoding::UndefinedConversionError do
               io.read.encoding
             end
@@ -32,7 +32,7 @@ class EncodeReaderTest < Minitest::Test
         it 'strips invalid characters' do
           input = StringIO.new(bad_data)
           data  =
-            IOStreams::Encode::Reader.open(input, encoding: 'UTF-8', encode_replace: '') do |io|
+            IOStreams::Encode::Reader.stream(input, encoding: 'UTF-8', replace: '') do |io|
               io.read
             end
           assert_equal cleansed_data, data
@@ -43,7 +43,7 @@ class EncodeReaderTest < Minitest::Test
         it 'strips non-printable characters' do
           input = StringIO.new(bad_data)
           data  =
-            IOStreams::Encode::Reader.open(input, encoding: 'UTF-8', encode_cleaner: :printable, encode_replace: '') do |io|
+            IOStreams::Encode::Reader.stream(input, encoding: 'UTF-8', cleaner: :printable, replace: '') do |io|
               io.read
             end
           assert_equal stripped_data, data

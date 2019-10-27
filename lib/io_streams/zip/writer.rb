@@ -1,14 +1,14 @@
 module IOStreams
   module Zip
-    class Writer
+    class Writer < IOStreams::Writer
       # Write a single file in Zip format to the supplied output file name
       #
       # Parameters
-      #   file_name_or_io [String]
-      #     Full path and filename for the output zip file
+      #   file_name [String]
+      #     Full path and filename for the output zip file.
       #
-      #   zip_file_name: [String]
-      #     Name of the file within the Zip Stream
+      #   entry_file_name: [String]
+      #     Name of the file entry within the Zip file.
       #
       # The stream supplied to the block only responds to #write
       #
@@ -21,57 +21,40 @@ module IOStreams
       # Notes:
       # - Since Zip cannot write to streams, if a stream is supplied, a temp file
       #   is automatically created under the covers
-      def self.open(file_name_or_io, zip_file_name: nil, buffer_size: 65536, &block)
+      def self.file(file_name, original_file_name: file_name, zip_file_name: nil, entry_file_name: zip_file_name, &block)
         # Default the name of the file within the zip to the supplied file_name without the zip extension
-        zip_file_name = file_name_or_io.to_s[0..-5] if zip_file_name.nil? && !IOStreams.writer_stream?(file_name_or_io) && (file_name_or_io =~ /\.(zip)\z/)
-        zip_file_name ||= 'file'
-
-        if !defined?(JRuby) && !defined?(::Zip)
-          # MRI needs Ruby Zip, since it only has native support for GZip
-          begin
-            require 'zip'
-          rescue LoadError => exc
-            raise(LoadError, "Install gem 'rubyzip' to read and write Zip files: #{exc.message}")
-          end
+        if entry_file_name.nil? && (original_file_name =~ /\.(zip)\z/i)
+          entry_file_name = original_file_name.to_s[0..-5]
         end
+        entry_file_name ||= 'file'
 
-        # File name supplied
-        return write_file(file_name_or_io, zip_file_name, &block) unless IOStreams.writer_stream?(file_name_or_io)
-
-        # ZIP can only work against a file, not a stream, so create temp file.
-        IOStreams::File::Path.temp_file_name('iostreams_zip') do |temp_file_name|
-          write_file(temp_file_name, zip_file_name, &block)
-          IOStreams.copy(temp_file_name, file_name_or_io, source_options: {streams: []})
-        end
+        write_file(file_name, entry_file_name, &block)
       end
 
       private
 
       if defined?(JRuby)
-
-        def self.write_file(file_name, zip_file_name, &block)
+        def self.write_file(file_name, entry_file_name)
           out  = Java::JavaIo::FileOutputStream.new(file_name)
           zout = Java::JavaUtilZip::ZipOutputStream.new(out)
-          zout.put_next_entry(Java::JavaUtilZip::ZipEntry.new(zip_file_name))
+          zout.put_next_entry(Java::JavaUtilZip::ZipEntry.new(entry_file_name))
           io = zout.to_io
-          block.call(io)
+          yield(io)
         ensure
-          io.close if io && !io.closed?
-          out.close if out
+          io&.close
+          out&.close
         end
-
       else
-        def self.write_file(file_name, zip_file_name, &block)
-          IOStreams::File::Path.mkpath(file_name)
+        def self.write_file(file_name, entry_file_name)
+          Utils.load_dependency('rubyzip', 'Zip', 'zip') unless defined?(::Zip)
+
           zos = ::Zip::OutputStream.new(file_name)
-          zos.put_next_entry(zip_file_name)
-          block.call(zos)
+          zos.put_next_entry(entry_file_name)
+          yield(zos)
         ensure
-          zos.close if zos
+          zos&.close
         end
-
       end
-
     end
   end
 end

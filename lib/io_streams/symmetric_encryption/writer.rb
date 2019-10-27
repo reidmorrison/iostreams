@@ -1,24 +1,25 @@
 module IOStreams
   module SymmetricEncryption
-    class Writer
-      # Write to file/stream using Symmetric Encryption
-      def self.open(file_name_or_io, compress: nil, **args, &block)
-        begin
-          require 'symmetric-encryption' unless defined?(SymmetricEncryption)
-        rescue LoadError => e
-          raise(LoadError, "Please install the 'symmetric-encryption' gem for .enc streaming support. #{e.message}")
+    class Writer < IOStreams::Writer
+      # Write to stream using Symmetric Encryption
+      # By default the output stream is compressed.
+      # If the input_stream is already compressed consider setting compress: false.
+      def self.stream(input_stream, compress: true, **args, &block)
+        unless defined?(SymmetricEncryption)
+          Utils.load_dependency('symmetric-encryption', '.enc streaming')
         end
 
-        if IOStreams.writer_stream?(file_name_or_io)
-          compress = true if compress.nil?
-          ::SymmetricEncryption::Writer.open(file_name_or_io, compress: compress, **args, &block)
-        else
-          compress = !IOStreams.compressed?(file_name_or_io) if compress.nil?
+        ::SymmetricEncryption::Writer.open(input_stream, compress: compress, **args, &block)
+      end
 
-          IOStreams::File::Writer.open(file_name_or_io) do |file|
-            ::SymmetricEncryption::Writer.open(file, compress: compress, **args, &block)
-          end
+      # Write to stream using Symmetric Encryption
+      # By default the output stream is compressed unless the file_name extension indicates the file is already compressed.
+      def self.file(file_name, compress: nil, **args, &block)
+        unless defined?(SymmetricEncryption)
+          Utils.load_dependency('symmetric-encryption', '.enc streaming')
         end
+
+        ::SymmetricEncryption::Writer.open(file_name, compress: compress, **args, &block)
       end
     end
   end
