@@ -42,6 +42,7 @@ module IOStreams
         @mkdir                 = false
         @username              = username || uri.user
         @create_path           = create_path
+        @url                   = url
 
         logger                 ||= self.logger if defined?(SemanticLogger)
         options                = args.dup
@@ -97,6 +98,34 @@ module IOStreams
         end
         result
       end
+
+      # Search for files on the remote sftp server that match the provided pattern.
+      #
+      # The pattern matching works like Net::SFTP::Operations::Dir.glob and Dir.glob
+      # Each child also returns attributes that contain the file size, ownership, file dates and other details.
+      # 
+      # Example Code:
+      # IOStreams.
+      #   path("sftp://#{hostname}", username: username, password: password).
+      #   each_child('**/*.{csv,txt}', directories: false) do |input,attributes|
+      #     puts "#{input.to_s} #{attributes}"
+      #   end
+      #
+      # Example Output:
+      # sftp://sample.server.com/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group", :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
+      def each_child(pattern = "*", case_sensitive: true, directories: false, hidden: false)
+        flags = ::File::FNM_EXTGLOB # always support matching like *.{csv,txt}
+        flags |= ::File::FNM_CASEFOLD unless case_sensitive
+        flags |= ::File::FNM_DOTMATCH if hidden
+        Net::SFTP.start(hostname, username, options) do |sftp|
+          sftp.dir.glob(".", pattern, flags) do |path|
+            next if !directories && !path.file?
+            yield(self.class.new("sftp://#{hostname}/#{path.name}", username: username, password: options[:password]), path.attributes.attributes)
+          end
+        end
+        nil
+      end
+
     end
   end
 end
