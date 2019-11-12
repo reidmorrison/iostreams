@@ -117,7 +117,7 @@ module IOStreams
         class_for_stream(type, stream).stream(io_stream, opts, &block)
       else
         # Daisy chain multiple streams together
-        last = pipeline.keys.inject(block) { |inner, stream| ->(io) { class_for_stream(type, stream).stream(io, pipeline[stream], &inner) } }
+        last = pipeline.keys.inject(block) { |inner, stream_sym| ->(io) { class_for_stream(type, stream_sym).stream(io, pipeline[stream_sym], &inner) } }
         last.call(io_stream)
       end
     end

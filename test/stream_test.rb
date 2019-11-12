@@ -47,7 +47,7 @@ class StreamTest < Minitest::Test
           result = IOStreams::Stream.new(io).
             file_name(multiple_zip_file_name).
             option(:zip, entry_file_name: 'test.json').
-            reader { |io| io.read }
+            read
           assert_equal contents_test_json, result
         end
       end
@@ -56,7 +56,7 @@ class StreamTest < Minitest::Test
         File.open(zip_gz_file_name, 'rb') do |io|
           result = IOStreams::Stream.new(io).
             file_name(zip_gz_file_name).
-            reader { |io| io.read }
+            read
           assert_equal contents_test_txt, result
         end
       end

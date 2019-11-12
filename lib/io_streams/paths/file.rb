@@ -3,12 +3,6 @@ require "fileutils"
 module IOStreams
   module Paths
     class File < IOStreams::Path
-      # Returns a path to a temporary file.
-      # Temporary file is deleted upon block completion if present.
-      def self.temp_file(basename, extension = "")
-        Utils.temp_file_name(basename, extension) { |file_name| yield(new(file_name).stream(:none)) }
-      end
-
       # Yields Paths within the current path.
       #
       # Examples:

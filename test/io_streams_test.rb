@@ -61,6 +61,23 @@ module IOStreams
           assert_equal :s3, path
         end
       end
+
+      describe '.temp_file' do
+        it 'returns value from block' do
+          result = IOStreams.temp_file('base', '.ext') { |_path| 257 }
+          assert_equal 257, result
+        end
+
+        it 'supplies new temp file_name' do
+          path1 = nil
+          path2 = nil
+          IOStreams.temp_file('base', '.ext') { |path| path1 = path }
+          IOStreams.temp_file('base', '.ext') { |path| path2 = path }
+          refute_equal path1.to_s, path2.to_s
+          assert path1.is_a?(IOStreams::Paths::File), path1
+          assert path2.is_a?(IOStreams::Paths::File), path2
+        end
+      end
     end
   end
 end
