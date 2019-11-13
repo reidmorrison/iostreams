@@ -4,7 +4,7 @@ module IOStreams
       # read from a file/stream using Symmetric Encryption
       def self.stream(input_stream, **args, &block)
         unless defined?(SymmetricEncryption)
-          Utils.load_dependency('symmetric-encryption', '.enc streaming')
+          Utils.load_soft_dependency('symmetric-encryption', '.enc streaming')
         end
 
         ::SymmetricEncryption::Reader.open(input_stream, **args, &block)

@@ -46,7 +46,7 @@ module IOStreams
         end
       else
         def self.write_file(file_name, entry_file_name)
-          Utils.load_dependency('rubyzip', 'Zip', 'zip') unless defined?(::Zip)
+          Utils.load_soft_dependency('rubyzip', 'Zip', 'zip') unless defined?(::Zip)
 
           zos = ::Zip::OutputStream.new(file_name)
           zos.put_next_entry(entry_file_name)

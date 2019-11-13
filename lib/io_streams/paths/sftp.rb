@@ -7,12 +7,13 @@ module IOStreams
 
       class << self
         attr_accessor :sshpass_bin, :sftp_bin, :sshpass_wait_seconds
-        @sftp_bin             = 'sftp'
-        @sshpass_bin          = 'sshpass'
-        @sshpass_wait_seconds = 5
       end
 
-      attr_reader :hostname, :username, :ssh_options, :url, :port, :ruby
+      @sftp_bin             = 'sftp'
+      @sshpass_bin          = 'sshpass'
+      @sshpass_wait_seconds = 5
+
+      attr_reader :hostname, :username, :ssh_options, :url
 
       # Stream to a remote file over sftp.
       #
@@ -25,69 +26,45 @@ module IOStreams
       # password: [String]
       #   Password for the user.
       #
-      # host: [String]
-      #   Name of the host to connect to.
-      #
-      # port: [Integer]
-      #   Port to connect to at the above host.
-      #
-      # ruby: [true|false]
-      #   Use the pure Ruby sftp library to transfer the files.
-      #   With very large files it is faster to use the command line sftp and sshpass executables.
-      #   Default: false
-      #
       # **ssh_options
-      #   When `ruby: true`:
-      #     Any other options supported by Net::SSH.start
-      #   When `ruby: false`:
-      #     Any other options supported by ssh_config.
-      #     `man ssh_config` to see all available options.
+      #   Any other options supported by ssh_config.
+      #   `man ssh_config` to see all available options.
       #
       # Examples:
       #
-      # # Display the contents of a remote file
+      #   # Display the contents of a remote file
       #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", password: "OpenSesame").reader do |io|
       #     puts io.read
       #   end
       #
-      # # Full url showing all the optional elements that can be set via the url:
+      #   # Full url showing all the optional elements that can be set via the url:
       #   sftp://username:password@hostname:22/path/file_name
       #
-      # # Display the contents of a remote file, supplying the username and password in the url
+      #   # Display the contents of a remote file, supplying the username and password in the url:
       #   IOStreams.path("sftp://jack:OpenSesame@test.com:22/path/file_name.csv").reader do |io|
       #     puts io.read
       #   end
       #
-      # # Use the faster sftp executable to read the file to a local tempfile for further reading:
-      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", password: "OpenSesame", ruby: false).reader do |io|
+      #   # Display the contents of a remote file, supplying the username and password as arguments:
+      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", password: "OpenSesame").reader do |io|
       #     puts io.read
       #   end
       #
-      # # When using the sftp executable use an identity file instead of a password to authenticate:
-      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", ruby: false, IdentityFile: "~/.ssh/private_key").reader do |io|
+      #   # When using the sftp executable use an identity file instead of a password to authenticate:
+      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", IdentityFile: "~/.ssh/private_key").reader do |io|
       #     puts io.read
       #   end
-      #
-      # # When using the sftp executable, disable Public Key Authentication:
-      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", password: "OpenSesame", ruby: false, PubkeyAuthentication: "no").reader do |io|
-      #     puts io.read
-      #   end
-      #
-      # "sftp://jack@test.com/path/file_name.csv?IdentityFile='~/.ssh/private_key'"
-      # "sftp://test.com/path/file_name.csv", username: "jack", ruby: false, IdentityFile: "~/.ssh/private_key"
-      def initialize(url, username: nil, password: nil, port: nil, ruby: true, **ssh_options)
-        Utils.load_dependency('net-sftp', 'net/sftp') unless defined?(Net::SFTP)
-
+      def initialize(url, username: nil, password: nil, ruby: true, **ssh_options)
         uri = URI.parse(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
 
-        @hostname              = uri.hostname
-        @mkdir                 = false
-        @username              = username || uri.user
-        @url                   = url
-        @password              = password || uri.password
-        @port                  = port || uri.port || 22
-        @ssh_options           = ssh_options
+        @hostname    = uri.hostname
+        @mkdir       = false
+        @username    = username || uri.user
+        @url         = url
+        @password    = password || uri.password
+        @port        = uri.port || 22
+        @ssh_options = ssh_options
 
         super(uri.path)
       end
@@ -114,16 +91,10 @@ module IOStreams
       # Note:
       # - raises Net::SFTP::StatusException when the file could not be read.
       def reader(&block)
-        result = nil
-        if ruby
-          Net::SFTP.start(hostname, username, build_ssh_options) { |sftp| result = sftp.file.open(path, 'rb', &block) }
-        else
-          IOStreams.temp_file("sftp-download") do |temp_file|
-            sftp_download(path, temp_file.to_s)
-            temp_file.reader(&block)
-          end
+        IOStreams.temp_file("iostreams-sftp-reader") do |temp_file|
+          sftp_download(path, temp_file.to_s)
+          temp_file.reader(&block)
         end
-        result
       end
 
       # Write to a file on a remote sftp server.
@@ -135,13 +106,14 @@ module IOStreams
       #       output.write('Hello World')
       #     end
       def writer(&block)
-        result = nil
-        Net::SFTP.start(hostname, username, build_ssh_options) do |sftp|
-          sftp.session.exec!("mkdir -p '#{::File.dirname(path)}'") if mkdir
-          result = sftp.file.open(path, 'wb', &block)
+        IOStreams.temp_file("iostreams-sftp-writer") do |temp_file|
+          temp_file.writer(&block)
+          sftp_upload(temp_file.to_s, path)
+          temp_file.size
         end
-        result
       end
+
+      # TODO: Add #copy_from shortcut to detect when a file is supplied that does not require conversion.
 
       # Search for files on the remote sftp server that match the provided pattern.
       #
@@ -150,21 +122,25 @@ module IOStreams
       #
       # Example Code:
       # IOStreams.
-      #   path("sftp://#{hostname}", username: username, password: password).
-      #   each_child('**/*.{csv,txt}', directories: false) do |input,attributes|
+      #   path("sftp://sftp.example.org/my_files", username: username, password: password).
+      #   each_child('**/*.{csv,txt}') do |input, attributes|
       #     puts "#{input.to_s} #{attributes}"
       #   end
       #
       # Example Output:
-      # sftp://sample.server.com/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group", :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
+      # sftp://sftp.example.org/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group", :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
       def each_child(pattern = "*", case_sensitive: true, directories: false, hidden: false)
-        flags = ::File::FNM_EXTGLOB # always support matching like *.{csv,txt}
+        Utils.load_soft_dependency("net-sftp", "SFTP glob capability", "net/sftp") unless defined?(Net::SFTP)
+
+        flags = ::File::FNM_EXTGLOB
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
-        Net::SFTP.start(hostname, username, options) do |sftp|
+
+        Net::SFTP.start(hostname, username, build_ssh_options) do |sftp|
           sftp.dir.glob(".", pattern, flags) do |path|
             next if !directories && !path.file?
-            yield(self.class.new("sftp://#{hostname}/#{path.name}", username: username, password: options[:password]), path.attributes.attributes)
+            new_path = self.class.new("sftp://#{hostname}/#{path.name}", username: username, password: password, ruby: ruby, **ssh_options)
+            yield(new_path, path.attributes.attributes)
           end
         end
         nil
@@ -205,6 +181,8 @@ module IOStreams
 
       def sftp_args
         args = [self.class.sshpass_bin, self.class.sftp_bin, '-oBatchMode=no']
+        # Force it to use the password when supplied.
+        args << "-oPubkeyAuthentication=no" if password
         ssh_options.each_pair { |key, value| args << "-o#{key}=#{value}" }
         args << '-b'
         args << '-'

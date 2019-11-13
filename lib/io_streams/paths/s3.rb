@@ -125,7 +125,7 @@ module IOStreams
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
       def initialize(url, client: nil, **args)
-        Utils.load_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Client)
+        Utils.load_soft_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Client)
 
         uri = URI.parse(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'

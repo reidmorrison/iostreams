@@ -37,7 +37,7 @@ module IOStreams
         # The input stream from the first file found in the zip file is passed
         # to the supplied block
         def self.file(file_name, entry_file_name: nil)
-          Utils.load_dependency('rubyzip', 'Zip', 'zip') unless defined?(::Zip)
+          Utils.load_soft_dependency('rubyzip', 'Zip', 'zip') unless defined?(::Zip)
 
           ::Zip::InputStream.open(file_name) do |zin|
             get_entry(zin, entry_file_name) ||
