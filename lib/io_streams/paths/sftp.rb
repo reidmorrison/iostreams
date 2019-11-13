@@ -54,7 +54,7 @@ module IOStreams
       #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", IdentityFile: "~/.ssh/private_key").reader do |io|
       #     puts io.read
       #   end
-      def initialize(url, username: nil, password: nil, ruby: true, **ssh_options)
+      def initialize(url, username: nil, password: nil, ruby: true, ssh_options: {})
         uri = URI.parse(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
 

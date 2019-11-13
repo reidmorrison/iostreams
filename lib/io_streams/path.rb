@@ -85,7 +85,10 @@ module IOStreams
     def copy_from(source, **args)
       super(source, **args)
     rescue StandardError => exc
-      delete
+      begin
+        delete
+      rescue NotImplementedError
+      end
       raise(exc)
     end
 
