@@ -239,12 +239,15 @@ module IOStreams
     # ascii: [true|false]
     #   Whether to export as ASCII text instead of binary format
     #   Default: true
-    def self.export(email:, ascii: true)
+    def self.export(email:, ascii: true, private: false, passphrase: nil)
       version_check
 
-      armor    = ascii ? '--armor' : nil
-      loopback = pgp_version.to_f >= 2.1 ? '--pinentry-mode loopback' : ''
-      command  = "#{executable} #{loopback} --no-tty --passphrase-fd 0 --batch #{armor} --export #{email}"
+      command = "#{executable} "
+      command << '--pinentry-mode loopback ' if pgp_version.to_f >= 2.1
+      command << '--armor ' if ascii
+      command << "--no-tty  --batch --passphrase"
+      command << (passphrase ? " #{passphrase} " : "-fd 0 ")
+      command << (private ? "--export-secret-keys #{email}" : "--export #{email}")
 
       out, err, status = Open3.capture3(command, binmode: true)
       logger.debug { "IOStreams::Pgp.export: #{command}\n#{err}" } if logger
