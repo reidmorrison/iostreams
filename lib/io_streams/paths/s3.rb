@@ -134,6 +134,9 @@ module IOStreams
         key          = uri.path.sub(%r{\A/}, '')
         @client      = client || ::Aws::S3::Client.new
         @options     = args
+
+        URI.decode_www_form(uri.query).each { |key, value| @options[key] = value } if uri.query
+
         super(key)
       end
 

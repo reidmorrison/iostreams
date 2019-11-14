@@ -13,7 +13,7 @@ module IOStreams
       @sshpass_bin          = 'sshpass'
       @sshpass_wait_seconds = 5
 
-      attr_reader :hostname, :username, :ssh_options, :url
+      attr_reader :hostname, :username, :ssh_options, :url, :port
 
       # Stream to a remote file over sftp.
       #
@@ -58,13 +58,17 @@ module IOStreams
         uri = URI.parse(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
 
-        @hostname    = uri.hostname
-        @mkdir       = false
-        @username    = username || uri.user
-        @url         = url
-        @password    = password || uri.password
-        @port        = uri.port || 22
-        @ssh_options = ssh_options
+        @hostname = uri.hostname
+        @mkdir    = false
+        @username = username || uri.user
+        @url      = url
+        @password = password || uri.password
+        @port     = uri.port || 22
+        # Not Ruby 2.5 yet: transform_keys(&:to_s)
+        @ssh_options = {}
+        ssh_options.each_pair { |key, value| @ssh_options[key.to_s] = value }
+
+        URI.decode_www_form(uri.query).each { |key, value| @ssh_options[key] = value } if uri.query
 
         super(uri.path)
       end
@@ -152,37 +156,68 @@ module IOStreams
 
       # Use sftp and sshpass executables to download to a local file
       def sftp_download(remote_file_name, local_file_name)
-        Open3.popen2e(*sftp_args) do |writer, reader, waith_thr|
-          writer.puts password
-          # Give time for password to be processed and stdin to be passed to sftp process.
-          sleep self.class.sshpass_wait_seconds
-          writer.puts "get #{remote_file_name} #{local_file_name}"
-          writer.puts 'bye'
-          writer.close
-          out = reader.read.chomp
-          raise(Errors::CommunicationsFailure, "Failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
-          out
+        with_sftp_args do |args|
+          Open3.popen2e(*args) do |writer, reader, waith_thr|
+            writer.puts password
+            # Give time for password to be processed and stdin to be passed to sftp process.
+            sleep self.class.sshpass_wait_seconds
+            writer.puts "get #{remote_file_name} #{local_file_name}"
+            writer.puts 'bye'
+            writer.close
+            out = reader.read.chomp
+            raise(Errors::CommunicationsFailure, "Failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
+            out
+          end
         end
       end
 
       def sftp_upload(local_file_name, remote_file_name)
-        Open3.popen2e(*sftp_args) do |writer, reader, waith_thr|
-          writer.puts(password) if password
-          # Give time for password to be processed and stdin to be passed to sftp process.
-          sleep self.class.sshpass_wait_seconds
-          writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
-          writer.puts 'bye'
-          writer.close
-          out = reader.read.chomp
-          raise(Errors::CommunicationsFailure, "Failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
-          out
+        with_sftp_args do |args|
+          Open3.popen2e(*args) do |writer, reader, waith_thr|
+            writer.puts(password) if password
+            # Give time for password to be processed and stdin to be passed to sftp process.
+            sleep self.class.sshpass_wait_seconds
+            writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
+            writer.puts 'bye'
+            writer.close
+            out = reader.read.chomp
+            raise(Errors::CommunicationsFailure, "Failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
+            out
+          end
         end
       end
 
-      def sftp_args
-        args = [self.class.sshpass_bin, self.class.sftp_bin, '-oBatchMode=no']
-        # Force it to use the password when supplied.
-        args << "-oPubkeyAuthentication=no" if password
+      def with_sftp_args
+        return yield sftp_args(ssh_options) unless ssh_options.key?('IdentityKey')
+
+        Utils.temp_file_name('iostreams-sftp-args', 'key') do |file_name|
+          options = ssh_options.dup
+          key     = options.delete('IdentityKey')
+          # sftp requires that private key is only readable by the current user
+          File.open(file_name, 'wb', 0600) { |io| io.write(key) }
+
+          options['IdentityFile'] = file_name
+          yield sftp_args(ssh_options)
+        end
+      end
+
+      def sftp_args(ssh_options)
+        args = [self.class.sshpass_bin, self.class.sftp_bin]
+        # Force sftp to use the password when supplied,
+        # and stop sftp from prompting for a password when none was supplied.
+        if password
+          args << "-oBatchMode=no"
+          args << "-oNumberOfPasswordPrompts=1"
+          args << "-oPubkeyAuthentication=no"
+        else
+          args << "-oBatchMode=yes"
+          args << "-oPasswordAuthentication=no"
+        end
+        args << "-oIdentitiesOnly=yes" if ssh_options.key?('IdentityFile')
+        # Default is ask, but this is non-interactive so make the default fail without asking.
+        args << "-oStrictHostKeyChecking=yes" unless ssh_options.key?('StrictHostKeyChecking')
+        args << "-oLogLevel=#{map_log_level}" unless ssh_options.key?('LogLevel')
+        args << "-oPort=#{port}" unless port == 22
         ssh_options.each_pair { |key, value| args << "-o#{key}=#{value}" }
         args << '-b'
         args << '-'
@@ -193,10 +228,23 @@ module IOStreams
       def build_ssh_options
         options                = ssh_options.dup
         options[:logger]       ||= self.logger if defined?(SemanticLogger)
-        options[:port]         ||= @port
+        options[:port]         ||= port
         options[:max_pkt_size] ||= 65_536
         options[:password]     ||= @password
         options
+      end
+
+      def map_log_level
+        return "INFO" unless defined?(SemanticLogger)
+
+        case logger.level
+        when :trace
+          "DEBUG3"
+        when :warn
+          "ERROR"
+        else
+          logger.level.to_s
+        end
       end
     end
   end

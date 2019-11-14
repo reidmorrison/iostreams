@@ -116,7 +116,8 @@ module Paths
 
         it 'existing file returns just the file itself' do
           # Glorified exists call
-          assert_equal [each_root.join('readme').to_s], each_root.children("readme").collect(&:to_s)
+          existing_path
+          assert_equal root_path.join("test.txt").to_s, root_path.children("test.txt").first.to_s
         end
 
         it 'missing file does nothing' do
