@@ -158,15 +158,20 @@ module IOStreams
       def sftp_download(remote_file_name, local_file_name)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
-            writer.puts password
-            # Give time for password to be processed and stdin to be passed to sftp process.
-            sleep self.class.sshpass_wait_seconds
-            writer.puts "get #{remote_file_name} #{local_file_name}"
-            writer.puts 'bye'
-            writer.close
-            out = reader.read.chomp
-            raise(Errors::CommunicationsFailure, "Failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
-            out
+            begin
+              writer.puts password
+              # Give time for password to be processed and stdin to be passed to sftp process.
+              sleep self.class.sshpass_wait_seconds
+              writer.puts "get #{remote_file_name} #{local_file_name}"
+              writer.puts 'bye'
+              writer.close
+              out = reader.read.chomp
+              raise(Errors::CommunicationsFailure, "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
+              out
+            rescue Errno::EPIPE
+              out = reader.read.chomp rescue nil
+              raise(Errors::CommunicationsFailure, "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+            end
           end
         end
       end
@@ -174,15 +179,20 @@ module IOStreams
       def sftp_upload(local_file_name, remote_file_name)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
-            writer.puts(password) if password
-            # Give time for password to be processed and stdin to be passed to sftp process.
-            sleep self.class.sshpass_wait_seconds
-            writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
-            writer.puts 'bye'
-            writer.close
-            out = reader.read.chomp
-            raise(Errors::CommunicationsFailure, "Failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
-            out
+            begin
+              writer.puts(password) if password
+              # Give time for password to be processed and stdin to be passed to sftp process.
+              sleep self.class.sshpass_wait_seconds
+              writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
+              writer.puts 'bye'
+              writer.close
+              out = reader.read.chomp
+              raise(Errors::CommunicationsFailure, "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
+              out
+            rescue Errno::EPIPE
+              out = reader.read.chomp rescue nil
+              raise(Errors::CommunicationsFailure, "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+            end
           end
         end
       end

@@ -196,7 +196,7 @@ module IOStreams
         Utils.temp_file_name("iostreams_s3") do |file_name|
           read_file(file_name)
 
-          ::File.open(file_name, 'rb') { |io| io.read }
+          ::File.open(file_name, 'rb', &block)
         end
       end
 

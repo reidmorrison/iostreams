@@ -97,6 +97,14 @@ module Paths
         end
       end
 
+      describe '#each_line' do
+        it 'reads line by line' do
+          lines = []
+          existing_path.each_line {|line| lines << line}
+          assert_equal raw.lines.collect(&:chomp), lines
+        end
+      end
+
       describe '#each_child' do
         # TODO: case_sensitive: false, directories: false, hidden: false
         let(:abd_file_names) { %w[abd/test1.txt abd/test5.file abd/extra/file.csv] }

@@ -275,7 +275,7 @@ module IOStreams
     # * Invalidated keys must be removed manually.
     def self.import(key:)
       version_check
-      command = "#{executable} --import"
+      command = "#{executable} --batch --import"
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: key)
       logger&.debug { "IOStreams::Pgp.import: #{command}\n#{err}#{out}" }
