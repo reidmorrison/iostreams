@@ -196,7 +196,7 @@ module IOStreams
         Utils.temp_file_name("iostreams_s3") do |file_name|
           read_file(file_name)
 
-          ::File.open(file_name, 'rb', &block)
+          ::File.open(file_name, "rb") { |io| streams.reader(io, &block) }
         end
       end
 
@@ -217,7 +217,7 @@ module IOStreams
       def writer(&block)
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
         Utils.temp_file_name("iostreams_s3") do |file_name|
-          result = ::File.open(file_name, "wb", &block)
+          result = ::File.open(file_name, "wb") { |io| streams.writer(io, &block) }
 
           # Upload file only once all data has been written to it
           write_file(file_name)

@@ -86,7 +86,7 @@ module IOStreams
             Utils.temp_file_name('iostreams_http') do |file_name|
               ::File.open(file_name, 'wb') { |io| response.read_body { |chunk| io.write(chunk) } }
               # Return a read stream
-              result = ::File.open(file_name, 'rb', &block)
+              result = ::File.open(file_name, "rb") { |io| streams.reader(io, &block) }
             end
           end
         end
