@@ -81,16 +81,16 @@ class StreamsTest < Minitest::Test
 
       it 'returns the reader' do
         string_io = StringIO.new
-        streams.stream(:zip)
+        streams.stream(:bz2)
         streams.reader(string_io) do |io|
-          assert io.is_a?(::Zip::InputStream), io
+          assert io.is_a?(RBzip2::FFI::Decompressor), io
         end
       end
 
       it 'returns the last reader' do
         string_io = StringIO.new
         streams.stream(:encode)
-        streams.stream(:zip)
+        streams.stream(:bz2)
         streams.reader(string_io) do |io|
           assert io.is_a?(IOStreams::Encode::Reader), io
         end
@@ -113,7 +113,7 @@ class StreamsTest < Minitest::Test
         string_io = StringIO.new
         streams.stream(:zip)
         streams.writer(string_io) do |io|
-          assert io.is_a?(::Zip::OutputStream), io
+          assert io.is_a?(ZipTricks::Streamer::Writable), io
         end
       end
 

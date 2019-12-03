@@ -36,27 +36,23 @@ module IOStreams
         # Read from a zip file or stream, decompressing the contents as it is read
         # The input stream from the first file found in the zip file is passed
         # to the supplied block
-        def self.file(file_name, entry_file_name: nil)
-          Utils.load_soft_dependency('rubyzip', 'Zip', 'zip') unless defined?(::Zip)
+        def self.file(file_name, entry_file_name: nil, &block)
+          Utils.load_soft_dependency('rubyzip', 'Read Zip', 'zip') unless defined?(::Zip)
 
-          ::Zip::InputStream.open(file_name) do |zin|
-            get_entry(zin, entry_file_name) ||
-              raise(::Zip::EntryNameError, "File #{entry_file_name} not found within zip file.")
-            yield(zin)
+          ::Zip::File.open(file_name) do |zip_file|
+            if entry_file_name
+              zip_file.get_input_stream(entry_file_name, &block)
+            else
+              result = nil
+              # Return the first file
+              zip_file.each do |entry|
+                result = entry.get_input_stream(&block)
+                break
+              end
+              result
+            end
           end
         end
-      end
-
-      def self.get_entry(zin, entry_file_name)
-        if entry_file_name.nil?
-          zin.get_next_entry
-          return true
-        end
-
-        while entry = zin.get_next_entry
-          return true if entry.name == entry_file_name
-        end
-        false
       end
     end
   end

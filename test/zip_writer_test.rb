@@ -24,9 +24,7 @@ class ZipWriterTest < Minitest::Test
         IOStreams::Zip::Writer.file(file_name, entry_file_name: 'text.txt') do |io|
           io.write(decompressed)
         end
-        result = ::Zip::File.open(file_name) do |zip_file|
-          zip_file.first.get_input_stream.read
-        end
+        result = IOStreams::Zip::Reader.file(file_name, &:read)
         assert_equal decompressed, result
       end
 
@@ -36,14 +34,7 @@ class ZipWriterTest < Minitest::Test
           io.write(decompressed)
         end
         io     = StringIO.new(io_string.string)
-        result = nil
-        begin
-          zin = ::Zip::InputStream.new(io)
-          zin.get_next_entry
-          result = zin.read
-        ensure
-          zin.close if zin
-        end
+        result = IOStreams::Zip::Reader.stream(io, &:read)
         assert_equal decompressed, result
       end
     end
