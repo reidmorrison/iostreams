@@ -15,6 +15,12 @@ module IOStreams
       #     s3://my-bucket-name/file_name.txt
       #     s3://my-bucket-name/some_path/file_name.csv
       #
+      # access_key_id: [String]
+      #   AWS Access Key Id to use to access this bucket.
+      #
+      # secret_access_key: [String]
+      #   AWS Secret Access Key Id to use to access this bucket.
+      #
       # Writer specific options:
       #
       # @option params [String] :acl
@@ -124,7 +130,7 @@ module IOStreams
       #
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
-      def initialize(url, client: nil, **args)
+      def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, **args)
         Utils.load_soft_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Client)
 
         uri = URI.parse(url)
@@ -132,8 +138,14 @@ module IOStreams
 
         @bucket_name = uri.host
         key          = uri.path.sub(%r{\A/}, '')
-        @client      = client || ::Aws::S3::Client.new
-        @options     = args
+        if client.is_a?(Hash)
+          client[:access_key_id]     = access_key_id if access_key_id
+          client[:secret_access_key] = secret_access_key if secret_access_key
+          @client                    = ::Aws::S3::Client.new(client)
+        else
+          @client = client || ::Aws::S3::Client.new(access_key_id: access_key_id, secret_access_key: secret_access_key)
+        end
+        @options = args
 
         URI.decode_www_form(uri.query).each { |key, value| @options[key] = value } if uri.query
 

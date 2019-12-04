@@ -207,7 +207,7 @@ module IOStreams
           ::File.open(file_name, 'wb', 0600) { |io| io.write(key) }
 
           options['IdentityFile'] = file_name
-          yield sftp_args(ssh_options)
+          yield sftp_args(options)
         end
       end
 
