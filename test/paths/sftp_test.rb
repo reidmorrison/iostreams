@@ -13,6 +13,7 @@ module Paths
       let(:username) { ENV["SFTP_USERNAME"] }
       let(:password) { ENV["SFTP_PASSWORD"] }
       let(:ftp_dir) { ENV["SFTP_DIR"] || "iostreams_test" }
+      let(:identity_username) { ENV["SFTP_IDENTITY_USERNAME"] || username }
 
       let(:url) { File.join("sftp://", host_name, ftp_dir) }
 
@@ -71,7 +72,7 @@ module Paths
 
         describe 'use identity file instead of password' do
           let :root_path do
-            IOStreams::Paths::SFTP.new(url, username: username, ssh_options: {'IdentityFile' => ENV["SFTP_IDENTITY_FILE"]} )
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {'IdentityFile' => ENV["SFTP_IDENTITY_FILE"]})
           end
 
           it 'writes' do
@@ -84,7 +85,7 @@ module Paths
         describe 'use identity key instead of password' do
           let :root_path do
             key = File.open(ENV["SFTP_IDENTITY_FILE"], 'rb', &:read)
-            IOStreams::Paths::SFTP.new(url, username: username, ssh_options: {'IdentityKey' => key})
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {'IdentityKey' => key})
           end
 
           it 'writes' do
