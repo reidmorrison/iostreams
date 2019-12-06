@@ -73,6 +73,11 @@ module IOStreams
         super(uri.path)
       end
 
+      # Does not support relative file names since there is no concept of current working directory
+      def relative?
+        false
+      end
+
       def to_s
         url
       end

@@ -156,6 +156,11 @@ module IOStreams
         ::File.join("s3://", bucket_name, path)
       end
 
+      # Does not support relative file names since there is no concept of current working directory
+      def relative?
+        false
+      end
+
       def delete
         client.delete_object(bucket: bucket_name, key: path)
         self
