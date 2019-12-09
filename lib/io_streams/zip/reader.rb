@@ -32,6 +32,17 @@ module IOStreams
           fin&.close
         end
 
+        def self.get_entry(zin, entry_file_name)
+          if entry_file_name.nil?
+            zin.get_next_entry
+            return true
+          end
+
+          while entry = zin.get_next_entry
+            return true if entry.name == entry_file_name
+          end
+          false
+        end
       else
         # Read from a zip file or stream, decompressing the contents as it is read
         # The input stream from the first file found in the zip file is passed
