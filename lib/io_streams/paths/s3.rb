@@ -259,8 +259,6 @@ module IOStreams
       # Notes:
       # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
-        raise(NotImplementedError, "AWS S3 #each_child does not yet return directories") if directories
-
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
 
         # When the pattern includes an exact file name without any pattern characters
@@ -275,10 +273,12 @@ module IOStreams
           # Fetches upto 1,000 entries at a time
           resp = client.list_objects_v2(bucket: bucket_name, prefix: prefix, continuation_token: token)
           resp.contents.each do |object|
+            next if !directories && object.key.end_with?("/")
+
             file_name = ::File.join("s3://", resp.name, object.key)
             next unless matcher.match?(file_name)
 
-            yield self.class.new(file_name)
+            yield(self.class.new(file_name), object.to_h)
           end
           token = resp.next_continuation_token
           break if token.nil?

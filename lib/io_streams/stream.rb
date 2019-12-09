@@ -108,6 +108,11 @@ module IOStreams
       end
     end
 
+    def copy_to(target, convert: true)
+      target = IOStreams.path(target) unless target.is_a?(Stream)
+      target.copy_from(self, convert: convert)
+    end
+
     # Iterate over a file / stream returning one line at a time.
     # Embedded lines (within double quotes) will be skipped if
     #   1. The file name contains .csv
