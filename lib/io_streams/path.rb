@@ -160,6 +160,14 @@ module IOStreams
       !(path =~ /\.(enc|pgp|gpg)\z/i).nil?
     end
 
+    # Returns [true|false] whether partially created files are visible on this path.
+    #
+    # With local file systems a file that is still being written to is visbile.
+    # On AWS S3 a file is not visible until it is completely written to the bucket.
+    def partial_files_visible?
+      true
+    end
+
     # TODO: Other possible methods:
     # - rename - File.rename
     # - rmtree - delete everything under this path - FileUtils.rm_r

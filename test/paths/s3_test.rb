@@ -211,6 +211,12 @@ module Paths
           end
         end
       end
+
+      describe '#partial_files_visible?' do
+        it 'visible only after upload' do
+          refute root_path.partial_files_visible?
+        end
+      end
     end
   end
 end

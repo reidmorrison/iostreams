@@ -285,6 +285,11 @@ module IOStreams
         end
         nil
       end
+
+      # On S3 only files that are completely saved are visible.
+      def partial_files_visible?
+        false
+      end
     end
   end
 end
