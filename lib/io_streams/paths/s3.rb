@@ -133,10 +133,10 @@ module IOStreams
       def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, **args)
         Utils.load_soft_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Client)
 
-        uri = URI.parse(url)
+        uri = Utils::URI.new(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
 
-        @bucket_name = uri.host
+        @bucket_name = uri.hostname
         key          = uri.path.sub(%r{\A/}, '')
         if client.is_a?(Hash)
           client[:access_key_id]     = access_key_id if access_key_id
@@ -147,7 +147,7 @@ module IOStreams
         end
         @options = args
 
-        URI.decode_www_form(uri.query).each { |key, value| @options[key] = value } if uri.query
+        @options.merge(uri.query) if uri.query
 
         super(key)
       end
@@ -269,7 +269,7 @@ module IOStreams
           return
         end
 
-        prefix = URI.parse(matcher.path.to_s).path.sub(%r{\A/}, '')
+        prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, '')
         token  = nil
         loop do
           # Fetches upto 1,000 entries at a time

@@ -55,7 +55,7 @@ module IOStreams
       #     puts io.read
       #   end
       def initialize(url, username: nil, password: nil, ruby: true, ssh_options: {})
-        uri = URI.parse(url)
+        uri = Utils::URI.new(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
 
         @hostname = uri.hostname
@@ -67,8 +67,7 @@ module IOStreams
         # Not Ruby 2.5 yet: transform_keys(&:to_s)
         @ssh_options = {}
         ssh_options.each_pair { |key, value| @ssh_options[key.to_s] = value }
-
-        URI.decode_www_form(uri.query).each { |key, value| @ssh_options[key] = value } if uri.query
+        @ssh_options.merge(uri.query) if uri.query
 
         super(uri.path)
       end

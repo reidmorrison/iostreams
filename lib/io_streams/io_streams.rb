@@ -52,7 +52,7 @@ module IOStreams
 
     elements         = elements.collect(&:to_s)
     path             = ::File.join(*elements)
-    extracted_scheme = path.include?("://") ? URI.parse(path).scheme : nil
+    extracted_scheme = path.include?("://") ? Utils::URI.new(path).scheme : nil
     klass            = scheme(extracted_scheme)
     args.empty? ? klass.new(path) : klass.new(path, **args)
   end

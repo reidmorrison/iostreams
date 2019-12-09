@@ -32,5 +32,24 @@ module IOStreams
       end
       result
     end
+
+    class URI
+      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
+
+      def initialize(url)
+        url       = url.gsub(' ', '%20')
+        uri       = ::URI.parse(url)
+        @scheme   = uri.scheme
+        @hostname = uri.hostname
+        @path     = CGI.unescape(uri.path)
+        @user     = uri.user
+        @password = uri.password
+        @port     = uri.port
+        if uri.query
+          @query = {}
+          ::URI.decode_www_form(uri.query).each { |key, value| @query[key] = value }
+        end
+      end
+    end
   end
 end

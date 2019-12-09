@@ -10,7 +10,7 @@ module Paths
       end
 
       let :file_name do
-        File.join(File.dirname(__FILE__), '..', 'files', 'text.txt')
+        File.join(File.dirname(__FILE__), '..', 'files', 'text file.txt')
       end
 
       let :raw do

@@ -17,7 +17,7 @@ module Paths
 
       let(:url) { File.join("sftp://", host_name, ftp_dir) }
 
-      let(:file_name) { File.join(File.dirname(__FILE__), '..', 'files', 'text.txt') }
+      let(:file_name) { File.join(File.dirname(__FILE__), '..', 'files', 'text file.txt') }
       let(:raw) { File.read(file_name) }
 
       let(:root_path) { IOStreams::Paths::SFTP.new(url, username: username, password: password) }
