@@ -54,7 +54,7 @@ module IOStreams
       #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", IdentityFile: "~/.ssh/private_key").reader do |io|
       #     puts io.read
       #   end
-      def initialize(url, username: nil, password: nil, ruby: true, ssh_options: {})
+      def initialize(url, username: nil, password: nil, ssh_options: {})
         uri = Utils::URI.new(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
 
@@ -147,7 +147,7 @@ module IOStreams
         Net::SFTP.start(hostname, username, build_ssh_options) do |sftp|
           sftp.dir.glob(".", pattern, flags) do |path|
             next if !directories && !path.file?
-            new_path = self.class.new("sftp://#{hostname}/#{path.name}", username: username, password: password, ruby: ruby, **ssh_options)
+            new_path = self.class.new("sftp://#{hostname}/#{path.name}", username: username, password: password, **ssh_options)
             yield(new_path, path.attributes.attributes)
           end
         end
