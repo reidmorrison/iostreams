@@ -47,6 +47,8 @@ module IOStreams
         url
       end
 
+      private
+
       # Read a file using an http get.
       #
       # For example:
@@ -57,7 +59,7 @@ module IOStreams
       #
       # Notes:
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
-      def reader(&block)
+      def stream_reader(&block)
         handle_redirects(url, http_redirect_count, &block)
       end
 

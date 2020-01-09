@@ -84,23 +84,17 @@ module IOStreams
     #   1. The file name contains .csv
     #   2. Or the embedded_within argument is set
     def each(mode = :line, **args, &block)
-      case mode
-      when :line
-        each_line(**args, &block)
-      when :row
-        each_row(**args, &block)
-      when :record
-        each_record(**args, &block)
-      else
-        raise(ArgumentError, "Invalid mode: #{mode.inspect}")
-      end
+      raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
+
+      #    return enum_for __method__ unless block_given?
+      reader(mode, **args) { |stream| stream.each(&block) }
     end
 
     # Returns a Reader for reading a file / stream
     def reader(mode = :stream, **args, &block)
       case mode
       when :stream
-        builder.reader(io_stream, &block)
+        stream_reader(&block)
       when :line
         line_reader(**args, &block)
       when :row
@@ -126,7 +120,7 @@ module IOStreams
     def writer(mode = :stream, **args, &block)
       case mode
       when :stream
-        builder.writer(io_stream, &block)
+        stream_writer(&block)
       when :line
         line_writer(**args, &block)
       when :row
@@ -282,26 +276,14 @@ module IOStreams
       @builder ||= IOStreams::Builder.new
     end
 
-    def each_line(**args, &block)
-      #    return enum_for __method__ unless block_given?
-      line_reader(**args) { |line_stream| line_stream.each(&block) }
+    def stream_reader(&block)
+      builder.reader(io_stream, &block)
     end
 
-    def each_row(**args, &block)
-      row_reader(**args) { |row_stream| row_stream.each(&block) }
-    end
-
-    # Returns [Hash] of every record in a file or stream with support for headers.
-    def each_record(**args, &block)
-      record_reader(**args) { |record_stream| record_stream.each(&block) }
-    end
-
-    # Iterate over a file / stream returning each record/line one at a time.
-    # It will apply the embedded_within argument if the file or input_stream contain .csv in its name.
     def line_reader(embedded_within: nil, **args)
       embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?('.csv')
 
-      reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
+      stream_reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
@@ -316,6 +298,10 @@ module IOStreams
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(io, **args)
       end
+    end
+
+    def stream_writer(&block)
+      builder.writer(io_stream, &block)
     end
 
     def line_writer(**args, &block)

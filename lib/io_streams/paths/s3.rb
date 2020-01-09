@@ -208,7 +208,7 @@ module IOStreams
       # TODO: delete_all
 
       # Read from AWS S3 file.
-      def reader(&block)
+      def stream_reader(&block)
         # Since S3 download only supports a push stream, write it to a tempfile first.
         Utils.temp_file_name("iostreams_s3") do |file_name|
           read_file(file_name)
@@ -231,7 +231,7 @@ module IOStreams
       #   aborted and this error is raised.  The raised error has a `#errors`
       #   method that returns the failures that caused the upload to be
       #   aborted.
-      def writer(&block)
+      def stream_writer(&block)
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
         Utils.temp_file_name("iostreams_s3") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }

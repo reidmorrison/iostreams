@@ -2,6 +2,26 @@ require 'open3'
 
 module IOStreams
   module Paths
+    # Read a file from a remote sftp server.
+    #
+    # Example:
+    #   IOStreams.
+    #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret", compression: false).
+    #     reader do |input|
+    #       puts input.read
+    #     end
+    #
+    # Note:
+    # - raises Net::SFTP::StatusException when the file could not be read.
+    #
+    # Write to a file on a remote sftp server.
+    #
+    # Example:
+    #   IOStreams.
+    #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret", compression: false).
+    #     writer do |output|
+    #       output.write('Hello World')
+    #     end
     class SFTP < IOStreams::Path
       include SemanticLogger::Loggable if defined?(SemanticLogger)
 
@@ -87,40 +107,6 @@ module IOStreams
         self
       end
 
-      # Read a file from a remote sftp server.
-      #
-      # Example:
-      #   IOStreams.
-      #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret", compression: false).
-      #     reader do |input|
-      #       puts input.read
-      #     end
-      #
-      # Note:
-      # - raises Net::SFTP::StatusException when the file could not be read.
-      def reader(&block)
-        IOStreams.temp_file("iostreams-sftp-reader") do |temp_file|
-          sftp_download(path, temp_file.to_s)
-          ::File.open(temp_file.to_s, "rb") { |io| builder.reader(io, &block) }
-        end
-      end
-
-      # Write to a file on a remote sftp server.
-      #
-      # Example:
-      #   IOStreams.
-      #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret", compression: false).
-      #     writer do |output|
-      #       output.write('Hello World')
-      #     end
-      def writer(&block)
-        IOStreams.temp_file("iostreams-sftp-writer") do |temp_file|
-          ::File.open(temp_file.to_s, "wb") { |io| builder.writer(io, &block) }
-          sftp_upload(temp_file.to_s, path)
-          temp_file.size
-        end
-      end
-
       # TODO: Add #copy_from shortcut to detect when a file is supplied that does not require conversion.
 
       # Search for files on the remote sftp server that match the provided pattern.
@@ -157,6 +143,21 @@ module IOStreams
       private
 
       attr_reader :password
+
+      def stream_reader(&block)
+        IOStreams.temp_file("iostreams-sftp-reader") do |temp_file|
+          sftp_download(path, temp_file.to_s)
+          ::File.open(temp_file.to_s, "rb") { |io| builder.reader(io, &block) }
+        end
+      end
+
+      def stream_writer(&block)
+        IOStreams.temp_file("iostreams-sftp-writer") do |temp_file|
+          ::File.open(temp_file.to_s, "wb") { |io| builder.writer(io, &block) }
+          sftp_upload(temp_file.to_s, path)
+          temp_file.size
+        end
+      end
 
       # Use sftp and sshpass executables to download to a local file
       def sftp_download(remote_file_name, local_file_name)

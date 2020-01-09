@@ -3,6 +3,13 @@ require "fileutils"
 module IOStreams
   module Paths
     class File < IOStreams::Path
+      attr_accessor :create_path
+
+      def initialize(file_name, create_path: true)
+        @create_path = create_path
+        super(file_name)
+      end
+
       # Yields Paths within the current path.
       #
       # Examples:
@@ -146,8 +153,10 @@ module IOStreams
         self.class.new(::File.realpath(path))
       end
 
+      private
+
       # Read from file
-      def reader(&block)
+      def stream_reader(&block)
         ::File.open(path, "rb") { |io| builder.reader(io, &block) }
       end
 
@@ -156,7 +165,7 @@ module IOStreams
       # Note:
       #   If an exception is raised whilst the file is being written to the file is removed to
       #   prevent incomplete / partial files from being created.
-      def writer(create_path: true, &block)
+      def stream_writer(&block)
         mkpath if create_path
         begin
           ::File.open(path, "wb") { |io| builder.writer(io, &block) }
