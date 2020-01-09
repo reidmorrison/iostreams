@@ -238,6 +238,10 @@ class StreamsTest < Minitest::Test
         yield new(io, **args)
       end
 
+      def self.open(file_name_or_io, **args, &block)
+        file_name_or_io.is_a?(String) ? file(file_name_or_io, **args, &block) : stream(file_name_or_io, **args, &block)
+      end
+
       def initialize(io, arg:)
         @io  = io
         @arg = arg

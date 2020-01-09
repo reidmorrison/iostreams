@@ -57,9 +57,59 @@ module IOStreams
       streams.pipeline
     end
 
+    # Iterate over a file / stream returning one line at a time.
+    #
+    # Example: Read a line at a time
+    #   IOStreams.path("file.txt").each(:line) do |line|
+    #     puts line
+    #   end
+    #
+    # Example: Read a line at a time with custom options
+    #   IOStreams.path("file.csv").each(:line, embedded_within: '"') do |line|
+    #     puts line
+    #   end
+    #
+    # Example: Read a row at a time
+    #   IOStreams.path("file.csv").each(:row) do |array|
+    #     p array
+    #   end
+    #
+    # Example: Read a record at a time
+    #   IOStreams.path("file.csv").each(:record) do |hash|
+    #     p hash
+    #   end
+    #
+    # Notes:
+    # - Embedded lines (within double quotes) will be skipped if
+    #   1. The file name contains .csv
+    #   2. Or the embedded_within argument is set
+    def each(mode = :line, **args, &block)
+      case mode
+      when :line
+        each_line(**args, &block)
+      when :row
+        each_row(**args, &block)
+      when :record
+        each_record(**args, &block)
+      else
+        raise(ArgumentError, "Invalid mode: #{mode.inspect}")
+      end
+    end
+
     # Returns a Reader for reading a file / stream
-    def reader(&block)
-      streams.reader(io_stream, &block)
+    def reader(mode = :stream, **args, &block)
+      case mode
+      when :stream
+        streams.reader(io_stream, &block)
+      when :line
+        line_reader(**args, &block)
+      when :row
+        row_reader(**args, &block)
+      when :record
+        record_reader(**args, &block)
+      else
+        raise(ArgumentError, "Invalid mode: #{mode.inspect}")
+      end
     end
 
     # Read an entire file into memory.
@@ -67,10 +117,35 @@ module IOStreams
     # Notes:
     # - Use with caution since large files can cause a denial of service since
     #   this method will load the entire file into memory.
-    # - Recommend using instead `#reader`, `#each_line`, or `#each_record` to read a
-    #   block into memory at a time.
+    # - Recommend using instead `#reader` to read a block into memory at a time.
     def read(*args)
       reader { |stream| stream.read(*args) }
+    end
+
+    # Returns a Writer for writing to a file / stream
+    def writer(mode = :stream, **args, &block)
+      case mode
+      when :stream
+        streams.writer(io_stream, &block)
+      when :line
+        line_writer(**args, &block)
+      when :row
+        row_writer(**args, &block)
+      when :record
+        record_writer(**args, &block)
+      else
+        raise(ArgumentError, "Invalid mode: #{mode.inspect}")
+      end
+    end
+
+    # Write entire string to file.
+    #
+    # Notes:
+    # - Use with caution since preparing large amounts of data in memory can cause a denial of service
+    #   since all the data for the file needs to be resident in memory before writing.
+    # - Recommend using instead `#writer` to write a block of memory at a time.
+    def write(data)
+      writer { |stream| stream.write(data) }
     end
 
     # Copy from another stream, path, file_name or IO instance.
@@ -111,96 +186,6 @@ module IOStreams
     def copy_to(target, convert: true)
       target = IOStreams.path(target) unless target.is_a?(Stream)
       target.copy_from(self, convert: convert)
-    end
-
-    # Iterate over a file / stream returning one line at a time.
-    # Embedded lines (within double quotes) will be skipped if
-    #   1. The file name contains .csv
-    #   2. Or the embedded_within argument is set
-    #
-    # Example: Supply custom options
-    #   IOStreams.each_line(file_name, embedded_within: '"') do |line|
-    #     puts line
-    #   end
-    #
-    def each_line(**args, &block)
-      #    return enum_for __method__ unless block_given?
-      line_reader(**args) { |line_stream| line_stream.each(&block) }
-    end
-
-    # Iterate over a file / stream returning one line at a time.
-    # Embedded lines (within double quotes) will be skipped if
-    #   1. The file name contains .csv
-    #   2. Or the embedded_within argument is set
-    #
-    # Example: Supply custom options
-    #   IOStreams.each_row(file_name, embedded_within: '"') do |line|
-    #     puts line
-    #   end
-    #
-    def each_row(**args, &block)
-      row_reader(**args) { |row_stream| row_stream.each(&block) }
-    end
-
-    # Returns [Hash] of every record in a file or stream with support for headers.
-    def each_record(**args, &block)
-      record_reader(**args) { |record_stream| record_stream.each(&block) }
-    end
-
-    # Iterate over a file / stream returning each record/line one at a time.
-    # It will apply the embedded_within argument if the file or input_stream contain .csv in its name.
-    def line_reader(embedded_within: nil, **args)
-      embedded_within = '"' if embedded_within.nil? && streams.file_name&.include?('.csv')
-
-      reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
-    end
-
-    # Iterate over a file / stream returning each line as an array, one at a time.
-    def row_reader(delimiter: nil, embedded_within: nil, **args)
-      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Row::Reader.new(io, **args)
-      end
-    end
-
-    # Iterate over a file / stream returning each line as a hash, one at a time.
-    def record_reader(delimiter: nil, embedded_within: nil, **args)
-      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Record::Reader.new(io, **args)
-      end
-    end
-
-    # Returns a Writer for writing to a file / stream
-    def writer(&block)
-      streams.writer(io_stream, &block)
-    end
-
-    # Write entire string to file.
-    #
-    # Notes:
-    # - Use with caution since preparing large amounts of data in memory can cause a denial of service
-    #   since all the data for the file needs to be resident in memory before writing.
-    # - Recommend using instead `#writer`, `#line_writer`, or `#row_writer` to write a
-    #   block of memory at a time.
-    def write(data)
-      writer { |stream| stream.write(data) }
-    end
-
-    def line_writer(**args, &block)
-      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Line::Writer)
-
-      writer { |io| IOStreams::Line::Writer.stream(io, **args, &block) }
-    end
-
-    def row_writer(delimiter: $/, **args, &block)
-      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Row::Writer)
-
-      line_writer(delimiter: delimiter) { |io| IOStreams::Row::Writer.stream(io, **args, &block) }
-    end
-
-    def record_writer(delimiter: $/, **args, &block)
-      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Record::Writer)
-
-      line_writer(delimiter: delimiter) { |io| IOStreams::Record::Writer.stream(io, **args, &block) }
     end
 
     # Set/get the original file_name
@@ -295,6 +280,60 @@ module IOStreams
 
     def streams
       @streams ||= IOStreams::Streams.new
+    end
+
+    def each_line(**args, &block)
+      #    return enum_for __method__ unless block_given?
+      line_reader(**args) { |line_stream| line_stream.each(&block) }
+    end
+
+    def each_row(**args, &block)
+      row_reader(**args) { |row_stream| row_stream.each(&block) }
+    end
+
+    # Returns [Hash] of every record in a file or stream with support for headers.
+    def each_record(**args, &block)
+      record_reader(**args) { |record_stream| record_stream.each(&block) }
+    end
+
+    # Iterate over a file / stream returning each record/line one at a time.
+    # It will apply the embedded_within argument if the file or input_stream contain .csv in its name.
+    def line_reader(embedded_within: nil, **args)
+      embedded_within = '"' if embedded_within.nil? && streams.file_name&.include?('.csv')
+
+      reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
+    end
+
+    # Iterate over a file / stream returning each line as an array, one at a time.
+    def row_reader(delimiter: nil, embedded_within: nil, **args)
+      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
+        yield IOStreams::Row::Reader.new(io, **args)
+      end
+    end
+
+    # Iterate over a file / stream returning each line as a hash, one at a time.
+    def record_reader(delimiter: nil, embedded_within: nil, **args)
+      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
+        yield IOStreams::Record::Reader.new(io, **args)
+      end
+    end
+
+    def line_writer(**args, &block)
+      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Line::Writer)
+
+      writer { |io| IOStreams::Line::Writer.stream(io, **args, &block) }
+    end
+
+    def row_writer(delimiter: $/, **args, &block)
+      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Row::Writer)
+
+      line_writer(delimiter: delimiter) { |io| IOStreams::Row::Writer.stream(io, **args, &block) }
+    end
+
+    def record_writer(delimiter: $/, **args, &block)
+      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Record::Writer)
+
+      line_writer(delimiter: delimiter) { |io| IOStreams::Record::Writer.stream(io, **args, &block) }
     end
   end
 end

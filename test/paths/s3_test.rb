@@ -100,7 +100,7 @@ module Paths
       describe '#each_line' do
         it 'reads line by line' do
           lines = []
-          existing_path.each_line {|line| lines << line}
+          existing_path.each(:line) {|line| lines << line}
           assert_equal raw.lines.collect(&:chomp), lines
         end
       end

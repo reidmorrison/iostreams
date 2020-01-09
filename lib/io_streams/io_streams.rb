@@ -37,15 +37,15 @@ module IOStreams
   #    # => "files/file.xls"
   #
   # For Files
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'BINARY').each_line { |line puts line }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each_line.first
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each_record.last
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each_record.size
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'BINARY').each(:line) { |line| puts line }
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:line).first
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:record).last
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:record).size
   # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').reader.size
-  # IOStreams.path('blah.csv.zip').each_line { |line puts line }
-  # IOStreams.path('blah.zip').option(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
-  # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
-  # IOStreams.path('blah.zip').stream(:zip).stream(:encode, encoding: 'BINARY').reader(&:read)
+  # IOStreams.path('blah.csv.zip').each(:line) { |line| puts line }
+  # IOStreams.path('blah.zip').option(:pgp, passphrase: 'receiver_passphrase').read
+  # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
+  # IOStreams.path('blah.zip').stream(:zip).stream(:encode, encoding: 'BINARY').read
   #
   def self.path(*elements, **args)
     return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
@@ -59,9 +59,9 @@ module IOStreams
 
   # For an existing IO Stream
   # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').reader(&:read)
-  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').each_line(...)
-  # IOStreams.stream(io).file_name('blah.csv.zip').each_line(...)
-  # IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
+  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').each(:line){ ... }
+  # IOStreams.stream(io).file_name('blah.csv.zip').each(:line) { ... }
+  # IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
   def self.stream(io_stream)
     return io_stream if io_stream.is_a?(Stream)
 

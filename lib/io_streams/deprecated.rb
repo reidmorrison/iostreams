@@ -26,19 +26,19 @@ module IOStreams
       # DEPRECATED
       def each_line(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.each_line(**args, &block)
+        path.each(:line, **args, &block)
       end
 
       # DEPRECATED
       def each_row(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.each_row(**args, &block)
+        path.each(:row, **args, &block)
       end
 
       # DEPRECATED
       def each_record(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.each_record(**args, &block)
+        path.each(:record, **args, &block)
       end
 
       # DEPRECATED. Use `#path` or `#io`
@@ -57,19 +57,19 @@ module IOStreams
       # DEPRECATED
       def line_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.line_writer(**args, &block)
+        path.writer(:line, **args, &block)
       end
 
       # DEPRECATED
       def row_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.row_writer(**args, &block)
+        path.writer(:row, **args, &block)
       end
 
       # DEPRECATED
       def record_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.record_writer(**args, &block)
+        path.writer(:record, **args, &block)
       end
 
       # Copies the source file/stream to the target file/stream.
@@ -170,19 +170,19 @@ module IOStreams
       # DEPRECATED
       def line_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.line_reader(**args, &block)
+        path.reader(:line, **args, &block)
       end
 
       # DEPRECATED
       def row_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.line_reader(**args, &block)
+        path.reader(:line, **args, &block)
       end
 
       # DEPRECATED
       def record_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.record_reader(**args, &block)
+        path.reader(:record, **args, &block)
       end
 
       private

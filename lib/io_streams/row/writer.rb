@@ -2,7 +2,7 @@ require 'csv'
 module IOStreams
   module Row
     # Example:
-    #   IOStreams.path("file.csv").row_writer do |stream|
+    #   IOStreams.path("file.csv").writer(:row) do |stream|
     #     stream << ['name', 'address', 'zipcode']
     #     stream << ['Jack', 'Somewhere', 12345]
     #     stream << ['Joe', 'Lost', 32443]

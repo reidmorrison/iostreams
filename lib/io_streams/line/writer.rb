@@ -32,7 +32,7 @@ module IOStreams
       # Write a line to the output stream
       #
       # Example:
-      #   IOStreams.line_writer('a.txt') do |stream|
+      #   IOStreams.path('a.txt').writer(:line) do |stream|
       #     stream << 'first line' << 'second line'
       #   end
       def <<(data)
@@ -44,7 +44,7 @@ module IOStreams
       # Returns [Integer] the number of bytes written.
       #
       # Example:
-      #   IOStreams.line_writer('a.txt') do |stream|
+      #   IOStreams.path('a.txt').writer(:line) do |stream|
       #     count = stream.write('first line')
       #     puts "Wrote #{count} bytes to the output file, including the delimiter"
       #   end
