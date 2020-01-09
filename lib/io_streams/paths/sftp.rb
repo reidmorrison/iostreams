@@ -101,7 +101,7 @@ module IOStreams
       def reader(&block)
         IOStreams.temp_file("iostreams-sftp-reader") do |temp_file|
           sftp_download(path, temp_file.to_s)
-          ::File.open(temp_file.to_s, "rb") { |io| streams.reader(io, &block) }
+          ::File.open(temp_file.to_s, "rb") { |io| builder.reader(io, &block) }
         end
       end
 
@@ -115,7 +115,7 @@ module IOStreams
       #     end
       def writer(&block)
         IOStreams.temp_file("iostreams-sftp-writer") do |temp_file|
-          ::File.open(temp_file.to_s, "wb") { |io| streams.writer(io, &block) }
+          ::File.open(temp_file.to_s, "wb") { |io| builder.writer(io, &block) }
           sftp_upload(temp_file.to_s, path)
           temp_file.size
         end

@@ -1,9 +1,9 @@
 require_relative 'test_helper'
 
-class StreamsTest < Minitest::Test
-  describe IOStreams::Streams do
+class BuilderTest < Minitest::Test
+  describe IOStreams::Builder do
     let(:file_name) { 'my/path/abc.bcd.xlsx.zip.gz.pgp' }
-    let(:streams) { IOStreams::Streams.new(file_name) }
+    let(:streams) { IOStreams::Builder.new(file_name) }
 
     describe '#option' do
       it 'adds one option' do
@@ -147,12 +147,12 @@ class StreamsTest < Minitest::Test
 
     describe '#parse_extensions' do
       it 'single stream' do
-        streams = IOStreams::Streams.new('my/path/abc.xlsx')
+        streams = IOStreams::Builder.new('my/path/abc.xlsx')
         assert_equal %i[xlsx], streams.send(:parse_extensions)
       end
 
       it 'empty' do
-        streams = IOStreams::Streams.new('my/path/abc.csv')
+        streams = IOStreams::Builder.new('my/path/abc.csv')
         assert_equal [], streams.send(:parse_extensions)
       end
 
@@ -178,7 +178,7 @@ class StreamsTest < Minitest::Test
 
       it 'no file name, streams, or options' do
         expected = {}
-        streams  = IOStreams::Streams.new
+        streams  = IOStreams::Builder.new
         assert_equal expected, streams.pipeline
       end
 

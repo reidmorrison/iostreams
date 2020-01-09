@@ -1,12 +1,12 @@
 require 'io_streams/version'
 # @formatter:off
 module IOStreams
+  autoload :Builder,  'io_streams/builder'
   autoload :Errors,   'io_streams/errors'
   autoload :Path,     'io_streams/path'
   autoload :Pgp,      'io_streams/pgp'
   autoload :Reader,   'io_streams/reader'
   autoload :Stream,   'io_streams/stream'
-  autoload :Streams,  'io_streams/streams'
   autoload :Tabular,  'io_streams/tabular'
   autoload :Utils,    'io_streams/utils'
   autoload :Writer,   'io_streams/writer'

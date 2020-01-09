@@ -1,14 +1,14 @@
 module IOStreams
   class Stream
     attr_reader :io_stream
-    attr_writer :streams
+    attr_writer :builder
 
     def initialize(io_stream)
       raise(ArgumentError, 'io_stream cannot be nil') if io_stream.nil?
       raise(ArgumentError, "io_stream must not be a string: #{io_stream.inspect}") if io_stream.is_a?(String)
 
       @io_stream = io_stream
-      @streams   = nil
+      @builder   = nil
     end
 
     # Ignore the filename and use only the supplied streams.
@@ -19,7 +19,7 @@ module IOStreams
     #
     # IOStreams.path('tempfile2527').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
     def stream(stream, **options)
-      streams.stream(stream, **options)
+      builder.stream(stream, **options)
       self
     end
 
@@ -34,27 +34,27 @@ module IOStreams
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
     def option(stream, **options)
-      streams.option(stream, **options)
+      builder.option(stream, **options)
       self
     end
 
     # Adds the options for the specified stream as an option,
     # but if streams have already been added it is instead added as a stream.
     def option_or_stream(stream, **options)
-      streams.option_or_stream(stream, **options)
+      builder.option_or_stream(stream, **options)
       self
     end
 
     # Return the options already set for either a stream or option.
     def setting(stream)
-      streams.setting(stream)
+      builder.setting(stream)
       self
     end
 
     # Returns [Hash<Symbol:Hash>] the pipeline of streams
     # with their options that will be applied when the reader or writer is invoked.
     def pipeline
-      streams.pipeline
+      builder.pipeline
     end
 
     # Iterate over a file / stream returning one line at a time.
@@ -100,7 +100,7 @@ module IOStreams
     def reader(mode = :stream, **args, &block)
       case mode
       when :stream
-        streams.reader(io_stream, &block)
+        builder.reader(io_stream, &block)
       when :line
         line_reader(**args, &block)
       when :row
@@ -126,7 +126,7 @@ module IOStreams
     def writer(mode = :stream, **args, &block)
       case mode
       when :stream
-        streams.writer(io_stream, &block)
+        builder.writer(io_stream, &block)
       when :line
         line_writer(**args, &block)
       when :row
@@ -191,16 +191,16 @@ module IOStreams
     # Set/get the original file_name
     def file_name(file_name = :none)
       if file_name == :none
-        streams.file_name
+        builder.file_name
       else
-        streams.file_name = file_name
+        builder.file_name = file_name
         self
       end
     end
 
     # Set/get the original file_name
     def file_name=(file_name)
-      streams.file_name = file_name
+      builder.file_name = file_name
     end
 
     # Returns [String] the last component of this path.
@@ -215,7 +215,7 @@ module IOStreams
     #   IOStreams.path("/home/gumby/work/ruby.rb").basename(".rb")  #=> "ruby"
     #   IOStreams.path("/home/gumby/work/ruby.rb").basename(".*")   #=> "ruby"
     def basename(suffix = nil)
-      file_name = streams.file_name
+      file_name = builder.file_name
       return unless file_name
 
       suffix.nil? ? ::File.basename(file_name) : ::File.basename(file_name, suffix)
@@ -233,7 +233,7 @@ module IOStreams
     #   IOStreams.path("test").dirname            #=> "."
     #   IOStreams.path(".profile").dirname        #=> "."
     def dirname
-      file_name = streams.file_name
+      file_name = builder.file_name
       ::File.dirname(file_name) if file_name
     end
 
@@ -253,7 +253,7 @@ module IOStreams
     #   IOStreams.path(".profile").extname        #=> ""
     #   IOStreams.path(".profile.sh").extname     #=> ".sh"
     def extname
-      file_name = streams.file_name
+      file_name = builder.file_name
       ::File.extname(file_name) if file_name
     end
 
@@ -278,8 +278,8 @@ module IOStreams
 
     private
 
-    def streams
-      @streams ||= IOStreams::Streams.new
+    def builder
+      @builder ||= IOStreams::Builder.new
     end
 
     def each_line(**args, &block)
@@ -299,7 +299,7 @@ module IOStreams
     # Iterate over a file / stream returning each record/line one at a time.
     # It will apply the embedded_within argument if the file or input_stream contain .csv in its name.
     def line_reader(embedded_within: nil, **args)
-      embedded_within = '"' if embedded_within.nil? && streams.file_name&.include?('.csv')
+      embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?('.csv')
 
       reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
     end

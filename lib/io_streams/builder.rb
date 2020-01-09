@@ -1,5 +1,6 @@
 module IOStreams
-  class Streams
+# Build the streams that need to be applied to a path druing reading or writing.
+  class Builder
     attr_accessor :file_name
     attr_reader :streams, :options
 

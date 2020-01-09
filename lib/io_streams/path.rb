@@ -8,7 +8,7 @@ module IOStreams
 
       @path      = path.frozen? ? path : path.dup.freeze
       @io_stream = nil
-      @streams   = nil
+      @builder   = nil
     end
 
     # If elements already contains the current path then it is used as is without
@@ -20,7 +20,7 @@ module IOStreams
       relative = ::File.join(*elements)
 
       new_path         = dup
-      new_path.streams = nil
+      new_path.builder = nil
       new_path.path    = relative.start_with?(path) ? relative : ::File.join(path, relative)
       new_path
     end
@@ -117,7 +117,7 @@ module IOStreams
     #   IOStreams.path(".profile").directory        #=> "."
     def directory
       new_path         = dup
-      new_path.streams = nil
+      new_path.builder = nil
       new_path.path    = ::File.dirname(path)
       new_path
     end
@@ -188,15 +188,15 @@ module IOStreams
 
     def inspect
       str = "#<#{self.class.name}:#{path}"
-      str << " @streams=#{streams.streams.inspect}" if streams.streams
-      str << " @options=#{streams.options.inspect}" if streams.options
+      str << " @builder=#{builder.streams.inspect}" if builder.streams
+      str << " @options=#{builder.options.inspect}" if builder.options
       str << " pipeline=#{pipeline.inspect}>"
     end
 
     private
 
-    def streams
-      @streams ||= IOStreams::Streams.new(path)
+    def builder
+      @builder ||= IOStreams::Builder.new(path)
     end
   end
 end

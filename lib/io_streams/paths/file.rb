@@ -148,7 +148,7 @@ module IOStreams
 
       # Read from file
       def reader(&block)
-        ::File.open(path, "rb") { |io| streams.reader(io, &block) }
+        ::File.open(path, "rb") { |io| builder.reader(io, &block) }
       end
 
       # Write to file
@@ -159,7 +159,7 @@ module IOStreams
       def writer(create_path: true, &block)
         mkpath if create_path
         begin
-          ::File.open(path, "wb") { |io| streams.writer(io, &block) }
+          ::File.open(path, "wb") { |io| builder.writer(io, &block) }
         rescue StandardError => e
           ::File.unlink(path) if ::File.exist?(path)
           raise(e)
