@@ -39,8 +39,8 @@ module IOStreams
   # For Files
   # IOStreams.path('blah.zip').option(:encode, encoding: 'BINARY').each(:line) { |line| puts line }
   # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:line).first
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:record).last
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:record).size
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:hash).last
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:hash).size
   # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').reader.size
   # IOStreams.path('blah.csv.zip').each(:line) { |line| puts line }
   # IOStreams.path('blah.zip').option(:pgp, passphrase: 'receiver_passphrase').read

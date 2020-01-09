@@ -1,7 +1,7 @@
 module IOStreams
   module Record
     # Example, implied header from first record:
-    #   IOStreams.path('file.csv').writer(:record) do |stream|
+    #   IOStreams.path('file.csv').writer(:hash) do |stream|
     #     stream << {name: 'Jack', address: 'Somewhere', zipcode: 12345}
     #     stream << {name: 'Joe', address: 'Lost', zipcode: 32443, age: 23}
     #   end

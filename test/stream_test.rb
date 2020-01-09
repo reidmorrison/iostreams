@@ -300,11 +300,11 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe '#writer(:row)' do
+    describe '#writer(:array)' do
       describe "#write" do
         it 'one block' do
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:row) do |stream|
+          IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[Hello World]
           end
           assert_equal "Hello,World\n", io.string
@@ -312,7 +312,7 @@ class StreamTest < Minitest::Test
 
         it 'multiple blocks' do
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:row) do |stream|
+          IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[He]
             stream << %w[l lo\  World]
             stream << ["He", "", "l", ""]
@@ -324,7 +324,7 @@ class StreamTest < Minitest::Test
         it 'empty blocks' do
           # skip "TODO"
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:row) do |stream|
+          IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[He]
             stream << []
             stream << %w[l lo\  World]
@@ -337,7 +337,7 @@ class StreamTest < Minitest::Test
 
         it 'nil values' do
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:row) do |stream|
+          IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[He]
             stream << %w[l lo\  World]
             stream << ["He", nil, "l", nil]
@@ -349,7 +349,7 @@ class StreamTest < Minitest::Test
         it 'empty leading array' do
           skip "TODO"
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:row) do |stream|
+          IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << []
             stream << %w[He]
             stream << %w[l lo\  World]
@@ -362,11 +362,11 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe '#writer(:record)' do
+    describe '#writer(:hash)' do
       describe "#write" do
         it 'one block' do
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:record) do |stream|
+          IOStreams::Stream.new(io).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
           end
           assert_equal  "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
@@ -374,7 +374,7 @@ class StreamTest < Minitest::Test
 
         it 'multiple blocks' do
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:record) do |stream|
+          IOStreams::Stream.new(io).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
             stream << {first_name: "Able", last_name: "Smith"}
           end
@@ -383,7 +383,7 @@ class StreamTest < Minitest::Test
 
         it 'empty hashes' do
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:record) do |stream|
+          IOStreams::Stream.new(io).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
             stream << {} << {first_name: "Able", last_name: "Smith"}
             stream << {}
@@ -394,7 +394,7 @@ class StreamTest < Minitest::Test
         it 'nil values' do
           skip "TODO"
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:record) do |stream|
+          IOStreams::Stream.new(io).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
             stream << {} << {first_name: "Able", last_name: "Smith"}
             stream << {first_name: "Able", last_name: nil}

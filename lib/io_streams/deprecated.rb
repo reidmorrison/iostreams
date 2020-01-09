@@ -32,13 +32,13 @@ module IOStreams
       # DEPRECATED
       def each_row(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.each(:row, **args, &block)
+        path.each(:array, **args, &block)
       end
 
       # DEPRECATED
       def each_record(file_name_or_io, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.each(:record, **args, &block)
+        path.each(:hash, **args, &block)
       end
 
       # DEPRECATED. Use `#path` or `#io`
@@ -63,13 +63,13 @@ module IOStreams
       # DEPRECATED
       def row_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.writer(:row, **args, &block)
+        path.writer(:array, **args, &block)
       end
 
       # DEPRECATED
       def record_writer(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.writer(:record, **args, &block)
+        path.writer(:hash, **args, &block)
       end
 
       # Copies the source file/stream to the target file/stream.
@@ -182,7 +182,7 @@ module IOStreams
       # DEPRECATED
       def record_reader(file_name_or_io, streams: nil, file_name: nil, encoding: nil, encode_cleaner: nil, encode_replace: nil, **args, &block)
         path = build_path(file_name_or_io, streams: streams, file_name: file_name, encoding: encoding, encode_cleaner: encode_cleaner, encode_replace: encode_replace)
-        path.reader(:record, **args, &block)
+        path.reader(:hash, **args, &block)
       end
 
       private

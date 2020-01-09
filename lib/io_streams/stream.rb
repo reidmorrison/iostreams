@@ -70,12 +70,12 @@ module IOStreams
     #   end
     #
     # Example: Read a row at a time
-    #   IOStreams.path("file.csv").each(:row) do |array|
+    #   IOStreams.path("file.csv").each(:array) do |array|
     #     p array
     #   end
     #
     # Example: Read a record at a time
-    #   IOStreams.path("file.csv").each(:record) do |hash|
+    #   IOStreams.path("file.csv").each(:hash) do |hash|
     #     p hash
     #   end
     #
@@ -97,9 +97,9 @@ module IOStreams
         stream_reader(&block)
       when :line
         line_reader(**args, &block)
-      when :row
+      when :array
         row_reader(**args, &block)
-      when :record
+      when :hash
         record_reader(**args, &block)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
@@ -123,9 +123,9 @@ module IOStreams
         stream_writer(&block)
       when :line
         line_writer(**args, &block)
-      when :row
+      when :array
         row_writer(**args, &block)
-      when :record
+      when :hash
         record_writer(**args, &block)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
