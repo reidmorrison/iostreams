@@ -21,7 +21,9 @@ module IOStreams
       #
       # passphrase: [String]
       #   Pass phrase for private key to decrypt the file with
-      def self.file(file_name, passphrase: self.default_passphrase)
+      def self.file(file_name, passphrase: nil)
+        # Cannot use `passphrase: self.default_passphrase` since it is considered private
+        passphrase ||= default_passphrase
         raise(ArgumentError, 'Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase') unless passphrase
 
         loopback = IOStreams::Pgp.pgp_version.to_f >= 2.1 ? '--pinentry-mode loopback' : ''
