@@ -21,6 +21,7 @@ class EncodeReaderTest < Minitest::Test
     describe '#read' do
       describe 'replacement' do
         it 'does not strip invalid characters' do
+          skip "Does not raise on JRuby" if defined?(JRuby)
           input = StringIO.new(bad_data)
           IOStreams::Encode::Reader.stream(input, encoding: 'UTF-8') do |io|
             assert_raises ::Encoding::UndefinedConversionError do
