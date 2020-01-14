@@ -9,19 +9,20 @@ Production Ready, but API is subject to breaking changes until V1 is released.
 
 ## Features
 
-Supported file / stream types:
+Supported streams:
 
 * Zip
 * Gzip
 * BZip2
-* CSV
-* PGP (Uses GnuPG)
+* PGP (Requires GnuPG)
 * Xlsx (Reading)
 * Encryption using [Symmetric Encryption](https://github.com/reidmorrison/symmetric-encryption)
 
-Streaming support currently under development:
+Supported sources and/or targets:
 
-* S3
+* File
+* HTTP (Read only)
+* AWS S3
 * SFTP
 
 Supported file formats:
@@ -30,6 +31,71 @@ Supported file formats:
 * Fixed width formats
 * JSON
 * PSV
+
+## Quick examples
+
+Read an entire file into memory:
+
+```ruby
+IOStreams.path('example.txt').read
+```
+
+Decompress an entire gzip file into memory:
+
+```ruby
+IOStreams.path('example.gz').read
+```
+
+Read and decompress the first file in a zip file into memory:
+
+```ruby
+IOStreams.path('example.zip').read
+```
+
+Read a file one line at a time
+
+```ruby
+IOStreams.path('example.txt').each do |line|
+  puts line
+end
+```
+
+Read a CSV file one line at a time, returning each line as an array:
+
+```ruby
+IOStreams.path('example.csv').each(:array) do |array|
+  p array
+end
+```
+
+Read a CSV file a record at a time, returning each line as a hash. 
+The first line of the file is assumed to be the header line:
+
+```ruby
+IOStreams.path('example.csv').each(:hash) do |hash|
+  p hash
+end
+```
+
+Read a file using an http get, 
+decompressing the named file in the zip file,
+returning each records from the named file as a hash:
+
+```ruby
+IOStreams.
+  path("https://www5.fdic.gov/idasp/Offices2.zip").
+  option(:zip, entry_file_name: 'OFFICES2_ALL.CSV').
+  reader(:hash) do |stream|
+    p stream.read
+  end
+```
+
+Read the file without unzipping and streaming the first file in the zip:
+
+```ruby
+IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').stream(:none).reader {|file| puts file.read}
+```
+
 
 ## Introduction
 
@@ -53,7 +119,7 @@ together several streams, `iostreams` attempts to offer similar features for Rub
 
 ```ruby
 # Read a compressed file:
-IOStreams.reader('hello.gz') do |reader|
+IOStreams.path("hello.gz").reader do |reader|
   data = reader.read(1024)
   puts "Read: #{data}"
 end
@@ -65,9 +131,9 @@ any temporary files to process the stream.
 
 ```ruby
 # Create a file that is compressed with GZip and then encrypted with Symmetric Encryption:
-IOStreams.writer('hello.gz.enc') do |writer|
-  writer.write('Hello World')
-  writer.write('and some more')
+IOStreams.path("hello.gz.enc").writer do |writer|
+  writer.write("Hello World")
+  writer.write("and some more")
 end
 ```
 
@@ -91,16 +157,18 @@ un-encrypted data.
 While decompressing the file, display 128 characters at a time from the file.
 
 ~~~ruby
-require 'iostreams'
-IOStreams.reader('abc.csv') do |io|
-  p data while (data = io.read(128))
+require "iostreams"
+IOStreams.path("abc.csv").reader do |io|
+  while (data = io.read(128))
+    p data 
+  end
 end
 ~~~
 
 While decompressing the file, display one line at a time from the file.
 
 ~~~ruby
-IOStreams.each_line('abc.csv') do |line|
+IOStreams.path("abc.csv").each do |line|
   puts line
 end
 ~~~
@@ -108,7 +176,7 @@ end
 While decompressing the file, display each row from the csv file as an array.
 
 ~~~ruby
-IOStreams.each_row('abc.csv') do |array|
+IOStreams.path("abc.csv").each(:array) do |array|
   p array
 end
 ~~~
@@ -117,20 +185,7 @@ While decompressing the file, display each record from the csv file as a hash.
 The first line is assumed to be the header row.
 
 ~~~ruby
-IOStreams.each_record('abc.csv') do |hash|
-  p hash
-end
-~~~
-
-Display each line from the array as a hash.
-The first line is assumed to be the header row.
-
-~~~ruby
-array = [
-  'name, address, zip_code',
-  'Jack, Down Under, 12345'
-]
-IOStreams.each_record(array) do |hash|
+IOStreams.path("abc.csv").each(:hash) do |hash|
   p hash
 end
 ~~~
@@ -138,9 +193,9 @@ end
 Write data while compressing the file.
 
 ~~~ruby
-IOStreams.writer('abc.csv') do |io|
-  io.write('This')
-  io.write(' is ')
+IOStreams.path("abc.csv").writer do |io|
+  io.write("This")
+  io.write(" is ")
   io.write(" one line\n")
 end
 ~~~
@@ -148,12 +203,12 @@ end
 Write a line at a time while compressing the file.
 
 ~~~ruby
-IOStreams.line_writer('abc.csv') do |file|
-  file << 'these'
-  file << 'are'
-  file << 'all'
-  file << 'separate'
-  file << 'lines'
+IOStreams.path("abc.csv").writer(:line) do |file|
+  file << "these"
+  file << "are"
+  file << "all"
+  file << "separate"
+  file << "lines"
 end
 ~~~
 
@@ -161,10 +216,10 @@ Write an array (row) at a time while compressing the file.
 Each array is converted to csv before being compressed with zip.
 
 ~~~ruby
-IOStreams.row_writer('abc.csv') do |io|
+IOStreams.path("abc.csv").writer(:array) do |io|
   io << %w[name address zip_code]
   io << %w[Jack There 1234]
-  io << ['Joe', 'Over There somewhere', 1234]
+  io << ["Joe", "Over There somewhere", 1234]
 end
 ~~~
 
@@ -173,9 +228,9 @@ Each hash is converted to csv before being compressed with zip.
 The header row is extracted from the first hash supplied.
 
 ~~~ruby
-IOStreams.record_writer('abc.csv') do |stream|
-  stream << {name: 'Jack', address: 'There', zip_code: 1234}
-  stream << {name: 'Joe', address: 'Over There somewhere', zip_code: 1234}
+IOStreams.path("abc.csv").writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {name: "Joe", address: "Over There somewhere", zip_code: 1234}
 end
 ~~~
 
@@ -183,9 +238,9 @@ Write to a string IO for testing, supplying the filename so that the streams can
 
 ~~~ruby
 io = StringIO.new
-IOStreams::Tabular::Writer(io, file_name: 'abc.csv') do |stream|
-  stream << {name: 'Jack', address: 'There', zip_code: 1234}
-  stream << {name: 'Joe', address: 'Over There somewhere', zip_code: 1234}
+IOStreams.stream(io, file_name: "abc.csv").writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {name: "Joe", address: "Over There somewhere", zip_code: 1234}
 end
 puts io.string
 ~~~
@@ -193,8 +248,8 @@ puts io.string
 Read a CSV file and write the output to an encrypted file in JSON format.
 
 ~~~ruby
-IOStreams.record_writer('sample.json.enc') do |output|
-  IOStreams.each_record('sample.csv') do |record|
+IOStreams.path("sample.json.enc").writer(:hash) do |output|
+  IOStreams.path("sample.csv").each(:hash) do |record|
     output << record
   end
 end
@@ -207,38 +262,49 @@ Stream based file copying. Changes the file type without changing the file forma
 Encrypt the contents of the file `sample.json` and write to `sample.json.enc`
 
 ~~~ruby
-IOStreams.copy('sample.json', 'sample.json.enc')
+input = IOStreams.path("sample.json")
+IOStreams.path("sample.json.enc").copy_from(input)
 ~~~
 
 Encrypt and compress the contents of the file `sample.json` with Symmetric Encryption and write to `sample.json.enc`
 
 ~~~ruby
-IOStreams.copy('sample.json', 'sample.json.enc', target_options: {streams: {enc: {compress: true}}})
+input = IOStreams.path("sample.json")
+IOStreams.path("sample.json.enc").option(:enc, compress: true).copy_from(input)
 ~~~
 
 Encrypt and compress the contents of the file `sample.json` with pgp and write to `sample.json.enc`
 
 ~~~ruby
-IOStreams.copy('sample.json', 'sample.json.pgp', target_options: {streams: {pgp: {recipient: 'sender@example.org'}}})
+input = IOStreams.path("sample.json")
+IOStreams.path("sample.json.pgp").option(:pgp, recipient: "sender@example.org").copy_from(input)
 ~~~
 
 Decrypt the file `abc.csv.enc` and write it to `xyz.csv`.
 
 ~~~ruby
-IOStreams.copy('abc.csv.enc', 'xyz.csv')
+input = IOStreams.path("abc.csv.enc")
+IOStreams.path("xyz.csv").copy_from(input)
 ~~~
 
-Read `ABC`, PGP encrypt the file and write to `xyz.csv.pgp`, applying 
+Decrypt file `ABC` that was encrypted with Symmetric Encryption, 
+PGP encrypt the output file and write it to `xyz.csv.pgp` using the pgp key that was imported for `a@a.com`.
 
 ~~~ruby
-IOStreams.copy('ABC', 'xyz.csv.pgp',
-               source_options: [:enc],
-               target_options: [pgp: {email_recipient: 'a@a.com'})
+input = IOStreams.path("ABC").stream(:enc)
+IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "a@a.com").copy_from(input)
+~~~
+
+To copy a file _without_ performing any conversions (ignore file extensions), set `convert` to `false`:
+
+~~~ruby
+input = IOStreams.path("sample.json.zip")
+IOStreams.path("sample.copy").copy_from(input, convert: false)
 ~~~
 
 ## Philosopy
 
-IOStreams can be used to work against a single stream. it's real capability becomes apparent when chainging together
+IOStreams can be used to work against a single stream. it's real capability becomes apparent when chaining together
 multiple streams to process data, without loading entire files into memory.
 
 #### Linux Pipes
@@ -298,7 +364,7 @@ Since IOStreams can autodetect file types based on the file extension, `IOStream
 to start with:
 ~~~ruby
   line_count = 0
-  IOStreams.reader("hello.csv.gz") do |input|
+  IOStreams.path("hello.csv.gz").reader do |input|
     IOStreams::Line::Reader.open(input) do |lines|
       lines.each { line_count += 1}
     end
@@ -306,19 +372,19 @@ to start with:
   puts "hello.csv.gz contains #{line_count} lines"
 ~~~
 
-Since we know we want a line reader, it can be simplified using `IOStreams.line_reader`:
+Since we know we want a line reader, it can be simplified using `#reader(:line)`:
 ~~~ruby
   line_count = 0
-  IOStreams.line_reader("hello.csv.gz") do |lines|
+  IOStreams.path("hello.csv.gz").reader(:line) do |lines|
     lines.each { line_count += 1}
   end
   puts "hello.csv.gz contains #{line_count} lines"
 ~~~
 
-It can be simplified even further using `IOStreams.each_line`:
+It can be simplified even further using `#each`:
 ~~~ruby
   line_count = 0
-  IOStreams.each_line("hello.csv.gz") { line_count += 1}
+  IOStreams.path("hello.csv.gz").each { line_count += 1}
   puts "hello.csv.gz contains #{line_count} lines"
 ~~~
 
@@ -336,25 +402,25 @@ and converting to valid US ASCII.
   apple_count = 0
   IOStreams::Gzip::Reader.open("hello.csv.gz") do |input|
     IOStreams::Encode::Reader.open(input, 
-                                   encoding:       'US-ASCII', 
-                                   encode_replace: '', 
+                                   encoding:       "US-ASCII", 
+                                   encode_replace: "", 
                                    encode_cleaner: :printable) do |cleansed|
       IOStreams::Line::Reader.open(cleansed) do |lines|
-        lines.each { |line| apple_count += line.scan('apple').count}
+        lines.each { |line| apple_count += line.scan("apple").count}
       end
   end
   puts "Found the word 'apple' #{apple_count} times in hello.csv.gz"
 ~~~
 
 Let IOStreams perform the above stream chaining automatically under the covers:
+
 ~~~ruby
   apple_count = 0
-  IOStreams.each_line("hello.csv.gz", 
-                      encoding:       'US-ASCII', 
-                      encode_replace: '', 
-                      encode_cleaner: :printable) do |line|
-    apple_count += line.scan('apple').count
-  end
+  IOStreams.path("hello.csv.gz").
+    option(:encode, encoding: "US-ASCII", replace: "", cleaner: :printable).
+    each do |line|
+      apple_count += line.scan("apple").count
+    end
 
   puts "Found the word 'apple' #{apple_count} times in hello.csv.gz"
 ~~~
@@ -363,15 +429,9 @@ Let IOStreams perform the above stream chaining automatically under the covers:
 
 * Due to the nature of Zip, both its Reader and Writer methods will create
   a temp file when reading from or writing to a stream.
-  Recommended to use Gzip over Zip since it can be streamed.
+  Recommended to use Gzip over Zip since it can be streamed without requiring temp files.
 * Zip becomes exponentially slower with very large files, especially files
   that exceed 4GB when uncompressed. Highly recommend using GZip for large files.
-
-To completely implement io streaming for Ruby will take a lot more input and thoughts
-from the Ruby community. This gem represents a starting point to get the discussion going.
-
-By keeping this gem a 0.x version and not going V1, we can change the interface as needed
-to implement community feedback.
 
 ## Versioning
 
@@ -383,7 +443,7 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## License
 
-Copyright 2018 Reid Morrison
+Copyright 2020 Reid Morrison
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

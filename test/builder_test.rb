@@ -68,6 +68,14 @@ class BuilderTest < Minitest::Test
     end
 
     describe '#reader' do
+      let :gzip_string do
+        io_string = StringIO.new(''.b)
+        IOStreams::Gzip::Writer.stream(io_string) do |io|
+          io.write("Hello World")
+        end
+        io_string.string
+      end
+
       it 'directly calls block for an empty stream' do
         string_io = StringIO.new
         value     = nil
@@ -80,17 +88,17 @@ class BuilderTest < Minitest::Test
       end
 
       it 'returns the reader' do
-        string_io = StringIO.new
-        streams.stream(:bz2)
+        string_io = StringIO.new(gzip_string)
+        streams.stream(:gz)
         streams.reader(string_io) do |io|
-          assert io.is_a?(RBzip2::FFI::Decompressor), io
+          assert io.is_a?(::Zlib::GzipReader), io
         end
       end
 
       it 'returns the last reader' do
-        string_io = StringIO.new
+        string_io = StringIO.new(gzip_string)
         streams.stream(:encode)
-        streams.stream(:bz2)
+        streams.stream(:gz)
         streams.reader(string_io) do |io|
           assert io.is_a?(IOStreams::Encode::Reader), io
         end
