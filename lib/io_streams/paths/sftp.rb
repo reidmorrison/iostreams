@@ -71,7 +71,7 @@ module IOStreams
       #   end
       #
       #   # When using the sftp executable use an identity file instead of a password to authenticate:
-      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", IdentityFile: "~/.ssh/private_key").reader do |io|
+      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", ssh_options: {IdentityFile: "~/.ssh/private_key"}).reader do |io|
       #     puts io.read
       #   end
       def initialize(url, username: nil, password: nil, ssh_options: {})

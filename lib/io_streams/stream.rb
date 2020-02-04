@@ -48,7 +48,6 @@ module IOStreams
     # Return the options already set for either a stream or option.
     def setting(stream)
       builder.setting(stream)
-      self
     end
 
     # Returns [Hash<Symbol:Hash>] the pipeline of streams
