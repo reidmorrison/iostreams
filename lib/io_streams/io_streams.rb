@@ -233,6 +233,26 @@ module IOStreams
     @root_paths.dup
   end
 
+  # Set the temporary path to use when creating local temp files.
+  def self.temp_dir=(temp_dir)
+    temp_dir = File.expand_path(temp_dir)
+    unless valid_temp_dir?(temp_dir)
+      raise(ArgumentError, "Invalid or insufficient permissions to use #{temp_dir} as a temp file directory.")
+    end
+
+    @temp_dir = temp_dir
+  end
+
+  # Returns the temporary path used when creating local temp files.
+  #
+  # Default:
+  #   ENV['TMPDIR'], or ENV['TMP'], or ENV['TEMP'], or `Etc.systmpdir`, or '/tmp', otherwise '.'
+  def self.temp_dir
+    @temp_dir ||= Dir.tmpdir
+  end
+
+  @temp_dir = nil
+
   # Register a file extension and the reader and writer streaming classes
   #
   # Example:

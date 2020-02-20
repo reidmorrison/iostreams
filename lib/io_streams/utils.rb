@@ -1,5 +1,10 @@
+require 'file'
+require 'dir'
+require 'uri'
 module IOStreams
   module Utils
+    MAX_TEMP_FILE_NAME_ATTEMPTS = 5
+
     # Lazy load dependent gem so that it remains a soft dependency.
     def self.load_soft_dependency(gem_name, stream_type, require_name = gem_name)
       require require_name
@@ -23,7 +28,7 @@ module IOStreams
     # File is deleted upon completion if present.
     def self.temp_file_name(basename, extension = '')
       result = nil
-      ::Dir::Tmpname.create([basename, extension]) do |tmpname|
+      ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir, MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
         begin
           result = yield(tmpname)
         ensure
@@ -31,6 +36,15 @@ module IOStreams
         end
       end
       result
+    end
+
+    # Returns [true|false] whether this supplied directory exists and can beused for temp files.
+    def self.valid_temp_file_path?(dir)
+      stat = File.stat(File.expand_path(dir))
+      stat.directory? && stat.writable? && (!stat.world_writable? || stat.sticky?)
+      true
+    rescue Errno::ENOENT
+      false
     end
 
     class URI
