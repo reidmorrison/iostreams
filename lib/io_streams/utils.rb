@@ -1,5 +1,3 @@
-require 'file'
-require 'dir'
 require 'uri'
 module IOStreams
   module Utils
@@ -36,15 +34,6 @@ module IOStreams
         end
       end
       result
-    end
-
-    # Returns [true|false] whether this supplied directory exists and can beused for temp files.
-    def self.valid_temp_file_path?(dir)
-      stat = File.stat(File.expand_path(dir))
-      stat.directory? && stat.writable? && (!stat.world_writable? || stat.sticky?)
-      true
-    rescue Errno::ENOENT
-      false
     end
 
     class URI

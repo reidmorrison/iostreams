@@ -236,9 +236,7 @@ module IOStreams
   # Set the temporary path to use when creating local temp files.
   def self.temp_dir=(temp_dir)
     temp_dir = File.expand_path(temp_dir)
-    unless valid_temp_dir?(temp_dir)
-      raise(ArgumentError, "Invalid or insufficient permissions to use #{temp_dir} as a temp file directory.")
-    end
+    FileUtils.mkdir_p(temp_dir) unless ::File.exist?(temp_dir)
 
     @temp_dir = temp_dir
   end
