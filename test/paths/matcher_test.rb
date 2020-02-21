@@ -11,11 +11,11 @@ module Paths
             expected_path:    "/path/work/a/b/c",
             expected_pattern: "**/*",
             recursive:        true,
-            matches:          %w[/path/work/a/b/c/any/file /path/work/a/b/c/other/file /path/work/a/b/c/sub/.name],
-            not_matches:      %w[/path/work/a/b/c/.profile]
+            matches:          %w[/path/work/a/b/c/any/file /path/work/a/b/c/other/file],
+            not_matches:      %w[/path/work/a/b/c/.profile /path/work/a/b/c/sub/.name]
           },
-          {path: "/path/work", pattern: "a/b/c?/**/*", expected_path: "/path/work/a/b", expected_pattern: "c?/**/*", recursive: true},
-          {path: "/path/work", pattern: "**/*", expected_path: "/path/work", expected_pattern: "**/*", recursive: true},
+          {path: "/path/work", pattern: "a/b/c?/**", expected_path: "/path/work/a/b", expected_pattern: "c?/**", recursive: true},
+          {path: "/path/work", pattern: "**", expected_path: "/path/work", expected_pattern: "**", recursive: true},
           # Case-insensitive exists that returns the actual file name.
           {path: "/path/work", pattern: "a/b/file.txt", expected_path: "/path/work/a/b/file.txt", expected_pattern: nil, recursive: false},
           {
@@ -25,7 +25,17 @@ module Paths
             expected_pattern: "file*{zip,gz}",
             recursive:        false,
             matches:          %w[/path/work/a/b/file.GZ /path/work/a/b/FILE.ZIP /path/work/a/b/file123.zIp],
-            not_matches:      %w[/path/work/a/b/.profile /path/work/a/b/filter.zip],
+            not_matches:      %w[/path/work/a/b/.profile /path/work/a/b/filter.zip /path/work/a/b/outgoing/filter.zip],
+            case_sensitive:   false
+          },
+          {
+            path:             "/path/work",
+            pattern:          "a/b/*",
+            expected_path:    "/path/work/a/b",
+            expected_pattern: "*",
+            recursive:        false,
+            matches:          %w[/path/work/a/b/file.GZ /path/work/a/b/FILE.ZIP /path/work/a/b/file123.zIp],
+            not_matches:      %w[/path/work/a/b/.profile /path/work/a/b/my/filter.zip /path/work/a/b/outgoing/filter.zip],
             case_sensitive:   false
           },
           {

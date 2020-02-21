@@ -19,7 +19,7 @@ module IOStreams
       def initialize(path, pattern, case_sensitive: false, hidden: false)
         extract_optimized_path(path, pattern)
 
-        @flags = ::File::FNM_EXTGLOB
+        @flags = ::File::FNM_EXTGLOB | ::File::FNM_PATHNAME
         @flags |= ::File::FNM_CASEFOLD unless case_sensitive
         @flags |= ::File::FNM_DOTMATCH if hidden
       end
