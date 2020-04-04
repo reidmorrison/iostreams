@@ -1,4 +1,4 @@
-require_relative '../test_helper'
+require_relative "../test_helper"
 
 module Paths
   class SFTPTest < Minitest::Test
@@ -17,13 +17,13 @@ module Paths
 
       let(:url) { File.join("sftp://", host_name, ftp_dir) }
 
-      let(:file_name) { File.join(File.dirname(__FILE__), '..', 'files', 'text file.txt') }
+      let(:file_name) { File.join(File.dirname(__FILE__), "..", "files", "text file.txt") }
       let(:raw) { File.read(file_name) }
 
       let(:root_path) { IOStreams::Paths::SFTP.new(url, username: username, password: password) }
 
       let :existing_path do
-        path = root_path.join('test.txt')
+        path = root_path.join("test.txt")
         path.write(raw)
         path
       end
@@ -40,55 +40,55 @@ module Paths
         root_path.join("writer_test.txt")
       end
 
-      describe '#reader' do
-        it 'reads' do
-          assert_equal raw, existing_path.reader { |io| io.read }
+      describe "#reader" do
+        it "reads" do
+          assert_equal raw, existing_path.reader(&:read)
         end
 
-        it 'fails when the file does not exist' do
+        it "fails when the file does not exist" do
           assert_raises IOStreams::Errors::CommunicationsFailure do
             missing_file_path.read
           end
         end
 
-        it 'fails when the directory does not exist' do
+        it "fails when the directory does not exist" do
           assert_raises IOStreams::Errors::CommunicationsFailure do
             missing_path.read
           end
         end
       end
 
-      describe '#writer' do
-        it 'writes' do
+      describe "#writer" do
+        it "writes" do
           assert_equal raw.size, write_path.writer { |io| io.write(raw) }
           assert_equal raw, write_path.read
         end
 
-        it 'fails when the directory does not exist' do
+        it "fails when the directory does not exist" do
           assert_raises IOStreams::Errors::CommunicationsFailure do
             missing_path.write("Bad path")
           end
         end
 
-        describe 'use identity file instead of password' do
+        describe "use identity file instead of password" do
           let :root_path do
-            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {'IdentityFile' => ENV["SFTP_IDENTITY_FILE"]})
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityFile" => ENV["SFTP_IDENTITY_FILE"]})
           end
 
-          it 'writes' do
+          it "writes" do
             skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
             assert_equal raw.size, write_path.writer { |io| io.write(raw) }
             assert_equal raw, write_path.read
           end
         end
 
-        describe 'use identity key instead of password' do
+        describe "use identity key instead of password" do
           let :root_path do
-            key = File.open(ENV["SFTP_IDENTITY_FILE"], 'rb', &:read)
-            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {'IdentityKey' => key})
+            key = File.open(ENV["SFTP_IDENTITY_FILE"], "rb", &:read)
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityKey" => key})
           end
 
-          it 'writes' do
+          it "writes" do
             skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
             assert_equal raw.size, write_path.writer { |io| io.write(raw) }
             assert_equal raw, write_path.read

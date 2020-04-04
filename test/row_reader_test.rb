@@ -1,17 +1,17 @@
-require_relative 'test_helper'
+require_relative "test_helper"
 
 class RowReaderTest < Minitest::Test
   describe IOStreams::Row::Reader do
     let :file_name do
-      File.join(File.dirname(__FILE__), 'files', 'test.csv')
+      File.join(File.dirname(__FILE__), "files", "test.csv")
     end
 
     let :expected do
       CSV.read(file_name)
     end
 
-    describe '.open' do
-      it 'file' do
+    describe ".open" do
+      it "file" do
         rows  = []
         count = IOStreams::Row::Reader.file(file_name) do |io|
           io.each { |row| rows << row }
@@ -20,7 +20,7 @@ class RowReaderTest < Minitest::Test
         assert_equal expected.size, count
       end
 
-      it 'stream' do
+      it "stream" do
         rows  = []
         count = IOStreams::Line::Reader.file(file_name) do |file|
           IOStreams::Row::Reader.stream(file) do |io|
@@ -31,6 +31,5 @@ class RowReaderTest < Minitest::Test
         assert_equal expected.size, count
       end
     end
-
   end
 end

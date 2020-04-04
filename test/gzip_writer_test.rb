@@ -1,9 +1,9 @@
-require_relative 'test_helper'
+require_relative "test_helper"
 
 class GzipWriterTest < Minitest::Test
   describe IOStreams::Gzip::Writer do
     let :temp_file do
-      Tempfile.new('iostreams')
+      Tempfile.new("iostreams")
     end
 
     let :file_name do
@@ -11,35 +11,34 @@ class GzipWriterTest < Minitest::Test
     end
 
     let :decompressed do
-      File.read(File.join(File.dirname(__FILE__), 'files', 'text.txt'))
+      File.read(File.join(File.dirname(__FILE__), "files", "text.txt"))
     end
 
     after do
       temp_file.delete
     end
 
-    describe '.file' do
-      it 'file' do
+    describe ".file" do
+      it "file" do
         IOStreams::Gzip::Writer.file(file_name) do |io|
           io.write(decompressed)
         end
-        result = Zlib::GzipReader.open(file_name) { |gz| gz.read }
+        result = Zlib::GzipReader.open(file_name, &:read)
         temp_file.delete
         assert_equal decompressed, result
       end
 
-      it 'stream' do
-        io_string = StringIO.new(''.b)
+      it "stream" do
+        io_string = StringIO.new("".b)
         IOStreams::Gzip::Writer.stream(io_string) do |io|
           io.write(decompressed)
         end
-        io   = StringIO.new(io_string.string)
-        gz   = Zlib::GzipReader.new(io)
+        io = StringIO.new(io_string.string)
+        gz = Zlib::GzipReader.new(io)
         data = gz.read
         gz.close
         assert_equal decompressed, data
       end
     end
-
   end
 end

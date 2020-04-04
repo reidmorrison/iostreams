@@ -1,9 +1,9 @@
-require_relative 'test_helper'
+require_relative "test_helper"
 
 class Bzip2WriterTest < Minitest::Test
   describe IOStreams::Bzip2::Writer do
     let :temp_file do
-      Tempfile.new('iostreams')
+      Tempfile.new("iostreams")
     end
 
     let :file_name do
@@ -11,20 +11,20 @@ class Bzip2WriterTest < Minitest::Test
     end
 
     let :decompressed do
-      File.read(File.join(File.dirname(__FILE__), 'files', 'text.txt'))
+      File.read(File.join(File.dirname(__FILE__), "files", "text.txt"))
     end
 
     after do
       temp_file.delete
     end
 
-    describe '.file' do
-      it 'file' do
+    describe ".file" do
+      it "file" do
         IOStreams::Bzip2::Writer.file(file_name) do |io|
           io.write(decompressed)
         end
 
-        File.open(file_name, 'rb') do |file|
+        File.open(file_name, "rb") do |file|
           io     = RBzip2.default_adapter::Decompressor.new(file)
           result = io.read
           temp_file.delete
@@ -32,8 +32,8 @@ class Bzip2WriterTest < Minitest::Test
         end
       end
 
-      it 'stream' do
-        io_string = StringIO.new(''.b)
+      it "stream" do
+        io_string = StringIO.new("".b)
         IOStreams::Bzip2::Writer.stream(io_string) do |io|
           io.write(decompressed)
         end
@@ -44,6 +44,5 @@ class Bzip2WriterTest < Minitest::Test
         assert_equal decompressed, data
       end
     end
-
   end
 end

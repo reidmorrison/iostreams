@@ -172,10 +172,15 @@ module IOStreams
     end
 
     # Returns [true|false] whether their is a key for the supplied email or key_id
-    def self.has_key?(email: nil, key_id: nil, private: false)
+    def self.key?(email: nil, key_id: nil, private: false)
       raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
 
       !list_keys(email: email, key_id: key_id, private: private).empty?
+    end
+
+    # Deprecated
+    def self.has_key?(**args)
+      key(**args)
     end
 
     # Returns [Array<Hash>] the list of keys.

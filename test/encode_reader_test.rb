@@ -1,52 +1,48 @@
-require_relative 'test_helper'
+require_relative "test_helper"
 
 class EncodeReaderTest < Minitest::Test
   describe IOStreams::Encode::Reader do
     let :bad_data do
       [
         "New M\xE9xico,NE".b,
-        'good line',
+        "good line",
         "New M\xE9xico,\x07SF".b
-      ].join("\n").encode('BINARY')
+      ].join("\n").encode("BINARY")
     end
 
     let :cleansed_data do
-      bad_data.gsub("\xE9".b, '')
+      bad_data.gsub("\xE9".b, "")
     end
 
     let :stripped_data do
-      cleansed_data.gsub("\x07", '')
+      cleansed_data.gsub("\x07", "")
     end
 
-    describe '#read' do
-      describe 'replacement' do
-        it 'does not strip invalid characters' do
+    describe "#read" do
+      describe "replacement" do
+        it "does not strip invalid characters" do
           skip "Does not raise on JRuby" if defined?(JRuby)
           input = StringIO.new(bad_data)
-          IOStreams::Encode::Reader.stream(input, encoding: 'UTF-8') do |io|
+          IOStreams::Encode::Reader.stream(input, encoding: "UTF-8") do |io|
             assert_raises ::Encoding::UndefinedConversionError do
               io.read.encoding
             end
           end
         end
 
-        it 'strips invalid characters' do
+        it "strips invalid characters" do
           input = StringIO.new(bad_data)
           data  =
-            IOStreams::Encode::Reader.stream(input, encoding: 'UTF-8', replace: '') do |io|
-              io.read
-            end
+            IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", replace: "", &:read)
           assert_equal cleansed_data, data
         end
       end
 
-      describe 'printable' do
-        it 'strips non-printable characters' do
+      describe "printable" do
+        it "strips non-printable characters" do
           input = StringIO.new(bad_data)
           data  =
-            IOStreams::Encode::Reader.stream(input, encoding: 'UTF-8', cleaner: :printable, replace: '') do |io|
-              io.read
-            end
+            IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", cleaner: :printable, replace: "", &:read)
           assert_equal stripped_data, data
         end
       end

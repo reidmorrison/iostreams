@@ -1,25 +1,23 @@
-require_relative 'test_helper'
+require_relative "test_helper"
 
 class LineReaderTest < Minitest::Test
   describe IOStreams::Line::Reader do
     let :file_name do
-      File.join(File.dirname(__FILE__), 'files', 'text.txt')
+      File.join(File.dirname(__FILE__), "files", "text.txt")
     end
 
     let :csv_file do
-      File.join(File.dirname(__FILE__), 'files', 'embedded_lines_test.csv')
+      File.join(File.dirname(__FILE__), "files", "embedded_lines_test.csv")
     end
 
     let :unclosed_quote_file do
-      File.join(File.dirname(__FILE__), 'files', 'unclosed_quote_test.csv')
+      File.join(File.dirname(__FILE__), "files", "unclosed_quote_test.csv")
     end
 
     let :data do
       data = []
-      File.open(file_name, 'rt') do |file|
-        while !file.eof?
-          data << file.readline.strip
-        end
+      File.open(file_name, "rt") do |file|
+        data << file.readline.strip until file.eof?
       end
       data
     end
@@ -31,10 +29,9 @@ class LineReaderTest < Minitest::Test
     # "John","Firstname\n is John","234568"
     # "Zack","Firstname is Zack","234568\n"
     #
-    describe 'embedded_within_quotes' do
-      describe 'csv file' do
-
-        it 'fails to keep embedded lines if flag is not set' do
+    describe "embedded_within_quotes" do
+      describe "csv file" do
+        it "fails to keep embedded lines if flag is not set" do
           lines = []
           IOStreams::Line::Reader.file(csv_file) do |io|
             io.each do |line|
@@ -44,7 +41,7 @@ class LineReaderTest < Minitest::Test
           assert_equal 7, lines.count
         end
 
-        it 'keeps embedded lines if flag is set' do
+        it "keeps embedded lines if flag is set" do
           lines = []
           IOStreams::Line::Reader.file(csv_file, embedded_within: '"') do |io|
             io.each do |line|
@@ -54,7 +51,7 @@ class LineReaderTest < Minitest::Test
           assert_equal 4, lines.count
         end
 
-        it 'raises error for unclosed quote' do
+        it "raises error for unclosed quote" do
           assert_raises(RuntimeError) do
             IOStreams::Line::Reader.file(unclosed_quote_file, embedded_within: '"') do |io|
               io.each do |line|
@@ -65,8 +62,8 @@ class LineReaderTest < Minitest::Test
       end
     end
 
-    describe '#each' do
-      it 'each_line file' do
+    describe "#each" do
+      it "each_line file" do
         lines = []
         count = IOStreams::Line::Reader.file(file_name) do |io|
           io.each { |line| lines << line }
@@ -75,7 +72,7 @@ class LineReaderTest < Minitest::Test
         assert_equal data.size, count
       end
 
-      it 'each_line stream' do
+      it "each_line stream" do
         lines = []
         count = File.open(file_name) do |file|
           IOStreams::Line::Reader.stream(file) do |io|
@@ -108,7 +105,7 @@ class LineReaderTest < Minitest::Test
         end
       end
 
-      ['@', 'BLAH'].each do |delimiter|
+      ["@", "BLAH"].each do |delimiter|
         it "reads delimited #{delimiter.inspect}" do
           lines  = []
           stream = StringIO.new(data.join(delimiter))
@@ -120,10 +117,10 @@ class LineReaderTest < Minitest::Test
         end
       end
 
-      it 'reads binary delimited' do
+      it "reads binary delimited" do
         delimiter = "\x01"
         lines     = []
-        stream    = StringIO.new(data.join(delimiter).encode('ASCII-8BIT'))
+        stream    = StringIO.new(data.join(delimiter).encode("ASCII-8BIT"))
         count     = IOStreams::Line::Reader.stream(stream, buffer_size: 15, delimiter: delimiter) do |io|
           io.each { |line| lines << line }
         end
@@ -131,12 +128,12 @@ class LineReaderTest < Minitest::Test
         assert_equal data.size, count
       end
 
-      describe '#readline' do
-        let(:short_line) { '0123456789' }
-        let(:longer_line) { 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' }
+      describe "#readline" do
+        let(:short_line) { "0123456789" }
+        let(:longer_line) { "ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
         let(:delimiter) { "\r\n" }
 
-        it 'reads delimiter in first block, no delimiter at end' do
+        it "reads delimiter in first block, no delimiter at end" do
           data        = [short_line, longer_line].join(delimiter)
           buffer_size = short_line.length + delimiter.size + (longer_line.size / 2)
 
@@ -153,7 +150,7 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        it 'reads delimiter in second block, no delimiter at end' do
+        it "reads delimiter in second block, no delimiter at end" do
           data        = [longer_line, short_line, short_line].join(delimiter)
           buffer_size = (longer_line.length + delimiter.size + 5) / 2
 
@@ -169,7 +166,7 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        it 'reads delimiter split across first and second blocks' do
+        it "reads delimiter split across first and second blocks" do
           data        = [longer_line, short_line, short_line].join(delimiter)
           buffer_size = longer_line.length + 1
 
@@ -185,8 +182,8 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        it 'reads file with no matching delimiter' do
-          delimiter   = '@'
+        it "reads file with no matching delimiter" do
+          delimiter   = "@"
           data        = [longer_line, short_line, longer_line].join(delimiter) + delimiter
           buffer_size = longer_line.length + 1
 
@@ -200,7 +197,7 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        it 'reads small file with no matching delimiter' do
+        it "reads small file with no matching delimiter" do
           data        = short_line
           buffer_size = short_line.length + 100
 
@@ -214,8 +211,8 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        it 'reads last line with the delimiter as the last character' do
-          delimiter   = '@'
+        it "reads last line with the delimiter as the last character" do
+          delimiter   = "@"
           data        = [longer_line, short_line, longer_line].join(delimiter) + delimiter
           buffer_size = longer_line.length + 1
 
@@ -231,7 +228,7 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        it 'reads last line with the multi-byte delimiter as the last bytes' do
+        it "reads last line with the multi-byte delimiter as the last bytes" do
           data        = [longer_line, short_line, longer_line].join(delimiter) + delimiter
           buffer_size = longer_line.length + 1
 
@@ -247,10 +244,10 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        describe 'read 1 char at a time' do
+        describe "read 1 char at a time" do
           let(:buffer_size) { 1 }
 
-          it 'delimiter at the end' do
+          it "delimiter at the end" do
             data = [longer_line, short_line, longer_line].join(delimiter) + delimiter
 
             stream = StringIO.new(data)
@@ -265,7 +262,7 @@ class LineReaderTest < Minitest::Test
             end
           end
 
-          it 'no delimiter at the end' do
+          it "no delimiter at the end" do
             data = [longer_line, short_line, longer_line].join(delimiter)
 
             stream = StringIO.new(data)
@@ -281,21 +278,20 @@ class LineReaderTest < Minitest::Test
           end
         end
 
-        it 'reads empty file' do
+        it "reads empty file" do
           stream = StringIO.new
           IOStreams::Line::Reader.stream(stream) do |io|
             assert io.eof?
           end
         end
 
-        it 'prevents denial of service' do
-          data   = 'a' * IOStreams::Line::Reader::MAX_BLOCKS_MULTIPLIER + 'a'
+        it "prevents denial of service" do
+          data   = "a" * IOStreams::Line::Reader::MAX_BLOCKS_MULTIPLIER + "a"
           stream = StringIO.new(data)
           assert_raises IOStreams::Errors::DelimiterNotFound do
             IOStreams::Line::Reader.stream(stream, buffer_size: 1) do |io|
             end
           end
-
         end
       end
     end

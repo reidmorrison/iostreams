@@ -1,4 +1,4 @@
-require_relative '../test_helper'
+require_relative "../test_helper"
 
 module Paths
   class MatcherTest < Minitest::Test
@@ -49,13 +49,13 @@ module Paths
             case_sensitive:   true
           },
           {path: "/path/work", pattern: "file.txt", expected_path: "/path/work/file.txt", expected_pattern: nil, recursive: false},
-          {path: "/path/work", pattern: "*", expected_path: "/path/work", expected_pattern: "*", recursive: false},
+          {path: "/path/work", pattern: "*", expected_path: "/path/work", expected_pattern: "*", recursive: false}
         ]
       end
       # , case_sensitive: false, hidden: false
 
-      describe '#recursive?' do
-        it 'identifies recursive paths correctly' do
+      describe "#recursive?" do
+        it "identifies recursive paths correctly" do
           cases.each do |test_case|
             path    = IOStreams.path(test_case[:path])
             matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
@@ -65,7 +65,7 @@ module Paths
       end
 
       describe "#path?" do
-        it 'optimizes path correctly' do
+        it "optimizes path correctly" do
           cases.each do |test_case|
             path    = IOStreams.path(test_case[:path])
             matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
@@ -75,7 +75,7 @@ module Paths
       end
 
       describe "#pattern" do
-        it 'optimizes pattern correctly' do
+        it "optimizes pattern correctly" do
           cases.each do |test_case|
             path    = IOStreams.path(test_case[:path])
             matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
@@ -89,7 +89,7 @@ module Paths
       end
 
       describe "#match?" do
-        it 'matches' do
+        it "matches" do
           cases.each do |test_case|
             path           = IOStreams.path(test_case[:path])
             case_sensitive = test_case.fetch(:case_sensitive, false)
@@ -102,20 +102,19 @@ module Paths
           end
         end
 
-        it 'should not match' do
-          cases.each do |test_case|
+        it "should not match" do
+          cases.each_with_index do |test_case, index|
             path           = IOStreams.path(test_case[:path])
-            case_sensitive = test_case.fetch(case_sensitive, :false)
+            case_sensitive = test_case.key?(:case_sensitive) ? test_case[:case_sensitive] : false
             matcher        = IOStreams::Paths::Matcher.new(path, test_case[:pattern], case_sensitive: case_sensitive)
             next unless test_case[:not_matches]
 
             test_case[:not_matches].each do |file_name|
-              refute matcher.match?(file_name), test_case.merge(file_name: file_name)
+              refute matcher.match?(file_name), -> { {case_sensitive: case_sensitive, test_case_number: index + 1, failed_file_name: file_name, test_case: test_case}.ai }
             end
           end
         end
       end
-
     end
   end
 end

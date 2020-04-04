@@ -1,13 +1,13 @@
-require_relative 'test_helper'
+require_relative "test_helper"
 
 class RecordReaderTest < Minitest::Test
   describe IOStreams::Record::Reader do
     let :file_name do
-      File.join(File.dirname(__FILE__), 'files', 'test.csv')
+      File.join(File.dirname(__FILE__), "files", "test.csv")
     end
 
     let :json_file_name do
-      File.join(File.dirname(__FILE__), 'files', 'test.json')
+      File.join(File.dirname(__FILE__), "files", "test.json")
     end
 
     let :csv_rows do
@@ -20,8 +20,8 @@ class RecordReaderTest < Minitest::Test
       rows.collect { |row| header.zip(row).to_h }
     end
 
-    describe '#each' do
-      it 'csv file' do
+    describe "#each" do
+      it "csv file" do
         records = []
         IOStreams::Record::Reader.file(file_name, cleanse_header: false) do |io|
           io.each { |row| records << row }
@@ -29,7 +29,7 @@ class RecordReaderTest < Minitest::Test
         assert_equal expected, records
       end
 
-      it 'json file' do
+      it "json file" do
         records = []
         IOStreams::Record::Reader.file(json_file_name, cleanse_header: false, format: :json) do |input|
           input.each { |row| records << row }
@@ -37,7 +37,7 @@ class RecordReaderTest < Minitest::Test
         assert_equal expected, records
       end
 
-      it 'stream' do
+      it "stream" do
         rows = []
         IOStreams::Line::Reader.file(file_name) do |file|
           IOStreams::Record::Reader.stream(file, cleanse_header: false) do |io|
@@ -48,14 +48,13 @@ class RecordReaderTest < Minitest::Test
       end
     end
 
-    describe '#collect' do
-      it 'json file' do
+    describe "#collect" do
+      it "json file" do
         records = IOStreams::Record::Reader.file(json_file_name, format: :json) do |input|
           input.collect { |record| record["state"] }
         end
         assert_equal expected.collect { |record| record["state"] }, records
       end
     end
-
   end
 end

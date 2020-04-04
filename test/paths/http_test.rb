@@ -1,4 +1,4 @@
-require_relative '../test_helper'
+require_relative "../test_helper"
 
 module Paths
   class HTTPTest < Minitest::Test
@@ -11,18 +11,18 @@ module Paths
         "https://example.com/index.html?count=10"
       end
 
-      describe '.open' do
-        it 'reads http' do
+      describe ".open" do
+        it "reads http" do
           result = IOStreams::Paths::HTTP.new(url).read
           assert_includes result, "<html>"
         end
 
-        it 'reads https' do
+        it "reads https" do
           result = IOStreams::Paths::HTTP.new(ssl_url).read
           assert_includes result, "<html>"
         end
 
-        it 'does not support streams' do
+        it "does not support streams" do
           assert_raises URI::InvalidURIError do
             io = StringIO.new
             IOStreams::Paths::HTTP.new(io)

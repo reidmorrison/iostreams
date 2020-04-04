@@ -4,7 +4,7 @@ class MinimalFileReader
     io = new(file_name)
     yield(io)
   ensure
-    io.close if io
+    io&.close
   end
 
   def initialize(file_name)
