@@ -135,10 +135,10 @@ module IOStreams
       params << "Expire-Date: #{expire_date}\n" if expire_date
       params << "Passphrase: #{passphrase}\n" if passphrase
       params << "%commit"
-      command = "#{executable} --batch --gen-key --no-tty --quiet"
+      command = "#{executable} --batch --gen-key --no-tty"
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: params)
-      logger&.debug { "IOStreams::Pgp.generate_key: #{command}\n#{err}#{out}" }
+      logger&.debug { "IOStreams::Pgp.generate_key: #{command}\n#{params}\n#{err}#{out}" }
       if status.success?
         if match = err.match(/gpg: key ([0-9A-F]+)\s+/)
           match[1]
