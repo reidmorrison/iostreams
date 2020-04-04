@@ -3,7 +3,7 @@ module IOStreams
     # Implement fnmatch logic for any path iterator
     class Matcher
       # Characters indicating that pattern matching is required
-      MATCH_START_CHARS = /[*?\[{]/
+      MATCH_START_CHARS = /[*?\[{]/.freeze
 
       attr_reader :path, :pattern, :flags
 
@@ -26,7 +26,7 @@ module IOStreams
 
       # Returns whether the relative `file_name` matches
       def match?(file_name)
-        relative_file_name = file_name.sub(path.to_s, '').sub(%r{\A/}, '')
+        relative_file_name = file_name.sub(path.to_s, "").sub(%r{\A/}, "")
         ::File.fnmatch?(pattern, relative_file_name, flags)
       end
 
@@ -39,23 +39,22 @@ module IOStreams
       private
 
       def extract_optimized_path(path, pattern)
-        elements = pattern.split('/')
+        elements = pattern.split("/")
         index    = elements.find_index { |e| e.match(MATCH_START_CHARS) }
-        if index == 0
-          # Cannot optimize path since the very first entry contains a wildcard
-          @path    = path || IOStreams.path
-          @pattern = pattern
-        elsif index.nil?
+        if index.nil?
           # No index means it has no pattern.
           @path    = path.nil? ? IOStreams.path(pattern) : path.join(pattern)
           @pattern = nil
+        elsif index.zero?
+          # Cannot optimize path since the very first entry contains a wildcard
+          @path    = path || IOStreams.path
+          @pattern = pattern
         else
-          new_path = elements[0..index - 1].join('/')
+          new_path = elements[0..index - 1].join("/")
           @path    = path.nil? ? IOStreams.path(new_path) : path.join(new_path)
-          @pattern = elements[index..-1].join('/')
+          @pattern = elements[index..-1].join("/")
         end
       end
-
     end
   end
 end

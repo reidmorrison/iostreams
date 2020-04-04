@@ -7,9 +7,9 @@ module IOStreams
       # Builtin strip options to apply after encoding the read data.
       CLEANSE_RULES = {
         # Strips all non printable characters
-        printable: ->(data, _) { data.gsub!(NOT_PRINTABLE, '') || data },
+        printable:             ->(data, _) { data.gsub!(NOT_PRINTABLE, "") || data },
         # Replaces non printable characters with the value specified in the `replace` option.
-        replace_non_printable: ->(data, replace) { data.gsub!(NOT_PRINTABLE, replace || '') || data }
+        replace_non_printable: ->(data, replace) { data.gsub!(NOT_PRINTABLE, replace || "") || data }
       }.freeze
 
       # Read a line at a time from a file or stream
@@ -42,7 +42,7 @@ module IOStreams
       #     :printable Cleanse all non-printable characters except \r and \n
       #     Proc/lambda    Proc to call after every read to cleanse the data
       #     Default: nil
-      def initialize(input_stream, encoding: 'UTF-8', cleaner: nil, replace: nil)
+      def initialize(input_stream, encoding: "UTF-8", cleaner: nil, replace: nil)
         super(input_stream)
 
         @cleaner          = self.class.extract_cleaner(cleaner)
@@ -51,11 +51,7 @@ module IOStreams
         @replace          = replace
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
-        if replace.nil? && !@input_stream.method(:read).arity.between?(0, 1)
-          @read_cache_buffer = ''.encode(@encoding)
-        else
-          @read_cache_buffer = nil
-        end
+        @read_cache_buffer = ("".encode(@encoding) if replace.nil? && !@input_stream.method(:read).arity.between?(0, 1))
       end
 
       # Returns [String] data returned from the input stream.
@@ -91,6 +87,7 @@ module IOStreams
         when Symbol
           proc = CLEANSE_RULES[cleaner]
           raise(ArgumentError, "Invalid cleansing rule #{cleaner.inspect}") unless proc
+
           proc
         when Proc
           cleaner

@@ -369,7 +369,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
           end
-          assert_equal  "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
+          assert_equal "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
         end
 
         it 'multiple blocks' do
@@ -378,7 +378,7 @@ class StreamTest < Minitest::Test
             stream << {first_name: "Jack", last_name: "Johnson"}
             stream << {first_name: "Able", last_name: "Smith"}
           end
-          assert_equal  "first_name,last_name\nJack,Johnson\nAble,Smith\n", io.string, io.string.inspect
+          assert_equal "first_name,last_name\nJack,Johnson\nAble,Smith\n", io.string, io.string.inspect
         end
 
         it 'empty hashes' do

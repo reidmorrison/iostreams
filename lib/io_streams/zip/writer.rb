@@ -19,9 +19,9 @@ module IOStreams
         if entry_file_name.nil? && original_file_name && (original_file_name =~ /\.(zip)\z/i)
           entry_file_name = original_file_name.to_s[0..-5]
         end
-        entry_file_name ||= 'file'
+        entry_file_name ||= "file"
 
-        Utils.load_soft_dependency('zip_tricks', 'Zip') unless defined?(ZipTricks::Streamer)
+        Utils.load_soft_dependency("zip_tricks", "Zip") unless defined?(ZipTricks::Streamer)
 
         ZipTricks::Streamer.open(output_stream) { |zip| zip.write_deflated_file(entry_file_name, &block) }
       end

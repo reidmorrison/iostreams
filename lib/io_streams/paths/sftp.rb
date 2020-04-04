@@ -1,4 +1,4 @@
-require 'open3'
+require "open3"
 
 module IOStreams
   module Paths
@@ -29,8 +29,8 @@ module IOStreams
         attr_accessor :sshpass_bin, :sftp_bin, :sshpass_wait_seconds
       end
 
-      @sftp_bin             = 'sftp'
-      @sshpass_bin          = 'sshpass'
+      @sftp_bin             = "sftp"
+      @sshpass_bin          = "sshpass"
       @sshpass_wait_seconds = 5
 
       attr_reader :hostname, :username, :ssh_options, :url, :port
@@ -76,7 +76,7 @@ module IOStreams
       #   end
       def initialize(url, username: nil, password: nil, ssh_options: {})
         uri = Utils::URI.new(url)
-        raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == 'sftp'
+        raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == "sftp"
 
         @hostname = uri.hostname
         @mkdir    = false
@@ -133,6 +133,7 @@ module IOStreams
         Net::SFTP.start(hostname, username, build_ssh_options) do |sftp|
           sftp.dir.glob(".", pattern, flags) do |path|
             next if !directories && !path.file?
+
             new_path = self.class.new("sftp://#{hostname}/#{path.name}", username: username, password: password, **ssh_options)
             yield(new_path, path.attributes.attributes)
           end
@@ -168,13 +169,20 @@ module IOStreams
               # Give time for password to be processed and stdin to be passed to sftp process.
               sleep self.class.sshpass_wait_seconds
               writer.puts "get #{remote_file_name} #{local_file_name}"
-              writer.puts 'bye'
+              writer.puts "bye"
               writer.close
               out = reader.read.chomp
-              raise(Errors::CommunicationsFailure, "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
+              unless waith_thr.value.success?
+                raise(Errors::CommunicationsFailure, "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+              end
+
               out
             rescue Errno::EPIPE
-              out = reader.read.chomp rescue nil
+              out = begin
+                      reader.read.chomp
+                    rescue StandardError
+                      nil
+                    end
               raise(Errors::CommunicationsFailure, "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
             end
           end
@@ -189,13 +197,20 @@ module IOStreams
               # Give time for password to be processed and stdin to be passed to sftp process.
               sleep self.class.sshpass_wait_seconds
               writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
-              writer.puts 'bye'
+              writer.puts "bye"
               writer.close
               out = reader.read.chomp
-              raise(Errors::CommunicationsFailure, "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}") unless waith_thr.value.success?
+              unless waith_thr.value.success?
+                raise(Errors::CommunicationsFailure, "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+              end
+
               out
             rescue Errno::EPIPE
-              out = reader.read.chomp rescue nil
+              out = begin
+                      reader.read.chomp
+                    rescue StandardError
+                      nil
+                    end
               raise(Errors::CommunicationsFailure, "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
             end
           end
@@ -203,15 +218,15 @@ module IOStreams
       end
 
       def with_sftp_args
-        return yield sftp_args(ssh_options) unless ssh_options.key?('IdentityKey')
+        return yield sftp_args(ssh_options) unless ssh_options.key?("IdentityKey")
 
-        Utils.temp_file_name('iostreams-sftp-args', 'key') do |file_name|
+        Utils.temp_file_name("iostreams-sftp-args", "key") do |file_name|
           options = ssh_options.dup
-          key     = options.delete('IdentityKey')
+          key     = options.delete("IdentityKey")
           # sftp requires that private key is only readable by the current user
-          ::File.open(file_name, 'wb', 0600) { |io| io.write(key) }
+          ::File.open(file_name, "wb", 0o600) { |io| io.write(key) }
 
-          options['IdentityFile'] = file_name
+          options["IdentityFile"] = file_name
           yield sftp_args(options)
         end
       end
@@ -228,22 +243,22 @@ module IOStreams
           args << "-oBatchMode=yes"
           args << "-oPasswordAuthentication=no"
         end
-        args << "-oIdentitiesOnly=yes" if ssh_options.key?('IdentityFile')
+        args << "-oIdentitiesOnly=yes" if ssh_options.key?("IdentityFile")
         # Default is ask, but this is non-interactive so make the default fail without asking.
-        args << "-oStrictHostKeyChecking=yes" unless ssh_options.key?('StrictHostKeyChecking')
-        args << "-oLogLevel=#{map_log_level}" unless ssh_options.key?('LogLevel')
+        args << "-oStrictHostKeyChecking=yes" unless ssh_options.key?("StrictHostKeyChecking")
+        args << "-oLogLevel=#{map_log_level}" unless ssh_options.key?("LogLevel")
         args << "-oPort=#{port}" unless port == 22
         ssh_options.each_pair { |key, value| args << "-o#{key}=#{value}" }
-        args << '-b'
-        args << '-'
+        args << "-b"
+        args << "-"
         args << "#{username}@#{hostname}"
         args
       end
 
       def build_ssh_options
-        options                = ssh_options.dup
-        options[:logger]       ||= self.logger if defined?(SemanticLogger)
-        options[:port]         ||= port
+        options = ssh_options.dup
+        options[:logger] ||= logger if defined?(SemanticLogger)
+        options[:port] ||= port
         options[:max_pkt_size] ||= 65_536
         options[:password]     ||= @password
         options

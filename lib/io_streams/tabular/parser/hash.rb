@@ -1,12 +1,10 @@
-require 'json'
+require "json"
 module IOStreams
   class Tabular
     module Parser
       class Hash < Base
         def parse(row)
-          unless row.is_a?(::Hash)
-            raise(IOStreams::Errors::TypeMismatch, "Format is :hash. Invalid input: #{row.class.name}")
-          end
+          raise(IOStreams::Errors::TypeMismatch, "Format is :hash. Invalid input: #{row.class.name}") unless row.is_a?(::Hash)
 
           row
         end

@@ -4,7 +4,7 @@ module IOStreams
     attr_writer :builder
 
     def initialize(io_stream)
-      raise(ArgumentError, 'io_stream cannot be nil') if io_stream.nil?
+      raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
       raise(ArgumentError, "io_stream must not be a string: #{io_stream.inspect}") if io_stream.is_a?(String)
 
       @io_stream = io_stream
@@ -266,7 +266,7 @@ module IOStreams
     #   IOStreams.path(".profile").extension        #=> ""
     #   IOStreams.path(".profile.sh").extension     #=> "sh"
     def extension
-      extname&.sub(/^\./, '')
+      extname&.sub(/^\./, "")
     end
 
     private
@@ -280,7 +280,7 @@ module IOStreams
     end
 
     def line_reader(embedded_within: nil, **args)
-      embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?('.csv')
+      embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?(".csv")
 
       stream_reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
     end
@@ -304,19 +304,19 @@ module IOStreams
     end
 
     def line_writer(**args, &block)
-      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Line::Writer)
+      return block.call(io_stream) if io_stream&.is_a?(IOStreams::Line::Writer)
 
       writer { |io| IOStreams::Line::Writer.stream(io, **args, &block) }
     end
 
     def row_writer(delimiter: $/, **args, &block)
-      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Row::Writer)
+      return block.call(io_stream) if io_stream&.is_a?(IOStreams::Row::Writer)
 
       line_writer(delimiter: delimiter) { |io| IOStreams::Row::Writer.stream(io, **args, &block) }
     end
 
     def record_writer(delimiter: $/, **args, &block)
-      return block.call(io_stream) if io_stream && io_stream.is_a?(IOStreams::Record::Writer)
+      return block.call(io_stream) if io_stream&.is_a?(IOStreams::Record::Writer)
 
       line_writer(delimiter: delimiter) { |io| IOStreams::Record::Writer.stream(io, **args, &block) }
     end

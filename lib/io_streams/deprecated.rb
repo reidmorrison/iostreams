@@ -1,6 +1,6 @@
 module IOStreams
-  UTF8_ENCODING   = Encoding.find('UTF-8').freeze
-  BINARY_ENCODING = Encoding.find('BINARY').freeze
+  UTF8_ENCODING   = Encoding.find("UTF-8").freeze
+  BINARY_ENCODING = Encoding.find("BINARY").freeze
 
   # Deprecated IOStreams from v0.x. Do not use, will be removed soon.
   module Deprecated
@@ -9,7 +9,6 @@ module IOStreams
     end
 
     module ClassMethods
-
       # DEPRECATED. Use `#path` or `#io`
       # Examples:
       #   IOStreams.path("data.zip").reader { |f| f.read(100) }

@@ -5,7 +5,7 @@ module IOStreams
     def self.stream(output_stream, original_file_name: nil, **args, &block)
       Utils.temp_file_name("iostreams_writer") do |file_name|
         file(file_name, original_file_name: original_file_name, **args, &block)
-        ::File.open(file_name, 'rb') { |source| ::IO.copy_stream(source, output_stream) }
+        ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) }
       end
     end
 

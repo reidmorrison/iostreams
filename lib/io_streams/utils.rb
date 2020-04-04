@@ -1,4 +1,4 @@
-require 'uri'
+require "uri"
 module IOStreams
   module Utils
     MAX_TEMP_FILE_NAME_ATTEMPTS = 5
@@ -24,7 +24,7 @@ module IOStreams
     # Yields the path to a temporary file_name.
     #
     # File is deleted upon completion if present.
-    def self.temp_file_name(basename, extension = '')
+    def self.temp_file_name(basename, extension = "")
       result = nil
       ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir, max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
         begin
@@ -40,7 +40,7 @@ module IOStreams
       attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
 
       def initialize(url)
-        url       = url.gsub(' ', '%20')
+        url       = url.gsub(" ", "%20")
         uri       = ::URI.parse(url)
         @scheme   = uri.scheme
         @hostname = uri.hostname

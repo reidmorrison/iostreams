@@ -35,9 +35,7 @@ module IOStreams
       #
       #   For all other parameters, see Tabular::Header.new
       def initialize(line_writer, columns: nil, **args)
-        unless line_writer.respond_to?(:<<)
-          raise(ArgumentError, 'Stream must be a IOStreams::Line::Writer or implement #<<')
-        end
+        raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
         @tabular     = IOStreams::Tabular.new(columns: columns, **args)
         @line_writer = line_writer
@@ -47,7 +45,7 @@ module IOStreams
       end
 
       def <<(hash)
-        raise(ArgumentError, '#<< only accepts a Hash argument') unless hash.is_a?(Hash)
+        raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
 
         if @tabular.header?
           # Extract header from the keys from the first row when not supplied above.

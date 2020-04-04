@@ -1,4 +1,4 @@
-require 'open3'
+require "open3"
 
 module IOStreams
   module Pgp
@@ -24,9 +24,9 @@ module IOStreams
       def self.file(file_name, passphrase: nil)
         # Cannot use `passphrase: self.default_passphrase` since it is considered private
         passphrase ||= default_passphrase
-        raise(ArgumentError, 'Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase') unless passphrase
+        raise(ArgumentError, "Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase") unless passphrase
 
-        loopback = IOStreams::Pgp.pgp_version.to_f >= 2.1 ? '--pinentry-mode loopback' : ''
+        loopback = IOStreams::Pgp.pgp_version.to_f >= 2.1 ? "--pinentry-mode loopback" : ""
         command  = "#{IOStreams::Pgp.executable} #{loopback} --batch --no-tty --yes --decrypt --passphrase-fd 0 #{file_name}"
         IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Reader.open: #{command}" }
 
@@ -42,9 +42,7 @@ module IOStreams
               # Ignore broken pipe because gpg terminates early due to an error
               raise(Pgp::Failure, "GPG Failed reading from encrypted file: #{file_name}: #{stderr.read.chomp}")
             end
-          unless waith_thr.value.success?
-            raise(Pgp::Failure, "GPG Failed to decrypt file: #{file_name}: #{stderr.read.chomp}")
-          end
+          raise(Pgp::Failure, "GPG Failed to decrypt file: #{file_name}: #{stderr.read.chomp}") unless waith_thr.value.success?
 
           result
         end

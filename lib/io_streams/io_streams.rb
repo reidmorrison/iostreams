@@ -1,4 +1,4 @@
-require 'uri'
+require "uri"
 
 # Streaming library for Ruby
 #
@@ -111,7 +111,7 @@ module IOStreams
   #
   # Example:
   #   IOStreams.temp_file
-  def self.temp_file(basename, extension = "", &block)
+  def self.temp_file(basename, extension = "")
     Utils.temp_file_name(basename, extension) { |file_name| yield(Paths::File.new(file_name).stream(:none)) }
   end
 
@@ -258,6 +258,7 @@ module IOStreams
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
   def self.register_extension(extension, reader_class, writer_class)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
+
     @extensions[extension.nil? ? nil : extension.to_sym] = Extension.new(reader_class, writer_class)
   end
 
@@ -269,6 +270,7 @@ module IOStreams
   #   register_extension(:xls)
   def self.deregister_extension(extension)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
+
     @extensions.delete(extension.to_sym)
   end
 
@@ -284,6 +286,7 @@ module IOStreams
   #   register_scheme(:xls, MyXls::Reader, MyXls::Writer)
   def self.register_scheme(scheme, klass)
     raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s =~ /\A\w+\Z/
+
     @schemes[scheme.nil? ? nil : scheme.to_sym] = klass
   end
 

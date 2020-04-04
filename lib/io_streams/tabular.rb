@@ -28,20 +28,20 @@ module IOStreams
   #   tabular.render({"third"=>"3", "first_field"=>"1" })
   #   # => "1,,3"
   class Tabular
-    autoload :Header, 'io_streams/tabular/header'
+    autoload :Header, "io_streams/tabular/header"
 
     module Parser
-      autoload :Array, 'io_streams/tabular/parser/array'
-      autoload :Base, 'io_streams/tabular/parser/base'
-      autoload :Csv, 'io_streams/tabular/parser/csv'
-      autoload :Fixed, 'io_streams/tabular/parser/fixed'
-      autoload :Hash, 'io_streams/tabular/parser/hash'
-      autoload :Json, 'io_streams/tabular/parser/json'
-      autoload :Psv, 'io_streams/tabular/parser/psv'
+      autoload :Array, "io_streams/tabular/parser/array"
+      autoload :Base, "io_streams/tabular/parser/base"
+      autoload :Csv, "io_streams/tabular/parser/csv"
+      autoload :Fixed, "io_streams/tabular/parser/fixed"
+      autoload :Hash, "io_streams/tabular/parser/hash"
+      autoload :Json, "io_streams/tabular/parser/json"
+      autoload :Psv, "io_streams/tabular/parser/psv"
     end
 
     module Utility
-      autoload :CSVRow, 'io_streams/tabular/utility/csv_row'
+      autoload :CSVRow, "io_streams/tabular/utility/csv_row"
     end
 
     attr_reader :format, :header, :parser
@@ -132,6 +132,7 @@ module IOStreams
     #   register_format(:csv, IOStreams::Tabular::Parser::Csv)
     def self.register_format(format, parser)
       raise(ArgumentError, "Invalid format #{format.inspect}") unless format.nil? || format.to_s =~ /\A\w+\Z/
+
       @formats[format.nil? ? nil : format.to_sym] = parser
     end
 
@@ -143,6 +144,7 @@ module IOStreams
     #   register_extension(:xls)
     def self.deregister_format(format)
       raise(ArgumentError, "Invalid format #{format.inspect}") unless format.to_s =~ /\A\w+\Z/
+
       @formats.delete(format.to_sym)
     end
 
@@ -163,7 +165,7 @@ module IOStreams
     # Returns the parser to use with tabular for the supplied file_name
     def self.parser_class_for_file_name(file_name)
       format = nil
-      file_name.to_s.split('.').reverse_each do |ext|
+      file_name.to_s.split(".").reverse_each do |ext|
         if @formats.include?(ext.to_sym)
           format = ext.to_sym
           break

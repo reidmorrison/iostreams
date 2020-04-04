@@ -1,4 +1,4 @@
-require 'csv'
+require "csv"
 module IOStreams
   class Tabular
     module Parser
@@ -25,9 +25,7 @@ module IOStreams
         def parse(row)
           return row if row.is_a?(::Array)
 
-          unless row.is_a?(String)
-            raise(IOStreams::Errors::TypeMismatch, "Format is :csv. Invalid input: #{row.class.name}")
-          end
+          raise(IOStreams::Errors::TypeMismatch, "Format is :csv. Invalid input: #{row.class.name}") unless row.is_a?(String)
 
           parse_line(row)
         end
@@ -50,7 +48,7 @@ module IOStreams
           end
 
           def render_array(array)
-            CSV.generate_line(array, encoding: 'UTF-8', row_sep: '')
+            CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
           end
         else
           def parse_line(line)

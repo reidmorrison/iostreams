@@ -111,7 +111,7 @@ module Paths
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             temp_file.write("Hello World")
             begin
-              target = temp_file.directory.join("move_test.txt")
+              target   = temp_file.directory.join("move_test.txt")
               response = temp_file.move_to(target)
               assert_equal target, response
               assert target.exist?
@@ -142,7 +142,7 @@ module Paths
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             temp_file.write("Hello World")
             begin
-              target = temp_file.directory.join("a/b/c/move_test.txt")
+              target   = temp_file.directory.join("a/b/c/move_test.txt")
               response = temp_file.move_to(target)
               assert_equal target, response
               assert target.exist?

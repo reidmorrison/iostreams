@@ -1,5 +1,5 @@
-require 'net/http'
-require 'uri'
+require "net/http"
+require "uri"
 module IOStreams
   module Paths
     class HTTP < IOStreams::Path
@@ -68,21 +68,19 @@ module IOStreams
         result = nil
         raise(IOStreams::Errors::CommunicationsFailure, "Too many redirects") if http_redirect_count < 1
 
-        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https') do |http|
+        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https") do |http|
           request = Net::HTTP::Get.new(uri)
           request.basic_auth(username, password) if username
 
           http.request(request) do |response|
-            if response.is_a?(Net::HTTPNotFound)
-              raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{uri}")
-            end
+            raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{uri}") if response.is_a?(Net::HTTPNotFound)
             if response.is_a?(Net::HTTPUnauthorized)
               raise(IOStreams::Errors::CommunicationsFailure, "Authorization Required: Invalid :username or :password.")
             end
 
             if response.is_a?(Net::HTTPRedirection)
-              new_uri = response['location']
-              return handle_redirects(new_uri, http_redirect_count: http_redirect_count - 1, &block)
+              new_uri = response["location"]
+              return handle_redirects(new_uri, http_redirect_count - 1, &block)
             end
 
             unless response.is_a?(Net::HTTPSuccess)
@@ -90,8 +88,8 @@ module IOStreams
             end
 
             # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-            Utils.temp_file_name('iostreams_http') do |file_name|
-              ::File.open(file_name, 'wb') { |io| response.read_body { |chunk| io.write(chunk) } }
+            Utils.temp_file_name("iostreams_http") do |file_name|
+              ::File.open(file_name, "wb") { |io| response.read_body { |chunk| io.write(chunk) } }
               # Return a read stream
               result = ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
             end

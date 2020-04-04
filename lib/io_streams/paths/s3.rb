@@ -131,13 +131,13 @@ module IOStreams
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
       def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, **args)
-        Utils.load_soft_dependency('aws-sdk-s3', 'AWS S3') unless defined?(::Aws::S3::Client)
+        Utils.load_soft_dependency("aws-sdk-s3", "AWS S3") unless defined?(::Aws::S3::Client)
 
         uri = Utils::URI.new(url)
-        raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == 's3'
+        raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"
 
         @bucket_name = uri.hostname
-        key          = uri.path.sub(%r{\A/}, '')
+        key          = uri.path.sub(%r{\A/}, "")
         if client.is_a?(Hash)
           client[:access_key_id]     = access_key_id if access_key_id
           client[:secret_access_key] = secret_access_key if secret_access_key
@@ -219,7 +219,7 @@ module IOStreams
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def read_file(file_name)
-        ::File.open(file_name, 'wb') do |file|
+        ::File.open(file_name, "wb") do |file|
           client.get_object(@options.merge(response_target: file, bucket: bucket_name, key: path))
         end
       end
@@ -250,7 +250,7 @@ module IOStreams
           obj = s3.bucket(bucket_name).object(path)
           obj.upload_file(file_name)
         else
-          ::File.open(file_name, 'rb') do |file|
+          ::File.open(file_name, "rb") do |file|
             client.put_object(@options.merge(bucket: bucket_name, key: path, body: file))
           end
         end
@@ -267,7 +267,7 @@ module IOStreams
           return
         end
 
-        prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, '')
+        prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, "")
         token  = nil
         loop do
           # Fetches upto 1,000 entries at a time

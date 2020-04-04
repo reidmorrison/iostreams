@@ -23,7 +23,7 @@ module IOStreams
         def render(row, header)
           hash = header.to_hash(row)
 
-          result = ''
+          result = ""
           fixed_layout.each do |map|
             # A nil value is considered an empty string
             value = hash[map.key].to_s
@@ -42,8 +42,8 @@ module IOStreams
           hash  = {}
           index = 0
           fixed_layout.each do |map|
-            value         = line[index..(index + map.size - 1)]
-            index         += map.size
+            value = line[index..(index + map.size - 1)]
+            index += map.size
             hash[map.key] = value.to_s.strip
           end
           hash
@@ -60,6 +60,7 @@ module IOStreams
             size = map[:size]
             key  = map[:key]
             raise(ArgumentError, "Missing required :key and :size in: #{map.inspect}") unless size && key
+
             FixedLayout.new(key, size)
           end
         end

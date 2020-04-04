@@ -1,4 +1,4 @@
-require 'json'
+require "json"
 module IOStreams
   class Tabular
     module Parser
@@ -7,9 +7,7 @@ module IOStreams
         def parse(row)
           return row if row.is_a?(::Hash)
 
-          unless row.is_a?(String)
-            raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}")
-          end
+          raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
 
           JSON.parse(row)
         end

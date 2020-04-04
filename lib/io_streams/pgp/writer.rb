@@ -1,4 +1,4 @@
-require 'open3'
+require "open3"
 
 module IOStreams
   module Pgp
@@ -81,7 +81,6 @@ module IOStreams
           end
         end
       end
-
     end
   end
 end

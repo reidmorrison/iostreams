@@ -1,4 +1,4 @@
-require 'csv'
+require "csv"
 module IOStreams
   module Row
     # Example:
@@ -37,9 +37,7 @@ module IOStreams
       #
       #   For all other parameters, see Tabular::Header.new
       def initialize(line_writer, columns: nil, **args)
-        unless line_writer.respond_to?(:<<)
-          raise(ArgumentError, 'Stream must be a IOStreams::Line::Writer or implement #<<')
-        end
+        raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
         @tabular     = IOStreams::Tabular.new(columns: columns, **args)
         @line_writer = line_writer
@@ -50,7 +48,7 @@ module IOStreams
 
       # Supply a hash or an array to render
       def <<(array)
-        raise(ArgumentError, 'Must supply an Array') unless array.is_a?(Array)
+        raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
 
         if @tabular.header?
           # If header (columns) was not supplied as an argument, assume first line is the header.

@@ -91,7 +91,7 @@ module IOStreams
         case row
         when Array
           unless columns
-            raise(IOStreams::Errors::InvalidHeader, 'Missing mandatory header when trying to convert a row into a hash')
+            raise(IOStreams::Errors::InvalidHeader, "Missing mandatory header when trying to convert a row into a hash")
           end
 
           array_to_hash(row)
@@ -142,9 +142,9 @@ module IOStreams
 
       def cleanse_column(name)
         cleansed = name.to_s.strip.downcase
-        cleansed.gsub!(/\s+/, '_')
-        cleansed.gsub!(/-+/, '_')
-        cleansed.gsub!(/\W+/, '')
+        cleansed.gsub!(/\s+/, "_")
+        cleansed.gsub!(/-+/, "_")
+        cleansed.gsub!(/\W+/, "")
         cleansed
       end
     end

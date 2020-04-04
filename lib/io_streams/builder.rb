@@ -1,5 +1,5 @@
 module IOStreams
-# Build the streams that need to be applied to a path druing reading or writing.
+  # Build the streams that need to be applied to a path druing reading or writing.
   class Builder
     attr_accessor :file_name
     attr_reader :streams, :options
@@ -61,6 +61,7 @@ module IOStreams
     # Return the options set for either a stream or option.
     def setting(stream)
       return streams[stream] if streams
+
       options[stream] if options
     end
 
@@ -96,7 +97,7 @@ module IOStreams
 
     # Returns the streams for the supplied file_name
     def parse_extensions
-      parts      = ::File.basename(file_name).split('.')
+      parts      = ::File.basename(file_name).split(".")
       extensions = []
       while extension = parts.pop
         sym = extension.downcase.to_sym
@@ -109,7 +110,7 @@ module IOStreams
 
     # Executes the streams that need to be executed.
     def execute(type, pipeline, io_stream, &block)
-      raise(ArgumentError, 'IOStreams call is missing mandatory block') if block.nil?
+      raise(ArgumentError, "IOStreams call is missing mandatory block") if block.nil?
 
       if pipeline.empty?
         block.call(io_stream)

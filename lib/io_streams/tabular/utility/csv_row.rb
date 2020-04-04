@@ -1,4 +1,4 @@
-require 'csv'
+require "csv"
 module IOStreams
   class Tabular
     module Utility
@@ -11,11 +11,11 @@ module IOStreams
       #   the file is broken apart based on line feeds during the upload process and
       #   is then processed by each worker on a line by line basis.
       class CSVRow < ::CSV
-        UTF8_ENCODING = Encoding.find('UTF-8').freeze
+        UTF8_ENCODING = Encoding.find("UTF-8").freeze
 
         def initialize(encoding = UTF8_ENCODING)
-          @io = StringIO.new(''.force_encoding(encoding))
-          super(@io, row_sep: '')
+          @io = StringIO.new("".force_encoding(encoding))
+          super(@io, row_sep: "")
         end
 
         # Parse a single line of CSV data
@@ -39,9 +39,7 @@ module IOStreams
               if part[-1] == @quote_char && part.count(@quote_char).odd?
                 # extended column ends
                 csv.last << part[0..-2]
-                if csv.last =~ @parsers[:stray_quote]
-                  raise MalformedCSVError, "Missing or stray quote in line #{lineno + 1}"
-                end
+                raise MalformedCSVError, "Missing or stray quote in line #{lineno + 1}" if csv.last =~ @parsers[:stray_quote]
 
                 csv.last.gsub!(@quote_char * 2, @quote_char)
                 in_extended_col = false
@@ -59,9 +57,7 @@ module IOStreams
               else
                 # regular quoted column
                 csv << part[1..-2]
-                if csv.last =~ @parsers[:stray_quote]
-                  raise MalformedCSVError, "Missing or stray quote in line #{lineno + 1}"
-                end
+                raise MalformedCSVError, "Missing or stray quote in line #{lineno + 1}" if csv.last =~ @parsers[:stray_quote]
 
                 csv.last.gsub!(@quote_char * 2, @quote_char)
               end
@@ -82,11 +78,9 @@ module IOStreams
           # column.
           csv[-1][-1] = @row_sep if in_extended_col
 
-          if in_extended_col
-            raise MalformedCSVError, "Unclosed quoted field on line #{lineno + 1}."
-          end
+          raise MalformedCSVError, "Unclosed quoted field on line #{lineno + 1}." if in_extended_col
 
-          @lineno     += 1
+          @lineno += 1
 
           # save fields unconverted fields, if needed...
           unconverted = csv.dup if @unconverted_fields
@@ -97,9 +91,7 @@ module IOStreams
           csv         = parse_headers(csv) if @use_headers
 
           # inject unconverted fields and accessor, if requested...
-          if @unconverted_fields && (!csv.respond_to? :unconverted_fields)
-            add_unconverted_fields(csv, unconverted)
-          end
+          add_unconverted_fields(csv, unconverted) if @unconverted_fields && (!csv.respond_to? :unconverted_fields)
 
           csv
         end

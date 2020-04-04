@@ -94,6 +94,7 @@ module IOStreams
           initial_line_number = @line_number
           while line.count(@embedded_within).odd?
             raise "Unclosed quoted field on line #{initial_line_number}" if eof? || line.length > @buffer_size * 10
+
             line << @delimiter
             line << _readline
           end
@@ -163,7 +164,7 @@ module IOStreams
           # Take on the encoding from the input stream
           @buffer            = block.dup
           # Take on the encoding from the first block that was read.
-          @read_cache_buffer = ''.encode(block.encoding) if @use_read_cache_buffer
+          @read_cache_buffer = "".encode(block.encoding) if @use_read_cache_buffer
         end
 
         if @buffer.size > MAX_BLOCKS_MULTIPLIER * @buffer_size

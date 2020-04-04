@@ -3,7 +3,7 @@ module IOStreams
     attr_accessor :path
 
     def initialize(path)
-      raise(ArgumentError, 'Path cannot be nil') if path.nil?
+      raise(ArgumentError, "Path cannot be nil") if path.nil?
       raise(ArgumentError, "Path must be a string: #{path.inspect}, class: #{path.class}") unless path.is_a?(String)
 
       @path      = path.frozen? ? path : path.dup.freeze
@@ -30,7 +30,7 @@ module IOStreams
     end
 
     def absolute?
-      !!(path.strip =~ /\A\//)
+      !!(path.strip =~ %r{\A/})
     end
 
     # By default realpath just returns self.
@@ -84,12 +84,12 @@ module IOStreams
     # Cleanup an incomplete write to the target "file" if the copy fails.
     def copy_from(source, **args)
       super(source, **args)
-    rescue StandardError => exc
+    rescue StandardError => e
       begin
         delete
       rescue NotImplementedError
       end
-      raise(exc)
+      raise(e)
     end
 
     # Moves the file by copying it to the new path and then deleting the current path.
