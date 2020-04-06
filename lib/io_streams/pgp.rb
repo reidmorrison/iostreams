@@ -180,7 +180,7 @@ module IOStreams
 
     # Deprecated
     def self.has_key?(**args)
-      key(**args)
+      key?(**args)
     end
 
     # Returns [Array<Hash>] the list of keys.
