@@ -52,6 +52,32 @@ class PgpWriterTest < Minitest::Test
         assert_equal decrypted, result
       end
 
+      it "supports multiple recipients" do
+          IOStreams::Pgp::Writer.file(file_name, recipient: %w[receiver@example.org receiver2@example.org], signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+            io.write(decrypted)
+          end
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+        assert_equal decrypted, result
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+        assert_equal decrypted, result
+      end
+
+      it "encrypts for recipient and audit recipient" do
+        IOStreams::Pgp::Writer.stub(:audit_recipient, "receiver2@example.org") do
+          IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+            io.write(decrypted)
+          end
+        end
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+        assert_equal decrypted, result
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+        assert_equal decrypted, result
+      end
+
       it "fails with bad signer passphrase" do
         skip "GnuPG v2.1 and above passes when it should not" if IOStreams::Pgp.pgp_version.to_f >= 2.1
         assert_raises IOStreams::Pgp::Failure do

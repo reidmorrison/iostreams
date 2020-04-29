@@ -327,7 +327,7 @@ module IOStreams
     def self.import_and_trust(key:)
       raise(ArgumentError, "Key cannot be empty") if key.nil? || (key == "")
 
-      email = key_info(key: key).first.fetch(:email)
+      email = key_info(key: key).last.fetch(:email)
       raise(ArgumentError, "Recipient email cannot be extracted from supplied key") unless email
 
       import(key: key)

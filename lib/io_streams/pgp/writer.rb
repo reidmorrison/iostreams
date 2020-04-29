@@ -12,6 +12,11 @@ module IOStreams
         # Default: None.
         attr_writer :default_signer_passphrase
 
+        # Encrypt all pgp output files with this recipient for audit purposes.
+        # Allows the generated pgp files to be decrypted with this email address.
+        # Useful for audit or problem resolution purposes.
+        attr_accessor :audit_recipient
+
         private
 
         attr_reader :default_signer_passphrase
@@ -19,6 +24,7 @@ module IOStreams
 
         @default_signer_passphrase = nil
         @default_signer            = nil
+        @audit_recipient           = nil
       end
 
       # Write to a PGP / GPG file, encrypting the contents as it is written.
@@ -26,8 +32,12 @@ module IOStreams
       # file_name: [String]
       #   Name of file to write to.
       #
-      # recipient: [String]
-      #   Email of user for which to encypt the file.
+      # recipient: [String|Array<String>]
+      #   One or more emails of users for which to encrypt the file.
+      #
+      # import_and_trust_key: [String|Array<String>]
+      #   One or more pgp keys to import and then use to encrypt the file.
+      #   Note: Ascii Keys can contain multiple keys, only the last one in the file is used.
       #
       # signer: [String]
       #   Name of user with which to sign the encypted file.
@@ -46,11 +56,25 @@ module IOStreams
       # compress_level: [Integer]
       #   Compression level
       #   Default: 6
-      def self.file(file_name, recipient: nil, import_and_trust_key: nil, signer: default_signer, signer_passphrase: default_signer_passphrase, compression: :zip, compress_level: 6, original_file_name: nil)
+      def self.file(file_name,
+                    recipient: nil,
+                    import_and_trust_key: nil,
+                    signer: default_signer,
+                    signer_passphrase: default_signer_passphrase,
+                    compression: :zip,
+                    compress_level: 6,
+                    original_file_name: nil)
+
         raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
 
-        recipient      = IOStreams::Pgp.import_and_trust(key: import_and_trust_key) if import_and_trust_key
         compress_level = 0 if compression == :none
+
+        recipients = Array(recipient)
+        recipients << audit_recipient if audit_recipient
+
+        Array(import_and_trust_key).each do |key|
+          recipients << IOStreams::Pgp.import_and_trust(key: key)
+        end
 
         # Write to stdin, with encrypted contents being written to the file
         command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
@@ -61,7 +85,8 @@ module IOStreams
         end
         command << " -z #{compress_level}" if compress_level != 6
         command << " --compress-algo #{compression}" unless compression == :none
-        command << " --recipient \"#{recipient}\" -o \"#{file_name}\""
+        recipients.each { |address| command << " --recipient \"#{address}\"" }
+        command << " -o \"#{file_name}\""
 
         IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: #{command}" }
 

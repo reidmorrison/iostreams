@@ -32,6 +32,10 @@ unless IOStreams::Pgp.key?(email: "receiver@example.org")
   puts "Generating test PGP key: receiver@example.org"
   IOStreams::Pgp.generate_key(name: "Receiver", email: "receiver@example.org", passphrase: "receiver_passphrase", key_length: 2048)
 end
+unless IOStreams::Pgp.key?(email: "receiver2@example.org")
+  puts "Generating test PGP key: receiver2@example.org"
+  IOStreams::Pgp.generate_key(name: "Receiver2", email: "receiver2@example.org", passphrase: "receiver2_passphrase", key_length: 2048)
+end
 
 # Test paths
 root = File.expand_path(File.join(__dir__, "../tmp"))
