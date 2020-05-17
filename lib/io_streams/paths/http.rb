@@ -1,5 +1,6 @@
 require "net/http"
 require "uri"
+require "cgi"
 module IOStreams
   module Paths
     class HTTP < IOStreams::Path

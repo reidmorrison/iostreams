@@ -1,4 +1,5 @@
 require "uri"
+require "tmpdir"
 module IOStreams
   module Utils
     MAX_TEMP_FILE_NAME_ATTEMPTS = 5
