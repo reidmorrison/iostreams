@@ -16,13 +16,13 @@ module IOStreams
         # Pass-through if already a row writer
         return yield(line_writer) if line_writer.is_a?(self.class)
 
-        yield new(line_writer, **args)
+        yield new(line_writer, file_name: original_file_name, **args)
       end
 
       # When writing to a file also add the line writer stream
       def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
         IOStreams::Line::Writer.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
-          yield new(io, **args, &block)
+          yield new(io, file_name: original_file_name, **args, &block)
         end
       end
 

@@ -5,41 +5,46 @@ layout: default
 
 ## Copying between files
 
+File copying can be used to:
+* copy from one storage location to another.
+* create a decrypted / encrypted copy of an existing file.
+* create a decompressed / compressed copy of an existing file.
+
 Stream based file copying. Changes the file type without changing the file format. For example, compress or encrypt. 
 
-Encrypt the contents of the file `sample.json` and write to `sample.json.enc`
+Decompress `example.csv.gz` into `example.csv`:
 
 ~~~ruby
-input = IOStreams.path("sample.json")
-IOStreams.path("sample.json.enc").copy_from(input)
+source = IOStreams.path("example.csv.gz")
+IOStreams.path("example.csv").copy_from(source)
 ~~~
 
-Encrypt and compress the contents of the file `sample.json` with Symmetric Encryption and write to `sample.json.enc`
+Decrypt a file encrypted with Symmetric Encryption:
 
 ~~~ruby
-input = IOStreams.path("sample.json")
-IOStreams.path("sample.json.enc").option(:enc, compress: true).copy_from(input)
+source = IOStreams.path("example.csv.enc")
+IOStreams.path("example.csv").copy_from(source)
 ~~~
 
-Encrypt and compress the contents of the file `sample.json` with pgp and write to `sample.json.enc`
+Encrypt a file using PGP encryption so that it can only be read by `receiver@example.org`.
 
 ~~~ruby
-input = IOStreams.path("sample.json")
-IOStreams.path("sample.json.pgp").option(:pgp, recipient: "sender@example.org").copy_from(input)
+source = IOStreams.path("example.csv")
+target = IOStreams.path("example.csv.pgp")
+target.option(:pgp, recipient: "receiver@example.org")
+target.copy_from(source)
 ~~~
 
-Decrypt the file `example.csv.enc` and write it to `xyz.csv`.
+When the file name does not have file extensions that would allow IOStreams to infer what streams to apply,
+the streams can be explicitly set using `stream`.
 
-~~~ruby
-input = IOStreams.path("example.csv.enc")
-IOStreams.path("xyz.csv").copy_from(input)
-~~~
+In this example, the file `CUSTOMER_DATA` 
 
-Decrypt file `ABC` that was encrypted with Symmetric Encryption, 
+Decrypt the contents of file  that was encrypted with Symmetric Encryption 
 PGP encrypt the output file and write it to `xyz.csv.pgp` using the pgp key that was imported for `a@a.com`.
 
 ~~~ruby
-input = IOStreams.path("ABC").stream(:enc)
+input = IOStreams.path("CUSTOMER_DATA").stream(:enc)
 IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "a@a.com").copy_from(input)
 ~~~
 
@@ -48,4 +53,11 @@ To copy a file _without_ performing any conversions (ignore file extensions), se
 ~~~ruby
 input = IOStreams.path("sample.json.zip")
 IOStreams.path("sample.copy").copy_from(input, convert: false)
+~~~
+
+~~~ruby
+key = 
+path = IOStreams.join("test/sample.txt.pgp")
+path.option(:pgp, recipient: "a@a.com")
+IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "a@a.com").copy_from(input)
 ~~~

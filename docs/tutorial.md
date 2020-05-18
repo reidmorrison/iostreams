@@ -63,6 +63,13 @@ Install IOStreams gem:
 gem install iostreams --no-doc
 ~~~
 
+If you want to follow the AWS S3 examples below install the AWS S3 gem:
+~~~
+gem install aws-sdk-s3 --no-doc
+~~~
+
+#### TODO: Document AWS S3 configuration.
+
 Open a ruby interactive console:
 
 ~~~
@@ -75,7 +82,7 @@ Load iostreams:
 require "iostreams"
 ~~~
  
-Reference a file path to hold CSV data and then compress it with GZip: 
+Reference a file path to hold CSV data and then for fun lets also compress it with GZip: 
 ~~~ruby
 path = IOStreams.path("sample/example.csv.gz")
 # => #<IOStreams::Paths::File:sample/example.csv.gz pipeline={:gz=>{}}> 
@@ -183,58 +190,210 @@ That is because `zip` requires the entire file to be downloaded before it can de
 in the file. And HTTP uses a push protocol when reading files, so it is downloaded automatically
 into a temp file behind the scenes so that we can read it as if it was a local file.
 
+## Same Code - Any File Type
 
-## Copying between files
-
-Stream based file copying. Changes the file type without changing the file format. For example, compress or encrypt. 
-
-Encrypt the contents of the file `sample.json` and write to `sample.json.enc`
-
+Lets define a method to write data to a file.
 ~~~ruby
-input = IOStreams.path("sample.json")
-IOStreams.path("sample.json.enc").copy_from(input)
+def write_lines(file_name)
+  path = IOStreams.path(file_name)
+  path.writer do |io|
+    io << "name,login\n"
+    io << "Jack Jones,jjones\n"
+    io << "Jill Smith,jsmith\n"
+  end
+end
 ~~~
 
-Encrypt and compress the contents of the file `sample.json` with Symmetric Encryption and write to `sample.json.enc`
-
+Create some sample files to work with
 ~~~ruby
-input = IOStreams.path("sample.json")
-IOStreams.path("sample.json.enc").option(:enc, compress: true).copy_from(input)
+write_lines("sample/example.csv")
+write_lines("sample/example.csv.gz")
 ~~~
 
-Encrypt and compress the contents of the file `sample.json` with pgp and write to `sample.json.enc`
-
+For PGP files we also need to specify the recipient that can decrypt the file.
 ~~~ruby
-input = IOStreams.path("sample.json")
-IOStreams.path("sample.json.pgp").option(:pgp, recipient: "sender@example.org").copy_from(input)
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org")
+write_lines(path)
 ~~~
 
-Decrypt the file `abc.csv.enc` and write it to `xyz.csv`.
+`IOStreams.path` takes a string as its argument, it can also accept an existing instance of `IOStreams`.
+That allows the same method to accept the pgp recipient without having to pass the pgp specific recipient information
+as an argument to the method.
 
+Consider a simple method to display the contents of a file a line at a time 
+prefixed with the line number within the file:
 ~~~ruby
-input = IOStreams.path("abc.csv.enc")
-IOStreams.path("xyz.csv").copy_from(input)
+def show_lines(file_name)
+  line_number = 1
+  path = IOStreams.path(file_name)
+  path.each(:line) do |line|
+    puts "[#{line_number}] #{line}"
+    line_number += 1
+  end
+end
 ~~~
 
-Decrypt file `ABC` that was encrypted with Symmetric Encryption, 
-PGP encrypt the output file and write it to `xyz.csv.pgp` using the pgp key that was imported for `a@a.com`.
+Lets read all of the files created above with the new `show_lines` method:
 
 ~~~ruby
-input = IOStreams.path("ABC").stream(:enc)
-IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "a@a.com").copy_from(input)
+show_lines("sample/example.csv")
+show_lines("sample/example.csv.gz")
+show_lines("sample/example.csv.pgp")
 ~~~
 
-To copy a file _without_ performing any conversions (ignore file extensions), set `convert` to `false`:
+Noticed how they all returned the exact same output, even though the first file was plain text, the second was
+compressed with Gzip and the third was encrypted with PGP. They all returned:
+~~~
+[1] name,login
+[2] Jack Jones,jjones
+[3] Jill Smith,jsmith
+~~~
+
+Now a program can be developed using IOStreams and then without any code changes is able read plain text, compressed,
+or encrypted files.
+
+## Same Code - Any File Storage
+
+Using the unchanged `write_lines` and `show_lines` methods above, lets use them to read and write from S3.
+
+But how is that possible since our program / methods above were only tested against local files?
+
+Create the same sample files to work with, but this time on AWS S3 in a bucket name `my-iostreams-bucket`
+~~~ruby
+write_lines("s3://my-iostreams-bucket/sample/example.csv")
+write_lines("s3://my-iostreams-bucket/sample/example.csv.gz")
+~~~
+
+For PGP files we also need to specify the recipient that can decrypt the file.
+~~~ruby
+path = IOStreams.path("s3://my-iostreams-bucket/sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org")
+write_lines(path)
+~~~
+
+The only change to switch to S3 storage was to prefix the file name passed in with `s3://my-iostreams-bucket/`.
+
+Lets read all of the files created above with the new `show_lines` method:
 
 ~~~ruby
-input = IOStreams.path("sample.json.zip")
-IOStreams.path("sample.copy").copy_from(input, convert: false)
+show_lines("s3://my-iostreams-bucket/sample/example.csv")
+show_lines("s3://my-iostreams-bucket/sample/example.csv.gz")
+show_lines("s3://my-iostreams-bucket/sample/example.csv.pgp")
 ~~~
 
-## Notes
+Noticed how they all returned the exact same output, even though the first file was plain text, the second was
+compressed with Gzip and the third was encrypted with PGP. They all returned:
+~~~
+[1] name,login
+[2] Jack Jones,jjones
+[3] Jill Smith,jsmith
+~~~
 
-* Due to the nature of Zip, both its Reader and Writer methods will create
-  a temp file when reading from or writing to a stream.
-  Recommended to use Gzip over Zip since it can be streamed without requiring temp files.
-* Zip becomes exponentially slower with very large files, especially files
-  that exceed 4GB when uncompressed. Highly recommend using GZip for large files.
+Now a program can be developed using IOStreams and then without any code changes is able to read and write across
+multiple storage locations.
+
+## Tabular Files
+
+Tabular files are any files that start with a header row and then follows with rows of data with each row
+on a separate line.
+
+For example "example.csv"
+~~~
+name,login
+Jack Jones,jjones
+Jill Smith,jsmith
+~~~
+
+The first line contains the header: `name,login`
+Each subsequent line contains the data delimited by a special character such as `,` in the same order as the header.
+
+Another example is PSV (Pipe Separated Files)
+~~~
+name|login
+Jack Jones|jjones
+Jill Smith|jsmith
+~~~
+
+Of course these are simple examples and there are lots of rules on how to embed or escape the row or column delimiters.
+
+### Reading Tabular Files
+
+When reading these files, IOStreams can handle the complexity of the files format and always return the data as a
+`hash`, or `array`.
+
+Lets create another method along the lines of `show_lines` above:
+~~~ruby
+def show_rows(file_name)
+  line_number = 1
+  path = IOStreams.path(file_name)
+  path.each(:hash) do |row|
+    puts "[#{line_number}] #{row.inspect}"
+    line_number += 1
+  end
+end
+~~~
+
+The key difference is that `:hash` is being passed into `each` instead of `:line`.
+
+Using the sample files created above:
+~~~ruby
+show_rows("sample/example.csv")
+~~~
+
+Outputs:
+~~~
+[1] {"name"=>"Jack Jones", "login"=>"jjones"}
+[2] {"name"=>"Jill Smith", "login"=>"jsmith"}
+~~~
+
+Notice how only 2 rows are returned, since the header row is not actual data, it is just the definition of the
+rows that follow.
+
+The same method works without changes regardless of where the file was stored, or whether it was encrypted or
+compressed.
+~~~ruby
+show_rows("s3://my-iostreams-bucket/sample/example.csv")
+show_rows("s3://my-iostreams-bucket/sample/example.csv.gz")
+show_rows("s3://my-iostreams-bucket/sample/example.csv.pgp")
+~~~
+
+### Writing Tabular Files
+
+Lets define a new method that uses a tabular api to write the data.
+~~~ruby
+def write_tabular(file_name)
+  path = IOStreams.path(file_name)
+  path.writer(:hash) do |io|
+    io << {"name"=>"Jack Jones", "login"=>"jjones"}
+    io << {"name"=>"Jill Smith", "login"=>"jsmith"}
+  end
+end
+~~~
+
+The key difference is that `:hash` is being passed into `writer` to indicate that it will receive hashes instead of
+raw data.
+
+Lets create a sample file, and then read it to compare its contents to the raw writer above.
+~~~ruby
+write_tabular("sample/example.csv")
+IOStreams.path("sample/example.csv").read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
+
+Note how the output file is identical to the one created above. 
+Using `writer(:hash)` makes it easier to develop the application without regard for:
+- The order of columns
+- Missing columns
+- Specialized escaping of values to handle row or column delimiters
+
+Note: The first row written determines the column names as well as the order of the elements to be written.
+See `IOStreams.writer` for details on how to supply the header columns up front to set the order or to filter out
+which columns should be written to the target file.
+
+Now lets write the same data into a JSON file, then read it to see what it looks like:
+~~~ruby
+write_tabular("sample/example.json")
+IOStreams.path("sample/example.json").read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~

@@ -13,13 +13,13 @@ module IOStreams
         # Pass-through if already a record writer
         return yield(line_writer) if line_writer.is_a?(self.class)
 
-        yield new(line_writer, **args)
+        yield new(line_writer, file_name: original_file_name, **args)
       end
 
       # When writing to a file also add the line writer stream
       def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
         IOStreams::Line::Writer.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
-          yield new(io, **args, &block)
+          yield new(io, file_name: original_file_name, **args, &block)
         end
       end
 
@@ -27,13 +27,38 @@ module IOStreams
       # Parse a delimited data source.
       #
       # Parameters
-      #   delimited: [#<<]
-      #     Anything that accepts a line / record at a time when #<< is called on it.
-      #
       #   format: [Symbol]
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
-      #   For all other parameters, see Tabular::Header.new
+      #   file_name: [String]
+      #     When `:format` is not supplied the file name can be used to infer the required format.
+      #     Optional. Default: nil
+      #
+      #   format_options: [Hash]
+      #     Any specialized format specific options. For example, `:fixed` format requires the file definition.
+      #
+      #   columns [Array<String>]
+      #     The header columns when the file does not include a header row.
+      #     Note:
+      #       It is recommended to keep all columns as strings to avoid any issues when persistence
+      #       with MongoDB when it converts symbol keys to strings.
+      #
+      #   allowed_columns [Array<String>]
+      #     List of columns to allow.
+      #     Default: nil ( Allow all columns )
+      #     Note:
+      #       When supplied any columns that are rejected will be returned in the cleansed columns
+      #       as nil so that they can be ignored during processing.
+      #
+      #   required_columns [Array<String>]
+      #     List of columns that must be present, otherwise an Exception is raised.
+      #
+      #   skip_unknown [true|false]
+      #     true:
+      #       Skip columns not present in the `allowed_columns` by cleansing them to nil.
+      #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
+      #     false:
+      #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
       def initialize(line_writer, columns: nil, **args)
         raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 

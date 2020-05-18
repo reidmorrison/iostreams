@@ -2,85 +2,9 @@ require "open3"
 module IOStreams
   # Read/Write PGP/GPG file or stream.
   #
-  # Example Setup:
-  #
-  #   1. Install OpenPGP
-  #      Mac OSX (homebrew) : `brew install gpg2`
-  #      Redhat Linux: `rpm install gpg2`
-  #
-  #   2. # Generate senders private and public key
-  #      IOStreams::Pgp.generate_key(name: 'Sender', email: 'sender@example.org', passphrase: 'sender_passphrase')
-  #
-  #   3. # Generate receivers private and public key
-  #      IOStreams::Pgp.generate_key(name: 'Receiver', email: 'receiver@example.org', passphrase: 'receiver_passphrase')
-  #
-  # Example 1:
-  #
-  #   # Generate encrypted file for a specific recipient and sign it with senders credentials
-  #   data = %w(this is some data that should be encrypted using pgp)
-  #   IOStreams::Pgp::Writer.open('secure.gpg', recipient: 'receiver@example.org', signer: 'sender@example.org', signer_passphrase: 'sender_passphrase') do |output|
-  #     data.each { |word| output.puts(word) }
-  #   end
-  #
-  #   # Decrypt the file sent to `receiver@example.org` using its private key
-  #   # Recipient must also have the senders public key to verify the signature
-  #   IOStreams::Pgp::Reader.open('secure.gpg', passphrase: 'receiver_passphrase') do |stream|
-  #     while !stream.eof?
-  #       p stream.read(10)
-  #       puts
-  #     end
-  #   end
-  #
-  # Example 2:
-  #
-  #   # Default user and passphrase to sign the output file:
-  #   IOStreams::Pgp::Writer.default_signer            = 'sender@example.org'
-  #   IOStreams::Pgp::Writer.default_signer_passphrase = 'sender_passphrase'
-  #
-  #   # Default passphrase for decrypting recipients files.
-  #   # Note: Usually this would be the senders passphrase, but in this example
-  #   #       it is decrypting the file intended for the recipient.
-  #   IOStreams::Pgp::Reader.default_passphrase = 'receiver_passphrase'
-  #
-  #   # Generate encrypted file for a specific recipient and sign it with senders credentials
-  #   data = %w(this is some data that should be encrypted using pgp)
-  #   IOStreams.writer('secure.gpg', streams: {pgp: {recipient: 'receiver@example.org'}}) do |output|
-  #     data.each { |word| output.puts(word) }
-  #   end
-  #
-  #   # Decrypt the file sent to `receiver@example.org` using its private key
-  #   # Recipient must also have the senders public key to verify the signature
-  #   IOStreams.reader('secure.gpg') do |stream|
-  #     while data = stream.read(10)
-  #       p data
-  #     end
-  #   end
-  #
-  # FAQ:
-  # - If you get not trusted errors
-  #    gpg --edit-key sender@example.org
-  #      Select highest level: 5
-  #
-  # Delete test keys:
-  #   IOStreams::Pgp.delete_keys(email: 'sender@example.org', private: true)
-  #   IOStreams::Pgp.delete_keys(email: 'receiver@example.org', private: true)
-  #
   # Limitations
   # - Designed for processing larger files since a process is spawned for each file processed.
   # - For small in memory files or individual emails, use the 'opengpgme' library.
-  #
-  # Compression Performance:
-  #   Running tests on an Early 2015 Macbook Pro Dual Core with Ruby v2.3.1
-  #
-  #   Input file: test.log 3.6GB
-  #     :none:  size: 3.6GB  write:  52s  read:  45s
-  #     :zip:   size: 411MB  write:  75s  read:  31s
-  #     :zlib:  size: 241MB  write:  66s  read:  23s  ( 756KB Memory )
-  #     :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
-  #
-  # Notes:
-  # - Tested against gnupg v1.4.21 and v2.0.30
-  # - Does not work yet with gnupg v2.1. Pull Requests welcome.
   module Pgp
     autoload :Reader, "io_streams/pgp/reader"
     autoload :Writer, "io_streams/pgp/writer"

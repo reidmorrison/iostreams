@@ -89,28 +89,28 @@ Read an entire file into memory:
 
 ~~~ruby
 IOStreams.path("example.txt").read
-#> "Hello World"
+# => "Hello World"
 ~~~
 
 Read an entire file into memory from S3:
 
 ~~~ruby
 IOStreams.path("s3://bucket-name/path/example.txt").read
-#> "Hello World"
+# => "Hello World"
 ~~~
 
 Decompress an entire gzip file into memory:
 
 ~~~ruby
 IOStreams.path("example.txt.gz").read
-#> "Hello World"
+# => "Hello World"
 ~~~
 
 Decrypt and decompress the entire PGP file into memory:
 
 ~~~ruby
 IOStreams.path("example.txt.pgp").read
-#> "Hello World"
+# => "Hello World"
 ~~~
 
 ## Streaming Examples

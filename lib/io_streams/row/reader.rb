@@ -9,13 +9,13 @@ module IOStreams
         # Pass-through if already a row reader
         return yield(line_reader) if line_reader.is_a?(self.class)
 
-        yield new(line_reader, **args)
+        yield new(line_reader, file_name: original_file_name, **args)
       end
 
       # When reading from a file also add the line reader stream
       def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
         IOStreams::Line::Reader.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
-          yield new(io, **args)
+          yield new(io, file_name: original_file_name, **args)
         end
       end
 
