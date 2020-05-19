@@ -306,19 +306,19 @@ module IOStreams
     def line_writer(**args, &block)
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Line::Writer)
 
-      writer { |io| IOStreams::Line::Writer.stream(io, **args, &block) }
+      writer { |io| IOStreams::Line::Writer.stream(io, original_file_name: builder.file_name, **args, &block) }
     end
 
     def row_writer(delimiter: $/, **args, &block)
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Row::Writer)
 
-      line_writer(delimiter: delimiter) { |io| IOStreams::Row::Writer.stream(io, **args, &block) }
+      line_writer(delimiter: delimiter) { |io| IOStreams::Row::Writer.stream(io, original_file_name: builder.file_name, **args, &block) }
     end
 
     def record_writer(delimiter: $/, **args, &block)
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Record::Writer)
 
-      line_writer(delimiter: delimiter) { |io| IOStreams::Record::Writer.stream(io, **args, &block) }
+      line_writer(delimiter: delimiter) { |io| IOStreams::Record::Writer.stream(io, original_file_name: builder.file_name, **args, &block) }
     end
   end
 end

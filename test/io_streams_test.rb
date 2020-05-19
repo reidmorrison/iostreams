@@ -60,6 +60,34 @@ module IOStreams
           IOStreams.path("s3://a.xyz")
           assert_equal :s3, path
         end
+
+        it "hash writer detects json format from file name" do
+          path = IOStreams.path("/tmp/io_streams/abc.json")
+          path.writer(:hash) do |io|
+            io << {"name" => "Jack Jones", "login" => "jjones"}
+            io << {"name" => "Jill Smith", "login" => "jsmith"}
+          end
+          expected = '{"name":"Jack Jones","login":"jjones"}' + "\n" +
+            '{"name":"Jill Smith","login":"jsmith"}' + "\n"
+          assert path.exist?
+          actual = path.read
+          path.delete
+          assert_equal expected, actual
+        end
+
+        it "array writer detects json format from file name" do
+          path = IOStreams.path("/tmp/io_streams/abc.json")
+          path.writer(:array, columns: %w[name login]) do |io|
+            io << ["Jack Jones", "jjones"]
+            io << ["Jill Smith", "jsmith"]
+          end
+          expected = '{"name":"Jack Jones","login":"jjones"}' + "\n" +
+            '{"name":"Jill Smith","login":"jsmith"}' + "\n"
+          assert path.exist?
+          actual = path.read
+          path.delete
+          assert_equal expected, actual
+        end
       end
 
       describe ".temp_file" do
