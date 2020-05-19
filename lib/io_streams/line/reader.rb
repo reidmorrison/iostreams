@@ -9,7 +9,7 @@ module IOStreams
       LINEFEED_REGEXP = Regexp.compile(/\r\n|\n|\r/).freeze
 
       # Read a line at a time from a stream
-      def self.stream(input_stream, original_file_name: nil, **args)
+      def self.stream(input_stream, **args)
         # Pass-through if already a line reader
         return yield(input_stream) if input_stream.is_a?(self.class)
 
@@ -44,7 +44,7 @@ module IOStreams
       # - Skip "empty" / "blank" lines. RegExp?
       # - Extract header line(s) / first non-comment, non-blank line
       # - Embedded newline support, RegExp? or Proc?
-      def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
+      def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil, original_file_name: nil)
         super(input_stream)
 
         @embedded_within = embedded_within

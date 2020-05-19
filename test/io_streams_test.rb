@@ -1,8 +1,24 @@
 require_relative "test_helper"
+require "json"
 
 module IOStreams
   class PathTest < Minitest::Test
     describe IOStreams do
+      let :records do
+        [
+          {"name" => "Jack Jones", "login" => "jjones"},
+          {"name" => "Jill Smith", "login" => "jsmith"}
+        ]
+      end
+
+      let :expected_json do
+        records.collect(&:to_json).join("\n") + "\n"
+      end
+
+      let :json_file_name do
+        "/tmp/io_streams/abc.json"
+      end
+
       describe ".root" do
         it "return default path" do
           path = ::File.expand_path(::File.join(__dir__, "../tmp/default"))
@@ -64,15 +80,23 @@ module IOStreams
         it "hash writer detects json format from file name" do
           path = IOStreams.path("/tmp/io_streams/abc.json")
           path.writer(:hash) do |io|
-            io << {"name" => "Jack Jones", "login" => "jjones"}
-            io << {"name" => "Jill Smith", "login" => "jsmith"}
+            records.each { |hash| io << hash }
           end
-          expected = '{"name":"Jack Jones","login":"jjones"}' + "\n" +
-            '{"name":"Jill Smith","login":"jsmith"}' + "\n"
-          assert path.exist?
           actual = path.read
           path.delete
-          assert_equal expected, actual
+          assert_equal expected_json, actual
+        end
+
+        it "hash reader detects json format from file name" do
+          ::File.open(json_file_name, "wb") { |file| file.write(expected_json) }
+          rows = []
+          path = IOStreams.path("/tmp/io_streams/abc.json")
+          path.each(:hash) do |row|
+            rows << row
+          end
+          actual = rows.collect(&:to_json).join("\n") + "\n"
+          path.delete
+          assert_equal expected_json, actual
         end
 
         it "array writer detects json format from file name" do
@@ -81,12 +105,9 @@ module IOStreams
             io << ["Jack Jones", "jjones"]
             io << ["Jill Smith", "jsmith"]
           end
-          expected = '{"name":"Jack Jones","login":"jjones"}' + "\n" +
-            '{"name":"Jill Smith","login":"jsmith"}' + "\n"
-          assert path.exist?
           actual = path.read
           path.delete
-          assert_equal expected, actual
+          assert_equal expected_json, actual
         end
       end
 

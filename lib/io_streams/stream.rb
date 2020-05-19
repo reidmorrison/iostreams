@@ -282,20 +282,20 @@ module IOStreams
     def line_reader(embedded_within: nil, **args)
       embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?(".csv")
 
-      stream_reader { |io| yield IOStreams::Line::Reader.new(io, embedded_within: embedded_within, **args) }
+      stream_reader { |io| yield IOStreams::Line::Reader.new(io, original_file_name: builder.file_name, embedded_within: embedded_within, **args) }
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
     def row_reader(delimiter: nil, embedded_within: nil, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Row::Reader.new(io, **args)
+        yield IOStreams::Row::Reader.new(io, original_file_name: builder.file_name, **args)
       end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
     def record_reader(delimiter: nil, embedded_within: nil, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Record::Reader.new(io, **args)
+        yield IOStreams::Record::Reader.new(io, original_file_name: builder.file_name, **args)
       end
     end
 

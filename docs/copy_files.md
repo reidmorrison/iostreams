@@ -40,7 +40,7 @@ the streams can be explicitly set using `stream`.
 
 In this example, the file `CUSTOMER_DATA` 
 
-Decrypt the contents of file  that was encrypted with Symmetric Encryption 
+Decrypt the contents of file that was encrypted with Symmetric Encryption 
 PGP encrypt the output file and write it to `xyz.csv.pgp` using the pgp key that was imported for `a@a.com`.
 
 ~~~ruby
@@ -53,11 +53,4 @@ To copy a file _without_ performing any conversions (ignore file extensions), se
 ~~~ruby
 input = IOStreams.path("sample.json.zip")
 IOStreams.path("sample.copy").copy_from(input, convert: false)
-~~~
-
-~~~ruby
-key = 
-path = IOStreams.join("test/sample.txt.pgp")
-path.option(:pgp, recipient: "a@a.com")
-IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "a@a.com").copy_from(input)
 ~~~

@@ -5,17 +5,17 @@ module IOStreams
       # Read a line as an Array at a time from a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :each
-      def self.stream(line_reader, original_file_name: nil, **args)
+      def self.stream(line_reader, **args)
         # Pass-through if already a row reader
         return yield(line_reader) if line_reader.is_a?(self.class)
 
-        yield new(line_reader, file_name: original_file_name, **args)
+        yield new(line_reader, **args)
       end
 
       # When reading from a file also add the line reader stream
       def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
         IOStreams::Line::Reader.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
-          yield new(io, file_name: original_file_name, **args)
+          yield new(io, original_file_name: original_file_name, **args)
         end
       end
 
@@ -29,12 +29,12 @@ module IOStreams
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
       #   For all other parameters, see Tabular::Header.new
-      def initialize(line_reader, cleanse_header: true, **args)
+      def initialize(line_reader, cleanse_header: true, original_file_name: nil, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
 
-        @tabular        = IOStreams::Tabular.new(**args)
+        @tabular        = IOStreams::Tabular.new(file_name: original_file_name, **args)
         @line_reader    = line_reader
         @cleanse_header = cleanse_header
       end

@@ -394,6 +394,39 @@ which columns should be written to the target file.
 Now lets write the same data into a JSON file, then read it to see what it looks like:
 ~~~ruby
 write_tabular("sample/example.json")
-IOStreams.path("sample/example.json").read
-# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+puts IOStreams.path("sample/example.json").read
+# => "{\"name\":\"Jack Jones\",\"login\":\"jjones\"}\n{\"name\":\"Jill Smith\",\"login\":\"jsmith\"}\n"
 ~~~
+
+Using the same `show_rows` method above to display the file line by line
+~~~ruby
+show_rows("sample/example.json")
+~~~
+
+Outputs the same data even though the file is now json instead of the previous file that was csv:
+~~~
+[1] {"name"=>"Jack Jones", "login"=>"jjones"}
+[2] {"name"=>"Jill Smith", "login"=>"jsmith"}
+~~~
+
+The same method works without changes regardless of where the file was stored, or whether it was encrypted or
+compressed, or whether the format was csv or json.
+~~~ruby
+show_rows("sample/example.csv")
+show_rows("sample/example.json")
+show_rows("s3://my-iostreams-bucket/sample/example.csv")
+show_rows("s3://my-iostreams-bucket/sample/example.json.gz")
+show_rows("s3://my-iostreams-bucket/sample/example.json.pgp")
+~~~
+
+## Conclusion
+
+IOStreams makes it possible to write an application to a common api so that
+* the file can be accessed anywhere ( at least a local file, AWS S3, HTTP(S) and SFTP for now).
+* the application does not care if or how the file was compressed.
+* the application does not care if or how the file was encrypted.
+* the actual file storage mechanism can be determined at runtime, or per environment.
+* it is transparent whether the application receives an Excel Spreadsheet, CSV, or PSV formatted file.
+  It just works with hashes when desired.  
+
+IOStreams is an incredibly powerful streaming library to make runtime file formats, compression, or encryption changes transparent.
