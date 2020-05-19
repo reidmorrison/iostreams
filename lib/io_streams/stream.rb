@@ -282,7 +282,12 @@ module IOStreams
     def line_reader(embedded_within: nil, **args)
       embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?(".csv")
 
-      stream_reader { |io| yield IOStreams::Line::Reader.new(io, original_file_name: builder.file_name, embedded_within: embedded_within, **args) }
+      stream_reader do |io|
+        yield IOStreams::Line::Reader.new(io,
+                                          original_file_name: builder.file_name,
+                                          embedded_within:    embedded_within,
+                                          **args)
+      end
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
@@ -306,19 +311,25 @@ module IOStreams
     def line_writer(**args, &block)
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Line::Writer)
 
-      writer { |io| IOStreams::Line::Writer.stream(io, original_file_name: builder.file_name, **args, &block) }
+      writer do |io|
+        IOStreams::Line::Writer.stream(io, original_file_name: builder.file_name, **args, &block)
+      end
     end
 
     def row_writer(delimiter: $/, **args, &block)
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Row::Writer)
 
-      line_writer(delimiter: delimiter) { |io| IOStreams::Row::Writer.stream(io, original_file_name: builder.file_name, **args, &block) }
+      line_writer(delimiter: delimiter) do |io|
+        IOStreams::Row::Writer.stream(io, original_file_name: builder.file_name, **args, &block)
+      end
     end
 
     def record_writer(delimiter: $/, **args, &block)
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Record::Writer)
 
-      line_writer(delimiter: delimiter) { |io| IOStreams::Record::Writer.stream(io, original_file_name: builder.file_name, **args, &block) }
+      line_writer(delimiter: delimiter) do |io|
+        IOStreams::Record::Writer.stream(io, original_file_name: builder.file_name, **args, &block)
+      end
     end
   end
 end

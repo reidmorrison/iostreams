@@ -49,10 +49,10 @@ module IOStreams
         @user     = uri.user
         @password = uri.password
         @port     = uri.port
-        if uri.query
-          @query = {}
-          ::URI.decode_www_form(uri.query).each { |key, value| @query[key] = value }
-        end
+        return unless uri.query
+
+        @query = {}
+        ::URI.decode_www_form(uri.query).each { |key, value| @query[key] = value }
       end
     end
   end

@@ -53,9 +53,9 @@ class PgpWriterTest < Minitest::Test
       end
 
       it "supports multiple recipients" do
-          IOStreams::Pgp::Writer.file(file_name, recipient: %w[receiver@example.org receiver2@example.org], signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
-            io.write(decrypted)
-          end
+        IOStreams::Pgp::Writer.file(file_name, recipient: %w[receiver@example.org receiver2@example.org], signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+          io.write(decrypted)
+        end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
         assert_equal decrypted, result

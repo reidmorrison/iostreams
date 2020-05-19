@@ -142,7 +142,10 @@ module IOStreams
       return unless requires_header?
 
       if IOStreams::Utils.blank?(header.columns)
-        raise(Errors::MissingHeader, "Header columns must be set before attempting to render a header for format: #{format.inspect}")
+        raise(
+          Errors::MissingHeader,
+          "Header columns must be set before attempting to render a header for format: #{format.inspect}"
+        )
       end
 
       parser.render(header.columns, header)

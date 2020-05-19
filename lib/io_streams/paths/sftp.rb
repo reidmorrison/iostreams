@@ -173,7 +173,10 @@ module IOStreams
               writer.close
               out = reader.read.chomp
               unless waith_thr.value.success?
-                raise(Errors::CommunicationsFailure, "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+                raise(
+                  Errors::CommunicationsFailure,
+                  "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
+                )
               end
 
               out
@@ -183,7 +186,10 @@ module IOStreams
                     rescue StandardError
                       nil
                     end
-              raise(Errors::CommunicationsFailure, "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+              raise(
+                Errors::CommunicationsFailure,
+                "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
+              )
             end
           end
         end
@@ -201,7 +207,10 @@ module IOStreams
               writer.close
               out = reader.read.chomp
               unless waith_thr.value.success?
-                raise(Errors::CommunicationsFailure, "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+                raise(
+                  Errors::CommunicationsFailure,
+                  "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
+                )
               end
 
               out
@@ -211,7 +220,10 @@ module IOStreams
                     rescue StandardError
                       nil
                     end
-              raise(Errors::CommunicationsFailure, "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}")
+              raise(
+                Errors::CommunicationsFailure,
+                "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
+              )
             end
           end
         end

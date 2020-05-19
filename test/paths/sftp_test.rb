@@ -60,7 +60,7 @@ module Paths
 
       describe "#writer" do
         it "writes" do
-          assert_equal raw.size, write_path.writer { |io| io.write(raw) }
+          assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
           assert_equal raw, write_path.read
         end
 
@@ -77,7 +77,7 @@ module Paths
 
           it "writes" do
             skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
-            assert_equal raw.size, write_path.writer { |io| io.write(raw) }
+            assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
             assert_equal raw, write_path.read
           end
         end
@@ -90,7 +90,7 @@ module Paths
 
           it "writes" do
             skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
-            assert_equal raw.size, write_path.writer { |io| io.write(raw) }
+            assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
             assert_equal raw, write_path.read
           end
         end

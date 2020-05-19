@@ -1,11 +1,11 @@
 AllCops:
-  TargetRubyVersion: 2.3
+  TargetRubyVersion: 2.4
   Exclude:
     - '.git/**/*'
     - 'docs/**/*'
     - 'gemfiles/*'
-    # Keep Rufus files unchanged
-    - 'lib/rocket_job/plugins/rufus/*'
+    - 'lib/io_streams/deprecated.rb'
+    - 'lib/io_streams/tabular/utility/csv_row.rb'
 
 #
 # RuboCop built-in settings.

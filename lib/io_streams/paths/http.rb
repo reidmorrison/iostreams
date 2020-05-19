@@ -29,7 +29,10 @@ module IOStreams
       def initialize(url, username: nil, password: nil, http_redirect_count: 10)
         uri = URI.parse(url)
         unless %w[http https].include?(uri.scheme)
-          raise(ArgumentError, "Invalid URL. Required Format: 'http://<host_name>/<file_name>', or 'https://<host_name>/<file_name>'")
+          raise(
+            ArgumentError,
+            "Invalid URL. Required Format: 'http://<host_name>/<file_name>', or 'https://<host_name>/<file_name>'"
+          )
         end
 
         @username            = username || uri.user

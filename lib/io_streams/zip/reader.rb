@@ -38,7 +38,7 @@ module IOStreams
             return true
           end
 
-          while entry = zin.get_next_entry
+          while (entry = zin.get_next_entry)
             return true if entry.name == entry_file_name
           end
           false

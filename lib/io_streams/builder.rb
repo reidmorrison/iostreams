@@ -20,7 +20,7 @@ module IOStreams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set}") unless file_name
 
       @options ||= {}
-      if opts = @options[stream]
+      if (opts = @options[stream])
         opts.merge!(options)
       else
         @options[stream] = options.dup
@@ -40,7 +40,7 @@ module IOStreams
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
 
       @streams ||= {}
-      if opts = @streams[stream]
+      if (opts = @streams[stream])
         opts.merge!(options)
       else
         @streams[stream] = options.dup
@@ -91,7 +91,8 @@ module IOStreams
     private
 
     def class_for_stream(type, stream)
-      ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+      ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] ||
+            raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
       ext.send("#{type}_class") || raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
     end
 
@@ -99,7 +100,7 @@ module IOStreams
     def parse_extensions
       parts      = ::File.basename(file_name).split(".")
       extensions = []
-      while extension = parts.pop
+      while (extension = parts.pop)
         sym = extension.downcase.to_sym
         break unless IOStreams.extensions[sym]
 
@@ -119,7 +120,9 @@ module IOStreams
         class_for_stream(type, stream).open(io_stream, opts, &block)
       else
         # Daisy chain multiple streams together
-        last = pipeline.keys.inject(block) { |inner, stream_sym| ->(io) { class_for_stream(type, stream_sym).open(io, pipeline[stream_sym], &inner) } }
+        last = pipeline.keys.inject(block) do |inner, stream_sym|
+          ->(io) { class_for_stream(type, stream_sym).open(io, pipeline[stream_sym], &inner) }
+        end
         last.call(io_stream)
       end
     end

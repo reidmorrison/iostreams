@@ -46,7 +46,15 @@ module IOStreams
     #     `SecureRandom.urlsafe_base64(128)`
     #
     # See `man gpg` for the remaining options
-    def self.generate_key(name:, email:, comment: nil, passphrase:, key_type: "RSA", key_length: 4096, subkey_type: "RSA", subkey_length: key_length, expire_date: nil)
+    def self.generate_key(name:,
+                          email:,
+                          comment: nil,
+                          passphrase:,
+                          key_type: "RSA",
+                          key_length: 4096,
+                          subkey_type: "RSA",
+                          subkey_length: key_length,
+                          expire_date: nil)
       version_check
       params = ""
       params << "Key-Type: #{key_type}\n" if key_type
@@ -63,12 +71,11 @@ module IOStreams
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: params)
       logger&.debug { "IOStreams::Pgp.generate_key: #{command}\n#{params}\n#{err}#{out}" }
-      if status.success?
-        if match = err.match(/gpg: key ([0-9A-F]+)\s+/)
-          match[1]
-        end
-      else
-        raise(Pgp::Failure, "GPG Failed to generate key: #{err}#{out}")
+
+      raise(Pgp::Failure, "GPG Failed to generate key: #{err}#{out}") unless status.success?
+
+      if (match = err.match(/gpg: key ([0-9A-F]+)\s+/))
+        match[1]
       end
     end
 
@@ -150,16 +157,15 @@ module IOStreams
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: key)
       logger&.debug { "IOStreams::Pgp.key_info: #{command}\n#{err}#{out}" }
-      if status.success? && out.length.positive?
-        # Sample Output:
-        #
-        #   pub  4096R/3A5456F5 2017-06-07
-        #   uid                            Joe Bloggs <j@bloggs.net>
-        #   sub  4096R/2C9B240B 2017-06-07
-        parse_list_output(out)
-      else
-        raise(Pgp::Failure, "GPG Failed extracting key details: #{err} #{out}")
-      end
+
+      raise(Pgp::Failure, "GPG Failed extracting key details: #{err} #{out}") unless status.success? && out.length.positive?
+
+      # Sample Output:
+      #
+      #   pub  4096R/3A5456F5 2017-06-07
+      #   uid                            Joe Bloggs <j@bloggs.net>
+      #   sub  4096R/2C9B240B 2017-06-07
+      parse_list_output(out)
     end
 
     # Returns [String] containing all the public keys for the supplied email address.
@@ -181,11 +187,10 @@ module IOStreams
 
       out, err, status = Open3.capture3(command, binmode: true)
       logger&.debug { "IOStreams::Pgp.export: #{command}\n#{err}" }
-      if status.success? && out.length.positive?
-        out
-      else
-        raise(Pgp::Failure, "GPG Failed reading key: #{email}: #{err}")
-      end
+
+      raise(Pgp::Failure, "GPG Failed reading key: #{email}: #{err}") unless status.success? && out.length.positive?
+
+      out
     end
 
     # Imports the supplied public/private key
@@ -275,11 +280,10 @@ module IOStreams
       trust            = "#{fingerprint}:#{level + 1}:\n"
       out, err, status = Open3.capture3(command, stdin_data: trust)
       logger&.debug { "IOStreams::Pgp.set_trust: #{command}\n#{err}#{out}" }
-      if status.success?
-        err
-      else
-        raise(Pgp::Failure, "GPG Failed trusting key: #{err} #{out}")
-      end
+
+      raise(Pgp::Failure, "GPG Failed trusting key: #{err} #{out}") unless status.success?
+
+      err
     end
 
     # DEPRECATED - Use key_ids instead of fingerprints
@@ -287,18 +291,18 @@ module IOStreams
       version_check
       Open3.popen2e("#{executable} --list-keys --fingerprint --with-colons #{email}") do |_stdin, out, waith_thr|
         output = out.read.chomp
-        if waith_thr.value.success?
-          output.each_line do |line|
-            if match = line.match(/\Afpr.*::([^\:]*):\Z/)
-              return match[1]
-            end
+        unless waith_thr.value.success?
+          unless output =~ /(public key not found|No public key)/i
+            raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{output}")
           end
-          nil
-        else
-          return if output =~ /(public key not found|No public key)/i
-
-          raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{output}")
         end
+
+        output.each_line do |line|
+          if (match = line.match(/\Afpr.*::([^\:]*):\Z/))
+            return match[1]
+          end
+        end
+        nil
       end
     end
 
@@ -328,7 +332,7 @@ module IOStreams
           #           CAMELLIA128, CAMELLIA192, CAMELLIA256
           #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
           #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
-          if match = out.lines.first.match(/(\d+\.\d+.\d+)/)
+          if (match = out.lines.first.match(/(\d+\.\d+.\d+)/))
             match[1]
           end
         else
@@ -348,9 +352,12 @@ module IOStreams
     end
 
     def self.version_check
-      if pgp_version.to_f >= 2.3
-        raise(Pgp::UnsupportedVersion, "Version #{pgp_version} of #{executable} is not yet supported. You are welcome to submit a Pull Request.")
-      end
+      return unless pgp_version.to_f >= 2.3
+
+      raise(
+        Pgp::UnsupportedVersion,
+        "Version #{pgp_version} of #{executable} is not yet supported. Please submit a Pull Request to support it."
+      )
     end
 
     # v2.2.1 output:
@@ -370,7 +377,7 @@ module IOStreams
       results = []
       hash    = {}
       out.each_line do |line|
-        if match = line.match(/(pub|sec)\s+(\D+)(\d+)\s+(\d+-\d+-\d+)\s+(.*)/)
+        if (match = line.match(/(pub|sec)\s+(\D+)(\d+)\s+(\d+-\d+-\d+)\s+(.*)/))
           # v2.2:    pub   rsa1024 2017-10-24 [SCEA]
           hash = {
             private:    match[1] == "sec",
@@ -382,7 +389,7 @@ module IOStreams
                            match[4]
                          end)
           }
-        elsif match = line.match(%r{(pub|sec)\s+(\d+)(.*)/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?})
+        elsif (match = line.match(%r{(pub|sec)\s+(\d+)(.*)/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?}))
           # Matches: pub  2048R/C7F9D9CB 2016-10-26
           # Or:      pub  2048R/C7F9D9CB 2016-10-26 Receiver <receiver@example.org>
           hash = {
@@ -403,7 +410,7 @@ module IOStreams
             results << hash
             hash = {}
           end
-        elsif match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)<(.+)>/)
+        elsif (match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)<(.+)>/))
           # Matches:  uid       [ unknown] Joe Bloggs <j@bloggs.net>
           # Or:       uid                  Joe Bloggs <j@bloggs.net>
           # v2.2:     uid           [ultimate] Joe Bloggs <pgp_test@iostreams.net>
@@ -412,7 +419,7 @@ module IOStreams
           hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
           hash = {}
-        elsif match = line.match(/([A-Z0-9]+)/)
+        elsif (match = line.match(/([A-Z0-9]+)/))
           # v2.2  18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
           hash[:key_id] ||= match[1]
         end

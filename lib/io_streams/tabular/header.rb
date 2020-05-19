@@ -109,7 +109,10 @@ module IOStreams
         end
 
         unless row.is_a?(Array)
-          raise(IOStreams::Errors::TypeMismatch, "Don't know how to convert #{row.class.name} to an Array without the header columns being set.")
+          raise(
+            IOStreams::Errors::TypeMismatch,
+            "Don't know how to convert #{row.class.name} to an Array without the header columns being set."
+          )
         end
 
         row
