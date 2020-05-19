@@ -2,13 +2,14 @@
 layout: default
 ---
 
-## IOStreams
+# IOStreams
 
-Input and Output streaming for Ruby.
+IOStreams is an incredibly powerful Ruby streaming library that makes changes to file formats, compression, encryption, 
+or storage mechanism transparent to the application.
 
-#### Features
+### Features
 
-* Low memory use.
+* Low memory utilization.
 * Parse JSON, CSV, PSV, or fixed width data on the fly.
 * Encrypt / Decrypt data on the fly.
 * Compress / Decompress data on the fly.
@@ -186,3 +187,7 @@ IOStreams.path("example.csv").writer(:hash) do |stream|
   stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
 end
 ~~~
+
+## Getting Started
+
+Start with the [IOStreams tutorial](tutorial) for a great introduction to IOStreams.

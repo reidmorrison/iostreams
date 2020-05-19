@@ -2,12 +2,20 @@
 layout: default
 ---
 
-# File Storage
+# Storage
+
+IOStreams already supports accessing files in the following places:
 
 * File
 * AWS S3
 * SFTP
 * HTTP(S) (Read only)
+
+Are you using another cloud provider and want to add support for your favorite?
+Checkout the supplied [IOStreams S3 path provider](https://github.com/rocketjob/iostreams/blob/master/lib/io_streams/paths/s3.rb)
+for an example of what is required. 
+Good luck with the Pull Request and let us know if you have any questions
+in [![Gitter chat](https://img.shields.io/badge/IRC%20(gitter)-Support-brightgreen.svg)](https://gitter.im/rocketjob/support)
 
 ## Path
 

@@ -16,7 +16,7 @@ module IOStreams
       end
 
       let :json_file_name do
-        "/tmp/io_streams/abc.json"
+        "/tmp/iostreams_abc.json"
       end
 
       describe ".root" do

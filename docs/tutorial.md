@@ -429,4 +429,14 @@ IOStreams makes it possible to write an application to a common api so that
 * it is transparent whether the application receives an Excel Spreadsheet, CSV, or PSV formatted file.
   It just works with hashes when desired.  
 
-IOStreams is an incredibly powerful streaming library to make runtime file formats, compression, or encryption changes transparent.
+IOStreams is an incredibly powerful streaming library that makes changes to file formats, compression, encryption, 
+or storage mechanism transparent to the application.
+
+## Next Steps
+
+Move onto the [IOStreams Storage Documentation](storage) to see how to create paths that support AWS S3, HTTP(S), or SFTP.
+
+Or jump straight into the [IOStreams Streams Documentation](streams) for detailed information on working with streams.
+
+Read the [IOStreams PGP Documentation](pgp) for a tutorial on how to work with PGP Encrypted files.
+
