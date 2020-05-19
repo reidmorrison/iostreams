@@ -73,7 +73,7 @@ module Paths
 
       describe "#reader" do
         it "reads" do
-          assert_equal raw, existing_path.reader(&:read)
+          assert_equal raw, existing_path.read
         end
       end
 

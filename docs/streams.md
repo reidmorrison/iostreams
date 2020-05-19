@@ -126,3 +126,134 @@ Notes:
   Recommended to use Gzip over Zip since it can be streamed without requiring temp files.
 * Zip becomes exponentially slower with very large files, especially files
   that exceed 4GB when uncompressed. Highly recommend using GZip for large files.
+
+## Pipeline
+
+If the file is compressed, the pipeline will infer the necessary streams that need to be applied to it:
+
+~~~ruby
+path = IOStreams.path("somewhere/example.csv.gz")
+# => #<IOStreams::Paths::File:somewhere/example.csv.gz pipeline={:gz=>{}}>
+ 
+path.pipeline
+# => {:gz=>{}} 
+~~~
+
+The `pipeline` above includes `:gz` to indicate that the file should compressed / decompressed with GZip.
+
+#### Option
+
+Each path supports several options which can be supplied using the `option` method. 
+
+Set the options for a stream in the pipeline for this file. Each stream can only be applied once and is uniquely
+identified by its symbolic name.
+
+To see the pipeline of streams that IOStreams would infer: 
+~~~ruby
+IOStreams.path("example.pgp").pipeline
+# => {:pgp=>{}}
+ 
+IOStreams.path("example.gz").pipeline
+# => {:gz=>{}}
+ 
+IOStreams.path("example.gz.pgp").pipeline
+# => {:gz=>{}, :pgp=>{}}
+~~~
+
+If the relevant stream is not found for this file it is ignored.
+For example, if the file does not have a pgp extension then the pgp option is ignored.
+~~~ruby
+IOStreams.path("example.csv.gz").
+  option(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+This is great way to pass in stream specific options for when they are required, and to still support
+paths that do not use that stream. For example, the same code can support pgp encrypted, Symmetric Encryption encrypted,
+and plain text files.
+~~~ruby
+IOStreams.path("example.csv.enc").
+  option(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+To see the what value was previously set for a particular option:
+~~~ruby 
+path = IOStreams.path("example.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase")
+
+path.setting(:pgp)
+# => {:passphrase=>"receiver_passphrase"}
+~~~
+
+#### Stream
+
+The `stream` method stops IOStreams from inferring the streams for this path and only uses the specfied streams.
+
+For example when using a filename that does not have the necessary file extensions. 
+In this case the file was compressed with Zip, so tell IOStreams to unzip it:  
+~~~ruby 
+path = IOStreams.path("tempfile2527")
+path.stream(:zip)
+path.read
+~~~
+
+The above example could also be written as:
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  read
+~~~
+
+Multiple streams can also be specified:
+
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  stream(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+Now that IOStreams is not inferring the pipeline from the filename, we can still see the above streams: 
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  stream(:pgp, passphrase: "receiver_passphrase").
+  pipeline
+# => {:zip=>{}, :pgp=>{:passphrase=>"receiver_passphrase"}}
+~~~
+
+
+In this example the file contains JSON data that was compressed with GZip, and since we want to read each row as a hash:
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  each(:hash, format: :json) do |row|
+    p row
+  end
+~~~
+
+Alternatively if the original file name is available it can also be supplied allowing IOStreams to infer the above streams:
+~~~ruby 
+IOStreams.path("tempfile2527", original_file_name: "file.json.gz").
+  each(:hash) do |row|
+    p row
+  end
+~~~
+
+To see the what value was previously set for a particular stream:
+~~~ruby 
+path = IOStreams.path("tempfile2527")
+path.stream(:zip)
+path.stream(:pgp, passphrase: "receiver_passphrase")
+
+path.setting(:pgp)
+# => {:passphrase=>"receiver_passphrase"}
+~~~
+
+To ensure no streams are inferred or applied use stream `:none` 
+~~~ruby 
+path = IOStreams.path("file.zip")
+path.stream(:none)
+path.read
+~~~

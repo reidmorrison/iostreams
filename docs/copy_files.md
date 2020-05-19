@@ -2,7 +2,6 @@
 layout: default
 ---
 
-
 ## Copying between files
 
 File copying can be used to:
@@ -10,7 +9,7 @@ File copying can be used to:
 * create a decrypted / encrypted copy of an existing file.
 * create a decompressed / compressed copy of an existing file.
 
-Stream based file copying. Changes the file type without changing the file format. For example, compress or encrypt. 
+### Examples
 
 Decompress `example.csv.gz` into `example.csv`:
 
@@ -45,7 +44,7 @@ PGP encrypt the output file and write it to `xyz.csv.pgp` using the pgp key that
 
 ~~~ruby
 input = IOStreams.path("CUSTOMER_DATA").stream(:enc)
-IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "a@a.com").copy_from(input)
+IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "receiver@example.org").copy_from(input)
 ~~~
 
 To copy a file _without_ performing any conversions (ignore file extensions), set `convert` to `false`:

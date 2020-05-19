@@ -233,31 +233,6 @@ IOStreams::Pgp.delete_keys(email: 'sender@example.org', private: true)
 IOStreams::Pgp.delete_keys(email: 'receiver@example.org', private: true)
 ~~~
 
-#### PGP FAQ:
-- If you get not trusted errors
-   gpg --edit-key sender@example.org
-     Select highest level: 5
-
-
-#### PGP Limitations
-- Designed for processing larger files since a process is spawned for each file processed.
-- For small in memory files or individual emails, use the 'opengpgme' library.
-
-Compression Performance:
-  Running tests on an Early 2015 Macbook Pro Dual Core with Ruby v2.3.1
-
-  Input file: test.log 3.6GB
-    :none:  size: 3.6GB  write:  52s  read:  45s
-    :zip:   size: 411MB  write:  75s  read:  31s
-    :zlib:  size: 241MB  write:  66s  read:  23s  ( 756KB Memory )
-    :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
-
-Notes:
-- Does not work yet with gnupg v2.1. Pull Requests welcome.
-
-
-
-
 ### import_and_trust_key
 
 The standard approach with PGP is to import public keys into the keystore on every server. Copying the public keys to
@@ -283,3 +258,42 @@ Now try to read the file:
 ~~~ruby
 IOStreams.join("test/sample.pgp", root: :downloads).read
 ~~~
+
+#### Compression:
+
+The compression used by pgp can be specified by suppling the `:compression` option.
+
+The valid values for this option: `:none`, `:zip`, `:zlib`, or `:bzip2`.
+
+The default compression is `:zip` for which has the highest compatibility. 
+
+Most PGP tools now support `:zlib` and is the recommended compression to use when possible.
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org", compression: :zlib)
+path.write("Hello World")
+~~~
+
+Compression Performance
+* Running tests on an Early 2015 Macbook Pro Dual Core with Ruby v2.3.1
+~~~
+  Input text file: test.log 3.6GB
+    :none:  size: 3.6GB  write:  52s  read:  45s
+    :zip:   size: 411MB  write:  75s  read:  31s
+    :zlib:  size: 241MB  write:  66s  read:  23s  ( 756KB Memory )
+    :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
+~~~
+
+### PGP FAQ:
+
+If you get not trusted errors
+
+`gpg --edit-key sender@example.org`
+
+Select highest level: 5
+
+### PGP Limitations
+
+* Designed for processing larger files since a process is spawned for each file processed.
+* For lots of small, in memory files, use the `opengpgme` library. For example to attach pgp files to emails.

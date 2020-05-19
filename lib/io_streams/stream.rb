@@ -17,7 +17,7 @@ module IOStreams
     #
     # Example:
     #
-    # IOStreams.path('tempfile2527').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
+    # IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
     def stream(stream, **options)
       builder.stream(stream, **options)
       self
@@ -27,12 +27,12 @@ module IOStreams
     # If the relevant stream is not found for this file it is ignored.
     # For example, if the file does not have a pgp extension then the pgp option is not relevant.
     #
-    # IOStreams.path('keep_safe.pgp').option(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
+    # IOStreams.path("keep_safe.pgp").option(:pgp, passphrase: "receiver_passphrase").read
     #
     # # In this case the file is not pgp so the `passphrase` option is ignored.
-    # IOStreams.path('keep_safe.enc').option(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
+    # IOStreams.path("keep_safe.enc").option(:pgp, passphrase: "receiver_passphrase").read
     #
-    # IOStreams.path(output_file_name).option(:pgp, passphrase: 'receiver_passphrase').reader(&:read)
+    # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
     def option(stream, **options)
       builder.option(stream, **options)
       self

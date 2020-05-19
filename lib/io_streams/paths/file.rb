@@ -15,16 +15,16 @@ module IOStreams
       # Examples:
       #
       # # Case Insensitive file name lookup:
-      # IOStreams::Paths::File.new("ruby").glob("r*.md") { |name| puts name }
+      # IOStreams.path("ruby").glob("r*.md") { |name| puts name }
       #
       # # Case Sensitive file name lookup:
-      # IOStreams::Paths::File.new("ruby").each("R*.md", case_sensitive: true) { |name| puts name }
+      # IOStreams.path("ruby").each("R*.md", case_sensitive: true) { |name| puts name }
       #
       # # Also return the names of directories found during the search:
-      # IOStreams::Paths::File.new("ruby").each("R*.md", directories: true) { |name| puts name }
+      # IOStreams.path("ruby").each("R*.md", directories: true) { |name| puts name }
       #
       # # Case Insensitive recursive file name lookup:
-      # IOStreams::Paths::File.new("ruby").glob("**/*.md") { |name| puts name }
+      # IOStreams.path("ruby").glob("**/*.md") { |name| puts name }
       #
       # Parameters:
       #   pattern [String]

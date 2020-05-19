@@ -2,7 +2,7 @@
 layout: default
 ---
 
-## File / Data Streaming with Ruby
+# File / Data Streaming with Ruby
 
 If all files were small, they could just be loaded into memory in their entirety. 
 However, multi Gigabytes, or even Terabytes in size, loading them into memory is not feasible.
@@ -434,7 +434,7 @@ or storage mechanism transparent to the application.
 
 ## Next Steps
 
-Move onto the [IOStreams Storage Documentation](storage) to see how to create paths that support AWS S3, HTTP(S), or SFTP.
+Move onto the [IOStreams Path Documentation](path) to see how to create paths that support AWS S3, HTTP(S), or SFTP.
 
 Or jump straight into the [IOStreams Streams Documentation](streams) for detailed information on working with streams.
 

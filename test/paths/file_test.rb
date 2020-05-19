@@ -171,7 +171,7 @@ module Paths
 
       describe "reader" do
         it "reads file" do
-          assert_equal data, file_path.reader(&:read)
+          assert_equal data, file_path.read
         end
       end
 

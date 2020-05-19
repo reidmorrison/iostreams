@@ -58,7 +58,7 @@ module IOStreams
   end
 
   # For an existing IO Stream
-  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').reader(&:read)
+  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').read
   # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').each(:line){ ... }
   # IOStreams.stream(io).file_name('blah.csv.zip').each(:line) { ... }
   # IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
