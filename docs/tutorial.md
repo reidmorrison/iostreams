@@ -68,7 +68,8 @@ If you want to follow the AWS S3 examples below install the AWS S3 gem:
 gem install aws-sdk-s3 --no-doc
 ~~~
 
-#### TODO: Document AWS S3 configuration.
+See [Configuring the AWS SDK for Ruby](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html)
+to configure the Ruby AWS library.
 
 Open a ruby interactive console:
 
