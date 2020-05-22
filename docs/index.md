@@ -167,7 +167,7 @@ end
 ~~~
 
 Write an array (row) at a time to the file.
-Each array is converted to csv before being compressed with zip.
+Each array is converted to csv before being written to the file.
 
 ~~~ruby
 IOStreams.path("example.csv").writer(:array) do |io|
@@ -178,11 +178,20 @@ end
 ~~~
 
 Write a hash (record) at a time to the file.
-Each hash is converted to csv before being compressed with zip.
+Each hash is converted to csv before being written to the file.
 The header row is extracted from the first hash write that is performed. 
 
 ~~~ruby
 IOStreams.path("example.csv").writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
+end
+~~~
+
+This time write the CSV data to a compressed zip file, by adding `.zip` to the file name.
+
+~~~ruby
+IOStreams.path("example.csv.zip").writer(:hash) do |stream|
   stream << {name: "Jack", address: "There", zip_code: 1234}
   stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
 end
