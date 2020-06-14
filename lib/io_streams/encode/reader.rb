@@ -73,7 +73,7 @@ module IOStreams
         # EOF reached?
         return unless block
 
-        block = block.encode(@encoding, @encoding_options) unless block.encoding == @encoding
+        block = block.encode(@encoding, **@encoding_options) unless block.encoding == @encoding
         block = @cleaner.call(block, @replace) if @cleaner
         block
       end

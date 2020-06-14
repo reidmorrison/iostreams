@@ -117,11 +117,11 @@ module IOStreams
         block.call(io_stream)
       elsif pipeline.size == 1
         stream, opts = pipeline.first
-        class_for_stream(type, stream).open(io_stream, opts, &block)
+        class_for_stream(type, stream).open(io_stream, **opts, &block)
       else
         # Daisy chain multiple streams together
         last = pipeline.keys.inject(block) do |inner, stream_sym|
-          ->(io) { class_for_stream(type, stream_sym).open(io, pipeline[stream_sym], &inner) }
+          ->(io) { class_for_stream(type, stream_sym).open(io, **pipeline[stream_sym], &inner) }
         end
         last.call(io_stream)
       end

@@ -222,6 +222,43 @@ Let IOStreams perform the above stream chaining automatically under the covers:
   puts "Found the word 'apple' #{apple_count} times in hello.csv.gz"
 ~~~
 
+## Architecture
+
+Every Reader or Writer is invoked by calling its `.open` method and passing the block
+that must be invoked for the duration of that stream.
+
+The above block is passed the stream that needs to be encoded/decoded using that
+Reader or Writer every time the `#read` or `#write` method is called on it.
+
+~~~ruby
+IOStreams::Xlsx::Reader.open('a.xlsx') do |stream|
+  IOStreams::Record::Reader.open(stream, format: :array) do |record_stream|
+    record_stream.each { |record| ap record }
+  end
+end
+~~~
+
+### Readers
+
+Each reader stream must implement: `#read`
+
+### Writer
+
+Each writer stream must implement: `#write`
+
+### Optional methods
+
+The following methods on the stream are useful for both Readers and Writers
+
+### close
+
+Close the stream, and cleanup any buffers, etc.
+
+### closed?
+
+Has the stream already been closed? Useful, when child streams have already closed the stream
+so that `#close` is not called more than once on a stream.
+
 ## Contributor Code of Conduct
 
 As contributors and maintainers of this project, and in the interest of fostering an open and welcoming community, we pledge to respect all people who contribute through reporting issues, posting feature requests, updating documentation, submitting pull requests or patches, and other activities.
