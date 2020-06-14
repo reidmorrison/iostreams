@@ -206,7 +206,7 @@ module IOStreams
         elsif streams.is_a?(Array)
           streams.each { |stream| apply_old_style_streams(path, stream) }
         elsif streams.is_a?(Hash)
-          streams.each_pair { |stream, options| path.stream(stream, options) }
+          streams.each_pair { |stream, options| path.stream(stream, **options) }
         else
           raise ArgumentError, "Invalid old style stream supplied: #{params.inspect}"
         end

@@ -89,7 +89,7 @@ module IOStreams
         else
           self.class.parser_class(format)
         end
-      @parser = format_options ? klass.new(format_options) : klass.new
+      @parser = format_options ? klass.new(**format_options) : klass.new
     end
 
     # Returns [true|false] whether a header is still required in order to parse or render the current format.

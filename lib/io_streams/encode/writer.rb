@@ -66,7 +66,7 @@ module IOStreams
         return 0 if data.nil?
 
         data  = data.to_s
-        block = data.encoding == @encoding ? data : data.encode(@encoding, @encoding_options)
+        block = data.encoding == @encoding ? data : data.encode(@encoding, **@encoding_options)
         block = @cleaner.call(block, @replace) if @cleaner
         @output_stream.write(block)
       end

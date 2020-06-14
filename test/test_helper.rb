@@ -4,7 +4,7 @@ require "yaml"
 require "minitest/autorun"
 require "minitest/reporters"
 require "iostreams"
-require "awesome_print"
+require "amazing_print"
 require "symmetric-encryption"
 
 # Since PGP libraries use UTC for Dates
