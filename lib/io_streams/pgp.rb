@@ -411,10 +411,18 @@ module IOStreams
             hash = {}
           end
         elsif (match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)/))
+          # Matches:  uid       [ unknown] Joe Bloggs
+          # Or:       uid                  Joe Bloggs
+          # v2.2:     uid           [ultimate] Joe Bloggs
+          hash[:name]  = match[3].to_s.strip
+          hash[:trust] = match[2].to_s.strip if match[1]
+          results << hash
+          hash = {}
+        elsif (match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)<(.+)>/))
           # Matches:  uid       [ unknown] Joe Bloggs <j@bloggs.net>
           # Or:       uid                  Joe Bloggs <j@bloggs.net>
           # v2.2:     uid           [ultimate] Joe Bloggs <pgp_test@iostreams.net>
-          # hash[:email] = match[4].strip
+          hash[:email] = match[4].strip
           hash[:name]  = match[3].to_s.strip
           hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
