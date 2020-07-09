@@ -26,7 +26,7 @@ module IOStreams
       #
       #   http_redirect_count: [Integer]
       #     Maximum number of http redirects to follow.
-      def initialize(url, username: nil, password: nil, http_redirect_count: 10)
+      def initialize(url, username: nil, password: nil, http_redirect_count: 10, parameters: nil)
         uri = URI.parse(url)
         unless %w[http https].include?(uri.scheme)
           raise(
@@ -38,7 +38,7 @@ module IOStreams
         @username            = username || uri.user
         @password            = password || uri.password
         @http_redirect_count = http_redirect_count
-        @url                 = url
+        @url                 = parameters ? "#{url}?#{URI.encode_www_form(parameters)}" : url
         super(uri.path)
       end
 
