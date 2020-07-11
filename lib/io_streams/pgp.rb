@@ -84,7 +84,8 @@ module IOStreams
     # Returns false if no key was found.
     # Raises an exception if it fails to delete the key.
     #
-    # email: [String] Email address for the key.
+    # email: [String] Optional email address for the key.
+    # key_id: [String] Optional id for the key.
     #
     # public: [true|false]
     #   Whether to delete the public key
@@ -93,12 +94,12 @@ module IOStreams
     # private: [true|false]
     #   Whether to delete the private key
     #   Default: false
-    def self.delete_keys(email:, public: true, private: false)
+    def self.delete_keys(email: nil, key_id: nil, public: true, private: false)
       version_check
       method_name = pgp_version.to_f >= 2.2 ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
       status      = false
-      status      = send(method_name, email: email, private: true) if private
-      status      = send(method_name, email: email, private: false) if public
+      status      = send(method_name, email: email, key_id: key_id, private: true) if private
+      status      = send(method_name, email: email, key_id: key_id, private: false) if public
       status
     end
 
@@ -256,11 +257,14 @@ module IOStreams
     def self.import_and_trust(key:)
       raise(ArgumentError, "Key cannot be empty") if key.nil? || (key == "")
 
-      email = key_info(key: key).last.fetch(:email)
-      raise(ArgumentError, "Recipient email cannot be extracted from supplied key") unless email
+      key_info = key_info(key: key).last
+
+      email = key_info.fetch(:email, nil)
+      key_id = key_info.fetch(:key_id, nil)
+      raise(ArgumentError, "Recipient email or key id cannot be extracted from supplied key") unless email || key_id
 
       import(key: key)
-      set_trust(email: email)
+      set_trust(email: email, key_id: key_id)
       email
     end
 
@@ -271,9 +275,9 @@ module IOStreams
     #
     # After importing keys, they are not trusted and the relevant trust level must be set.
     #   Default: 5 : Ultimate
-    def self.set_trust(email:, level: 5)
+    def self.set_trust(email: nil, key_id: nil, level: 5)
       version_check
-      fingerprint = fingerprint(email: email)
+      fingerprint = key_id || fingerprint(email: email)
       return unless fingerprint
 
       command          = "#{executable} --import-ownertrust"
@@ -435,10 +439,10 @@ module IOStreams
       results
     end
 
-    def self.delete_public_or_private_keys(email:, private: false)
+    def self.delete_public_or_private_keys(email: nil, key_id: nil, private: false)
       keys = private ? "secret-keys" : "keys"
 
-      list = list_keys(email: email, private: private)
+      list = email ? list_keys(email: email, private: private) : list_keys(key_id: key_id)
       return false if list.empty?
 
       list.each do |key_info|
@@ -450,17 +454,17 @@ module IOStreams
         logger&.debug { "IOStreams::Pgp.delete_keys: #{command}\n#{err}#{out}" }
 
         unless status.success?
-          raise(Pgp::Failure, "GPG Failed calling #{executable} to delete #{keys} for #{email}: #{err}: #{out}")
+          raise(Pgp::Failure, "GPG Failed calling #{executable} to delete #{keys} for #{email || key_id}: #{err}: #{out}")
         end
-        raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email} #{err.strip}:#{out}") if out.include?("error")
+        raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email || key_id} #{err.strip}:#{out}") if out.include?("error")
       end
       true
     end
 
-    def self.delete_public_or_private_keys_v1(email:, private: false)
+    def self.delete_public_or_private_keys_v1(email: nil, key_id: nil, private: false)
       keys = private ? "secret-keys" : "keys"
 
-      command = "for i in `#{executable} --list-#{keys} --with-colons --fingerprint #{email} | grep \"^fpr\" | cut -d: -f10`; do\n"
+      command = "for i in `#{executable} --list-#{keys} --with-colons --fingerprint #{email || key_id} | grep \"^fpr\" | cut -d: -f10`; do\n"
       command << "#{executable} --batch --no-tty --yes --delete-#{keys} \"$i\" ;\n"
       command << "done"
 
@@ -469,9 +473,9 @@ module IOStreams
 
       return false if err =~ /(not found|no public key)/i
       unless status.success?
-        raise(Pgp::Failure, "GPG Failed calling #{executable} to delete #{keys} for #{email}: #{err}: #{out}")
+        raise(Pgp::Failure, "GPG Failed calling #{executable} to delete #{keys} for #{email || key_id}: #{err}: #{out}")
       end
-      raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email} #{err.strip}: #{out}") if out.include?("error")
+      raise(Pgp::Failure, "GPG Failed to delete #{keys} for #{email || key_id} #{err.strip}: #{out}") if out.include?("error")
 
       true
     end
