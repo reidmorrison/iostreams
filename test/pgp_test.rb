@@ -70,7 +70,7 @@ class PgpTest < Minitest::Test
         refute IOStreams::Pgp.delete_keys(email: "random@iostreams.net", public: true, private: true)
       end
 
-      it "deletes existing keys" do
+      it "deletes existing keys with specified email" do
         generated_key_id
         # There is a timing issue with creating and then deleting keys.
         # Call list_keys again to give GnuPGP time.
@@ -78,12 +78,31 @@ class PgpTest < Minitest::Test
         assert IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
       end
 
-      it "deletes just the private key" do
+      it "deletes existing keys with specified key_id" do
+        generated_key_id
+
+        # There is a timing issue with creating and then deleting keys.
+        # Call list_keys again to give GnuPGP time.
+        IOStreams::Pgp.list_keys(key_id: generated_key_id, private: true)
+        assert IOStreams::Pgp.delete_keys(key_id: generated_key_id, public: true, private: true)
+      end
+
+      it "deletes just the private key with specified email" do
         generated_key_id
         # There is a timing issue with creating and then deleting keys.
         # Call list_keys again to give GnuPGP time.
         IOStreams::Pgp.list_keys(email: email, private: true)
         assert IOStreams::Pgp.delete_keys(email: email, public: false, private: true)
+        refute IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
+        assert IOStreams::Pgp.key?(key_id: generated_key_id, private: false)
+      end
+
+      it "deletes just the private key with specified key_id" do
+        generated_key_id
+        # There is a timing issue with creating and then deleting keys.
+        # Call list_keys again to give GnuPGP time.
+        IOStreams::Pgp.list_keys(key_id: generated_key_id, private: true)
+        assert IOStreams::Pgp.delete_keys(key_id: generated_key_id, public: false, private: true)
         refute IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
         assert IOStreams::Pgp.key?(key_id: generated_key_id, private: false)
       end
@@ -113,7 +132,7 @@ class PgpTest < Minitest::Test
         IOStreams::Pgp.list_keys(email: email)
       end
 
-      it "lists public keys" do
+      it "lists public keys for email" do
         assert keys = IOStreams::Pgp.list_keys(email: email)
         assert_equal 1, keys.size
         assert key = keys.first
@@ -130,8 +149,39 @@ class PgpTest < Minitest::Test
         assert_equal "ultimate", key[:trust] if (ver.to_f >= 2) && (maint >= 30)
       end
 
-      it "lists private keys" do
+      it "lists public keys for key_id" do
+        assert keys = IOStreams::Pgp.list_keys(key_id: generated_key_id)
+        assert_equal 1, keys.size
+        assert key = keys.first
+
+        assert_equal Date.today, key[:date]
+        assert_equal email, key[:email]
+        assert_includes key[:key_id], generated_key_id
+        assert_equal 1024, key[:key_length]
+        assert_includes %w[R rsa], key[:key_type]
+        assert_equal user_name, key[:name]
+        refute key[:private], key
+        ver   = IOStreams::Pgp.pgp_version
+        maint = ver.split(".").last.to_i
+        assert_equal "ultimate", key[:trust] if (ver.to_f >= 2) && (maint >= 30)
+      end
+
+      it "lists private keys for email" do
         assert keys = IOStreams::Pgp.list_keys(email: email, private: true)
+        assert_equal 1, keys.size
+        assert key = keys.first
+
+        assert_equal Date.today, key[:date]
+        assert_equal email, key[:email]
+        assert_includes key[:key_id], generated_key_id
+        assert_equal 1024, key[:key_length]
+        assert_includes %w[R rsa], key[:key_type]
+        assert_equal user_name, key[:name]
+        assert key[:private], key
+      end
+
+      it "lists private keys for key_id" do
+        assert keys = IOStreams::Pgp.list_keys(key_id: generated_key_id, private: true)
         assert_equal 1, keys.size
         assert key = keys.first
 
