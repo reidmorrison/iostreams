@@ -277,7 +277,7 @@ module IOStreams
     #   Default: 5 : Ultimate
     def self.set_trust(email: nil, key_id: nil, level: 5)
       version_check
-      fingerprint = fingerprint(email: email) || key_id
+      fingerprint = key_id || fingerprint(email: email)
       return unless fingerprint
 
       command          = "#{executable} --import-ownertrust"
