@@ -88,6 +88,11 @@ module IOStreams
           hash
         end
 
+        # The header is required as an argument and cannot be supplied in the file itself.
+        def requires_header?
+          false
+        end
+
         private
 
         class Layout
