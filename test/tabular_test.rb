@@ -138,33 +138,47 @@ class TabularTest < Minitest::Test
       describe ":fixed format" do
         let :tabular do
           layout = [
-            {key: "name", size: 23},
-            {key: "address", size: 40},
-            {key: "zip", size: 5}
+            {size: 23, key: :name},
+            {size: 40, key: :address},
+            {size: 2},
+            {size: 5, key: :zip, type: :integer},
+            {size: 8, key: :age, type: :integer},
+            {size: 10, key: :weight, type: :float, decimals: 2}
           ]
           IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
         end
 
         it "parses to hash" do
-          assert hash = tabular.record_parse("Jack                   over there                              34618")
-          assert_equal({"name" => "Jack", "address" => "over there", "zip" => "34618"}, hash)
+          assert hash = tabular.record_parse("Jack                   over there                              XX34618012345670012345.01")
+          assert_equal({name: "Jack", address: "over there", zip: 34_618, age: 1_234_567, weight: 12_345.01}, hash)
         end
 
         it "parses short string" do
-          # TODO: Raise exception on lines that are too short?
-          assert hash = tabular.record_parse("Jack                   over th")
-          assert_equal({"name" => "Jack", "address" => "over th", "zip" => ""}, hash)
+          assert_raises IOStreams::Errors::InvalidLineLength do
+            tabular.record_parse("Jack                   over th")
+          end
         end
 
         it "parses longer string" do
-          # TODO: Raise exception on lines that are too long?
-          assert hash = tabular.record_parse("Jack                   over there                              34618........................................")
-          assert_equal({"name" => "Jack", "address" => "over there", "zip" => "34618"}, hash)
+          assert_raises IOStreams::Errors::InvalidLineLength do
+            tabular.record_parse("Jack                   over there                              XX34618012345670012345.01............")
+          end
         end
 
-        it "parses empty strings" do
-          assert hash = tabular.record_parse("                                                               34618")
-          assert_equal({"name" => "", "address" => "", "zip" => "34618"}, hash)
+        it "parses zero values" do
+          assert hash = tabular.record_parse("                                                                 00000000000000000000000")
+          assert_equal({name: "", address: "", zip: 0, age: 0, weight: 0.0}, hash)
+        end
+
+        it "parses empty values" do
+          assert hash = tabular.record_parse("                                                               XX                       ")
+          assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
+        end
+
+        it "parses blank strings" do
+          skip "TODO: Part of tabular refactor to get this working"
+          assert hash = tabular.record_parse("                                                                                        ")
+          assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
         end
 
         it "parses nil data as nil" do
@@ -224,31 +238,46 @@ class TabularTest < Minitest::Test
       describe ":fixed format" do
         let :tabular do
           layout = [
-            {key: "name", size: 23},
-            {key: "address", size: 40},
-            {key: "zip", size: 5}
+            {size: 23, key: :name},
+            {size: 40, key: :address},
+            {size: 2},
+            {size: 5, key: :zip, type: :integer},
+            {size: 8, key: :age, type: :integer},
+            {size: 10, key: :weight, type: :float, decimals: 2}
           ]
           IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
         end
 
         it "renders fixed data" do
-          assert string = tabular.render({"name" => "Jack", "address" => "over there", "zip" => 34_618, "phone" => "5551231234"})
-          assert_equal "Jack                   over there                              34618", string
+          assert string = tabular.render(name: "Jack", address: "over there", zip: 34_618, weight: 123_456.789123, age: 21)
+          assert_equal "Jack                   over there                                34618000000210123456.79", string
         end
 
-        it "truncates long data" do
-          assert string = tabular.render({"name" => "Jack", "address" => "over there", "zip" => 3_461_832_653_653_265, "phone" => "5551231234"})
-          assert_equal "Jack                   over there                              34618", string
+        it "truncates long strings" do
+          assert string = tabular.render(name: "Jack ran up the beanstalk and when jack reached the top it was truncated", address: "over there", zip: 34_618)
+          assert_equal "Jack ran up the beanstaover there                                34618000000000000000.00", string
+        end
+
+        it "when integer is too large" do
+          assert_raises IOStreams::Errors::ValueTooLong do
+            tabular.render(zip: 3_461_832_653_653_265)
+          end
+        end
+
+        it "when float is too large" do
+          assert_raises IOStreams::Errors::ValueTooLong do
+            tabular.render(weight: 3_461_832_653_653_265.234)
+          end
         end
 
         it "renders nil as empty string" do
-          assert string = tabular.render("zip" => 3_461_832_653_653_265)
-          assert_equal "                                                               34618", string
+          assert string = tabular.render(zip: 34_618)
+          assert_equal "                                                                 34618000000000000000.00", string
         end
 
         it "renders boolean" do
-          assert string = tabular.render({"name" => true, "address" => false, "zip" => nil, "phone" => "5551231234"})
-          assert_equal "true                   false                                        ", string
+          assert string = tabular.render(name: true, address: false)
+          assert_equal "true                   false                                     00000000000000000000.00", string
         end
 
         it "renders no data as nil" do
