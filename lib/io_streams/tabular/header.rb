@@ -138,7 +138,7 @@ module IOStreams
         if hash.respond_to?(:slice)
           hash.slice(*columns)
         else
-          columns.collect { |column| hash[column] }
+          columns.each_with_object({}) { |column, new_hash| new_hash[column] = hash[column] }
         end
       end
 
