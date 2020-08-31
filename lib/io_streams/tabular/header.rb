@@ -132,9 +132,14 @@ module IOStreams
         unmatched = columns - hash.keys
         unless unmatched.empty?
           hash = hash.dup
-          unmatched.each {|name| hash[cleanse_column(name)] = hash.delete(name)}
+          unmatched.each { |name| hash[cleanse_column(name)] = hash.delete(name) }
         end
-        hash.slice(*columns)
+        # Hash#slice as of Ruby 2.5
+        if hash.respond_to?(:slice)
+          hash.slice(*columns)
+        else
+          columns.collect { |column| hash[column] }
+        end
       end
 
       def cleanse_column(name)
