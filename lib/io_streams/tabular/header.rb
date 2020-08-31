@@ -129,18 +129,12 @@ module IOStreams
       # Perform cleansing on returned Hash keys during the narrowing process.
       # For example, avoids issues with case etc.
       def cleanse_hash(hash)
-        h = {}
-        hash.each_pair do |key, value|
-          cleansed_key    =
-            if columns.include?(key)
-              key
-            else
-              key = cleanse_column(key)
-              key if columns.include?(key)
-            end
-          h[cleansed_key] = value if cleansed_key
+        unmatched = columns - hash.keys
+        unless unmatched.empty?
+          hash = hash.dup
+          unmatched.each {|name| hash[cleanse_column(name)] = hash.delete(name)}
         end
-        h
+        hash.slice(*columns)
       end
 
       def cleanse_column(name)
