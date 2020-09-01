@@ -138,7 +138,7 @@ module Paths
 
         it "returns all the children under a sub-dir" do
           write_raw_data
-          expected = abd_file_names.collect { |file_name| each_root.join(file_name) }
+          expected = %w[abd/test1.txt abd/test5.file].collect { |file_name| each_root.join(file_name) }
           assert_equal expected.collect(&:to_s).sort, each_root.children("abd/*").collect(&:to_s).sort
         end
 

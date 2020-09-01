@@ -3,7 +3,7 @@ require "uri"
 module IOStreams
   module Paths
     class S3 < IOStreams::Path
-      attr_reader :bucket_name, :client
+      attr_reader :bucket_name, :client, :options
 
       # Arguments:
       #
@@ -179,15 +179,34 @@ module IOStreams
       #
       # Notes:
       # - Can copy across buckets.
+      # - No stream conversions are applied.
       def move_to(target_path)
+        target = copy_to(target_path, convert: false)
+        delete
+        target
+      end
+
+      # Make S3 perform direct copies within S3 itself.
+      def copy_to(target_path, convert: true)
+        return super(target_path) if convert
+
         target = IOStreams.new(target_path)
         return super(target) unless target.is_a?(self.class)
 
         source_name = ::File.join(bucket_name, path)
-        # TODO: Does/should it also copy metadata?
-        client.copy_object(bucket: target.bucket_name, key: target.path, copy_source: source_name)
-        delete
+        client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: source_name))
         target
+      end
+
+      # Make S3 perform direct copies within S3 itself.
+      def copy_from(source_path, convert: true)
+        return super(source_path) if convert
+
+        source = IOStreams.new(source_path)
+        return super(source, **args) unless source.is_a?(self.class)
+
+        source_name = ::File.join(source.bucket_name, source.path)
+        client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source_name))
       end
 
       # S3 logically creates paths when a key is set.
@@ -220,7 +239,7 @@ module IOStreams
       # Shortcut method if caller has a filename already with no other streams applied:
       def read_file(file_name)
         ::File.open(file_name, "wb") do |file|
-          client.get_object(@options.merge(response_target: file, bucket: bucket_name, key: path))
+          client.get_object(options.merge(response_target: file, bucket: bucket_name, key: path))
         end
       end
 
@@ -248,10 +267,10 @@ module IOStreams
           # Use multipart file upload
           s3  = Aws::S3::Resource.new(client: client)
           obj = s3.bucket(bucket_name).object(path)
-          obj.upload_file(file_name)
+          obj.upload_file(file_name, options)
         else
           ::File.open(file_name, "rb") do |file|
-            client.put_object(@options.merge(bucket: bucket_name, key: path, body: file))
+            client.put_object(options.merge(bucket: bucket_name, key: path, body: file))
           end
         end
       end

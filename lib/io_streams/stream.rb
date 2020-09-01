@@ -177,7 +177,7 @@ module IOStreams
     end
 
     def copy_to(target, convert: true)
-      target = IOStreams.path(target) unless target.is_a?(Stream)
+      target = IOStreams.new(target)
       target.copy_from(self, convert: convert)
     end
 
