@@ -22,13 +22,14 @@ class Bzip2WriterTest < Minitest::Test
       it "file" do
         IOStreams::Bzip2::Writer.file(file_name) do |io|
           io.write(decompressed)
+          io.write(decompressed)
         end
 
         File.open(file_name, "rb") do |file|
-          io     = RBzip2.default_adapter::Decompressor.new(file)
+          io     = ::Bzip2::FFI::Reader.new(file)
           result = io.read
           temp_file.delete
-          assert_equal decompressed, result
+          assert_equal decompressed + decompressed, result
         end
       end
 
@@ -36,12 +37,13 @@ class Bzip2WriterTest < Minitest::Test
         io_string = StringIO.new("".b)
         IOStreams::Bzip2::Writer.stream(io_string) do |io|
           io.write(decompressed)
+          io.write(decompressed)
         end
 
         io     = StringIO.new(io_string.string)
-        rbzip2 = RBzip2.default_adapter::Decompressor.new(io)
+        rbzip2 = ::Bzip2::FFI::Reader.new(io)
         data   = rbzip2.read
-        assert_equal decompressed, data
+        assert_equal decompressed + decompressed, data
       end
     end
   end
