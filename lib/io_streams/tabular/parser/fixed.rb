@@ -37,6 +37,22 @@ module IOStreams
         #      The :size is the total size of this field including the `.` and the decimals.
         #      Number of :decimals
         #      Raises Errors::ValueTooLong when the supplied value cannot be rendered in `size` characters.
+        #
+        # In some circumstances the length of the last column is variable.
+        #   layout: [Array<Hash>]
+        #     [
+        #       {size: 23, key: "name"},
+        #       {size: :remainder, key: "rest"}
+        #     ]
+        # By setting a size of `:remainder` it will take the rest of the line as the value for that column.
+        #
+        # A size of `:remainder` and no `:key` will discard the remainder of the line without validating the length.
+        #   layout: [Array<Hash>]
+        #     [
+        #       {size: 23, key: "name"},
+        #       {size: :remainder}
+        #     ]
+        #
         def initialize(layout:, truncate: true)
           @layout   = Layout.new(layout)
           @truncate = truncate
@@ -57,12 +73,7 @@ module IOStreams
 
           result = ""
           layout.columns.each do |column|
-            value = hash[column.key].to_s
-            if !truncate && (value.length > column.size)
-              raise(Errors::ValueTooLong, "Value: #{value.inspect} is too long to fit into column #{column.key} of size #{column.size}")
-            end
-
-            result << column.render(value)
+            result << column.render(hash[column.key], truncate)
           end
           result
         end
@@ -74,16 +85,21 @@ module IOStreams
             raise(Errors::TypeMismatch, "Line must be a String when format is :fixed. Actual: #{line.class.name}")
           end
 
-          if line.length != layout.length
+          if layout.length.positive? && (line.length != layout.length)
             raise(Errors::InvalidLineLength, "Expected line length: #{layout.length}, actual line length: #{line.length}")
           end
 
           hash  = {}
           index = 0
           layout.columns.each do |column|
+            if column.size == -1
+              hash[column.key] = column.parse(line[index..-1]) if column.key
+              break
+            end
+
             # Ignore "columns" that have no keys. E.g. Fillers
             hash[column.key] = column.parse(line[index, column.size]) if column.key
-            index += column.size
+            index            += column.size
           end
           hash
         end
@@ -113,7 +129,15 @@ module IOStreams
               raise(Errors::InvalidLayout, "Missing required :size in: #{hash.inspect}") unless hash.key?(:size)
 
               column = Column.new(**hash)
-              @length += column.size
+              if column.size == -1
+                if @length == -1
+                  raise(Errors::InvalidLayout, "Only the last :size can be '-1' or :remainder in: #{hash.inspect}")
+                end
+
+                @length = -1
+              else
+                @length += column.size
+              end
               column
             end
           end
@@ -126,11 +150,13 @@ module IOStreams
 
           def initialize(key: nil, size:, type: :string, decimals: 2)
             @key      = key
-            @size     = size.to_i
+            @size     = size == :remainder ? -1 : size.to_i
             @type     = type.to_sym
             @decimals = decimals
 
-            raise(Errors::InvalidLayout, "Size #{size.inspect} must be positive") unless @size.positive?
+            unless @size.positive? || (@size == -1)
+              raise(Errors::InvalidLayout, "Size #{size.inspect} must be positive or :remainder")
+            end
             raise(Errors::InvalidLayout, "Unknown type: #{type.inspect}") unless TYPES.include?(type)
           end
 
@@ -151,11 +177,20 @@ module IOStreams
             end
           end
 
-          def render(value)
+          def render(value, truncate_strings)
             case type
             when :string
+              value = value.to_s
+              return value if size == -1
+
+              if !truncate_strings && (value.length > size)
+                raise(Errors::ValueTooLong, "Value: #{value.inspect} is too long to fit into column #{key} of size #{size}")
+              end
+
               format("%-#{size}.#{size}s", value.to_s)
             when :integer
+              return value.to_i.to_s if size == -1
+
               formatted = format("%0#{size}d", value.to_i)
               if formatted.length > size
                 raise(Errors::ValueTooLong, "Value: #{value} is too large to fit into column:#{key} of size:#{size}")
@@ -163,6 +198,8 @@ module IOStreams
 
               formatted
             when :float
+              return value.to_f.to_s if size == -1
+
               formatted = format("%0#{size}.#{decimals}f", value.to_f)
               if formatted.length > size
                 raise(Errors::ValueTooLong, "Value: #{value} is too large to fit into column:#{key} of size:#{size}")
