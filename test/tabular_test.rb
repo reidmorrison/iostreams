@@ -10,6 +10,36 @@ class TabularTest < Minitest::Test
       IOStreams::Tabular.new(columns: %w[first_field second third], format: format)
     end
 
+    let :fixed do
+      layout = [
+        {size: 23, key: :name},
+        {size: 40, key: :address},
+        {size: 2},
+        {size: 5, key: :zip, type: :integer},
+        {size: 8, key: :age, type: :integer},
+        {size: 10, key: :weight, type: :float, decimals: 2}
+      ]
+      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+    end
+
+    let :fixed_with_remainder do
+      layout = [
+        {size: 23, key: :name},
+        {size: 40, key: :address},
+        {size: :remainder, key: :remainder}
+      ]
+      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+    end
+
+    let :fixed_discard_remainder do
+      layout = [
+        {size: 23, key: :name},
+        {size: 40, key: :address},
+        {size: :remainder}
+      ]
+      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+    end
+
     describe "#parse_header" do
       it "parses and sets the csv header" do
         tabular = IOStreams::Tabular.new(format: :csv)
@@ -29,7 +59,7 @@ class TabularTest < Minitest::Test
         end
 
         it "white listed snake cased alphanumeric columns" do
-          tabular = IOStreams::Tabular.new(
+          tabular         = IOStreams::Tabular.new(
             columns:         ["Ard Vark", "password", "robot version", "$$$"],
             allowed_columns: %w[ard_vark robot_version]
           )
@@ -136,57 +166,55 @@ class TabularTest < Minitest::Test
       end
 
       describe ":fixed format" do
-        let :tabular do
-          layout = [
-            {size: 23, key: :name},
-            {size: 40, key: :address},
-            {size: 2},
-            {size: 5, key: :zip, type: :integer},
-            {size: 8, key: :age, type: :integer},
-            {size: 10, key: :weight, type: :float, decimals: 2}
-          ]
-          IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
-        end
-
         it "parses to hash" do
-          assert hash = tabular.record_parse("Jack                   over there                              XX34618012345670012345.01")
+          assert hash = fixed.record_parse("Jack                   over there                              XX34618012345670012345.01")
           assert_equal({name: "Jack", address: "over there", zip: 34_618, age: 1_234_567, weight: 12_345.01}, hash)
         end
 
         it "parses short string" do
           assert_raises IOStreams::Errors::InvalidLineLength do
-            tabular.record_parse("Jack                   over th")
+            fixed.record_parse("Jack                   over th")
           end
         end
 
         it "parses longer string" do
           assert_raises IOStreams::Errors::InvalidLineLength do
-            tabular.record_parse("Jack                   over there                              XX34618012345670012345.01............")
+            fixed.record_parse("Jack                   over there                              XX34618012345670012345.01............")
           end
         end
 
         it "parses zero values" do
-          assert hash = tabular.record_parse("                                                                 00000000000000000000000")
+          assert hash = fixed.record_parse("                                                                 00000000000000000000000")
           assert_equal({name: "", address: "", zip: 0, age: 0, weight: 0.0}, hash)
         end
 
         it "parses empty values" do
-          assert hash = tabular.record_parse("                                                               XX                       ")
+          assert hash = fixed.record_parse("                                                               XX                       ")
           assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
         end
 
         it "parses blank strings" do
-          skip "TODO: Part of tabular refactor to get this working"
-          assert hash = tabular.record_parse("                                                                                        ")
+          skip "TODO: Part of fixed refactor to get this working"
+          assert hash = fixed.record_parse("                                                                                        ")
           assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
         end
 
         it "parses nil data as nil" do
-          refute tabular.record_parse(nil)
+          refute fixed.record_parse(nil)
         end
 
         it "parses empty string as nil" do
-          refute tabular.record_parse("")
+          refute fixed.record_parse("")
+        end
+
+        it "parses remainder" do
+          hash = fixed_with_remainder.record_parse("Jack                   over there                              XX34618012345670012345.01............")
+          assert_equal({name: "Jack", address: "over there", remainder: "XX34618012345670012345.01............"}, hash)
+        end
+
+        it "discards remainder" do
+          hash = fixed_discard_remainder.record_parse("Jack                   over there                              XX34618012345670012345.01............")
+          assert_equal({name: "Jack", address: "over there"}, hash)
         end
       end
 
@@ -236,52 +264,55 @@ class TabularTest < Minitest::Test
       end
 
       describe ":fixed format" do
-        let :tabular do
-          layout = [
-            {size: 23, key: :name},
-            {size: 40, key: :address},
-            {size: 2},
-            {size: 5, key: :zip, type: :integer},
-            {size: 8, key: :age, type: :integer},
-            {size: 10, key: :weight, type: :float, decimals: 2}
-          ]
-          IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
-        end
-
         it "renders fixed data" do
-          assert string = tabular.render(name: "Jack", address: "over there", zip: 34_618, weight: 123_456.789123, age: 21)
+          assert string = fixed.render(name: "Jack", address: "over there", zip: 34_618, weight: 123_456.789123, age: 21)
           assert_equal "Jack                   over there                                34618000000210123456.79", string
         end
 
         it "truncates long strings" do
-          assert string = tabular.render(name: "Jack ran up the beanstalk and when jack reached the top it was truncated", address: "over there", zip: 34_618)
+          assert string = fixed.render(name: "Jack ran up the beanstalk and when jack reached the top it was truncated", address: "over there", zip: 34_618)
           assert_equal "Jack ran up the beanstaover there                                34618000000000000000.00", string
         end
 
         it "when integer is too large" do
           assert_raises IOStreams::Errors::ValueTooLong do
-            tabular.render(zip: 3_461_832_653_653_265)
+            fixed.render(zip: 3_461_832_653_653_265)
           end
         end
 
         it "when float is too large" do
           assert_raises IOStreams::Errors::ValueTooLong do
-            tabular.render(weight: 3_461_832_653_653_265.234)
+            fixed.render(weight: 3_461_832_653_653_265.234)
           end
         end
 
         it "renders nil as empty string" do
-          assert string = tabular.render(zip: 34_618)
+          assert string = fixed.render(zip: 34_618)
           assert_equal "                                                                 34618000000000000000.00", string
         end
 
         it "renders boolean" do
-          assert string = tabular.render(name: true, address: false)
+          assert string = fixed.render(name: true, address: false)
           assert_equal "true                   false                                     00000000000000000000.00", string
         end
 
         it "renders no data as nil" do
-          refute tabular.render({})
+          refute fixed.render({})
+        end
+
+        it "any size last string" do
+          assert string = fixed_with_remainder.render(name: "Jack", address: "over there", remainder: "XX34618012345670012345.01............")
+          assert_equal "Jack                   over there                              XX34618012345670012345.01............", string
+        end
+
+        it "nil last string" do
+          assert string = fixed_with_remainder.render(name: "Jack", address: "over there", remainder: nil)
+          assert_equal "Jack                   over there                              ", string
+        end
+
+        it "skips last filler" do
+          assert string = fixed_discard_remainder.render(name: "Jack", address: "over there")
+          assert_equal "Jack                   over there                              ", string
         end
       end
     end
