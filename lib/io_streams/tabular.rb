@@ -184,8 +184,6 @@ module IOStreams
       @formats.keys
     end
 
-    private
-
     # A registry to hold formats for processing files during upload or download
     @formats = {}
 

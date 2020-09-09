@@ -99,7 +99,7 @@ module IOStreams
 
             # Ignore "columns" that have no keys. E.g. Fillers
             hash[column.key] = column.parse(line[index, column.size]) if column.key
-            index            += column.size
+            index += column.size
           end
           hash
         end
@@ -108,8 +108,6 @@ module IOStreams
         def requires_header?
           false
         end
-
-        private
 
         class Layout
           attr_reader :columns, :length
@@ -177,38 +175,33 @@ module IOStreams
             end
           end
 
-          def render(value, truncate_strings)
-            case type
-            when :string
-              value = value.to_s
-              return value if size == -1
+          def render(value, truncate)
+            formatted =
+              case type
+              when :string
+                value = value.to_s
+                return value if size == -1
 
-              if !truncate_strings && (value.length > size)
-                raise(Errors::ValueTooLong, "Value: #{value.inspect} is too long to fit into column #{key} of size #{size}")
+                format(truncate ? "%-#{size}.#{size}s" : "%-#{size}s", value)
+              when :integer
+                return value.to_i.to_s if size == -1
+
+                truncate = false
+                format("%0#{size}d", value.to_i)
+              when :float
+                return value.to_f.to_s if size == -1
+
+                truncate = false
+                format("%0#{size}.#{decimals}f", value.to_f)
+              else
+                raise(Errors::InvalidLayout, "Unsupported type: #{type.inspect}")
               end
 
-              format("%-#{size}.#{size}s", value.to_s)
-            when :integer
-              return value.to_i.to_s if size == -1
-
-              formatted = format("%0#{size}d", value.to_i)
-              if formatted.length > size
-                raise(Errors::ValueTooLong, "Value: #{value} is too large to fit into column:#{key} of size:#{size}")
-              end
-
-              formatted
-            when :float
-              return value.to_f.to_s if size == -1
-
-              formatted = format("%0#{size}.#{decimals}f", value.to_f)
-              if formatted.length > size
-                raise(Errors::ValueTooLong, "Value: #{value} is too large to fit into column:#{key} of size:#{size}")
-              end
-
-              formatted
-            else
-              raise(Errors::InvalidLayout, "Unsupported type: #{type.inspect}")
+            if !truncate && formatted.length > size
+              raise(Errors::ValueTooLong, "Value: #{value} is too large to fit into column:#{key} of size:#{size}")
             end
+
+            formatted
           end
         end
       end

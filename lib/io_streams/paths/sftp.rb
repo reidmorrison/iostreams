@@ -71,7 +71,9 @@ module IOStreams
       #   end
       #
       #   # When using the sftp executable use an identity file instead of a password to authenticate:
-      #   IOStreams.path("sftp://test.com/path/file_name.csv", username: "jack", ssh_options: {IdentityFile: "~/.ssh/private_key"}).reader do |io|
+      #   IOStreams.path("sftp://test.com/path/file_name.csv",
+      #                  username:    "jack",
+      #                  ssh_options: {IdentityFile: "~/.ssh/private_key"}).reader do |io|
       #     puts io.read
       #   end
       def initialize(url, username: nil, password: nil, ssh_options: {})
@@ -122,7 +124,8 @@ module IOStreams
       #   end
       #
       # Example Output:
-      # sftp://sftp.example.org/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group", :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
+      # sftp://sftp.example.org/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group",
+      #   :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
       def each_child(pattern = "*", case_sensitive: true, directories: false, hidden: false)
         Utils.load_soft_dependency("net-sftp", "SFTP glob capability", "net/sftp") unless defined?(Net::SFTP)
 

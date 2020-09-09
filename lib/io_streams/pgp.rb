@@ -74,9 +74,10 @@ module IOStreams
 
       raise(Pgp::Failure, "GPG Failed to generate key: #{err}#{out}") unless status.success?
 
-      if (match = err.match(/gpg: key ([0-9A-F]+)\s+/))
-        match[1]
-      end
+      match = err.match(/gpg: key ([0-9A-F]+)\s+/)
+      return unless match
+
+      match[1]
     end
 
     # Delete all private and public keys for a particular email.
@@ -108,11 +109,6 @@ module IOStreams
       raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
 
       !list_keys(email: email, key_id: key_id, private: private).empty?
-    end
-
-    # Deprecated
-    def self.has_key?(**args)
-      key?(**args)
     end
 
     # Returns [Array<Hash>] the list of keys.
@@ -232,7 +228,7 @@ module IOStreams
         err.each_line do |line|
           if line =~ /secret key imported/
             secret = true
-          elsif match = line.match(/key\s+(\w+):\s+(\w+).+\"(.*)<(.*)>\"/)
+          elsif (match = line.match(/key\s+(\w+):\s+(\w+).+\"(.*)<(.*)>\"/))
             results << {
               key_id:  match[1].to_s.strip,
               private: secret,
@@ -346,8 +342,6 @@ module IOStreams
         end
       end
     end
-
-    private
 
     @logger = nil
 

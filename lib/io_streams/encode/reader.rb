@@ -78,8 +78,6 @@ module IOStreams
         block
       end
 
-      private
-
       def self.extract_cleaner(cleaner)
         return if cleaner.nil?
 

@@ -59,7 +59,7 @@ class TabularTest < Minitest::Test
         end
 
         it "white listed snake cased alphanumeric columns" do
-          tabular         = IOStreams::Tabular.new(
+          tabular = IOStreams::Tabular.new(
             columns:         ["Ard Vark", "password", "robot version", "$$$"],
             allowed_columns: %w[ard_vark robot_version]
           )

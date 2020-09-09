@@ -298,8 +298,6 @@ module IOStreams
     @schemes[scheme_name.nil? ? nil : scheme_name.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
   end
 
-  private
-
   Extension = Struct.new(:reader_class, :writer_class)
 
   # Hold root paths

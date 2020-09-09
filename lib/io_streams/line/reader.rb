@@ -63,11 +63,11 @@ module IOStreams
         # Auto-detect windows/linux line endings if not supplied. \n or \r\n
         @delimiter ||= auto_detect_line_endings
 
-        if @buffer
-          # Change the delimiters encoding to match that of the input stream
-          @delimiter      = @delimiter.encode(@buffer.encoding)
-          @delimiter_size = @delimiter.size
-        end
+        return unless @buffer
+
+        # Change the delimiters encoding to match that of the input stream
+        @delimiter      = @delimiter.encode(@buffer.encoding)
+        @delimiter_size = @delimiter.size
       end
 
       # Iterate over every line in the file/stream passing each line to supplied block in turn.
