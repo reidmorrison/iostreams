@@ -203,7 +203,7 @@ module IOStreams
         return super(source_path) if convert
 
         source = IOStreams.new(source_path)
-        return super(source, **args) unless source.is_a?(self.class)
+        return super(source) unless source.is_a?(self.class)
 
         source_name = ::File.join(source.bucket_name, source.path)
         client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source_name))
