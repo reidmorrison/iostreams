@@ -10,8 +10,7 @@ Gem::Specification.new do |s|
   s.version               = IOStreams::VERSION
   s.platform              = Gem::Platform::RUBY
   s.authors               = ["Reid Morrison"]
-  s.email                 = ["reidmo@gmail.com"]
-  s.homepage              = "https://github.com/rocketjob/iostreams"
+  s.homepage              = "https://iostreams.rocketjob.io"
   s.summary               = "Input and Output streaming for Ruby."
   s.files                 = Dir["lib/**/*", "bin/*", "LICENSE", "Rakefile", "README.md"]
   s.test_files            = Dir["test/**/*"]
