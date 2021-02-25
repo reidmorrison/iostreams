@@ -52,7 +52,7 @@ module IOStreams
     #   format: [Symbol]
     #     :csv, :hash, :array, :json, :psv, :fixed
     #
-    #   file_name: [String]
+    #   file_name: [IOStreams::Path | String]
     #     When `:format` is not supplied the file name can be used to infer the required format.
     #     Optional. Default: nil
     #
@@ -81,14 +81,19 @@ module IOStreams
     #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
     #     false:
     #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
-    def initialize(format: nil, file_name: nil, format_options: nil, **args)
+    #
+    #   default_format: [Symbol]
+    #     When the format is not supplied, and the format cannot be inferred from the supplied file name
+    #     then this default format will be used.
+    #     Default: :csv
+    #     Set to nil to force it to raise an exception when the format is undefined.
+    def initialize(format: nil, file_name: nil, format_options: nil, default_format: :csv, **args)
       @header = Header.new(**args)
-      klass   =
-        if file_name && format.nil?
-          self.class.parser_class_for_file_name(file_name)
-        else
-          self.class.parser_class(format)
-        end
+      @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
+      @format ||= default_format
+      raise(UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
+
+      klass   = self.class.parser_class(@format)
       @parser = format_options ? klass.new(**format_options) : klass.new
     end
 
@@ -162,9 +167,9 @@ module IOStreams
     # Example:
     #   register_format(:csv, IOStreams::Tabular::Parser::Csv)
     def self.register_format(format, parser)
-      raise(ArgumentError, "Invalid format #{format.inspect}") unless format.nil? || format.to_s =~ /\A\w+\Z/
+      raise(ArgumentError, "Invalid format #{format.inspect}") unless format.to_s =~ /\A\w+\Z/
 
-      @formats[format.nil? ? nil : format.to_sym] = parser
+      @formats[format.to_sym] = parser
     end
 
     # De-Register a file format
@@ -187,23 +192,18 @@ module IOStreams
     # A registry to hold formats for processing files during upload or download
     @formats = {}
 
+    # Returns the registered format that will be used for the supplied file name.
+    def self.format_from_file_name(file_name)
+      file_name.to_s.split(".").reverse_each { |ext| return ext.to_sym if @formats.include?(ext.to_sym) }
+      nil
+    end
+
+    # Returns the parser class for the registered format.
     def self.parser_class(format)
-      @formats[format.nil? ? nil : format.to_sym] || raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
+      @formats[format.nil? ? nil : format.to_sym] ||
+        raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
     end
 
-    # Returns the parser to use with tabular for the supplied file_name
-    def self.parser_class_for_file_name(file_name)
-      format = nil
-      file_name.to_s.split(".").reverse_each do |ext|
-        if @formats.include?(ext.to_sym)
-          format = ext.to_sym
-          break
-        end
-      end
-      parser_class(format)
-    end
-
-    register_format(nil, IOStreams::Tabular::Parser::Csv)
     register_format(:array, IOStreams::Tabular::Parser::Array)
     register_format(:csv, IOStreams::Tabular::Parser::Csv)
     register_format(:fixed, IOStreams::Tabular::Parser::Fixed)

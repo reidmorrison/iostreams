@@ -9,6 +9,9 @@ module IOStreams
     class MissingHeader < Error
     end
 
+    class UnknownFormat < Error
+    end
+
     class TypeMismatch < Error
     end
 
