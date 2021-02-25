@@ -6,10 +6,7 @@ module IOStreams
       # 2 to 3 times better performance than CSV.parse_line and considerably less
       # garbage collection required.
       #
-      # Note:
-      #   This parser does not support line feeds embedded in quoted fields since
-      #   the file is broken apart based on line feeds during the upload process and
-      #   is then processed by each worker on a line by line basis.
+      # Note: Only used prior to Ruby 2.6
       class CSVRow < ::CSV
         UTF8_ENCODING = Encoding.find("UTF-8").freeze
 

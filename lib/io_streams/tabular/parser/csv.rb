@@ -5,8 +5,10 @@ module IOStreams
       class Csv < Base
         attr_reader :csv_parser
 
-        def initialize
-          @csv_parser = Utility::CSVRow.new unless RUBY_VERSION.to_f >= 2.6
+        unless RUBY_VERSION.to_f >= 2.6
+          def initialize
+            @csv_parser = Utility::CSVRow.new
+          end
         end
 
         # Returns [Array<String>] the header row.

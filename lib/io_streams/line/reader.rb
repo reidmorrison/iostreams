@@ -38,12 +38,12 @@ module IOStreams
       #     Size of blocks to read from the input stream at a time.
       #     Default: 65536 ( 64K )
       #
-      # TODO:
-      # - Handle embedded line feeds when reading csv files.
-      # - Skip Comment lines. RegExp?
-      # - Skip "empty" / "blank" lines. RegExp?
-      # - Extract header line(s) / first non-comment, non-blank line
-      # - Embedded newline support, RegExp? or Proc?
+      #   embedded_within: [String]
+      #     Supports CSV files where a line may contain an embedded newline.
+      #     For CSV files set `embedded_within: '"'`
+      #
+      # Note:
+      # * When using a line reader and the file_name ends with ".csv" then embedded_within is automatically set to `"`
       def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil, original_file_name: nil)
         super(input_stream)
 
@@ -86,17 +86,29 @@ module IOStreams
         line_count
       end
 
-      # Reads each line per the @delimeter. It will account for embedded lines provided they are within double quotes.
-      # The embedded_within argument is set in IOStreams::LineReader
+      # Reads each line per the `delimeter`.
+      # Accounts for lines that contain the `delimiter` when the `delimeter` is within the `embedded_within` delimiter.
+      # For Example, CSV files can contain newlines embedded within double quotes.
       def readline
         line = _readline
         if line && @embedded_within
           initial_line_number = @line_number
           while line.count(@embedded_within).odd?
-            raise "Unclosed quoted field on line #{initial_line_number}" if eof? || line.length > @buffer_size * 10
-
+            if eof? || line.length > @buffer_size * 10
+              raise(Errors::MalformedDataError.new(
+                "Unbalanced delimited field, delimiter: #{@embedded_within}",
+                initial_line_number
+              ))
+            end
             line << @delimiter
-            line << _readline
+            next_line = _readline
+            if next_line.nil?
+              raise(Errors::MalformedDataError.new(
+                "Unbalanced delimited field, delimiter: #{@embedded_within}",
+                initial_line_number
+              ))
+            end
+            line << next_line
           end
         end
         line

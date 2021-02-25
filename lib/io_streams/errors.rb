@@ -29,6 +29,15 @@ module IOStreams
     class ValueTooLong < Error
     end
 
+    class MalformedDataError < RuntimeError
+      attr_reader :line_number
+
+      def initialize(message, line_number)
+        @line_number = line_number
+        super("#{message} on line #{line_number}.")
+      end
+    end
+
     class InvalidLayout < Error
     end
   end

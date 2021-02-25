@@ -14,6 +14,14 @@ class LineReaderTest < Minitest::Test
       File.join(File.dirname(__FILE__), "files", "unclosed_quote_test.csv")
     end
 
+    let :unclosed_quote_file2 do
+      File.join(File.dirname(__FILE__), "files", "unclosed_quote_test2.csv")
+    end
+
+    let :unclosed_quote_large_file do
+      File.join(File.dirname(__FILE__), "files", "unclosed_quote_large_test.csv")
+    end
+
     let :data do
       data = []
       File.open(file_name, "rt") do |file|
@@ -51,13 +59,31 @@ class LineReaderTest < Minitest::Test
           assert_equal 4, lines.count
         end
 
-        it "raises error for unclosed quote" do
-          assert_raises(RuntimeError) do
+        it "raises error for unbalanced quotes" do
+          exc = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.file(unclosed_quote_file, embedded_within: '"') do |io|
-              io.each do |line|
-              end
+              io.each { |line| }
             end
           end
+          assert_includes exc.message, "Unbalanced delimited field, delimiter:"
+        end
+
+        it "raises error for unclosed quote" do
+          exc = assert_raises(IOStreams::Errors::MalformedDataError) do
+            IOStreams::Line::Reader.file(unclosed_quote_file2, embedded_within: '"') do |io|
+              io.each { |line| }
+            end
+          end
+          assert_includes exc.message, "Unbalanced delimited field, delimiter:"
+        end
+
+        it "raises error for unclosed quote before eof" do
+          exc = assert_raises(IOStreams::Errors::MalformedDataError) do
+            IOStreams::Line::Reader.file(unclosed_quote_large_file, embedded_within: '"', buffer_size: 20) do |io|
+              io.each { |line| }
+            end
+          end
+          assert_includes exc.message, "Unbalanced delimited field, delimiter:"
         end
       end
     end
