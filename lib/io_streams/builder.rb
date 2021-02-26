@@ -1,13 +1,15 @@
 module IOStreams
   # Build the streams that need to be applied to a path druing reading or writing.
   class Builder
-    attr_accessor :file_name
+    attr_accessor :file_name, :format_options
     attr_reader :streams, :options
 
     def initialize(file_name = nil)
-      @file_name = file_name
-      @streams   = nil
-      @options   = nil
+      @file_name     = file_name
+      @streams       = nil
+      @options       = nil
+      @format        = nil
+      @format_option = nil
     end
 
     # Supply an option that is only applied once the file name extensions have been parsed.
@@ -88,11 +90,23 @@ module IOStreams
       built_streams.freeze
     end
 
+    # Returns the tabular format if set, otherwise tries to autodetect the format if the file_name has been set
+    # Returns [nil] if no format is set, or if it cannot be determined from the file_name
+    def format
+      @format ||= file_name ? Tabular.format_from_file_name(file_name) : nil
+    end
+
+    def format=(format)
+      raise(ArgumentError, "Invalid format: #{format.inspect}") unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
+
+      @format = format
+    end
+
     private
 
     def class_for_stream(type, stream)
       ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] ||
-            raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+        raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
       ext.send("#{type}_class") || raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
     end
 

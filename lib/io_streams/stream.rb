@@ -191,9 +191,39 @@ module IOStreams
       end
     end
 
-    # Set/get the original file_name
+    # Set the original file_name
     def file_name=(file_name)
       builder.file_name = file_name
+    end
+
+    # Set/get the tabular format_options
+    def format(format = :none)
+      if format == :none
+        builder.format
+      else
+        builder.format = format
+        self
+      end
+    end
+
+    # Set the tabular format
+    def format=(format)
+      builder.format = format
+    end
+
+    # Set/get the tabular format options
+    def format_options(format_options = :none)
+      if format_options == :none
+        builder.format_options
+      else
+        builder.format_options = format_options
+        self
+      end
+    end
+
+    # Set the tabular format_options
+    def format_options=(format_options)
+      builder.format_options = format_options
     end
 
     # Returns [String] the last component of this path.
@@ -293,14 +323,26 @@ module IOStreams
     # Iterate over a file / stream returning each line as an array, one at a time.
     def row_reader(delimiter: nil, embedded_within: nil, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Row::Reader.new(io, original_file_name: builder.file_name, **args)
+        yield IOStreams::Row::Reader.new(
+          io,
+          original_file_name: builder.file_name,
+          format:             builder.format,
+          format_options:     builder.format_options,
+          **args
+        )
       end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
     def record_reader(delimiter: nil, embedded_within: nil, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Record::Reader.new(io, original_file_name: builder.file_name, **args)
+        yield IOStreams::Record::Reader.new(
+          io,
+          original_file_name: builder.file_name,
+          format:             builder.format,
+          format_options:     builder.format_options,
+          **args
+        )
       end
     end
 
@@ -320,7 +362,14 @@ module IOStreams
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Row::Writer)
 
       line_writer(delimiter: delimiter) do |io|
-        IOStreams::Row::Writer.stream(io, original_file_name: builder.file_name, **args, &block)
+        IOStreams::Row::Writer.stream(
+          io,
+          original_file_name: builder.file_name,
+          format: builder.format,
+          format_options: builder.format_options,
+          **args,
+          &block
+        )
       end
     end
 
@@ -328,7 +377,13 @@ module IOStreams
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Record::Writer)
 
       line_writer(delimiter: delimiter) do |io|
-        IOStreams::Record::Writer.stream(io, original_file_name: builder.file_name, **args, &block)
+        IOStreams::Record::Writer.stream(
+          io,
+          original_file_name: builder.file_name,
+          format: builder.format,
+          format_options: builder.format_options,
+          **args,
+          &block)
       end
     end
   end

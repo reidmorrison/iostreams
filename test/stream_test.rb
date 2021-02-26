@@ -45,9 +45,9 @@ class StreamTest < Minitest::Test
       it "reads a zip file" do
         File.open(multiple_zip_file_name, "rb") do |io|
           result = IOStreams::Stream.new(io).
-                   file_name(multiple_zip_file_name).
-                   option(:zip, entry_file_name: "test.json").
-                   read
+            file_name(multiple_zip_file_name).
+            option(:zip, entry_file_name: "test.json").
+            read
           assert_equal contents_test_json, result
         end
       end
@@ -55,8 +55,8 @@ class StreamTest < Minitest::Test
       it "reads a zip file from within a gz file" do
         File.open(zip_gz_file_name, "rb") do |io|
           result = IOStreams::Stream.new(io).
-                   file_name(zip_gz_file_name).
-                   read
+            file_name(zip_gz_file_name).
+            read
           assert_equal contents_test_txt, result
         end
       end
@@ -71,7 +71,7 @@ class StreamTest < Minitest::Test
     describe ".record_reader" do
     end
 
-    describe ".each_line" do
+    describe "#each(:line)" do
       it "returns a line at a time" do
         lines = []
         stream.stream(:none)
@@ -91,10 +91,114 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe ".each row" do
+    describe "#each(:array)" do
+      describe "csv" do
+        let :source_file_name do
+          File.join(__dir__, "files", "test.csv")
+        end
+
+        let :expected_rows do
+          rows = []
+          CSV.open(source_file_name).each { |row| rows << row }
+          rows
+        end
+
+        it "detects format from file_name" do
+          output           = []
+          stream.file_name = source_file_name
+          stream.each(:array) { |record| output << record }
+          assert_equal expected_rows, output
+        end
+
+        it "honors format" do
+          output           = []
+          stream.file_name = "blah"
+          stream.format    = :csv
+          stream.each(:array) { |record| output << record }
+          assert_equal expected_rows, output
+        end
+      end
+
+      describe "psv" do
+        let :source_file_name do
+          File.join(__dir__, "files", "test.psv")
+        end
+
+        let :expected_rows do
+          File.readlines(source_file_name).collect { |line| line.chomp.split("|") }
+        end
+
+        it "detects format from file_name" do
+          output           = []
+          stream.file_name = source_file_name
+          stream.each(:array) { |record| output << record }
+          assert_equal expected_rows, output
+        end
+
+        it "honors format" do
+          output           = []
+          stream.file_name = "blah"
+          stream.format    = :psv
+          stream.each(:array) { |record| output << record }
+          assert_equal expected_rows, output
+        end
+      end
+
+      describe "json" do
+        let :source_file_name do
+          File.join(__dir__, "files", "test.json")
+        end
+
+        let :expected_rows do
+          hash_rows = File.readlines(source_file_name).collect { |line| JSON.load(line) }
+          rows      = []
+          rows << hash_rows.first.keys
+          hash_rows.each { |hash| rows << hash.values }
+          rows
+        end
+
+        it "detects format from file_name" do
+          skip "TODO: Support reading json files as arrays"
+          output           = []
+          stream.file_name = source_file_name
+          stream.each(:array) { |record| output << record }
+          assert_equal expected_rows, output
+        end
+
+        it "honors format" do
+          skip "TODO: Support reading json files as arrays"
+          output           = []
+          stream.file_name = "blah"
+          stream.format    = :json
+          stream.each(:array) { |record| output << record }
+          assert_equal expected_rows, output
+        end
+      end
     end
 
-    describe ".each record" do
+    describe ".each hash" do
+      let :source_file_name do
+        File.join(__dir__, "files", "test.json")
+      end
+
+      let :expected_json do
+        File.readlines(source_file_name).collect { |line| JSON.load(line) }
+      end
+
+      it "detects format from file_name" do
+        output           = []
+        stream.file_name = source_file_name
+        stream.each(:hash) { |record| output << record }
+        assert_equal expected_json, output
+      end
+
+      it "honors format" do
+        output           = []
+        stream.file_name = "blah"
+        stream.format    = :json
+        stream.each(:hash) { |record| output << record }
+        assert_equal expected_json, output
+      end
     end
 
     describe "#writer" do
@@ -359,6 +463,24 @@ class StreamTest < Minitest::Test
           end
           assert_equal "\nHe\n\nl\n\nlo \nWorld\n\n", io.string, io.string.inspect
         end
+
+        it "honors format" do
+          io = StringIO.new
+          IOStreams::Stream.new(io).format(:psv).writer(:array) do |stream|
+            stream << %w[first_name last_name]
+            stream << %w[Jack Johnson]
+          end
+          assert_equal "first_name|last_name\nJack|Johnson\n", io.string, io.string.inspect
+        end
+
+        it "auto detects format" do
+          io = StringIO.new
+          IOStreams::Stream.new(io).file_name("abc.psv").writer(:array) do |stream|
+            stream << %w[first_name last_name]
+            stream << %w[Jack Johnson]
+          end
+          assert_equal "first_name|last_name\nJack|Johnson\n", io.string, io.string.inspect
+        end
       end
     end
 
@@ -401,6 +523,50 @@ class StreamTest < Minitest::Test
             stream << {}
           end
           assert_equal "first_name,last_name\nJack,Johnson\n\n{:first_name=>\"Able\", :last_name=>\"Smith\"}\n\n", io.string, io.string.inspect
+        end
+
+        it "honors format" do
+          io = StringIO.new
+          IOStreams::Stream.new(io).format(:json).writer(:hash) do |stream|
+            stream << {first_name: "Jack", last_name: "Johnson"}
+          end
+          assert_equal "{\"first_name\":\"Jack\",\"last_name\":\"Johnson\"}\n", io.string, io.string.inspect
+        end
+
+        it "auto detects format" do
+          io = StringIO.new
+          IOStreams::Stream.new(io).file_name("abc.json").writer(:hash) do |stream|
+            stream << {first_name: "Jack", last_name: "Johnson"}
+          end
+          assert_equal "{\"first_name\":\"Jack\",\"last_name\":\"Johnson\"}\n", io.string, io.string.inspect
+        end
+      end
+    end
+
+    describe "#format" do
+      it "detects the format from the file name" do
+        stream.file_name = "abc.json"
+        assert_equal :json, stream.format
+      end
+
+      it "is nil if the file name has no meaningful format" do
+        assert_nil stream.format
+      end
+
+      it "returns set format with no file_name" do
+        stream.format = :csv
+        assert_equal :csv, stream.format
+      end
+
+      it "returns set format with file_name" do
+        stream.file_name = "abc.json"
+        stream.format    = :csv
+        assert_equal :csv, stream.format
+      end
+
+      it "validates bad format" do
+        assert_raises ArgumentError do
+          stream.format = :blah
         end
       end
     end

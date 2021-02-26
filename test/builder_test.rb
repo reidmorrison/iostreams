@@ -41,6 +41,35 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe "#format" do
+      it "detects the format from the file name" do
+        streams = IOStreams::Builder.new("abc.json")
+        assert_equal :json, streams.format
+      end
+
+      it "is nil if the file name has no meaningful format" do
+        assert_nil streams.format
+      end
+
+      it "returns set format with no file_name" do
+        streams        = IOStreams::Builder.new
+        streams.format = :csv
+        assert_equal :csv, streams.format
+      end
+
+      it "returns set format with file_name" do
+        streams        = IOStreams::Builder.new("abc.json")
+        streams.format = :csv
+        assert_equal :csv, streams.format
+      end
+
+      it "validates bad format" do
+        assert_raises ArgumentError do
+          streams.format = :blah
+        end
+      end
+    end
+
     describe "#stream" do
       it "adds one stream" do
         streams.stream(:pgp, passphrase: "unlock-me")
