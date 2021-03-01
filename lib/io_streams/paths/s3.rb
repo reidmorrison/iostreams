@@ -5,6 +5,9 @@ module IOStreams
     class S3 < IOStreams::Path
       attr_reader :bucket_name, :client, :options
 
+      # Largest file size supported by the S3 copy object api.
+      S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
+
       # Arguments:
       #
       # url: [String]
@@ -188,7 +191,7 @@ module IOStreams
 
       # Make S3 perform direct copies within S3 itself.
       def copy_to(target_path, convert: true)
-        return super(target_path) if convert
+        return super(target_path) if convert || (size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
 
         target = IOStreams.new(target_path)
         return super(target) unless target.is_a?(self.class)
@@ -203,7 +206,7 @@ module IOStreams
         return super(source_path) if convert
 
         source = IOStreams.new(source_path)
-        return super(source) unless source.is_a?(self.class)
+        return super(source) if !source.is_a?(self.class) || (source.size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
 
         source_name = ::File.join(source.bucket_name, source.path)
         client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source_name))
