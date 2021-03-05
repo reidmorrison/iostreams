@@ -14,6 +14,18 @@ Start with the [IOStreams tutorial](https://iostreams.rocketjob.io/tutorial) to 
 
 Next, checkout the remaining [IOStreams documentation](https://iostreams.rocketjob.io/)
 
+## Upgrading to v1.6
+
+The old, deprecated api's are no longer loaded by default with v1.6. To add back the deprecated api support, add
+the following line to your code:
+
+~~~ruby
+IOStreams.include(IOStreams::Deprecated)
+~~~
+
+It is important to move any of the old deprecated apis over to the new api, since they will be removed in a future
+release.
+
 ## Versioning
 
 This project adheres to [Semantic Versioning](http://semver.org/).

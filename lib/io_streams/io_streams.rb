@@ -13,8 +13,6 @@ require "uri"
 #   .zip.enc  [ :zip, :enc ]
 #   .gz.enc   [ :gz,  :enc ]
 module IOStreams
-  include Deprecated
-
   # Returns [Path] instance for the supplied complete path with optional scheme.
   #
   # Example:

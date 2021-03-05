@@ -1,5 +1,7 @@
 require_relative "test_helper"
 
+IOStreams.include(IOStreams::Deprecated)
+
 # Test deprecated api
 class DeprecatedTest < Minitest::Test
   describe IOStreams do
