@@ -261,7 +261,7 @@ module IOStreams
 
       import(key: key)
       set_trust(email: email, key_id: key_id)
-      email
+      email || key_id
     end
 
     # Set the trust level for an existing key.
