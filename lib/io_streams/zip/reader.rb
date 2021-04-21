@@ -20,7 +20,7 @@ module IOStreams
       if defined?(JRuby)
         # Java has built-in support for Zip files
         def self.file(file_name, entry_file_name: nil, &block)
-          if entry_file_name.include?(".CSV")
+          if entry_file_name&.include?(".CSV")
             get_file_io(file_name, entry_file_name, &block)
           else
             fin = Java::JavaIo::FileInputStream.new(file_name)
