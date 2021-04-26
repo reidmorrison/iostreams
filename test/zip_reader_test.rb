@@ -12,6 +12,10 @@ class ZipReaderTest < Minitest::Test
       File.join(File.dirname(__FILE__), "files", "multiple_files.zip")
     end
 
+    let :csv_zip_file_name do
+      'https://www5.fdic.gov/idasp/Offices2.zip'
+    end
+
     let :contents_test_txt do
       File.read(File.join(File.dirname(__FILE__), "files", "text.txt"))
     end
@@ -38,6 +42,14 @@ class ZipReaderTest < Minitest::Test
       it "reads another entry within zip file" do
         result = IOStreams::Zip::Reader.file(multiple_zip_file_name, entry_file_name: "test.json", &:read)
         assert_equal contents_test_json, result
+      end
+
+      it "parses CSV which is inside a zip" do        
+        IOStreams.path(csv_zip_file_name).option(:zip, entry_file_name: 'OFFICES2_ALL.CSV').reader do |io|
+          csv    = ::CSV.new(io, headers: true)
+          row = csv.first
+          assert Date.parse(row['RUNDATE'])
+        end
       end
 
       # it 'reads from a stream' do
