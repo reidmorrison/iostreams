@@ -350,7 +350,7 @@ module IOStreams
     end
 
     def self.version_check
-      return unless pgp_version.to_f >= 2.3
+      return unless pgp_version.to_f >= 2.4
 
       raise(
         Pgp::UnsupportedVersion,
