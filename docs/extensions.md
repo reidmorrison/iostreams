@@ -9,4 +9,4 @@ layout: default
 * BZip2
 * PGP (Requires GnuPG)
 * Xlsx (Reading)
-* Encryption using [Symmetric Encryption](https://rocketjob.github.io/symmetric-encryption/)
+* Encryption using [Symmetric Encryption](https://encryption.rocketjob.io/)

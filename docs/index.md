@@ -27,7 +27,7 @@ storage in production, without changing any of the source code.
 * BZip2
 * PGP (Requires GnuPG)
 * Xlsx (Reading)
-* Encryption using [Symmetric Encryption](https://rocketjob.github.io/symmetric-encryption/)
+* Encryption using [Symmetric Encryption](https://encryption.rocketjob.io/)
 
 #### File Storage
 * File
