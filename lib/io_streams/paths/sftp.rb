@@ -26,12 +26,13 @@ module IOStreams
       include SemanticLogger::Loggable if defined?(SemanticLogger)
 
       class << self
-        attr_accessor :sshpass_bin, :sftp_bin, :sshpass_wait_seconds
+        attr_accessor :sshpass_bin, :sftp_bin, :sshpass_wait_seconds, :before_password_wait_seconds
       end
 
-      @sftp_bin             = "sftp"
-      @sshpass_bin          = "sshpass"
-      @sshpass_wait_seconds = 5
+      @sftp_bin                     = "sftp"
+      @sshpass_bin                  = "sshpass"
+      @before_password_wait_seconds = 2
+      @sshpass_wait_seconds         = 5
 
       attr_reader :hostname, :username, :ssh_options, :url, :port
 
@@ -168,9 +169,14 @@ module IOStreams
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
             begin
+              # Give time for remote sftp server to get ready to accept the password.
+              sleep self.class.before_password_wait_seconds
+
               writer.puts password
+
               # Give time for password to be processed and stdin to be passed to sftp process.
               sleep self.class.sshpass_wait_seconds
+
               writer.puts "get #{remote_file_name} #{local_file_name}"
               writer.puts "bye"
               writer.close
@@ -271,9 +277,9 @@ module IOStreams
       end
 
       def build_ssh_options
-        options = ssh_options.dup
-        options[:logger] ||= logger if defined?(SemanticLogger)
-        options[:port] ||= port
+        options                = ssh_options.dup
+        options[:logger]       ||= logger if defined?(SemanticLogger)
+        options[:port]         ||= port
         options[:max_pkt_size] ||= 65_536
         options[:password]     ||= @password
         options
