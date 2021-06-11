@@ -47,9 +47,23 @@ module IOStreams
       # password: [String]
       #   Password for the user.
       #
-      # **ssh_options
-      #   Any other options supported by ssh_config.
-      #   `man ssh_config` to see all available options.
+      # ssh_options: [Hash]
+      #   - IdentityKey [String]
+      #     The identity key that this client should use to talk to this host.
+      #     Under the covers this value is written to a file and then the file name is passed as `IdentityFile`
+      #   - HostKey [String]
+      #     The expected SSH Host key that is presented by the remote host.
+      #     Instead of storing the host key in the `known_hosts` file, it can be supplied explicity
+      #     using this option.
+      #     Under the covers this value is written to a file and then the file name is passed as `UserKnownHostsFile`
+      #     Notes:
+      #     - It must contain the entire line that would be stored in `known_hosts`,
+      #       including the hostname, ip address, key type and key value. This value is written as-is into a
+      #       "known_hosts" like file and then passed into sftp using the `UserKnownHostsFile` option.
+      #     - The easiest way to generate the required is to use `ssh-keyscan` and then supply that value in this field.
+      #       For example: `ssh-keyscan hostname`
+      #   - Any other options supported by ssh_config.
+      #     `man ssh_config` to see all available options.
       #
       # Examples:
       #
@@ -239,16 +253,34 @@ module IOStreams
       end
 
       def with_sftp_args
-        return yield sftp_args(ssh_options) unless ssh_options.key?("IdentityKey")
+        return yield sftp_args(ssh_options) if !ssh_options.key?("IdentityKey") && !ssh_options.key?("HostKey")
 
+        with_identity_key(ssh_options.dup) do |options|
+          with_host_key(options) do |options2|
+            yield sftp_args(options2)
+          end
+        end
+      end
+
+      def with_identity_key(options)
+        return yield options unless ssh_options.key?("IdentityKey")
+
+        with_temp_file(options, "IdentityFile", options.delete("IdentityKey")) { yield options }
+      end
+
+      def with_host_key(options, &block)
+        return yield options unless ssh_options.key?("HostKey")
+
+        with_temp_file(options, "UserKnownHostsFile", options.delete("HostKey")) { yield options }
+      end
+
+      def with_temp_file(options, option, value)
         Utils.temp_file_name("iostreams-sftp-args", "key") do |file_name|
-          options = ssh_options.dup
-          key     = options.delete("IdentityKey")
           # sftp requires that private key is only readable by the current user
-          ::File.open(file_name, "wb", 0o600) { |io| io.write(key) }
+          ::File.open(file_name, "wb", 0o600) { |io| io.write(value) }
 
-          options["IdentityFile"] = file_name
-          yield sftp_args(options)
+          options[option] = file_name
+          yield options
         end
       end
 
