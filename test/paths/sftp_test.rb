@@ -20,7 +20,13 @@ module Paths
       let(:file_name) { File.join(File.dirname(__FILE__), "..", "files", "text file.txt") }
       let(:raw) { File.read(file_name) }
 
-      let(:root_path) { IOStreams::Paths::SFTP.new(url, username: username, password: password) }
+      let(:root_path) do
+        if ENV["SFTP_HOST_KEY"]
+          IOStreams::Paths::SFTP.new(url, username: username, password: password, ssh_options: {"HostKey" => ENV["SFTP_HOST_KEY"]})
+        else
+          IOStreams::Paths::SFTP.new(url, username: username, password: password)
+        end
+      end
 
       let :existing_path do
         path = root_path.join("test.txt")

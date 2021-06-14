@@ -2,15 +2,12 @@ $LOAD_PATH.unshift File.dirname(__FILE__) + "/../lib"
 
 require "yaml"
 require "minitest/autorun"
-require "minitest/reporters"
 require "iostreams"
 require "amazing_print"
 require "symmetric-encryption"
 
 # Since PGP libraries use UTC for Dates
 ENV["TZ"] = "UTC"
-
-Minitest::Reporters.use! Minitest::Reporters::SpecReporter.new
 
 # Test cipher
 SymmetricEncryption.cipher = SymmetricEncryption::Cipher.new(

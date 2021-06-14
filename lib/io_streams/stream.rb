@@ -151,6 +151,9 @@ module IOStreams
     #     Whether to apply the stream conversions during the copy.
     #     Default: true
     #
+    #   :mode [:line, :array, :hash]
+    #     When convert is `true` then use this mode to convert the contents of the file.
+    #
     # Examples:
     #
     # # Copy and convert streams based on file extensions
@@ -162,11 +165,17 @@ module IOStreams
     # # Advanced copy with custom stream conversions on source and target.
     # source = IOStreams.path("source_file").stream(encoding: "BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
-    def copy_from(source, convert: true)
+    def copy_from(source, convert: true, mode: nil, **args)
       if convert
         stream = IOStreams.new(source)
-        writer do |target|
-          stream.reader { |src| IO.copy_stream(src, target) }
+        if mode
+          writer(mode, **args) do |target|
+            stream.each(mode) { |row| target << row }
+          end
+        else
+          writer(**args) do |target|
+            stream.reader { |src| IO.copy_stream(src, target) }
+          end
         end
       else
         stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
@@ -176,9 +185,9 @@ module IOStreams
       end
     end
 
-    def copy_to(target, convert: true)
+    def copy_to(target, **args)
       target = IOStreams.new(target)
-      target.copy_from(self, convert: convert)
+      target.copy_from(self, **args)
     end
 
     # Set/get the original file_name
@@ -365,8 +374,8 @@ module IOStreams
         IOStreams::Row::Writer.stream(
           io,
           original_file_name: builder.file_name,
-          format: builder.format,
-          format_options: builder.format_options,
+          format:             builder.format,
+          format_options:     builder.format_options,
           **args,
           &block
         )
@@ -380,8 +389,8 @@ module IOStreams
         IOStreams::Record::Writer.stream(
           io,
           original_file_name: builder.file_name,
-          format: builder.format,
-          format_options: builder.format_options,
+          format:             builder.format,
+          format_options:     builder.format_options,
           **args,
           &block)
       end

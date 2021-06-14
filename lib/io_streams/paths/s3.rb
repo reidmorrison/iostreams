@@ -190,11 +190,11 @@ module IOStreams
       end
 
       # Make S3 perform direct copies within S3 itself.
-      def copy_to(target_path, convert: true)
-        return super(target_path) if convert || (size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
+      def copy_to(target_path, convert: true, **args)
+        return super(target_path, convert: convert, **args) if convert || (size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
 
         target = IOStreams.new(target_path)
-        return super(target) unless target.is_a?(self.class)
+        return super(target, convert: convert, **args) unless target.is_a?(self.class)
 
         source_name = ::File.join(bucket_name, path)
         client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: source_name))
@@ -202,11 +202,11 @@ module IOStreams
       end
 
       # Make S3 perform direct copies within S3 itself.
-      def copy_from(source_path, convert: true)
-        return super(source_path) if convert
+      def copy_from(source_path, convert: true, **args)
+        return super(source_path, convert: true, **args) if convert
 
         source = IOStreams.new(source_path)
-        return super(source) if !source.is_a?(self.class) || (source.size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
+        return super(source, convert: convert, **args) if !source.is_a?(self.class) || (source.size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
 
         source_name = ::File.join(source.bucket_name, source.path)
         client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source_name))

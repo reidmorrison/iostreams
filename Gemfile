@@ -4,7 +4,6 @@ gemspec
 
 gem "amazing_print"
 gem "minitest"
-gem "minitest-reporters"
 gem "rake"
 
 gem "aws-sdk-s3"
