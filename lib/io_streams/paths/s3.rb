@@ -3,7 +3,7 @@ require "uri"
 module IOStreams
   module Paths
     class S3 < IOStreams::Path
-      attr_reader :bucket_name, :client, :options
+      attr_reader :bucket_name, :options
 
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
@@ -141,16 +141,17 @@ module IOStreams
 
         @bucket_name = uri.hostname
         key          = uri.path.sub(%r{\A/}, "")
-        if client.is_a?(Hash)
-          client[:access_key_id]     = access_key_id if access_key_id
-          client[:secret_access_key] = secret_access_key if secret_access_key
-          @client                    = ::Aws::S3::Client.new(client)
-        else
-          @client = client || ::Aws::S3::Client.new(access_key_id: access_key_id, secret_access_key: secret_access_key)
-        end
-        @options = args
 
-        @options.merge(uri.query) if uri.query
+        if client && !client.is_a?(Hash)
+          @client = client
+        else
+          @client_options                     = client.is_a?(Hash) ? client.dup : {}
+          @client_options[:access_key_id]     = access_key_id if access_key_id
+          @client_options[:secret_access_key] = secret_access_key if secret_access_key
+        end
+
+        @options = args
+        @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
 
         super(key)
       end
@@ -311,6 +312,11 @@ module IOStreams
       # On S3 only files that are completely saved are visible.
       def partial_files_visible?
         false
+      end
+
+      # Lazy load S3 client since it takes two seconds to create itself!
+      def client
+        @client ||= ::Aws::S3::Client.new(@client_options)
       end
     end
   end

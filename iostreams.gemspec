@@ -15,5 +15,5 @@ Gem::Specification.new do |s|
   s.files                 = Dir["lib/**/*", "bin/*", "LICENSE", "Rakefile", "README.md"]
   s.test_files            = Dir["test/**/*"]
   s.license               = "Apache-2.0"
-  s.required_ruby_version = ">= 2.3"
+  s.required_ruby_version = ">= 2.5"
 end
