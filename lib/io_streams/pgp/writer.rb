@@ -19,8 +19,7 @@ module IOStreams
 
         private
 
-        attr_reader :default_signer_passphrase
-        attr_reader :default_signer
+        attr_reader :default_signer_passphrase, :default_signer
 
         @default_signer_passphrase = nil
         @default_signer            = nil

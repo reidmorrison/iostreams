@@ -392,7 +392,8 @@ module IOStreams
           format:             builder.format,
           format_options:     builder.format_options,
           **args,
-          &block)
+          &block
+        )
       end
     end
   end

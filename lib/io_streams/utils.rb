@@ -28,11 +28,9 @@ module IOStreams
     def self.temp_file_name(basename, extension = "")
       result = nil
       ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir, max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
-        begin
-          result = yield(tmpname)
-        ensure
-          ::File.unlink(tmpname) if ::File.exist?(tmpname)
-        end
+        result = yield(tmpname)
+      ensure
+        ::File.unlink(tmpname) if ::File.exist?(tmpname)
       end
       result
     end

@@ -45,9 +45,9 @@ class StreamTest < Minitest::Test
       it "reads a zip file" do
         File.open(multiple_zip_file_name, "rb") do |io|
           result = IOStreams::Stream.new(io).
-            file_name(multiple_zip_file_name).
-            option(:zip, entry_file_name: "test.json").
-            read
+                   file_name(multiple_zip_file_name).
+                   option(:zip, entry_file_name: "test.json").
+                   read
           assert_equal contents_test_json, result
         end
       end
@@ -55,8 +55,8 @@ class StreamTest < Minitest::Test
       it "reads a zip file from within a gz file" do
         File.open(zip_gz_file_name, "rb") do |io|
           result = IOStreams::Stream.new(io).
-            file_name(zip_gz_file_name).
-            read
+                   file_name(zip_gz_file_name).
+                   read
           assert_equal contents_test_txt, result
         end
       end

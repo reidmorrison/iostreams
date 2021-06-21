@@ -48,8 +48,8 @@ module IOStreams
     # See `man gpg` for the remaining options
     def self.generate_key(name:,
                           email:,
-                          comment: nil,
                           passphrase:,
+                          comment: nil,
                           key_type: "RSA",
                           key_length: 4096,
                           subkey_type: "RSA",
@@ -291,10 +291,8 @@ module IOStreams
       version_check
       Open3.popen2e("#{executable} --list-keys --fingerprint --with-colons #{email}") do |_stdin, out, waith_thr|
         output = out.read.chomp
-        unless waith_thr.value.success?
-          unless output =~ /(public key not found|No public key)/i
-            raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{output}")
-          end
+        if !waith_thr.value.success? && !(output !~ /(public key not found|No public key)/i)
+          raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{output}")
         end
 
         output.each_line do |line|
@@ -336,9 +334,11 @@ module IOStreams
             match[1]
           end
         else
-          return [] if err =~ /(key not found|No (public|secret) key)/i
+          if err !~ /(key not found|No (public|secret) key)/i
+            raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email || key_id}: #{err}#{out}")
+          end
 
-          raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email || key_id}: #{err}#{out}")
+          []
         end
       end
     end
@@ -382,10 +382,10 @@ module IOStreams
             key_length: match[3].to_s.to_i,
             key_type:   match[2],
             date:       (begin
-                           Date.parse(match[4].to_s)
-                         rescue StandardError
-                           match[4]
-                         end)
+              Date.parse(match[4].to_s)
+            rescue StandardError
+              match[4]
+            end)
           }
         elsif (match = line.match(%r{(pub|sec)\s+(\d+)(.*)/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?}))
           # Matches: pub  2048R/C7F9D9CB 2016-10-26
@@ -396,10 +396,10 @@ module IOStreams
             key_type:   match[3],
             key_id:     match[4],
             date:       (begin
-                           Date.parse(match[5].to_s)
-                         rescue StandardError
-                           match[5]
-                         end)
+              Date.parse(match[5].to_s)
+            rescue StandardError
+              match[5]
+            end)
           }
           # Prior to gpg v2.0.30
           if match[7]

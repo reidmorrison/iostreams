@@ -1,11 +1,12 @@
 AllCops:
-  TargetRubyVersion: 2.5
   Exclude:
     - '.git/**/*'
     - 'docs/**/*'
     - 'gemfiles/*'
     - 'lib/io_streams/deprecated.rb'
     - 'lib/io_streams/tabular/utility/csv_row.rb'
+  NewCops: enable
+  TargetRubyVersion: 2.5
 
 #
 # RuboCop built-in settings.
@@ -48,7 +49,7 @@ Metrics/BlockLength:
   Exclude:
     - 'test/**/*'
     - '**/*/cli.rb'
-  ExcludedMethods:
+  IgnoredMethods:
     - 'aasm'
     - 'included'
 

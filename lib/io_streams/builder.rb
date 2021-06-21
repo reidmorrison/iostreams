@@ -97,7 +97,9 @@ module IOStreams
     end
 
     def format=(format)
-      raise(ArgumentError, "Invalid format: #{format.inspect}") unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
+      unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
+        raise(ArgumentError, "Invalid format: #{format.inspect}")
+      end
 
       @format = format
     end
@@ -106,7 +108,7 @@ module IOStreams
 
     def class_for_stream(type, stream)
       ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] ||
-        raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+            raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
       ext.send("#{type}_class") || raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
     end
 

@@ -146,7 +146,7 @@ module IOStreams
 
           attr_reader :key, :size, :type, :decimals
 
-          def initialize(key: nil, size:, type: :string, decimals: 2)
+          def initialize(size:, key: nil, type: :string, decimals: 2)
             @key      = key
             @size     = size == :remainder ? -1 : size.to_i
             @type     = type.to_sym

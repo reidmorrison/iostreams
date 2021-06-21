@@ -96,17 +96,17 @@ module IOStreams
           while line.count(@embedded_within).odd?
             if eof? || line.length > @buffer_size * 10
               raise(Errors::MalformedDataError.new(
-                "Unbalanced delimited field, delimiter: #{@embedded_within}",
-                initial_line_number
-              ))
+                      "Unbalanced delimited field, delimiter: #{@embedded_within}",
+                      initial_line_number
+                    ))
             end
             line << @delimiter
             next_line = _readline
             if next_line.nil?
               raise(Errors::MalformedDataError.new(
-                "Unbalanced delimited field, delimiter: #{@embedded_within}",
-                initial_line_number
-              ))
+                      "Unbalanced delimited field, delimiter: #{@embedded_within}",
+                      initial_line_number
+                    ))
             end
             line << next_line
           end

@@ -126,15 +126,13 @@ module Paths
 
         it "missing source file" do
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
-            begin
-              refute temp_file.exist?
-              target = temp_file.directory.join("move_test.txt")
-              assert_raises Errno::ENOENT do
-                temp_file.move_to(target)
-              end
-              refute target.exist?
-              refute temp_file.exist?
+            refute temp_file.exist?
+            target = temp_file.directory.join("move_test.txt")
+            assert_raises Errno::ENOENT do
+              temp_file.move_to(target)
             end
+            refute target.exist?
+            refute temp_file.exist?
           end
         end
 
