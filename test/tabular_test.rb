@@ -58,12 +58,12 @@ class TabularTest < Minitest::Test
           assert_equal header, tabular.header.columns
         end
 
-        it "white listed snake cased alphanumeric columns" do
+        it "allowed list snake cased alphanumeric columns" do
           tabular = IOStreams::Tabular.new(
-            columns:         ["Ard Vark", "password", "robot version", "$$$"],
+            columns:         ["Ard Vark", "Password", "robot version", "$$$"],
             allowed_columns: %w[ard_vark robot_version]
           )
-          expected_header = ["ard_vark", nil, "robot_version", nil]
+          expected_header = ["ard_vark", "__rejected__Password", "robot_version", "__rejected__$$$"]
           cleansed_header = tabular.cleanse_header!
           assert_equal(expected_header, cleansed_header)
         end
@@ -82,13 +82,13 @@ class TabularTest < Minitest::Test
           assert_equal @allowed_columns, tabular.header.allowed_columns
         end
 
-        it "nils columns not in the whitelist" do
+        it "nils columns not in the allowed list" do
           tabular = IOStreams::Tabular.new(columns: ["   first ", "Unknown Column", "thirD   "], allowed_columns: @allowed_columns)
           header  = tabular.cleanse_header!
-          assert_equal ["first", nil, "third"], header
+          assert_equal ["first", "__rejected__Unknown Column", "third"], header
         end
 
-        it "raises exception for columns not in the whitelist" do
+        it "raises exception for columns not in the allowed list" do
           tabular = IOStreams::Tabular.new(columns: ["   first ", "Unknown Column", "thirD   "], allowed_columns: @allowed_columns, skip_unknown: false)
           exc     = assert_raises IOStreams::Errors::InvalidHeader do
             tabular.cleanse_header!
@@ -218,7 +218,7 @@ class TabularTest < Minitest::Test
         end
       end
 
-      it "skips columns not in the whitelist" do
+      it "skips columns not in the allowed list" do
         tabular.header.allowed_columns = %w[first second third fourth fifth]
         tabular.cleanse_header!
         assert hash = tabular.record_parse("1,2,3")

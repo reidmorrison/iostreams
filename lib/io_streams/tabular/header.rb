@@ -2,6 +2,9 @@ module IOStreams
   class Tabular
     # Process files / streams that start with a header.
     class Header
+      # Column names that begin with this prefix have been rejected and should be ignored.
+      IGNORE_PREFIX = "__rejected__".freeze
+
       attr_accessor :columns, :allowed_columns, :required_columns, :skip_unknown
 
       # Header
@@ -17,8 +20,8 @@ module IOStreams
       #     List of columns to allow.
       #     Default: nil ( Allow all columns )
       #     Note:
-      #       When supplied any columns that are rejected will be returned in the cleansed columns
-      #       as nil so that they can be ignored during processing.
+      #     * So that rejected columns can be identified in subsequent steps, they will be prefixed with `__rejected__`.
+      #       For example, `Unknown Column` would be cleansed as `__rejected__Unknown Column`.
       #
       #   required_columns [Array<String>]
       #     List of columns that must be present, otherwise an Exception is raised.
@@ -44,8 +47,10 @@ module IOStreams
       # - Spaces and '-' are converted to '_'.
       # - All characters except for letters, digits, and '_' are stripped.
       #
-      # Notes
-      # * Raises Tabular::InvalidHeader when there are no non-nil columns left after cleansing.
+      # Notes:
+      # * So that rejected columns can be identified in subsequent steps, they will be prefixed with `__rejected__`.
+      #   For example, `Unknown Column` would be cleansed as `__rejected__Unknown Column`.
+      # * Raises Tabular::InvalidHeader when there are no rejected columns left after cleansing.
       def cleanse!
         return [] if columns.nil? || columns.empty?
 
@@ -56,7 +61,7 @@ module IOStreams
             cleansed
           else
             ignored_columns << column
-            nil
+            "#{IGNORE_PREFIX}#{column}"
           end
         end
 
@@ -122,7 +127,7 @@ module IOStreams
 
       def array_to_hash(row)
         h = {}
-        columns.each_with_index { |col, i| h[col] = row[i] unless IOStreams::Utils.blank?(col) }
+        columns.each_with_index { |col, i| h[col] = row[i] unless IOStreams::Utils.blank?(col) || col.start_with?(IGNORE_PREFIX) }
         h
       end
 
@@ -134,12 +139,7 @@ module IOStreams
           hash = hash.dup
           unmatched.each { |name| hash[cleanse_column(name)] = hash.delete(name) }
         end
-        # Hash#slice as of Ruby 2.5
-        if hash.respond_to?(:slice)
-          hash.slice(*columns)
-        else
-          columns.each_with_object({}) { |column, new_hash| new_hash[column] = hash[column] }
-        end
+        hash.slice(*columns)
       end
 
       def cleanse_column(name)
