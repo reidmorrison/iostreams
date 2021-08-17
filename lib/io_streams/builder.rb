@@ -79,15 +79,16 @@ module IOStreams
     # with their options that will be applied when the reader or writer is invoked.
     def pipeline
       return streams.dup.freeze if streams
-      return {}.freeze unless file_name
 
-      built_streams          = {}
-      # Encode stream is always first
-      built_streams[:encode] = options[:encode] if options&.key?(:encode)
+      build_pipeline.freeze
+    end
 
-      opts = options || {}
-      parse_extensions.each { |stream| built_streams[stream] = opts[stream] || {} }
-      built_streams.freeze
+    # Removes the named stream from the current pipeline.
+    # If the stream pipeline has not yet been built it will be built from the file_name if present.
+    # Note: Any options must be set _before_ calling this method.
+    def remove_from_pipeline(stream_name)
+      @streams ||= build_pipeline
+      @streams.delete(stream_name.to_sym)
     end
 
     # Returns the tabular format if set, otherwise tries to autodetect the format if the file_name has been set
@@ -105,6 +106,18 @@ module IOStreams
     end
 
     private
+
+    def build_pipeline
+      return {} unless file_name
+
+      built_streams          = {}
+      # Encode stream is always first
+      built_streams[:encode] = options[:encode] if options&.key?(:encode)
+
+      opts = options || {}
+      parse_extensions.each { |stream| built_streams[stream] = opts[stream] || {} }
+      built_streams
+    end
 
     def class_for_stream(type, stream)
       ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] ||

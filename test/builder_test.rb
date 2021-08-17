@@ -237,6 +237,21 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe "#remove_from_pipeline" do
+      let(:file_name) { "my/path/abc.bz2.pgp" }
+      it "removes a named stream from the pipeline" do
+        assert_equal({bz2: {}, pgp: {}}, streams.pipeline)
+        streams.remove_from_pipeline(:bz2)
+        assert_equal({pgp: {}}, streams.pipeline)
+      end
+      it "removes a named stream from the pipeline with options" do
+        streams.option(:pgp, passphrase: "unlock-me")
+        assert_equal({bz2: {}, pgp: {passphrase: "unlock-me"}}, streams.pipeline)
+        streams.remove_from_pipeline(:bz2)
+        assert_equal({pgp: {passphrase: "unlock-me"}}, streams.pipeline)
+      end
+    end
+
     describe "#execute" do
       it "directly calls block for an empty stream" do
         string_io = StringIO.new

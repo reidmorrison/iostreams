@@ -56,6 +56,14 @@ module IOStreams
       builder.pipeline
     end
 
+    # Removes the named stream from the current pipeline.
+    # If the stream pipeline has not yet been built it will be built from the file_name if present.
+    # Note: Any options must be set _before_ calling this method.
+    def remove_from_pipeline(stream_name)
+      builder.remove_from_pipeline(stream_name)
+      self
+    end
+
     # Iterate over a file / stream returning one line at a time.
     #
     # Example: Read a line at a time
