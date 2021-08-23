@@ -5,7 +5,7 @@ module Paths
     describe IOStreams::Paths::File do
       let(:root) { IOStreams::Paths::File.new("/tmp/iostreams").delete_all }
       let(:directory) { root.join("/some_test_dir") }
-      let(:data) { "Hello World" }
+      let(:data) { "Hello World\nHow are you doing?\nOn this fine day" }
       let(:file_path) do
         path = root.join("some_test_dir/test_file.txt")
         path.writer { |io| io << data }
@@ -15,6 +15,20 @@ module Paths
         path = root.join("some_test_dir/test_file2.txt")
         path.writer { |io| io << "Hello World2" }
         path
+      end
+
+      describe "#each" do
+        it "reads lines" do
+          records = []
+          count   = file_path.each { |line| records << line }
+          assert_equal count, data.lines.size
+          assert_equal data.lines.collect(&:strip), records
+        end
+
+        it "reads lines without block" do
+          records = file_path.each.first(100)
+          assert_equal data.lines.collect(&:strip), records
+        end
       end
 
       describe "#each_child" do
@@ -47,6 +61,12 @@ module Paths
           expected = [file_path.to_s, file_path2.to_s]
           actual   = root.children("**/Test*.TXT", case_sensitive: true).collect(&:to_s)
           refute_equal expected, actual.sort
+        end
+
+        it "with no block returns enumerator" do
+          expected = [file_path.to_s, file_path2.to_s]
+          actual   = root.each_child("**/*").first(100).collect(&:to_s)
+          assert_equal expected.sort, actual.sort
         end
       end
 

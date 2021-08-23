@@ -284,6 +284,11 @@ module IOStreams
       # Notes:
       # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
+        unless block_given?
+          return to_enum(__method__, pattern,
+                         case_sensitive: case_sensitive, directories: directories, hidden: hidden)
+        end
+
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
 
         # When the pattern includes an exact file name without any pattern characters

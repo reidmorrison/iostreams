@@ -46,6 +46,13 @@ class RecordReaderTest < Minitest::Test
         end
         assert_equal expected, rows
       end
+
+      it "with no block returns enumerator" do
+        records = IOStreams::Record::Reader.file(file_name, cleanse_header: false) do |io|
+          io.each.first(100)
+        end
+        assert_equal expected, records
+      end
     end
 
     describe "#collect" do

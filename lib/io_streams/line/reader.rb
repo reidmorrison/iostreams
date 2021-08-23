@@ -75,6 +75,8 @@ module IOStreams
       # Note:
       # * The line delimiter is _not_ returned.
       def each
+        return to_enum(__method__) unless block_given?
+
         line_count = 0
         until eof?
           line = readline
@@ -146,8 +148,8 @@ module IOStreams
         data
       end
 
-      # Returns [Integer] the number of characters read into the internal buffer
-      # Returns 0 on EOF
+      # Returns whether more data is available to read
+      # Returns false on EOF
       def read_block
         return false if @eof
 
@@ -157,7 +159,8 @@ module IOStreams
               @input_stream.read(@buffer_size, @read_cache_buffer)
             rescue ArgumentError
               # Handle arity of -1 when just 0..1
-              @read_cache_buffer = nil
+              @read_cache_buffer     = nil
+              @use_read_cache_buffer = false
               @input_stream.read(@buffer_size)
             end
           else
@@ -169,6 +172,9 @@ module IOStreams
           @eof = true
           return false
         end
+
+        # When less data is returned than was requested, it means the end of the file with partial data.
+        @eof = true if block.size < @buffer_size
 
         if @buffer
           @buffer << block

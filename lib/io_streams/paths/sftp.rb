@@ -142,6 +142,11 @@ module IOStreams
       # sftp://sftp.example.org/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group",
       #   :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
       def each_child(pattern = "*", case_sensitive: true, directories: false, hidden: false)
+        unless block_given?
+          return to_enum(__method__, pattern,
+                         case_sensitive: case_sensitive, directories: directories, hidden: hidden)
+        end
+
         Utils.load_soft_dependency("net-sftp", "SFTP glob capability", "net/sftp") unless defined?(Net::SFTP)
 
         flags = ::File::FNM_EXTGLOB

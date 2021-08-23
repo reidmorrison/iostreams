@@ -10,7 +10,7 @@ class RowReaderTest < Minitest::Test
       CSV.read(file_name)
     end
 
-    describe ".open" do
+    describe "#each" do
       it "file" do
         rows  = []
         count = IOStreams::Row::Reader.file(file_name) do |io|
@@ -18,6 +18,13 @@ class RowReaderTest < Minitest::Test
         end
         assert_equal expected, rows
         assert_equal expected.size, count
+      end
+
+      it "with no block returns enumerator" do
+        rows = IOStreams::Row::Reader.file(file_name) do |io|
+          io.each.first(100)
+        end
+        assert_equal expected, rows
       end
 
       it "stream" do

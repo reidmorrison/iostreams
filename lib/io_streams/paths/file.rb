@@ -89,6 +89,11 @@ module IOStreams
       # "**.rb"     "lib/song.rb"    true
       # "*"         "dave/.profile"  true
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
+        unless block_given?
+          return to_enum(__method__, pattern,
+                         case_sensitive: case_sensitive, directories: directories, hidden: hidden)
+        end
+
         flags = 0
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
