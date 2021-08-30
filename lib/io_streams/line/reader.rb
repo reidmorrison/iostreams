@@ -173,9 +173,6 @@ module IOStreams
           return false
         end
 
-        # When less data is returned than was requested, it means the end of the file with partial data.
-        @eof = true if block.size < @buffer_size
-
         if @buffer
           @buffer << block
         else
