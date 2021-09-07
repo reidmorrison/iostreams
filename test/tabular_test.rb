@@ -40,6 +40,19 @@ class TabularTest < Minitest::Test
       IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
     end
 
+    let :fixed_with_strings do
+      layout = [
+        {size: "23", key: "name"},
+        {size: 40, key: "address"},
+        {size: 2},
+        {size: 5.0, key: "zip", type: "integer"},
+        {size: "8", key: "age", type: "integer"},
+        {size: 10, key: "weight", type: "float", decimals: 2},
+        {size: "remainder", key: "remainder"}
+      ]
+      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+    end
+
     describe "#parse_header" do
       it "parses and sets the csv header" do
         tabular = IOStreams::Tabular.new(format: :csv)
@@ -266,6 +279,11 @@ class TabularTest < Minitest::Test
       describe ":fixed format" do
         it "renders fixed data" do
           assert string = fixed.render(name: "Jack", address: "over there", zip: 34_618, weight: 123_456.789123, age: 21)
+          assert_equal "Jack                   over there                                34618000000210123456.79", string
+        end
+
+        it "renders fixed data with string keys" do
+          assert string = fixed_with_strings.render("name" => "Jack", "address" => "over there", "zip" => 34_618, "weight" => 123_456.789123, "age" => 21)
           assert_equal "Jack                   over there                                34618000000210123456.79", string
         end
 

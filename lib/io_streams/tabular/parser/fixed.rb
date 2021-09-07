@@ -148,14 +148,14 @@ module IOStreams
 
           def initialize(size:, key: nil, type: :string, decimals: 2)
             @key      = key
-            @size     = size == :remainder ? -1 : size.to_i
+            @size     = (size == :remainder || size == "remainder") ? -1 : size.to_i
             @type     = type.to_sym
             @decimals = decimals
 
             unless @size.positive? || (@size == -1)
               raise(Errors::InvalidLayout, "Size #{size.inspect} must be positive or :remainder")
             end
-            raise(Errors::InvalidLayout, "Unknown type: #{type.inspect}") unless TYPES.include?(type)
+            raise(Errors::InvalidLayout, "Unknown type: #{type.inspect}") unless TYPES.include?(@type)
           end
 
           def parse(value)
