@@ -89,10 +89,11 @@ module IOStreams
 
         IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: #{command}" }
 
+        result = nil
         Open3.popen2e(command) do |stdin, out, waith_thr|
           begin
             stdin.binmode
-            yield(stdin)
+            result = yield(stdin)
             stdin.close
           rescue Errno::EPIPE
             # Ignore broken pipe because gpg terminates early due to an error
@@ -104,6 +105,7 @@ module IOStreams
             raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name}: #{out.read.chomp}")
           end
         end
+        result
       end
     end
   end
