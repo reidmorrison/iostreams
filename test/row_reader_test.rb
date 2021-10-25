@@ -20,13 +20,6 @@ class RowReaderTest < Minitest::Test
         assert_equal expected.size, count
       end
 
-      it "with no block returns enumerator" do
-        rows = IOStreams::Row::Reader.file(file_name) do |io|
-          io.each.first(100)
-        end
-        assert_equal expected, rows
-      end
-
       it "stream" do
         rows  = []
         count = IOStreams::Line::Reader.file(file_name) do |file|

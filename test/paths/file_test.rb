@@ -24,11 +24,6 @@ module Paths
           assert_equal count, data.lines.size
           assert_equal data.lines.collect(&:strip), records
         end
-
-        it "reads lines without block" do
-          records = file_path.each.first(100)
-          assert_equal data.lines.collect(&:strip), records
-        end
       end
 
       describe "#each_child" do

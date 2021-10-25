@@ -132,16 +132,6 @@ IOStreams.path("example.csv").each do |line|
 end
 ~~~
 
-Read the first line from a file:
-~~~ruby
-IOStreams.path("example.csv").each.first
-~~~
-
-Read the first 5 lines from a file:
-~~~ruby
-IOStreams.path("example.csv").each.first(5)
-~~~
-
 Display each row from the csv file as an array:
 ~~~ruby
 IOStreams.path("example.csv").each(:array) do |array|
@@ -154,11 +144,6 @@ Display each row from the csv file as a hash, where the first line in the CSV fi
 IOStreams.path("example.csv").each(:hash) do |hash|
   p hash
 end
-~~~
-
-Read the first 5 records from a csv file:
-~~~ruby
-IOStreams.path("example.csv").each(:hash).first(5)
 ~~~
 
 Write data to the file.

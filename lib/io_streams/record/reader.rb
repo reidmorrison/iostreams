@@ -68,8 +68,6 @@ module IOStreams
       end
 
       def each
-        return to_enum(__method__) unless block_given?
-
         @line_reader.each do |line|
           if @tabular.header?
             @tabular.parse_header(line)

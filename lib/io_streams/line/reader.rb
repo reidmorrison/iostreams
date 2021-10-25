@@ -75,8 +75,6 @@ module IOStreams
       # Note:
       # * The line delimiter is _not_ returned.
       def each
-        return to_enum(__method__) unless block_given?
-
         line_count = 0
         until eof?
           line = readline

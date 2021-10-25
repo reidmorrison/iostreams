@@ -98,13 +98,6 @@ class LineReaderTest < Minitest::Test
         assert_equal data.size, count
       end
 
-      it "with no block returns enumerator" do
-        lines = IOStreams::Line::Reader.file(file_name) do |io|
-          io.each.first(100)
-        end
-        assert_equal data, lines
-      end
-
       it "each_line stream" do
         lines = []
         count = File.open(file_name) do |file|
