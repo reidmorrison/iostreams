@@ -20,9 +20,13 @@ class GzipWriterTest < Minitest::Test
 
     describe ".file" do
       it "file" do
-        IOStreams::Gzip::Writer.file(file_name) do |io|
-          io.write(decompressed)
-        end
+        result =
+          IOStreams::Gzip::Writer.file(file_name) do |io|
+            io.write(decompressed)
+            53534
+          end
+        assert_equal 53534, result
+
         result = Zlib::GzipReader.open(file_name, &:read)
         temp_file.delete
         assert_equal decompressed, result
@@ -30,11 +34,15 @@ class GzipWriterTest < Minitest::Test
 
       it "stream" do
         io_string = StringIO.new("".b)
-        IOStreams::Gzip::Writer.stream(io_string) do |io|
-          io.write(decompressed)
-        end
-        io = StringIO.new(io_string.string)
-        gz = Zlib::GzipReader.new(io)
+        result    =
+          IOStreams::Gzip::Writer.stream(io_string) do |io|
+            io.write(decompressed)
+            53534
+          end
+        assert_equal 53534, result
+
+        io   = StringIO.new(io_string.string)
+        gz   = Zlib::GzipReader.new(io)
         data = gz.read
         gz.close
         assert_equal decompressed, data

@@ -21,9 +21,12 @@ class PgpWriterTest < Minitest::Test
 
     describe ".file" do
       it "writes encrypted text file" do
-        IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |io|
-          io.write(decrypted)
-        end
+        result =
+          IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |io|
+            io.write(decrypted)
+            53534
+          end
+        assert_equal 53534, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
         assert_equal decrypted, result
@@ -34,9 +37,12 @@ class PgpWriterTest < Minitest::Test
         binary_data      = File.open(binary_file_name, "rb", &:read)
 
         File.open(binary_file_name, "rb") do |input|
-          IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |output|
-            IO.copy_stream(input, output)
-          end
+          result =
+            IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |output|
+              IO.copy_stream(input, output)
+              53534
+            end
+          assert_equal 53534, result
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
@@ -108,9 +114,12 @@ class PgpWriterTest < Minitest::Test
 
       it "writes to a stream" do
         io_string = StringIO.new("".b)
-        IOStreams::Pgp::Writer.stream(io_string, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
-          io.write(decrypted)
-        end
+        result    =
+          IOStreams::Pgp::Writer.stream(io_string, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+            io.write(decrypted)
+            53534
+          end
+        assert_equal 53534, result
 
         io     = StringIO.new(io_string.string)
         result = IOStreams::Pgp::Reader.stream(io, passphrase: "receiver_passphrase", &:read)

@@ -20,10 +20,13 @@ class Bzip2WriterTest < Minitest::Test
 
     describe ".file" do
       it "file" do
-        IOStreams::Bzip2::Writer.file(file_name) do |io|
-          io.write(decompressed)
-          io.write(decompressed)
-        end
+        result =
+          IOStreams::Bzip2::Writer.file(file_name) do |io|
+            io.write(decompressed)
+            io.write(decompressed)
+            53534
+          end
+        assert_equal 53534, result
 
         File.open(file_name, "rb") do |file|
           io     = ::Bzip2::FFI::Reader.new(file)
@@ -35,10 +38,13 @@ class Bzip2WriterTest < Minitest::Test
 
       it "stream" do
         io_string = StringIO.new("".b)
-        IOStreams::Bzip2::Writer.stream(io_string) do |io|
-          io.write(decompressed)
-          io.write(decompressed)
-        end
+        result    =
+          IOStreams::Bzip2::Writer.stream(io_string) do |io|
+            io.write(decompressed)
+            io.write(decompressed)
+            53534
+          end
+        assert_equal 53534, result
 
         io     = StringIO.new(io_string.string)
         rbzip2 = ::Bzip2::FFI::Reader.new(io)

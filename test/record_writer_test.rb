@@ -43,28 +43,38 @@ class RecordWriterTest < Minitest::Test
 
     describe "#<<" do
       it "file" do
-        IOStreams::Record::Writer.file(file_name) do |io|
-          inputs.each { |hash| io << hash }
-        end
+        result =
+          IOStreams::Record::Writer.file(file_name) do |io|
+            inputs.each { |hash| io << hash }
+            53534
+          end
+        assert_equal 53534, result
         result = File.read(file_name)
         assert_equal raw_csv_data, result
       end
 
       it "json file" do
-        IOStreams::Record::Writer.file(file_name, file_name: "abc.json") do |io|
-          inputs.each { |hash| io << hash }
-        end
+        result =
+          IOStreams::Record::Writer.file(file_name, file_name: "abc.json") do |io|
+            inputs.each { |hash| io << hash }
+            53534
+          end
+        assert_equal 53534, result
+
         result = File.read(file_name)
         assert_equal raw_json_data, result
       end
 
       it "stream" do
         io_string = StringIO.new
-        IOStreams::Line::Writer.stream(io_string) do |io|
-          IOStreams::Record::Writer.stream(io) do |stream|
-            inputs.each { |row| stream << row }
+        result    =
+          IOStreams::Line::Writer.stream(io_string) do |io|
+            IOStreams::Record::Writer.stream(io) do |stream|
+              inputs.each { |row| stream << row }
+              53534
+            end
           end
-        end
+        assert_equal 53534, result
         assert_equal raw_csv_data, io_string.string
       end
     end

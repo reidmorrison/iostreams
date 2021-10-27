@@ -22,18 +22,24 @@ class EncodeWriterTest < Minitest::Test
       it "file" do
         temp_file = Tempfile.new("rocket_job")
         file_name = temp_file.to_path
-        IOStreams::Encode::Writer.file(file_name, encoding: "ASCII-8BIT") do |io|
-          io << bad_data
-        end
+        result    =
+          IOStreams::Encode::Writer.file(file_name, encoding: "ASCII-8BIT") do |io|
+            io << bad_data
+            53534
+          end
+        assert_equal 53534, result
         result = File.read(file_name, mode: "rb")
         assert_equal bad_data, result
       end
 
       it "stream" do
-        io = StringIO.new("".b)
-        IOStreams::Encode::Writer.stream(io, encoding: "ASCII-8BIT") do |encoded|
-          encoded << bad_data
-        end
+        io     = StringIO.new("".b)
+        result =
+          IOStreams::Encode::Writer.stream(io, encoding: "ASCII-8BIT") do |encoded|
+            encoded << bad_data
+            53534
+          end
+        assert_equal 53534, result
         assert_equal "ASCII-8BIT", io.string.encoding.to_s
         assert_equal bad_data, io.string
       end
@@ -70,9 +76,12 @@ class EncodeWriterTest < Minitest::Test
       it "returns byte count" do
         io_string = StringIO.new("".b)
         count     = 0
-        IOStreams::Encode::Writer.stream(io_string, encoding: "ASCII-8BIT") do |io|
-          count += io.write(bad_data)
-        end
+        result    =
+          IOStreams::Encode::Writer.stream(io_string, encoding: "ASCII-8BIT") do |io|
+            count += io.write(bad_data)
+            53534
+          end
+        assert_equal 53534, result
         assert_equal bad_data, io_string.string
         assert_equal bad_data.size, count
       end

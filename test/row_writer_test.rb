@@ -29,20 +29,26 @@ class RowWriterTest < Minitest::Test
 
     describe ".stream" do
       it "file" do
-        IOStreams::Row::Writer.file(file_name) do |io|
-          csv_rows.each { |array| io << array }
-        end
+        result =
+          IOStreams::Row::Writer.file(file_name) do |io|
+            csv_rows.each { |array| io << array }
+            53534
+          end
+        assert_equal 53534, result
         result = ::File.read(file_name)
         assert_equal raw_csv_data, result
       end
 
       it "streams" do
         io_string = StringIO.new
-        IOStreams::Line::Writer.stream(io_string) do |io|
-          IOStreams::Row::Writer.stream(io) do |stream|
-            csv_rows.each { |array| stream << array }
+        result    =
+          IOStreams::Line::Writer.stream(io_string) do |io|
+            IOStreams::Row::Writer.stream(io) do |stream|
+              csv_rows.each { |array| stream << array }
+              53534
+            end
           end
-        end
+        assert_equal 53534, result
         assert_equal raw_csv_data, io_string.string
       end
     end
