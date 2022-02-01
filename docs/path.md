@@ -215,8 +215,7 @@ Read a file from a remote sftp server.
 ~~~ruby
 IOStreams.path("sftp://example.org/path/file.txt", 
                username: "jbloggs", 
-               password: "secret", 
-               compression: false).
+               password: "secret").
   reader do |input|
     puts input.read
   end
@@ -228,8 +227,7 @@ Write to a file on a remote sftp server.
 ~~~ruby
 IOStreams.path("sftp://example.org/path/file.txt", 
                username: "jbloggs", 
-               password: "secret", 
-               compression: false).
+               password: "secret").
   writer do |output|
     output.write('Hello World')
   end

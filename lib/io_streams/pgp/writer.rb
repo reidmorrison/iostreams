@@ -46,7 +46,7 @@ module IOStreams
       #   Passphrase to use to open the private key when signing the file.
       #   Default: default_signer_passphrase
       #
-      # compression: [:none|:zip|:zlib|:bzip2]
+      # compress: [:none|:zip|:zlib|:bzip2]
       #   Note: Standard PGP only supports :zip.
       #   :zlib is better than zip.
       #   :bzip2 is best, but uses a lot of memory and is much slower.
@@ -60,13 +60,17 @@ module IOStreams
                     import_and_trust_key: nil,
                     signer: default_signer,
                     signer_passphrase: default_signer_passphrase,
-                    compression: :zip,
+                    compress: :zip,
+                    compression: nil, # Deprecated
                     compress_level: 6,
                     original_file_name: nil)
 
         raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
 
-        compress_level = 0 if compression == :none
+        # Backward compatibility
+        compress = compression if compression
+
+        compress_level = 0 if compress == :none
 
         recipients = Array(recipient)
         recipients << audit_recipient if audit_recipient
@@ -83,7 +87,7 @@ module IOStreams
           command << " --passphrase \"#{signer_passphrase}\""
         end
         command << " -z #{compress_level}" if compress_level != 6
-        command << " --compress-algo #{compression}" unless compression == :none
+        command << " --compress-algo #{compress}" unless compress == :none
         recipients.each { |address| command << " --recipient \"#{address}\"" }
         command << " -o \"#{file_name}\""
 

@@ -6,7 +6,7 @@ module IOStreams
     #
     # Example:
     #   IOStreams.
-    #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret", compression: false).
+    #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret").
     #     reader do |input|
     #       puts input.read
     #     end
@@ -18,7 +18,7 @@ module IOStreams
     #
     # Example:
     #   IOStreams.
-    #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret", compression: false).
+    #     path("sftp://example.org/path/file.txt", username: "jbloggs", password: "secret").
     #     writer do |output|
     #       output.write('Hello World')
     #     end

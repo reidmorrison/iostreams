@@ -261,7 +261,7 @@ IOStreams.join("test/sample.pgp", root: :downloads).read
 
 #### Compression:
 
-The compression used by pgp can be specified by suppling the `:compression` option.
+The compression used by pgp can be specified by suppling the `:compress` option.
 
 The valid values for this option: `:none`, `:zip`, `:zlib`, or `:bzip2`.
 
@@ -271,7 +271,7 @@ Most PGP tools now support `:zlib` and is the recommended compression to use whe
 
 ~~~ruby
 path = IOStreams.path("sample/example.csv.pgp")
-path.option(:pgp, recipient: "receiver@example.org", compression: :zlib)
+path.option(:pgp, recipient: "receiver@example.org", compress: :zlib)
 path.write("Hello World")
 ~~~
 

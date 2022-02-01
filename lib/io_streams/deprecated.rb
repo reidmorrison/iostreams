@@ -107,7 +107,7 @@ module IOStreams
       # Example:
       #   # Copy between 2 files, encrypting the target file with Symmetric Encryption
       #   # Since the target file_name does not include `.enc` in the filename, to encrypt it
-      #   # the encryption stream is added, along with the optional compression option.
+      #   # the encryption stream is added, along with the optional compress option.
       #   IOStreams.copy('a.csv', 'b', target_options: [enc: { compress: true }])
       #
       # Example:
