@@ -128,5 +128,70 @@ module IOStreams
         end
       end
     end
+
+    describe '.reader' do
+      # IOStreams.reader('abc.csv') do |io|
+      #   p data while (data = io.read(128))
+      # end
+    end
+
+    describe '.each_line' do
+      # IOStreams.each_line('abc.csv') do |line|
+      #   puts line
+      # end
+    end
+
+    describe '.each_row' do
+      # IOStreams.each_row('abc.csv') do |array|
+      #   p array
+      # end
+    end
+
+    describe '.each_record' do
+      # IOStreams.each_record('abc.csv') do |hash|
+      #   p hash
+      # end
+
+      # array = [
+      #   'name, address, zip_code',
+      #   'Jack, Down Under, 12345'
+      # ]
+      # IOStreams.each_record(array) do |hash|
+      #   p hash
+      # end
+    end
+
+    describe '.writer' do
+      # IOStreams.writer('abc.csv') do |io|
+      #   io.write('This')
+      #   io.write(' is ')
+      #   io.write(" one line\n")
+      # end
+    end
+
+    describe '.line_writer' do
+      # IOStreams.line_writer('abc.csv') do |file|
+      #   file << 'these'
+      #   file << 'are'
+      #   file << 'all'
+      #   file << 'separate'
+      #   file << 'lines'
+      # end
+    end
+
+    describe '.row_writer' do
+      # IOStreams.row_writer('abc.csv') do |io|
+      #   io << %w[name address zip_code]
+      #   io << %w[Jack There 1234]
+      #   io << ['Joe', 'Over There somewhere', 1234]
+      # end
+    end
+
+    describe '.record_writer' do
+      # IOStreams.record_writer('abc.csv') do |stream|
+      #   stream << {name: 'Jack', address: 'There', zip_code: 1234}
+      #   stream << {name: 'Joe', address: 'Over There somewhere', zip_code: 1234}
+      # end
+    end
   end
 end
