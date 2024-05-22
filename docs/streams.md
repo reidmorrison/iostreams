@@ -188,7 +188,7 @@ path.setting(:pgp)
 
 #### Stream
 
-The `stream` method stops IOStreams from inferring the streams for this path and only uses the specfied streams.
+The `stream` method stops IOStreams from inferring the streams for this path and only uses the specified streams.
 
 For example when using a filename that does not have the necessary file extensions. 
 In this case the file was compressed with Zip, so tell IOStreams to unzip it:  

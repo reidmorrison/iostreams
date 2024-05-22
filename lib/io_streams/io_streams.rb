@@ -221,10 +221,10 @@ module IOStreams
   end
 
   # Add a named root path
-  def self.add_root(root, *elements)
+  def self.add_root(root, *elements, **args)
     raise(ArgumentError, "Invalid characters in root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
 
-    @root_paths[root.to_sym] = path(*elements)
+    @root_paths[root.to_sym] = path(*elements, **args)
   end
 
   def self.roots

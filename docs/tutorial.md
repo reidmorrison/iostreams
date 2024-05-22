@@ -19,11 +19,12 @@ For large files it is critical to be able to read and write these files as strea
 for reading and writing files using streams, but has no built-in way of passing one stream through
 another to support for example compressing the data, encrypting it and then finally writing the result
 to a file. Several streaming implementations exist for languages such as `C++` and `Java` to chain
-together several streams, `IOStreams` attempts to offer similar features for Ruby.
+together several streams, `IOStreams` offers similar features for Ruby.
 
 ~~~ruby
-# Read a compressed file:
-IOStreams.path("hello.gz").reader do |io|
+# Read the first 1024 characters from a compressed file:
+path = IOStreams.path("hello.gz")
+path.reader do |io|
   data = io.read(1024)
   puts "Read: #{data}"
 end
@@ -35,7 +36,8 @@ any temporary files to process the stream.
 
 ~~~ruby
 # Create a file that is compressed with GZip and then encrypted with Symmetric Encryption:
-IOStreams.path("hello.gz.enc").writer do |io|
+path = IOStreams.path("hello.gz.enc")
+path.writer do |io|
   io << "Hello World"
   io << "and some more"
 end
@@ -44,7 +46,7 @@ end
 The power of the above example applies when the data being written starts to exceed hundreds of megabytes,
 or even gigabytes.
 
-By looking at the file name supplied above, `iostreams` is able to determine which streams to apply
+By looking at the file name supplied above, IOStreams is able to determine which streams to apply
 to the data being read or written. For example:
 * `hello.zip` => Compressed using Zip
 * `hello.zip.enc` => Compressed using Zip and then encrypted using Symmetric Encryption
@@ -53,8 +55,6 @@ to the data being read or written. For example:
 The objective is that all of these streaming processes are performed used streaming
 so that only the current portion of the file is loaded into memory as it moves
 through the entire file.
-Where possible each stream never goes to disk, which for example could expose
-un-encrypted data.
 
 ## Step by Step 
 
@@ -191,7 +191,7 @@ That is because `zip` requires the entire file to be downloaded before it can de
 in the file. And HTTP uses a push protocol when reading files, so it is downloaded automatically
 into a temp file behind the scenes so that we can read it as if it was a local file.
 
-## Same Code - Any File Type
+## Same Code - Varying File Types
 
 Lets define a method to write data to a file.
 ~~~ruby

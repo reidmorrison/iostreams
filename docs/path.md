@@ -10,18 +10,17 @@ In order to apply a streaming pipeline it needs to know where the data is being 
 When a path is created it takes the name of the file which can also be a URI, followed by several arguments
 specific to that path. IOStreams will infer the file storage mechanism based on the supplied URI.
 
-
-
-IOStreams Path already supports accessing files in the following places:
+IOStreams Path supports accessing files in the following places:
 
 * File
 * AWS S3
+* Google Cloud Storage (Using the AWS S3 Client)
 * SFTP
 * HTTP(S) (Read only)
 
 Are you using another cloud provider and want to add support for your favorite?
 Checkout the supplied [IOStreams S3 path provider](https://github.com/reidmorrison/iostreams/blob/master/lib/io_streams/paths/s3.rb)
-for an example of what is required. 
+for an example of what is required. Pull requests welcome.
 
 ### File
 
