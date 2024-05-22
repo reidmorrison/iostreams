@@ -7,6 +7,7 @@ gem "minitest"
 gem "rake"
 
 gem "aws-sdk-s3"
+gem "google-cloud-storage"
 gem "bzip2-ffi"
 gem "creek"
 gem "nokogiri"

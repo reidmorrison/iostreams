@@ -12,11 +12,12 @@ module IOStreams
   autoload :Writer,   "io_streams/writer"
 
   module Paths
-    autoload :File,    "io_streams/paths/file"
-    autoload :HTTP,    "io_streams/paths/http"
-    autoload :Matcher, "io_streams/paths/matcher"
-    autoload :S3,      "io_streams/paths/s3"
-    autoload :SFTP,    "io_streams/paths/sftp"
+    autoload :File,               "io_streams/paths/file"
+    autoload :GoogleCloudStorage, "io_streams/paths/google_cloud_storage"
+    autoload :HTTP,               "io_streams/paths/http"
+    autoload :Matcher,            "io_streams/paths/matcher"
+    autoload :S3,                 "io_streams/paths/s3"
+    autoload :SFTP,               "io_streams/paths/sftp"
   end
 
   module Bzip2

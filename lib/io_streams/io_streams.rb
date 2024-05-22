@@ -331,4 +331,5 @@ module IOStreams
   register_scheme(:https, IOStreams::Paths::HTTP)
   register_scheme(:sftp, IOStreams::Paths::SFTP)
   register_scheme(:s3, IOStreams::Paths::S3)
+  register_scheme(:gs, IOStreams::Paths::GoogleCloudStorage)
 end
