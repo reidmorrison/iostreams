@@ -13,13 +13,10 @@ module IOStreams
 
     # Helper method: Returns [true|false] if a value is blank?
     def self.blank?(value)
-      if value.nil?
-        true
-      elsif value.is_a?(String)
-        value !~ /\S/
-      else
-        value.respond_to?(:empty?) ? value.empty? : !value
-      end
+      return true if value.nil?
+      return value !~ /\S/ if value.is_a?(String)
+        
+      value.respond_to?(:empty?) ? value.empty? : !value
     end
 
     # Yields the path to a temporary file_name.

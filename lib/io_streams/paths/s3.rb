@@ -8,6 +8,9 @@ module IOStreams
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
+      # When an upload file exceeds this size, use a multipart file upload.
+      MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
+
       # Arguments:
       #
       # url: [String]
@@ -23,6 +26,21 @@ module IOStreams
       #
       # secret_access_key: [String]
       #   AWS Secret Access Key Id to use to access this bucket.
+      #
+      # region: [String]
+      #   The AWS region to connect to.
+      #   Defaults to region set in environment variable, or credential files.
+      #
+      # client: [Aws::S3::Client | Hash]
+      #   Supply the AWS S3 Client instance to use for this path.
+      #   Or, when a Hash, build a new client using the hash parameters.
+      #
+      #   Example:
+      #     client = Aws::S3::Client.new(endpoint: "https://s3.test.com")
+      #     IOStreams::Paths::S3.new(client: client)
+      #
+      #   Example:
+      #     IOStreams::Paths::S3.new(client: { endpoint: "https://s3.test.com" })
       #
       # Writer specific options:
       #
@@ -133,7 +151,7 @@ module IOStreams
       #
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
-      def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, **args)
+      def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, region: nil, **args)
         Utils.load_soft_dependency("aws-sdk-s3", "AWS S3") unless defined?(::Aws::S3::Client)
 
         uri = Utils::URI.new(url)
@@ -148,6 +166,7 @@ module IOStreams
           @client_options                     = client.is_a?(Hash) ? client.dup : {}
           @client_options[:access_key_id]     = access_key_id if access_key_id
           @client_options[:secret_access_key] = secret_access_key if secret_access_key
+          @client_options[:region]            = region if region
         end
 
         @options = args
@@ -269,7 +288,7 @@ module IOStreams
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def write_file(file_name)
-        if ::File.size(file_name) > 5 * 1024 * 1024
+        if ::File.size(file_name) > MULTIPART_UPLOAD_SIZE
           # Use multipart file upload
           s3  = Aws::S3::Resource.new(client: client)
           obj = s3.bucket(bucket_name).object(path)
