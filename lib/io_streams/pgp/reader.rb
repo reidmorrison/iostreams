@@ -26,8 +26,13 @@ module IOStreams
         passphrase ||= default_passphrase
         raise(ArgumentError, "Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase") unless passphrase
 
+        # Use --pinentry-mode loopback for all GnuPG versions >= 2.1
         loopback = IOStreams::Pgp.pgp_version.to_f >= 2.1 ? "--pinentry-mode loopback" : ""
-        command  = "#{IOStreams::Pgp.executable} #{loopback} --batch --no-tty --yes --decrypt --passphrase-fd 0 #{file_name}"
+
+        # Use --no-symkey-cache for GnuPG versions >= 2.4 to avoid caching session keys
+        no_symkey_cache = IOStreams::Pgp.pgp_version.to_f >= 2.4 ? "--no-symkey-cache" : ""
+
+        command  = "#{IOStreams::Pgp.executable} #{loopback} #{no_symkey_cache} --batch --no-tty --yes --decrypt --passphrase-fd 0 #{file_name}"
         IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Reader.open: #{command}" }
 
         # Read decrypted contents from stdout

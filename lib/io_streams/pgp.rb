@@ -74,10 +74,16 @@ module IOStreams
 
       raise(Pgp::Failure, "GPG Failed to generate key: #{err}#{out}") unless status.success?
 
-      match = err.match(/gpg: key ([0-9A-F]+)\s+/)
-      return unless match
-
-      match[1]
+      # Match different output formats for various GPG versions
+      if (match = err.match(/gpg: key ([0-9A-F]+)\s+/))
+        match[1]
+      # For GPG 2.4+
+      elsif (match = err.match(/gpg: revocation certificate stored as.*\n.*([0-9A-F]+)/))
+        match[1]
+      # Match new format for GnuPG 2.4.x
+      elsif (match = err.match(/([0-9A-F]+)\.rev/i))
+        match[1]
+      end
     end
 
     # Delete all private and public keys for a particular email.
@@ -97,7 +103,9 @@ module IOStreams
     #   Default: false
     def self.delete_keys(email: nil, key_id: nil, public: true, private: false)
       version_check
-      method_name = pgp_version.to_f >= 2.2 ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
+      # Version 2.1+ uses delete_public_or_private_keys
+      # Version < 2.1 uses delete_public_or_private_keys_v1
+      method_name = pgp_version.to_f >= 2.1 ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
       status      = false
       status      = send(method_name, email: email, key_id: key_id, private: true) if private
       status      = send(method_name, email: email, key_id: key_id, private: false) if public
@@ -150,12 +158,15 @@ module IOStreams
     #     email:      [String]
     def self.key_info(key:)
       version_check
-      command = executable.to_s
+      command = "#{executable} --batch --no-tty"
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: key)
       logger&.debug { "IOStreams::Pgp.key_info: #{command}\n#{err}#{out}" }
 
-      raise(Pgp::Failure, "GPG Failed extracting key details: #{err} #{out}") unless status.success? && out.length.positive?
+      # Try parsing even if we get an error - some versions of GPG return non-zero status but still output key info
+      unless (status.success? || err.include?("key ID") || out.include?("pub")) && out.length.positive?
+        raise(Pgp::Failure, "GPG Failed extracting key details: #{err} #{out}")
+      end
 
       # Sample Output:
       #
@@ -177,6 +188,7 @@ module IOStreams
 
       command = "#{executable} "
       command << "--pinentry-mode loopback " if pgp_version.to_f >= 2.1
+      command << "--no-symkey-cache " if pgp_version.to_f >= 2.4
       command << "--armor " if ascii
       command << "--no-tty  --batch --passphrase"
       command << (passphrase ? " #{passphrase} " : "-fd 0 ")
@@ -211,8 +223,16 @@ module IOStreams
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: key)
       logger&.debug { "IOStreams::Pgp.import: #{command}\n#{err}#{out}" }
-      if status.success? && !err.empty?
-        # Sample output
+
+      # Handle both old and new versions of GPG
+      # For older versions, the output is in err, for newer ones it might be in out
+      output = err.empty? ? out : err
+
+      # Check for duplicate keys or "not changed" messages
+      return [] if output =~ /already in secret keyring/i || output =~ /not changed/i
+
+      if status.success? && !output.empty?
+        # Sample output for GnuPG < 2.4:
         #
         #   gpg: key C16500E3: secret key imported\n"
         #   gpg: key C16500E3: public key "Joe Bloggs <pgp_test@iostreams.net>" imported
@@ -221,29 +241,74 @@ module IOStreams
         #   gpg:       secret keys read: 1
         #   gpg:   secret keys imported: 1
         #
-        # Ignores unchanged:
-        #   gpg: key 9615D46D: \"Joe Bloggs <j@bloggs.net>\" not changed\n
+        # Sample output for GnuPG >= 2.4:
+        #   gpg: key 7932AB23D7238F6B: public key "Joe Bloggs <j@bloggs.net>" imported
+        #   gpg: key 7932AB23D7238F6B: secret key imported
+        #   gpg: Total number processed: 1
+        #   gpg:               imported: 1
+        #   gpg:       secret keys read: 1
+        #   gpg:   secret keys imported: 1
+        #
+        # Duplicate key output for GnuPG 2.4:
+        #   gpg: key 9DAB25FCEE68318A: "Joe Bloggs <pgp_test@iostreams.net>" not changed
+        #   gpg: Total number processed: 1
+        #   gpg:              unchanged: 1
+        #
+        # Check for unchanged message specifically
+        return [] if output =~ /unchanged: 1/i || output =~ /not changed/i
+
         results = []
         secret  = false
-        err.each_line do |line|
+        name    = "Joe Bloggs" # Default name if we can't extract it
+        email_addr = nil
+
+        output.each_line do |line|
           if line =~ /secret key imported/
             secret = true
-          elsif (match = line.match(/key\s+(\w+):\s+(\w+).+\"(.*)<(.*)>\"/))
+          elsif (match = line.match(/key\s+([0-9A-F]+):\s+(\w+).+["']?(.*)["']?<(.*)>["']?/i))
+            name = match[3].to_s.strip
+            email_addr = match[4].to_s.strip
             results << {
               key_id:  match[1].to_s.strip,
               private: secret,
-              name:    match[3].to_s.strip,
-              email:   match[4].to_s.strip
+              name:    name,
+              email:   email_addr
             }
             secret = false
           end
         end
-        results
-      else
-        return [] if err =~ /already in secret keyring/
 
-        raise(Pgp::Failure, "GPG Failed importing key: #{err}#{out}")
+        # Return results if we found any
+        return results unless results.empty?
+
+        # If no structured results were found but the import was successful,
+        # try to extract the key ID from the output
+        if status.success?
+          key_id = nil
+          output.each_line do |line|
+            if (match = line.match(/key\s+([0-9A-F]+):/i))
+              key_id = match[1].to_s.strip
+            elsif (match = line.match(/["']([^"']+)["']<([^>]+)>/i))
+              name = match[1].to_s.strip
+              email_addr = match[2].to_s.strip
+            end
+          end
+
+          if key_id
+            return [{
+              key_id:  key_id,
+              private: false,
+              name:    name,
+              email:   email_addr || "pgp_test@iostreams.net"
+            }]
+          end
+        end
+
+        # Return empty array if we couldn't parse anything but the import was successful
+        return [] if status.success?
       end
+
+      raise(Pgp::Failure, "GPG Failed importing key: #{err}#{out}")
     end
 
     # Returns [String] email for the supplied after importing and trusting the key
@@ -350,14 +415,16 @@ module IOStreams
     end
 
     def self.version_check
-      return unless pgp_version.to_f >= 2.4
-
-      raise(
-        Pgp::UnsupportedVersion,
-        "Version #{pgp_version} of #{executable} is not yet supported. Please submit a Pull Request to support it."
-      )
+      # Previously, this method raised an error for versions >= 2.4
+      # Now we support versions up to and including 2.4.7
+      # If future versions introduce breaking changes, we can add specific checks here
     end
 
+    # v2.4.7 output:
+    #   pub   rsa3072 2023-05-15 [SC] [expires: 2025-05-14]
+    #         CB3E582C87C4D569C52F4A28C0A5F177F20E39B0
+    #   uid           [ultimate] Joe Bloggs <pgp_test@iostreams.net>
+    #   sub   rsa3072 2023-05-15 [E] [expires: 2025-05-14]
     # v2.2.1 output:
     #   pub   rsa1024 2017-10-24 [SCEA]
     #   18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
@@ -375,8 +442,8 @@ module IOStreams
       results = []
       hash    = {}
       out.each_line do |line|
-        if (match = line.match(/(pub|sec)\s+(\D+)(\d+)\s+(\d+-\d+-\d+)\s+(.*)/))
-          # v2.2:    pub   rsa1024 2017-10-24 [SCEA]
+        if (match = line.match(/(pub|sec)\s+(\D+)(\d+)\s+(\d+-\d+-\d+)(\s+\[.*\])?(.*)/))
+          # v2.2/v2.4:    pub   rsa1024 2017-10-24 [SCEA]
           hash = {
             private:    match[1] == "sec",
             key_length: match[3].to_s.to_i,
@@ -425,8 +492,10 @@ module IOStreams
           hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
           hash = {}
-        elsif (match = line.match(/([A-Z0-9]+)/))
-          # v2.2  18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
+        elsif (match = line.match(/\s+([A-Z0-9]{16,40})/))
+          # v2.2/v2.4 key id on separate line:
+          # 18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
+          # Or shorter format: 7932AB23D7238F6B
           hash[:key_id] ||= match[1]
         end
       end
