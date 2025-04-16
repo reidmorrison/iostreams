@@ -84,6 +84,7 @@ module IOStreams
         command << " --sign --local-user \"#{signer}\"" if signer
         if signer_passphrase
           command << " --pinentry-mode loopback" if IOStreams::Pgp.pgp_version.to_f >= 2.1
+          command << " --no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
           command << " --passphrase \"#{signer_passphrase}\""
         end
         command << " -z #{compress_level}" if compress_level != 6
