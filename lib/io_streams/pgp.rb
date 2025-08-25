@@ -231,7 +231,10 @@ module IOStreams
       # Check for duplicate keys or "not changed" messages
       return [] if output =~ /already in secret keyring/i || output =~ /not changed/i
 
-      if status.success? && !output.empty?
+      # Check for successful import in output, even if status has warnings
+      import_successful = status.success? || output =~ /imported:\s*\d+/i || output =~ /public key.*imported/i
+
+      if import_successful && !output.empty?
         # Sample output for GnuPG < 2.4:
         #
         #   gpg: key C16500E3: secret key imported\n"
@@ -265,9 +268,10 @@ module IOStreams
         output.each_line do |line|
           if line =~ /secret key imported/
             secret = true
-          elsif (match = line.match(/key\s+([0-9A-F]+):\s+(\w+).+["']?(.*)["']?<(.*)>["']?/i))
-            name = match[3].to_s.strip
-            email_addr = match[4].to_s.strip
+          elsif (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]+)\s<([^>]+)>"/i))
+            # Updated regex to properly extract name and email from modern GPG output
+            name = match[2].to_s.strip
+            email_addr = match[3].to_s.strip
             results << {
               key_id:  match[1].to_s.strip,
               private: secret,
@@ -283,7 +287,7 @@ module IOStreams
 
         # If no structured results were found but the import was successful,
         # try to extract the key ID from the output
-        if status.success?
+        if import_successful
           key_id = nil
           output.each_line do |line|
             if (match = line.match(/key\s+([0-9A-F]+):/i))
@@ -305,7 +309,7 @@ module IOStreams
         end
 
         # Return empty array if we couldn't parse anything but the import was successful
-        return [] if status.success?
+        return [] if import_successful
       end
 
       raise(Pgp::Failure, "GPG Failed importing key: #{err}#{out}")
