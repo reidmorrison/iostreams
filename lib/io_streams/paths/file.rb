@@ -99,7 +99,21 @@ module IOStreams
         flags |= ::File::FNM_DOTMATCH if hidden
 
         # Dir.each_child("testdir") {|x| puts "Got #{x}" }
-        Dir.glob(::File.join(path, pattern), flags) do |full_path|
+        full_pattern = ::File.join(path, pattern)
+
+        results = Dir.glob(full_pattern, flags)
+
+        # On some platforms or Ruby versions, FNM_CASEFOLD may not work properly
+        # with complex patterns. If case-insensitive matching returns no results
+        # but we expected some, try a more robust approach.
+        if results.empty? && !case_sensitive && pattern.match?(/[A-Z]/)
+          # Try converting the pattern to lowercase and re-matching
+          lowercase_pattern = pattern.downcase
+          lowercase_full_pattern = ::File.join(path, lowercase_pattern)
+          results = Dir.glob(lowercase_full_pattern, flags)
+        end
+
+        results.each do |full_path|
           next if !directories && ::File.directory?(full_path)
 
           yield(self.class.new(full_path))
