@@ -272,6 +272,7 @@ module IOStreams
             # Updated regex to properly extract name and email from modern GPG output
             name = match[2].to_s.strip
             email_addr = match[3].to_s.strip
+
             results << {
               key_id:  match[1].to_s.strip,
               private: secret,
