@@ -46,9 +46,20 @@ module Paths
         end
 
         it "find matches case-insensitive" do
-          expected = [file_path.to_s, file_path2.to_s]
+          # Force creation of test files via lazy evaluation
+          file_path_str = file_path.to_s
+          file_path2_str = file_path2.to_s
+
+          # Verify files were created
+          assert File.exist?(file_path_str), "Test file 1 should exist: #{file_path_str}"
+          assert File.exist?(file_path2_str), "Test file 2 should exist: #{file_path2_str}"
+
+          expected = [file_path_str, file_path2_str]
           actual   = root.children("**/Test*.TXT").collect(&:to_s)
-          assert_equal expected, actual.sort
+
+          assert_equal expected.sort, actual.sort,
+            "Case-insensitive matching failed. Expected #{expected.sort}, got #{actual.sort}. " \
+            "Root path: #{root.to_s}, Pattern: '**/Test*.TXT'"
         end
 
         it "find matches case-sensitive" do
