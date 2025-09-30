@@ -1,10 +1,13 @@
-source "http://rubygems.org"
+source "https://rubygems.org"
 
 gemspec
 
 gem "amazing_print"
 gem "minitest"
 gem "rake"
+
+# Required for Ruby 3.4+ compatibility
+gem "csv"
 
 gem "aws-sdk-s3"
 gem "bzip2-ffi"

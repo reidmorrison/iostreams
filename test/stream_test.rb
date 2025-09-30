@@ -510,7 +510,10 @@ class StreamTest < Minitest::Test
             stream << {} << {first_name: "Able", last_name: "Smith"}
             stream << {}
           end
-          assert_equal "first_name,last_name\nJack,Johnson\n\n{:first_name=>\"Able\", :last_name=>\"Smith\"}\n\n", io.string, io.string.inspect
+          # Accept both old and new hash syntax formats due to Ruby version differences
+          expected_old = "first_name,last_name\nJack,Johnson\n\n{:first_name=>\"Able\", :last_name=>\"Smith\"}\n\n"
+          expected_new = "first_name,last_name\nJack,Johnson\n\n{first_name: \"Able\", last_name: \"Smith\"}\n\n"
+          assert_includes [expected_old, expected_new], io.string, io.string.inspect
         end
 
         it "nil values" do
