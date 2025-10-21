@@ -52,22 +52,32 @@ module IOStreams
                           comment: nil,
                           key_type: "RSA",
                           key_length: 4096,
+                          key_curve: nil,
+                          key_usage: nil,
                           subkey_type: "RSA",
                           subkey_length: key_length,
-                          expire_date: nil)
+                          subkey_curve: nil,
+                          subkey_usage: nil,
+                          expire_date: nil,
+                          creation_date: nil)
       version_check
       params = ""
       params << "Key-Type: #{key_type}\n" if key_type
       params << "Key-Length: #{key_length}\n" if key_length
+      params << "Key-Curve: #{key_curve}\n" if key_curve
+      params << "Key-Usage: #{key_usage}\n" if key_usage
       params << "Subkey-Type: #{subkey_type}\n" if subkey_type
       params << "Subkey-Length: #{subkey_length}\n" if subkey_length
+      params << "Subkey-Curve: #{subkey_curve}\n" if subkey_curve
+      params << "Subkey-Usage: #{subkey_usage}\n" if subkey_usage
       params << "Name-Real: #{name}\n" if name
       params << "Name-Comment: #{comment}\n" if comment
       params << "Name-Email: #{email}\n" if email
       params << "Expire-Date: #{expire_date}\n" if expire_date
-      params << "Passphrase: #{passphrase}\n" if passphrase
+      params << "Creation-Date: #{creation_date}\n" if creation_date
+      params << (passphrase ? "Passphrase: #{passphrase}\n" : "%no-protection\n")
       params << "%commit"
-      command = "#{executable} --batch --gen-key --no-tty"
+      command = "#{executable} --batch --full-gen-key --no-tty"
 
       out, err, status = Open3.capture3(command, binmode: true, stdin_data: params)
       logger&.debug { "IOStreams::Pgp.generate_key: #{command}\n#{params}\n#{err}#{out}" }
