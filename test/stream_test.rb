@@ -573,5 +573,87 @@ class StreamTest < Minitest::Test
         end
       end
     end
+
+    describe "production scenario: pipe-delimited file labeled as .csv" do
+      let :temp_file do
+        Tempfile.new(["test", ".csv"])
+      end
+
+      let :file_name do
+        temp_file.path
+      end
+
+      after do
+        temp_file.delete
+      end
+
+      # Simulate RocketJob writing pipe-delimited data with .csv extension
+      # This replicates: output_category format: :csv but data is actually pipe-delimited
+      it "fails when reading pipe-delimited .csv file with quotes in data (production bug)" do
+        # Write pipe-delimited data to a .csv file (simulating RocketJob scenario)
+        # The file has .csv extension but contains pipe-delimited data with quotes
+        pipe_delimited_data = [
+          "name|description|zip",
+          "Jack|Firstname is Jack|234567",
+          "O\"neil|Firstname is O\"neil|234568",
+          "Smith|Description with \"quote|234569"
+        ].join("\n") + "\n"
+
+        File.write(file_name, pipe_delimited_data)
+
+        # This should FAIL with current code because .csv extension triggers embedded_within: '"'
+        # and the pipe-delimited data has quotes that cause unbalanced delimiter errors
+        exc = assert_raises(IOStreams::Errors::MalformedDataError) do
+          IOStreams.path(file_name).each(:line) do |line|
+            # Reading should fail here
+          end
+        end
+        assert_includes exc.message, "Unbalanced delimited field, delimiter:"
+      end
+
+      it "succeeds when explicitly disabling embedded_within (production fix option 1)" do
+        # Write pipe-delimited data to a .csv file
+        pipe_delimited_data = [
+          "name|description|zip",
+          "Jack|Firstname is Jack|234567",
+          "O\"neil|Firstname is O\"neil|234568",
+          "Smith|Description with \"quote|234569"
+        ].join("\n") + "\n"
+
+        File.write(file_name, pipe_delimited_data)
+
+        # Fix: Explicitly disable embedded_within to read raw lines
+        lines = []
+        IOStreams.path(file_name).each(:line, embedded_within: nil) do |line|
+          lines << line
+        end
+
+        assert_equal 4, lines.size
+        assert_equal "name|description|zip", lines[0]
+        assert_equal "O\"neil|Firstname is O\"neil|234568", lines[2]
+      end
+
+      it "succeeds when explicitly setting format to :psv (production fix option 2)" do
+        # Write pipe-delimited data to a .csv file
+        pipe_delimited_data = [
+          "name|description|zip",
+          "Jack|Firstname is Jack|234567",
+          "O\"neil|Firstname is O\"neil|234568",
+          "Smith|Description with \"quote|234569"
+        ].join("\n") + "\n"
+
+        File.write(file_name, pipe_delimited_data)
+
+        # Fix: Explicitly set format to :psv so embedded_within is not set
+        lines = []
+        IOStreams.path(file_name).format(:psv).each(:line) do |line|
+          lines << line
+        end
+
+        assert_equal 4, lines.size
+        assert_equal "name|description|zip", lines[0]
+        assert_equal "O\"neil|Firstname is O\"neil|234568", lines[2]
+      end
+    end
   end
 end

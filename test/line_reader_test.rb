@@ -22,6 +22,10 @@ class LineReaderTest < Minitest::Test
       File.join(File.dirname(__FILE__), "files", "unclosed_quote_large_test.csv")
     end
 
+    let :malformed_pipe_csv_file do
+      File.join(File.dirname(__FILE__), "files", "malformed_pipe_csv.csv")
+    end
+
     let :data do
       data = []
       File.open(file_name, "rt") do |file|
@@ -84,6 +88,47 @@ class LineReaderTest < Minitest::Test
             end
           end
           assert_includes exc.message, "Unbalanced delimited field, delimiter:"
+        end
+
+        it "raises error for malformed pipe-delimited CSV with unclosed quotes" do
+          exc = assert_raises(IOStreams::Errors::MalformedDataError) do
+            IOStreams::Line::Reader.file(malformed_pipe_csv_file, embedded_within: '"') do |io|
+              io.each { |line| }
+            end
+          end
+          assert_includes exc.message, "Unbalanced delimited field, delimiter:"
+        end
+
+        it "can count raw lines in malformed pipe-delimited CSV by disabling embedded_within" do
+          line_count = 0
+          IOStreams::Line::Reader.file(malformed_pipe_csv_file, embedded_within: nil) do |io|
+            line_count = io.each { |line| }
+          end
+          # Should count 4 raw lines (header + 3 data rows) without parsing quotes
+          assert_equal 4, line_count
+        end
+
+        it "raises error when using IOStreams.path() on malformed pipe-delimited CSV (production scenario)" do
+          # This reproduces the production issue: PSV file labeled as .csv with quotes in data (e.g., O"neil)
+          # The .csv extension triggers embedded_within: '"' which tries to parse quotes and fails on odd quote counts
+          exc = assert_raises(IOStreams::Errors::MalformedDataError) do
+            IOStreams.path(malformed_pipe_csv_file).each(:line) do |line|
+              # This will fail because .csv extension triggers embedded_within: '"'
+              # and the file has quotes in pipe-delimited data (like O"neil) causing unbalanced quote error
+            end
+          end
+          assert_includes exc.message, "Unbalanced delimited field, delimiter:"
+        end
+
+        it "can count raw lines using IOStreams.path() by explicitly disabling embedded_within" do
+          # This is the production fix: explicitly pass embedded_within: nil
+          # This allows counting raw lines in pipe-delimited files labeled as .csv without quote parsing
+          line_count = 0
+          IOStreams.path(malformed_pipe_csv_file).each(:line, embedded_within: nil) do |line|
+            line_count += 1
+          end
+          # Should count 4 raw lines (header + 3 data rows) without parsing quotes
+          assert_equal 4, line_count
         end
       end
     end

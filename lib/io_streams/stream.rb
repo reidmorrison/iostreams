@@ -326,8 +326,18 @@ module IOStreams
       builder.reader(io_stream, &block)
     end
 
-    def line_reader(embedded_within: nil, **args)
-      embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?(".csv")
+    def line_reader(embedded_within: :auto, **args)
+      # Only set embedded_within for CSV files, not PSV files (even if labeled as .csv)
+      # Check the detected or explicitly set format rather than just the filename extension
+      # Use :auto as default to distinguish between "not provided" and "explicitly nil"
+      if embedded_within == :auto && builder.file_name&.include?(".csv")
+        detected_format = builder.format
+        # Only set embedded_within for actual CSV format, not PSV files mislabeled as CSV
+        # If format is explicitly set to :psv (via .format(:psv)), don't set embedded_within
+        embedded_within = detected_format == :psv ? nil : '"'
+      elsif embedded_within == :auto
+        embedded_within = nil
+      end
 
       stream_reader do |io|
         yield IOStreams::Line::Reader.new(io,
@@ -338,7 +348,7 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
-    def row_reader(delimiter: nil, embedded_within: nil, **args)
+    def row_reader(delimiter: nil, embedded_within: :auto, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Row::Reader.new(
           io,
@@ -351,7 +361,7 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
-    def record_reader(delimiter: nil, embedded_within: nil, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(
           io,
