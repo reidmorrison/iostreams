@@ -12,6 +12,10 @@ task publish: :gem do
   system "rm iostreams-#{IOStreams::VERSION}.gem"
 end
 
+task :console do
+  exec "irb -I lib -r iostreams"
+end
+
 Rake::TestTask.new(:test) do |t|
   t.pattern = "test/**/*_test.rb"
   t.verbose = true

@@ -3,7 +3,7 @@ source "https://rubygems.org"
 gemspec
 
 gem "amazing_print"
-gem "minitest"
+gem "minitest", "< 6.0"
 gem "rake"
 
 # Required for Ruby 3.4+ compatibility
