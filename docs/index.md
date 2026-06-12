@@ -90,7 +90,7 @@ path.write("Hello World")
 Note: GnuPG needs to be installed locally for the above PGP example to work.
 
 Write a string to a SFTP server, with a host name of `example.org`, under the path `demo`,
-encrypted with pgp, with a file name of `sample.txt`. Adds the optional `username` and `password`.
+with a file name of `sample.txt`. Adds the optional `username` and `password`.
 
 ~~~ruby
 path = IOStreams.path("sftp://example.org/demo/sample.txt", 

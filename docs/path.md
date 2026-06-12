@@ -243,7 +243,7 @@ Use an identity file instead of a password to authenticate:
 ~~~ruby
 path = IOStreams.path("sftp://test.com/path/file_name.csv", 
                       username: "jack", 
-                      ssh_options: {IdentityFile: "~/.ssh/private_key"}).
+                      ssh_options: {IdentityFile: "~/.ssh/private_key"})
 path.reader do |io|
   puts io.read
 end
@@ -281,9 +281,19 @@ end
 
   Password for the user.
 
-**ssh_options
-  Any other options supported by ssh_config.
-  `man ssh_config` to see all available options.
+* ssh_options: [Hash]
+
+  * IdentityFile [String]
+
+    Path to the local identity (private key) file to authenticate with, instead of a password.
+
+  * IdentityKey [String]
+
+    The identity (private key) itself, supplied as a string.
+    Under the covers the key is written to a temp file and then passed as `IdentityFile`.
+
+  * Any other options supported by ssh_config.
+    `man ssh_config` to see all available options.
 
 ### HTTP (http://, https://)
 
@@ -334,6 +344,56 @@ path = IOStreams.path("https://hostname/path/example.csv")
 
 This time IOStreams inferred that the file lives on an HTTP Server and returns `IOStreams::Paths::HTTP`.
 
+### Path Operations
+
+Paths support common file operations, regardless of where the file is stored:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv")
+
+# Does the file exist?
+path.exist?
+# => true
+
+# Size of the file in bytes.
+path.size
+# => 64
+
+# Delete the file.
+path.delete
+
+# Move the file to another path, returning the target path.
+path.move_to("sample/moved.csv")
+
+# Create the directory path, when it does not already exist.
+IOStreams.path("sample/data").mkpath
+~~~
+
+Iterate over the files in a path using a wildcard pattern:
+
+~~~ruby
+IOStreams.path("sample").each_child("*.csv") do |child|
+  puts child
+end
+
+# Recursively, including sub-directories:
+IOStreams.path("sample").each_child("**/*.csv") do |child|
+  puts child
+end
+~~~
+
+`each_child` is also available directly on `IOStreams` when the pattern includes the full path:
+
+~~~ruby
+IOStreams.each_child("sample/**/*.csv") { |child| puts child }
+~~~
+
+Notes:
+* These operations are supported by File and S3 paths. SFTP supports `each_child`,
+  and HTTP paths are read-only so they do not support any of them.
+* By default `each_child` patterns are case-insensitive and hidden files are excluded.
+  Supply `case_sensitive: true` or `hidden: true` to change this behavior.
+
 ### Using root paths
 
 If root paths have been setup, see [Config](config) to add root paths, then `IOStreams.join` can be used instead
@@ -349,7 +409,7 @@ IOStreams.add_root(:default, "/var/my_app/files")
 
 The following code:
 ~~~ruby
-path = IOStreams.path("/var/my_app/files", "sample", "example.csv", root: :uploads)
+path = IOStreams.path("/var/my_app/files", "sample", "example.csv")
 path.writer(:line) do |io|
   io << "Welcome"
   io << "To IOStreams"
@@ -358,7 +418,7 @@ end
 
 Can be reduced to:
 ~~~ruby 
-path = IOStreams.join("sample", "example.csv", root: :uploads)
+path = IOStreams.join("sample", "example.csv")
 path.writer(:line) do |io|
   io << "Welcome"
   io << "To IOStreams"

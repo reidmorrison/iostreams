@@ -389,8 +389,8 @@ Using `writer(:hash)` makes it easier to develop the application without regard 
 - Specialized escaping of values to handle row or column delimiters
 
 Note: The first row written determines the column names as well as the order of the elements to be written.
-See `IOStreams.writer` for details on how to supply the header columns up front to set the order or to filter out
-which columns should be written to the target file.
+To supply the header columns up front, to set the order or to filter out which columns should be written to the
+target file, pass them to the writer: `path.writer(:hash, columns: ["name", "login"])`.
 
 Now lets write the same data into a JSON file, then read it to see what it looks like:
 ~~~ruby
