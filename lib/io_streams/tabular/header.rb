@@ -5,16 +5,16 @@ module IOStreams
       # Column names that begin with this prefix have been rejected and should be ignored.
       IGNORE_PREFIX = "__rejected__".freeze
 
-      attr_accessor :columns, :allowed_columns, :required_columns, :skip_unknown
+      attr_accessor :allowed_columns, :required_columns, :skip_unknown
+      attr_reader :columns
 
       # Header
       #
       # Parameters
-      #   columns [Array<String>]
+      #   columns [Array<String|Symbol>]
       #     Columns in this header.
       #     Note:
-      #       It is recommended to keep all columns as strings to avoid any issues when persistence
-      #       with MongoDB when it converts symbol keys to strings.
+      #       Column names are converted to strings.
       #
       #   allowed_columns [Array<String>]
       #     List of columns to allow.
@@ -33,10 +33,15 @@ module IOStreams
       #     false:
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
       def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
-        @columns          = columns
+        @columns          = stringify(columns)
         @required_columns = required_columns
         @allowed_columns  = allowed_columns
         @skip_unknown     = skip_unknown
+      end
+
+      # Set the columns in this header, converting the column names to strings.
+      def columns=(columns)
+        @columns = stringify(columns)
       end
 
       # Returns [Array<String>] list columns that were ignored during cleansing.
@@ -134,6 +139,7 @@ module IOStreams
       # Perform cleansing on returned Hash keys during the narrowing process.
       # For example, avoids issues with case etc.
       def cleanse_hash(hash)
+        hash      = hash.transform_keys(&:to_s) unless hash.keys.all?(String)
         unmatched = columns - hash.keys
         unless unmatched.empty?
           hash = hash.dup
@@ -148,6 +154,10 @@ module IOStreams
         cleansed.gsub!(/-+/, "_")
         cleansed.gsub!(/\W+/, "")
         cleansed
+      end
+
+      def stringify(columns)
+        columns&.collect { |column| column&.to_s }
       end
     end
   end

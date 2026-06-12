@@ -59,11 +59,10 @@ module IOStreams
     #   format_options: [Hash]
     #     Any specialized format specific options. For example, `:fixed` format requires the file definition.
     #
-    #   columns [Array<String>]
+    #   columns [Array<String|Symbol>]
     #     The header columns when the file does not include a header row.
     #     Note:
-    #       It is recommended to keep all columns as strings to avoid any issues when persistence
-    #       with MongoDB when it converts symbol keys to strings.
+    #       Column names are converted to strings.
     #
     #   allowed_columns [Array<String>]
     #     List of columns to allow.

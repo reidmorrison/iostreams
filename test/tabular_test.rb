@@ -62,6 +62,19 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "header columns" do
+      it "converts symbol column names to strings" do
+        tabular = IOStreams::Tabular.new(columns: %i[first_field second third])
+        assert_equal %w[first_field second third], tabular.header.columns
+      end
+
+      it "converts symbol column names to strings when assigned" do
+        tabular                = IOStreams::Tabular.new(format: :csv)
+        tabular.header.columns = %i[first_field second third]
+        assert_equal %w[first_field second third], tabular.header.columns
+      end
+    end
+
     describe "#cleanse_header!" do
       describe "cleanses" do
         it "a csv header" do
@@ -252,6 +265,11 @@ class TabularTest < Minitest::Test
 
       it "renders a hash" do
         assert csv_string = tabular.render({"third" => "3", "first_field" => "1"})
+        assert_equal "1,,3", csv_string
+      end
+
+      it "renders a hash with symbol keys" do
+        assert csv_string = tabular.render({third: "3", first_field: "1"})
         assert_equal "1,,3", csv_string
       end
 
