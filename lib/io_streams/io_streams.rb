@@ -23,7 +23,7 @@ module IOStreams
   #    # => "/usr/local/sample"
   #
   #    IOStreams.path("s3://mybucket/path/file.xls")
-  #    # => #<IOStreams::S3::Path:0x00007fec66e3a288, @path="s3://mybucket/path/file.xls">
+  #    # => #<IOStreams::Paths::S3:0x00007fec66e3a288 @path="s3://mybucket/path/file.xls">
   #
   #    IOStreams.path("s3://mybucket/path/file.xls").to_s
   #    # => "s3://mybucket/path/file.xls"
@@ -36,10 +36,9 @@ module IOStreams
   #
   # For Files
   # IOStreams.path('blah.zip').option(:encode, encoding: 'BINARY').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:line).first
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:hash).last
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:hash).size
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').reader.size
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:line) { |line| puts line }
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:hash) { |hash| p hash }
+  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').read
   # IOStreams.path('blah.csv.zip').each(:line) { |line| puts line }
   # IOStreams.path('blah.zip').option(:pgp, passphrase: 'receiver_passphrase').read
   # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
@@ -77,12 +76,13 @@ module IOStreams
   #
   # Example:
   #    IOStreams.add_root(:default, "tmp/export")
+  #    IOStreams.add_root(:ftp, "tmp/ftp")
   #
   #    IOStreams.join('file.xls')
-  #    # => #<IOStreams::Paths::File:0x00007fec70391bd8 @path="tmp/export/sample">
+  #    # => #<IOStreams::Paths::File:0x00007fec70391bd8 @path="tmp/export/file.xls">
   #
   #    IOStreams.join('file.xls').to_s
-  #    # => "tmp/export/sample"
+  #    # => "tmp/export/file.xls"
   #
   #    IOStreams.join('sample', 'file.xls', root: :ftp)
   #    # => #<IOStreams::Paths::File:0x00007fec6ee329b8 @path="tmp/ftp/sample/file.xls">
@@ -108,7 +108,7 @@ module IOStreams
   #     Optional extension to add to the tempfile.
   #
   # Example:
-  #   IOStreams.temp_file
+  #   IOStreams.temp_file("export", ".csv") { |path| path.write("Hello World") }
   def self.temp_file(basename, extension = "")
     Utils.temp_file_name(basename, extension) { |file_name| yield(Paths::File.new(file_name).stream(:none)) }
   end
@@ -193,9 +193,9 @@ module IOStreams
   # "\a"        "a"              true     # escaped ordinary remains ordinary
   # "[\?]"      "?"              true     # can escape inside bracket expression
   #
-  # "*"         ".profile"       false    # wildcard doesn't match leading
-  # "*"         ".profile"       true     # period by default.
-  # ".*"        ".profile"       true                                   {hidden: true}
+  # "*"         ".profile"       false    # wildcard doesn't match leading period by default
+  # "*"         ".profile"       true     # unless hidden is enabled    {hidden: true}
+  # ".*"        ".profile"       true     # leading period is explicit
   #
   # "**/*.rb"   "main.rb"        false
   # "**/*.rb"   "./main.rb"      false
@@ -265,7 +265,7 @@ module IOStreams
   # Returns [Symbol] the extension removed, or nil if the extension was not registered
   #
   # Example:
-  #   register_extension(:xls)
+  #   deregister_extension(:xls)
   def self.deregister_extension(extension)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
 
@@ -277,11 +277,10 @@ module IOStreams
     @extensions.dup
   end
 
-  # Register a file extension and the reader and writer streaming classes
+  # Register a URI scheme and the path class that handles it
   #
   # Example:
-  #   # MyXls::Reader and MyXls::Writer must implement .open
-  #   register_scheme(:xls, MyXls::Reader, MyXls::Writer)
+  #   register_scheme(:gcs, MyGoogleCloudStoragePath)
   def self.register_scheme(scheme, klass)
     raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s =~ /\A\w+\Z/
 

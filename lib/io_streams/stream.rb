@@ -171,7 +171,7 @@ module IOStreams
     # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", convert: false)
     #
     # # Advanced copy with custom stream conversions on source and target.
-    # source = IOStreams.path("source_file").stream(encoding: "BINARY")
+    # source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
     def copy_from(source, convert: true, mode: nil, **args)
       if convert

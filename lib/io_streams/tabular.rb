@@ -177,7 +177,7 @@ module IOStreams
     # Returns [Symbol] the format removed, or nil if the format was not registered
     #
     # Example:
-    #   register_extension(:xls)
+    #   deregister_format(:psv)
     def self.deregister_format(format)
       raise(ArgumentError, "Invalid format #{format.inspect}") unless format.to_s =~ /\A\w+\Z/
 
