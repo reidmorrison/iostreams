@@ -573,5 +573,159 @@ class StreamTest < Minitest::Test
         end
       end
     end
+
+    describe "#basename" do
+      it "returns the file name" do
+        assert_equal "ruby.rb", IOStreams.path("/home/gumby/work/ruby.rb").basename
+      end
+
+      it "strips the supplied suffix" do
+        assert_equal "ruby", IOStreams.path("/home/gumby/work/ruby.rb").basename(".rb")
+      end
+
+      it "strips any extension" do
+        assert_equal "ruby", IOStreams.path("/home/gumby/work/ruby.rb").basename(".*")
+      end
+
+      it "is nil when no file name was set" do
+        assert_nil stream.basename
+      end
+    end
+
+    describe "#dirname" do
+      it "returns the directory" do
+        assert_equal "a/b/d", IOStreams.path("a/b/d/test.rb").dirname
+      end
+
+      it "returns '.' when the path has no directory" do
+        assert_equal ".", IOStreams.path("test.rb").dirname
+      end
+
+      it "is nil when no file name was set" do
+        assert_nil stream.dirname
+      end
+    end
+
+    describe "#extname" do
+      it "returns the extension including the period" do
+        assert_equal ".rb", IOStreams.path("a/b/d/test.rb").extname
+      end
+
+      it "returns an empty string when there is no extension" do
+        assert_equal "", IOStreams.path("test").extname
+      end
+
+      it "is nil when no file name was set" do
+        assert_nil stream.extname
+      end
+    end
+
+    describe "#extension" do
+      it "returns the extension without the period" do
+        assert_equal "rb", IOStreams.path("a/b/d/test.rb").extension
+      end
+
+      it "returns an empty string when there is no extension" do
+        assert_equal "", IOStreams.path("test").extension
+      end
+
+      it "is nil when no file name was set" do
+        assert_nil stream.extension
+      end
+    end
+
+    describe "#setting" do
+      it "returns the options set for a stream option" do
+        path = IOStreams.path("file.csv.pgp")
+        path.option(:pgp, passphrase: "receiver_passphrase")
+        assert_equal({passphrase: "receiver_passphrase"}, path.setting(:pgp))
+      end
+
+      it "returns the options set for a stream" do
+        path = IOStreams.path("tempfile2527")
+        path.stream(:pgp, passphrase: "receiver_passphrase")
+        assert_equal({passphrase: "receiver_passphrase"}, path.setting(:pgp))
+      end
+
+      it "is nil when the stream has no settings" do
+        assert_nil IOStreams.path("file.csv.gz").setting(:gz)
+      end
+    end
+
+    describe "#option_or_stream" do
+      it "adds an option when the file name is set" do
+        path = IOStreams.path("file.csv.gz")
+        path.option_or_stream(:gz, level: 9)
+        assert_equal({gz: {level: 9}}, path.pipeline)
+      end
+
+      it "adds a stream when streams are already set" do
+        path = IOStreams.path("tempfile2527")
+        path.stream(:zip)
+        path.option_or_stream(:enc, compress: false)
+        assert_equal({zip: {}, enc: {compress: false}}, path.pipeline)
+      end
+    end
+
+    describe "#remove_from_pipeline" do
+      it "removes a stream inferred from the file name" do
+        path = IOStreams.path("file.csv.gz")
+        assert_equal({gz: {}}, path.pipeline)
+        path.remove_from_pipeline(:gz)
+        assert_equal({}, path.pipeline)
+      end
+    end
+
+    describe "#copy_from" do
+      let :source_path do
+        IOStreams.join("copy_test", "source.csv.gz")
+      end
+
+      let :target_path do
+        IOStreams.join("copy_test", "target.csv")
+      end
+
+      after do
+        source_path.delete
+        target_path.delete
+      end
+
+      it "converts between streams based on the file names" do
+        source_path.write("Hello World")
+        refute_equal "Hello World", IOStreams.path(source_path.to_s).stream(:none).read
+
+        target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"))
+        assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
+      end
+
+      it "copies a file name without conversions" do
+        source_path.write("Hello World")
+        target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"), convert: false)
+
+        # The target retains the GZip compressed contents of the source.
+        assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").stream(:gz).read
+      end
+    end
+
+    describe "#copy_to" do
+      let :source_path do
+        IOStreams.join("copy_test", "source.csv.gz")
+      end
+
+      let :target_path do
+        IOStreams.join("copy_test", "target.csv")
+      end
+
+      after do
+        source_path.delete
+        target_path.delete
+      end
+
+      it "copies to the target path" do
+        source_path.write("Hello World")
+        source_path.copy_to(IOStreams.join("copy_test", "target.csv"))
+        assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
+      end
+    end
   end
 end
