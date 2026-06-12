@@ -74,6 +74,16 @@ module IOStreams
 
   # Join the supplied path elements to a root path.
   #
+  # Roots allow paths to reference a particular root directory, so that all path names
+  # are appended to that root. Use `IOStreams.join` instead of `IOStreams.path` so that
+  # the exact same code can run in production and development, yet use completely
+  # different data sources in each. For example, in production the root can point to
+  # an S3 bucket, while in development it points to the local file system.
+  #
+  # Roots are configured via an initializer at startup. Multiple roots can be setup,
+  # for example one for input files, another for output files, another for reports, etc.
+  # The `:default` root is used whenever a root is not supplied when calling `IOStreams.join`.
+  #
   # Example:
   #    IOStreams.add_root(:default, "tmp/export")
   #    IOStreams.add_root(:ftp, "tmp/ftp")

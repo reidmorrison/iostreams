@@ -302,7 +302,7 @@ Joe|Over There somewhere|1234
 
 ### Reading PSV Files
 
-Read each row from a csv file as key-value pairs, where the key is the CSV column header, and the value is the value for that row.
+Read each row from a psv file as key-value pairs, where the key is the PSV column header, and the value is the value for that row.
 ~~~ruby
 path = IOStreams.path("example.psv")
 path.each(:hash) do |record|

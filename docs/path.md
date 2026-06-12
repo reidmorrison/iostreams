@@ -396,20 +396,36 @@ Notes:
 
 ### Using root paths
 
-If root paths have been setup, see [Config](config) to add root paths, then `IOStreams.join` can be used instead
-of `IOStreams.path`. 
+Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
+By using `IOStreams.join` instead of `IOStreams.path`, the storage location is no longer embedded in the
+application code, it is configured once at startup.
 
-The key difference is that `IOStreams.join` joins the supplied path(s) with the default or named root path so that
-the entire path does not need to be supplied.
+The primary purpose of roots is to allow the exact same code to run in production and development,
+yet use completely different data sources in each. For example, in production the root can point to an
+S3 bucket, while in development it points to the local file system.
 
-Set the default root path in an initializer.
+Roots are configured via an initializer at startup. Multiple roots can be setup, for example one for
+input files, another for output files, another for reports, etc. During development the roots can all
+point to a common location, while in production they could be completely different S3 buckets.
+
+For example, inside an initializer:
 ~~~ruby
-IOStreams.add_root(:default, "/var/my_app/files")
+IOStreams.add_root(:default, "tmp/export")
+IOStreams.add_root(:ftp, "tmp/ftp")
+~~~
+
+`:default` is used whenever a root is not supplied when calling `IOStreams.join`:
+~~~ruby
+# Uses the :default root: "tmp/export/sample/example.csv"
+path = IOStreams.join("sample", "example.csv")
+
+# Uses the :ftp root: "tmp/ftp/sample/example.csv"
+path = IOStreams.join("sample", "example.csv", root: :ftp)
 ~~~
 
 The following code:
 ~~~ruby
-path = IOStreams.path("/var/my_app/files", "sample", "example.csv")
+path = IOStreams.path("tmp/export", "sample", "example.csv")
 path.writer(:line) do |io|
   io << "Welcome"
   io << "To IOStreams"
@@ -427,7 +443,10 @@ end
 
 Most importantly the root path information and storage mechanism are externalized from the application code.
 
-For example, to make the above code write to S3, change the initializer to:
+For example, to make the above code write to S3 in production, change the initializer to:
 ~~~ruby
-IOStreams.add_root(:default, "s3://my-app-bucket-name/files")
+IOStreams.add_root(:default, "s3://my-app-bucket-name/export")
+IOStreams.add_root(:ftp, "s3://my-app-ftp-bucket-name/ftp")
 ~~~
+
+The code calling `IOStreams.join` does not change at all, see [Config](config) for more examples.
