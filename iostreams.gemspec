@@ -11,7 +11,7 @@ Gem::Specification.new do |s|
   s.platform              = Gem::Platform::RUBY
   s.authors               = ["Reid Morrison"]
   s.homepage              = "https://iostreams.rocketjob.io"
-  s.summary               = "Input and Output streaming for Ruby."
+  s.summary               = "Streaming I/O for Ruby: compression, encryption, format, and storage transparent to your code."
   s.files                 = Dir["lib/**/*", "bin/*", "LICENSE", "Rakefile", "README.md"]
   s.test_files            = Dir["test/**/*"]
   s.license               = "Apache-2.0"
