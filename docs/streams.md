@@ -20,6 +20,18 @@ IOStreams.path("example.csv").each do |line|
 end
 ~~~
 
+When a line can contain embedded newlines, such as a CSV field wrapped in double quotes that
+spans multiple lines, supply `embedded_within` so those newlines are not treated as line endings:
+~~~ruby
+IOStreams.path("example.csv").each(:line, embedded_within: '"') do |line|
+  puts line
+end
+~~~
+
+Notes:
+* Embedded lines (within double quotes) are skipped automatically when the file name contains `.csv`,
+  so `embedded_within` only needs to be supplied for non-csv file names, or to override the delimiter.
+
 Display each row from the csv file as an array:
 ~~~ruby
 IOStreams.path("example.csv").each(:array) do |array|

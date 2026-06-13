@@ -369,6 +369,40 @@ path.move_to("sample/moved.csv")
 IOStreams.path("sample/data").mkpath
 ~~~
 
+Inspect the components of a path's file name:
+
+~~~ruby
+# The last component of the path.
+IOStreams.path("/home/gumby/work/ruby.rb").basename
+# => "ruby.rb"
+
+# Remove a specific suffix from the file name.
+IOStreams.path("/home/gumby/work/ruby.rb").basename(".rb")
+# => "ruby"
+
+# Remove any extension by supplying ".*".
+IOStreams.path("/home/gumby/work/ruby.rb").basename(".*")
+# => "ruby"
+
+# The directory portion of the path.
+IOStreams.path("a/b/d/test.rb").dirname
+# => "a/b/d"
+
+# The extension, including the leading period.
+IOStreams.path("a/b/d/test.rb").extname
+# => ".rb"
+
+# The extension, without the leading period.
+IOStreams.path("a/b/d/test.rb").extension
+# => "rb"
+~~~
+
+Notes:
+* `basename`, `dirname`, `extname`, and `extension` return `nil` when no file name was set.
+* A leading period on a dotfile is not treated as an extension, so `.profile` has no extension,
+  while `.profile.sh` has the extension `sh`.
+* A file name ending in a period, such as `foo.`, returns an empty string for the extension.
+
 Iterate over the files in a path using a wildcard pattern:
 
 ~~~ruby

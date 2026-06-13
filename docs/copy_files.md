@@ -53,3 +53,22 @@ To copy a file _without_ performing any conversions (ignore file extensions), se
 input = IOStreams.path("sample.json.zip")
 IOStreams.path("sample.copy").copy_from(input, convert: false)
 ~~~
+
+Custom stream conversions can be applied to both the source and the target in a single copy.
+Here the source is read as binary and the target is PGP encrypted:
+
+~~~ruby
+source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
+IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
+~~~
+
+To convert the contents row by row, or record by record, during the copy, supply `mode`.
+For example, copy a CSV file into JSON, parsing and rendering each record:
+
+~~~ruby
+source = IOStreams.path("source_file.csv")
+IOStreams.path("target_file.json").copy_from(source, mode: :hash)
+~~~
+
+Notes:
+* `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
