@@ -216,6 +216,21 @@ Let IOStreams perform the above stream chaining automatically under the covers:
 
 ## Architecture
 
+### Public vs internal API
+
+The `IOStreams` module is the public interface, and everyone using IOStreams starts there, typically
+with `IOStreams.path`, `IOStreams.stream`, or `IOStreams.join`. Once one of those returns a path or
+stream, the methods on that returned object are also part of the public interface.
+
+Everything else is internal. No one should directly create a `Path` (or any path subclass), or reach
+into any other module or class, such as calling `IOStreams::Zip::Writer.stream` directly. The Reader,
+Writer, and other submodule APIs shown below are intended for contributors extending IOStreams, not for
+callers using it.
+
+This keeps the API simple for everyone using IOStreams, and lets the internal APIs change without
+breaking existing code, since only the `IOStreams` module surface and the returned path/stream methods
+are guaranteed.
+
 Every Reader or Writer is invoked by calling its `.open` method and passing the block
 that must be invoked for the duration of that stream.
 

@@ -44,7 +44,7 @@ module IOStreams
       #
       # Note:
       # * When using a line reader and the file_name ends with ".csv" then embedded_within is automatically set to `"`
-      def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil, original_file_name: nil)
+      def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
         super(input_stream)
 
         @embedded_within = embedded_within

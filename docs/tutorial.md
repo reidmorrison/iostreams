@@ -294,6 +294,43 @@ compressed with Gzip and the third was encrypted with PGP. They all returned:
 Now a program can be developed using IOStreams and then without any code changes is able to read and write across
 multiple storage locations.
 
+### Configure storage once, not in every call
+
+In the examples above we still wrote the `s3://my-iostreams-bucket/` prefix into every call, which
+means the code itself decides where files are stored. The real goal is for the application code to
+say nothing at all about storage, so the same code can run unchanged against local files in
+development and S3 in production.
+
+Roots make that possible. Configure the storage location once in a startup initializer:
+~~~ruby
+# config/initializers/iostreams.rb (development)
+IOStreams.add_root(:default, "tmp/files")
+~~~
+
+Then use `IOStreams.join` instead of `IOStreams.path`, and never mention the storage location again:
+~~~ruby
+def write_lines(file_name)
+  path = IOStreams.join(file_name)
+  path.writer do |io|
+    io << "name,login\n"
+    io << "Jack Jones,jjones\n"
+    io << "Jill Smith,jsmith\n"
+  end
+end
+
+write_lines("sample/example.csv")
+write_lines("sample/example.csv.gz")
+~~~
+
+To run the exact same code against S3 in production, change only the initializer:
+~~~ruby
+# config/initializers/iostreams.rb (production)
+IOStreams.add_root(:default, "s3://my-iostreams-bucket/files")
+~~~
+
+The application code does not change at all. See [Configuring IOStreams](config) for multiple roots,
+for example separate locations for downloads, uploads, and reports.
+
 ## Tabular Files
 
 Tabular files are any files that start with a header row and then follows with rows of data with each row
@@ -389,8 +426,8 @@ Using `writer(:hash)` makes it easier to develop the application without regard 
 - Specialized escaping of values to handle row or column delimiters
 
 Note: The first row written determines the column names as well as the order of the elements to be written.
-See `IOStreams.writer` for details on how to supply the header columns up front to set the order or to filter out
-which columns should be written to the target file.
+To supply the header columns up front, to set the order or to filter out which columns should be written to the
+target file, pass them to the writer: `path.writer(:hash, columns: ["name", "login"])`.
 
 Now lets write the same data into a JSON file, then read it to see what it looks like:
 ~~~ruby

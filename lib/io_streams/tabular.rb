@@ -59,11 +59,10 @@ module IOStreams
     #   format_options: [Hash]
     #     Any specialized format specific options. For example, `:fixed` format requires the file definition.
     #
-    #   columns [Array<String>]
+    #   columns [Array<String|Symbol>]
     #     The header columns when the file does not include a header row.
     #     Note:
-    #       It is recommended to keep all columns as strings to avoid any issues when persistence
-    #       with MongoDB when it converts symbol keys to strings.
+    #       Column names are converted to strings.
     #
     #   allowed_columns [Array<String>]
     #     List of columns to allow.
@@ -91,7 +90,7 @@ module IOStreams
       @header = Header.new(**args)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
-      raise(UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
+      raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
 
       klass   = self.class.parser_class(@format)
       @parser = format_options ? klass.new(**format_options) : klass.new
@@ -177,7 +176,7 @@ module IOStreams
     # Returns [Symbol] the format removed, or nil if the format was not registered
     #
     # Example:
-    #   register_extension(:xls)
+    #   deregister_format(:psv)
     def self.deregister_format(format)
       raise(ArgumentError, "Invalid format #{format.inspect}") unless format.to_s =~ /\A\w+\Z/
 

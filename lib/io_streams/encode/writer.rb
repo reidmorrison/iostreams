@@ -4,7 +4,7 @@ module IOStreams
       attr_reader :encoding, :cleaner
 
       # Write a line at a time to a file or stream
-      def self.stream(input_stream, original_file_name: nil, **args)
+      def self.stream(input_stream, **args)
         yield new(input_stream, **args)
       end
 
@@ -46,7 +46,7 @@ module IOStreams
       # Write a line to the output stream
       #
       # Example:
-      #   IOStreams.writer('a.txt', encoding: 'UTF-8') do |stream|
+      #   IOStreams.path('a.txt').option(:encode, encoding: 'UTF-8').writer do |stream|
       #     stream << 'first line' << 'second line'
       #   end
       def <<(record)
@@ -54,13 +54,13 @@ module IOStreams
         self
       end
 
-      # Write a line to the output stream followed by the delimiter.
+      # Encode data and write it to the output stream.
       # Returns [Integer] the number of bytes written.
       #
       # Example:
-      #   IOStreams.writer('a.txt', encoding: 'UTF-8') do |stream|
+      #   IOStreams.path('a.txt').option(:encode, encoding: 'UTF-8').writer do |stream|
       #     count = stream.write('first line')
-      #     puts "Wrote #{count} bytes to the output file, including the delimiter"
+      #     puts "Wrote #{count} bytes to the output file"
       #   end
       def write(data)
         return 0 if data.nil?

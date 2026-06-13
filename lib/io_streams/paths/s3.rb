@@ -37,10 +37,10 @@ module IOStreams
       #
       #   Example:
       #     client = Aws::S3::Client.new(endpoint: "https://s3.test.com")
-      #     IOStreams::Paths::S3.new(client: client)
+      #     IOStreams::Paths::S3.new("s3://bucket/path/file_name.txt", client: client)
       #
       #   Example:
-      #     IOStreams::Paths::S3.new(client: { endpoint: "https://s3.test.com" })
+      #     IOStreams::Paths::S3.new("s3://bucket/path/file_name.txt", client: { endpoint: "https://s3.test.com" })
       #
       # Writer specific options:
       #

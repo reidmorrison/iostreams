@@ -4,12 +4,19 @@ layout: default
 
 # PGP Encrypted files/streams.
 
-PGP encryption or decryption from IOStreams uses the [GnuPG](https://gnupg.org) command line program 
-to perform encryption and decryption.
+IOStreams encrypts and decrypts PGP data by shelling out to the [GnuPG](https://gnupg.org) command
+line program, so `gpg` must already be installed and on the `PATH` wherever PGP files are read or
+written (see [Installation](#installation) below). As with every other stream, all you do is add a
+`.pgp` extension to the file name and IOStreams handles the rest.
 
-IOStreams has been tested against GnuPG v1.4.21, v2.0.30 and v2.2.20. 
-Since GnuPG is a command line program, IOStreams has to parse its output to extract information. 
-As a result every time that GnuPG changes it output then the RegEx parsers have to be updated for that version.  
+GnuPG is required because there is no standard, maintained pure-Ruby PGP library. Calling the `gpg`
+executable directly is the deliberate approach: it is the reference PGP implementation, is widely
+installed, and is kept current with the OpenPGP standard. It is also well suited to the large files
+IOStreams targets, since `gpg` streams the data rather than holding it in memory.
+
+IOStreams has been tested against GnuPG v1.4, v2.0.30, v2.2.1, and v2.4.7.
+Because GnuPG is a command line program, IOStreams parses its output to extract information, so each
+time GnuPG changes its output the regular expression parsers may need updating for that version.
 
 ## Installation
 
@@ -23,7 +30,7 @@ Redhat Linux
 
     rpm install gpg2
 
-Confirm GunPGP is installed:
+Confirm GnuPG is installed:
 
     gpg --version
 

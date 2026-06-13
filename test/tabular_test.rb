@@ -62,6 +62,19 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "header columns" do
+      it "converts symbol column names to strings" do
+        tabular = IOStreams::Tabular.new(columns: %i[first_field second third])
+        assert_equal %w[first_field second third], tabular.header.columns
+      end
+
+      it "converts symbol column names to strings when assigned" do
+        tabular                = IOStreams::Tabular.new(format: :csv)
+        tabular.header.columns = %i[first_field second third]
+        assert_equal %w[first_field second third], tabular.header.columns
+      end
+    end
+
     describe "#cleanse_header!" do
       describe "cleanses" do
         it "a csv header" do
@@ -255,6 +268,11 @@ class TabularTest < Minitest::Test
         assert_equal "1,,3", csv_string
       end
 
+      it "renders a hash with symbol keys" do
+        assert csv_string = tabular.render({third: "3", first_field: "1"})
+        assert_equal "1,,3", csv_string
+      end
+
       it "renders a hash including nil and boolean" do
         assert csv_string = tabular.render({"third" => true, "first_field" => false, "second" => nil})
         assert_equal "false,,true", csv_string
@@ -331,6 +349,80 @@ class TabularTest < Minitest::Test
         it "skips last filler" do
           assert string = fixed_discard_remainder.render(name: "Jack", address: "over there")
           assert_equal "Jack                   over there                              ", string
+        end
+      end
+
+      it "raises an exception when rendering an unsupported type" do
+        assert_raises IOStreams::Errors::TypeMismatch do
+          tabular.render(123)
+        end
+      end
+    end
+
+    describe "#render_header" do
+      it "renders the header" do
+        assert_equal "first_field,second,third", tabular.render_header
+      end
+
+      it "raises an exception when the header columns are not set" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        assert_raises IOStreams::Errors::MissingHeader do
+          tabular.render_header
+        end
+      end
+
+      it "returns nil when the format does not require a header" do
+        tabular = IOStreams::Tabular.new(format: :json)
+        assert_nil tabular.render_header
+      end
+    end
+
+    describe "#header?" do
+      it "is true for csv without columns" do
+        assert IOStreams::Tabular.new(format: :csv).header?
+      end
+
+      it "is false when the columns are already set" do
+        refute tabular.header?
+      end
+
+      it "is false when the format does not require a header" do
+        refute IOStreams::Tabular.new(format: :json).header?
+      end
+    end
+
+    describe "#requires_header?" do
+      it "is true for csv" do
+        assert IOStreams::Tabular.new(format: :csv).requires_header?
+      end
+
+      it "is false for json" do
+        refute IOStreams::Tabular.new(format: :json).requires_header?
+      end
+    end
+
+    describe ".format_from_file_name" do
+      it "detects the format from the file name" do
+        assert_equal :csv, IOStreams::Tabular.format_from_file_name("sample.csv.gz")
+        assert_equal :json, IOStreams::Tabular.format_from_file_name("sample.json")
+        assert_equal :psv, IOStreams::Tabular.format_from_file_name("sample.psv.enc")
+      end
+
+      it "is nil when the format cannot be inferred" do
+        assert_nil IOStreams::Tabular.format_from_file_name("sample.unknown")
+      end
+    end
+
+    describe ".new" do
+      it "raises an exception for an unknown format" do
+        assert_raises ArgumentError do
+          IOStreams::Tabular.new(format: :unknown)
+        end
+      end
+
+      it "raises UnknownFormat when the format cannot be inferred from the file name" do
+        assert_raises IOStreams::Errors::UnknownFormat do
+          IOStreams::Tabular.new(file_name: "sample.unknown", default_format: nil)
         end
       end
     end

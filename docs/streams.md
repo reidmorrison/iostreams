@@ -4,6 +4,12 @@ layout: default
 
 # Streams
 
+Once you have a [path](path), you read from and write to it with a small, consistent set of methods.
+Reading and writing always happen a block, line, or record at a time, so memory use stays low no
+matter how large the file is. Choose how each chunk is delivered by passing a mode: the default
+streams raw data, `:line` yields one line at a time, `:array` yields each row as an array, and
+`:hash` yields each record as a hash keyed by the header row.
+
 Read 128 characters at a time from the file:
 ~~~ruby
 IOStreams.path("example.csv").reader do |io|
@@ -19,6 +25,18 @@ IOStreams.path("example.csv").each do |line|
   puts line
 end
 ~~~
+
+When a line can contain embedded newlines, such as a CSV field wrapped in double quotes that
+spans multiple lines, supply `embedded_within` so those newlines are not treated as line endings:
+~~~ruby
+IOStreams.path("example.csv").each(:line, embedded_within: '"') do |line|
+  puts line
+end
+~~~
+
+Notes:
+* Embedded lines (within double quotes) are skipped automatically when the file name contains `.csv`,
+  so `embedded_within` only needs to be supplied for non-csv file names, or to override the delimiter.
 
 Display each row from the csv file as an array:
 ~~~ruby
@@ -88,7 +106,7 @@ The original filename still needs to be supplied so that the streaming pipeline 
 
 ~~~ruby
 io = StringIO.new
-IOStreams.stream(io, file_name: "example.csv.gz").writer(:hash) do |stream|
+IOStreams.stream(io).file_name("example.csv.gz").writer(:hash) do |stream|
   stream << {name: "Jack", address: "There", zip_code: 1234}
   stream << {name: "Joe", zip_code: 1234, address: "Over There somewhere"}
 end
@@ -224,7 +242,7 @@ IOStreams.path("tempfile2527").
 ~~~
 
 
-In this example the file contains JSON data that was compressed with GZip, and since we want to read each row as a hash:
+In this example the file contains JSON data that was compressed with Zip, and since we want to read each row as a hash:
 ~~~ruby 
 IOStreams.path("tempfile2527").
   stream(:zip).
@@ -235,7 +253,8 @@ IOStreams.path("tempfile2527").
 
 Alternatively if the original file name is available it can also be supplied allowing IOStreams to infer the above streams:
 ~~~ruby 
-IOStreams.path("tempfile2527", original_file_name: "file.json.gz").
+IOStreams.path("tempfile2527").
+  file_name("file.json.zip").
   each(:hash) do |row|
     p row
   end

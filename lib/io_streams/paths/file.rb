@@ -15,16 +15,16 @@ module IOStreams
       # Examples:
       #
       # # Case Insensitive file name lookup:
-      # IOStreams.path("ruby").glob("r*.md") { |name| puts name }
+      # IOStreams.path("ruby").each_child("r*.md") { |path| puts path }
       #
       # # Case Sensitive file name lookup:
-      # IOStreams.path("ruby").each("R*.md", case_sensitive: true) { |name| puts name }
+      # IOStreams.path("ruby").each_child("R*.md", case_sensitive: true) { |path| puts path }
       #
       # # Also return the names of directories found during the search:
-      # IOStreams.path("ruby").each("R*.md", directories: true) { |name| puts name }
+      # IOStreams.path("ruby").each_child("R*.md", directories: true) { |path| puts path }
       #
       # # Case Insensitive recursive file name lookup:
-      # IOStreams.path("ruby").glob("**/*.md") { |name| puts name }
+      # IOStreams.path("ruby").each_child("**/*.md") { |path| puts path }
       #
       # Parameters:
       #   pattern [String]
@@ -77,9 +77,9 @@ module IOStreams
       # "\a"        "a"              true     # escaped ordinary remains ordinary
       # "[\?]"      "?"              true     # can escape inside bracket expression
       #
-      # "*"         ".profile"       false    # wildcard doesn't match leading
-      # "*"         ".profile"       true     # period by default.
-      # ".*"        ".profile"       true                                   {hidden: true}
+      # "*"         ".profile"       false    # wildcard doesn't match leading period by default
+      # "*"         ".profile"       true     # unless hidden is enabled    {hidden: true}
+      # ".*"        ".profile"       true     # leading period is explicit
       #
       # "**/*.rb"   "main.rb"        false
       # "**/*.rb"   "./main.rb"      false

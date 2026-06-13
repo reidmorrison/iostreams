@@ -4,13 +4,15 @@ layout: default
 
 # Path
 
-A path describes the data store and the attributes for the file to be stored there.
-In order to apply a streaming pipeline it needs to know where the data is being stored and how it should be accessed.
+A path identifies _where_ a file is stored and how to reach it, so that the streaming pipeline knows
+where to read the data from or write it to.
 
-When a path is created it takes the name of the file which can also be a URI, followed by several arguments
-specific to that path. IOStreams will infer the file storage mechanism based on the supplied URI.
+Create a path with `IOStreams.path`, passing the file name, which may also be a URI, followed by any
+arguments specific to that storage location. IOStreams infers the storage mechanism from the URI
+scheme, so the same call returns a local file path, an S3 path, an SFTP path, and so on, all sharing
+the identical interface.
 
-IOStreams Path supports accessing files in the following places:
+IOStreams supports accessing files in the following places:
 
 * File
 * AWS S3
@@ -243,7 +245,7 @@ Use an identity file instead of a password to authenticate:
 ~~~ruby
 path = IOStreams.path("sftp://test.com/path/file_name.csv", 
                       username: "jack", 
-                      ssh_options: {IdentityFile: "~/.ssh/private_key"}).
+                      ssh_options: {IdentityFile: "~/.ssh/private_key"})
 path.reader do |io|
   puts io.read
 end
@@ -281,9 +283,19 @@ end
 
   Password for the user.
 
-**ssh_options
-  Any other options supported by ssh_config.
-  `man ssh_config` to see all available options.
+* ssh_options: [Hash]
+
+  * IdentityFile [String]
+
+    Path to the local identity (private key) file to authenticate with, instead of a password.
+
+  * IdentityKey [String]
+
+    The identity (private key) itself, supplied as a string.
+    Under the covers the key is written to a temp file and then passed as `IdentityFile`.
+
+  * Any other options supported by ssh_config.
+    `man ssh_config` to see all available options.
 
 ### HTTP (http://, https://)
 
@@ -334,22 +346,122 @@ path = IOStreams.path("https://hostname/path/example.csv")
 
 This time IOStreams inferred that the file lives on an HTTP Server and returns `IOStreams::Paths::HTTP`.
 
+### Path Operations
+
+Paths support common file operations, regardless of where the file is stored:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv")
+
+# Does the file exist?
+path.exist?
+# => true
+
+# Size of the file in bytes.
+path.size
+# => 64
+
+# Delete the file.
+path.delete
+
+# Move the file to another path, returning the target path.
+path.move_to("sample/moved.csv")
+
+# Create the directory path, when it does not already exist.
+IOStreams.path("sample/data").mkpath
+~~~
+
+Inspect the components of a path's file name:
+
+~~~ruby
+# The last component of the path.
+IOStreams.path("/home/gumby/work/ruby.rb").basename
+# => "ruby.rb"
+
+# Remove a specific suffix from the file name.
+IOStreams.path("/home/gumby/work/ruby.rb").basename(".rb")
+# => "ruby"
+
+# Remove any extension by supplying ".*".
+IOStreams.path("/home/gumby/work/ruby.rb").basename(".*")
+# => "ruby"
+
+# The directory portion of the path.
+IOStreams.path("a/b/d/test.rb").dirname
+# => "a/b/d"
+
+# The extension, including the leading period.
+IOStreams.path("a/b/d/test.rb").extname
+# => ".rb"
+
+# The extension, without the leading period.
+IOStreams.path("a/b/d/test.rb").extension
+# => "rb"
+~~~
+
+Notes:
+* `basename`, `dirname`, `extname`, and `extension` return `nil` when no file name was set.
+* A leading period on a dotfile is not treated as an extension, so `.profile` has no extension,
+  while `.profile.sh` has the extension `sh`.
+* A file name ending in a period, such as `foo.`, returns an empty string for the extension.
+
+Iterate over the files in a path using a wildcard pattern:
+
+~~~ruby
+IOStreams.path("sample").each_child("*.csv") do |child|
+  puts child
+end
+
+# Recursively, including sub-directories:
+IOStreams.path("sample").each_child("**/*.csv") do |child|
+  puts child
+end
+~~~
+
+`each_child` is also available directly on `IOStreams` when the pattern includes the full path:
+
+~~~ruby
+IOStreams.each_child("sample/**/*.csv") { |child| puts child }
+~~~
+
+Notes:
+* These operations are supported by File and S3 paths. SFTP supports `each_child`,
+  and HTTP paths are read-only so they do not support any of them.
+* By default `each_child` patterns are case-insensitive and hidden files are excluded.
+  Supply `case_sensitive: true` or `hidden: true` to change this behavior.
+
 ### Using root paths
 
-If root paths have been setup, see [Config](config) to add root paths, then `IOStreams.join` can be used instead
-of `IOStreams.path`. 
+Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
+By using `IOStreams.join` instead of `IOStreams.path`, the storage location is no longer embedded in the
+application code, it is configured once at startup.
 
-The key difference is that `IOStreams.join` joins the supplied path(s) with the default or named root path so that
-the entire path does not need to be supplied.
+The primary purpose of roots is to allow the exact same code to run in production and development,
+yet use completely different data sources in each. For example, in production the root can point to an
+S3 bucket, while in development it points to the local file system.
 
-Set the default root path in an initializer.
+Roots are configured via an initializer at startup. Multiple roots can be setup, for example one for
+input files, another for output files, another for reports, etc. During development the roots can all
+point to a common location, while in production they could be completely different S3 buckets.
+
+For example, inside an initializer:
 ~~~ruby
-IOStreams.add_root(:default, "/var/my_app/files")
+IOStreams.add_root(:default, "tmp/export")
+IOStreams.add_root(:ftp, "tmp/ftp")
+~~~
+
+`:default` is used whenever a root is not supplied when calling `IOStreams.join`:
+~~~ruby
+# Uses the :default root: "tmp/export/sample/example.csv"
+path = IOStreams.join("sample", "example.csv")
+
+# Uses the :ftp root: "tmp/ftp/sample/example.csv"
+path = IOStreams.join("sample", "example.csv", root: :ftp)
 ~~~
 
 The following code:
 ~~~ruby
-path = IOStreams.path("/var/my_app/files", "sample", "example.csv", root: :uploads)
+path = IOStreams.path("tmp/export", "sample", "example.csv")
 path.writer(:line) do |io|
   io << "Welcome"
   io << "To IOStreams"
@@ -358,7 +470,7 @@ end
 
 Can be reduced to:
 ~~~ruby 
-path = IOStreams.join("sample", "example.csv", root: :uploads)
+path = IOStreams.join("sample", "example.csv")
 path.writer(:line) do |io|
   io << "Welcome"
   io << "To IOStreams"
@@ -367,7 +479,10 @@ end
 
 Most importantly the root path information and storage mechanism are externalized from the application code.
 
-For example, to make the above code write to S3, change the initializer to:
+For example, to make the above code write to S3 in production, change the initializer to:
 ~~~ruby
-IOStreams.add_root(:default, "s3://my-app-bucket-name/files")
+IOStreams.add_root(:default, "s3://my-app-bucket-name/export")
+IOStreams.add_root(:ftp, "s3://my-app-ftp-bucket-name/ftp")
 ~~~
+
+The code calling `IOStreams.join` does not change at all, see [Config](config) for more examples.

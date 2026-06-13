@@ -6,9 +6,15 @@ layout: default
 
 ### add_root
 
-When using `IOStreams.join` it uses a default root from which to join the remainder of the path.
+Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
+Their primary purpose is to allow the exact same code to run in production and development, yet use completely
+different data sources in each. For example, in production a root can point to an S3 bucket, while in
+development it points to the local file system.
 
-Set the default root for this environment
+Roots are configured via an initializer at startup. `IOStreams.join` then joins the supplied path
+elements onto the named root, using the `:default` root whenever a root is not supplied.
+
+Set the default root for this environment in an initializer:
 ~~~ruby
 IOStreams.add_root(:default, "/var/my_app/files")
 ~~~
@@ -42,8 +48,10 @@ With the default root path configured the above code can be simplified by using 
 IOStreams.join("my_test_file.txt").write("Hello World")
 ~~~
 
-Other root paths can be added for special purposes.
- 
+Multiple roots can be setup, for example one for input files, another for output files, another for
+reports, etc. During development the roots can all point to a common location, while in production
+they could be completely different S3 buckets.
+
 For example add special paths for `downloads` and `uploads`.
 ~~~ruby
 IOStreams.add_root(:downloads, "/var/my_app/downloads")
@@ -78,7 +86,7 @@ IOStreams.root(:downloads).to_s
 ## temp_dir
 
 When working with large files the standard temp file system location can be too small to handle downloading large
-files. For example to decrypt a pgp file from S3, because GnuPG is not streaming capable and only operates on local filess.
+files. For example to decrypt a pgp file from S3, because GnuPG is not streaming capable and only operates on local files.
 
 By default IOStreams looks up the location to store temp files in the following order:
 * `ENV['TMPDIR']`

@@ -62,8 +62,7 @@ module IOStreams
                     signer_passphrase: default_signer_passphrase,
                     compress: :zip,
                     compression: nil, # Deprecated
-                    compress_level: 6,
-                    original_file_name: nil)
+                    compress_level: 6)
 
         raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
 

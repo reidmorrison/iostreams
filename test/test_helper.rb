@@ -9,10 +9,10 @@ require "symmetric-encryption"
 # Since PGP libraries use UTC for Dates
 ENV["TZ"] = "UTC"
 
-# Test cipher
+# Test cipher. Note: aes-128-cbc requires a 16 byte key.
 SymmetricEncryption.cipher = SymmetricEncryption::Cipher.new(
   cipher_name: "aes-128-cbc",
-  key:         "1234567890ABCDEF1234567890ABCDEF",
+  key:         "1234567890ABCDEF",
   iv:          "1234567890ABCDEF",
   encoding:    :base64strict
 )
