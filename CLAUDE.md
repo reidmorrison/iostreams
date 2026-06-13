@@ -27,6 +27,8 @@ Test notes:
 
 The public entry points are `IOStreams.path(...)` (returns a `Path` subclass based on URI scheme) and `IOStreams.stream(io)` (wraps an existing IO). Both return an `IOStreams::Stream` which is configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#writer`, `#each`, `#read`, `#write`, `#copy_from`, etc.
 
+**Public API boundary:** The `IOStreams` module itself is the only public entry point. Everyone starts from `IOStreams.path`/`IOStreams.stream`/`IOStreams.join`, and the instance methods on the `Stream`/`Path` they return are then public. Everything else (`Path` subclasses, the `Reader`/`Writer` classes, and the format/storage submodules) is internal: nothing else should be instantiated or called directly, including method signatures like `Zip::Writer.stream`. This keeps the user-facing API tiny and lets the internals be refactored freely without breaking callers. When changing code, preserve the `IOStreams.*` module methods and the `Stream`/`Path` instance methods; treat the rest as private and changeable.
+
 Core pipeline (lib/io_streams/):
 - `stream.rb` - `Stream` wraps an IO and delegates stream-pipeline construction to its `Builder`.
 - `path.rb` - `Path < Stream`, abstract base for storage locations; concrete implementations in `paths/` (`File`, `S3`, `SFTP`, `HTTP`, plus `Matcher` for glob matching).

@@ -4,7 +4,7 @@ module IOStreams
   module Xlsx
     class Reader < IOStreams::Reader
       # Convert a xlsx, or xlsm file into CSV format.
-      def self.file(file_name, original_file_name: file_name, &block)
+      def self.file(file_name, &block)
         # Stream into a temp file as csv
         Utils.temp_file_name("iostreams_csv") do |temp_file_name|
           ::File.open(temp_file_name, "wb") { |io| new(file_name).each { |lines| io << lines.to_csv } }

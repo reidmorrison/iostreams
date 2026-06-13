@@ -24,7 +24,7 @@ module IOStreams
       #     Add the specified delimiter after every record when writing it
       #     to the output stream
       #     Default: OS Specific. Linux: "\n"
-      def initialize(output_stream, delimiter: $/, original_file_name: nil)
+      def initialize(output_stream, delimiter: $/)
         super(output_stream)
         @delimiter = delimiter
       end

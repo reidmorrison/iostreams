@@ -32,6 +32,20 @@ class SymmetricEncryptionReaderTest < Minitest::Test
       end
     end
 
+    describe ".file" do
+      it "reads an encrypted file" do
+        result = IOStreams::SymmetricEncryption::Reader.file(file_name, &:read)
+        assert_equal decrypted, result
+      end
+    end
+
+    describe ".open" do
+      it "reads an encrypted file by name" do
+        result = IOStreams::SymmetricEncryption::Reader.open(file_name, &:read)
+        assert_equal decrypted, result
+      end
+    end
+
     describe ".enc extension" do
       let :path do
         IOStreams.join("symmetric_encryption_reader_test.enc")

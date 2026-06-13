@@ -330,10 +330,11 @@ module IOStreams
       embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?(".csv")
 
       stream_reader do |io|
-        yield IOStreams::Line::Reader.new(io,
-                                          original_file_name: builder.file_name,
-                                          embedded_within:    embedded_within,
-                                          **args)
+        yield IOStreams::Line::Reader.new(
+          io,
+          embedded_within: embedded_within,
+          **args
+        )
       end
     end
 
@@ -371,7 +372,7 @@ module IOStreams
       return block.call(io_stream) if io_stream&.is_a?(IOStreams::Line::Writer)
 
       writer do |io|
-        IOStreams::Line::Writer.stream(io, original_file_name: builder.file_name, **args, &block)
+        IOStreams::Line::Writer.stream(io, **args, &block)
       end
     end
 

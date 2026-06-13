@@ -419,6 +419,12 @@ class TabularTest < Minitest::Test
           IOStreams::Tabular.new(format: :unknown)
         end
       end
+
+      it "raises UnknownFormat when the format cannot be inferred from the file name" do
+        assert_raises IOStreams::Errors::UnknownFormat do
+          IOStreams::Tabular.new(file_name: "sample.unknown", default_format: nil)
+        end
+      end
     end
   end
 end

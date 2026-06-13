@@ -90,7 +90,7 @@ module IOStreams
       @header = Header.new(**args)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
-      raise(UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
+      raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
 
       klass   = self.class.parser_class(@format)
       @parser = format_options ? klass.new(**format_options) : klass.new

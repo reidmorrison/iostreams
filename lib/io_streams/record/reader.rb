@@ -16,7 +16,7 @@ module IOStreams
 
       # When reading from a file also add the line reader stream
       def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
-        IOStreams::Line::Reader.file(file_name, original_file_name: original_file_name, delimiter: delimiter) do |io|
+        IOStreams::Line::Reader.file(file_name, delimiter: delimiter) do |io|
           yield new(io, original_file_name: original_file_name, **args)
         end
       end
