@@ -4,33 +4,86 @@ layout: default
 
 # IOStreams
 
-IOStreams supports a consistent, streaming API for reading and writing files,
-regardless of whether the file is compressed, encrypted, local, or on a remote server.
+IOStreams is a streaming library for Ruby that makes compression, encryption, file format, and
+storage location transparent to your code. Read and write files as if they were plain, local text,
+whether they are gzip, zip, or PGP encrypted, and whether they live on local disk, AWS S3, SFTP,
+or are fetched over HTTP.
 
-### Introduction
+## Why IOStreams?
 
-By using the IOStreams API, code can be written that processes files as if they were plain text and local.
+Processing files in Ruby usually means writing different code for every variation. One customer
+sends a gzip compressed CSV, another sends a PGP encrypted file, a third uploads an Excel
+spreadsheet. The files sit on local disk in development, but in AWS S3 in production. Each
+combination needs its own handling, and reading a large file into memory all at once risks
+exhausting it.
 
-In development files can be stored locally, whereas in production the files could be stored in AWS S3.
+Consider reading a gzip compressed CSV file from S3, one record at a time, _without_ IOStreams:
 
-Additionally, the same code can transparently handle plain text, encrypted, or compressed files since IOStreams dynamically
-detects the file type, based on its extension(s). 
+~~~ruby
+require "aws-sdk-s3"
+require "zlib"
+require "csv"
 
-For example one customer sends files in plain text, another as `zip` compressed, another using `gzip`, 
-another using `pgp`, and yet another sends an `xlsx` file. 
-Traditionally the code to process these files has to handle each of these file types on its own. 
-IOStreams handles all these files types transparently. 
+response = Aws::S3::Client.new.get_object(bucket: "my-bucket", key: "data.csv.gz")
+gz       = Zlib::GzipReader.new(response.body)
+headers  = nil
+gz.each_line do |line|
+  row = CSV.parse_line(line)
+  if headers.nil?
+    headers = row
+  else
+    record = headers.zip(row).to_h
+    # ... process record ...
+  end
+end
+~~~
 
-### Features
+Switch that file to plain CSV, to PGP encrypted, or move it back to local disk, and this code has to
+change every time. With IOStreams the same single line handles all of them:
+
+~~~ruby
+IOStreams.path("s3://my-bucket/data.csv.gz").each(:hash) do |record|
+  # ... process record ...
+end
+~~~
+
+IOStreams reads the file name, `data.csv.gz`, infers that it is a gzip compressed CSV, and assembles
+the streaming pipeline to fetch, decompress, and parse it. Point the same code at `data.csv`,
+`data.csv.pgp`, or a local path instead, and nothing else changes.
+
+### One API, whatever the format, compression, or encryption
+
+IOStreams detects the file type from its extensions and applies the matching streams in order, so
+`sample.csv.gz.pgp` is decrypted, then decompressed, then parsed as CSV without a line of special
+handling. The same code that reads a plain CSV also reads an Excel spreadsheet, a PGP encrypted JSON
+file, or a pipe separated file. A single background job can ingest files from many senders, in many
+formats, with no per-format code.
+
+### One API, wherever the file is stored
+
+Local disk, AWS S3, Google Cloud Storage, SFTP, and HTTP(S) all share the same `IOStreams.path`
+interface. The only thing that changes between them is the file name, or nothing at all when you
+[configure roots](config).
+
+### Constant memory, even for huge files
+
+Everything is streamed a block at a time, so a 10 GB compressed file uses about as much memory as a
+10 KB one. Scaling up to large files is trivial: the code that processes ten rows processes ten
+million without changes.
+
+### Configure storage once, switch environments with no code change
+
+With [roots](config), the storage location lives in a startup initializer instead of being scattered
+through the code. Point the `:default` root at the local file system in development and at an S3
+bucket in production, and the exact same application code runs in both.
+
+### Capabilities
 
 * Low memory utilization, even when processing very large files.
 * Parse JSON, CSV, PSV, or fixed width data on the fly.
 * Encrypt / Decrypt data on the fly.
 * Compress / Decompress data on the fly.
-* Change storage location / mechanism transparently without any code changes.  
-
-Streaming avoids high memory utilization since the file (or other source such as AWS S3) is read 
-or written a block at a time.
+* Change storage location / mechanism transparently without any code changes.
 
 #### File Extensions
 * Zip

@@ -4,13 +4,15 @@ layout: default
 
 # Path
 
-A path describes the data store and the attributes for the file to be stored there.
-In order to apply a streaming pipeline it needs to know where the data is being stored and how it should be accessed.
+A path identifies _where_ a file is stored and how to reach it, so that the streaming pipeline knows
+where to read the data from or write it to.
 
-When a path is created it takes the name of the file which can also be a URI, followed by several arguments
-specific to that path. IOStreams will infer the file storage mechanism based on the supplied URI.
+Create a path with `IOStreams.path`, passing the file name, which may also be a URI, followed by any
+arguments specific to that storage location. IOStreams infers the storage mechanism from the URI
+scheme, so the same call returns a local file path, an S3 path, an SFTP path, and so on, all sharing
+the identical interface.
 
-IOStreams Path supports accessing files in the following places:
+IOStreams supports accessing files in the following places:
 
 * File
 * AWS S3

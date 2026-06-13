@@ -86,7 +86,7 @@ IOStreams.root(:downloads).to_s
 ## temp_dir
 
 When working with large files the standard temp file system location can be too small to handle downloading large
-files. For example to decrypt a pgp file from S3, because GnuPG is not streaming capable and only operates on local filess.
+files. For example to decrypt a pgp file from S3, because GnuPG is not streaming capable and only operates on local files.
 
 By default IOStreams looks up the location to store temp files in the following order:
 * `ENV['TMPDIR']`

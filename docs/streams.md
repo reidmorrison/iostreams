@@ -4,6 +4,12 @@ layout: default
 
 # Streams
 
+Once you have a [path](path), you read from and write to it with a small, consistent set of methods.
+Reading and writing always happen a block, line, or record at a time, so memory use stays low no
+matter how large the file is. Choose how each chunk is delivered by passing a mode: the default
+streams raw data, `:line` yields one line at a time, `:array` yields each row as an array, and
+`:hash` yields each record as a hash keyed by the header row.
+
 Read 128 characters at a time from the file:
 ~~~ruby
 IOStreams.path("example.csv").reader do |io|
