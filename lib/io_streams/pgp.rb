@@ -127,6 +127,8 @@ module IOStreams
     #     date:       [String]
     #     name:       [String]
     #     email:      [String]
+    #     private:    [true|false]
+    #     trust:      [String]
     # Returns [] if no keys were found.
     def self.list_keys(email: nil, key_id: nil, private: false)
       version_check
