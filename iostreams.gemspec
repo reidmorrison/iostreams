@@ -16,4 +16,10 @@ Gem::Specification.new do |s|
   s.test_files            = Dir["test/**/*"]
   s.license               = "Apache-2.0"
   s.required_ruby_version = ">= 2.5"
+  s.metadata              = {
+    "bug_tracker_uri"       => "https://github.com/reidmorrison/iostreams/issues",
+    "documentation_uri"     => "https://iostreams.rocketjob.io",
+    "source_code_uri"       => "https://github.com/reidmorrison/iostreams/tree/#{IOStreams::VERSION}",
+    "rubygems_mfa_required" => "true"
+  }
 end
