@@ -23,7 +23,7 @@ module IOStreams
     #       output.write('Hello World')
     #     end
     class SFTP < IOStreams::Path
-      include SemanticLogger::Loggable if defined?(SemanticLogger)
+      include SemanticLogger::Loggable if defined?(SemanticLogger::Loggable)
 
       class << self
         attr_accessor :sshpass_bin, :sftp_bin, :sshpass_wait_seconds, :before_password_wait_seconds
@@ -311,7 +311,7 @@ module IOStreams
 
       def build_ssh_options
         options = ssh_options.dup
-        options[:logger]       ||= logger if defined?(SemanticLogger)
+        options[:logger]       ||= logger if respond_to?(:logger)
         options[:port]         ||= port
         options[:max_pkt_size] ||= 65_536
         options[:password]     ||= @password
@@ -319,7 +319,7 @@ module IOStreams
       end
 
       def map_log_level
-        return "INFO" unless defined?(SemanticLogger)
+        return "INFO" unless respond_to?(:logger)
 
         case logger.level
         when :trace
