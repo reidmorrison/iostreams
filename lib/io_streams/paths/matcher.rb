@@ -50,9 +50,9 @@ module IOStreams
           @path    = path || IOStreams.path
           @pattern = pattern
         else
-          new_path = elements[0..index - 1].join("/")
+          new_path = elements[0..(index - 1)].join("/")
           @path    = path.nil? ? IOStreams.path(new_path) : path.join(new_path)
-          @pattern = elements[index..-1].join("/")
+          @pattern = elements[index..].join("/")
         end
       end
     end

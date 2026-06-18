@@ -369,7 +369,7 @@ module IOStreams
     end
 
     def line_writer(**args, &block)
-      return block.call(io_stream) if io_stream&.is_a?(IOStreams::Line::Writer)
+      return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
       writer do |io|
         IOStreams::Line::Writer.stream(io, **args, &block)
@@ -377,7 +377,7 @@ module IOStreams
     end
 
     def row_writer(delimiter: $/, **args, &block)
-      return block.call(io_stream) if io_stream&.is_a?(IOStreams::Row::Writer)
+      return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
       line_writer(delimiter: delimiter) do |io|
         IOStreams::Row::Writer.stream(
@@ -392,7 +392,7 @@ module IOStreams
     end
 
     def record_writer(delimiter: $/, **args, &block)
-      return block.call(io_stream) if io_stream&.is_a?(IOStreams::Record::Writer)
+      return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
       line_writer(delimiter: delimiter) do |io|
         IOStreams::Record::Writer.stream(

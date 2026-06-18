@@ -12,7 +12,7 @@ module IOStreams
       end
 
       let :expected_json do
-        records.collect(&:to_json).join("\n") + "\n"
+        "#{records.collect(&:to_json).join("\n")}\n"
       end
 
       let :json_file_name do
@@ -94,7 +94,7 @@ module IOStreams
           path.each(:hash) do |row|
             rows << row
           end
-          actual = rows.collect(&:to_json).join("\n") + "\n"
+          actual = "#{rows.collect(&:to_json).join("\n")}\n"
           path.delete
           assert_equal expected_json, actual
         end

@@ -98,9 +98,7 @@ class StreamTest < Minitest::Test
         end
 
         let :expected_rows do
-          rows = []
-          CSV.open(source_file_name).each { |row| rows << row }
-          rows
+          CSV.open(source_file_name).map { |row| row }
         end
 
         it "detects format from file_name" do
@@ -150,7 +148,7 @@ class StreamTest < Minitest::Test
         end
 
         let :expected_rows do
-          hash_rows = File.readlines(source_file_name).collect { |line| JSON.load(line) }
+          hash_rows = File.readlines(source_file_name).collect { |line| JSON.parse(line) }
           rows      = []
           rows << hash_rows.first.keys
           hash_rows.each { |hash| rows << hash.values }
@@ -182,7 +180,7 @@ class StreamTest < Minitest::Test
       end
 
       let :expected_json do
-        File.readlines(source_file_name).collect { |line| JSON.load(line) }
+        File.readlines(source_file_name).collect { |line| JSON.parse(line) }
       end
 
       it "detects format from file_name" do

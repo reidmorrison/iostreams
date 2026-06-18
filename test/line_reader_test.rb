@@ -312,7 +312,7 @@ class LineReaderTest < Minitest::Test
         end
 
         it "prevents denial of service" do
-          data   = ("a" * IOStreams::Line::Reader::MAX_BLOCKS_MULTIPLIER) + "a"
+          data   = "#{'a' * IOStreams::Line::Reader::MAX_BLOCKS_MULTIPLIER}a"
           stream = StringIO.new(data)
           assert_raises IOStreams::Errors::DelimiterNotFound do
             IOStreams::Line::Reader.stream(stream, buffer_size: 1) do |io|

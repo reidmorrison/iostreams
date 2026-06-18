@@ -120,7 +120,7 @@ module IOStreams
     end
 
     def class_for_stream(type, stream)
-      ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] ||
+      ext = IOStreams.extensions[stream&.to_sym] ||
             raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
       ext.send("#{type}_class") || raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
     end

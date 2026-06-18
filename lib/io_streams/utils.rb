@@ -28,7 +28,7 @@ module IOStreams
       ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir, max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
         result = yield(tmpname)
       ensure
-        ::File.unlink(tmpname) if ::File.exist?(tmpname)
+        ::FileUtils.rm_f(tmpname)
       end
       result
     end
