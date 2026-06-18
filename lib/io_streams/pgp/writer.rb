@@ -38,6 +38,23 @@ module IOStreams
       #   One or more pgp keys to import and then use to encrypt the file.
       #   Note: Ascii Keys can contain multiple keys, only the last one in the file is used.
       #
+      # import_and_trust_level: [Integer]
+      #   The owner-trust level to assign to keys supplied via :import_and_trust_key.
+      #     1 : Undefined  (no opinion)
+      #     2 : Never      (do not trust)
+      #     3 : Marginal
+      #     4 : Full
+      #     5 : Ultimate
+      #   Default: 5 : Ultimate
+      #
+      #   SECURITY WARNING:
+      #     Only import and trust keys received from a verified, trusted source.
+      #     The default trust level is `5` (Ultimate), which tells GPG to treat the imported key
+      #     as if it were one of your own keys. An ultimately trusted key is implicitly valid and
+      #     can in turn confer validity on other keys it has signed. Importing an attacker supplied
+      #     key at this level allows that attacker to impersonate other recipients.
+      #     When the key cannot be fully verified, supply a lower `import_and_trust_level`.
+      #
       # signer: [String]
       #   Name of user with which to sign the encypted file.
       #   Default: default_signer or do not sign.
@@ -58,6 +75,7 @@ module IOStreams
       def self.file(file_name,
                     recipient: nil,
                     import_and_trust_key: nil,
+                    import_and_trust_level: 5,
                     signer: default_signer,
                     signer_passphrase: default_signer_passphrase,
                     compress: :zip,
@@ -75,26 +93,28 @@ module IOStreams
         recipients << audit_recipient if audit_recipient
 
         Array(import_and_trust_key).each do |key|
-          recipients << IOStreams::Pgp.import_and_trust(key: key)
+          recipients << IOStreams::Pgp.import_and_trust(key: key, trust_level: import_and_trust_level)
         end
 
         # Write to stdin, with encrypted contents being written to the file
-        command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
-        command << " --sign --local-user \"#{signer}\"" if signer
+        args = ["--batch", "--no-tty", "--yes", "--encrypt"]
+        args += ["--sign", "--local-user", signer.to_s] if signer
         if signer_passphrase
-          command << " --pinentry-mode loopback" if IOStreams::Pgp.pgp_version.to_f >= 2.1
-          command << " --no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
-          command << " --passphrase \"#{signer_passphrase}\""
+          args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
+          args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
+          args += ["--passphrase", signer_passphrase.to_s]
         end
-        command << " -z #{compress_level}" if compress_level != 6
-        command << " --compress-algo #{compress}" unless compress == :none
-        recipients.each { |address| command << " --recipient \"#{address}\"" }
-        command << " -o \"#{file_name}\""
+        args += ["-z", compress_level.to_s] if compress_level != 6
+        args += ["--compress-algo", compress.to_s] unless compress == :none
+        recipients.each { |address| args += ["--recipient", address.to_s] }
+        args += ["-o", file_name.to_s]
+        command = IOStreams::Pgp.gpg_command(*args)
 
-        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: #{command}" }
+        # Do not log the command, it may contain the signer passphrase.
+        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: encrypt -o #{file_name}" }
 
         result = nil
-        Open3.popen2e(command) do |stdin, out, waith_thr|
+        Open3.popen2e(*command) do |stdin, out, waith_thr|
           begin
             stdin.binmode
             result = yield(stdin)

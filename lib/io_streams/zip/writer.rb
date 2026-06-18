@@ -20,6 +20,16 @@ module IOStreams
       #     Default: "file"
       #
       # The stream supplied to the block only responds to #write
+      #
+      # Note:
+      #   This writer uses `zip_tricks` rather than `rubyzip` on purpose. `rubyzip`'s
+      #   `Zip::OutputStream` requires a seekable output: it seeks back to rewrite each
+      #   entry's local header with the CRC and sizes once the entry is finished. That
+      #   means it cannot write directly to a non-seekable destination (S3, SFTP, HTTP,
+      #   a socket); the output would first have to be spooled to a temporary file and
+      #   then copied across. `zip_tricks` streams to non-seekable outputs by emitting
+      #   data descriptors instead, so we can write straight to the output stream and
+      #   avoid the temp file round-trip.
       def self.stream(output_stream, zip_file_name: nil, entry_file_name: zip_file_name)
         entry_file_name ||= "file"
 

@@ -26,17 +26,18 @@ module IOStreams
         passphrase ||= default_passphrase
         raise(ArgumentError, "Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase") unless passphrase
 
+        args = []
         # Use --pinentry-mode loopback for all GnuPG versions >= 2.1
-        loopback = IOStreams::Pgp.pgp_version.to_f >= 2.1 ? "--pinentry-mode loopback" : ""
-
+        args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
         # Use --no-symkey-cache for GnuPG versions >= 2.4 to avoid caching session keys
-        no_symkey_cache = IOStreams::Pgp.pgp_version.to_f >= 2.4 ? "--no-symkey-cache" : ""
+        args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
+        args += ["--batch", "--no-tty", "--yes", "--decrypt", "--passphrase-fd", "0", file_name.to_s]
 
-        command  = "#{IOStreams::Pgp.executable} #{loopback} #{no_symkey_cache} --batch --no-tty --yes --decrypt --passphrase-fd 0 #{file_name}"
-        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Reader.open: #{command}" }
+        command = IOStreams::Pgp.gpg_command(*args)
+        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
 
         # Read decrypted contents from stdout
-        Open3.popen3(command) do |stdin, stdout, stderr, waith_thr|
+        Open3.popen3(*command) do |stdin, stdout, stderr, waith_thr|
           stdin.puts(passphrase) if passphrase
           stdin.close
           result =

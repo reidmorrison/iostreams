@@ -266,6 +266,43 @@ Now try to read the file:
 IOStreams.join("test/sample.pgp", root: :downloads).read
 ~~~
 
+#### Trust level
+
+The key is imported and then marked as trusted so that GPG will encrypt to it without prompting.
+The trust level can be controlled with the `import_and_trust_level` option:
+
+~~~ruby
+path = IOStreams.join("test/sample.pgp", root: :downloads)
+path.option(:pgp, import_and_trust_key: public_pgp_key, import_and_trust_level: 4)
+path.write("Hello World")
+~~~
+
+Or by calling `IOStreams::Pgp.import_and_trust` directly with the `trust_level` argument:
+
+~~~ruby
+IOStreams::Pgp.import_and_trust(key: public_pgp_key, trust_level: 4)
+~~~
+
+The available levels are the same as those used by `IOStreams::Pgp.set_trust`:
+
+| Level | Meaning                  |
+|:------|:-------------------------|
+| 1     | Undefined (no opinion)   |
+| 2     | Never (do not trust)     |
+| 3     | Marginal                 |
+| 4     | Full                     |
+| 5     | Ultimate (default)       |
+
+> **Security warning**
+>
+> Only import and trust keys that were received from a verified, trusted source.
+>
+> The default trust level is `5` (Ultimate), which tells GPG to treat the imported key as
+> if it were one of your own keys: it becomes implicitly valid and can in turn confer
+> validity on other keys that it has signed. Importing an attacker supplied key at this
+> level allows that attacker to impersonate other recipients. When a key cannot be fully
+> verified, supply a lower `trust_level`.
+
 #### Compression:
 
 The compression used by pgp can be specified by suppling the `:compress` option.
