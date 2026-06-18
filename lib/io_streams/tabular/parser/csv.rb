@@ -3,14 +3,6 @@ module IOStreams
   class Tabular
     module Parser
       class Csv < Base
-        attr_reader :csv_parser
-
-        unless RUBY_VERSION.to_f >= 2.6
-          def initialize
-            @csv_parser = Utility::CSVRow.new
-          end
-        end
-
         # Returns [Array<String>] the header row.
         # Returns nil if the row is blank.
         def parse_header(row)
@@ -40,26 +32,14 @@ module IOStreams
 
         private
 
-        if RUBY_VERSION.to_f >= 2.6
-          # About 10 times slower than the approach used in Ruby 2.5 and earlier,
-          # but at least it works on Ruby 2.6 and above.
-          def parse_line(line)
-            return if IOStreams::Utils.blank?(line)
+        def parse_line(line)
+          return if IOStreams::Utils.blank?(line)
 
-            CSV.parse_line(line)
-          end
+          CSV.parse_line(line)
+        end
 
-          def render_array(array)
-            CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
-          end
-        else
-          def parse_line(line)
-            csv_parser.parse(line)
-          end
-
-          def render_array(array)
-            csv_parser.to_csv(array)
-          end
+        def render_array(array)
+          CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
         end
       end
     end
