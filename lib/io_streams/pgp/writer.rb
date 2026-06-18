@@ -38,6 +38,23 @@ module IOStreams
       #   One or more pgp keys to import and then use to encrypt the file.
       #   Note: Ascii Keys can contain multiple keys, only the last one in the file is used.
       #
+      # import_and_trust_level: [Integer]
+      #   The owner-trust level to assign to keys supplied via :import_and_trust_key.
+      #     1 : Undefined  (no opinion)
+      #     2 : Never      (do not trust)
+      #     3 : Marginal
+      #     4 : Full
+      #     5 : Ultimate
+      #   Default: 5 : Ultimate
+      #
+      #   SECURITY WARNING:
+      #     Only import and trust keys received from a verified, trusted source.
+      #     The default trust level is `5` (Ultimate), which tells GPG to treat the imported key
+      #     as if it were one of your own keys. An ultimately trusted key is implicitly valid and
+      #     can in turn confer validity on other keys it has signed. Importing an attacker supplied
+      #     key at this level allows that attacker to impersonate other recipients.
+      #     When the key cannot be fully verified, supply a lower `import_and_trust_level`.
+      #
       # signer: [String]
       #   Name of user with which to sign the encypted file.
       #   Default: default_signer or do not sign.
@@ -58,6 +75,7 @@ module IOStreams
       def self.file(file_name,
                     recipient: nil,
                     import_and_trust_key: nil,
+                    import_and_trust_level: 5,
                     signer: default_signer,
                     signer_passphrase: default_signer_passphrase,
                     compress: :zip,
@@ -75,7 +93,7 @@ module IOStreams
         recipients << audit_recipient if audit_recipient
 
         Array(import_and_trust_key).each do |key|
-          recipients << IOStreams::Pgp.import_and_trust(key: key)
+          recipients << IOStreams::Pgp.import_and_trust(key: key, trust_level: import_and_trust_level)
         end
 
         # Write to stdin, with encrypted contents being written to the file

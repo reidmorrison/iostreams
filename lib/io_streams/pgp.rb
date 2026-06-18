@@ -339,11 +339,33 @@ module IOStreams
       raise(Pgp::Failure, "GPG Failed importing key: #{err}#{out}")
     end
 
-    # Returns [String] email for the supplied after importing and trusting the key
+    # Imports the supplied key and then marks it as trusted at the supplied trust level.
+    #
+    # Returns [String] email for the supplied key, or its key id when no email is present.
+    #
+    # key: [String]
+    #   The public (or private) key to import and trust.
+    #
+    # trust_level: [Integer]
+    #   The owner-trust level to assign to the imported key, the same levels used by `set_trust`:
+    #     1 : Undefined  (no opinion)
+    #     2 : Never      (do not trust)
+    #     3 : Marginal
+    #     4 : Full
+    #     5 : Ultimate
+    #   Default: 5 : Ultimate
+    #
+    # SECURITY WARNING:
+    #   Only import and trust keys received from a verified, trusted source.
+    #   The default trust level is `5` (Ultimate), which tells GPG to treat the imported key
+    #   as if it were one of your own keys. An ultimately trusted key is implicitly valid and
+    #   can in turn confer validity on other keys it has signed. Importing an attacker supplied
+    #   key at this level allows that attacker to impersonate other recipients.
+    #   When the key cannot be fully verified, supply a lower `trust_level`.
     #
     # Notes:
     # - If the same email address has multiple keys then only the first is currently trusted.
-    def self.import_and_trust(key:)
+    def self.import_and_trust(key:, trust_level: 5)
       raise(ArgumentError, "Key cannot be empty") if key.nil? || (key == "")
 
       key_info = key_info(key: key).last
@@ -353,7 +375,7 @@ module IOStreams
       raise(ArgumentError, "Recipient email or key id cannot be extracted from supplied key") unless email || key_id
 
       import(key: key)
-      set_trust(email: email, key_id: key_id)
+      set_trust(email: email, key_id: key_id, level: trust_level)
       email || key_id
     end
 
@@ -363,7 +385,23 @@ module IOStreams
     # Returns nil if the email was not found
     #
     # After importing keys, they are not trusted and the relevant trust level must be set.
+    #
+    # level: [Integer]
+    #   The owner-trust level to assign to the key:
+    #     1 : Undefined  (no opinion)
+    #     2 : Never      (do not trust)
+    #     3 : Marginal
+    #     4 : Full
+    #     5 : Ultimate
     #   Default: 5 : Ultimate
+    #
+    # SECURITY WARNING:
+    #   Only trust keys received from a verified, trusted source.
+    #   The default trust level is `5` (Ultimate), which tells GPG to treat the key
+    #   as if it were one of your own keys. An ultimately trusted key is implicitly valid and
+    #   can in turn confer validity on other keys it has signed. Trusting an attacker supplied
+    #   key at this level allows that attacker to impersonate other recipients.
+    #   When the key cannot be fully verified, supply a lower `level`.
     def self.set_trust(email: nil, key_id: nil, level: 5)
       version_check
       fingerprint = key_id || fingerprint(email: email)
@@ -385,7 +423,7 @@ module IOStreams
       command = gpg_command("--list-keys", "--fingerprint", "--with-colons", email.to_s)
       Open3.popen2e(*command) do |_stdin, out, waith_thr|
         output = out.read.chomp
-        if !waith_thr.value.success? && !(output !~ /(public key not found|No public key)/i)
+        if !waith_thr.value.success? && output !~ /(public key not found|No public key)/i
           raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{output}")
         end
 

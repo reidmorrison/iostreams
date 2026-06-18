@@ -126,5 +126,43 @@ class PgpWriterTest < Minitest::Test
         assert_equal decrypted, result
       end
     end
+
+    describe "import_and_trust_key" do
+      let :public_key do
+        IOStreams::Pgp.export(email: "receiver@example.org")
+      end
+
+      it "imports and trusts the supplied key at the default ultimate level" do
+        captured = {}
+        stub = lambda do |**kwargs|
+          captured = kwargs
+          "receiver@example.org"
+        end
+        IOStreams::Pgp.stub(:import_and_trust, stub) do
+          IOStreams::Pgp::Writer.file(file_name, import_and_trust_key: public_key) { |io| io.write(decrypted) }
+        end
+        assert_equal 5, captured[:trust_level]
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+        assert_equal decrypted, result
+      end
+
+      it "passes the supplied import_and_trust_level through" do
+        captured = {}
+        stub = lambda do |**kwargs|
+          captured = kwargs
+          "receiver@example.org"
+        end
+        IOStreams::Pgp.stub(:import_and_trust, stub) do
+          IOStreams::Pgp::Writer.file(file_name, import_and_trust_key: public_key, import_and_trust_level: 4) do |io|
+            io.write(decrypted)
+          end
+        end
+        assert_equal 4, captured[:trust_level]
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+        assert_equal decrypted, result
+      end
+    end
   end
 end

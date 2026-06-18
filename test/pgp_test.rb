@@ -263,5 +263,67 @@ class PgpTest < Minitest::Test
         end
       end
     end
+
+    describe ".import_and_trust" do
+      before do
+        @public_key = public_key
+        # There is a timing issue with creating and then deleting keys.
+        # Call list_keys again to give GnuPGP time.
+        IOStreams::Pgp.list_keys(email: email, private: true)
+        IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
+      end
+
+      it "raises when the key is empty" do
+        assert_raises(ArgumentError) { IOStreams::Pgp.import_and_trust(key: "") }
+        assert_raises(ArgumentError) { IOStreams::Pgp.import_and_trust(key: nil) }
+      end
+
+      it "imports and trusts the key, returning the email" do
+        assert_equal email, IOStreams::Pgp.import_and_trust(key: @public_key)
+        # There is a timing issue with creating and then immediately using keys.
+        IOStreams::Pgp.list_keys(email: email)
+        assert key = IOStreams::Pgp.list_keys(email: email).first
+        ver   = IOStreams::Pgp.pgp_version
+        maint = ver.split(".").last.to_i
+        assert_equal "ultimate", key[:trust] if (ver.to_f >= 2) && (maint >= 30)
+      end
+
+      it "defaults the trust level to ultimate (5)" do
+        captured = {}
+        IOStreams::Pgp.stub(:set_trust, ->(**kwargs) { captured = kwargs }) do
+          IOStreams::Pgp.import_and_trust(key: @public_key)
+        end
+        assert_equal 5, captured[:level]
+      end
+
+      it "passes the supplied trust_level through to set_trust" do
+        captured = {}
+        IOStreams::Pgp.stub(:set_trust, ->(**kwargs) { captured = kwargs }) do
+          IOStreams::Pgp.import_and_trust(key: @public_key, trust_level: 4)
+        end
+        assert_equal 4, captured[:level]
+      end
+    end
+
+    describe ".set_trust" do
+      before do
+        generated_key_id
+        # There is a timing issue with creating and then immediately using keys.
+        # Call list_keys again to give GnuPGP time.
+        IOStreams::Pgp.list_keys(email: email)
+      end
+
+      it "returns nil when the key is not found" do
+        assert_nil IOStreams::Pgp.set_trust(email: "random@iostreams.net")
+      end
+
+      it "trusts an existing key" do
+        refute_nil IOStreams::Pgp.set_trust(email: email)
+      end
+
+      it "trusts an existing key at the supplied level" do
+        refute_nil IOStreams::Pgp.set_trust(email: email, level: 4)
+      end
+    end
   end
 end
