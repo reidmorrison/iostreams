@@ -58,8 +58,8 @@ module Paths
           actual   = root.children("**/Test*.TXT").collect(&:to_s)
 
           assert_equal expected.sort, actual.sort,
-            "Case-insensitive matching failed. Expected #{expected.sort}, got #{actual.sort}. " \
-            "Root path: #{root.to_s}, Pattern: '**/Test*.TXT'"
+                       "Case-insensitive matching failed. Expected #{expected.sort}, got #{actual.sort}. " \
+                       "Root path: #{root}, Pattern: '**/Test*.TXT'"
         end
 
         it "find matches case-sensitive" do

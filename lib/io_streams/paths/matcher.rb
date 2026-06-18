@@ -3,7 +3,7 @@ module IOStreams
     # Implement fnmatch logic for any path iterator
     class Matcher
       # Characters indicating that pattern matching is required
-      MATCH_START_CHARS = /[*?\[{]/.freeze
+      MATCH_START_CHARS = /[*?\[{]/
 
       attr_reader :path, :pattern, :flags
 

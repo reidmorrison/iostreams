@@ -418,7 +418,7 @@ class StreamTest < Minitest::Test
           io = StringIO.new
           IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[He]
-            stream << %w[l lo\  World]
+            stream << ["l", "lo ", "World"]
             stream << ["He", "", "l", ""]
             stream << ["lo ", "World"]
           end
@@ -431,7 +431,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[He]
             stream << []
-            stream << %w[l lo\  World]
+            stream << ["l", "lo ", "World"]
             stream << ["He", "", "l", ""]
             stream << ["lo ", "World"]
             stream << []
@@ -443,7 +443,7 @@ class StreamTest < Minitest::Test
           io = StringIO.new
           IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[He]
-            stream << %w[l lo\  World]
+            stream << ["l", "lo ", "World"]
             stream << ["He", nil, "l", nil]
             stream << ["lo ", "World"]
           end
@@ -456,7 +456,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << []
             stream << %w[He]
-            stream << %w[l lo\  World]
+            stream << ["l", "lo ", "World"]
             stream << ["He", "", "l", ""]
             stream << ["lo ", "World"]
             stream << []

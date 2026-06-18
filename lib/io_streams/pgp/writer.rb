@@ -81,7 +81,6 @@ module IOStreams
                     compress: :zip,
                     compression: nil, # Deprecated
                     compress_level: 6)
-
         raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
 
         # Backward compatibility

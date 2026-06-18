@@ -148,7 +148,7 @@ module IOStreams
 
           def initialize(size:, key: nil, type: :string, decimals: 2)
             @key      = key
-            @size     = (size == :remainder || size == "remainder") ? -1 : size.to_i
+            @size     = [:remainder, "remainder"].include?(size) ? -1 : size.to_i
             @type     = type.to_sym
             @decimals = decimals
 

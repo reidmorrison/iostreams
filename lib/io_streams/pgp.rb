@@ -428,7 +428,7 @@ module IOStreams
         end
 
         output.each_line do |line|
-          if (match = line.match(/\Afpr.*::([^\:]*):\Z/))
+          if (match = line.match(/\Afpr.*::([^:]*):\Z/))
             return match[1]
           end
         end

@@ -16,7 +16,7 @@ module IOStreams
     def self.blank?(value)
       return true if value.nil?
       return value !~ /\S/ if value.is_a?(String)
-        
+
       value.respond_to?(:empty?) ? value.empty? : !value
     end
 

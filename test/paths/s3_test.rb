@@ -15,7 +15,7 @@ module Paths
         File.read(file_name)
       end
 
-      let(:root_path) { IOStreams::Paths::S3.new("s3://#{ENV['S3_BUCKET_NAME']}/iostreams_test") }
+      let(:root_path) { IOStreams::Paths::S3.new("s3://#{ENV.fetch('S3_BUCKET_NAME', nil)}/iostreams_test") }
 
       let :existing_path do
         path = root_path.join("test.txt")

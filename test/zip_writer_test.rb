@@ -24,9 +24,9 @@ class ZipWriterTest < Minitest::Test
         result =
           IOStreams::Zip::Writer.file(file_name, entry_file_name: "text.txt") do |io|
             io.write(decompressed)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+        assert_equal 53_534, result
         result = IOStreams::Zip::Reader.file(file_name, &:read)
         assert_equal decompressed, result
       end
@@ -36,9 +36,9 @@ class ZipWriterTest < Minitest::Test
         result    =
           IOStreams::Zip::Writer.stream(io_string) do |io|
             io.write(decompressed)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+        assert_equal 53_534, result
         io     = StringIO.new(io_string.string)
         result = IOStreams::Zip::Reader.stream(io, &:read)
         assert_equal decompressed, result

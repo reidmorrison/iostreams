@@ -9,9 +9,9 @@ module Paths
         end
       end
 
-      let(:host_name) { ENV["SFTP_HOSTNAME"] }
-      let(:username) { ENV["SFTP_USERNAME"] }
-      let(:password) { ENV["SFTP_PASSWORD"] }
+      let(:host_name) { ENV.fetch("SFTP_HOSTNAME", nil) }
+      let(:username) { ENV.fetch("SFTP_USERNAME", nil) }
+      let(:password) { ENV.fetch("SFTP_PASSWORD", nil) }
       let(:ftp_dir) { ENV["SFTP_DIR"] || "iostreams_test" }
       let(:identity_username) { ENV["SFTP_IDENTITY_USERNAME"] || username }
 
@@ -78,7 +78,7 @@ module Paths
 
         describe "use identity file instead of password" do
           let :root_path do
-            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityFile" => ENV["SFTP_IDENTITY_FILE"]})
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityFile" => ENV.fetch("SFTP_IDENTITY_FILE", nil)})
           end
 
           it "writes" do
@@ -90,7 +90,7 @@ module Paths
 
         describe "use identity key instead of password" do
           let :root_path do
-            key = File.open(ENV["SFTP_IDENTITY_FILE"], "rb", &:read)
+            key = File.binread(ENV.fetch("SFTP_IDENTITY_FILE", nil))
             IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityKey" => key})
           end
 

@@ -23,9 +23,9 @@ class GzipWriterTest < Minitest::Test
         result =
           IOStreams::Gzip::Writer.file(file_name) do |io|
             io.write(decompressed)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+        assert_equal 53_534, result
 
         result = Zlib::GzipReader.open(file_name, &:read)
         temp_file.delete
@@ -37,9 +37,9 @@ class GzipWriterTest < Minitest::Test
         result    =
           IOStreams::Gzip::Writer.stream(io_string) do |io|
             io.write(decompressed)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+        assert_equal 53_534, result
 
         io   = StringIO.new(io_string.string)
         gz   = Zlib::GzipReader.new(io)

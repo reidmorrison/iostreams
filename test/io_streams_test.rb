@@ -88,7 +88,7 @@ module IOStreams
         end
 
         it "hash reader detects json format from file name" do
-          ::File.open(json_file_name, "wb") { |file| file.write(expected_json) }
+          ::File.binwrite(json_file_name, expected_json)
           rows = []
           path = IOStreams.path(json_file_name)
           path.each(:hash) do |row|

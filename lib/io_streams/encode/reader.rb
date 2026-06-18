@@ -3,7 +3,7 @@ module IOStreams
     class Reader < IOStreams::Reader
       attr_reader :encoding, :cleaner
 
-      NOT_PRINTABLE = Regexp.compile(/[^[:print:]|\r|\n]/).freeze
+      NOT_PRINTABLE = /[^[:print:]|\r\n]/
       # Builtin strip options to apply after encoding the read data.
       CLEANSE_RULES = {
         # Strips all non printable characters

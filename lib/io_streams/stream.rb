@@ -18,8 +18,8 @@ module IOStreams
     # Example:
     #
     # IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
-    def stream(stream, **options)
-      builder.stream(stream, **options)
+    def stream(stream, **)
+      builder.stream(stream, **)
       self
     end
 
@@ -33,15 +33,15 @@ module IOStreams
     # IOStreams.path("keep_safe.enc").option(:pgp, passphrase: "receiver_passphrase").read
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
-    def option(stream, **options)
-      builder.option(stream, **options)
+    def option(stream, **)
+      builder.option(stream, **)
       self
     end
 
     # Adds the options for the specified stream as an option,
     # but if streams have already been added it is instead added as a stream.
-    def option_or_stream(stream, **options)
-      builder.option_or_stream(stream, **options)
+    def option_or_stream(stream, **)
+      builder.option_or_stream(stream, **)
       self
     end
 
@@ -98,16 +98,16 @@ module IOStreams
     end
 
     # Returns a Reader for reading a file / stream
-    def reader(mode = :stream, **args, &block)
+    def reader(mode = :stream, **args, &)
       case mode
       when :stream
-        stream_reader(&block)
+        stream_reader(&)
       when :line
-        line_reader(**args, &block)
+        line_reader(**args, &)
       when :array
-        row_reader(**args, &block)
+        row_reader(**args, &)
       when :hash
-        record_reader(**args, &block)
+        record_reader(**args, &)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
       end
@@ -124,16 +124,16 @@ module IOStreams
     end
 
     # Returns a Writer for writing to a file / stream
-    def writer(mode = :stream, **args, &block)
+    def writer(mode = :stream, **args, &)
       case mode
       when :stream
-        stream_writer(&block)
+        stream_writer(&)
       when :line
-        line_writer(**args, &block)
+        line_writer(**args, &)
       when :array
-        row_writer(**args, &block)
+        row_writer(**args, &)
       when :hash
-        record_writer(**args, &block)
+        record_writer(**args, &)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
       end
@@ -322,8 +322,8 @@ module IOStreams
       @builder ||= IOStreams::Builder.new
     end
 
-    def stream_reader(&block)
-      builder.reader(io_stream, &block)
+    def stream_reader(&)
+      builder.reader(io_stream, &)
     end
 
     def line_reader(embedded_within: nil, **args)
@@ -364,8 +364,8 @@ module IOStreams
       end
     end
 
-    def stream_writer(&block)
-      builder.writer(io_stream, &block)
+    def stream_writer(&)
+      builder.writer(io_stream, &)
     end
 
     def line_writer(**args, &block)

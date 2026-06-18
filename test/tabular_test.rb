@@ -326,7 +326,7 @@ class TabularTest < Minitest::Test
         end
 
         it "quotes a field containing a newline" do
-          assert_equal %(a,"b\nc",d), tabular.render(["a", "b\nc", "d"])
+          assert_equal %(a,"b\nc",d), tabular.render(%W[a b\nc d])
         end
 
         it "round-trips a field containing a comma" do

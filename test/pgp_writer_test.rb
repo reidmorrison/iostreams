@@ -24,9 +24,9 @@ class PgpWriterTest < Minitest::Test
         result =
           IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |io|
             io.write(decrypted)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+        assert_equal 53_534, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
         assert_equal decrypted, result
@@ -34,15 +34,15 @@ class PgpWriterTest < Minitest::Test
 
       it "writes encrypted binary file" do
         binary_file_name = File.join(File.dirname(__FILE__), "files", "spreadsheet.xlsx")
-        binary_data      = File.open(binary_file_name, "rb", &:read)
+        binary_data      = File.binread(binary_file_name)
 
         File.open(binary_file_name, "rb") do |input|
           result =
             IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |output|
               IO.copy_stream(input, output)
-              53534
+              53_534
             end
-          assert_equal 53534, result
+          assert_equal 53_534, result
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
@@ -117,9 +117,9 @@ class PgpWriterTest < Minitest::Test
         result    =
           IOStreams::Pgp::Writer.stream(io_string, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
             io.write(decrypted)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+        assert_equal 53_534, result
 
         io     = StringIO.new(io_string.string)
         result = IOStreams::Pgp::Reader.stream(io, passphrase: "receiver_passphrase", &:read)
