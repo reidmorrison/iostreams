@@ -79,22 +79,24 @@ module IOStreams
         end
 
         # Write to stdin, with encrypted contents being written to the file
-        command = "#{IOStreams::Pgp.executable} --batch --no-tty --yes --encrypt"
-        command << " --sign --local-user \"#{signer}\"" if signer
+        args = ["--batch", "--no-tty", "--yes", "--encrypt"]
+        args += ["--sign", "--local-user", signer.to_s] if signer
         if signer_passphrase
-          command << " --pinentry-mode loopback" if IOStreams::Pgp.pgp_version.to_f >= 2.1
-          command << " --no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
-          command << " --passphrase \"#{signer_passphrase}\""
+          args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
+          args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
+          args += ["--passphrase", signer_passphrase.to_s]
         end
-        command << " -z #{compress_level}" if compress_level != 6
-        command << " --compress-algo #{compress}" unless compress == :none
-        recipients.each { |address| command << " --recipient \"#{address}\"" }
-        command << " -o \"#{file_name}\""
+        args += ["-z", compress_level.to_s] if compress_level != 6
+        args += ["--compress-algo", compress.to_s] unless compress == :none
+        recipients.each { |address| args += ["--recipient", address.to_s] }
+        args += ["-o", file_name.to_s]
+        command = IOStreams::Pgp.gpg_command(*args)
 
-        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: #{command}" }
+        # Do not log the command, it may contain the signer passphrase.
+        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: encrypt -o #{file_name}" }
 
         result = nil
-        Open3.popen2e(command) do |stdin, out, waith_thr|
+        Open3.popen2e(*command) do |stdin, out, waith_thr|
           begin
             stdin.binmode
             result = yield(stdin)
