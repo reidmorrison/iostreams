@@ -3,18 +3,6 @@ module IOStreams
   class Tabular
     module Parser
       class Csv < Base
-        # Returns [Array<String>] the header row.
-        # Returns nil if the row is blank.
-        def parse_header(row)
-          return row if row.is_a?(::Array)
-
-          unless row.is_a?(String)
-            raise(IOStreams::Errors::InvalidHeader, "Format is :csv. Invalid input header: #{row.class.name}")
-          end
-
-          parse_line(row)
-        end
-
         # Returns [Array] the parsed CSV line
         def parse(row)
           return row if row.is_a?(::Array)
