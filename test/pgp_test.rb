@@ -74,7 +74,7 @@ class PgpTest < Minitest::Test
 
           # No such key exists, so this simply reports the key as absent.
           refute IOStreams::Pgp.key?(email: malicious)
-          refute ::File.exist?(marker), "Embedded shell command was executed"
+          refute_path_exists marker, "Embedded shell command was executed"
         end
       end
 
@@ -84,7 +84,7 @@ class PgpTest < Minitest::Test
           malicious = "nobody@iostreams.net; touch #{marker}"
 
           refute IOStreams::Pgp.delete_keys(email: malicious, public: true, private: true)
-          refute ::File.exist?(marker), "Embedded shell command was executed"
+          refute_path_exists marker, "Embedded shell command was executed"
         end
       end
     end
@@ -116,6 +116,7 @@ class PgpTest < Minitest::Test
         # There is a timing issue with creating and then deleting keys.
         # Call list_keys again to give GnuPGP time.
         IOStreams::Pgp.list_keys(email: email, private: true)
+
         assert IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
       end
 
@@ -125,6 +126,7 @@ class PgpTest < Minitest::Test
         # There is a timing issue with creating and then deleting keys.
         # Call list_keys again to give GnuPGP time.
         IOStreams::Pgp.list_keys(key_id: generated_key_id, private: true)
+
         assert IOStreams::Pgp.delete_keys(key_id: generated_key_id, public: true, private: true)
       end
 
@@ -133,6 +135,7 @@ class PgpTest < Minitest::Test
         # There is a timing issue with creating and then deleting keys.
         # Call list_keys again to give GnuPGP time.
         IOStreams::Pgp.list_keys(email: email, private: true)
+
         assert IOStreams::Pgp.delete_keys(email: email, public: false, private: true)
         refute IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
         assert IOStreams::Pgp.key?(key_id: generated_key_id, private: false)
@@ -143,6 +146,7 @@ class PgpTest < Minitest::Test
         # There is a timing issue with creating and then deleting keys.
         # Call list_keys again to give GnuPGP time.
         IOStreams::Pgp.list_keys(key_id: generated_key_id, private: true)
+
         assert IOStreams::Pgp.delete_keys(key_id: generated_key_id, public: false, private: true)
         refute IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
         assert IOStreams::Pgp.key?(key_id: generated_key_id, private: false)
@@ -156,12 +160,12 @@ class PgpTest < Minitest::Test
 
       it "exports public keys by email" do
         assert ascii_keys = IOStreams::Pgp.export(email: email)
-        assert ascii_keys =~ /BEGIN PGP PUBLIC KEY BLOCK/, ascii_keys
+        assert_match(/BEGIN PGP PUBLIC KEY BLOCK/, ascii_keys, ascii_keys)
       end
 
       it "exports public keys as binary" do
         assert keys = IOStreams::Pgp.export(email: email, ascii: false)
-        refute keys =~ /BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys
+        refute_match(/BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys, keys)
       end
     end
 
@@ -256,6 +260,7 @@ class PgpTest < Minitest::Test
     describe ".import" do
       it "handle duplicate public key" do
         generated_key_id
+
         assert_equal [], IOStreams::Pgp.import(key: public_key)
       end
 
@@ -334,6 +339,7 @@ class PgpTest < Minitest::Test
         assert_equal email, IOStreams::Pgp.import_and_trust(key: @public_key)
         # There is a timing issue with creating and then immediately using keys.
         IOStreams::Pgp.list_keys(email: email)
+
         assert key = IOStreams::Pgp.list_keys(email: email).first
         ver   = IOStreams::Pgp.pgp_version
         maint = ver.split(".").last.to_i
@@ -345,6 +351,7 @@ class PgpTest < Minitest::Test
         IOStreams::Pgp.stub(:set_trust, ->(**kwargs) { captured = kwargs }) do
           IOStreams::Pgp.import_and_trust(key: @public_key)
         end
+
         assert_equal 5, captured[:level]
       end
 
@@ -353,6 +360,7 @@ class PgpTest < Minitest::Test
         IOStreams::Pgp.stub(:set_trust, ->(**kwargs) { captured = kwargs }) do
           IOStreams::Pgp.import_and_trust(key: @public_key, trust_level: 4)
         end
+
         assert_equal 4, captured[:level]
       end
     end
@@ -375,6 +383,7 @@ class PgpTest < Minitest::Test
 
       it "trusts an existing key by key_id" do
         fingerprint = IOStreams::Pgp.fingerprint(email: email)
+
         refute_nil IOStreams::Pgp.set_trust(key_id: fingerprint)
       end
 
@@ -398,6 +407,7 @@ class PgpTest < Minitest::Test
 
       assert_equal 1, (keys = IOStreams::Pgp.parse_list_output(output)).size
       key = keys.first
+
       refute key[:private]
       assert_equal 3072, key[:key_length]
       assert_equal "rsa", key[:key_type]
@@ -418,6 +428,7 @@ class PgpTest < Minitest::Test
 
       assert_equal 1, (keys = IOStreams::Pgp.parse_list_output(output)).size
       key = keys.first
+
       refute key[:private]
       assert_equal 1024, key[:key_length]
       assert_equal "rsa", key[:key_type]
@@ -437,6 +448,7 @@ class PgpTest < Minitest::Test
 
       assert_equal 1, (keys = IOStreams::Pgp.parse_list_output(output)).size
       key = keys.first
+
       refute key[:private]
       assert_equal 4096, key[:key_length]
       assert_equal "R", key[:key_type]
@@ -454,6 +466,7 @@ class PgpTest < Minitest::Test
 
       assert_equal 1, (keys = IOStreams::Pgp.parse_list_output(output)).size
       key = keys.first
+
       refute key[:private]
       assert_equal 2048, key[:key_length]
       assert_equal "R", key[:key_type]
@@ -473,6 +486,7 @@ class PgpTest < Minitest::Test
 
       assert_equal 1, (keys = IOStreams::Pgp.parse_list_output(output)).size
       key = keys.first
+
       assert key[:private]
       assert_equal 2048, key[:key_length]
       assert_equal "R", key[:key_type]
@@ -492,6 +506,7 @@ class PgpTest < Minitest::Test
 
       assert_equal 1, (keys = IOStreams::Pgp.parse_list_output(output)).size
       key = keys.first
+
       assert_equal "Joe Bloggs", key[:name]
       assert_equal "ABCDEF0123456789ABCDEF0123456789ABCDEF01", key[:key_id]
       assert_equal "ultimate", key[:trust]

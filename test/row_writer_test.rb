@@ -34,8 +34,10 @@ class RowWriterTest < Minitest::Test
             csv_rows.each { |array| io << array }
             53_534
           end
+
         assert_equal 53_534, result
         result = ::File.read(file_name)
+
         assert_equal raw_csv_data, result
       end
 
@@ -48,6 +50,7 @@ class RowWriterTest < Minitest::Test
               53_534
             end
           end
+
         assert_equal 53_534, result
         assert_equal raw_csv_data, io_string.string
       end

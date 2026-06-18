@@ -26,9 +26,11 @@ class PgpWriterTest < Minitest::Test
             io.write(decrypted)
             53_534
           end
+
         assert_equal 53_534, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -42,10 +44,12 @@ class PgpWriterTest < Minitest::Test
               IO.copy_stream(input, output)
               53_534
             end
+
           assert_equal 53_534, result
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal binary_data, result
       end
 
@@ -55,6 +59,7 @@ class PgpWriterTest < Minitest::Test
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -64,9 +69,11 @@ class PgpWriterTest < Minitest::Test
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -78,9 +85,11 @@ class PgpWriterTest < Minitest::Test
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -119,10 +128,12 @@ class PgpWriterTest < Minitest::Test
             io.write(decrypted)
             53_534
           end
+
         assert_equal 53_534, result
 
         io     = StringIO.new(io_string.string)
         result = IOStreams::Pgp::Reader.stream(io, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
     end
@@ -141,9 +152,11 @@ class PgpWriterTest < Minitest::Test
         IOStreams::Pgp.stub(:import_and_trust, stub) do
           IOStreams::Pgp::Writer.file(file_name, import_and_trust_key: public_key) { |io| io.write(decrypted) }
         end
+
         assert_equal 5, captured[:trust_level]
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -158,9 +171,11 @@ class PgpWriterTest < Minitest::Test
             io.write(decrypted)
           end
         end
+
         assert_equal 4, captured[:trust_level]
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
     end

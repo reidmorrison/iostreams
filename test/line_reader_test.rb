@@ -46,6 +46,7 @@ class LineReaderTest < Minitest::Test
               lines << line
             end
           end
+
           assert_equal 7, lines.count
         end
 
@@ -56,6 +57,7 @@ class LineReaderTest < Minitest::Test
               lines << line
             end
           end
+
           assert_equal 4, lines.count
         end
 
@@ -94,6 +96,7 @@ class LineReaderTest < Minitest::Test
         count = IOStreams::Line::Reader.file(file_name) do |io|
           io.each { |line| lines << line }
         end
+
         assert_equal data, lines
         assert_equal data.size, count
       end
@@ -105,6 +108,7 @@ class LineReaderTest < Minitest::Test
             io.each { |line| lines << line }
           end
         end
+
         assert_equal data, lines
         assert_equal data.size, count
       end
@@ -116,6 +120,7 @@ class LineReaderTest < Minitest::Test
           count  = IOStreams::Line::Reader.stream(stream, buffer_size: 15) do |io|
             io.each { |line| lines << line }
           end
+
           assert_equal data, lines
           assert_equal data.size, count
         end
@@ -126,6 +131,7 @@ class LineReaderTest < Minitest::Test
           count  = IOStreams::Line::Reader.stream(stream) do |io|
             io.each { |line| lines << line }
           end
+
           assert_equal data, lines
           assert_equal data.size, count
         end
@@ -138,6 +144,7 @@ class LineReaderTest < Minitest::Test
           count  = IOStreams::Line::Reader.stream(stream, buffer_size: 15, delimiter: delimiter) do |io|
             io.each { |line| lines << line }
           end
+
           assert_equal data, lines
           assert_equal data.size, count
         end
@@ -150,6 +157,7 @@ class LineReaderTest < Minitest::Test
         count     = IOStreams::Line::Reader.stream(stream, buffer_size: 15, delimiter: delimiter) do |io|
           io.each { |line| lines << line }
         end
+
         assert_equal data, lines
         assert_equal data.size, count
       end
@@ -165,13 +173,13 @@ class LineReaderTest < Minitest::Test
 
           stream = StringIO.new(data)
           IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-            refute io.eof?
+            refute_predicate io, :eof?
             assert_equal delimiter, io.delimiter, -> { io.delimiter.ai }
 
             assert_equal short_line, io.readline
             assert_equal longer_line, io.readline
 
-            assert io.eof?
+            assert_predicate io, :eof?
             assert_nil io.readline
           end
         end
@@ -182,12 +190,12 @@ class LineReaderTest < Minitest::Test
 
           stream = StringIO.new(data)
           IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-            refute io.eof?
+            refute_predicate io, :eof?
             assert_equal delimiter, io.delimiter, -> { io.delimiter.ai }
             assert_equal longer_line, io.readline
             assert_equal short_line, io.readline
             assert_equal short_line, io.readline
-            assert io.eof?
+            assert_predicate io, :eof?
             assert_nil io.readline
           end
         end
@@ -198,12 +206,12 @@ class LineReaderTest < Minitest::Test
 
           stream = StringIO.new(data)
           IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-            refute io.eof?
+            refute_predicate io, :eof?
             assert_equal delimiter, io.delimiter, -> { io.delimiter.ai }
             assert_equal longer_line, io.readline
             assert_equal short_line, io.readline
             assert_equal short_line, io.readline
-            assert io.eof?
+            assert_predicate io, :eof?
             assert_nil io.readline
           end
         end
@@ -215,10 +223,10 @@ class LineReaderTest < Minitest::Test
 
           stream = StringIO.new(data)
           IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-            refute io.eof?
+            refute_predicate io, :eof?
             assert_equal "\n", io.delimiter, -> { io.delimiter.ai }
             assert_equal data, io.readline
-            assert io.eof?
+            assert_predicate io, :eof?
             assert_nil io.readline
           end
         end
@@ -229,10 +237,10 @@ class LineReaderTest < Minitest::Test
 
           stream = StringIO.new(data)
           IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-            refute io.eof?
+            refute_predicate io, :eof?
             assert_equal "\n", io.delimiter, -> { io.delimiter.ai }
             assert_equal short_line, io.readline
-            assert io.eof?
+            assert_predicate io, :eof?
             assert_nil io.readline
           end
         end
@@ -244,13 +252,13 @@ class LineReaderTest < Minitest::Test
 
           stream = StringIO.new(data)
           IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size, delimiter: delimiter) do |io|
-            refute io.eof?
+            refute_predicate io, :eof?
             assert_equal delimiter, io.delimiter, -> { io.delimiter.ai }
             assert_equal longer_line, io.readline
             assert_equal short_line, io.readline
             assert_equal longer_line, io.readline
             assert_nil io.readline
-            assert io.eof?
+            assert_predicate io, :eof?
           end
         end
 
@@ -260,13 +268,13 @@ class LineReaderTest < Minitest::Test
 
           stream = StringIO.new(data)
           IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-            refute io.eof?
+            refute_predicate io, :eof?
             assert_equal delimiter, io.delimiter, -> { io.delimiter.ai }
             assert_equal longer_line, io.readline
             assert_equal short_line, io.readline
             assert_equal longer_line, io.readline
             assert_nil io.readline
-            assert io.eof?
+            assert_predicate io, :eof?
           end
         end
 
@@ -278,13 +286,13 @@ class LineReaderTest < Minitest::Test
 
             stream = StringIO.new(data)
             IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-              refute io.eof?
+              refute_predicate io, :eof?
               assert_equal delimiter, io.delimiter, -> { io.delimiter.ai }
               assert_equal longer_line, io.readline
               assert_equal short_line, io.readline
               assert_equal longer_line, io.readline
               assert_nil io.readline
-              assert io.eof?
+              assert_predicate io, :eof?
             end
           end
 
@@ -293,21 +301,22 @@ class LineReaderTest < Minitest::Test
 
             stream = StringIO.new(data)
             IOStreams::Line::Reader.stream(stream, buffer_size: buffer_size) do |io|
-              refute io.eof?
+              refute_predicate io, :eof?
               assert_equal delimiter, io.delimiter, -> { io.delimiter.ai }
               assert_equal longer_line, io.readline
               assert_equal short_line, io.readline
               assert_equal longer_line, io.readline
               assert_nil io.readline
-              assert io.eof?
+              assert_predicate io, :eof?
             end
           end
         end
 
         it "reads empty file" do
           stream = StringIO.new
+
           IOStreams::Line::Reader.stream(stream) do |io|
-            assert io.eof?
+            assert_predicate io, :eof?
           end
         end
 

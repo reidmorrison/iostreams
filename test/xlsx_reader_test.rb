@@ -18,6 +18,7 @@ class XlsxReaderTest
       describe "with a file path" do
         it "returns the contents of the file" do
           csv = IOStreams::Xlsx::Reader.file(file_name, &:read)
+
           assert_equal xlsx_contents, CSV.parse(csv)
         end
       end

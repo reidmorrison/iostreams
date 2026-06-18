@@ -31,12 +31,14 @@ class BuilderTest < Minitest::Test
     describe "#option" do
       it "adds one option" do
         streams.option(:pgp, passphrase: "unlock-me")
+
         assert_equal({pgp: {passphrase: "unlock-me"}}, streams.options)
       end
 
       it "adds options in order" do
         streams.option(:pgp, passphrase: "unlock-me")
         streams.option(:enc, compress: false)
+
         assert_equal({pgp: {passphrase: "unlock-me"}, enc: {compress: false}}, streams.options)
       end
 
@@ -67,6 +69,7 @@ class BuilderTest < Minitest::Test
     describe "#format" do
       it "detects the format from the file name" do
         streams = IOStreams::Builder.new("abc.json")
+
         assert_equal :json, streams.format
       end
 
@@ -77,12 +80,14 @@ class BuilderTest < Minitest::Test
       it "returns set format with no file_name" do
         streams        = IOStreams::Builder.new
         streams.format = :csv
+
         assert_equal :csv, streams.format
       end
 
       it "returns set format with file_name" do
         streams        = IOStreams::Builder.new("abc.json")
         streams.format = :csv
+
         assert_equal :csv, streams.format
       end
 
@@ -96,12 +101,14 @@ class BuilderTest < Minitest::Test
     describe "#stream" do
       it "adds one stream" do
         streams.stream(:pgp, passphrase: "unlock-me")
+
         assert_equal({pgp: {passphrase: "unlock-me"}}, streams.streams)
       end
 
       it "adds streams in order" do
         streams.stream(:pgp, passphrase: "unlock-me")
         streams.stream(:enc, compress: false)
+
         assert_equal({pgp: {passphrase: "unlock-me"}, enc: {compress: false}}, streams.streams)
       end
 
@@ -136,14 +143,16 @@ class BuilderTest < Minitest::Test
           assert_equal io, string_io
           value = 32
         end
+
         assert_equal 32, value
       end
 
       it "returns the reader" do
         string_io = StringIO.new(gzip_string)
         streams.stream(:gz)
+
         streams.reader(string_io) do |io|
-          assert io.is_a?(::Zlib::GzipReader), io
+          assert_kind_of ::Zlib::GzipReader, io, io
         end
       end
 
@@ -151,8 +160,9 @@ class BuilderTest < Minitest::Test
         string_io = StringIO.new(gzip_string)
         streams.stream(:encode)
         streams.stream(:gz)
+
         streams.reader(string_io) do |io|
-          assert io.is_a?(IOStreams::Encode::Reader), io
+          assert_kind_of IOStreams::Encode::Reader, io, io
         end
       end
     end
@@ -166,14 +176,16 @@ class BuilderTest < Minitest::Test
           assert_equal io, string_io
           value = 32
         end
+
         assert_equal 32, value
       end
 
       it "returns the reader" do
         string_io = StringIO.new
         streams.stream(:zip)
+
         streams.writer(string_io) do |io|
-          assert io.is_a?(ZipTricks::Streamer::Writable), io
+          assert_kind_of ZipTricks::Streamer::Writable, io, io
         end
       end
 
@@ -181,8 +193,9 @@ class BuilderTest < Minitest::Test
         string_io = StringIO.new
         streams.stream(:encode)
         streams.stream(:zip)
+
         streams.writer(string_io) do |io|
-          assert io.is_a?(IOStreams::Encode::Writer), io
+          assert_kind_of IOStreams::Encode::Writer, io, io
         end
       end
     end
@@ -208,11 +221,13 @@ class BuilderTest < Minitest::Test
     describe "#parse_extensions" do
       it "single stream" do
         streams = IOStreams::Builder.new("my/path/abc.xlsx")
+
         assert_equal %i[xlsx], streams.send(:parse_extensions)
       end
 
       it "empty" do
         streams = IOStreams::Builder.new("my/path/abc.csv")
+
         assert_equal [], streams.send(:parse_extensions)
       end
 
@@ -233,29 +248,34 @@ class BuilderTest < Minitest::Test
       it "with stream and file name" do
         expected = {enc: {compress: false}}
         streams.stream(:enc, compress: false)
+
         assert_equal expected, streams.pipeline
       end
 
       it "no file name, streams, or options" do
         expected = {}
         streams  = IOStreams::Builder.new
+
         assert_equal expected, streams.pipeline
       end
 
       it "file name without options" do
         expected = {xlsx: {}, zip: {}, gz: {}, pgp: {}}
+
         assert_equal expected, streams.pipeline
       end
 
       it "file name with encode option" do
         expected = {encode: {encoding: "BINARY"}, xlsx: {}, zip: {}, gz: {}, pgp: {}}
         streams.option(:encode, encoding: "BINARY")
+
         assert_equal expected, streams.pipeline
       end
 
       it "file name with option" do
         expected = {xlsx: {}, zip: {}, gz: {}, pgp: {passphrase: "unlock-me"}}
         streams.option(:pgp, passphrase: "unlock-me")
+
         assert_equal expected, streams.pipeline
       end
     end
@@ -265,12 +285,15 @@ class BuilderTest < Minitest::Test
       it "removes a named stream from the pipeline" do
         assert_equal({bz2: {}, pgp: {}}, streams.pipeline)
         streams.remove_from_pipeline(:bz2)
+
         assert_equal({pgp: {}}, streams.pipeline)
       end
       it "removes a named stream from the pipeline with options" do
         streams.option(:pgp, passphrase: "unlock-me")
+
         assert_equal({bz2: {}, pgp: {passphrase: "unlock-me"}}, streams.pipeline)
         streams.remove_from_pipeline(:bz2)
+
         assert_equal({pgp: {passphrase: "unlock-me"}}, streams.pipeline)
       end
     end
@@ -283,6 +306,7 @@ class BuilderTest < Minitest::Test
           assert_equal io, string_io
           value = 32
         end
+
         assert_equal 32, value
       end
 
@@ -290,6 +314,7 @@ class BuilderTest < Minitest::Test
         pipeline  = {simple: {arg: "first"}}
         string_io = StringIO.new
         streams.send(:execute, :writer, pipeline, string_io) { |io| io.write("last") }
+
         assert_equal "first>last", string_io.string
       end
 
@@ -297,6 +322,7 @@ class BuilderTest < Minitest::Test
         pipeline  = {simple: {arg: "first"}, simple2: {arg: "second"}}
         string_io = StringIO.new
         streams.send(:execute, :writer, pipeline, string_io) { |io| io.write("last") }
+
         assert_equal "second>first>last", string_io.string
       end
 
@@ -304,6 +330,7 @@ class BuilderTest < Minitest::Test
         pipeline  = {simple: {arg: "first"}, simple2: {arg: "second"}, simple3: {arg: "third"}}
         string_io = StringIO.new
         streams.send(:execute, :writer, pipeline, string_io) { |io| io.write("last") }
+
         assert_equal "third>second>first>last", string_io.string
       end
     end

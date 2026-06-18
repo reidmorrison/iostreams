@@ -1,3 +1,7 @@
+plugins:
+  - rubocop-minitest
+  - rubocop-rake
+
 AllCops:
   Exclude:
     - ".git/**/*"
@@ -78,6 +82,10 @@ Metrics/ParameterLists:
 # TODO: Soften Limits for phase 1 only
 Metrics/PerceivedComplexity:
   Max: 21
+
+# Tests legitimately verify several related expectations in one case.
+Minitest/MultipleAssertions:
+  Max: 15
 
 # Initialization Vector abbreviation
 Naming/MethodParameterName:

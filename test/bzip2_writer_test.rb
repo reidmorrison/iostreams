@@ -26,12 +26,14 @@ class Bzip2WriterTest < Minitest::Test
             io.write(decompressed)
             53_534
           end
+
         assert_equal 53_534, result
 
         File.open(file_name, "rb") do |file|
           io     = ::Bzip2::FFI::Reader.new(file)
           result = io.read
           temp_file.delete
+
           assert_equal decompressed + decompressed, result
         end
       end
@@ -44,11 +46,13 @@ class Bzip2WriterTest < Minitest::Test
             io.write(decompressed)
             53_534
           end
+
         assert_equal 53_534, result
 
         io     = StringIO.new(io_string.string)
         rbzip2 = ::Bzip2::FFI::Reader.new(io)
         data   = rbzip2.read
+
         assert_equal decompressed + decompressed, data
       end
     end

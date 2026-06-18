@@ -16,6 +16,7 @@ class RowReaderTest < Minitest::Test
         count = IOStreams::Row::Reader.file(file_name) do |io|
           io.each { |row| rows << row }
         end
+
         assert_equal expected, rows
         assert_equal expected.size, count
       end
@@ -27,6 +28,7 @@ class RowReaderTest < Minitest::Test
             io.each { |row| rows << row }
           end
         end
+
         assert_equal expected, rows
         assert_equal expected.size, count
       end

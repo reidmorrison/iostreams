@@ -26,6 +26,7 @@ class RecordReaderTest < Minitest::Test
         IOStreams::Record::Reader.file(file_name, cleanse_header: false) do |io|
           io.each { |row| records << row }
         end
+
         assert_equal expected, records
       end
 
@@ -34,6 +35,7 @@ class RecordReaderTest < Minitest::Test
         IOStreams::Record::Reader.file(json_file_name, cleanse_header: false, format: :json) do |input|
           input.each { |row| records << row }
         end
+
         assert_equal expected, records
       end
 
@@ -44,6 +46,7 @@ class RecordReaderTest < Minitest::Test
             io.each { |row| rows << row }
           end
         end
+
         assert_equal expected, rows
       end
     end
@@ -53,6 +56,7 @@ class RecordReaderTest < Minitest::Test
         records = IOStreams::Record::Reader.file(json_file_name, format: :json) do |input|
           input.collect { |record| record["state"] }
         end
+
         assert_equal expected.collect { |record| record["state"] }, records
       end
     end

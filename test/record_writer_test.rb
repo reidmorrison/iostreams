@@ -48,8 +48,10 @@ class RecordWriterTest < Minitest::Test
             inputs.each { |hash| io << hash }
             53_534
           end
+
         assert_equal 53_534, result
         result = File.read(file_name)
+
         assert_equal raw_csv_data, result
       end
 
@@ -59,9 +61,11 @@ class RecordWriterTest < Minitest::Test
             inputs.each { |hash| io << hash }
             53_534
           end
+
         assert_equal 53_534, result
 
         result = File.read(file_name)
+
         assert_equal raw_json_data, result
       end
 
@@ -74,6 +78,7 @@ class RecordWriterTest < Minitest::Test
               53_534
             end
           end
+
         assert_equal 53_534, result
         assert_equal raw_csv_data, io_string.string
       end

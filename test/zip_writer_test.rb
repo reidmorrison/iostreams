@@ -26,8 +26,10 @@ class ZipWriterTest < Minitest::Test
             io.write(decompressed)
             53_534
           end
+
         assert_equal 53_534, result
         result = IOStreams::Zip::Reader.file(file_name, &:read)
+
         assert_equal decompressed, result
       end
 
@@ -38,9 +40,11 @@ class ZipWriterTest < Minitest::Test
             io.write(decompressed)
             53_534
           end
+
         assert_equal 53_534, result
         io     = StringIO.new(io_string.string)
         result = IOStreams::Zip::Reader.stream(io, &:read)
+
         assert_equal decompressed, result
       end
 
@@ -50,6 +54,7 @@ class ZipWriterTest < Minitest::Test
 
         entry_names = []
         Zip::File.open(zip_file_name) { |zip| zip.each { |entry| entry_names << entry.name } }
+
         assert_equal [File.join(Dir.tmpdir, "iostreams_zip_writer_test.csv")], entry_names
       ensure
         File.delete(zip_file_name) if zip_file_name && File.exist?(zip_file_name)
@@ -60,6 +65,7 @@ class ZipWriterTest < Minitest::Test
 
         entry_names = []
         Zip::File.open(file_name) { |zip| zip.each { |entry| entry_names << entry.name } }
+
         assert_equal ["explicit.txt"], entry_names
       end
     end
@@ -71,6 +77,7 @@ class ZipWriterTest < Minitest::Test
 
         entry_names = []
         Zip::File.open_buffer(StringIO.new(io_string.string)) { |zip| zip.each { |entry| entry_names << entry.name } }
+
         assert_equal ["file"], entry_names
       end
     end

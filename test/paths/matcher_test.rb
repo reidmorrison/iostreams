@@ -59,6 +59,7 @@ module Paths
           cases.each do |test_case|
             path    = IOStreams.path(test_case[:path])
             matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
+
             assert_equal test_case[:recursive], matcher.recursive?, test_case
           end
         end
@@ -69,6 +70,7 @@ module Paths
           cases.each do |test_case|
             path    = IOStreams.path(test_case[:path])
             matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
+
             assert_equal test_case[:expected_path], matcher.path.to_s, test_case
           end
         end
@@ -97,7 +99,8 @@ module Paths
             next unless test_case[:matches]
 
             test_case[:matches].each do |file_name|
-              assert matcher.match?(file_name), test_case.merge(file_name: file_name)
+              # Matcher exposes #match?, not the =~ that assert_match relies on.
+              assert matcher.match?(file_name), test_case.merge(file_name: file_name) # rubocop:disable Minitest/AssertMatch
             end
           end
         end
@@ -110,7 +113,8 @@ module Paths
             next unless test_case[:not_matches]
 
             test_case[:not_matches].each do |file_name|
-              refute matcher.match?(file_name), -> { {case_sensitive: case_sensitive, test_case_number: index + 1, failed_file_name: file_name, test_case: test_case}.ai }
+              # Matcher exposes #match?, not the =~ that refute_match relies on.
+              refute matcher.match?(file_name), -> { {case_sensitive: case_sensitive, test_case_number: index + 1, failed_file_name: file_name, test_case: test_case}.ai } # rubocop:disable Minitest/RefuteMatch
             end
           end
         end

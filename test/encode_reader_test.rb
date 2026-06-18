@@ -48,6 +48,7 @@ class EncodeReaderTest < Minitest::Test
         it "does not strip invalid characters" do
           skip "Does not raise on JRuby" if defined?(JRuby)
           input = StringIO.new(bad_data)
+
           IOStreams::Encode::Reader.stream(input, encoding: "UTF-8") do |io|
             assert_raises ::Encoding::UndefinedConversionError do
               io.read.encoding
@@ -59,6 +60,7 @@ class EncodeReaderTest < Minitest::Test
           input = StringIO.new(bad_data)
           data  =
             IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", replace: "", &:read)
+
           assert_equal cleansed_data, data
         end
       end
@@ -68,6 +70,7 @@ class EncodeReaderTest < Minitest::Test
           input = StringIO.new(bad_data)
           data  =
             IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", cleaner: :printable, replace: "", &:read)
+
           assert_equal stripped_data, data
         end
       end
@@ -87,11 +90,13 @@ class EncodeReaderTest < Minitest::Test
               result << chunk
             end
           end
+
           assert_equal valid_data, result
         end
 
         it "returns nil at end of file" do
           input = StringIO.new("")
+
           IOStreams::Encode::Reader.stream(input, encoding: "UTF-8") do |io|
             assert_nil io.read(10)
           end
@@ -107,6 +112,7 @@ class EncodeReaderTest < Minitest::Test
               result << chunk
             end
           end
+
           assert_equal valid_data, result
         end
 
@@ -119,6 +125,7 @@ class EncodeReaderTest < Minitest::Test
               result << chunk
             end
           end
+
           assert_equal valid_data, result
         end
       end
@@ -127,6 +134,7 @@ class EncodeReaderTest < Minitest::Test
         it "converts to the requested encoding" do
           input = StringIO.new("plain ascii text".encode("UTF-8"))
           data  = IOStreams::Encode::Reader.stream(input, encoding: "US-ASCII", &:read)
+
           assert_equal Encoding.find("US-ASCII"), data.encoding
           assert_equal "plain ascii text", data
         end
@@ -137,6 +145,7 @@ class EncodeReaderTest < Minitest::Test
           input = StringIO.new("abcdef")
           data  =
             IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", cleaner: :replace_non_printable, replace: "X", &:read)
+
           assert_equal "abcXdef", data
         end
 
@@ -144,6 +153,7 @@ class EncodeReaderTest < Minitest::Test
           upcase = ->(data, _replace) { data.upcase }
           input  = StringIO.new("hello")
           data   = IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", cleaner: upcase, &:read)
+
           assert_equal "HELLO", data
         end
 

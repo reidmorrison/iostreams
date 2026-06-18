@@ -48,6 +48,7 @@ class StreamTest < Minitest::Test
                    file_name(multiple_zip_file_name).
                    option(:zip, entry_file_name: "test.json").
                    read
+
           assert_equal contents_test_json, result
         end
       end
@@ -57,6 +58,7 @@ class StreamTest < Minitest::Test
           result = IOStreams::Stream.new(io).
                    file_name(zip_gz_file_name).
                    read
+
           assert_equal contents_test_txt, result
         end
       end
@@ -67,6 +69,7 @@ class StreamTest < Minitest::Test
         lines = []
         stream.stream(:none)
         count = stream.each(:line) { |line| lines << line }
+
         assert_equal data.lines.map(&:strip), lines
         assert_equal data.lines.count, count
       end
@@ -77,6 +80,7 @@ class StreamTest < Minitest::Test
         stream = IOStreams::Stream.new(input)
         stream.stream(:encode, encoding: "UTF-8", cleaner: :printable, replace: "")
         count = stream.each(:line) { |line| lines << line }
+
         assert_equal stripped_data.lines.map(&:strip), lines
         assert_equal stripped_data.lines.count, count
       end
@@ -96,6 +100,7 @@ class StreamTest < Minitest::Test
           output           = []
           stream.file_name = source_file_name
           stream.each(:array) { |record| output << record }
+
           assert_equal expected_rows, output
         end
 
@@ -104,6 +109,7 @@ class StreamTest < Minitest::Test
           stream.file_name = "blah"
           stream.format    = :csv
           stream.each(:array) { |record| output << record }
+
           assert_equal expected_rows, output
         end
       end
@@ -121,6 +127,7 @@ class StreamTest < Minitest::Test
           output           = []
           stream.file_name = source_file_name
           stream.each(:array) { |record| output << record }
+
           assert_equal expected_rows, output
         end
 
@@ -129,6 +136,7 @@ class StreamTest < Minitest::Test
           stream.file_name = "blah"
           stream.format    = :psv
           stream.each(:array) { |record| output << record }
+
           assert_equal expected_rows, output
         end
       end
@@ -151,6 +159,7 @@ class StreamTest < Minitest::Test
           output           = []
           stream.file_name = source_file_name
           stream.each(:array) { |record| output << record }
+
           assert_equal expected_rows, output
         end
 
@@ -160,6 +169,7 @@ class StreamTest < Minitest::Test
           stream.file_name = "blah"
           stream.format    = :json
           stream.each(:array) { |record| output << record }
+
           assert_equal expected_rows, output
         end
       end
@@ -178,6 +188,7 @@ class StreamTest < Minitest::Test
         output           = []
         stream.file_name = source_file_name
         stream.each(:hash) { |record| output << record }
+
         assert_equal expected_json, output
       end
 
@@ -186,6 +197,7 @@ class StreamTest < Minitest::Test
         stream.file_name = "blah"
         stream.format    = :json
         stream.each(:hash) { |record| output << record }
+
         assert_equal expected_json, output
       end
     end
@@ -197,6 +209,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer do |stream|
             stream.write("Hello World")
           end
+
           assert_equal "Hello World", io.string
         end
 
@@ -208,6 +221,7 @@ class StreamTest < Minitest::Test
             stream.write("lo ")
             stream.write("World")
           end
+
           assert_equal "Hello World", io.string
         end
 
@@ -223,6 +237,7 @@ class StreamTest < Minitest::Test
             stream.write("World")
             stream.write("")
           end
+
           assert_equal "Hello World", io.string
         end
 
@@ -238,6 +253,7 @@ class StreamTest < Minitest::Test
             stream.write("World")
             stream.write(nil)
           end
+
           assert_equal "Hello World", io.string
         end
       end
@@ -248,6 +264,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer do |stream|
             stream << "Hello World"
           end
+
           assert_equal "Hello World", io.string
         end
 
@@ -257,6 +274,7 @@ class StreamTest < Minitest::Test
             stream << "He"
             stream << "l" << "lo " << "World"
           end
+
           assert_equal "Hello World", io.string
         end
 
@@ -268,6 +286,7 @@ class StreamTest < Minitest::Test
             stream << "lo " << "World"
             stream << ""
           end
+
           assert_equal "Hello World", io.string
         end
 
@@ -279,6 +298,7 @@ class StreamTest < Minitest::Test
             stream << "lo " << "World"
             stream << nil
           end
+
           assert_equal "Hello World", io.string
         end
       end
@@ -291,6 +311,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer(:line) do |stream|
             stream.write("Hello World")
           end
+
           assert_equal "Hello World\n", io.string
         end
 
@@ -302,6 +323,7 @@ class StreamTest < Minitest::Test
             stream.write("lo ")
             stream.write("World")
           end
+
           assert_equal "He\nl\nlo \nWorld\n", io.string
         end
 
@@ -317,6 +339,7 @@ class StreamTest < Minitest::Test
             stream.write("World")
             stream.write("")
           end
+
           assert_equal "\nHe\n\nl\n\nlo \nWorld\n\n", io.string, io.string.inspect
         end
 
@@ -332,6 +355,7 @@ class StreamTest < Minitest::Test
             stream.write("World")
             stream.write(nil)
           end
+
           assert_equal "\nHe\n\nl\n\nlo \nWorld\n\n", io.string, io.string.inspect
         end
       end
@@ -342,6 +366,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer(:line) do |stream|
             stream << "Hello World"
           end
+
           assert_equal "Hello World\n", io.string
         end
 
@@ -351,6 +376,7 @@ class StreamTest < Minitest::Test
             stream << "He"
             stream << "l" << "lo " << "World"
           end
+
           assert_equal "He\nl\nlo \nWorld\n", io.string
         end
 
@@ -362,6 +388,7 @@ class StreamTest < Minitest::Test
             stream << "lo " << "World"
             stream << ""
           end
+
           assert_equal "\nHe\n\nl\n\nlo \nWorld\n\n", io.string
         end
 
@@ -373,6 +400,7 @@ class StreamTest < Minitest::Test
             stream << "lo " << "World"
             stream << nil
           end
+
           assert_equal "\nHe\n\nl\n\nlo \nWorld\n\n", io.string
         end
       end
@@ -384,10 +412,12 @@ class StreamTest < Minitest::Test
             stream.write("Before")
             IOStreams::Stream.new(stream).writer(:line) do |inner|
               stream.write("Inner")
-              assert_equal inner.object_id, stream.object_id
+
+              assert_same inner, stream
             end
             stream.write("After")
           end
+
           assert_equal "Before\nInner\nAfter\n", io.string, io.string.inspect
         end
       end
@@ -400,6 +430,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[Hello World]
           end
+
           assert_equal "Hello,World\n", io.string
         end
 
@@ -411,6 +442,7 @@ class StreamTest < Minitest::Test
             stream << ["He", "", "l", ""]
             stream << ["lo ", "World"]
           end
+
           assert_equal "He\nl,lo ,World\nHe,\"\",l,\"\"\nlo ,World\n", io.string, io.string.inspect
         end
 
@@ -425,6 +457,7 @@ class StreamTest < Minitest::Test
             stream << ["lo ", "World"]
             stream << []
           end
+
           assert_equal "He\n\nl,lo ,World\nHe,\"\",l,\"\"\nlo ,World\n\n", io.string, io.string.inspect
         end
 
@@ -436,6 +469,7 @@ class StreamTest < Minitest::Test
             stream << ["He", nil, "l", nil]
             stream << ["lo ", "World"]
           end
+
           assert_equal "He\nl,lo ,World\nHe,,l,\nlo ,World\n", io.string, io.string.inspect
         end
 
@@ -450,6 +484,7 @@ class StreamTest < Minitest::Test
             stream << ["lo ", "World"]
             stream << []
           end
+
           assert_equal "\nHe\n\nl\n\nlo \nWorld\n\n", io.string, io.string.inspect
         end
 
@@ -459,6 +494,7 @@ class StreamTest < Minitest::Test
             stream << %w[first_name last_name]
             stream << %w[Jack Johnson]
           end
+
           assert_equal "first_name|last_name\nJack|Johnson\n", io.string, io.string.inspect
         end
 
@@ -468,6 +504,7 @@ class StreamTest < Minitest::Test
             stream << %w[first_name last_name]
             stream << %w[Jack Johnson]
           end
+
           assert_equal "first_name|last_name\nJack|Johnson\n", io.string, io.string.inspect
         end
       end
@@ -480,6 +517,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
           end
+
           assert_equal "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
         end
 
@@ -489,6 +527,7 @@ class StreamTest < Minitest::Test
             stream << {first_name: "Jack", last_name: "Johnson"}
             stream << {first_name: "Able", last_name: "Smith"}
           end
+
           assert_equal "first_name,last_name\nJack,Johnson\nAble,Smith\n", io.string, io.string.inspect
         end
 
@@ -502,6 +541,7 @@ class StreamTest < Minitest::Test
           # Accept both old and new hash syntax formats due to Ruby version differences
           expected_old = "first_name,last_name\nJack,Johnson\n\n{:first_name=>\"Able\", :last_name=>\"Smith\"}\n\n"
           expected_new = "first_name,last_name\nJack,Johnson\n\n{first_name: \"Able\", last_name: \"Smith\"}\n\n"
+
           assert_includes [expected_old, expected_new], io.string, io.string.inspect
         end
 
@@ -514,6 +554,7 @@ class StreamTest < Minitest::Test
             stream << {first_name: "Able", last_name: nil}
             stream << {}
           end
+
           assert_equal "first_name,last_name\nJack,Johnson\n\n{:first_name=>\"Able\", :last_name=>\"Smith\"}\n\n", io.string, io.string.inspect
         end
 
@@ -522,6 +563,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).format(:json).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
           end
+
           assert_equal "{\"first_name\":\"Jack\",\"last_name\":\"Johnson\"}\n", io.string, io.string.inspect
         end
 
@@ -530,6 +572,7 @@ class StreamTest < Minitest::Test
           IOStreams::Stream.new(io).file_name("abc.json").writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
           end
+
           assert_equal "{\"first_name\":\"Jack\",\"last_name\":\"Johnson\"}\n", io.string, io.string.inspect
         end
       end
@@ -538,6 +581,7 @@ class StreamTest < Minitest::Test
     describe "#format" do
       it "detects the format from the file name" do
         stream.file_name = "abc.json"
+
         assert_equal :json, stream.format
       end
 
@@ -547,12 +591,14 @@ class StreamTest < Minitest::Test
 
       it "returns set format with no file_name" do
         stream.format = :csv
+
         assert_equal :csv, stream.format
       end
 
       it "returns set format with file_name" do
         stream.file_name = "abc.json"
         stream.format    = :csv
+
         assert_equal :csv, stream.format
       end
 
@@ -627,12 +673,14 @@ class StreamTest < Minitest::Test
       it "returns the options set for a stream option" do
         path = IOStreams.path("file.csv.pgp")
         path.option(:pgp, passphrase: "receiver_passphrase")
+
         assert_equal({passphrase: "receiver_passphrase"}, path.setting(:pgp))
       end
 
       it "returns the options set for a stream" do
         path = IOStreams.path("tempfile2527")
         path.stream(:pgp, passphrase: "receiver_passphrase")
+
         assert_equal({passphrase: "receiver_passphrase"}, path.setting(:pgp))
       end
 
@@ -645,6 +693,7 @@ class StreamTest < Minitest::Test
       it "adds an option when the file name is set" do
         path = IOStreams.path("file.csv.gz")
         path.option_or_stream(:gz, level: 9)
+
         assert_equal({gz: {level: 9}}, path.pipeline)
       end
 
@@ -652,6 +701,7 @@ class StreamTest < Minitest::Test
         path = IOStreams.path("tempfile2527")
         path.stream(:zip)
         path.option_or_stream(:enc, compress: false)
+
         assert_equal({zip: {}, enc: {compress: false}}, path.pipeline)
       end
     end
@@ -659,8 +709,10 @@ class StreamTest < Minitest::Test
     describe "#remove_from_pipeline" do
       it "removes a stream inferred from the file name" do
         path = IOStreams.path("file.csv.gz")
+
         assert_equal({gz: {}}, path.pipeline)
         path.remove_from_pipeline(:gz)
+
         assert_equal({}, path.pipeline)
       end
     end
@@ -681,9 +733,11 @@ class StreamTest < Minitest::Test
 
       it "converts between streams based on the file names" do
         source_path.write("Hello World")
+
         refute_equal "Hello World", IOStreams.path(source_path.to_s).stream(:none).read
 
         target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"))
+
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
       end
 
@@ -713,6 +767,7 @@ class StreamTest < Minitest::Test
       it "copies to the target path" do
         source_path.write("Hello World")
         source_path.copy_to(IOStreams.join("copy_test", "target.csv"))
+
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
       end
     end

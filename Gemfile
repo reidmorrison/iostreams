@@ -20,4 +20,6 @@ gem "zip_tricks"
 
 # Dev Tools
 gem "rubocop"
+gem "rubocop-minitest"
+gem "rubocop-rake"
 gem "simplecov", require: false

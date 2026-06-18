@@ -84,11 +84,13 @@ module Paths
 
         it "reads http" do
           result = IOStreams::Paths::HTTP.new(url).read
+
           assert_includes result, "Google"
         end
 
         it "reads https" do
           result = IOStreams::Paths::HTTP.new(ssl_url).read
+
           assert_includes result, "Google"
         end
 
@@ -150,6 +152,7 @@ module Paths
 
           IOStreams::Paths::HTTP.new("#{@server.base_url}/file", parameters: {q: "search term", page: 2}).read
           path = @server.requests.first[:path]
+
           assert_includes path, "q=search+term"
           assert_includes path, "page=2"
         end
@@ -251,6 +254,7 @@ module Paths
           start_server { |_path| TestHTTPServer.response(200, body: body) }
 
           IOStreams::Paths::HTTP.new("#{@server.base_url}/file", username: "jack", password: "secret").read
+
           assert auth = @server.requests.first[:headers]["authorization"]
           assert_equal %w[jack secret], Base64.decode64(auth.sub(/\ABasic /, "")).split(":")
         end
@@ -260,6 +264,7 @@ module Paths
           start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "#{@other.base_url}/file"}) }
 
           result = IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect", username: "jack", password: "secret").read
+
           assert_equal body, result
 
           # Credentials sent to the original host.
@@ -278,6 +283,7 @@ module Paths
           end
 
           result = IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect", username: "jack", password: "secret").read
+
           assert_equal body, result
 
           # Same scheme, host and port, so credentials are sent on both requests.

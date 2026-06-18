@@ -28,6 +28,7 @@ class SymmetricEncryptionReaderTest < Minitest::Test
           File.open(file_name, "rb") do |file|
             IOStreams::SymmetricEncryption::Reader.stream(file, &:read)
           end
+
         assert_equal decrypted, result
       end
     end
@@ -35,6 +36,7 @@ class SymmetricEncryptionReaderTest < Minitest::Test
     describe ".file" do
       it "reads an encrypted file" do
         result = IOStreams::SymmetricEncryption::Reader.file(file_name, &:read)
+
         assert_equal decrypted, result
       end
     end
@@ -42,6 +44,7 @@ class SymmetricEncryptionReaderTest < Minitest::Test
     describe ".open" do
       it "reads an encrypted file by name" do
         result = IOStreams::SymmetricEncryption::Reader.open(file_name, &:read)
+
         assert_equal decrypted, result
       end
     end
@@ -67,6 +70,7 @@ class SymmetricEncryptionReaderTest < Minitest::Test
         lines = []
         # IOStreams streams expose #each, not #map, so this is not a map-into-array.
         IOStreams.join("symmetric_encryption_reader_test.enc").each { |line| lines << line } # rubocop:disable Style/MapIntoArray
+
         assert_equal ["first line", "second line"], lines
       end
     end

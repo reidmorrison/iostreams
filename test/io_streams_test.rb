@@ -22,11 +22,13 @@ module IOStreams
       describe ".root" do
         it "return default path" do
           path = ::File.expand_path(::File.join(__dir__, "../tmp/default"))
+
           assert_equal path, IOStreams.root.to_s
         end
 
         it "return downloads path" do
           path = ::File.expand_path(::File.join(__dir__, "../tmp/downloads"))
+
           assert_equal path, IOStreams.root(:downloads).to_s
         end
       end
@@ -46,21 +48,25 @@ module IOStreams
 
         it "returns path and filename" do
           path = ::File.join(IOStreams.root.to_s, "file.xls")
+
           assert_equal path, IOStreams.join("file.xls").to_s
         end
 
         it "adds path to root and filename" do
           path = ::File.join(IOStreams.root.to_s, "test", "file.xls")
+
           assert_equal path, IOStreams.join("test", "file.xls").to_s
         end
 
         it "adds paths to root" do
           path = ::File.join(IOStreams.root.to_s, "test", "second", "third", "file.xls")
+
           assert_equal path, IOStreams.join("test", "second", "third", "file.xls").to_s
         end
 
         it "return path as sent in when full path" do
           path = ::File.join(IOStreams.root.to_s, "file.xls")
+
           assert_equal path, IOStreams.join(path).to_s
         end
       end
@@ -68,12 +74,14 @@ module IOStreams
       describe ".path" do
         it "default" do
           path = IOStreams.path("a.xyz")
-          assert path.is_a?(IOStreams::Paths::File), path
+
+          assert_kind_of IOStreams::Paths::File, path, path
         end
 
         it "s3" do
           skip "TODO"
           IOStreams.path("s3://a.xyz")
+
           assert_equal :s3, path
         end
 
@@ -84,6 +92,7 @@ module IOStreams
           end
           actual = path.read
           path.delete
+
           assert_equal expected_json, actual
         end
 
@@ -96,6 +105,7 @@ module IOStreams
           end
           actual = "#{rows.collect(&:to_json).join("\n")}\n"
           path.delete
+
           assert_equal expected_json, actual
         end
 
@@ -107,6 +117,7 @@ module IOStreams
           end
           actual = path.read
           path.delete
+
           assert_equal expected_json, actual
         end
       end
@@ -114,6 +125,7 @@ module IOStreams
       describe ".temp_file" do
         it "returns value from block" do
           result = IOStreams.temp_file("base", ".ext") { |_path| 257 }
+
           assert_equal 257, result
         end
 
@@ -122,9 +134,10 @@ module IOStreams
           path2 = nil
           IOStreams.temp_file("base", ".ext") { |path| path1 = path }
           IOStreams.temp_file("base", ".ext") { |path| path2 = path }
+
           refute_equal path1.to_s, path2.to_s
-          assert path1.is_a?(IOStreams::Paths::File), path1
-          assert path2.is_a?(IOStreams::Paths::File), path2
+          assert_kind_of IOStreams::Paths::File, path1, path1
+          assert_kind_of IOStreams::Paths::File, path2, path2
         end
       end
 
@@ -152,12 +165,14 @@ module IOStreams
       describe ".stream" do
         it "wraps an io stream" do
           stream = IOStreams.stream(StringIO.new("Hello World"))
-          assert stream.is_a?(IOStreams::Stream)
+
+          assert_kind_of IOStreams::Stream, stream
         end
 
         it "returns the stream if already a stream" do
           stream = IOStreams.stream(StringIO.new("Hello World"))
-          assert_equal stream.object_id, IOStreams.stream(stream).object_id
+
+          assert_same stream, IOStreams.stream(stream)
         end
 
         it "rejects a string argument" do
@@ -169,24 +184,27 @@ module IOStreams
 
       describe ".new" do
         it "returns a path for a file name" do
-          assert IOStreams.new("file_name.txt").is_a?(IOStreams::Paths::File)
+          assert_kind_of IOStreams::Paths::File, IOStreams.new("file_name.txt")
         end
 
         it "returns a stream for an io stream" do
           stream = IOStreams.new(StringIO.new("Hello World"))
-          assert stream.is_a?(IOStreams::Stream)
-          refute stream.is_a?(IOStreams::Path)
+
+          assert_kind_of IOStreams::Stream, stream
+          refute_kind_of IOStreams::Path, stream
         end
 
         it "returns the stream if already a stream" do
           stream = IOStreams.stream(StringIO.new("Hello World"))
-          assert_equal stream.object_id, IOStreams.new(stream).object_id
+
+          assert_same stream, IOStreams.new(stream)
         end
       end
 
       describe ".register_extension" do
         it "registers a new extension" do
           IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+
           assert extension = IOStreams.extensions[:abc123]
           assert_equal IOStreams::Gzip::Reader, extension.reader_class
           assert_equal IOStreams::Gzip::Writer, extension.writer_class
@@ -205,6 +223,7 @@ module IOStreams
         it "removes the extension" do
           IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
           IOStreams.deregister_extension(:abc123)
+
           refute IOStreams.extensions.key?(:abc123)
         end
 
@@ -267,12 +286,14 @@ module IOStreams
         it "yields the path when the pattern is an exact file name" do
           children = []
           IOStreams.each_child(IOStreams.join("each_child_test", "abc.csv").to_s) { |path| children << path.to_s }
+
           assert_equal [IOStreams.join("each_child_test", "abc.csv").to_s], children
         end
 
         it "yields matching children" do
           children = []
           IOStreams.each_child(IOStreams.join("each_child_test", "*.csv").to_s) { |path| children << path.to_s }
+
           assert_equal 2, children.size, children
         end
       end
