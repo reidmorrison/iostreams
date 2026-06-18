@@ -158,6 +158,44 @@ class TabularTest < Minitest::Test
         assert_equal({"first_field" => "1", "second" => "2", "third" => "3"}, hash)
       end
 
+      describe ":csv format edge cases" do
+        it "parses a quoted field containing a comma" do
+          assert hash = tabular.record_parse(%(a,"b,c",d))
+          assert_equal({"first_field" => "a", "second" => "b,c", "third" => "d"}, hash)
+        end
+
+        it "parses a quoted field containing escaped quotes" do
+          assert hash = tabular.record_parse(%(a,"b""c",d))
+          assert_equal({"first_field" => "a", "second" => %(b"c), "third" => "d"}, hash)
+        end
+
+        it "parses a quoted field containing a newline" do
+          assert hash = tabular.record_parse(%(a,"b\nc",d))
+          assert_equal({"first_field" => "a", "second" => "b\nc", "third" => "d"}, hash)
+        end
+
+        it "preserves leading zeros as strings" do
+          assert hash = tabular.record_parse("007,2,3")
+          assert_equal({"first_field" => "007", "second" => "2", "third" => "3"}, hash)
+        end
+
+        it "distinguishes an empty quoted field from a missing field" do
+          assert hash = tabular.record_parse(%(1,"",3))
+          assert_equal({"first_field" => "1", "second" => "", "third" => "3"}, hash)
+        end
+
+        it "parses an unquoted empty trailing field as nil" do
+          assert hash = tabular.record_parse("1,2,")
+          assert_equal({"first_field" => "1", "second" => "2", "third" => nil}, hash)
+        end
+
+        it "raises for an unsupported input type" do
+          assert_raises IOStreams::Errors::TypeMismatch do
+            tabular.record_parse(123)
+          end
+        end
+      end
+
       describe ":hash format" do
         let :format do
           :hash
@@ -276,6 +314,55 @@ class TabularTest < Minitest::Test
       it "renders a hash including nil and boolean" do
         assert csv_string = tabular.render({"third" => true, "first_field" => false, "second" => nil})
         assert_equal "false,,true", csv_string
+      end
+
+      describe ":csv format edge cases" do
+        it "quotes a field containing a comma" do
+          assert_equal %(a,"b,c",d), tabular.render(%w[a b,c d])
+        end
+
+        it "escapes quotes within a field" do
+          assert_equal %(a,"b""c",d), tabular.render(["a", %(b"c), "d"])
+        end
+
+        it "quotes a field containing a newline" do
+          assert_equal %(a,"b\nc",d), tabular.render(["a", "b\nc", "d"])
+        end
+
+        it "round-trips a field containing a comma" do
+          row = %w[a b,c d]
+          assert_equal row, tabular.record_parse(tabular.render(row)).values
+        end
+      end
+
+      describe ":array format" do
+        let :format do
+          :array
+        end
+
+        it "renders an array" do
+          assert_equal [5, 6, 9], tabular.render([5, 6, 9])
+        end
+      end
+
+      describe ":hash format" do
+        let :format do
+          :hash
+        end
+
+        it "renders a hash" do
+          assert_equal({"first_field" => 1, "second" => 2, "third" => 3}, tabular.render([1, 2, 3]))
+        end
+      end
+
+      describe ":json format" do
+        let :format do
+          :json
+        end
+
+        it "renders a hash as a JSON string" do
+          assert_equal '{"first_field":1,"second":2,"third":3}', tabular.render([1, 2, 3])
+        end
       end
 
       describe ":psv format" do
@@ -398,6 +485,10 @@ class TabularTest < Minitest::Test
 
       it "is false for json" do
         refute IOStreams::Tabular.new(format: :json).requires_header?
+      end
+
+      it "is false for hash" do
+        refute IOStreams::Tabular.new(format: :hash).requires_header?
       end
     end
 
