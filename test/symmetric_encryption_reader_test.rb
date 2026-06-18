@@ -65,7 +65,8 @@ class SymmetricEncryptionReaderTest < Minitest::Test
         path.write("first line\nsecond line\n")
 
         lines = []
-        IOStreams.join("symmetric_encryption_reader_test.enc").each { |line| lines << line }
+        # IOStreams streams expose #each, not #map, so this is not a map-into-array.
+        IOStreams.join("symmetric_encryption_reader_test.enc").each { |line| lines << line } # rubocop:disable Style/MapIntoArray
         assert_equal ["first line", "second line"], lines
       end
     end

@@ -62,15 +62,6 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe ".line_reader" do
-    end
-
-    describe ".row_reader" do
-    end
-
-    describe ".record_reader" do
-    end
-
     describe "#each(:line)" do
       it "returns a line at a time" do
         lines = []

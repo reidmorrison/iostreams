@@ -62,7 +62,7 @@ class LineReaderTest < Minitest::Test
         it "raises error for unbalanced quotes" do
           exc = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.file(unclosed_quote_file, embedded_within: '"') do |io|
-              io.each { |line| }
+              io.each { |line| line }
             end
           end
           assert_includes exc.message, "Unbalanced delimited field, delimiter:"
@@ -71,7 +71,7 @@ class LineReaderTest < Minitest::Test
         it "raises error for unclosed quote" do
           exc = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.file(unclosed_quote_file2, embedded_within: '"') do |io|
-              io.each { |line| }
+              io.each { |line| line }
             end
           end
           assert_includes exc.message, "Unbalanced delimited field, delimiter:"
@@ -80,7 +80,7 @@ class LineReaderTest < Minitest::Test
         it "raises error for unclosed quote before eof" do
           exc = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.file(unclosed_quote_large_file, embedded_within: '"', buffer_size: 20) do |io|
-              io.each { |line| }
+              io.each { |line| line }
             end
           end
           assert_includes exc.message, "Unbalanced delimited field, delimiter:"
@@ -316,6 +316,7 @@ class LineReaderTest < Minitest::Test
           stream = StringIO.new(data)
           assert_raises IOStreams::Errors::DelimiterNotFound do
             IOStreams::Line::Reader.stream(stream, buffer_size: 1) do |io|
+              # Opening the reader is enough to trigger the error.
             end
           end
         end

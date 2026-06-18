@@ -1,6 +1,29 @@
 require_relative "test_helper"
 
 class BuilderTest < Minitest::Test
+  class SimpleStream
+    def self.stream(io, **args)
+      yield new(io, **args)
+    end
+
+    def self.open(file_name_or_io, **args, &)
+      file_name_or_io.is_a?(String) ? file(file_name_or_io, **args, &) : stream(file_name_or_io, **args, &)
+    end
+
+    def initialize(io, arg:)
+      @io  = io
+      @arg = arg
+    end
+
+    def write(data)
+      @io.write("#{@arg}>#{data}")
+    end
+  end
+
+  IOStreams.register_extension(:simple, nil, SimpleStream)
+  IOStreams.register_extension(:simple2, nil, SimpleStream)
+  IOStreams.register_extension(:simple3, nil, SimpleStream)
+
   describe IOStreams::Builder do
     let(:file_name) { "my/path/abc.bcd.xlsx.zip.gz.pgp" }
     let(:streams) { IOStreams::Builder.new(file_name) }
@@ -284,28 +307,5 @@ class BuilderTest < Minitest::Test
         assert_equal "third>second>first>last", string_io.string
       end
     end
-
-    class SimpleStream
-      def self.stream(io, **args)
-        yield new(io, **args)
-      end
-
-      def self.open(file_name_or_io, **args, &block)
-        file_name_or_io.is_a?(String) ? file(file_name_or_io, **args, &block) : stream(file_name_or_io, **args, &block)
-      end
-
-      def initialize(io, arg:)
-        @io  = io
-        @arg = arg
-      end
-
-      def write(data)
-        @io.write("#{@arg}>#{data}")
-      end
-    end
-
-    IOStreams.register_extension(:simple, nil, SimpleStream)
-    IOStreams.register_extension(:simple2, nil, SimpleStream)
-    IOStreams.register_extension(:simple3, nil, SimpleStream)
   end
 end
