@@ -3,7 +3,8 @@ source "https://rubygems.org"
 gemspec
 
 gem "amazing_print"
-gem "minitest", "< 6.0"
+gem "minitest", "~> 6.0"
+gem "minitest-mock" # Extracted from minitest itself in v6.0.
 gem "rake"
 
 # Gems used by the library.

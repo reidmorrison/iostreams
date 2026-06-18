@@ -120,7 +120,7 @@ module IOStreams
         it "raise NotImplementedError" do
           path = IOStreams::Path.new("a/b/c")
           %i[mkpath mkdir exist? size delete delete_all each_child].each do |method|
-            assert_raises(NotImplementedError, method) { path.public_send(method) }
+            assert_raises(NotImplementedError, method.to_s) { path.public_send(method) }
           end
         end
       end

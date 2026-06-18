@@ -13,6 +13,7 @@ end
 
 require "yaml"
 require "minitest/autorun"
+require "minitest/mock"
 require "iostreams"
 require "amazing_print"
 require "symmetric-encryption"

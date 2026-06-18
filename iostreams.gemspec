@@ -14,7 +14,7 @@ Gem::Specification.new do |s|
   s.summary               = "Streaming I/O for Ruby: compression, encryption, format, and storage transparent to your code."
   s.files                 = Dir["lib/**/*", "bin/*", "LICENSE", "Rakefile", "README.md"]
   s.license               = "Apache-2.0"
-  s.required_ruby_version = ">= 3.0"
+  s.required_ruby_version = ">= 3.2"
   s.metadata["rubygems_mfa_required"] = "true"
 
   # CSV is the default tabular format. It was a Ruby default gem through 3.3, but became a
