@@ -31,6 +31,11 @@ release.
 
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on documentation
+updates, code changes, the project architecture, and the code of conduct.
+
 ## Author
 
 [Reid Morrison](https://github.com/reidmorrison)

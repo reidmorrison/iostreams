@@ -12,10 +12,14 @@ Great to have you onboard, looking forward to your help and feedback.
 
 #### Late Adopters
 
-IOStreams is open source code, the author and contributors do this work when we have the "free time" to do so.
+IOStreams is open source software, maintained by the author and contributors in their spare time,
+around the demands of full-time jobs and other commitments. We genuinely appreciate everyone who
+uses the library and takes the time to report issues or suggest improvements.
 
-We are not here to write code for some random edge case that you may have at your paid job. 
-That is the point of Pull Requests where you can contribute your own enhancements.
+That said, please keep in mind that we may not be able to prioritize building features for a specific
+edge case you have encountered, particularly one that arises in a commercial setting. This is exactly
+what Pull Requests are for: if you need a particular enhancement, we warmly encourage you to contribute
+it yourself, and we will gladly review it and help get it merged.
 
 ## Documentation
 
@@ -230,6 +234,101 @@ callers using it.
 This keeps the API simple for everyone using IOStreams, and lets the internal APIs change without
 breaking existing code, since only the `IOStreams` module surface and the returned path/stream methods
 are guaranteed.
+
+### Class diagram
+
+The diagram below shows the main classes and how they relate. `IOStreams` is the public surface
+returned to callers; it delegates pipeline construction to a `Builder`, which assembles an ordered
+list of concrete `Reader` and `Writer` streams. `Path` and its storage subclasses extend `Stream`.
+
+```mermaid
+classDiagram
+    class IOStreams {
+        <<module>>
+        +path(uri)
+        +stream(io)
+        +join(*elements)
+        +register_extension()
+        +register_scheme()
+    }
+
+    class Stream {
+        +io_stream
+        +stream(stream, **options)
+        +option(stream, **options)
+        +reader(...)
+        +writer(...)
+        +each(...)
+        +read()
+        +write()
+        +copy_from()
+    }
+
+    class Path {
+        <<abstract>>
+        +path
+        +join()
+        +children()
+        +mkpath()
+        +exist?()
+        +delete()
+    }
+
+    class Builder {
+        +file_name
+        +format
+        +streams
+        +options
+        +pipeline()
+        +reader(io, &block)
+        +writer(io, &block)
+    }
+
+    class Reader {
+        <<abstract>>
+        +read()
+        +close()
+        +closed?()
+    }
+
+    class Writer {
+        <<abstract>>
+        +write()
+        +close()
+        +closed?()
+    }
+
+    IOStreams ..> Stream : returns
+    IOStreams ..> Path : returns
+    Stream "1" *-- "1" Builder : delegates to
+    Path --|> Stream
+    Paths_File --|> Path
+    Paths_S3 --|> Path
+    Paths_SFTP --|> Path
+    Paths_HTTP --|> Path
+
+    Builder ..> Reader : builds pipeline of
+    Builder ..> Writer : builds pipeline of
+
+    Gzip_Reader --|> Reader
+    Line_Reader --|> Reader
+    Row_Reader --|> Reader
+    Record_Reader --|> Reader
+    Encode_Reader --|> Reader
+    Pgp_Reader --|> Reader
+    Zip_Reader --|> Reader
+
+    Gzip_Writer --|> Writer
+    Line_Writer --|> Writer
+    Row_Writer --|> Writer
+    Record_Writer --|> Writer
+    Encode_Writer --|> Writer
+    Pgp_Writer --|> Writer
+    Zip_Writer --|> Writer
+```
+
+(Only a representative set of the concrete `Reader`/`Writer` and `Path` subclasses are shown;
+the full set lives under the format and `paths/` subdirectories.)
 
 Every Reader or Writer is invoked by calling its `.open` method and passing the block
 that must be invoked for the duration of that stream.
