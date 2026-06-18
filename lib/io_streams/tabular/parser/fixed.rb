@@ -71,7 +71,7 @@ module IOStreams
         def render(row, header)
           hash = header.to_hash(row)
 
-          result = ""
+          result = +""
           layout.columns.each do |column|
             result << column.render(hash[column.key], truncate)
           end

@@ -4,7 +4,6 @@ AllCops:
     - "docs/**/*"
     - "gemfiles/*"
     - "lib/io_streams/deprecated.rb"
-    - "lib/io_streams/tabular/utility/csv_row.rb"
     - "test/files/*"
     - "docs/stylesheets/*"
   NewCops: enable

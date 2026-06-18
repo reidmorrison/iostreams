@@ -40,10 +40,6 @@ module IOStreams
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
 
-    module Utility
-      autoload :CSVRow, "io_streams/tabular/utility/csv_row"
-    end
-
     attr_reader :format, :header, :parser
 
     # Parse a delimited data source.
