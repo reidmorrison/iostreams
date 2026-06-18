@@ -21,3 +21,7 @@ gem "zip_tricks"
 group :development do
   gem "rubocop"
 end
+
+group :test do
+  gem "simplecov", require: false
+end
