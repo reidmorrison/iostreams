@@ -75,7 +75,7 @@ module IOStreams
       reject_newlines!(name: name, email: email, comment: comment, passphrase: passphrase,
                        key_type: key_type, subkey_type: subkey_type, expire_date: expire_date)
 
-      params = ""
+      params = +""
       params << "Key-Type: #{key_type}\n" if key_type
       params << "Key-Length: #{key_length}\n" if key_length
       params << "Subkey-Type: #{subkey_type}\n" if subkey_type
