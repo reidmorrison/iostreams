@@ -333,10 +333,58 @@ Notes:
 * http_redirect_count: [Integer]
 
   Maximum number of http redirects to follow.
+  Set to `0` to disable following redirects entirely.
+  Default: `10`
+
+* allow_hosts: [String | Array<String>]
+
+  Optional allow-list of host names that may be contacted. It is applied both to the
+  supplied url and to every redirect that is followed; a request to any other host raises
+  `IOStreams::Errors::CommunicationsFailure`.
+  Default: `nil` (any host is allowed).
+
+* maximum_file_size: [Integer]
+
+  Optional maximum number of bytes to download. When the response body exceeds this size the
+  download is aborted with an `IOStreams::Errors::CommunicationsFailure`.
+  Default: `nil` (no limit).
 
 ~~~ruby 
 path = IOStreams.path("http://hostname/path/example.csv")
 ~~~
+
+#### Security: untrusted URLs (SSRF)
+
+Reading an HTTP(S) path causes the application to issue a request to the host named in the url.
+When the url, or any part of it, can be influenced by untrusted input, an attacker can point it
+at internal services or cloud metadata endpoints (Server Side Request Forgery).
+
+Because redirect targets are chosen by the remote server, validating only the url that is passed
+in is not sufficient: a trusted (or compromised) server can redirect the request to an internal
+address. IOStreams provides a few controls to reduce this exposure:
+
+* Restrict which hosts may be contacted, including across redirects:
+
+~~~ruby
+IOStreams.path("https://supplier.example.com/report.csv", allow_hosts: ["supplier.example.com"]).read
+~~~
+
+* Disable redirects entirely for untrusted urls:
+
+~~~ruby
+IOStreams.path(untrusted_url, http_redirect_count: 0).read
+~~~
+
+* Cap the download size to avoid unbounded (denial of service) responses:
+
+~~~ruby
+IOStreams.path(untrusted_url, maximum_file_size: 50 * 1024 * 1024).read
+~~~
+
+Basic authentication credentials are only ever sent to the original host. They are not resent
+when a redirect points at a different scheme, host, or port, so a redirect cannot leak them to
+another server. For stronger guarantees, route these downloads through an egress proxy or network
+policy that blocks private, loopback, and link-local (cloud metadata) addresses.
 
 Similarly when using https:
 
