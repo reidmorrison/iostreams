@@ -63,6 +63,23 @@ class PgpWriterTest < Minitest::Test
         assert_equal decrypted, result
       end
 
+      it "signs without encrypting" do
+        IOStreams::Pgp::Writer.file(file_name, encrypt: false, signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+          io.write(decrypted)
+        end
+
+        # A signed-only file is not encrypted and so needs no passphrase to read.
+        result = IOStreams::Pgp::Reader.file(file_name, &:read)
+
+        assert_equal decrypted, result
+      end
+
+      it "raises when signing without encryption and no signer is supplied" do
+        assert_raises ArgumentError do
+          IOStreams::Pgp::Writer.file(file_name, encrypt: false) { |io| io.write(decrypted) }
+        end
+      end
+
       it "supports multiple recipients" do
         IOStreams::Pgp::Writer.file(file_name, recipient: %w[receiver@example.org receiver2@example.org], signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
           io.write(decrypted)
