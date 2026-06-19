@@ -1,4 +1,4 @@
-$LOAD_PATH.unshift File.dirname(__FILE__) + "/../lib"
+$LOAD_PATH.unshift "#{File.dirname(__FILE__)}/../lib"
 
 # Must be started before any application code is required so that all lib files are tracked.
 # Enable by running the suite with COVERAGE=true (off by default to keep normal runs fast).
@@ -13,6 +13,7 @@ end
 
 require "yaml"
 require "minitest/autorun"
+require "minitest/mock"
 require "iostreams"
 require "amazing_print"
 require "symmetric-encryption"

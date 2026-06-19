@@ -92,8 +92,8 @@ module IOStreams
       #
       # Notes:
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
-      def stream_reader(&block)
-        handle_redirects(url, http_redirect_count, &block)
+      def stream_reader(&)
+        handle_redirects(url, http_redirect_count, &)
       end
 
       def handle_redirects(uri, http_redirect_count, &block)

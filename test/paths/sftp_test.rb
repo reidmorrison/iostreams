@@ -9,9 +9,9 @@ module Paths
         end
       end
 
-      let(:host_name) { ENV["SFTP_HOSTNAME"] }
-      let(:username) { ENV["SFTP_USERNAME"] }
-      let(:password) { ENV["SFTP_PASSWORD"] }
+      let(:host_name) { ENV.fetch("SFTP_HOSTNAME", nil) }
+      let(:username) { ENV.fetch("SFTP_USERNAME", nil) }
+      let(:password) { ENV.fetch("SFTP_PASSWORD", nil) }
       let(:ftp_dir) { ENV["SFTP_DIR"] || "iostreams_test" }
       let(:identity_username) { ENV["SFTP_IDENTITY_USERNAME"] || username }
 
@@ -78,11 +78,12 @@ module Paths
 
         describe "use identity file instead of password" do
           let :root_path do
-            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityFile" => ENV["SFTP_IDENTITY_FILE"]})
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityFile" => ENV.fetch("SFTP_IDENTITY_FILE", nil)})
           end
 
           it "writes" do
             skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
+
             assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
             assert_equal raw, write_path.read
           end
@@ -90,12 +91,13 @@ module Paths
 
         describe "use identity key instead of password" do
           let :root_path do
-            key = File.open(ENV["SFTP_IDENTITY_FILE"], "rb", &:read)
+            key = File.binread(ENV.fetch("SFTP_IDENTITY_FILE", nil))
             IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityKey" => key})
           end
 
           it "writes" do
             skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
+
             assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
             assert_equal raw, write_path.read
           end
@@ -115,6 +117,7 @@ module Paths
       describe "#initialize" do
         it "parses the hostname, path, and default port" do
           path = new_path(url, username: "jack", password: "secret")
+
           assert_equal "example.org", path.hostname
           assert_equal "/path/file.txt", path.path
           assert_equal 22, path.port
@@ -123,12 +126,14 @@ module Paths
 
         it "reads the username and password from arguments" do
           path = new_path(url, username: "jack", password: "secret")
+
           assert_equal "jack", path.username
           assert_equal "secret", path.send(:password)
         end
 
         it "reads the username, password, and port from the url" do
           path = new_path("sftp://jack:secret@example.org:2222/path/file.txt")
+
           assert_equal "jack", path.username
           assert_equal "secret", path.send(:password)
           assert_equal 2222, path.port
@@ -136,12 +141,14 @@ module Paths
 
         it "prefers explicit arguments over url credentials" do
           path = new_path("sftp://urluser:urlpass@example.org/path/file.txt", username: "jack", password: "secret")
+
           assert_equal "jack", path.username
           assert_equal "secret", path.send(:password)
         end
 
         it "converts symbol ssh_options keys to strings" do
           path = new_path(url, username: "jack", ssh_options: {IdentityFile: "~/.ssh/id_rsa"})
+
           assert_equal({"IdentityFile" => "~/.ssh/id_rsa"}, path.ssh_options)
         end
 
@@ -154,7 +161,7 @@ module Paths
 
       describe "#relative?" do
         it "is always false" do
-          refute new_path(url, username: "jack", password: "secret").relative?
+          refute_predicate new_path(url, username: "jack", password: "secret"), :relative?
         end
       end
 
@@ -167,6 +174,7 @@ module Paths
       describe "#mkdir" do
         it "sets the flag and returns self" do
           path = new_path(url, username: "jack", password: "secret")
+
           assert_same path, path.mkdir
           assert path.instance_variable_get(:@mkdir)
         end
@@ -199,22 +207,26 @@ module Paths
 
         it "omits the port option when using the default port" do
           path = new_path(url, username: "jack", password: "secret")
+
           refute(path.send(:sftp_args, path.ssh_options).any? { |arg| arg.start_with?("-oPort=") })
         end
 
         it "includes the port option for a non-default port" do
           path = new_path("sftp://example.org:2222/path/file.txt", username: "jack", password: "secret")
+
           assert_includes path.send(:sftp_args, path.ssh_options), "-oPort=2222"
         end
 
         it "passes through custom ssh_options" do
           path = new_path(url, username: "jack", password: "secret", ssh_options: {"ServerAliveInterval" => 60})
+
           assert_includes path.send(:sftp_args, path.ssh_options), "-oServerAliveInterval=60"
         end
 
         it "does not override an explicitly supplied StrictHostKeyChecking" do
           path = new_path(url, username: "jack", password: "secret", ssh_options: {"StrictHostKeyChecking" => "no"})
           args = path.send(:sftp_args, path.ssh_options)
+
           assert_includes args, "-oStrictHostKeyChecking=no"
           refute_includes args, "-oStrictHostKeyChecking=yes"
         end
@@ -244,6 +256,7 @@ module Paths
           contents = nil
           path.send(:with_sftp_args) do |args|
             host_key_arg = args.find { |arg| arg.start_with?("-oUserKnownHostsFile=") }
+
             refute_nil host_key_arg
             contents = ::File.read(host_key_arg.split("=", 2).last)
           end
@@ -256,6 +269,7 @@ module Paths
         it "fills in the default port, packet size, and password" do
           path    = new_path(url, username: "jack", password: "secret")
           options = path.send(:build_ssh_options)
+
           assert_equal 22, options[:port]
           assert_equal 65_536, options[:max_pkt_size]
           assert_equal "secret", options[:password]
@@ -265,6 +279,7 @@ module Paths
       describe "#map_log_level" do
         it "defaults to INFO without SemanticLogger" do
           path = new_path(url, username: "jack", password: "secret")
+
           assert_equal "INFO", path.send(:map_log_level)
         end
       end

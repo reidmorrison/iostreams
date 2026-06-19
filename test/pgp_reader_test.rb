@@ -22,6 +22,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         result = IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -39,6 +40,7 @@ class PgpReaderTest < Minitest::Test
 
         io     = StringIO.new(io_string.string)
         result = IOStreams::Pgp::Reader.stream(io, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
     end

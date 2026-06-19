@@ -79,13 +79,8 @@ module IOStreams
                     signer: default_signer,
                     signer_passphrase: default_signer_passphrase,
                     compress: :zip,
-                    compression: nil, # Deprecated
                     compress_level: 6)
-
         raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
-
-        # Backward compatibility
-        compress = compression if compression
 
         compress_level = 0 if compress == :none
 
@@ -121,11 +116,11 @@ module IOStreams
             stdin.close
           rescue Errno::EPIPE
             # Ignore broken pipe because gpg terminates early due to an error
-            ::File.delete(file_name) if ::File.exist?(file_name)
+            ::FileUtils.rm_f(file_name)
             raise(Pgp::Failure, "GPG Failed writing to encrypted file: #{file_name}: #{out.read.chomp}")
           end
           unless waith_thr.value.success?
-            ::File.delete(file_name) if ::File.exist?(file_name)
+            ::FileUtils.rm_f(file_name)
             raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name}: #{out.read.chomp}")
           end
         end

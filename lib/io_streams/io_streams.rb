@@ -244,7 +244,7 @@ module IOStreams
   # Set the temporary path to use when creating local temp files.
   def self.temp_dir=(temp_dir)
     temp_dir = File.expand_path(temp_dir)
-    FileUtils.mkdir_p(temp_dir) unless ::File.exist?(temp_dir)
+    FileUtils.mkdir_p(temp_dir)
 
     @temp_dir = temp_dir
   end
@@ -267,7 +267,7 @@ module IOStreams
   def self.register_extension(extension, reader_class, writer_class)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
 
-    @extensions[extension.nil? ? nil : extension.to_sym] = Extension.new(reader_class, writer_class)
+    @extensions[extension&.to_sym] = Extension.new(reader_class, writer_class)
   end
 
   # De-Register a file extension
@@ -294,7 +294,7 @@ module IOStreams
   def self.register_scheme(scheme, klass)
     raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s =~ /\A\w+\Z/
 
-    @schemes[scheme.nil? ? nil : scheme.to_sym] = klass
+    @schemes[scheme&.to_sym] = klass
   end
 
   def self.schemes
@@ -302,7 +302,7 @@ module IOStreams
   end
 
   def self.scheme(scheme_name)
-    @schemes[scheme_name.nil? ? nil : scheme_name.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
+    @schemes[scheme_name&.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
   end
 
   Extension = Struct.new(:reader_class, :writer_class)

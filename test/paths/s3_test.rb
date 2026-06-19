@@ -15,7 +15,7 @@ module Paths
         File.read(file_name)
       end
 
-      let(:root_path) { IOStreams::Paths::S3.new("s3://#{ENV['S3_BUCKET_NAME']}/iostreams_test") }
+      let(:root_path) { IOStreams::Paths::S3.new("s3://#{ENV.fetch('S3_BUCKET_NAME', nil)}/iostreams_test") }
 
       let :existing_path do
         path = root_path.join("test.txt")
@@ -33,41 +33,41 @@ module Paths
 
       describe "#delete" do
         it "existing file" do
-          assert existing_path.delete.is_a?(IOStreams::Paths::S3)
+          assert_kind_of IOStreams::Paths::S3, existing_path.delete
         end
 
         it "missing file" do
-          assert missing_path.delete.is_a?(IOStreams::Paths::S3)
+          assert_kind_of IOStreams::Paths::S3, missing_path.delete
         end
       end
 
       describe "#exist?" do
         it "existing file" do
-          assert existing_path.exist?
+          assert_predicate existing_path, :exist?
         end
 
         it "missing file" do
-          refute missing_path.exist?
+          refute_predicate missing_path, :exist?
         end
       end
 
       describe "#mkpath" do
         it "returns self for non-existant path" do
-          assert existing_path.mkpath.is_a?(IOStreams::Paths::S3)
+          assert_kind_of IOStreams::Paths::S3, existing_path.mkpath
         end
 
         it "checks for lack of existence" do
-          assert missing_path.mkpath.is_a?(IOStreams::Paths::S3)
+          assert_kind_of IOStreams::Paths::S3, missing_path.mkpath
         end
       end
 
       describe "#mkdir" do
         it "returns self for non-existant path" do
-          assert existing_path.mkdir.is_a?(IOStreams::Paths::S3)
+          assert_kind_of IOStreams::Paths::S3, existing_path.mkdir
         end
 
         it "checks for lack of existence" do
-          assert missing_path.mkdir.is_a?(IOStreams::Paths::S3)
+          assert_kind_of IOStreams::Paths::S3, missing_path.mkdir
         end
       end
 
@@ -90,7 +90,7 @@ module Paths
       describe "#writer" do
         it "writes" do
           assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
-          assert write_path.exist?
+          assert_predicate write_path, :exist?
           assert_equal raw, write_path.read
         end
       end
@@ -99,6 +99,7 @@ module Paths
         it "reads line by line" do
           lines = []
           existing_path.each(:line) { |line| lines << line }
+
           assert_equal raw.lines.collect(&:chomp), lines
         end
       end
@@ -123,6 +124,7 @@ module Paths
         it "existing file returns just the file itself" do
           # Glorified exists call
           existing_path
+
           assert_equal root_path.join("test.txt").to_s, root_path.children("test.txt").first.to_s
         end
 
@@ -133,18 +135,21 @@ module Paths
 
         it "returns all the children" do
           write_raw_data
+
           assert_equal multiple_paths.collect(&:to_s).sort, each_root.children("**/*").collect(&:to_s).sort
         end
 
         it "returns all the children under a sub-dir" do
           write_raw_data
           expected = %w[abd/test1.txt abd/test5.file].collect { |file_name| each_root.join(file_name) }
+
           assert_equal expected.collect(&:to_s).sort, each_root.children("abd/*").collect(&:to_s).sort
         end
 
         it "missing path" do
           count = 0
           missing_path.each_child { |_| count += 1 }
+
           assert_equal 0, count
         end
 
@@ -154,6 +159,7 @@ module Paths
             write_raw_data
             children = []
             IOStreams.each_child(each_root.join("**/*").to_s) { |child| children << child }
+
             assert_equal multiple_paths.collect(&:to_s).sort, children.collect(&:to_s).sort
           end
         end
@@ -166,9 +172,10 @@ module Paths
             source.write("Hello World")
             target   = source.directory.join("move_test_target.txt")
             response = source.move_to(target)
+
             assert_equal target, response
-            assert target.exist?
-            refute source.exist?
+            assert_predicate target, :exist?
+            refute_predicate source, :exist?
             assert_equal "Hello World", response.read
             assert_equal target.to_s, response.to_s
           ensure
@@ -179,13 +186,14 @@ module Paths
 
         it "missing source file" do
           source = root_path.join("move_test_source.txt")
-          refute source.exist?
+
+          refute_predicate source, :exist?
           begin
             target = source.directory.join("move_test_target.txt")
             assert_raises Aws::S3::Errors::NoSuchKey do
               source.move_to(target)
             end
-            refute target.exist?
+            refute_predicate target, :exist?
           ensure
             source&.delete
             target&.delete
@@ -198,9 +206,10 @@ module Paths
             source.write("Hello World")
             target   = source.directory.join("a/b/c/move_test_target.txt")
             response = source.move_to(target)
+
             assert_equal target, response
-            assert target.exist?
-            refute source.exist?
+            assert_predicate target, :exist?
+            refute_predicate source, :exist?
             assert_equal "Hello World", response.read
             assert_equal target.to_s, response.to_s
           ensure
@@ -212,7 +221,7 @@ module Paths
 
       describe "#partial_files_visible?" do
         it "visible only after upload" do
-          refute root_path.partial_files_visible?
+          refute_predicate root_path, :partial_files_visible?
         end
       end
     end

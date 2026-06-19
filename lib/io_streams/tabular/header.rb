@@ -132,7 +132,9 @@ module IOStreams
 
       def array_to_hash(row)
         h = {}
-        columns.each_with_index { |col, i| h[col] = row[i] unless IOStreams::Utils.blank?(col) || col.start_with?(IGNORE_PREFIX) }
+        columns.each_with_index do |col, i|
+          h[col] = row[i] unless IOStreams::Utils.blank?(col) || col.start_with?(IGNORE_PREFIX)
+        end
         h
       end
 

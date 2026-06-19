@@ -27,16 +27,19 @@ class ZipReaderTest < Minitest::Test
     describe ".file" do
       it "reads the first file" do
         result = IOStreams::Zip::Reader.file(file_name, &:read)
+
         assert_equal decompressed, result
       end
 
       it "reads entry within zip file" do
         result = IOStreams::Zip::Reader.file(multiple_zip_file_name, entry_file_name: "text.txt", &:read)
+
         assert_equal contents_test_txt, result
       end
 
       it "reads another entry within zip file" do
         result = IOStreams::Zip::Reader.file(multiple_zip_file_name, entry_file_name: "test.json", &:read)
+
         assert_equal contents_test_json, result
       end
 

@@ -195,7 +195,7 @@ module IOStreams
 
     # Returns the parser class for the registered format.
     def self.parser_class(format)
-      @formats[format.nil? ? nil : format.to_sym] ||
+      @formats[format&.to_sym] ||
         raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
     end
 

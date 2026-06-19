@@ -41,7 +41,7 @@ module IOStreams
     # Runs the pattern from the current path, returning the complete path for located files.
     #
     # See IOStreams::Paths::File.each for arguments.
-    def each_child(pattern = "*", **args, &block)
+    def each_child(pattern = "*", **args, &)
       raise NotImplementedError
     end
 
@@ -84,7 +84,7 @@ module IOStreams
     # Cleanup an incomplete write to the target "file" if the copy fails.
     # rubocop:disable Lint/SuppressedException
     def copy_from(source, **args)
-      super(source, **args)
+      super
     rescue StandardError => e
       begin
         delete

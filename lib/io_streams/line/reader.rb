@@ -6,7 +6,7 @@ module IOStreams
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` characters are read.
       MAX_BLOCKS_MULTIPLIER = 100
 
-      LINEFEED_REGEXP = Regexp.compile(/\r\n|\n|\r/).freeze
+      LINEFEED_REGEXP = /\r\n|\n|\r/
 
       # Read a line at a time from a stream
       def self.stream(input_stream, **args)

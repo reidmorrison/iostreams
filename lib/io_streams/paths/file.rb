@@ -136,12 +136,12 @@ module IOStreams
 
       def mkpath
         dir = ::File.dirname(path)
-        FileUtils.mkdir_p(dir) unless ::File.exist?(dir)
+        FileUtils.mkdir_p(dir)
         self
       end
 
       def mkdir
-        FileUtils.mkdir_p(path) unless ::File.exist?(path)
+        FileUtils.mkdir_p(path)
         self
       end
 
@@ -189,7 +189,7 @@ module IOStreams
         begin
           ::File.open(path, "wb") { |io| builder.writer(io, &block) }
         rescue StandardError => e
-          ::File.unlink(path) if ::File.exist?(path)
+          ::FileUtils.rm_f(path)
           raise(e)
         end
       end

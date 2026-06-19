@@ -15,8 +15,8 @@ module IOStreams
     end
 
     # For processing by either a file name or an open IO stream.
-    def self.open(file_name_or_io, **args, &block)
-      file_name_or_io.is_a?(String) ? file(file_name_or_io, **args, &block) : stream(file_name_or_io, **args, &block)
+    def self.open(file_name_or_io, **args, &)
+      file_name_or_io.is_a?(String) ? file(file_name_or_io, **args, &) : stream(file_name_or_io, **args, &)
     end
 
     attr_reader :input_stream

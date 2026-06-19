@@ -25,6 +25,7 @@ class SymmetricEncryptionWriterTest < Minitest::Test
             io.write(decrypted)
             53_534
           end
+
         assert_equal 53_534, result
 
         refute_equal decrypted, File.read(file_name, mode: "rb")
@@ -41,6 +42,7 @@ class SymmetricEncryptionWriterTest < Minitest::Test
 
         refute_equal decrypted, io_string.string
         io = StringIO.new(io_string.string)
+
         assert_equal decrypted, ::SymmetricEncryption::Reader.open(io, &:read)
       end
 
@@ -51,6 +53,7 @@ class SymmetricEncryptionWriterTest < Minitest::Test
         end
 
         io = StringIO.new(io_string.string)
+
         assert_equal decrypted, ::SymmetricEncryption::Reader.open(io, &:read)
       end
     end

@@ -417,7 +417,8 @@ module IOStreams
       err
     end
 
-    # DEPRECATED - Use key_ids instead of fingerprints
+    # Internal: resolve an email address to a key fingerprint.
+    # Public callers should identify keys by `key_id` (see #list_keys / #key_info).
     def self.fingerprint(email:)
       version_check
       command = gpg_command("--list-keys", "--fingerprint", "--with-colons", email.to_s)
@@ -428,13 +429,14 @@ module IOStreams
         end
 
         output.each_line do |line|
-          if (match = line.match(/\Afpr.*::([^\:]*):\Z/))
+          if (match = line.match(/\Afpr.*::([^:]*):\Z/))
             return match[1]
           end
         end
         nil
       end
     end
+    private_class_method :fingerprint
 
     def self.logger=(logger)
       @logger = logger
