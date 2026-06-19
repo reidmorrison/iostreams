@@ -53,5 +53,5 @@ User-facing documentation lives in the `docs/` directory as markdown files; thes
 
 ## Conventions
 
-- RuboCop is configured in `.rubocop.yml`: trailing-dot method chains, table-aligned hashes, max line length 128, target Ruby 2.5 syntax (`required_ruby_version >= 2.5` in the gemspec, so avoid newer syntax in lib/).
-- `lib/io_streams/deprecated.rb` holds the pre-v1.6 API; it is excluded from RuboCop and not loaded into `IOStreams` by default. Avoid extending it.
+- RuboCop is configured in `.rubocop.yml`: trailing-dot method chains, table-aligned hashes, max line length 128, target Ruby 3.2 syntax (`required_ruby_version >= 3.2` in the gemspec).
+- The pre-v1.6 deprecated API has been removed (as of v2.0.0). Do not reintroduce it.

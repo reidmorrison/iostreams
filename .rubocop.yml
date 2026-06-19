@@ -9,7 +9,6 @@ AllCops:
     - ".git/**/*"
     - "docs/**/*"
     - "gemfiles/*"
-    - "lib/io_streams/deprecated.rb"
     - "test/files/*"
     - "docs/stylesheets/*"
   NewCops: enable

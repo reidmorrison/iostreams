@@ -93,7 +93,12 @@ module IOStreams
     def each(mode = :line, **args, &block)
       raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
 
-      #    return enum_for __method__ unless block_given?
+      # Deliberately not returning an Enumerator when no block is given.
+      # The stream pipeline manages resources via block scope: every stream is opened with an
+      # `ensure` that closes the file handle, reaps the gpg subprocess, deletes temp files, etc.
+      # A Fiber-backed Enumerator (e.g. `to_enum(__method__, mode, **args)`) would leave that block
+      # suspended; if the caller abandons a partially-consumed enumerator, none of the cleanup runs
+      # until GC collects the Fiber, leaking file descriptors, gpg processes, and temp files.
       reader(mode, **args) { |stream| stream.each(&block) }
     end
 
