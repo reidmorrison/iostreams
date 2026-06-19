@@ -56,10 +56,66 @@ class PgpTest < Minitest::Test
       # Newlines would otherwise allow extra directives to be injected into the
       # gpg batch key-generation parameter file.
       it "rejects newlines in fields to prevent batch directive injection" do
-        %i[name email comment passphrase key_type subkey_type expire_date].each do |field|
+        %i[name email comment passphrase key_type subkey_type expire_date
+           key_curve key_usage subkey_curve subkey_usage creation_date].each do |field|
           args        = {name: user_name, email: email, passphrase: passphrase, key_length: 1024}
-          args[field] = "#{args[field]}\nKey-Type: RSA"
+          args[field] = "#{args[field] || 'sign'}\nKey-Type: RSA"
           assert_raises(ArgumentError) { IOStreams::Pgp.generate_key(**args) }
+        end
+      end
+
+      describe "on GnuPG 2.1 or later" do
+        before do
+          skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp.pgp_version.to_f >= 2.1
+        end
+
+        it "generates an unprotected key when passphrase is nil" do
+          key_id = IOStreams::Pgp.generate_key(name: user_name, email: email, key_length: 1024, passphrase: nil)
+
+          assert key_id
+        ensure
+          IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if key_id
+        end
+
+        it "generates an Elliptic Curve key" do
+          key_id = IOStreams::Pgp.generate_key(
+            name:         user_name,
+            email:        email,
+            passphrase:   passphrase,
+            key_type:     "EDDSA",
+            key_curve:    "ed25519",
+            key_usage:    "sign",
+            subkey_type:  "ECDH",
+            subkey_curve: "cv25519"
+          )
+
+          assert key_id
+        ensure
+          IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if key_id
+        end
+      end
+
+      describe "on GnuPG older than 2.1" do
+        before do
+          # Pretend an older binary is installed so the version guard is exercised
+          # without needing an actual legacy gpg on the test machine.
+          IOStreams::Pgp.instance_variable_set(:@pgp_version, "2.0.30")
+        end
+
+        after do
+          IOStreams::Pgp.instance_variable_set(:@pgp_version, nil)
+        end
+
+        it "rejects Elliptic Curve parameters that require GnuPG 2.1" do
+          error = assert_raises(ArgumentError) do
+            IOStreams::Pgp.generate_key(
+              name:       user_name,
+              email:      email,
+              passphrase: passphrase,
+              key_curve:  "ed25519"
+            )
+          end
+          assert_includes error.message, "2.1"
         end
       end
     end

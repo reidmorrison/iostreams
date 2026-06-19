@@ -57,6 +57,20 @@ module IOStreams
     #   Highly Recommended.
     #   To generate a good passphrase:
     #     `SecureRandom.urlsafe_base64(128)`
+    #   Pass `nil` to generate an unprotected (passphrase-less) key.
+    #
+    # key_curve / subkey_curve [String]
+    #   Optional Elliptic Curve to use for the (sub)key, e.g. "ed25519".
+    #   When supplied the corresponding key/subkey length is ignored.
+    #   Requires GnuPG 2.1 or later.
+    #
+    # key_usage / subkey_usage [String]
+    #   Optional comma separated list of (sub)key capabilities, e.g. "sign".
+    #   Requires GnuPG 2.1 or later.
+    #
+    # creation_date [String]
+    #   Optional creation date for the key, e.g. "20240101T000000".
+    #   Requires GnuPG 2.1 or later.
     #
     # See `man gpg` for the remaining options
     def self.generate_key(name:,
@@ -67,25 +81,65 @@ module IOStreams
                           key_length: 4096,
                           subkey_type: "RSA",
                           subkey_length: key_length,
+                          key_curve: nil,
+                          key_usage: nil,
+                          subkey_curve: nil,
+                          subkey_usage: nil,
+                          creation_date: nil,
                           expire_date: nil)
       version_check
 
       # Reject newlines so that a value cannot inject additional directives into
       # the gpg batch key-generation parameter file.
       reject_newlines!(name: name, email: email, comment: comment, passphrase: passphrase,
-                       key_type: key_type, subkey_type: subkey_type, expire_date: expire_date)
+                       key_type: key_type, subkey_type: subkey_type, expire_date: expire_date,
+                       key_curve: key_curve, key_usage: key_usage,
+                       subkey_curve: subkey_curve, subkey_usage: subkey_usage,
+                       creation_date: creation_date)
+
+      # `%no-protection`, and the Elliptic Curve / usage / creation-date directives
+      # were all introduced in GnuPG 2.1. Keep older versions working by only
+      # emitting them when a 2.1+ binary is detected. `--batch --gen-key` accepts
+      # all of these on 2.1+, so there is no need for the newer `--full-gen-key`.
+      modern = pgp_version.to_f >= 2.1
+
+      unless modern
+        new_options = {
+          key_curve:     key_curve,
+          key_usage:     key_usage,
+          subkey_curve:  subkey_curve,
+          subkey_usage:  subkey_usage,
+          creation_date: creation_date
+        }.compact
+        unless new_options.empty?
+          raise(ArgumentError,
+                "IOStreams::Pgp.generate_key: #{new_options.keys.join(', ')} require GnuPG 2.1 or later " \
+                "(detected #{pgp_version})")
+        end
+      end
 
       params = +""
+      # `%no-protection` is a control statement and must precede the key parameters.
+      # GnuPG 2.1+ requires this explicit opt-out to create an unprotected key;
+      # older versions create one simply by omitting the Passphrase directive.
+      params << "%no-protection\n" if !passphrase && modern
       params << "Key-Type: #{key_type}\n" if key_type
-      params << "Key-Length: #{key_length}\n" if key_length
+      # Key-Length and Key-Curve are mutually exclusive: curves imply their own length.
+      params << "Key-Length: #{key_length}\n" if key_length && !key_curve
+      params << "Key-Curve: #{key_curve}\n" if key_curve
+      params << "Key-Usage: #{key_usage}\n" if key_usage
       params << "Subkey-Type: #{subkey_type}\n" if subkey_type
-      params << "Subkey-Length: #{subkey_length}\n" if subkey_length
+      params << "Subkey-Length: #{subkey_length}\n" if subkey_length && !subkey_curve
+      params << "Subkey-Curve: #{subkey_curve}\n" if subkey_curve
+      params << "Subkey-Usage: #{subkey_usage}\n" if subkey_usage
       params << "Name-Real: #{name}\n" if name
       params << "Name-Comment: #{comment}\n" if comment
       params << "Name-Email: #{email}\n" if email
       params << "Expire-Date: #{expire_date}\n" if expire_date
+      params << "Creation-Date: #{creation_date}\n" if creation_date
       params << "Passphrase: #{passphrase}\n" if passphrase
       params << "%commit"
+
       command = gpg_command("--batch", "--gen-key", "--no-tty")
 
       out, err, status = Open3.capture3(*command, binmode: true, stdin_data: params)
