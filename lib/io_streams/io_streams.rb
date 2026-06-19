@@ -259,6 +259,23 @@ module IOStreams
 
   @temp_dir = nil
 
+  # Returns [Logger] the logger used by IOStreams for debug logging.
+  #
+  # When SemanticLogger is loaded a SemanticLogger instance is used by default,
+  # otherwise no logging is performed unless a logger is assigned via #logger=.
+  def self.logger
+    @logger
+  end
+
+  # Replace the logger used by IOStreams.
+  #
+  # Set to nil to disable logging.
+  def self.logger=(logger)
+    @logger = logger
+  end
+
+  @logger = (SemanticLogger[IOStreams] if defined?(SemanticLogger::Logger))
+
   # Register a file extension and the reader and writer streaming classes
   #
   # Example:

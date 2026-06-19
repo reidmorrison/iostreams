@@ -125,7 +125,7 @@ module IOStreams
 
         # Do not log the command, it may contain the signer passphrase.
         action = encrypt ? "encrypt" : "sign"
-        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: #{action} -o #{file_name}" }
+        IOStreams.logger&.debug { "IOStreams::Pgp::Writer.open: #{action} -o #{file_name}" }
 
         result = nil
         Open3.popen2e(*command) do |stdin, out, waith_thr|

@@ -29,7 +29,7 @@ SymmetricEncryption.cipher = SymmetricEncryption::Cipher.new(
   encoding:    :base64strict
 )
 
-# IOStreams::Pgp.logger = Logger.new($stdout)
+# IOStreams.logger = Logger.new($stdout)
 # IOStreams::Pgp.executable = 'gpg1'
 
 # Test PGP Keys

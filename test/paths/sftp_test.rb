@@ -265,6 +265,11 @@ module Paths
         end
       end
 
+      # Minimal logger stub exposing a symbol level, like SemanticLogger.
+      def logger_stub(level)
+        Struct.new(:level).new(level)
+      end
+
       describe "#build_ssh_options" do
         it "fills in the default port, packet size, and password" do
           path    = new_path(url, username: "jack", password: "secret")
@@ -274,14 +279,50 @@ module Paths
           assert_equal 65_536, options[:max_pkt_size]
           assert_equal "secret", options[:password]
         end
+
+        it "omits the logger when IOStreams.logger is nil" do
+          path = new_path(url, username: "jack", password: "secret")
+
+          with_io_streams_logger(nil) do
+            refute path.send(:build_ssh_options).key?(:logger)
+          end
+        end
+
+        it "passes IOStreams.logger through to net-ssh" do
+          path   = new_path(url, username: "jack", password: "secret")
+          logger = logger_stub(:info)
+
+          with_io_streams_logger(logger) do
+            assert_same logger, path.send(:build_ssh_options)[:logger]
+          end
+        end
       end
 
       describe "#map_log_level" do
-        it "defaults to INFO without SemanticLogger" do
+        it "defaults to INFO without a logger" do
           path = new_path(url, username: "jack", password: "secret")
 
-          assert_equal "INFO", path.send(:map_log_level)
+          with_io_streams_logger(nil) do
+            assert_equal "INFO", path.send(:map_log_level)
+          end
         end
+
+        it "maps logger levels to sftp log levels" do
+          path = new_path(url, username: "jack", password: "secret")
+          {trace: "DEBUG3", warn: "ERROR", debug: "debug", info: "info", error: "error"}.each_pair do |level, expected|
+            with_io_streams_logger(logger_stub(level)) do
+              assert_equal expected, path.send(:map_log_level), "level #{level.inspect}"
+            end
+          end
+        end
+      end
+
+      def with_io_streams_logger(logger)
+        original           = IOStreams.logger
+        IOStreams.logger   = logger
+        yield
+      ensure
+        IOStreams.logger = original
       end
     end
   end

@@ -101,3 +101,24 @@ To explicity set the temp file location the following config option can be used:
 ~~~ruby
 IOStreams.temp_dir = "/var/really_big_temp"
 ~~~
+
+## logger
+
+IOStreams can log debug information, such as the external commands it runs for PGP and SFTP.
+
+When [Semantic Logger](https://logger.rocketjob.io) is loaded it is detected automatically, and IOStreams
+logs to it without any additional configuration.
+
+To use a different logger, or to log when Semantic Logger is not present, assign any logger that
+responds to the standard logging methods:
+
+~~~ruby
+require "logger"
+IOStreams.logger = Logger.new($stdout)
+~~~
+
+To disable logging entirely, set the logger to `nil`:
+
+~~~ruby
+IOStreams.logger = nil
+~~~
