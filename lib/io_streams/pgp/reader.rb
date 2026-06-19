@@ -20,18 +20,21 @@ module IOStreams
       #   Name of file to read from
       #
       # passphrase: [String]
-      #   Pass phrase for private key to decrypt the file with
+      #   Pass phrase for private key to decrypt the file with.
+      #   Not required when the file is signed but not encrypted.
       def self.file(file_name, passphrase: nil)
         # Cannot use `passphrase: self.default_passphrase` since it is considered private
         passphrase ||= default_passphrase
-        raise(ArgumentError, "Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase") unless passphrase
 
         args = []
         # Use --pinentry-mode loopback for all GnuPG versions >= 2.1
         args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
         # Use --no-symkey-cache for GnuPG versions >= 2.4 to avoid caching session keys
         args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
-        args += ["--batch", "--no-tty", "--yes", "--decrypt", "--passphrase-fd", "0", file_name.to_s]
+        args += ["--batch", "--no-tty", "--yes", "--decrypt"]
+        # Only feed a passphrase when one is supplied; sign-only files need none.
+        args += ["--passphrase-fd", "0"] if passphrase
+        args << file_name.to_s
 
         command = IOStreams::Pgp.gpg_command(*args)
         IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }

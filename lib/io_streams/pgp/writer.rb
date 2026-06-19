@@ -26,13 +26,20 @@ module IOStreams
         @audit_recipient           = nil
       end
 
-      # Write to a PGP / GPG file, encrypting the contents as it is written.
+      # Write to a PGP / GPG file, encrypting and/or signing the contents as it is written.
       #
       # file_name: [String]
       #   Name of file to write to.
       #
+      # encrypt: [true|false]
+      #   Whether to encrypt the file for the supplied recipient(s).
+      #   When set to false the file is signed but not encrypted, in which case a
+      #   :signer must be supplied and :recipient / :import_and_trust_key are ignored.
+      #   Default: true
+      #
       # recipient: [String|Array<String>]
       #   One or more emails of users for which to encrypt the file.
+      #   Ignored when encrypt is false.
       #
       # import_and_trust_key: [String|Array<String>]
       #   One or more pgp keys to import and then use to encrypt the file.
@@ -73,6 +80,7 @@ module IOStreams
       #   Compression level
       #   Default: 6
       def self.file(file_name,
+                    encrypt: true,
                     recipient: nil,
                     import_and_trust_key: nil,
                     import_and_trust_level: 5,
@@ -80,19 +88,24 @@ module IOStreams
                     signer_passphrase: default_signer_passphrase,
                     compress: :zip,
                     compress_level: 6)
-        raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
+        if encrypt
+          raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
+        elsif !signer
+          raise(ArgumentError, "Requires a :signer when encrypt is false")
+        end
 
         compress_level = 0 if compress == :none
 
-        recipients = Array(recipient)
-        recipients << audit_recipient if audit_recipient
+        recipients =
+          if encrypt
+            collect_recipients(recipient, import_and_trust_key, import_and_trust_level)
+          else
+            []
+          end
 
-        Array(import_and_trust_key).each do |key|
-          recipients << IOStreams::Pgp.import_and_trust(key: key, trust_level: import_and_trust_level)
-        end
-
-        # Write to stdin, with encrypted contents being written to the file
-        args = ["--batch", "--no-tty", "--yes", "--encrypt"]
+        # Write to stdin, with the encrypted and/or signed contents being written to the file
+        args = ["--batch", "--no-tty", "--yes"]
+        args << "--encrypt" if encrypt
         args += ["--sign", "--local-user", signer.to_s] if signer
         if signer_passphrase
           args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
@@ -106,7 +119,8 @@ module IOStreams
         command = IOStreams::Pgp.gpg_command(*args)
 
         # Do not log the command, it may contain the signer passphrase.
-        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: encrypt -o #{file_name}" }
+        action = encrypt ? "encrypt" : "sign"
+        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Writer.open: #{action} -o #{file_name}" }
 
         result = nil
         Open3.popen2e(*command) do |stdin, out, waith_thr|
@@ -126,6 +140,17 @@ module IOStreams
         end
         result
       end
+
+      def self.collect_recipients(recipient, import_and_trust_key, import_and_trust_level)
+        recipients = Array(recipient)
+        recipients << audit_recipient if audit_recipient
+
+        Array(import_and_trust_key).each do |key|
+          recipients << IOStreams::Pgp.import_and_trust(key: key, trust_level: import_and_trust_level)
+        end
+        recipients
+      end
+      private_class_method :collect_recipients
     end
   end
 end
