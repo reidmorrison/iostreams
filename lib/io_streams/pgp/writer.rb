@@ -79,6 +79,14 @@ module IOStreams
       # compress_level: [Integer]
       #   Compression level
       #   Default: 6
+      #
+      # Note: There is intentionally no option here to disable MDC (Modification Detection
+      # Code) integrity protection on the files we produce. The reader exposes
+      # `ignore_mdc_error:` so we can *consume* legacy files that lack MDC (see Reader),
+      # but we never want to *generate* them: MDC is what protects the encrypted contents
+      # against tampering, and modern GnuPG mandates it for current ciphers anyway
+      # (`--disable-mdc` is a no-op unless an obsolete cipher is forced). Omitting MDC on
+      # output would only weaken files we create, with no upside for this library.
       def self.file(file_name,
                     encrypt: true,
                     recipient: nil,
@@ -104,18 +112,15 @@ module IOStreams
           end
 
         # Write to stdin, with the encrypted and/or signed contents being written to the file
-        args = ["--batch", "--no-tty", "--yes"]
-        args << "--encrypt" if encrypt
-        args += ["--sign", "--local-user", signer.to_s] if signer
-        if signer_passphrase
-          args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
-          args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
-          args += ["--passphrase", signer_passphrase.to_s]
-        end
-        args += ["-z", compress_level.to_s] if compress_level != 6
-        args += ["--compress-algo", compress.to_s] unless compress == :none
-        recipients.each { |address| args += ["--recipient", address.to_s] }
-        args += ["-o", file_name.to_s]
+        args = build_args(
+          file_name:         file_name,
+          encrypt:           encrypt,
+          signer:            signer,
+          signer_passphrase: signer_passphrase,
+          compress:          compress,
+          compress_level:    compress_level,
+          recipients:        recipients
+        )
         command = IOStreams::Pgp.gpg_command(*args)
 
         # Do not log the command, it may contain the signer passphrase.
@@ -140,6 +145,23 @@ module IOStreams
         end
         result
       end
+
+      def self.build_args(file_name:, encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:)
+        args = ["--batch", "--no-tty", "--yes"]
+        args << "--encrypt" if encrypt
+        args += ["--sign", "--local-user", signer.to_s] if signer
+        if signer_passphrase
+          args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
+          args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
+          args += ["--passphrase", signer_passphrase.to_s]
+        end
+        args += ["-z", compress_level.to_s] if compress_level != 6
+        args += ["--compress-algo", compress.to_s] unless compress == :none
+        recipients.each { |address| args += ["--recipient", address.to_s] }
+        args += ["-o", file_name.to_s]
+        args
+      end
+      private_class_method :build_args
 
       def self.collect_recipients(recipient, import_and_trust_key, import_and_trust_level)
         recipients = Array(recipient)

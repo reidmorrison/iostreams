@@ -32,6 +32,19 @@ class PgpReaderTest < Minitest::Test
         end
       end
 
+      # We cannot reliably generate an MDC-less file across GnuPG versions (modern GnuPG
+      # mandates MDC), so this only verifies that ignore_mdc_error is accepted and remains
+      # harmless for a normal encrypted file. The flag's real effect is on legacy files.
+      it "decrypts with ignore_mdc_error enabled" do
+        IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") do |io|
+          io.write(decrypted)
+        end
+
+        result = IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase", ignore_mdc_error: true, &:read)
+
+        assert_equal decrypted, result
+      end
+
       it "streams input" do
         io_string = StringIO.new("".b)
         IOStreams::Pgp::Writer.stream(io_string, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
