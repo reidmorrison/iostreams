@@ -382,7 +382,8 @@ class PgpTest < Minitest::Test
       end
 
       it "trusts an existing key by key_id" do
-        fingerprint = IOStreams::Pgp.fingerprint(email: email)
+        # #fingerprint is internal (private); reach it directly to exercise the key_id path of #set_trust.
+        fingerprint = IOStreams::Pgp.send(:fingerprint, email: email)
 
         refute_nil IOStreams::Pgp.set_trust(key_id: fingerprint)
       end
