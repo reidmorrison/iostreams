@@ -4,12 +4,13 @@ All notable changes to this project are documented here.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-06-19
 
 ### Breaking
 
 - Ruby 3.2 is now the minimum supported version. Older Rubies are no longer tested or supported.
 - Removed the deprecated pre-v1.6 API mix-in (`lib/io_streams/deprecated.rb` is no longer loaded). Code still relying on the deprecated methods must migrate to the current `IOStreams.path` / `IOStreams.stream` API.
+- **Zip writing now uses the `zip_kit` gem instead of the retired `zip_tricks`.** `zip_tricks` has been retired by its author in favor of `zip_kit`. Applications that **write** Zip files must replace `gem "zip_tricks"` with `gem "zip_kit"` in their Gemfile (the zip writer is an optional soft dependency that you declare yourself). The IOStreams API and streaming behavior are unchanged. Reading Zip files is unaffected (still `rubyzip`, or the built-in Java support on JRuby).
 
 ### Added
 
@@ -23,7 +24,6 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Switched zip writing from the retired `zip_tricks` gem to its successor `zip_kit`.
 - Fixed frozen string literal warnings and removed dead code.
 - RuboCop adopted across the codebase (including `rubocop-minitest` and `rubocop-rake`), with a generated `.rubocop_todo.yml`.
 - Documentation updates throughout.
@@ -435,7 +435,7 @@ Initial release as a standalone gem, extracted from the RocketJob streaming code
 - Compression and encryption for the streaming APIs.
 - Copy from one stream to another, with custom options for any stream.
 
-[2.0.0]: https://github.com/reidmorrison/iostreams/compare/v1.11.0...HEAD
+[2.0.0]: https://github.com/reidmorrison/iostreams/compare/v1.11.0...v2.0.0
 [1.11.0]: https://github.com/reidmorrison/iostreams/compare/v1.10.3...v1.11.0
 [1.10.3]: https://github.com/reidmorrison/iostreams/compare/v1.10.2...v1.10.3
 [1.10.2]: https://github.com/reidmorrison/iostreams/compare/v1.10.1...v1.10.2
