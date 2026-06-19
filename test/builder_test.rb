@@ -185,7 +185,7 @@ class BuilderTest < Minitest::Test
         streams.stream(:zip)
 
         streams.writer(string_io) do |io|
-          assert_kind_of ZipTricks::Streamer::Writable, io, io
+          assert_kind_of ZipKit::Streamer::Writable, io, io
         end
       end
 

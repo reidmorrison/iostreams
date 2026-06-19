@@ -16,7 +16,7 @@ gem "creek"
 gem "nokogiri"
 gem "rubyzip"
 gem "symmetric-encryption"
-gem "zip_tricks"
+gem "zip_kit"
 
 # Dev Tools
 gem "rubocop"

@@ -23,6 +23,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Switched zip writing from the retired `zip_tricks` gem to its successor `zip_kit`.
 - Fixed frozen string literal warnings and removed dead code.
 - RuboCop adopted across the codebase (including `rubocop-minitest` and `rubocop-rake`), with a generated `.rubocop_todo.yml`.
 - Documentation updates throughout.

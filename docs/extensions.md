@@ -15,7 +15,7 @@ Supported extensions:
 | `.bz2`           | BZip2                | Yes  | Yes   | `bzip2-ffi`                        |
 | `.enc`           | Symmetric Encryption | Yes  | Yes   | `symmetric-encryption`             |
 | `.gz`, `.gzip`   | GZip                 | Yes  | Yes   | None (Ruby standard library)       |
-| `.zip`           | Zip                  | Yes  | Yes   | `rubyzip` v1.x (read), `zip_tricks` (write). On JRuby the built-in Java zip support is used. |
+| `.zip`           | Zip                  | Yes  | Yes   | `rubyzip` v1.x (read), `zip_kit` (write). On JRuby the built-in Java zip support is used. |
 | `.pgp`, `.gpg`   | PGP                  | Yes  | Yes   | GnuPG command line program (`gpg`) |
 | `.xlsx`, `.xlsm` | Excel Spreadsheet    | Yes  | No    | `creek`                            |
 
