@@ -29,6 +29,8 @@ The public entry points are `IOStreams.path(...)` (returns a `Path` subclass bas
 
 **Public API boundary:** The `IOStreams` module itself is the only public entry point. Everyone starts from `IOStreams.path`/`IOStreams.stream`/`IOStreams.join`, and the instance methods on the `Stream`/`Path` they return are then public. Everything else (`Path` subclasses, the `Reader`/`Writer` classes, and the format/storage submodules) is internal: nothing else should be instantiated or called directly, including method signatures like `Zip::Writer.stream`. This keeps the user-facing API tiny and lets the internals be refactored freely without breaking callers. When changing code, preserve the `IOStreams.*` module methods and the `Stream`/`Path` instance methods; treat the rest as private and changeable.
 
+**Backward compatibility is mandatory for the public interface.** This library must never break backward compatibility in its public interface; everything else can be refactored freely as needed. The `IOStreams` module is the public interface, but whatever it returns or otherwise makes accessible is also part of that public interface. For example, `IOStreams.path` returns `Path` objects, so those are public. `Builder` is itself hidden, but its arguments and formatting options are exposed through the public API (e.g. via `#stream`/`#option` and file-name format detection), so they must remain backward compatible too. Evolve these by adding or extending new values, never by removing or changing the meaning of existing features that end users of the API may depend on.
+
 Core pipeline (lib/io_streams/):
 - `stream.rb` - `Stream` wraps an IO and delegates stream-pipeline construction to its `Builder`.
 - `path.rb` - `Path < Stream`, abstract base for storage locations; concrete implementations in `paths/` (`File`, `S3`, `SFTP`, `HTTP`, plus `Matcher` for glob matching).
@@ -51,5 +53,5 @@ User-facing documentation lives in the `docs/` directory as markdown files; thes
 
 ## Conventions
 
-- RuboCop is configured in `.rubocop.yml`: trailing-dot method chains, table-aligned hashes, max line length 128, target Ruby 2.5 syntax (`required_ruby_version >= 2.5` in the gemspec, so avoid newer syntax in lib/).
-- `lib/io_streams/deprecated.rb` holds the pre-v1.6 API; it is excluded from RuboCop and not loaded into `IOStreams` by default. Avoid extending it.
+- RuboCop is configured in `.rubocop.yml`: trailing-dot method chains, table-aligned hashes, max line length 128, target Ruby 3.2 syntax (`required_ruby_version >= 3.2` in the gemspec).
+- The pre-v1.6 deprecated API has been removed (as of v2.0.0). Do not reintroduce it.

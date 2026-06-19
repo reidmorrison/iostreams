@@ -1,3 +1,4 @@
+require "cgi"
 require "uri"
 require "tmpdir"
 module IOStreams
@@ -15,7 +16,7 @@ module IOStreams
     def self.blank?(value)
       return true if value.nil?
       return value !~ /\S/ if value.is_a?(String)
-        
+
       value.respond_to?(:empty?) ? value.empty? : !value
     end
 
@@ -27,7 +28,7 @@ module IOStreams
       ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir, max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
         result = yield(tmpname)
       ensure
-        ::File.unlink(tmpname) if ::File.exist?(tmpname)
+        ::FileUtils.rm_f(tmpname)
       end
       result
     end

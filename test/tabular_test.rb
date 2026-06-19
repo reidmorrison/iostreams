@@ -57,6 +57,7 @@ class TabularTest < Minitest::Test
       it "parses and sets the csv header" do
         tabular = IOStreams::Tabular.new(format: :csv)
         header  = tabular.parse_header("first field,Second,thirD")
+
         assert_equal ["first field", "Second", "thirD"], header
         assert_equal header, tabular.header.columns
       end
@@ -65,12 +66,14 @@ class TabularTest < Minitest::Test
     describe "header columns" do
       it "converts symbol column names to strings" do
         tabular = IOStreams::Tabular.new(columns: %i[first_field second third])
+
         assert_equal %w[first_field second third], tabular.header.columns
       end
 
       it "converts symbol column names to strings when assigned" do
         tabular                = IOStreams::Tabular.new(format: :csv)
         tabular.header.columns = %i[first_field second third]
+
         assert_equal %w[first_field second third], tabular.header.columns
       end
     end
@@ -80,6 +83,7 @@ class TabularTest < Minitest::Test
         it "a csv header" do
           tabular = IOStreams::Tabular.new(columns: ["first field", "Second", "thirD"])
           header  = tabular.cleanse_header!
+
           assert_equal %w[first_field second third], header
           assert_equal header, tabular.header.columns
         end
@@ -91,6 +95,7 @@ class TabularTest < Minitest::Test
           )
           expected_header = ["ard_vark", "__rejected__Password", "robot_version", "__rejected__$$$"]
           cleansed_header = tabular.cleanse_header!
+
           assert_equal(expected_header, cleansed_header)
         end
       end
@@ -103,6 +108,7 @@ class TabularTest < Minitest::Test
         it "passes" do
           tabular = IOStreams::Tabular.new(columns: ["   first ", "Second", "thirD   "], allowed_columns: @allowed_columns)
           header  = tabular.cleanse_header!
+
           assert_equal %w[first second third], header
           assert_equal header, tabular.header.columns
           assert_equal @allowed_columns, tabular.header.allowed_columns
@@ -111,6 +117,7 @@ class TabularTest < Minitest::Test
         it "nils columns not in the allowed list" do
           tabular = IOStreams::Tabular.new(columns: ["   first ", "Unknown Column", "thirD   "], allowed_columns: @allowed_columns)
           header  = tabular.cleanse_header!
+
           assert_equal ["first", "__rejected__Unknown Column", "third"], header
         end
 
@@ -156,6 +163,44 @@ class TabularTest < Minitest::Test
       it "format :csv" do
         assert hash = tabular.record_parse("1,2,3")
         assert_equal({"first_field" => "1", "second" => "2", "third" => "3"}, hash)
+      end
+
+      describe ":csv format edge cases" do
+        it "parses a quoted field containing a comma" do
+          assert hash = tabular.record_parse(%(a,"b,c",d))
+          assert_equal({"first_field" => "a", "second" => "b,c", "third" => "d"}, hash)
+        end
+
+        it "parses a quoted field containing escaped quotes" do
+          assert hash = tabular.record_parse(%(a,"b""c",d))
+          assert_equal({"first_field" => "a", "second" => %(b"c), "third" => "d"}, hash)
+        end
+
+        it "parses a quoted field containing a newline" do
+          assert hash = tabular.record_parse(%(a,"b\nc",d))
+          assert_equal({"first_field" => "a", "second" => "b\nc", "third" => "d"}, hash)
+        end
+
+        it "preserves leading zeros as strings" do
+          assert hash = tabular.record_parse("007,2,3")
+          assert_equal({"first_field" => "007", "second" => "2", "third" => "3"}, hash)
+        end
+
+        it "distinguishes an empty quoted field from a missing field" do
+          assert hash = tabular.record_parse(%(1,"",3))
+          assert_equal({"first_field" => "1", "second" => "", "third" => "3"}, hash)
+        end
+
+        it "parses an unquoted empty trailing field as nil" do
+          assert hash = tabular.record_parse("1,2,")
+          assert_equal({"first_field" => "1", "second" => "2", "third" => nil}, hash)
+        end
+
+        it "raises for an unsupported input type" do
+          assert_raises IOStreams::Errors::TypeMismatch do
+            tabular.record_parse(123)
+          end
+        end
       end
 
       describe ":hash format" do
@@ -221,6 +266,7 @@ class TabularTest < Minitest::Test
 
         it "parses blank strings" do
           skip "TODO: Part of fixed refactor to get this working"
+
           assert hash = fixed.record_parse("                                                                                        ")
           assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
         end
@@ -235,11 +281,13 @@ class TabularTest < Minitest::Test
 
         it "parses remainder" do
           hash = fixed_with_remainder.record_parse("Jack                   over there                              XX34618012345670012345.01............")
+
           assert_equal({name: "Jack", address: "over there", remainder: "XX34618012345670012345.01............"}, hash)
         end
 
         it "discards remainder" do
           hash = fixed_discard_remainder.record_parse("Jack                   over there                              XX34618012345670012345.01............")
+
           assert_equal({name: "Jack", address: "over there"}, hash)
         end
       end
@@ -247,6 +295,7 @@ class TabularTest < Minitest::Test
       it "skips columns not in the allowed list" do
         tabular.header.allowed_columns = %w[first second third fourth fifth]
         tabular.cleanse_header!
+
         assert hash = tabular.record_parse("1,2,3")
         assert_equal({"second" => "2", "third" => "3"}, hash)
       end
@@ -276,6 +325,56 @@ class TabularTest < Minitest::Test
       it "renders a hash including nil and boolean" do
         assert csv_string = tabular.render({"third" => true, "first_field" => false, "second" => nil})
         assert_equal "false,,true", csv_string
+      end
+
+      describe ":csv format edge cases" do
+        it "quotes a field containing a comma" do
+          assert_equal %(a,"b,c",d), tabular.render(%w[a b,c d])
+        end
+
+        it "escapes quotes within a field" do
+          assert_equal %(a,"b""c",d), tabular.render(["a", %(b"c), "d"])
+        end
+
+        it "quotes a field containing a newline" do
+          assert_equal %(a,"b\nc",d), tabular.render(%W[a b\nc d])
+        end
+
+        it "round-trips a field containing a comma" do
+          row = %w[a b,c d]
+
+          assert_equal row, tabular.record_parse(tabular.render(row)).values
+        end
+      end
+
+      describe ":array format" do
+        let :format do
+          :array
+        end
+
+        it "renders an array" do
+          assert_equal [5, 6, 9], tabular.render([5, 6, 9])
+        end
+      end
+
+      describe ":hash format" do
+        let :format do
+          :hash
+        end
+
+        it "renders a hash" do
+          assert_equal({"first_field" => 1, "second" => 2, "third" => 3}, tabular.render([1, 2, 3]))
+        end
+      end
+
+      describe ":json format" do
+        let :format do
+          :json
+        end
+
+        it "renders a hash as a JSON string" do
+          assert_equal '{"first_field":1,"second":2,"third":3}', tabular.render([1, 2, 3])
+        end
       end
 
       describe ":psv format" do
@@ -373,31 +472,36 @@ class TabularTest < Minitest::Test
 
       it "returns nil when the format does not require a header" do
         tabular = IOStreams::Tabular.new(format: :json)
+
         assert_nil tabular.render_header
       end
     end
 
     describe "#header?" do
       it "is true for csv without columns" do
-        assert IOStreams::Tabular.new(format: :csv).header?
+        assert_predicate IOStreams::Tabular.new(format: :csv), :header?
       end
 
       it "is false when the columns are already set" do
-        refute tabular.header?
+        refute_predicate tabular, :header?
       end
 
       it "is false when the format does not require a header" do
-        refute IOStreams::Tabular.new(format: :json).header?
+        refute_predicate IOStreams::Tabular.new(format: :json), :header?
       end
     end
 
     describe "#requires_header?" do
       it "is true for csv" do
-        assert IOStreams::Tabular.new(format: :csv).requires_header?
+        assert_predicate IOStreams::Tabular.new(format: :csv), :requires_header?
       end
 
       it "is false for json" do
-        refute IOStreams::Tabular.new(format: :json).requires_header?
+        refute_predicate IOStreams::Tabular.new(format: :json), :requires_header?
+      end
+
+      it "is false for hash" do
+        refute_predicate IOStreams::Tabular.new(format: :hash), :requires_header?
       end
     end
 

@@ -24,28 +24,32 @@ class PgpWriterTest < Minitest::Test
         result =
           IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |io|
             io.write(decrypted)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
       it "writes encrypted binary file" do
         binary_file_name = File.join(File.dirname(__FILE__), "files", "spreadsheet.xlsx")
-        binary_data      = File.open(binary_file_name, "rb", &:read)
+        binary_data      = File.binread(binary_file_name)
 
         File.open(binary_file_name, "rb") do |input|
           result =
             IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") do |output|
               IO.copy_stream(input, output)
-              53534
+              53_534
             end
-          assert_equal 53534, result
+
+          assert_equal 53_534, result
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal binary_data, result
       end
 
@@ -55,7 +59,25 @@ class PgpWriterTest < Minitest::Test
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
+      end
+
+      it "signs without encrypting" do
+        IOStreams::Pgp::Writer.file(file_name, encrypt: false, signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+          io.write(decrypted)
+        end
+
+        # A signed-only file is not encrypted and so needs no passphrase to read.
+        result = IOStreams::Pgp::Reader.file(file_name, &:read)
+
+        assert_equal decrypted, result
+      end
+
+      it "raises when signing without encryption and no signer is supplied" do
+        assert_raises ArgumentError do
+          IOStreams::Pgp::Writer.file(file_name, encrypt: false) { |io| io.write(decrypted) }
+        end
       end
 
       it "supports multiple recipients" do
@@ -64,9 +86,11 @@ class PgpWriterTest < Minitest::Test
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -78,9 +102,11 @@ class PgpWriterTest < Minitest::Test
         end
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
 
         result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+
         assert_equal decrypted, result
       end
 
@@ -117,12 +143,56 @@ class PgpWriterTest < Minitest::Test
         result    =
           IOStreams::Pgp::Writer.stream(io_string, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
             io.write(decrypted)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
 
         io     = StringIO.new(io_string.string)
         result = IOStreams::Pgp::Reader.stream(io, passphrase: "receiver_passphrase", &:read)
+
+        assert_equal decrypted, result
+      end
+    end
+
+    describe "import_and_trust_key" do
+      let :public_key do
+        IOStreams::Pgp.export(email: "receiver@example.org")
+      end
+
+      it "imports and trusts the supplied key at the default ultimate level" do
+        captured = {}
+        stub = lambda do |**kwargs|
+          captured = kwargs
+          "receiver@example.org"
+        end
+        IOStreams::Pgp.stub(:import_and_trust, stub) do
+          IOStreams::Pgp::Writer.file(file_name, import_and_trust_key: public_key) { |io| io.write(decrypted) }
+        end
+
+        assert_equal 5, captured[:trust_level]
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
+        assert_equal decrypted, result
+      end
+
+      it "passes the supplied import_and_trust_level through" do
+        captured = {}
+        stub = lambda do |**kwargs|
+          captured = kwargs
+          "receiver@example.org"
+        end
+        IOStreams::Pgp.stub(:import_and_trust, stub) do
+          IOStreams::Pgp::Writer.file(file_name, import_and_trust_key: public_key, import_and_trust_level: 4) do |io|
+            io.write(decrypted)
+          end
+        end
+
+        assert_equal 4, captured[:trust_level]
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+
         assert_equal decrypted, result
       end
     end

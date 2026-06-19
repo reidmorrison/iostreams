@@ -25,10 +25,12 @@ class EncodeWriterTest < Minitest::Test
         result    =
           IOStreams::Encode::Writer.file(file_name, encoding: "ASCII-8BIT") do |io|
             io << bad_data
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
         result = File.read(file_name, mode: "rb")
+
         assert_equal bad_data, result
       end
 
@@ -37,9 +39,10 @@ class EncodeWriterTest < Minitest::Test
         result =
           IOStreams::Encode::Writer.stream(io, encoding: "ASCII-8BIT") do |encoded|
             encoded << bad_data
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
         assert_equal "ASCII-8BIT", io.string.encoding.to_s
         assert_equal bad_data, io.string
       end
@@ -58,6 +61,7 @@ class EncodeWriterTest < Minitest::Test
         IOStreams::Encode::Writer.stream(io, encoding: "UTF-8", replace: "?") do |encoded|
           encoded << bad_data
         end
+
         assert_equal "UTF-8", io.string.encoding.to_s
         assert_equal cleansed_data, io.string
       end
@@ -67,6 +71,7 @@ class EncodeWriterTest < Minitest::Test
         IOStreams::Encode::Writer.stream(io, encoding: "UTF-8", replace: "?", cleaner: :printable) do |encoded|
           encoded << bad_data
         end
+
         assert_equal "UTF-8", io.string.encoding.to_s
         assert_equal stripped_data, io.string
       end
@@ -79,9 +84,10 @@ class EncodeWriterTest < Minitest::Test
         result    =
           IOStreams::Encode::Writer.stream(io_string, encoding: "ASCII-8BIT") do |io|
             count += io.write(bad_data)
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
         assert_equal bad_data, io_string.string
         assert_equal bad_data.size, count
       end

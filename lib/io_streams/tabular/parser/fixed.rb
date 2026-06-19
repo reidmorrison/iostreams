@@ -71,7 +71,7 @@ module IOStreams
         def render(row, header)
           hash = header.to_hash(row)
 
-          result = ""
+          result = +""
           layout.columns.each do |column|
             result << column.render(hash[column.key], truncate)
           end
@@ -93,7 +93,7 @@ module IOStreams
           index = 0
           layout.columns.each do |column|
             if column.size == -1
-              hash[column.key] = column.parse(line[index..-1]) if column.key
+              hash[column.key] = column.parse(line[index..]) if column.key
               break
             end
 
@@ -148,7 +148,7 @@ module IOStreams
 
           def initialize(size:, key: nil, type: :string, decimals: 2)
             @key      = key
-            @size     = (size == :remainder || size == "remainder") ? -1 : size.to_i
+            @size     = [:remainder, "remainder"].include?(size) ? -1 : size.to_i
             @type     = type.to_sym
             @decimals = decimals
 
@@ -167,9 +167,9 @@ module IOStreams
             when :string
               stripped_value
             when :integer
-              stripped_value.length.zero? ? nil : value.to_i
+              stripped_value.empty? ? nil : value.to_i
             when :float
-              stripped_value.length.zero? ? nil : value.to_f
+              stripped_value.empty? ? nil : value.to_f
             else
               raise(Errors::InvalidLayout, "Unsupported type: #{type.inspect}")
             end

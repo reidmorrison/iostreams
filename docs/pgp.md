@@ -88,10 +88,11 @@ path.writer do |io|
 end
 ~~~
 
-Lets try to read the file:
+Lets try to read the file without supplying a passphrase:
 ~~~ruby
 IOStreams.path("sample/example.csv.pgp").read
-# ArgumentError (Missing both passphrase and IOStreams::Pgp::Reader.default_passphrase)
+# IOStreams::Pgp::Failure
+#  gpg: decryption failed: No secret key
 ~~~
 
 In order to decrypt the file it needs the passphrase for the receivers private key above:
@@ -137,6 +138,28 @@ path.read
 
 This time when we read the file the signature is automatically verified. However, this only works if the receiver
 has already imported the senders public key.
+
+##### Sign without encrypting
+
+Sometimes the contents do not need to be kept secret, but the recipient still needs to verify that the file came from
+the sender and was not tampered with. Set `encrypt: false` to sign the file without encrypting it. In this mode a
+`signer` is required, and `recipient` / `import_and_trust_key` are ignored:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, encrypt: false, signer: "sender@example.org", signer_passphrase: "sender_passphrase")
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+Because a signed-only file is not encrypted, no passphrase is needed to read it. The signature is still verified
+automatically when the senders public key has been imported:
+~~~ruby
+IOStreams.path("sample/example.csv.pgp").read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
 
 ##### Auto-sign all files
 
@@ -265,6 +288,43 @@ Now try to read the file:
 ~~~ruby
 IOStreams.join("test/sample.pgp", root: :downloads).read
 ~~~
+
+#### Trust level
+
+The key is imported and then marked as trusted so that GPG will encrypt to it without prompting.
+The trust level can be controlled with the `import_and_trust_level` option:
+
+~~~ruby
+path = IOStreams.join("test/sample.pgp", root: :downloads)
+path.option(:pgp, import_and_trust_key: public_pgp_key, import_and_trust_level: 4)
+path.write("Hello World")
+~~~
+
+Or by calling `IOStreams::Pgp.import_and_trust` directly with the `trust_level` argument:
+
+~~~ruby
+IOStreams::Pgp.import_and_trust(key: public_pgp_key, trust_level: 4)
+~~~
+
+The available levels are the same as those used by `IOStreams::Pgp.set_trust`:
+
+| Level | Meaning                  |
+|:------|:-------------------------|
+| 1     | Undefined (no opinion)   |
+| 2     | Never (do not trust)     |
+| 3     | Marginal                 |
+| 4     | Full                     |
+| 5     | Ultimate (default)       |
+
+> **Security warning**
+>
+> Only import and trust keys that were received from a verified, trusted source.
+>
+> The default trust level is `5` (Ultimate), which tells GPG to treat the imported key as
+> if it were one of your own keys: it becomes implicitly valid and can in turn confer
+> validity on other keys that it has signed. Importing an attacker supplied key at this
+> level allows that attacker to impersonate other recipients. When a key cannot be fully
+> verified, supply a lower `trust_level`.
 
 #### Compression:
 

@@ -50,13 +50,13 @@ module IOStreams
       self
     end
 
-    def option_or_stream(stream, **options)
+    def option_or_stream(stream, **)
       if streams
-        stream(stream, **options)
+        stream(stream, **)
       elsif file_name
-        option(stream, **options)
+        option(stream, **)
       else
-        stream(stream, **options)
+        stream(stream, **)
       end
     end
 
@@ -67,12 +67,12 @@ module IOStreams
       options[stream] if options
     end
 
-    def reader(io_stream, &block)
-      execute(:reader, pipeline, io_stream, &block)
+    def reader(io_stream, &)
+      execute(:reader, pipeline, io_stream, &)
     end
 
-    def writer(io_stream, &block)
-      execute(:writer, pipeline, io_stream, &block)
+    def writer(io_stream, &)
+      execute(:writer, pipeline, io_stream, &)
     end
 
     # Returns [Hash<Symbol:Hash>] the pipeline of streams
@@ -120,7 +120,7 @@ module IOStreams
     end
 
     def class_for_stream(type, stream)
-      ext = IOStreams.extensions[stream.nil? ? nil : stream.to_sym] ||
+      ext = IOStreams.extensions[stream&.to_sym] ||
             raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
       ext.send("#{type}_class") || raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
     end

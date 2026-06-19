@@ -21,11 +21,13 @@ class DelimitedWriterTest < Minitest::Test
         result    =
           IOStreams::Line::Writer.file(file_name) do |io|
             lines.each { |line| io << line }
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
 
         result = File.read(file_name)
+
         assert_equal raw, result
       end
 
@@ -34,9 +36,10 @@ class DelimitedWriterTest < Minitest::Test
         result    =
           IOStreams::Line::Writer.stream(io_string) do |io|
             lines.each { |line| io << line }
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
         assert_equal raw, io_string.string
       end
     end
@@ -48,9 +51,10 @@ class DelimitedWriterTest < Minitest::Test
         result    =
           IOStreams::Line::Writer.stream(io_string) do |io|
             lines.each { |line| count += io.write(line) }
-            53534
+            53_534
           end
-        assert_equal 53534, result
+
+        assert_equal 53_534, result
         assert_equal raw, io_string.string
         assert_equal raw.size, count
       end

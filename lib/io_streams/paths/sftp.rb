@@ -195,7 +195,7 @@ module IOStreams
             # Give time for password to be processed and stdin to be passed to sftp process.
             sleep self.class.sshpass_wait_seconds
 
-            writer.puts "get #{remote_file_name} #{local_file_name}"
+            writer.puts "get #{remote_file_name.inspect} #{local_file_name.inspect}"
             writer.puts "bye"
             writer.close
             out = reader.read.chomp

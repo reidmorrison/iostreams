@@ -40,10 +40,6 @@ module IOStreams
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
 
-    module Utility
-      autoload :CSVRow, "io_streams/tabular/utility/csv_row"
-    end
-
     attr_reader :format, :header, :parser
 
     # Parse a delimited data source.
@@ -199,7 +195,7 @@ module IOStreams
 
     # Returns the parser class for the registered format.
     def self.parser_class(format)
-      @formats[format.nil? ? nil : format.to_sym] ||
+      @formats[format&.to_sym] ||
         raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
     end
 
