@@ -46,7 +46,7 @@ module IOStreams
         args << file_name.to_s
 
         command = IOStreams::Pgp.gpg_command(*args)
-        IOStreams::Pgp.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
+        IOStreams.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
 
         # Read decrypted contents from stdout
         Open3.popen3(*command) do |stdin, stdout, stderr, waith_thr|

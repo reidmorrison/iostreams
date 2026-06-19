@@ -3,7 +3,7 @@ require "tmpdir"
 
 # Turn on logging if experiencing issues with new versions of gpg
 # require "logger"
-# IOStreams::Pgp.logger = Logger.new(STDOUT)
+# IOStreams.logger = Logger.new(STDOUT)
 
 class PgpTest < Minitest::Test
   describe IOStreams::Pgp do

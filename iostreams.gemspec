@@ -16,12 +16,12 @@ Gem::Specification.new do |s|
   s.license               = "Apache-2.0"
   s.metadata              = {
     "bug_tracker_uri"       => "https://github.com/reidmorrison/iostreams/issues",
+    "changelog_uri"         => "https://github.com/reidmorrison/iostreams/blob/v#{IOStreams::VERSION}/CHANGELOG.md",
     "documentation_uri"     => "https://iostreams.rocketjob.io",
-    "source_code_uri"       => "https://github.com/reidmorrison/iostreams/tree/#{IOStreams::VERSION}",
+    "source_code_uri"       => "https://github.com/reidmorrison/iostreams/tree/v#{IOStreams::VERSION}",
     "rubygems_mfa_required" => "true"
   }
   s.required_ruby_version = ">= 3.2"
-  s.metadata["rubygems_mfa_required"] = "true"
 
   # CSV is the default tabular format. It was a Ruby default gem through 3.3, but became a
   # bundled gem in Ruby 3.4, so it must be declared to remain loadable under Bundler.
