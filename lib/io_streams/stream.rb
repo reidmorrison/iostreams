@@ -87,9 +87,11 @@ module IOStreams
     #   end
     #
     # Notes:
-    # - Embedded lines (within double quotes) will be skipped if
-    #   1. The file name contains .csv
-    #   2. Or the embedded_within argument is set
+    # - Newlines embedded within quoted fields are kept within the same line when
+    #   1. The resolved tabular format quotes its fields (e.g. CSV, whether detected from a
+    #      `.csv` file name or set explicitly via `.format(:csv)`)
+    #   2. Or the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`)
+    # - Pass `embedded_within: nil` to disable quote-aware line joining for a quoted format.
     def each(mode = :line, **args, &block)
       raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
 
@@ -331,8 +333,11 @@ module IOStreams
       builder.reader(io_stream, &)
     end
 
-    def line_reader(embedded_within: nil, **args)
-      embedded_within = '"' if embedded_within.nil? && builder.file_name&.include?(".csv")
+    def line_reader(embedded_within: :auto, **args)
+      # `:auto` defers the decision to the resolved tabular format (e.g. CSV quotes with `"`),
+      # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or
+      # `'"'` (force). Centralizing this in the builder keeps all format-based decisions there.
+      embedded_within = builder.quote_character if embedded_within == :auto
 
       stream_reader do |io|
         yield IOStreams::Line::Reader.new(
@@ -344,7 +349,7 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
-    def row_reader(delimiter: nil, embedded_within: nil, **args)
+    def row_reader(delimiter: nil, embedded_within: :auto, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Row::Reader.new(
           io,
@@ -357,7 +362,7 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
-    def record_reader(delimiter: nil, embedded_within: nil, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, **args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(
           io,

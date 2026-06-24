@@ -43,7 +43,8 @@ module IOStreams
       #     For CSV files set `embedded_within: '"'`
       #
       # Note:
-      # * When using a line reader and the file_name ends with ".csv" then embedded_within is automatically set to `"`
+      # * When reached via `IOStreams::Stream`, `embedded_within` defaults to the quote character of the
+      #   resolved tabular format (e.g. `"` for CSV). See `IOStreams::Builder#quote_character`.
       def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
         super(input_stream)
 

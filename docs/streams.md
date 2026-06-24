@@ -35,8 +35,17 @@ end
 ~~~
 
 Notes:
-* Embedded lines (within double quotes) are skipped automatically when the file name contains `.csv`,
-  so `embedded_within` only needs to be supplied for non-csv file names, or to override the delimiter.
+* Newlines embedded within quoted fields are kept on the same line automatically when the resolved
+  tabular format quotes its fields, such as CSV (detected from a `.csv` file name or set explicitly via
+  `.format(:csv)`). `embedded_within` only needs to be supplied for quoted formats that are not
+  auto-detected, or to override the quote character.
+* A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
+  real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
+~~~ruby
+IOStreams.path("pipe_delimited.csv").format(:psv).each(:line) do |line|
+  puts line
+end
+~~~
 
 Display each row from the csv file as an array:
 ~~~ruby

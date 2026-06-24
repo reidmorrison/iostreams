@@ -105,6 +105,18 @@ module IOStreams
       @format = format
     end
 
+    # Returns [String] the quote character within which field delimiters and newlines may be
+    # embedded for the current tabular format, or [nil] when the format has no such quoting,
+    # or when the format cannot be determined.
+    #
+    # Used by the line reader to avoid treating a newline as a line ending when it is embedded
+    # within a quoted field (e.g. CSV). Delegates to the format's parser, so the per-format
+    # knowledge lives with the parser. Driven entirely by `format`, so an explicitly set format
+    # (e.g. `.format(:psv)`) overrides any extension auto-detected from the `file_name`.
+    def quote_character
+      format && IOStreams::Tabular.parser_class(format).quote_character
+    end
+
     private
 
     def build_pipeline
