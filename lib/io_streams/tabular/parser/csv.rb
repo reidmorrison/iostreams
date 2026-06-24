@@ -3,6 +3,11 @@ module IOStreams
   class Tabular
     module Parser
       class Csv < Base
+        # CSV fields may contain embedded delimiters and newlines when wrapped in double quotes.
+        def self.quote_character
+          '"'
+        end
+
         # Returns [Array] the parsed CSV line
         def parse(row)
           return row if row.is_a?(::Array)

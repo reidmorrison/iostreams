@@ -609,6 +609,77 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#quote_character" do
+      it "is the double quote for csv" do
+        stream.format = :csv
+
+        assert_equal '"', stream.send(:builder).quote_character
+      end
+
+      it "is nil for psv" do
+        stream.format = :psv
+
+        assert_nil stream.send(:builder).quote_character
+      end
+
+      it "is nil when the format cannot be determined" do
+        assert_nil stream.send(:builder).quote_character
+      end
+
+      it "follows an explicit format over the file name extension" do
+        stream.file_name = "abc.csv"
+        stream.format    = :psv
+
+        assert_nil stream.send(:builder).quote_character
+      end
+    end
+
+    describe "embedded_within line handling" do
+      let :pipe_delimited_csv_file do
+        File.join(File.dirname(__FILE__), "files", "pipe_delimited_with_quotes.csv")
+      end
+
+      it "joins newlines embedded within quotes for a .csv file" do
+        io = StringIO.new(%(name,description\n"Jack\nJohnson",hello\n))
+        lines = []
+        IOStreams::Stream.new(io).file_name("abc.csv").each(:line) { |line| lines << line }
+
+        assert_equal 2, lines.size
+        assert_equal %("Jack\nJohnson",hello), lines[1]
+      end
+
+      it "does not set embedded_within for a pipe-delimited file labeled .csv when format is :psv" do
+        lines = []
+        IOStreams.path(pipe_delimited_csv_file).format(:psv).each(:line) { |line| lines << line }
+
+        assert_equal 4, lines.size
+        assert_equal "O\"neil|Firstname is O\"neil|234568", lines[2]
+      end
+
+      it "allows embedded_within: nil to disable quote-aware line joining on a .csv file" do
+        lines = []
+        IOStreams.path(pipe_delimited_csv_file).each(:line, embedded_within: nil) { |line| lines << line }
+
+        assert_equal 4, lines.size
+        assert_equal "O\"neil|Firstname is O\"neil|234568", lines[2]
+      end
+
+      it "raises when a pipe-delimited file labeled .csv is read as csv" do
+        assert_raises(IOStreams::Errors::MalformedDataError) do
+          IOStreams.path(pipe_delimited_csv_file).each(:line) { |line| line }
+        end
+      end
+
+      it "sets embedded_within from an explicit csv format with no file_name" do
+        io = StringIO.new(%("Jack\nJohnson",hello\n))
+        lines = []
+        IOStreams::Stream.new(io).format(:csv).each(:line) { |line| lines << line }
+
+        assert_equal 1, lines.size
+        assert_equal %("Jack\nJohnson",hello), lines[0]
+      end
+    end
+
     describe "#basename" do
       it "returns the file name" do
         assert_equal "ruby.rb", IOStreams.path("/home/gumby/work/ruby.rb").basename
