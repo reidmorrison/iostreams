@@ -23,3 +23,4 @@ gem "rubocop"
 gem "rubocop-minitest"
 gem "rubocop-rake"
 gem "simplecov", require: false
+gem "solargraph", require: false, platform: :ruby
