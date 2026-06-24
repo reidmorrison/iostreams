@@ -77,7 +77,7 @@ IOStreams.register_extension(:xls, MyXls::Reader, MyXls::Writer)
 ~~~
 
 Similarly, to support a new storage location, supply a Path class for its URI scheme.
-See [IOStreams::Paths::S3](https://github.com/reidmorrison/iostreams/blob/master/lib/io_streams/paths/s3.rb)
+See [IOStreams::Paths::S3](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)
 for an example of what is required.
 
 ~~~ruby
