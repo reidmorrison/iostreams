@@ -15,7 +15,7 @@ Supported extensions:
 | `.bz2`           | BZip2                | Yes  | Yes   | `bzip2-ffi`                        |
 | `.enc`           | Symmetric Encryption | Yes  | Yes   | `symmetric-encryption`             |
 | `.gz`, `.gzip`   | GZip                 | Yes  | Yes   | None (Ruby standard library)       |
-| `.zip`           | Zip                  | Yes  | Yes   | `rubyzip` (read), `zip_kit` (write). On JRuby the built-in Java zip support is used. |
+| `.zip`           | Zip                  | Yes  | Yes   | `rubyzip` (read), `zip_kit` (write). On JRuby the built-in Java zip support is used for reading. |
 | `.pgp`, `.gpg`   | PGP                  | Yes  | Yes   | GnuPG command line program (`gpg`) |
 | `.xlsx`, `.xlsm` | Excel Spreadsheet    | Yes  | No    | `creek`                            |
 
@@ -62,8 +62,12 @@ Options:
   Default: nil (raise `Encoding::UndefinedConversionError` on invalid characters)
 
 * `cleaner: [nil|Symbol|Proc]`
-  Cleanse the data. `:printable` removes all non-printable characters except `\r` and `\n`.
-  A Proc can be supplied to perform custom cleansing.
+  Cleanse the data. Built-in rules:
+  * `:printable` removes all non-printable characters except `\r` and `\n`.
+  * `:replace_non_printable` replaces all non-printable characters except `\r` and `\n`
+    with the `replace` value, or an empty string when `replace` is nil.
+  A Proc can also be supplied to perform custom cleansing; it is called with the data
+  and the `replace` value after every read or write.
   Default: nil
 
 ## Registering a custom extension

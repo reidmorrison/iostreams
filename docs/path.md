@@ -68,6 +68,24 @@ path = IOStreams.path("s3://bucket-name/path/example.csv")
 
   AWS Secret Access Key Id to use to access this bucket.
 
+* :region [String]
+
+  The AWS region to connect to.
+  Default: the region set in the environment variables or credential files.
+
+* :client [Aws::S3::Client | Hash]
+
+  Supply the AWS S3 Client instance to use for this path.
+  Or, when a Hash, build a new client using the hash parameters.
+
+~~~ruby
+client = Aws::S3::Client.new(endpoint: "https://s3.test.com")
+path   = IOStreams.path("s3://bucket/path/file_name.txt", client: client)
+
+# Or, pass the client parameters directly:
+path = IOStreams.path("s3://bucket/path/file_name.txt", client: {endpoint: "https://s3.test.com"})
+~~~
+
 Writer specific options:
 
 * :acl [String]
@@ -212,6 +230,11 @@ If the supplied file name string includes the `sftp` URI.
 path = IOStreams.path("sftp://hostname/path/example.csv")
 ~~~
 
+IOStreams reads and writes SFTP files by shelling out to the `sftp` command line program,
+so it must be installed and on the `PATH`. When a password is supplied the `sshpass`
+program is also required to pass the password to `sftp`. Additionally the `net-sftp` gem
+must be added to the `Gemfile` to use `each_child`.
+
 Read a file from a remote sftp server.
 ~~~ruby
 IOStreams.path("sftp://example.org/path/file.txt", 
@@ -222,7 +245,7 @@ IOStreams.path("sftp://example.org/path/file.txt",
   end
 ~~~
 
-Raises Net::SFTP::StatusException when the file could not be read.
+Raises `IOStreams::Errors::CommunicationsFailure` when the file could not be read or written.
 
 Write to a file on a remote sftp server.
 ~~~ruby
@@ -294,8 +317,20 @@ end
     The identity (private key) itself, supplied as a string.
     Under the covers the key is written to a temp file and then passed as `IdentityFile`.
 
+  * HostKey [String]
+
+    The expected SSH host key presented by the remote host, instead of storing it in the
+    `known_hosts` file. It must contain the entire line that would be stored in `known_hosts`,
+    including the hostname, ip address, key type and key value. The easiest way to generate
+    the required value is with `ssh-keyscan hostname`.
+    Under the covers the value is written to a temp file and then passed as `UserKnownHostsFile`.
+
   * Any other options supported by ssh_config.
     `man ssh_config` to see all available options.
+
+Notes:
+* Since the `sftp` program operates on local files, reading from or writing to an SFTP path
+  streams through a local temp file behind the scenes.
 
 ### HTTP (http://, https://)
 
@@ -329,6 +364,11 @@ Notes:
 * password: [String]
 
   Password to use use with basic authentication when the username is supplied.
+
+* parameters: [Hash]
+
+  Query parameters to append to the url as a query string.
+  For example, `parameters: {"type" => "csv"}` appends `?type=csv` to the url.
 
 * http_redirect_count: [Integer]
 

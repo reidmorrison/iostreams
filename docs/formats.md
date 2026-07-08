@@ -97,8 +97,18 @@ Layout column definitions:
   and to space fill when rendering.
 * `:type` `:string` (default), `:integer`, or `:float`.
   Strings are left justified and space padded, numbers are right justified and zero padded.
-  Raises `IOStreams::Errors::ValueTooLong` when a value cannot be rendered in `size` characters.
+  Raises `IOStreams::Errors::ValueTooLong` when an `:integer` or `:float` value cannot be
+  rendered in `size` characters.
 * `:decimals` For `:float` columns, the number of decimal places to render.
+  Default: 2
+
+In addition to `layout`, the `:fixed` format takes one more option:
+
+* `truncate: [true|false]`
+  Whether to truncate string values that are longer than their column `:size` when writing.
+  When false, a string value that is too long raises `IOStreams::Errors::ValueTooLong`
+  instead of being truncated. Numeric values are never truncated.
+  Default: true
 
 ## Header options
 
