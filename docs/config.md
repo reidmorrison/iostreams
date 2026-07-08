@@ -102,6 +102,22 @@ To explicity set the temp file location the following config option can be used:
 IOStreams.temp_dir = "/var/really_big_temp"
 ~~~
 
+### temp_file
+
+To work with a temporary file directly, `IOStreams.temp_file` yields a path inside `temp_dir`
+and deletes the file when the block completes:
+
+~~~ruby
+IOStreams.temp_file("export", ".csv") do |path|
+  path.write("Hello World")
+  # ... use the temp file ...
+end
+# The temp file has been deleted.
+~~~
+
+The first argument is a base file name to include in the generated temp file name, and the
+optional second argument is the file extension.
+
 ## logger
 
 IOStreams can log debug information, such as the external commands it runs for PGP and SFTP.

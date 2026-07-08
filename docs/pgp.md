@@ -24,11 +24,15 @@ Install [GnuPG](https://gnupg.org)
 
 Mac OSX via homebrew
 
-    brew install gpg2
+    brew install gnupg
     
-Redhat Linux
+Redhat / CentOS / Fedora Linux
 
-    rpm install gpg2
+    dnf install gnupg2
+
+Ubuntu / Debian Linux
+
+    apt-get install gnupg
 
 Confirm GnuPG is installed:
 
@@ -342,6 +346,17 @@ path.option(:pgp, recipient: "receiver@example.org", compress: :zlib)
 path.write("Hello World")
 ~~~
 
+The compression level can be adjusted with the `:compress_level` option, where `1` is the
+fastest and `9` compresses the most:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org", compress: :zlib, compress_level: 9)
+path.write("Hello World")
+~~~
+
+Default: `6`
+
 Compression Performance
 * Running tests on an Early 2015 Macbook Pro Dual Core with Ruby v2.3.1
 ~~~
@@ -351,6 +366,25 @@ Compression Performance
     :zlib:  size: 241MB  write:  66s  read:  23s  ( 756KB Memory )
     :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
 ~~~
+
+### Reading legacy files without MDC integrity protection
+
+Modern GnuPG refuses to decrypt files that lack MDC (Modification Detection Code) integrity
+protection, failing with `gpg: decryption forced to fail!`. Some legacy or enterprise systems
+still produce such files. To read them, supply the `ignore_mdc_error` option:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase", ignore_mdc_error: true)
+path.read
+~~~
+
+> **Security warning**
+>
+> Only enable `ignore_mdc_error` for files from a trusted source: without MDC the decrypted
+> contents are not protected against tampering.
+
+Note: IOStreams never writes files without MDC, this option only applies when reading.
 
 ### PGP FAQ:
 
@@ -363,4 +397,4 @@ Select highest level: 5
 ### PGP Limitations
 
 * Designed for processing larger files since a process is spawned for each file processed.
-* For lots of small, in memory files, use the `opengpgme` library. For example to attach pgp files to emails.
+* For lots of small, in memory files, use the [gpgme](https://github.com/ueno/ruby-gpgme) library. For example to attach pgp files to emails.

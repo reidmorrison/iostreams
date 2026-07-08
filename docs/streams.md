@@ -26,6 +26,15 @@ IOStreams.path("example.csv").each do |line|
 end
 ~~~
 
+By default the line delimiter is auto-detected from the file, handling both Windows (`\r\n`)
+and Linux (`\n`) line endings. To break the file up by something other than its line endings,
+supply `delimiter`:
+~~~ruby
+IOStreams.path("example.txt").each(:line, delimiter: "|") do |line|
+  puts line
+end
+~~~
+
 When a line can contain embedded newlines, such as a CSV field wrapped in double quotes that
 spans multiple lines, supply `embedded_within` so those newlines are not treated as line endings:
 ~~~ruby
@@ -148,11 +157,14 @@ Notes:
 
 ## Notes
 
-* Due to the nature of Zip, both its Reader and Writer methods will create
-  a temp file when reading from or writing to a stream.
-  Recommended to use Gzip over Zip since it can be streamed without requiring temp files.
-* Zip becomes exponentially slower with very large files, especially files
-  that exceed 4GB when uncompressed. Highly recommend using GZip for large files.
+* Reading a Zip file requires the entire file to be available locally, so reading from a
+  stream (for example S3 or HTTP) downloads it into a temp file first.
+  Writing Zip is fully streamed, no temp file is required.
+* When writing, `entry_file_name` sets the name of the file entry within the zip file.
+  It defaults to the file name without the `.zip` extension, so writing to
+  `example.csv.zip` creates an entry named `example.csv`.
+* Gzip is still recommended over Zip for very large files, since Zip files can only
+  be read via a local file.
 
 ## Pipeline
 

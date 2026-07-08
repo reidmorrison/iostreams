@@ -37,10 +37,9 @@ target.copy_from(source)
 When the file name does not have file extensions that would allow IOStreams to infer what streams to apply,
 the streams can be explicitly set using `stream`.
 
-In this example, the file `CUSTOMER_DATA` 
-
-Decrypt the contents of file that was encrypted with Symmetric Encryption 
-PGP encrypt the output file and write it to `xyz.csv.pgp` using the pgp key that was imported for `a@a.com`.
+In this example, the file `CUSTOMER_DATA` has no extensions, so `stream(:enc)` tells IOStreams
+that its contents were encrypted with Symmetric Encryption. The decrypted contents are then
+PGP encrypted and written to `xyz.csv.pgp` using the pgp key for `receiver@example.org`.
 
 ~~~ruby
 input = IOStreams.path("CUSTOMER_DATA").stream(:enc)
