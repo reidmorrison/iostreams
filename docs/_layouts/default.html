@@ -1,50 +1,65 @@
 <!DOCTYPE html>
 <html lang="en-us">
+
 <head>
   <meta charset="UTF-8">
-  <meta name="description" content="IOStreams: stream files of any size in Ruby, with compression, encryption, file format, and storage location transparent to your code.">
+  <meta name="description"
+    content="IOStreams: stream files of any size in Ruby, with compression, encryption, file format, and storage location transparent to your code.">
   <title>IOStreams: streaming I/O for Ruby with transparent compression, encryption, and storage</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="images/favicon.ico">
   <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
   <link rel="stylesheet" type="text/css" href="stylesheets/normalize.css" media="screen">
-  <link href='http://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
   <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen">
   <link rel="stylesheet" type="text/css" href="stylesheets/github-light.css" media="screen">
-  <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen"/>
-  <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print"/>
-  <link rel="stylesheet" type="text/css" href="stylesheets/table.css" media="print"/>
+  <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen" />
+  <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print" />
+  <link rel="stylesheet" type="text/css" href="stylesheets/table.css" media="print" />
 </head>
+
 <body>
-<section class="page-header">
-  <table style="width:100%">
-    <td>
-    <td>
-      <a href="http://rocketjob.io/">
-        <img src="images/rocket-icon-256.png" alt="Rocket Job" class="header-image">
-      </a>
-    </td>
-    <td>
-      <a href="index.html" class="btn">Home</a>
-      <a href="tutorial.html" class="btn">Tutorial</a>
-      <a href="path.html" class="btn">Path</a>
-      <a href="streams.html" class="btn">Streams</a>
-      <a href="formats.html" class="btn">Formats</a>
-      <a href="extensions.html" class="btn">Extensions</a>
-      <a href="copy_files.html" class="btn">Copy Files</a>
-      <a href="config.html" class="btn">Config</a>
-      <a href="pgp.html" class="btn">PGP</a>
-      <a href="https://github.com/reidmorrison/iostreams" class="btn">GitHub</a>
-      <h1 class="project-name">IOStreams</h1>
-      <h2 class="project-tagline">Stream files of any size, with compression, encryption, format, and storage made transparent to your code.</h2>
-    </td>
-    </tr>
-  </table>
-</section>
+  <section class="page-header">
+    <table style="width:100%">
+      <td>
+      <td>
+        <a href="http://rocketjob.io/">
+          <img src="images/header-rocket-256.png" alt="Rocket Job" class="header-image">
+        </a>
+      </td>
+      <td>
+        {% assign current_page = page.name | replace: '.md', '.html' %}
+        {% assign nav_items = "index.html=Home,tutorial.html=Tutorial,path.html=Path,streams.html=Streams,formats.html=Formats,extensions.html=Extensions,copy_files.html=Copy Files,config.html=Config,pgp.html=PGP" | split: ',' %}
+        {% for item in nav_items %}{% assign pair = item | split: '=' %}
+        <a href="{{ pair[0] }}" class="btn{% if pair[0] == current_page %} active{% endif %}">{{ pair[1] }}</a>{% endfor %}
+        <a href="https://github.com/reidmorrison/iostreams" class="btn">GitHub</a>
+        <h1 class="project-name"><span class="brand-io">IO</span><span class="brand-streams">Streams</span></h1>
+        <h2 class="project-tagline">Stream files of any size, with compression, encryption, format, and storage
+          made transparent to your code.</h2>
+      </td>
+      </tr>
+    </table>
 
-<section class="main-content">
-  {{content}}
-</section>
+  </section>
+
+  <section class="main-content">
+    {{content}}
+  </section>
+
+  <script>
+    // Keep anchor / TOC jumps clear of the sticky header by matching
+    // scroll-padding-top to the header's actual height (it varies by breakpoint).
+    (function () {
+      var header = document.querySelector(".page-header");
+      if (!header) return;
+      function setOffset() {
+        document.documentElement.style.scrollPaddingTop = header.offsetHeight + "px";
+      }
+      setOffset();
+      window.addEventListener("resize", setOffset);
+      window.addEventListener("load", setOffset);
+    })();
+  </script>
 </body>
-</html>
 
+</html>
