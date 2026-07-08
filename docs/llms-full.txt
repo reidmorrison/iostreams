@@ -1,0 +1,2624 @@
+# IOStreams
+
+> IOStreams is a Ruby gem for streaming I/O that makes file formats, compression, encryption,
+> and storage mechanisms (local file, S3, SFTP, HTTP) transparent to the application. Files of
+> any size are processed one block at a time without loading them into memory.
+
+The public entry points are `IOStreams.path(...)` and `IOStreams.stream(io)`, which are
+configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#writer`, `#each`,
+`#read`, `#write`, `#copy_from`, etc.
+
+# Overview
+
+# IOStreams
+
+IOStreams is a streaming library for Ruby that makes compression, encryption, file format, and
+storage location transparent to your code. Read and write files as if they were plain, local text,
+whether they are gzip, zip, or PGP encrypted, and whether they live on local disk, AWS S3, SFTP,
+or are fetched over HTTP.
+
+## Why IOStreams?
+
+Processing files in Ruby usually means writing different code for every variation. One customer
+sends a gzip compressed CSV, another sends a PGP encrypted file, a third uploads an Excel
+spreadsheet. The files sit on local disk in development, but in AWS S3 in production. Each
+combination needs its own handling, and reading a large file into memory all at once risks
+exhausting it.
+
+Consider reading a gzip compressed CSV file from S3, one record at a time, _without_ IOStreams:
+
+~~~ruby
+require "aws-sdk-s3"
+require "zlib"
+require "csv"
+
+response = Aws::S3::Client.new.get_object(bucket: "my-bucket", key: "data.csv.gz")
+gz       = Zlib::GzipReader.new(response.body)
+headers  = nil
+gz.each_line do |line|
+  row = CSV.parse_line(line)
+  if headers.nil?
+    headers = row
+  else
+    record = headers.zip(row).to_h
+    # ... process record ...
+  end
+end
+~~~
+
+Switch that file to plain CSV, to PGP encrypted, or move it back to local disk, and this code has to
+change every time. With IOStreams the same single line handles all of them:
+
+~~~ruby
+IOStreams.path("s3://my-bucket/data.csv.gz").each(:hash) do |record|
+  # ... process record ...
+end
+~~~
+
+IOStreams reads the file name, `data.csv.gz`, infers that it is a gzip compressed CSV, and assembles
+the streaming pipeline to fetch, decompress, and parse it. Point the same code at `data.csv`,
+`data.csv.pgp`, or a local path instead, and nothing else changes.
+
+### One API, whatever the format, compression, or encryption
+
+IOStreams detects the file type from its extensions and applies the matching streams in order, so
+`sample.csv.gz.pgp` is decrypted, then decompressed, then parsed as CSV without a line of special
+handling. The same code that reads a plain CSV also reads an Excel spreadsheet, a PGP encrypted JSON
+file, or a pipe separated file. A single background job can ingest files from many senders, in many
+formats, with no per-format code.
+
+### One API, wherever the file is stored
+
+Local disk, AWS S3, Google Cloud Storage, SFTP, and HTTP(S) all share the same `IOStreams.path`
+interface. The only thing that changes between them is the file name, or nothing at all when you
+[configure roots](config).
+
+### Constant memory, even for huge files
+
+Everything is streamed a block at a time, so a 10 GB compressed file uses about as much memory as a
+10 KB one. Scaling up to large files is trivial: the code that processes ten rows processes ten
+million without changes.
+
+### Configure storage once, switch environments with no code change
+
+With [roots](config), the storage location lives in a startup initializer instead of being scattered
+through the code. Point the `:default` root at the local file system in development and at an S3
+bucket in production, and the exact same application code runs in both.
+
+### Capabilities
+
+* Low memory utilization, even when processing very large files.
+* Parse JSON, CSV, PSV, or fixed width data on the fly.
+* Encrypt / Decrypt data on the fly.
+* Compress / Decompress data on the fly.
+* Change storage location / mechanism transparently without any code changes.
+
+#### File Extensions
+* Zip
+* Gzip
+* BZip2
+* PGP (Requires GnuPG)
+* Xlsx (Reading)
+* Encryption using [Symmetric Encryption](https://encryption.rocketjob.io/)
+
+#### File Storage
+* File
+* AWS S3
+* Google Cloud Storage (Using the AWS S3 Client)
+* SFTP
+* HTTP(S) (Read only)
+
+#### File formats
+* CSV
+* Fixed width formats
+* JSON
+* PSV
+
+## Example usages
+
+### Creating files
+
+Write a string to a local file called `sample.txt`:
+
+~~~ruby
+path = IOStreams.path("sample.txt")
+path.write("Hello World")
+~~~
+
+Write a string to AWS S3, storing in the S3 bucket `sample-bucket`, under the path `demo` with a file name of `sample.txt`. 
+
+~~~ruby
+path = IOStreams.path("s3://sample-bucket/demo/sample.txt")
+path.write("Hello World")
+~~~
+
+Write a string into a compressed file by adding the `.gz` extension to the file name:
+
+~~~ruby
+path = IOStreams.path("sample.txt.gz")
+path.write("Hello World")
+~~~
+
+Compress and encrypt the data into a PGP encrypted file, called `sample.txt.pgp`: 
+
+~~~ruby
+path = IOStreams.path("sample.txt.pgp")
+# Recipient that can decrypt this file:
+path.option(:pgp, recipient: "receiver@example.org")
+path.write("Hello World")
+~~~
+
+Note: GnuPG needs to be installed locally for the above PGP example to work.
+
+Write a string to a SFTP server, with a host name of `example.org`, under the path `demo`,
+with a file name of `sample.txt`. Adds the optional `username` and `password`.
+
+~~~ruby
+path = IOStreams.path("sftp://example.org/demo/sample.txt", 
+                      username: "example", 
+                      password: "topsecret")
+path.write("Hello World")
+~~~
+
+Write a string to AWS S3, storing in the S3 bucket `sample-bucket`, under the path `demo`,
+encrypted with pgp, with a file name of `sample.txt.pgp`.
+
+~~~ruby
+path = IOStreams.path("s3://sample-bucket/demo/sample.txt.pgp")
+path.option(:pgp, recipient: "receiver@example.org")
+path.write("Hello World")
+~~~
+
+### Reading files
+
+Read an entire local file called `sample.txt`, into a string:
+
+~~~ruby
+path = IOStreams.path("sample.txt")
+path.read
+# => "Hello World"
+~~~
+
+Read an entire file called `sample.txt`, into a string, from the S3 bucket `sample-bucket`, under the path `demo`:
+
+~~~ruby
+path = IOStreams.path("s3://sample-bucket/demo/sample.txt")
+path.read
+# => "Hello World"
+~~~
+
+Read an entire local file called `sample.txt.gz`, and decompress the contents into a string:
+
+~~~ruby
+path = IOStreams.path("sample.txt.gz")
+path.read
+# => "Hello World"
+~~~
+
+Read an entire local file called `sample.txt.pgp`, decompress, and decrypt the contents into a string:
+
+~~~ruby
+path = IOStreams.path("sample.txt.pgp")
+path.read
+# => "Hello World"
+~~~
+
+Notes:
+* GnuPG needs to be installed locally for the above PGP example to work.
+
+## Streaming Examples
+
+When dealing with large files it is important _not_ to load the entire file into memory.
+Efficiently read the files data in chunks / lines / records.
+
+Read 128 characters at a time from a file:
+~~~ruby
+path = IOStreams.path("sample.txt")
+path.reader do |io|
+  while (data = io.read(128))
+    p data 
+  end
+end
+~~~
+
+Read one line at a time from the file:
+~~~ruby
+path = IOStreams.path("sample.txt")
+path.each do |line|
+  puts line
+end
+~~~
+
+Write data to the file.
+~~~ruby
+path = IOStreams.path("sample.txt")
+path.writer do |io|
+  io << "This"
+  io << " is "
+  io << " one line\n"
+end
+~~~
+
+Write lines to the file. By adding `:line` to `writer`, each write appends a new line character.
+~~~ruby
+path = IOStreams.path("sample.txt")
+path.writer(:line) do |file|
+  file << "these"
+  file << "are"
+  file << "all"
+  file << "separate"
+  file << "lines"
+end
+~~~
+
+### Reading CSV Files
+
+Example CSV file, `example.csv`:
+
+~~~csv
+name,address,zip_code
+Jack,There,1234
+Joe,Over There somewhere,1234
+~~~
+
+Read each line from the CSV file as lines of strings:
+~~~ruby
+path = IOStreams.path("example.csv")
+path.each do |line|
+  p line
+end
+~~~
+
+Output:
+~~~ruby
+"name,address,zip_code"
+"Jack,There,1234"
+"Joe,Over There somewhere,1234"
+~~~
+
+Read each row from the CSV file as arrays:
+~~~ruby
+path = IOStreams.path("example.csv")
+path.each(:array) do |array|
+  p array
+end
+~~~
+
+Output:
+~~~ruby
+["name", "address", "zip_code"]
+["Jack", "There", "1234"]
+["Joe", "Over There somewhere", "1234"]
+~~~
+
+Read each row from a csv file as key-value pairs, where the key is the CSV column header, and the value is the value for that row.
+~~~ruby
+path = IOStreams.path("example.csv")
+path.each(:hash) do |record|
+  p record
+end
+~~~
+
+Output: 
+
+~~~ruby
+{"name"=>"Jack", "address"=>"There", "zip_code"=>"1234"}
+{"name"=>"Joe", "address"=>"Over There somewhere", "zip_code"=>"1234"}
+~~~
+
+### Writing CSV Files
+
+Write an array (row) at a time to the file.
+Each array is converted to csv before being written to the file.
+
+~~~ruby
+IOStreams.path("example.csv").writer(:array) do |io|
+  io << ["name", "address", "zip_code"]
+  io << ["Jack", "There", "1234"]
+  io << ["Joe", "Over There somewhere", 1234]
+end
+~~~
+
+Write a hash (record) at a time to the file.
+Each hash is converted to csv before being written to the file.
+The header row is extracted from the first hash write that is performed. 
+
+~~~ruby
+path = IOStreams.path("example.csv")
+path.writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
+end
+~~~
+
+This time write the CSV data to a compressed zip file, by adding `.zip` to the file name.
+
+~~~ruby
+path = IOStreams.path("example.csv.zip")
+path.writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
+end
+~~~
+
+Changing the file name to change its compression, encryption, or even whether it is local or remote
+has no effect on the code reading from or writing to the path.
+
+## PSV Files
+
+PSV files are faster than CSV files, since CSV files have complex rules for dealing with embedded quotes and newlines.
+
+PSV files in IOStreams follow the following simple rules:
+* Values are delimited using `|`.
+* Rows are delimeted with new lines.
+* Values may _not_ contain `|`, or new lines.
+
+Example PSV file, `example.psv`:
+
+~~~csv
+name|address|zip_code
+Jack|There|1234
+Joe|Over There somewhere|1234
+~~~
+
+### Reading PSV Files
+
+Read each row from a psv file as key-value pairs, where the key is the PSV column header, and the value is the value for that row.
+~~~ruby
+path = IOStreams.path("example.psv")
+path.each(:hash) do |record|
+  p record
+end
+~~~
+
+Output:
+
+~~~ruby
+{"name"=>"Jack", "address"=>"There", "zip_code"=>"1234"}
+{"name"=>"Joe", "address"=>"Over There somewhere", "zip_code"=>"1234"}
+~~~
+
+### Writing PSV Files
+
+Write a hash (record) at a time to the file.
+Each hash is converted to psv before being written to the file.
+The header row is extracted from the first hash write that is performed.
+
+~~~ruby
+path = IOStreams.path("example.psv")
+path.writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
+end
+~~~
+
+## Getting Started
+
+Start with the [IOStreams tutorial](tutorial) for a great introduction to IOStreams.
+
+---
+
+# Tutorial
+
+# File / Data Streaming with Ruby
+
+If all files were small, they could just be loaded into memory in their entirety. 
+However, multi Gigabytes, or even Terabytes in size, loading them into memory is not feasible.
+ 
+In linux it is common to use pipes to stream data between processes. 
+For example:
+
+~~~
+# Count the number of lines in a file that has been compressed with gzip
+cat abc.gz | gunzip -c | wc -l
+~~~
+
+For large files it is critical to be able to read and write these files as streams. Ruby has support
+for reading and writing files using streams, but has no built-in way of passing one stream through
+another to support for example compressing the data, encrypting it and then finally writing the result
+to a file. Several streaming implementations exist for languages such as `C++` and `Java` to chain
+together several streams, `IOStreams` offers similar features for Ruby.
+
+~~~ruby
+# Read the first 1024 characters from a compressed file:
+path = IOStreams.path("hello.gz")
+path.reader do |io|
+  data = io.read(1024)
+  puts "Read: #{data}"
+end
+~~~
+
+The true power of streams is shown when many streams are chained together to achieve the end
+result, without holding the entire file in memory, or ideally without needing to create
+any temporary files to process the stream.
+
+~~~ruby
+# Create a file that is compressed with GZip and then encrypted with Symmetric Encryption:
+path = IOStreams.path("hello.gz.enc")
+path.writer do |io|
+  io << "Hello World"
+  io << "and some more"
+end
+~~~
+
+The power of the above example applies when the data being written starts to exceed hundreds of megabytes,
+or even gigabytes.
+
+By looking at the file name supplied above, IOStreams is able to determine which streams to apply
+to the data being read or written. For example:
+* `hello.zip` => Compressed using Zip
+* `hello.zip.enc` => Compressed using Zip and then encrypted using Symmetric Encryption
+* `hello.gz.enc` => Compressed using GZip and then encrypted using Symmetric Encryption
+
+The objective is that all of these streaming processes are performed used streaming
+so that only the current portion of the file is loaded into memory as it moves
+through the entire file.
+
+## Step by Step 
+
+Install IOStreams gem:
+~~~
+gem install iostreams --no-doc
+~~~
+
+If you want to follow the AWS S3 examples below install the AWS S3 gem:
+~~~
+gem install aws-sdk-s3 --no-doc
+~~~
+
+See [Configuring the AWS SDK for Ruby](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html)
+to configure the Ruby AWS library.
+
+Open a ruby interactive console:
+
+~~~
+irb
+~~~
+ 
+Load iostreams:
+
+~~~ruby
+require "iostreams"
+~~~
+ 
+Reference a file path to hold CSV data and then for fun lets also compress it with GZip: 
+~~~ruby
+path = IOStreams.path("sample/example.csv.gz")
+# => #<IOStreams::Paths::File:sample/example.csv.gz pipeline={:gz=>{}}> 
+~~~
+
+The path and file name does not exist yet:
+~~~ruby
+path.exist?
+# => false 
+~~~
+
+If the path `sample` does not exist, it is created automatically during the first write. 
+Write CSV data to the file, compressing to GZip as we go.
+~~~ruby
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+To verify the data written above, read the entire file:
+~~~ruby
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
+
+It would be much easier if we could write the CSV data as hashes and let IOStreams deal
+with all the details on how to create properly formatted CSV data: 
+~~~ruby
+path.writer(:hash) do |io|
+  io << {name: "Jack Jones", login: "jjones"}
+  io << {name: "Jill Smith", login: "jsmith"}
+end 
+~~~
+
+Verify the data written by reading the entire file:
+~~~ruby
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
+
+Now lets read the file one line at a time:
+~~~ruby
+path.each do |line|
+  puts line
+end
+~~~
+Output:
+~~~
+name,login
+Jack Jones,jjones
+Jill Smith,jsmith
+~~~
+
+But who wants to do CSV parsing by hand, lets get IOStreams to do that for us by passing `:array` to `each`:
+~~~ruby
+path.each(:array) do |array|
+  p array
+end
+~~~
+Output:
+~~~ruby
+["name", "login"]
+["Jack Jones", "jjones"]
+["Jill Smith", "jsmith"]
+~~~
+
+That was better, but we really want a hash back where IOStreams takes care of the CSV header:
+~~~ruby
+path.each(:hash) do |hash|
+  p hash
+end
+~~~
+Output:
+~~~ruby
+{"name"=>"Jack Jones", "login"=>"jjones"}
+{"name"=>"Jill Smith", "login"=>"jsmith"}
+~~~
+
+As the file gets larger and we reach millions of rows the above code does not have to change at all. 
+And memory utilization stays about the same since each block is read in, decompressed, and parsed 
+from CSV one block at a time. The garbage collector can then free the released blocks from memory. 
+
+Now lets read a zip file hosted on an HTTP Web Server, displaying the first row as a hash: 
+
+~~~ruby
+IOStreams.
+  path("https://www5.fdic.gov/idasp/Offices2.zip").
+  option(:zip, entry_file_name: "OFFICES2_ALL.CSV").
+  each(:hash) do |row|
+    p row
+    # Just show the first line for this tutorial
+    break
+  end
+~~~
+Output:
+~~~ruby
+{"address"=>"1 Lincoln St. Fl 1", "bkclass"=>"SM", "cbsa"=>"Boston-Cambridge-Newton, MA-NH", "cbsa_div"=>"Boston, MA", "cbsa_div_flg"=>"1", "cbsa_div_no"=>"14454", "cbsa_metro"=>"14460", "cbsa_metro_flg"=>"1", "cbsa_metro_name"=>"Boston-Cambridge-Newton, MA-NH", "cbsa_micro_flg"=>"0", "cbsa_no"=>"14460", "cert"=>"14", "city"=>"Boston", "county"=>"Suffolk", "csa"=>"Boston-Worcester-Providence, MA-RI-NH-CT", "csa_flg"=>"1", "csa_no"=>"148", "estymd"=>"1792-01-01", "fi_uninum"=>"6", "mainoff"=>"1", "name"=>"State Street Bank And Trust Company", "offname"=>"State Street Bank And Trust Company", "offnum"=>nil, "rundate"=>"2020-05-14", "servtype"=>"11", "stalp"=>"MA", "stcnty"=>"25025", "stname"=>"Massachusetts", "uninum"=>"6", "zip"=>"2111"}
+~~~
+
+Noticed that it took a while to return the first line?
+
+That is because `zip` requires the entire file to be downloaded before it can decompress anything
+in the file. And HTTP uses a push protocol when reading files, so it is downloaded automatically
+into a temp file behind the scenes so that we can read it as if it was a local file.
+
+## Same Code - Varying File Types
+
+Lets define a method to write data to a file.
+~~~ruby
+def write_lines(file_name)
+  path = IOStreams.path(file_name)
+  path.writer do |io|
+    io << "name,login\n"
+    io << "Jack Jones,jjones\n"
+    io << "Jill Smith,jsmith\n"
+  end
+end
+~~~
+
+Create some sample files to work with
+~~~ruby
+write_lines("sample/example.csv")
+write_lines("sample/example.csv.gz")
+~~~
+
+For PGP files we also need to specify the recipient that can decrypt the file.
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org")
+write_lines(path)
+~~~
+
+`IOStreams.path` takes a string as its argument, it can also accept an existing instance of `IOStreams`.
+That allows the same method to accept the pgp recipient without having to pass the pgp specific recipient information
+as an argument to the method.
+
+Consider a simple method to display the contents of a file a line at a time 
+prefixed with the line number within the file:
+~~~ruby
+def show_lines(file_name)
+  line_number = 1
+  path = IOStreams.path(file_name)
+  path.each(:line) do |line|
+    puts "[#{line_number}] #{line}"
+    line_number += 1
+  end
+end
+~~~
+
+Lets read all of the files created above with the new `show_lines` method:
+
+~~~ruby
+show_lines("sample/example.csv")
+show_lines("sample/example.csv.gz")
+show_lines("sample/example.csv.pgp")
+~~~
+
+Noticed how they all returned the exact same output, even though the first file was plain text, the second was
+compressed with Gzip and the third was encrypted with PGP. They all returned:
+~~~
+[1] name,login
+[2] Jack Jones,jjones
+[3] Jill Smith,jsmith
+~~~
+
+Now a program can be developed using IOStreams and then without any code changes is able read plain text, compressed,
+or encrypted files.
+
+## Same Code - Any File Storage
+
+Using the unchanged `write_lines` and `show_lines` methods above, lets use them to read and write from S3.
+
+But how is that possible since our program / methods above were only tested against local files?
+
+Create the same sample files to work with, but this time on AWS S3 in a bucket name `my-iostreams-bucket`
+~~~ruby
+write_lines("s3://my-iostreams-bucket/sample/example.csv")
+write_lines("s3://my-iostreams-bucket/sample/example.csv.gz")
+~~~
+
+For PGP files we also need to specify the recipient that can decrypt the file.
+~~~ruby
+path = IOStreams.path("s3://my-iostreams-bucket/sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org")
+write_lines(path)
+~~~
+
+The only change to switch to S3 storage was to prefix the file name passed in with `s3://my-iostreams-bucket/`.
+
+Lets read all of the files created above with the new `show_lines` method:
+
+~~~ruby
+show_lines("s3://my-iostreams-bucket/sample/example.csv")
+show_lines("s3://my-iostreams-bucket/sample/example.csv.gz")
+show_lines("s3://my-iostreams-bucket/sample/example.csv.pgp")
+~~~
+
+Noticed how they all returned the exact same output, even though the first file was plain text, the second was
+compressed with Gzip and the third was encrypted with PGP. They all returned:
+~~~
+[1] name,login
+[2] Jack Jones,jjones
+[3] Jill Smith,jsmith
+~~~
+
+Now a program can be developed using IOStreams and then without any code changes is able to read and write across
+multiple storage locations.
+
+### Configure storage once, not in every call
+
+In the examples above we still wrote the `s3://my-iostreams-bucket/` prefix into every call, which
+means the code itself decides where files are stored. The real goal is for the application code to
+say nothing at all about storage, so the same code can run unchanged against local files in
+development and S3 in production.
+
+Roots make that possible. Configure the storage location once in a startup initializer:
+~~~ruby
+# config/initializers/iostreams.rb (development)
+IOStreams.add_root(:default, "tmp/files")
+~~~
+
+Then use `IOStreams.join` instead of `IOStreams.path`, and never mention the storage location again:
+~~~ruby
+def write_lines(file_name)
+  path = IOStreams.join(file_name)
+  path.writer do |io|
+    io << "name,login\n"
+    io << "Jack Jones,jjones\n"
+    io << "Jill Smith,jsmith\n"
+  end
+end
+
+write_lines("sample/example.csv")
+write_lines("sample/example.csv.gz")
+~~~
+
+To run the exact same code against S3 in production, change only the initializer:
+~~~ruby
+# config/initializers/iostreams.rb (production)
+IOStreams.add_root(:default, "s3://my-iostreams-bucket/files")
+~~~
+
+The application code does not change at all. See [Configuring IOStreams](config) for multiple roots,
+for example separate locations for downloads, uploads, and reports.
+
+## Tabular Files
+
+Tabular files are any files that start with a header row and then follows with rows of data with each row
+on a separate line.
+
+For example "example.csv"
+~~~
+name,login
+Jack Jones,jjones
+Jill Smith,jsmith
+~~~
+
+The first line contains the header: `name,login`
+Each subsequent line contains the data delimited by a special character such as `,` in the same order as the header.
+
+Another example is PSV (Pipe Separated Files)
+~~~
+name|login
+Jack Jones|jjones
+Jill Smith|jsmith
+~~~
+
+Of course these are simple examples and there are lots of rules on how to embed or escape the row or column delimiters.
+
+### Reading Tabular Files
+
+When reading these files, IOStreams can handle the complexity of the files format and always return the data as a
+`hash`, or `array`.
+
+Lets create another method along the lines of `show_lines` above:
+~~~ruby
+def show_rows(file_name)
+  line_number = 1
+  path = IOStreams.path(file_name)
+  path.each(:hash) do |row|
+    puts "[#{line_number}] #{row.inspect}"
+    line_number += 1
+  end
+end
+~~~
+
+The key difference is that `:hash` is being passed into `each` instead of `:line`.
+
+Using the sample files created above:
+~~~ruby
+show_rows("sample/example.csv")
+~~~
+
+Outputs:
+~~~
+[1] {"name"=>"Jack Jones", "login"=>"jjones"}
+[2] {"name"=>"Jill Smith", "login"=>"jsmith"}
+~~~
+
+Notice how only 2 rows are returned, since the header row is not actual data, it is just the definition of the
+rows that follow.
+
+The same method works without changes regardless of where the file was stored, or whether it was encrypted or
+compressed.
+~~~ruby
+show_rows("s3://my-iostreams-bucket/sample/example.csv")
+show_rows("s3://my-iostreams-bucket/sample/example.csv.gz")
+show_rows("s3://my-iostreams-bucket/sample/example.csv.pgp")
+~~~
+
+### Writing Tabular Files
+
+Lets define a new method that uses a tabular api to write the data.
+~~~ruby
+def write_tabular(file_name)
+  path = IOStreams.path(file_name)
+  path.writer(:hash) do |io|
+    io << {"name"=>"Jack Jones", "login"=>"jjones"}
+    io << {"name"=>"Jill Smith", "login"=>"jsmith"}
+  end
+end
+~~~
+
+The key difference is that `:hash` is being passed into `writer` to indicate that it will receive hashes instead of
+raw data.
+
+Lets create a sample file, and then read it to compare its contents to the raw writer above.
+~~~ruby
+write_tabular("sample/example.csv")
+IOStreams.path("sample/example.csv").read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
+
+Note how the output file is identical to the one created above. 
+Using `writer(:hash)` makes it easier to develop the application without regard for:
+- The order of columns
+- Missing columns
+- Specialized escaping of values to handle row or column delimiters
+
+Note: The first row written determines the column names as well as the order of the elements to be written.
+To supply the header columns up front, to set the order or to filter out which columns should be written to the
+target file, pass them to the writer: `path.writer(:hash, columns: ["name", "login"])`.
+
+Now lets write the same data into a JSON file, then read it to see what it looks like:
+~~~ruby
+write_tabular("sample/example.json")
+puts IOStreams.path("sample/example.json").read
+# => "{\"name\":\"Jack Jones\",\"login\":\"jjones\"}\n{\"name\":\"Jill Smith\",\"login\":\"jsmith\"}\n"
+~~~
+
+Using the same `show_rows` method above to display the file line by line
+~~~ruby
+show_rows("sample/example.json")
+~~~
+
+Outputs the same data even though the file is now json instead of the previous file that was csv:
+~~~
+[1] {"name"=>"Jack Jones", "login"=>"jjones"}
+[2] {"name"=>"Jill Smith", "login"=>"jsmith"}
+~~~
+
+The same method works without changes regardless of where the file was stored, or whether it was encrypted or
+compressed, or whether the format was csv or json.
+~~~ruby
+show_rows("sample/example.csv")
+show_rows("sample/example.json")
+show_rows("s3://my-iostreams-bucket/sample/example.csv")
+show_rows("s3://my-iostreams-bucket/sample/example.json.gz")
+show_rows("s3://my-iostreams-bucket/sample/example.json.pgp")
+~~~
+
+## Conclusion
+
+IOStreams makes it possible to write an application to a common api so that
+* the file can be accessed anywhere ( at least a local file, AWS S3, HTTP(S) and SFTP for now).
+* the application does not care if or how the file was compressed.
+* the application does not care if or how the file was encrypted.
+* the actual file storage mechanism can be determined at runtime, or per environment.
+* it is transparent whether the application receives an Excel Spreadsheet, CSV, or PSV formatted file.
+  It just works with hashes when desired.  
+
+IOStreams is an incredibly powerful streaming library that makes changes to file formats, compression, encryption, 
+or storage mechanism transparent to the application.
+
+## Next Steps
+
+Move onto the [IOStreams Path Documentation](path) to see how to create paths that support AWS S3, HTTP(S), or SFTP.
+
+Or jump straight into the [IOStreams Streams Documentation](streams) for detailed information on working with streams.
+
+Read the [IOStreams PGP Documentation](pgp) for a tutorial on how to work with PGP Encrypted files.
+
+---
+
+# Path
+
+# Path
+
+A path identifies _where_ a file is stored and how to reach it, so that the streaming pipeline knows
+where to read the data from or write it to.
+
+Create a path with `IOStreams.path`, passing the file name, which may also be a URI, followed by any
+arguments specific to that storage location. IOStreams infers the storage mechanism from the URI
+scheme, so the same call returns a local file path, an S3 path, an SFTP path, and so on, all sharing
+the identical interface.
+
+IOStreams supports accessing files in the following places:
+
+* File
+* AWS S3
+* Google Cloud Storage (Using the AWS S3 Client)
+* SFTP
+* HTTP(S) (Read only)
+
+Are you using another cloud provider and want to add support for your favorite?
+Checkout the supplied [IOStreams S3 path provider](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)
+for an example of what is required. Pull requests welcome.
+
+### File
+
+The simplest case is a file on the local disk:
+
+~~~ruby
+path = IOStreams.path("somewhere/example.csv")
+~~~
+
+#### Optional Arguments:
+
+* `:create_path` set to false to stop IOStreams from automatically creating the output directories 
+  if they do not exist.
+  Default: true   
+~~~ruby
+path = IOStreams.path("somewhere/example.csv.gz", create_path: false)
+~~~
+
+### AWS S3 (s3://)
+
+If the supplied file name string includes a URI. For example if AWS is configured locally:
+
+~~~ruby
+path = IOStreams.path("s3://bucket-name/path/example.csv")
+~~~
+
+#### Required Arguments:
+
+* url [String]
+
+  Prefix must be: `s3://`, followed by bucket name, followed by key.
+  Examples:
+    s3://my-bucket-name/file_name.txt
+    s3://my-bucket-name/some_path/file_name.csv
+
+#### Optional Arguments:
+
+* :access_key_id [String]
+
+  AWS Access Key Id to use to access this bucket.
+
+* :secret_access_key [String]
+
+  AWS Secret Access Key Id to use to access this bucket.
+
+* :region [String]
+
+  The AWS region to connect to.
+  Default: the region set in the environment variables or credential files.
+
+* :client [Aws::S3::Client | Hash]
+
+  Supply the AWS S3 Client instance to use for this path.
+  Or, when a Hash, build a new client using the hash parameters.
+
+~~~ruby
+client = Aws::S3::Client.new(endpoint: "https://s3.test.com")
+path   = IOStreams.path("s3://bucket/path/file_name.txt", client: client)
+
+# Or, pass the client parameters directly:
+path = IOStreams.path("s3://bucket/path/file_name.txt", client: {endpoint: "https://s3.test.com"})
+~~~
+
+Writer specific options:
+
+* :acl [String]
+
+  The canned ACL to apply to the object.
+
+* :cache_control [String]
+
+  Specifies caching behavior along the request/reply chain.
+
+* :content_disposition [String]
+
+  Specifies presentational information for the object.
+
+* :content_encoding [String]
+
+  Specifies what content encodings have been applied to the object and
+  thus what decoding mechanisms must be applied to obtain the media-type
+  referenced by the Content-Type header field.
+
+* :content_language [String]
+
+  The language the content is in.
+
+* :content_length [Integer]
+ 
+  Size of the body in bytes. This parameter is useful when the size of
+  the body cannot be determined automatically.
+
+* :content_md5 [String]
+
+  The base64-encoded 128-bit MD5 digest of the part data. This parameter
+  is auto-populated when using the command from the CLI. This parameted
+  is required if object lock parameters are specified.
+
+* :content_type [String]
+
+  A standard MIME type describing the format of the object data.
+
+* :expires [Time,DateTime,Date,Integer,String]
+
+  The date and time at which the object is no longer cacheable.
+
+* :grant_full_control [String]
+
+  Gives the grantee READ, READ\_ACP, and WRITE\_ACP permissions on the
+  object.
+
+* :grant_read [String]
+
+  Allows grantee to read the object data and its metadata.
+
+* :grant_read_acp [String]
+
+  Allows grantee to read the object ACL.
+
+* :grant_write_acp [String]
+
+  Allows grantee to write the ACL for the applicable object.
+
+* :metadata [Hash<String,String>]
+
+  A map of metadata to store with the object in S3.
+
+* :server_side_encryption [String]
+
+  The Server-side encryption algorithm used when storing this object in
+  S3 (e.g., AES256, aws:kms).
+
+* :storage_class [String]
+
+  The type of storage to use for the object. Defaults to 'STANDARD'.
+
+* :website_redirect_location [String]
+
+  If the bucket is configured as a website, redirects requests for this
+  object to another object in the same bucket or to an external URL.
+  Amazon S3 stores the value of this header in the object metadata.
+
+* :sse_customer_algorithm [String]
+
+  Specifies the algorithm to use to when encrypting the object (e.g.,
+  AES256).
+
+* :sse_customer_key [String]
+
+  Specifies the customer-provided encryption key for Amazon S3 to use in
+  encrypting data. This value is used to store the object and then it is
+  discarded; Amazon does not store the encryption key. The key must be
+  appropriate for use with the algorithm specified in the
+  x-amz-server-side​-encryption​-customer-algorithm header.
+
+* :sse_customer_key_md5 [String]
+
+  Specifies the 128-bit MD5 digest of the encryption key according to
+  RFC 1321. Amazon S3 uses this header for a message integrity check to
+  ensure the encryption key was transmitted without error.
+
+* :ssekms_key_id [String]
+
+  Specifies the AWS KMS key ID to use for object encryption. All GET and
+  PUT requests for an object protected by AWS KMS will fail if not made
+  via SSL or using SigV4. Documentation on configuring any of the
+  officially supported AWS SDKs and CLI can be found at
+  http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingAWSSDK.html#specify-signature-version
+
+* :ssekms_encryption_context [String]
+
+  Specifies the AWS KMS Encryption Context to use for object encryption.
+  The value of this header is a base64-encoded UTF-8 string holding JSON
+  with the encryption context key-value pairs.
+
+* :request_payer [String]
+
+  Confirms that the requester knows that she or he will be charged for
+  the request. Bucket owners need not specify this parameter in their
+  requests. Documentation on downloading objects from requester pays
+  buckets can be found at
+  http://docs.aws.amazon.com/AmazonS3/latest/dev/ObjectsinRequesterPaysBuckets.html
+
+* :tagging [String]
+
+  The tag-set for the object. The tag-set must be encoded as URL Query
+  parameters. (For example, "Key1=Value1")
+
+* :object_lock_mode [String]
+
+  The object lock mode that you want to apply to this object.
+
+* object_lock_retain_until_date: [Time,DateTime,Date,Integer,String]
+
+  The date and time when you want this object's object lock to expire.
+
+* object_lock_legal_hold_status: [String]
+  The Legal Hold status that you want to apply to the specified object.
+
+### SFTP (sftp://)
+
+If the supplied file name string includes the `sftp` URI.
+
+~~~ruby
+path = IOStreams.path("sftp://hostname/path/example.csv")
+~~~
+
+IOStreams reads and writes SFTP files by shelling out to the `sftp` command line program,
+so it must be installed and on the `PATH`. When a password is supplied the `sshpass`
+program is also required to pass the password to `sftp`. Additionally the `net-sftp` gem
+must be added to the `Gemfile` to use `each_child`.
+
+Read a file from a remote sftp server.
+~~~ruby
+IOStreams.path("sftp://example.org/path/file.txt", 
+               username: "jbloggs", 
+               password: "secret").
+  reader do |input|
+    puts input.read
+  end
+~~~
+
+Raises `IOStreams::Errors::CommunicationsFailure` when the file could not be read or written.
+
+Write to a file on a remote sftp server.
+~~~ruby
+IOStreams.path("sftp://example.org/path/file.txt", 
+               username: "jbloggs", 
+               password: "secret").
+  writer do |output|
+    output.write('Hello World')
+  end
+~~~
+
+Display the contents of a remote file, supplying the username and password in the url:
+~~~ruby
+IOStreams.path("sftp://jack:OpenSesame@test.com:22/path/file_name.csv").reader do |io|
+  puts io.read
+end
+~~~
+
+Use an identity file instead of a password to authenticate:
+~~~ruby
+path = IOStreams.path("sftp://test.com/path/file_name.csv", 
+                      username: "jack", 
+                      ssh_options: {IdentityFile: "~/.ssh/private_key"})
+path.reader do |io|
+  puts io.read
+end
+~~~
+
+Pass in the IdentityKey itself instead of a password to authenticate. 
+For example, retrieve the identity key stored in Secret Config: 
+~~~ruby
+identity_key = SecretConfig.fetch("suppliers/sftp/identity_key")
+
+path = IOStreams.path("sftp://test.com/path/file_name.csv", 
+                      username: "jack", 
+                      ssh_options: {IdentityKey: identity_key})
+path.reader do |io|
+  puts io.read
+end
+~~~
+
+#### Required Arguments:
+
+* url [String]
+
+  Prefix must be: `sftp://`, followed by host name, followed by file name.
+  Format:
+    "sftp://<host_name>/<file_name>"
+    "sftp://username:password@hostname:22/path/file_name"
+
+#### Optional Arguments:
+
+* username: [String]
+
+  Name of user to login with.
+
+* password: [String]
+
+  Password for the user.
+
+* ssh_options: [Hash]
+
+  * IdentityFile [String]
+
+    Path to the local identity (private key) file to authenticate with, instead of a password.
+
+  * IdentityKey [String]
+
+    The identity (private key) itself, supplied as a string.
+    Under the covers the key is written to a temp file and then passed as `IdentityFile`.
+
+  * HostKey [String]
+
+    The expected SSH host key presented by the remote host, instead of storing it in the
+    `known_hosts` file. It must contain the entire line that would be stored in `known_hosts`,
+    including the hostname, ip address, key type and key value. The easiest way to generate
+    the required value is with `ssh-keyscan hostname`.
+    Under the covers the value is written to a temp file and then passed as `UserKnownHostsFile`.
+
+  * Any other options supported by ssh_config.
+    `man ssh_config` to see all available options.
+
+Notes:
+* Since the `sftp` program operates on local files, reading from or writing to an SFTP path
+  streams through a local temp file behind the scenes.
+
+### HTTP (http://, https://)
+
+Read from a remote file over HTTP or HTTPS using an HTTP Get.
+
+~~~ruby
+IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').read
+~~~
+
+Notes:
+* Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
+* Currently writing to an HTTP(S) server is not supported. Up to submitting a Pull Request with capability?
+
+#### Required Arguments:
+
+* url [String]
+
+  Prefix must be: `http://`, or `https://` followed by host name, followed by path and file name.
+  Also supports passing the username and password for basic authentication in the URI.
+  
+  Format:
+  * http://hostname/path/file_name
+  * https://username:password@hostname/path/file_name
+
+#### Optional Arguments:
+
+* username: [String]
+
+  When supplied, basic authentication is used with the username and password.
+
+* password: [String]
+
+  Password to use use with basic authentication when the username is supplied.
+
+* parameters: [Hash]
+
+  Query parameters to append to the url as a query string.
+  For example, `parameters: {"type" => "csv"}` appends `?type=csv` to the url.
+
+* http_redirect_count: [Integer]
+
+  Maximum number of http redirects to follow.
+  Set to `0` to disable following redirects entirely.
+  Default: `10`
+
+* allow_hosts: [String | Array<String>]
+
+  Optional allow-list of host names that may be contacted. It is applied both to the
+  supplied url and to every redirect that is followed; a request to any other host raises
+  `IOStreams::Errors::CommunicationsFailure`.
+  Default: `nil` (any host is allowed).
+
+* maximum_file_size: [Integer]
+
+  Optional maximum number of bytes to download. When the response body exceeds this size the
+  download is aborted with an `IOStreams::Errors::CommunicationsFailure`.
+  Default: `nil` (no limit).
+
+~~~ruby 
+path = IOStreams.path("http://hostname/path/example.csv")
+~~~
+
+#### Security: untrusted URLs (SSRF)
+
+Reading an HTTP(S) path causes the application to issue a request to the host named in the url.
+When the url, or any part of it, can be influenced by untrusted input, an attacker can point it
+at internal services or cloud metadata endpoints (Server Side Request Forgery).
+
+Because redirect targets are chosen by the remote server, validating only the url that is passed
+in is not sufficient: a trusted (or compromised) server can redirect the request to an internal
+address. IOStreams provides a few controls to reduce this exposure:
+
+* Restrict which hosts may be contacted, including across redirects:
+
+~~~ruby
+IOStreams.path("https://supplier.example.com/report.csv", allow_hosts: ["supplier.example.com"]).read
+~~~
+
+* Disable redirects entirely for untrusted urls:
+
+~~~ruby
+IOStreams.path(untrusted_url, http_redirect_count: 0).read
+~~~
+
+* Cap the download size to avoid unbounded (denial of service) responses:
+
+~~~ruby
+IOStreams.path(untrusted_url, maximum_file_size: 50 * 1024 * 1024).read
+~~~
+
+Basic authentication credentials are only ever sent to the original host. They are not resent
+when a redirect points at a different scheme, host, or port, so a redirect cannot leak them to
+another server. For stronger guarantees, route these downloads through an egress proxy or network
+policy that blocks private, loopback, and link-local (cloud metadata) addresses.
+
+Similarly when using https:
+
+~~~ruby 
+path = IOStreams.path("https://hostname/path/example.csv")
+~~~
+
+This time IOStreams inferred that the file lives on an HTTP Server and returns `IOStreams::Paths::HTTP`.
+
+### Path Operations
+
+Paths support common file operations, regardless of where the file is stored:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv")
+
+# Does the file exist?
+path.exist?
+# => true
+
+# Size of the file in bytes.
+path.size
+# => 64
+
+# Delete the file.
+path.delete
+
+# Move the file to another path, returning the target path.
+path.move_to("sample/moved.csv")
+
+# Create the directory path, when it does not already exist.
+IOStreams.path("sample/data").mkpath
+~~~
+
+Inspect the components of a path's file name:
+
+~~~ruby
+# The last component of the path.
+IOStreams.path("/home/gumby/work/ruby.rb").basename
+# => "ruby.rb"
+
+# Remove a specific suffix from the file name.
+IOStreams.path("/home/gumby/work/ruby.rb").basename(".rb")
+# => "ruby"
+
+# Remove any extension by supplying ".*".
+IOStreams.path("/home/gumby/work/ruby.rb").basename(".*")
+# => "ruby"
+
+# The directory portion of the path.
+IOStreams.path("a/b/d/test.rb").dirname
+# => "a/b/d"
+
+# The extension, including the leading period.
+IOStreams.path("a/b/d/test.rb").extname
+# => ".rb"
+
+# The extension, without the leading period.
+IOStreams.path("a/b/d/test.rb").extension
+# => "rb"
+~~~
+
+Notes:
+* `basename`, `dirname`, `extname`, and `extension` return `nil` when no file name was set.
+* A leading period on a dotfile is not treated as an extension, so `.profile` has no extension,
+  while `.profile.sh` has the extension `sh`.
+* A file name ending in a period, such as `foo.`, returns an empty string for the extension.
+
+Iterate over the files in a path using a wildcard pattern:
+
+~~~ruby
+IOStreams.path("sample").each_child("*.csv") do |child|
+  puts child
+end
+
+# Recursively, including sub-directories:
+IOStreams.path("sample").each_child("**/*.csv") do |child|
+  puts child
+end
+~~~
+
+`each_child` is also available directly on `IOStreams` when the pattern includes the full path:
+
+~~~ruby
+IOStreams.each_child("sample/**/*.csv") { |child| puts child }
+~~~
+
+Notes:
+* These operations are supported by File and S3 paths. SFTP supports `each_child`,
+  and HTTP paths are read-only so they do not support any of them.
+* By default `each_child` patterns are case-insensitive and hidden files are excluded.
+  Supply `case_sensitive: true` or `hidden: true` to change this behavior.
+
+### Using root paths
+
+Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
+By using `IOStreams.join` instead of `IOStreams.path`, the storage location is no longer embedded in the
+application code, it is configured once at startup.
+
+The primary purpose of roots is to allow the exact same code to run in production and development,
+yet use completely different data sources in each. For example, in production the root can point to an
+S3 bucket, while in development it points to the local file system.
+
+Roots are configured via an initializer at startup. Multiple roots can be setup, for example one for
+input files, another for output files, another for reports, etc. During development the roots can all
+point to a common location, while in production they could be completely different S3 buckets.
+
+For example, inside an initializer:
+~~~ruby
+IOStreams.add_root(:default, "tmp/export")
+IOStreams.add_root(:ftp, "tmp/ftp")
+~~~
+
+`:default` is used whenever a root is not supplied when calling `IOStreams.join`:
+~~~ruby
+# Uses the :default root: "tmp/export/sample/example.csv"
+path = IOStreams.join("sample", "example.csv")
+
+# Uses the :ftp root: "tmp/ftp/sample/example.csv"
+path = IOStreams.join("sample", "example.csv", root: :ftp)
+~~~
+
+The following code:
+~~~ruby
+path = IOStreams.path("tmp/export", "sample", "example.csv")
+path.writer(:line) do |io|
+  io << "Welcome"
+  io << "To IOStreams"
+end
+~~~
+
+Can be reduced to:
+~~~ruby 
+path = IOStreams.join("sample", "example.csv")
+path.writer(:line) do |io|
+  io << "Welcome"
+  io << "To IOStreams"
+end
+~~~
+
+Most importantly the root path information and storage mechanism are externalized from the application code.
+
+For example, to make the above code write to S3 in production, change the initializer to:
+~~~ruby
+IOStreams.add_root(:default, "s3://my-app-bucket-name/export")
+IOStreams.add_root(:ftp, "s3://my-app-ftp-bucket-name/ftp")
+~~~
+
+The code calling `IOStreams.join` does not change at all, see [Config](config) for more examples.
+
+---
+
+# Streams
+
+# Streams
+
+Once you have a [path](path), you read from and write to it with a small, consistent set of methods.
+Reading and writing always happen a block, line, or record at a time, so memory use stays low no
+matter how large the file is. Choose how each chunk is delivered by passing a mode: the default
+streams raw data, `:line` yields one line at a time, `:array` yields each row as an array, and
+`:hash` yields each record as a hash keyed by the header row.
+
+Read 128 characters at a time from the file:
+~~~ruby
+IOStreams.path("example.csv").reader do |io|
+  while (data = io.read(128))
+    p data 
+  end
+end
+~~~
+
+Read one line at a time from the file:
+~~~ruby
+IOStreams.path("example.csv").each do |line|
+  puts line
+end
+~~~
+
+By default the line delimiter is auto-detected from the file, handling both Windows (`\r\n`)
+and Linux (`\n`) line endings. To break the file up by something other than its line endings,
+supply `delimiter`:
+~~~ruby
+IOStreams.path("example.txt").each(:line, delimiter: "|") do |line|
+  puts line
+end
+~~~
+
+When a line can contain embedded newlines, such as a CSV field wrapped in double quotes that
+spans multiple lines, supply `embedded_within` so those newlines are not treated as line endings:
+~~~ruby
+IOStreams.path("example.csv").each(:line, embedded_within: '"') do |line|
+  puts line
+end
+~~~
+
+Notes:
+* Newlines embedded within quoted fields are kept on the same line automatically when the resolved
+  tabular format quotes its fields, such as CSV (detected from a `.csv` file name or set explicitly via
+  `.format(:csv)`). `embedded_within` only needs to be supplied for quoted formats that are not
+  auto-detected, or to override the quote character.
+* A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
+  real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
+~~~ruby
+IOStreams.path("pipe_delimited.csv").format(:psv).each(:line) do |line|
+  puts line
+end
+~~~
+
+Display each row from the csv file as an array:
+~~~ruby
+IOStreams.path("example.csv").each(:array) do |array|
+  p array
+end
+~~~
+
+Display each row from the csv file as a hash, where the first line in the CSV file is the header:
+~~~ruby
+IOStreams.path("example.csv").each(:hash) do |hash|
+  p hash
+end
+~~~
+
+Write data to the file.
+~~~ruby
+IOStreams.path("abc.txt").writer do |io|
+  io << "This"
+  io << " is "
+  io << " one line\n"
+end
+~~~
+
+Write lines to the file. By adding `:line` to `writer`, each write appends a new line character. 
+~~~ruby
+IOStreams.path("example.csv").writer(:line) do |file|
+  file << "these"
+  file << "are"
+  file << "all"
+  file << "separate"
+  file << "lines"
+end
+~~~
+
+Write an array (row) at a time to the file.
+Each array is converted to csv before being compressed with zip.
+
+~~~ruby
+IOStreams.path("example.csv").writer(:array) do |io|
+  io << ["name", "address", "zip_code"]
+  io << ["Jack", "There", "1234"]
+  io << ["Joe", "Over There somewhere", 1234]
+end
+~~~
+
+Write a hash (record) at a time to the file.
+Each hash is converted to csv before being compressed with zip.
+The header row is extracted from the first hash write that is performed. 
+
+~~~ruby
+IOStreams.path("example.csv").writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
+end
+~~~
+
+Notes
+* Any additional keys supplied during subsequent write operations will be ignored
+  since the header row has already been written to the file. 
+* The order of the header and values is determined by the order of the keys supplied 
+  during the first write.
+* The order of keys in the subsequent writes does not matter. 
+
+Stream into an in-memory buffer, useful for testing. 
+The original filename still needs to be supplied so that the streaming pipeline can still be inferred.
+
+~~~ruby
+io = StringIO.new
+IOStreams.stream(io).file_name("example.csv.gz").writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {name: "Joe", zip_code: 1234, address: "Over There somewhere"}
+end
+puts io.string
+~~~
+
+Read a CSV file and write the output to an encrypted file in JSON format.
+
+~~~ruby
+IOStreams.path("sample.json.enc").writer(:hash) do |output|
+  IOStreams.path("sample.csv").each(:hash) do |record|
+    output << record
+  end
+end
+~~~
+
+Read a zip file hosted on a HTTP Web Server, returning each row as a hash:
+~~~ruby
+IOStreams.
+  path("https://www5.fdic.gov/idasp/Offices2.zip").
+  option(:zip, entry_file_name: "OFFICES2_ALL.CSV").
+  each(:hash) do |row|
+    p row
+  end
+~~~
+
+Notes:
+* By default IOStreams will read the first file in the zip file. 
+* To choose a specific file name within the zip file, supply: `entry_file_name` 
+
+## Notes
+
+* Reading a Zip file requires the entire file to be available locally, so reading from a
+  stream (for example S3 or HTTP) downloads it into a temp file first.
+  Writing Zip is fully streamed, no temp file is required.
+* When writing, `entry_file_name` sets the name of the file entry within the zip file.
+  It defaults to the file name without the `.zip` extension, so writing to
+  `example.csv.zip` creates an entry named `example.csv`.
+* Gzip is still recommended over Zip for very large files, since Zip files can only
+  be read via a local file.
+
+## Pipeline
+
+If the file is compressed, the pipeline will infer the necessary streams that need to be applied to it:
+
+~~~ruby
+path = IOStreams.path("somewhere/example.csv.gz")
+# => #<IOStreams::Paths::File:somewhere/example.csv.gz pipeline={:gz=>{}}>
+ 
+path.pipeline
+# => {:gz=>{}} 
+~~~
+
+The `pipeline` above includes `:gz` to indicate that the file should compressed / decompressed with GZip.
+
+#### Option
+
+Each path supports several options which can be supplied using the `option` method. 
+
+Set the options for a stream in the pipeline for this file. Each stream can only be applied once and is uniquely
+identified by its symbolic name.
+
+To see the pipeline of streams that IOStreams would infer: 
+~~~ruby
+IOStreams.path("example.pgp").pipeline
+# => {:pgp=>{}}
+ 
+IOStreams.path("example.gz").pipeline
+# => {:gz=>{}}
+ 
+IOStreams.path("example.gz.pgp").pipeline
+# => {:gz=>{}, :pgp=>{}}
+~~~
+
+If the relevant stream is not found for this file it is ignored.
+For example, if the file does not have a pgp extension then the pgp option is ignored.
+~~~ruby
+IOStreams.path("example.csv.gz").
+  option(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+This is great way to pass in stream specific options for when they are required, and to still support
+paths that do not use that stream. For example, the same code can support pgp encrypted, Symmetric Encryption encrypted,
+and plain text files.
+~~~ruby
+IOStreams.path("example.csv.enc").
+  option(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+To see the what value was previously set for a particular option:
+~~~ruby 
+path = IOStreams.path("example.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase")
+
+path.setting(:pgp)
+# => {:passphrase=>"receiver_passphrase"}
+~~~
+
+#### Stream
+
+The `stream` method stops IOStreams from inferring the streams for this path and only uses the specified streams.
+
+For example when using a filename that does not have the necessary file extensions. 
+In this case the file was compressed with Zip, so tell IOStreams to unzip it:  
+~~~ruby 
+path = IOStreams.path("tempfile2527")
+path.stream(:zip)
+path.read
+~~~
+
+The above example could also be written as:
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  read
+~~~
+
+Multiple streams can also be specified:
+
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  stream(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+Now that IOStreams is not inferring the pipeline from the filename, we can still see the above streams: 
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  stream(:pgp, passphrase: "receiver_passphrase").
+  pipeline
+# => {:zip=>{}, :pgp=>{:passphrase=>"receiver_passphrase"}}
+~~~
+
+
+In this example the file contains JSON data that was compressed with Zip, and since we want to read each row as a hash:
+~~~ruby 
+IOStreams.path("tempfile2527").
+  stream(:zip).
+  each(:hash, format: :json) do |row|
+    p row
+  end
+~~~
+
+Alternatively if the original file name is available it can also be supplied allowing IOStreams to infer the above streams:
+~~~ruby 
+IOStreams.path("tempfile2527").
+  file_name("file.json.zip").
+  each(:hash) do |row|
+    p row
+  end
+~~~
+
+To see the what value was previously set for a particular stream:
+~~~ruby 
+path = IOStreams.path("tempfile2527")
+path.stream(:zip)
+path.stream(:pgp, passphrase: "receiver_passphrase")
+
+path.setting(:pgp)
+# => {:passphrase=>"receiver_passphrase"}
+~~~
+
+To ensure no streams are inferred or applied use stream `:none` 
+~~~ruby 
+path = IOStreams.path("file.zip")
+path.stream(:none)
+path.read
+~~~
+
+---
+
+# File Extensions
+
+# File Extensions
+
+IOStreams uses the extensions in the file name to determine which streams to apply when
+reading or writing a file. Multiple extensions are applied in order, so `sample.csv.gz.pgp`
+is first decrypted with PGP and then decompressed with GZip when read.
+
+Supported extensions:
+
+| Extension        | Stream               | Read | Write | Required gem / program            |
+|:-----------------|:---------------------|:-----|:------|:----------------------------------|
+| `.bz2`           | BZip2                | Yes  | Yes   | `bzip2-ffi`                        |
+| `.enc`           | Symmetric Encryption | Yes  | Yes   | `symmetric-encryption`             |
+| `.gz`, `.gzip`   | GZip                 | Yes  | Yes   | None (Ruby standard library)       |
+| `.zip`           | Zip                  | Yes  | Yes   | `rubyzip` (read), `zip_kit` (write). On JRuby the built-in Java zip support is used for reading. |
+| `.pgp`, `.gpg`   | PGP                  | Yes  | Yes   | GnuPG command line program (`gpg`) |
+| `.xlsx`, `.xlsm` | Excel Spreadsheet    | Yes  | No    | `creek`                            |
+
+The gems above are soft dependencies: IOStreams does not require them for installation,
+they only need to be added to the `Gemfile` when the corresponding extension is used.
+
+## Reading an Excel Spreadsheet
+
+Each row in the spreadsheet is converted into a CSV line, so the regular `:line`, `:array`,
+and `:hash` modes apply:
+
+~~~ruby
+IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
+  p record
+end
+~~~
+
+Notes:
+* Since the underlying `creek` gem operates on files, when reading from a stream (for example S3 or HTTP)
+  the contents are first downloaded into a temp file.
+* Writing xlsx files is not supported.
+
+## Character encoding
+
+The special `:encode` stream converts the character encoding of the data being read or written.
+It is applied with `option` or `stream` rather than a file name extension:
+
+~~~ruby
+IOStreams.path("sample.csv.gz").
+  option(:encode, encoding: "UTF-8", cleaner: :printable, replace: "").
+  each do |line|
+    puts line
+  end
+~~~
+
+Options:
+
+* `encoding: [String|Encoding]`
+  The target encoding, for example `"UTF-8"`, `"US-ASCII"`, or `"ASCII-8BIT"`.
+  Default: `"UTF-8"`
+
+* `replace: [String]`
+  The character to replace with when a character cannot be converted to the target encoding.
+  Default: nil (raise `Encoding::UndefinedConversionError` on invalid characters)
+
+* `cleaner: [nil|Symbol|Proc]`
+  Cleanse the data. Built-in rules:
+  * `:printable` removes all non-printable characters except `\r` and `\n`.
+  * `:replace_non_printable` replaces all non-printable characters except `\r` and `\n`
+    with the `replace` value, or an empty string when `replace` is nil.
+  A Proc can also be supplied to perform custom cleansing; it is called with the data
+  and the `replace` value after every read or write.
+  Default: nil
+
+## Registering a custom extension
+
+To add a new extension, supply its reader and writer classes. Both must implement `.open`
+that yields a stream implementing `#read` or `#write` respectively. See any of the streams
+under `lib/io_streams` for examples.
+
+~~~ruby
+IOStreams.register_extension(:xls, MyXls::Reader, MyXls::Writer)
+~~~
+
+Similarly, to support a new storage location, supply a Path class for its URI scheme.
+See [IOStreams::Paths::S3](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)
+for an example of what is required.
+
+~~~ruby
+IOStreams.register_scheme(:gcs, MyGoogleCloudStoragePath)
+~~~
+
+---
+
+# File Formats
+
+# File Formats
+
+When reading or writing rows (`:array`) or records (`:hash`), IOStreams converts each line
+to or from the file's tabular format. The following formats are supported:
+
+* `:csv`   Comma Separated Values
+* `:psv`   Pipe Separated Values
+* `:json`  One JSON document per line
+* `:fixed` Fixed width columns
+* `:array` Each line is already an array of values
+* `:hash`  Each line is already a hash
+
+## Format inference
+
+The format is inferred from the file name when it contains a recognized extension:
+
+~~~ruby
+IOStreams.path("sample.csv").each(:hash) { |record| p record }
+IOStreams.path("sample.json").each(:hash) { |record| p record }
+IOStreams.path("sample.psv").each(:hash) { |record| p record }
+~~~
+
+The format extension can appear anywhere in the file name, so `sample.csv.gz` and
+`sample.json.pgp` are recognized as CSV and JSON respectively.
+
+When the file name does not contain a recognized format extension, the format defaults to `:csv`.
+
+## Specifying the format
+
+When the file name cannot be used to infer the format, set it explicitly with `format`:
+
+~~~ruby
+path = IOStreams.path("sample_data")
+path.format(:json)
+path.each(:hash) { |record| p record }
+~~~
+
+`format` can be chained with the other path methods:
+
+~~~ruby
+IOStreams.path("sample_data").format(:json).each(:hash) { |record| p record }
+~~~
+
+## Format options
+
+Format specific options are supplied with `format_options`. They are passed to the parser
+for the chosen format. The `:fixed` format requires its file layout to be supplied this way,
+as shown in the next section. The other formats do not currently take any options.
+
+## Fixed width files
+
+Fixed width files have no delimiters; each column is identified by its position within the line.
+Since the layout cannot be inferred from the file, supply it using `format_options`:
+
+~~~ruby
+path = IOStreams.path("sample_data")
+path.format(:fixed)
+path.format_options(
+  layout: [
+    {size: 23, key: "name"},
+    {size: 40, key: "address"},
+    {size: 5,  key: "zip"}
+  ]
+)
+path.each(:hash) { |record| p record }
+~~~
+
+Writing a fixed width file uses the same layout to render each record:
+
+~~~ruby
+path = IOStreams.path("sample_data")
+path.format(:fixed)
+path.format_options(
+  layout: [
+    {size: 23, key: "name"},
+    {size: 40, key: "address"},
+    {size: 5,  key: "zip"}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+~~~
+
+Note: The keys in the hashes being written must match the layout `:key` values exactly,
+including whether they are strings or symbols.
+
+Layout column definitions:
+
+* `:size` The number of characters this column occupies.
+  The last column may use a size of `:remainder` to take the rest of the line as its value.
+* `:key` The name for this column. Leave out the key to ignore the column during parsing,
+  and to space fill when rendering.
+* `:type` `:string` (default), `:integer`, or `:float`.
+  Strings are left justified and space padded, numbers are right justified and zero padded.
+  Raises `IOStreams::Errors::ValueTooLong` when an `:integer` or `:float` value cannot be
+  rendered in `size` characters.
+* `:decimals` For `:float` columns, the number of decimal places to render.
+  Default: 2
+
+In addition to `layout`, the `:fixed` format takes one more option:
+
+* `truncate: [true|false]`
+  Whether to truncate string values that are longer than their column `:size` when writing.
+  When false, a string value that is too long raises `IOStreams::Errors::ValueTooLong`
+  instead of being truncated. Numeric values are never truncated.
+  Default: true
+
+## Header options
+
+When reading or writing records (`:hash`), the following options control the header row:
+
+* `columns: [Array<String>]`
+  When reading, supplies the header columns for files that do not include a header row.
+  When writing, sets the columns to write, including their order. Keys not listed in
+  `columns` are ignored during writes.
+
+* `cleanse_header: [true|false]`
+  Whether to cleanse the column names read from the header row.
+  Column names are stripped of leading and trailing whitespace, lowercased, and spaces
+  and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
+  Default: true
+
+* `allowed_columns: [Array<String>]`
+  List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
+  otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
+  Default: nil (allow all columns)
+
+* `required_columns: [Array<String>]`
+  List of columns that must be present, otherwise an exception is raised.
+
+* `skip_unknown: [true|false]`
+  When true, any columns not present in `allowed_columns` are skipped entirely as if they
+  were not in the file at all. When false, an unknown column raises
+  `IOStreams::Errors::InvalidHeader`.
+  Default: true
+
+Example, reading a headerless CSV file:
+
+~~~ruby
+path = IOStreams.path("no_header.csv")
+path.each(:hash, columns: ["name", "address", "zip"]) do |record|
+  p record
+end
+~~~
+
+Example, writing only specific columns in a fixed order:
+
+~~~ruby
+path = IOStreams.path("sample.csv")
+path.writer(:hash, columns: ["name", "zip"]) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+path.read
+# => "name,zip\nJack Jones,12345\n"
+~~~
+
+Note: Column names are converted to strings, and the keys in the hashes being written may
+be strings or symbols.
+
+---
+
+# Copying Between Files
+
+## Copying between files
+
+File copying can be used to:
+* copy from one storage location to another.
+* create a decrypted / encrypted copy of an existing file.
+* create a decompressed / compressed copy of an existing file.
+
+### Examples
+
+Decompress `example.csv.gz` into `example.csv`:
+
+~~~ruby
+source = IOStreams.path("example.csv.gz")
+IOStreams.path("example.csv").copy_from(source)
+~~~
+
+Decrypt a file encrypted with Symmetric Encryption:
+
+~~~ruby
+source = IOStreams.path("example.csv.enc")
+IOStreams.path("example.csv").copy_from(source)
+~~~
+
+Encrypt a file using PGP encryption so that it can only be read by `receiver@example.org`.
+
+~~~ruby
+source = IOStreams.path("example.csv")
+target = IOStreams.path("example.csv.pgp")
+target.option(:pgp, recipient: "receiver@example.org")
+target.copy_from(source)
+~~~
+
+When the file name does not have file extensions that would allow IOStreams to infer what streams to apply,
+the streams can be explicitly set using `stream`.
+
+In this example, the file `CUSTOMER_DATA` has no extensions, so `stream(:enc)` tells IOStreams
+that its contents were encrypted with Symmetric Encryption. The decrypted contents are then
+PGP encrypted and written to `xyz.csv.pgp` using the pgp key for `receiver@example.org`.
+
+~~~ruby
+input = IOStreams.path("CUSTOMER_DATA").stream(:enc)
+IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "receiver@example.org").copy_from(input)
+~~~
+
+To copy a file _without_ performing any conversions (ignore file extensions), set `convert` to `false`:
+
+~~~ruby
+input = IOStreams.path("sample.json.zip")
+IOStreams.path("sample.copy").copy_from(input, convert: false)
+~~~
+
+Custom stream conversions can be applied to both the source and the target in a single copy.
+Here the source is read as binary and the target is PGP encrypted:
+
+~~~ruby
+source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
+IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
+~~~
+
+To convert the contents row by row, or record by record, during the copy, supply `mode`.
+For example, copy a CSV file into JSON, parsing and rendering each record:
+
+~~~ruby
+source = IOStreams.path("source_file.csv")
+IOStreams.path("target_file.json").copy_from(source, mode: :hash)
+~~~
+
+Notes:
+* `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
+
+---
+
+# PGP Encryption
+
+# PGP Encrypted files/streams.
+
+IOStreams encrypts and decrypts PGP data by shelling out to the [GnuPG](https://gnupg.org) command
+line program, so `gpg` must already be installed and on the `PATH` wherever PGP files are read or
+written (see [Installation](#installation) below). As with every other stream, all you do is add a
+`.pgp` extension to the file name and IOStreams handles the rest.
+
+GnuPG is required because there is no standard, maintained pure-Ruby PGP library. Calling the `gpg`
+executable directly is the deliberate approach: it is the reference PGP implementation, is widely
+installed, and is kept current with the OpenPGP standard. It is also well suited to the large files
+IOStreams targets, since `gpg` streams the data rather than holding it in memory.
+
+IOStreams has been tested against GnuPG v1.4, v2.0.30, v2.2.1, and v2.4.7.
+Because GnuPG is a command line program, IOStreams parses its output to extract information, so each
+time GnuPG changes its output the regular expression parsers may need updating for that version.
+
+## Installation
+
+Install [GnuPG](https://gnupg.org)
+
+Mac OSX via homebrew
+
+    brew install gnupg
+    
+Redhat / CentOS / Fedora Linux
+
+    dnf install gnupg2
+
+Ubuntu / Debian Linux
+
+    apt-get install gnupg
+
+Confirm GnuPG is installed:
+
+    gpg --version
+
+### Tutorial
+
+After installing GnuPG above, install iostreams:
+
+Install IOStreams gem:
+~~~
+gem install iostreams --no-doc
+~~~
+
+Open a ruby interactive console:
+
+~~~
+irb
+~~~
+ 
+Load iostreams:
+
+~~~ruby
+require "iostreams"
+~~~
+ 
+Generate a private and public key that we can use as the sample sender of the encrypted files:
+~~~ruby
+IOStreams::Pgp.generate_key(name: "Sender", email: "sender@example.org", passphrase: "sender_passphrase")
+~~~
+
+Generate a private and public key that we can use as the sample receiver of the encrypted files:
+~~~ruby
+IOStreams::Pgp.generate_key(name: "Receiver", email: "receiver@example.org", passphrase: "receiver_passphrase")
+~~~
+
+By default the above keys are RSA 4096 bit encryption keys.
+
+Reference a file path to hold the PGP encrypted data by adding `.pgp` as a file name extension: 
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+# => #<IOStreams::Paths::File:sample/example.csv.pgp pipeline={:pgp=>{}}>  
+~~~
+
+Add the email address for the recipient:
+~~~ruby
+path.option(:pgp, recipient: "receiver@example.org")
+# => #<IOStreams::Paths::File:example.csv.pgp @options={:pgp=>{:recipient=>"receiver@example.org"}} pipeline={:pgp=>{:recipient=>"receiver@example.org"}}>  
+~~~
+
+Write data to the PGP file:
+~~~ruby
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+Lets try to read the file without supplying a passphrase:
+~~~ruby
+IOStreams.path("sample/example.csv.pgp").read
+# IOStreams::Pgp::Failure
+#  gpg: decryption failed: No secret key
+~~~
+
+In order to decrypt the file it needs the passphrase for the receivers private key above:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "sender_passphrase")
+path.read
+# IOStreams::Pgp::Failure
+#        "Receiver <receiver@example.org>"
+#  gpg: public key decryption failed: Bad passphrase
+#  gpg: decryption failed: No secret key
+~~~
+
+It failed again because we tried to use the senders passphrase. Since only the receiver can decrypt this file we 
+need to use its passphrase and therefore private key: 
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase")
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n" 
+~~~
+
+##### Sign the file
+
+To prevent a man-in-the-middle attack we can sign the file so that the recipient knows the file came from the sender:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase")
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+Try reading the pgp encrypted file that is now also signed by the sender:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase")
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n" 
+~~~
+
+This time when we read the file the signature is automatically verified. However, this only works if the receiver
+has already imported the senders public key.
+
+##### Sign without encrypting
+
+Sometimes the contents do not need to be kept secret, but the recipient still needs to verify that the file came from
+the sender and was not tampered with. Set `encrypt: false` to sign the file without encrypting it. In this mode a
+`signer` is required, and `recipient` / `import_and_trust_key` are ignored:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, encrypt: false, signer: "sender@example.org", signer_passphrase: "sender_passphrase")
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+Because a signed-only file is not encrypted, no passphrase is needed to read it. The signature is still verified
+automatically when the senders public key has been imported:
+~~~ruby
+IOStreams.path("sample/example.csv.pgp").read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
+
+##### Auto-sign all files
+
+To automatically sign every PGP output file, set the global config options to sign with the sender credentials.
+~~~ruby
+IOStreams::Pgp::Writer.default_signer            = "sender@example.org"
+IOStreams::Pgp::Writer.default_signer_passphrase = "sender_passphrase"
+~~~
+
+Now the file will be signed automatically without needing to supply the `signer` and `signer_passphrase` on every write.
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org")
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+### Decrypt output files
+
+In the examples above the sender cannot decrypt the file because it was generated for the recipient only.
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "sender_passphrase")
+path.read
+# IOStreams::Pgp::Failure
+#        "Receiver <receiver@example.org>"
+#  gpg: public key decryption failed: Bad passphrase
+#  gpg: decryption failed: No secret key
+~~~
+
+Since the sender cannot decrypt the file how do we know what was actually sent to the recipient?
+
+There are 2 options:
+* Add the sender to the recipient list every time a file is created.
+* Or, use the global configuration option to add the sender automatically to all PGP output files.
+
+Add the sender to the recipient list every time a file is created.
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: ["receiver@example.org", "sender@example.org"])
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+Now the sender can also read the file:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "sender_passphrase")
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n" 
+~~~
+
+Set the global configuration option to add the sender automatically to all PGP output files.
+~~~ruby
+IOStreams::Pgp::Writer.audit_recipient = "sender@example.org"
+~~~
+
+The sender is now automatically added to the recipient list every time a file is created.
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org")
+path.writer do |io|
+  io << "name,login\n"
+  io << "Jack Jones,jjones\n"
+  io << "Jill Smith,jsmith\n"
+end
+~~~
+
+Now the sender can also read the file:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "sender_passphrase")
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n" 
+~~~
+
+By now you must be getting tired of typing in the senders passphrase, so lets set the config option to remove that requirement:
+
+~~~ruby
+IOStreams::Pgp::Reader.default_passphrase = "sender_passphrase"
+~~~
+
+Try reading the above file again:
+~~~ruby
+IOStreams.path("sample/example.csv.pgp").read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n" 
+~~~
+
+## Cleanup
+
+To remove the test PGP keys created above:
+~~~ruby
+IOStreams::Pgp.delete_keys(email: 'sender@example.org', private: true)
+IOStreams::Pgp.delete_keys(email: 'receiver@example.org', private: true)
+~~~
+
+### import_and_trust_key
+
+The standard approach with PGP is to import public keys into the keystore on every server. Copying the public keys to
+every server can be tedious, especially when running inside docker containers.
+
+An ideal way to manage PGP public keys is in a database, or in Secret Config that stores the keys in the
+AWS SSM Parameter store.
+
+Fetch the recipients public key from a data store. For example Secret Config
+~~~ruby
+public_pgp_key = SecretConfig.fetch("suppliers/acxiom/pgp/public_key")
+~~~
+
+When creating the pgp encrypted file let IOStreams import and trust the public key every time so that it does
+not have to be managed on every production server. The option `import_and_trust_key` takes the public key as a string:
+~~~ruby
+path = IOStreams.join("test/sample.pgp", root: :downloads)
+path.option(:pgp, import_and_trust_key: public_pgp_key)
+path.write("Hello World")
+​~~~
+
+Now try to read the file:
+~~~ruby
+IOStreams.join("test/sample.pgp", root: :downloads).read
+~~~
+
+#### Trust level
+
+The key is imported and then marked as trusted so that GPG will encrypt to it without prompting.
+The trust level can be controlled with the `import_and_trust_level` option:
+
+~~~ruby
+path = IOStreams.join("test/sample.pgp", root: :downloads)
+path.option(:pgp, import_and_trust_key: public_pgp_key, import_and_trust_level: 4)
+path.write("Hello World")
+~~~
+
+Or by calling `IOStreams::Pgp.import_and_trust` directly with the `trust_level` argument:
+
+~~~ruby
+IOStreams::Pgp.import_and_trust(key: public_pgp_key, trust_level: 4)
+~~~
+
+The available levels are the same as those used by `IOStreams::Pgp.set_trust`:
+
+| Level | Meaning                  |
+|:------|:-------------------------|
+| 1     | Undefined (no opinion)   |
+| 2     | Never (do not trust)     |
+| 3     | Marginal                 |
+| 4     | Full                     |
+| 5     | Ultimate (default)       |
+
+> **Security warning**
+>
+> Only import and trust keys that were received from a verified, trusted source.
+>
+> The default trust level is `5` (Ultimate), which tells GPG to treat the imported key as
+> if it were one of your own keys: it becomes implicitly valid and can in turn confer
+> validity on other keys that it has signed. Importing an attacker supplied key at this
+> level allows that attacker to impersonate other recipients. When a key cannot be fully
+> verified, supply a lower `trust_level`.
+
+#### Compression:
+
+The compression used by pgp can be specified by suppling the `:compress` option.
+
+The valid values for this option: `:none`, `:zip`, `:zlib`, or `:bzip2`.
+
+The default compression is `:zip` for which has the highest compatibility. 
+
+Most PGP tools now support `:zlib` and is the recommended compression to use when possible.
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org", compress: :zlib)
+path.write("Hello World")
+~~~
+
+The compression level can be adjusted with the `:compress_level` option, where `1` is the
+fastest and `9` compresses the most:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, recipient: "receiver@example.org", compress: :zlib, compress_level: 9)
+path.write("Hello World")
+~~~
+
+Default: `6`
+
+Compression Performance
+* Running tests on an Early 2015 Macbook Pro Dual Core with Ruby v2.3.1
+~~~
+  Input text file: test.log 3.6GB
+    :none:  size: 3.6GB  write:  52s  read:  45s
+    :zip:   size: 411MB  write:  75s  read:  31s
+    :zlib:  size: 241MB  write:  66s  read:  23s  ( 756KB Memory )
+    :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
+~~~
+
+### Reading legacy files without MDC integrity protection
+
+Modern GnuPG refuses to decrypt files that lack MDC (Modification Detection Code) integrity
+protection, failing with `gpg: decryption forced to fail!`. Some legacy or enterprise systems
+still produce such files. To read them, supply the `ignore_mdc_error` option:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase", ignore_mdc_error: true)
+path.read
+~~~
+
+> **Security warning**
+>
+> Only enable `ignore_mdc_error` for files from a trusted source: without MDC the decrypted
+> contents are not protected against tampering.
+
+Note: IOStreams never writes files without MDC, this option only applies when reading.
+
+### PGP FAQ:
+
+If you get not trusted errors
+
+`gpg --edit-key sender@example.org`
+
+Select highest level: 5
+
+### PGP Limitations
+
+* Designed for processing larger files since a process is spawned for each file processed.
+* For lots of small, in memory files, use the [gpgme](https://github.com/ueno/ruby-gpgme) library. For example to attach pgp files to emails.
+
+---
+
+# Configuring IOStreams
+
+## Configuring IOStreams
+
+### add_root
+
+Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
+Their primary purpose is to allow the exact same code to run in production and development, yet use completely
+different data sources in each. For example, in production a root can point to an S3 bucket, while in
+development it points to the local file system.
+
+Roots are configured via an initializer at startup. `IOStreams.join` then joins the supplied path
+elements onto the named root, using the `:default` root whenever a root is not supplied.
+
+Set the default root for this environment in an initializer:
+~~~ruby
+IOStreams.add_root(:default, "/var/my_app/files")
+~~~
+
+Now the default root path is available:
+~~~ruby
+IOStreams.root
+# => #<IOStreams::Paths::File:/var/my_app/files pipeline={}>
+ 
+IOStreams.root.to_s
+# => "/var/my_app/files"
+~~~
+
+Comparing the final path using `path` and then `join` that uses a root path:
+~~~ruby
+IOStreams.path("/var/my_app/files", "my_test_file.txt").to_s
+# => "/var/my_app/files/my_test_file.txt"
+
+IOStreams.join("my_test_file.txt").to_s
+# => "/var/my_app/files/my_test_file.txt"
+~~~
+
+
+Using `path`:
+~~~ruby
+IOStreams.path("/var/my_app/files", "my_test_file.txt").write("Hello World")
+~~~
+
+With the default root path configured the above code can be simplified by using `join` since it resolves to the same path.
+~~~ruby
+IOStreams.join("my_test_file.txt").write("Hello World")
+~~~
+
+Multiple roots can be setup, for example one for input files, another for output files, another for
+reports, etc. During development the roots can all point to a common location, while in production
+they could be completely different S3 buckets.
+
+For example add special paths for `downloads` and `uploads`.
+~~~ruby
+IOStreams.add_root(:downloads, "/var/my_app/downloads")
+IOStreams.add_root(:uploads, "/var/my_app/uploads")
+~~~
+
+An example that writes a file into the `/var/my_app/downloads` directory:
+~~~ruby
+IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
+~~~
+
+The other benefit is that the root paths used in an application are externalized from the code base. That way the
+roots can be changed to different locations depending on the environment.
+
+We can also change the storage mechanism by changing the root:
+~~~ruby
+IOStreams.add_root(:downloads, "s3://my-app-bucket-name/downloads")
+IOStreams.add_root(:uploads, "s3://my-app-bucket-name/uploads")
+~~~
+
+Now the application will write to S3 and the code does not change at all.
+~~~ruby
+IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
+~~~
+
+To use or query a configured root path:
+~~~ruby
+IOStreams.root(:downloads).to_s
+# => "s3://my-app-bucket-name/downloads"
+~~~
+
+## temp_dir
+
+When working with large files the standard temp file system location can be too small to handle downloading large
+files. For example to decrypt a pgp file from S3, because GnuPG is not streaming capable and only operates on local files.
+
+By default IOStreams looks up the location to store temp files in the following order:
+* `ENV['TMPDIR']`
+* `ENV['TMP']`
+* `ENV['TEMP']`
+* `Etc.systmpdir`
+* `/tmp` (if it exists)
+* Otherwise `.`
+
+To explicity set the temp file location the following config option can be used:
+
+~~~ruby
+IOStreams.temp_dir = "/var/really_big_temp"
+~~~
+
+### temp_file
+
+To work with a temporary file directly, `IOStreams.temp_file` yields a path inside `temp_dir`
+and deletes the file when the block completes:
+
+~~~ruby
+IOStreams.temp_file("export", ".csv") do |path|
+  path.write("Hello World")
+  # ... use the temp file ...
+end
+# The temp file has been deleted.
+~~~
+
+The first argument is a base file name to include in the generated temp file name, and the
+optional second argument is the file extension.
+
+## logger
+
+IOStreams can log debug information, such as the external commands it runs for PGP and SFTP.
+
+When [Semantic Logger](https://logger.rocketjob.io) is loaded it is detected automatically, and IOStreams
+logs to it without any additional configuration.
+
+To use a different logger, or to log when Semantic Logger is not present, assign any logger that
+responds to the standard logging methods:
+
+~~~ruby
+require "logger"
+IOStreams.logger = Logger.new($stdout)
+~~~
+
+To disable logging entirely, set the logger to `nil`:
+
+~~~ruby
+IOStreams.logger = nil
+~~~
