@@ -1,0 +1,26 @@
+# IOStreams
+
+> IOStreams is a Ruby gem for streaming I/O that makes file formats, compression, encryption,
+> and storage mechanisms (local file, S3, SFTP, HTTP) transparent to the application. Files of
+> any size are processed one block at a time without loading them into memory.
+
+The public entry points are `IOStreams.path(...)` and `IOStreams.stream(io)`, which are
+configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#writer`, `#each`,
+`#read`, `#write`, `#copy_from`, etc.
+
+## Docs
+
+- [Overview](https://iostreams.rocketjob.io/): what IOStreams is, why it exists, and a quick comparison against hand-rolled streaming code.
+- [Tutorial](https://iostreams.rocketjob.io/tutorial): step-by-step introduction to reading and writing files with IOStreams.
+- [Path](https://iostreams.rocketjob.io/path): what a `Path` is, how it identifies where a file is stored (local disk, S3, SFTP, HTTP) and how to reach it.
+- [Streams](https://iostreams.rocketjob.io/streams): the `#reader`/`#writer`/`#each`/`#read`/`#write` API used once you have a path.
+- [File Extensions](https://iostreams.rocketjob.io/extensions): how file-name extensions (e.g. `.csv.gz.enc`) determine which streams are auto-applied.
+- [File Formats](https://iostreams.rocketjob.io/formats): how rows (`:array`) and records (`:hash`) are converted to/from lines (CSV, PSV, JSON, fixed-width).
+- [Copying Between Files](https://iostreams.rocketjob.io/copy_files): using `IOStreams.copy` to compress, decompress, encrypt, decrypt, and move files between storage locations.
+- [PGP Encryption](https://iostreams.rocketjob.io/pgp): reading and writing PGP-encrypted files/streams by shelling out to GnuPG.
+- [Configuring IOStreams](https://iostreams.rocketjob.io/config): setting up named roots via `IOStreams.add_root` so the same code can target different storage locations per environment.
+
+## Optional
+
+- [GitHub repository](https://github.com/reidmorrison/iostreams): source code, issue tracker, and CONTRIBUTING.md for the design philosophy behind the reader/writer pipeline.
+- [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md): release history.
