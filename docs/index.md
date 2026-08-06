@@ -91,7 +91,7 @@ bucket in production, and the exact same application code runs in both.
 * BZip2
 * PGP (Requires GnuPG)
 * Xlsx (Reading)
-* Encryption using [Symmetric Encryption](https://encryption.rocketjob.io/)
+* Encryption using [Symmetric Encryption](https://encryption.reidmorrison.com/)
 
 #### File Storage
 * File
