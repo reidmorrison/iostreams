@@ -122,7 +122,7 @@ optional second argument is the file extension.
 
 IOStreams can log debug information, such as the external commands it runs for PGP and SFTP.
 
-When [Semantic Logger](https://logger.rocketjob.io) is loaded it is detected automatically, and IOStreams
+When [Semantic Logger](https://logger.reidmorrison.com) is loaded it is detected automatically, and IOStreams
 logs to it without any additional configuration.
 
 To use a different logger, or to log when Semantic Logger is not present, assign any logger that

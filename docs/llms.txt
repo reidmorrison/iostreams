@@ -10,15 +10,15 @@ configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#w
 
 ## Docs
 
-- [Overview](https://iostreams.rocketjob.io/): what IOStreams is, why it exists, and a quick comparison against hand-rolled streaming code.
-- [Tutorial](https://iostreams.rocketjob.io/tutorial): step-by-step introduction to reading and writing files with IOStreams.
-- [Path](https://iostreams.rocketjob.io/path): what a `Path` is, how it identifies where a file is stored (local disk, S3, SFTP, HTTP) and how to reach it.
-- [Streams](https://iostreams.rocketjob.io/streams): the `#reader`/`#writer`/`#each`/`#read`/`#write` API used once you have a path.
-- [File Extensions](https://iostreams.rocketjob.io/extensions): how file-name extensions (e.g. `.csv.gz.enc`) determine which streams are auto-applied.
-- [File Formats](https://iostreams.rocketjob.io/formats): how rows (`:array`) and records (`:hash`) are converted to/from lines (CSV, PSV, JSON, fixed-width).
-- [Copying Between Files](https://iostreams.rocketjob.io/copy_files): using `IOStreams.copy` to compress, decompress, encrypt, decrypt, and move files between storage locations.
-- [PGP Encryption](https://iostreams.rocketjob.io/pgp): reading and writing PGP-encrypted files/streams by shelling out to GnuPG.
-- [Configuring IOStreams](https://iostreams.rocketjob.io/config): setting up named roots via `IOStreams.add_root` so the same code can target different storage locations per environment.
+- [Overview](https://iostreams.reidmorrison.com/): what IOStreams is, why it exists, and a quick comparison against hand-rolled streaming code.
+- [Tutorial](https://iostreams.reidmorrison.com/tutorial): step-by-step introduction to reading and writing files with IOStreams.
+- [Path](https://iostreams.reidmorrison.com/path): what a `Path` is, how it identifies where a file is stored (local disk, S3, SFTP, HTTP) and how to reach it.
+- [Streams](https://iostreams.reidmorrison.com/streams): the `#reader`/`#writer`/`#each`/`#read`/`#write` API used once you have a path.
+- [File Extensions](https://iostreams.reidmorrison.com/extensions): how file-name extensions (e.g. `.csv.gz.enc`) determine which streams are auto-applied.
+- [File Formats](https://iostreams.reidmorrison.com/formats): how rows (`:array`) and records (`:hash`) are converted to/from lines (CSV, PSV, JSON, fixed-width).
+- [Copying Between Files](https://iostreams.reidmorrison.com/copy_files): using `IOStreams.copy` to compress, decompress, encrypt, decrypt, and move files between storage locations.
+- [PGP Encryption](https://iostreams.reidmorrison.com/pgp): reading and writing PGP-encrypted files/streams by shelling out to GnuPG.
+- [Configuring IOStreams](https://iostreams.reidmorrison.com/config): setting up named roots via `IOStreams.add_root` so the same code can target different storage locations per environment.
 
 ## Optional
 

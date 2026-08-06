@@ -99,7 +99,7 @@ bucket in production, and the exact same application code runs in both.
 * BZip2
 * PGP (Requires GnuPG)
 * Xlsx (Reading)
-* Encryption using [Symmetric Encryption](https://encryption.rocketjob.io/)
+* Encryption using [Symmetric Encryption](https://encryption.reidmorrison.com/)
 
 #### File Storage
 * File
@@ -2606,7 +2606,7 @@ optional second argument is the file extension.
 
 IOStreams can log debug information, such as the external commands it runs for PGP and SFTP.
 
-When [Semantic Logger](https://logger.rocketjob.io) is loaded it is detected automatically, and IOStreams
+When [Semantic Logger](https://logger.reidmorrison.com) is loaded it is detected automatically, and IOStreams
 logs to it without any additional configuration.
 
 To use a different logger, or to log when Semantic Logger is not present, assign any logger that

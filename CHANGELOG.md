@@ -19,7 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `IOStreams.logger` / `IOStreams.logger=` provide a single logging configuration point for the entire library. [Semantic Logger](https://logger.rocketjob.io) is detected automatically when loaded; otherwise assign any standard logger, or set it to `nil` to disable logging.
+- `IOStreams.logger` / `IOStreams.logger=` provide a single logging configuration point for the entire library. [Semantic Logger](https://logger.reidmorrison.com) is detected automatically when loaded; otherwise assign any standard logger, or set it to `nil` to disable logging.
 - Gem metadata links (bug tracker, changelog, documentation, source code) added to the gemspec.
 - `csv` is now declared as a runtime dependency. It was a Ruby default gem through 3.3 but became a bundled gem in 3.4, so it must be declared to remain loadable under Bundler.
 - SimpleCov-based test coverage with substantially expanded tests across the suite.

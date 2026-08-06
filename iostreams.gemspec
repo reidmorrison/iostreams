@@ -10,7 +10,7 @@ Gem::Specification.new do |s|
   s.version               = IOStreams::VERSION
   s.platform              = Gem::Platform::RUBY
   s.authors               = ["Reid Morrison"]
-  s.homepage              = "https://iostreams.rocketjob.io"
+  s.homepage              = "https://iostreams.reidmorrison.com"
   s.summary               = "Streaming I/O for Ruby: compression, encryption, file format, and storage location " \
                             "transparent to your code."
   s.description           = "IOStreams makes file formats, compression (gzip, zip, bzip2), encryption (PGP, symmetric), " \
@@ -22,8 +22,8 @@ Gem::Specification.new do |s|
   s.metadata              = {
     "bug_tracker_uri"       => "https://github.com/reidmorrison/iostreams/issues",
     "changelog_uri"         => "https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md",
-    "documentation_uri"     => "https://iostreams.rocketjob.io",
-    "homepage_uri"          => "https://iostreams.rocketjob.io",
+    "documentation_uri"     => "https://iostreams.reidmorrison.com",
+    "homepage_uri"          => "https://iostreams.reidmorrison.com",
     "source_code_uri"       => "https://github.com/reidmorrison/iostreams/tree/v#{IOStreams::VERSION}",
     "rubygems_mfa_required" => "true"
   }
