@@ -1,8 +1,10 @@
 ---
 layout: default
+title: Path
+description: >-
+  How a path identifies where a file is stored and how to reach it, with the
+  arguments for each location: local disk, AWS S3, SFTP and HTTP.
 ---
-
-# Path
 
 A path identifies _where_ a file is stored and how to reach it, so that the streaming pipeline knows
 where to read the data from or write it to.

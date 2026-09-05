@@ -1,8 +1,10 @@
 ---
 layout: default
+title: Streams
+description: >-
+  Reading and writing a path a block, line, row or record at a time, and the
+  pipeline of compression, encryption and format streams applied to it.
 ---
-
-# Streams
 
 Once you have a [path](path), you read from and write to it with a small, consistent set of methods.
 Reading and writing always happen a block, line, or record at a time, so memory use stays low no

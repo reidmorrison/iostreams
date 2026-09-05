@@ -1,8 +1,7 @@
 ---
 layout: default
+heading: What is IOStreams?
 ---
-
-# IOStreams
 
 IOStreams is a streaming library for Ruby that makes compression, encryption, file format, and
 storage location transparent to your code. Read and write files as if they were plain, local text,

@@ -1,10 +1,12 @@
 ---
 layout: default
+title: Configuring IOStreams
+description: >-
+  Named roots via IOStreams.add_root so the same code targets different storage
+  per environment, plus the temp directory and logger settings.
 ---
 
-## Configuring IOStreams
-
-### add_root
+## add_root
 
 Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
 Their primary purpose is to allow the exact same code to run in production and development, yet use completely

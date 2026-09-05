@@ -1,8 +1,10 @@
 ---
 layout: default
+title: File Extensions
+description: >-
+  How the extensions in a file name, such as .csv.gz.pgp, decide which streams
+  IOStreams applies when reading or writing, and how to register your own.
 ---
-
-# File Extensions
 
 IOStreams uses the extensions in the file name to determine which streams to apply when
 reading or writing a file. Multiple extensions are applied in order, so `sample.csv.gz.pgp`
