@@ -8,9 +8,7 @@ The public entry points are `IOStreams.path(...)` and `IOStreams.stream(io)`, wh
 configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#writer`, `#each`,
 `#read`, `#write`, `#copy_from`, etc.
 
-# Overview
-
-# IOStreams
+# What is IOStreams?
 
 IOStreams is a streaming library for Ruby that makes compression, encryption, file format, and
 storage location transparent to your code. Read and write files as if they were plain, local text,
@@ -397,8 +395,6 @@ end
 Start with the [IOStreams tutorial](tutorial) for a great introduction to IOStreams.
 
 ---
-
-# Tutorial
 
 # File / Data Streaming with Ruby
 
@@ -877,8 +873,6 @@ Or jump straight into the [IOStreams Streams Documentation](streams) for detaile
 Read the [IOStreams PGP Documentation](pgp) for a tutorial on how to work with PGP Encrypted files.
 
 ---
-
-# Path
 
 # Path
 
@@ -1457,8 +1451,6 @@ The code calling `IOStreams.join` does not change at all, see [Config](config) f
 
 # Streams
 
-# Streams
-
 Once you have a [path](path), you read from and write to it with a small, consistent set of methods.
 Reading and writing always happen a block, line, or record at a time, so memory use stays low no
 matter how large the file is. Choose how each chunk is delivered by passing a mode: the default
@@ -1757,8 +1749,6 @@ path.read
 
 # File Extensions
 
-# File Extensions
-
 IOStreams uses the extensions in the file name to determine which streams to apply when
 reading or writing a file. Multiple extensions are applied in order, so `sample.csv.gz.pgp`
 is first decrypted with PGP and then decompressed with GZip when read.
@@ -1844,8 +1834,6 @@ IOStreams.register_scheme(:gcs, MyGoogleCloudStoragePath)
 ~~~
 
 ---
-
-# File Formats
 
 # File Formats
 
@@ -2011,14 +1999,12 @@ be strings or symbols.
 
 # Copying Between Files
 
-## Copying between files
-
 File copying can be used to:
 * copy from one storage location to another.
 * create a decrypted / encrypted copy of an existing file.
 * create a decompressed / compressed copy of an existing file.
 
-### Examples
+## Examples
 
 Decompress `example.csv.gz` into `example.csv`:
 
@@ -2083,9 +2069,7 @@ Notes:
 
 ---
 
-# PGP Encryption
-
-# PGP Encrypted files/streams.
+# PGP Encrypted Files and Streams
 
 IOStreams encrypts and decrypts PGP data by shelling out to the [GnuPG](https://gnupg.org) command
 line program, so `gpg` must already be installed and on the `PATH` wherever PGP files are read or
@@ -2486,9 +2470,7 @@ Select highest level: 5
 
 # Configuring IOStreams
 
-## Configuring IOStreams
-
-### add_root
+## add_root
 
 Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
 Their primary purpose is to allow the exact same code to run in production and development, yet use completely

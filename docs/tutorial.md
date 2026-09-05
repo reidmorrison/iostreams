@@ -1,8 +1,11 @@
 ---
 layout: default
+title: Tutorial
+heading: File / Data Streaming with Ruby
+description: >-
+  A step by step introduction to streaming files with IOStreams, from counting
+  the lines in a gzip file to reading tabular data out of S3.
 ---
-
-# File / Data Streaming with Ruby
 
 If all files were small, they could just be loaded into memory in their entirety. 
 However, multi Gigabytes, or even Terabytes in size, loading them into memory is not feasible.

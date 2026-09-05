@@ -1,8 +1,10 @@
 ---
 layout: default
+title: File Formats
+description: >-
+  Converting rows and records to and from CSV, PSV, JSON and fixed width files,
+  including format inference, format options and header handling.
 ---
-
-# File Formats
 
 When reading or writing rows (`:array`) or records (`:hash`), IOStreams converts each line
 to or from the file's tabular format. The following formats are supported:

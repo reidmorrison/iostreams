@@ -43,8 +43,21 @@ task :llms_full do
     file  = File.join(docs_dir, "#{path}.md")
     raise "Missing doc file for #{$~[:url]}: #{file}" unless File.exist?(file)
 
-    body = File.read(file).sub(/\A---\n.*?\n---\n/m, "").strip
-    "# #{title}\n\n#{body}"
+    raw = File.read(file)
+
+    # The page heading lives in front matter, which the shared docs theme
+    # renders as the page's h1. Front matter is stripped below, so lift the
+    # heading back out and re-emit it. `heading` wins over `title` where a page
+    # sets both, which is the same precedence the theme uses. Falls back to the
+    # link text in llms.txt for a page that sets neither.
+    front_matter = raw[/\A---\n(.*?)\n---\n/m, 1].to_s
+    heading      = %w[heading title].
+                   filter_map { |key| front_matter[/^#{key}:[ \t]*(.+)$/, 1] }.
+                   first.to_s.strip.delete_prefix('"').delete_suffix('"')
+    heading      = title if heading.empty?
+
+    body = raw.sub(/\A---\n.*?\n---\n/m, "").strip
+    "# #{heading}\n\n#{body}"
   end
 
   File.write(out_path, "#{header}\n\n#{sections.join("\n\n---\n\n")}\n")

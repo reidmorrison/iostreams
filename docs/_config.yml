@@ -1,1 +1,67 @@
+# Shared look and feel comes from reidmorrison/rm-docs-theme, which supplies
+# the layout, the sidebar, the stylesheet and the syntax sheet. This repo keeps
+# only its own content: the markdown pages and docs/images.
+#
+# Pinned to a major tag. v1 moves as the theme is fixed, so this site picks up
+# changes on its next build; breaking changes go to v2 and are opted into here.
+remote_theme: reidmorrison/rm-docs-theme@v1
+
 markdown: kramdown
+kramdown:
+  # Matches the other doc sites. These pages carry no {:toc} block today, so
+  # this only takes effect if one is added.
+  toc_levels: "2..3"
+
+plugins:
+  # GitHub Pages enables this on its own, but a local `bundle exec jekyll
+  # build` does not: Jekyll only auto-requires gems in the :jekyll_plugins
+  # bundler group, so without it the theme is silently skipped and every page
+  # reports "Layout 'default' does not exist".
+  - jekyll-remote-theme
+
+# Read by the theme's masthead, head and footer. The theme ships no defaults:
+# Jekyll exposes only _layouts, _includes, _sass and assets from a theme, so
+# every site declares this block in full.
+project:
+  name: IOStreams
+  tagline: Any size. Any format. Anywhere.
+  github: reidmorrison/iostreams
+  gem: iostreams
+  license: Apache 2.0 License
+
+  # Carried over from the layout this replaces, which hard-coded one title and
+  # one description for all nine pages. `seo_title` is the home page's <title>;
+  # every other page builds its own from front matter.
+  seo_title: "IOStreams: streaming I/O for Ruby with transparent compression, encryption, and storage"
+  description: >-
+    IOStreams: stream files of any size in Ruby, with compression, encryption,
+    file format, and storage location transparent to your code.
+
+# The sidebar, replacing the row of nine header buttons. Order within a group
+# is reading order, not alphabetical.
+nav:
+  - group: Start here
+    items:
+      - { page: index.html,      label: Overview }
+      - { page: tutorial.html,   label: Tutorial }
+
+  - group: Core API
+    items:
+      - { page: path.html,       label: Path }
+      - { page: streams.html,    label: Streams }
+      - { page: copy_files.html, label: Copy Files }
+
+  - group: Formats
+    items:
+      - { page: extensions.html, label: Extensions }
+      - { page: formats.html,    label: Formats }
+
+  - group: Reference
+    items:
+      - { page: pgp.html,        label: PGP }
+      - { page: config.html,     label: Configuration }
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor

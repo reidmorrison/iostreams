@@ -1,8 +1,11 @@
 ---
 layout: default
+title: PGP Encryption
+heading: PGP Encrypted Files and Streams
+description: >-
+  Reading and writing PGP encrypted files by shelling out to GnuPG, including
+  installing gpg, importing and trusting keys, and the failures to expect.
 ---
-
-# PGP Encrypted files/streams.
 
 IOStreams encrypts and decrypts PGP data by shelling out to the [GnuPG](https://gnupg.org) command
 line program, so `gpg` must already be installed and on the `PATH` wherever PGP files are read or

@@ -1,15 +1,17 @@
 ---
 layout: default
+title: Copying Between Files
+description: >-
+  Using IOStreams.copy to move a file between storage locations and to compress,
+  decompress, encrypt or decrypt it on the way.
 ---
-
-## Copying between files
 
 File copying can be used to:
 * copy from one storage location to another.
 * create a decrypted / encrypted copy of an existing file.
 * create a decompressed / compressed copy of an existing file.
 
-### Examples
+## Examples
 
 Decompress `example.csv.gz` into `example.csv`:
 
