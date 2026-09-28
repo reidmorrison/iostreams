@@ -1,6 +1,10 @@
 module IOStreams
   module SymmetricEncryption
     class Writer < IOStreams::Writer
+      def self.option_names
+        %i[compress version cipher_name header random_key random_iv]
+      end
+
       # Write to stream using Symmetric Encryption
       # By default the output stream is compressed.
       # If the input_stream is already compressed consider setting compress: false.

@@ -1,6 +1,10 @@
 module IOStreams
   module Zip
     class Reader < IOStreams::Reader
+      def self.option_names
+        %i[entry_file_name]
+      end
+
       # Read from a zip file or stream, decompressing the contents as it is read
       # The input stream from the first file found in the zip file is passed
       # to the supplied block.

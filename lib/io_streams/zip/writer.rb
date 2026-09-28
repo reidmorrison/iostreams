@@ -1,6 +1,10 @@
 module IOStreams
   module Zip
     class Writer < IOStreams::Writer
+      def self.option_names
+        %i[zip_file_name entry_file_name]
+      end
+
       # When writing to a file, default the entry name within the zip to the file name
       # without the `.zip` extension, unless an entry name was explicitly supplied.
       def self.file(file_name, zip_file_name: nil, entry_file_name: zip_file_name, &)

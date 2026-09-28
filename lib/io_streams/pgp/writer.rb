@@ -3,6 +3,11 @@ require "open3"
 module IOStreams
   module Pgp
     class Writer < IOStreams::Writer
+      def self.option_names
+        %i[encrypt recipient import_and_trust_key import_and_trust_level signer signer_passphrase
+           compress compress_level]
+      end
+
       class << self
         # Sign all encrypted files with this users key.
         # Default: Do not sign encrypted files.

@@ -227,6 +227,41 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
+#### Reading and writing need separate options
+
+The options for a stream are passed to its reader when reading and to its writer when writing,
+and the two directions usually accept different options. For example, the PGP writer needs
+the `recipient` to encrypt for, while the PGP reader needs the `passphrase` for the private key.
+
+Options are strict: an option that does not apply to the direction being used raises an
+`ArgumentError` that names the direction it belongs to, rather than being silently ignored.
+So configure one path for writing and a separate path for reading:
+
+~~~ruby
+IOStreams.path("example.csv.pgp").
+  option(:pgp, recipient: "receiver@example.org").
+  write("name,login\nJack Jones,jjones\n")
+
+IOStreams.path("example.csv.pgp").
+  option(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+Reading with the writer's options fails before any data is read:
+~~~ruby
+IOStreams.path("example.csv.pgp").
+  option(:pgp, recipient: "receiver@example.org").
+  read
+# ArgumentError: :recipient only applies when writing a :pgp stream and cannot be used when reading.
+#   Configure a separate path or stream without it for reading.
+~~~
+
+An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
+that lists the valid options.
+
+Options for a stream that is not in the pipeline are still ignored, as described above,
+since they are not passed to any reader or writer.
+
 #### Stream
 
 The `stream` method stops IOStreams from inferring the streams for this path and only uses the specified streams.

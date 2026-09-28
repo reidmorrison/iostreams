@@ -1,5 +1,14 @@
 module IOStreams
   class Writer
+    # Returns [Array<Symbol>] the names of the options this writer accepts,
+    # or [nil] when the writer does not declare them.
+    #
+    # When declared, `IOStreams::Builder` rejects any other option before the writer is opened,
+    # naming the direction an option belongs to when it is only valid for the other direction.
+    def self.option_names
+      nil
+    end
+
     # When a Writer does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(output_stream, **args, &block)

@@ -1,6 +1,10 @@
 module IOStreams
   module Encode
     class Writer < IOStreams::Writer
+      def self.option_names
+        %i[encoding cleaner replace]
+      end
+
       attr_reader :encoding, :cleaner
 
       # Write a line at a time to a file or stream

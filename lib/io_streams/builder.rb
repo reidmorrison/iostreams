@@ -158,14 +158,62 @@ module IOStreams
         block.call(io_stream)
       elsif pipeline.size == 1
         stream, opts = pipeline.first
-        class_for_stream(type, stream).open(io_stream, **opts, &block)
+        open_stream(type, stream, io_stream, opts, &block)
       else
         # Daisy chain multiple streams together
         last = pipeline.keys.inject(block) do |inner, stream_sym|
-          ->(io) { class_for_stream(type, stream_sym).open(io, **pipeline[stream_sym], &inner) }
+          ->(io) { open_stream(type, stream_sym, io, pipeline[stream_sym], &inner) }
         end
         last.call(io_stream)
       end
+    end
+
+    def open_stream(type, stream, io_stream, opts, &)
+      klass = class_for_stream(type, stream)
+      validate_options(type, stream, klass, opts)
+      klass.open(io_stream, **opts, &)
+    end
+
+    # Options are strict: an option the stream does not accept raises instead of being ignored.
+    # One option hash is shared by the reader and the writer for a stream, so when the option
+    # is only valid in the other direction the message says so.
+    #
+    # Streams registered via `IOStreams.register_extension` need not inherit from `IOStreams::Reader`
+    # or `IOStreams::Writer`, so a class that does not declare `option_names` is not validated here.
+    def validate_options(type, stream, klass, opts)
+      accepted = option_names(klass)
+      return if accepted.nil?
+
+      unknown = opts.keys - accepted
+      return if unknown.empty?
+
+      other_type  = type == :reader ? :writer : :reader
+      other_names = option_names(IOStreams.extensions[stream].send("#{other_type}_class")) || []
+      other_only  = unknown & other_names
+      invalid     = unknown - other_names
+      direction   = type == :reader ? "reading" : "writing"
+
+      messages = []
+      if other_only.any?
+        messages << "#{list(other_only)} only #{other_only.size == 1 ? 'applies' : 'apply'} when " \
+                    "#{type == :reader ? 'writing' : 'reading'} a #{stream.inspect} stream and cannot be used when " \
+                    "#{direction}. Configure a separate path or stream without #{other_only.size == 1 ? 'it' : 'them'} " \
+                    "for #{direction}."
+      end
+      if invalid.any?
+        valid = accepted.empty? ? "none" : list(accepted)
+        messages << "Unknown #{invalid.size == 1 ? 'option' : 'options'} #{list(invalid)} when #{direction} " \
+                    "a #{stream.inspect} stream. Valid options: #{valid}."
+      end
+      raise(ArgumentError, messages.join(" "))
+    end
+
+    def option_names(klass)
+      klass.option_names if klass.respond_to?(:option_names)
+    end
+
+    def list(names)
+      names.map(&:inspect).join(", ")
     end
   end
 end
