@@ -3,6 +3,10 @@ require "csv"
 module IOStreams
   module Xlsx
     class Reader < IOStreams::Reader
+      def self.option_names
+        []
+      end
+
       # Convert a xlsx, or xlsm file into CSV format.
       def self.file(file_name, &block)
         # Stream into a temp file as csv

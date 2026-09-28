@@ -1,5 +1,14 @@
 module IOStreams
   class Reader
+    # Returns [Array<Symbol>] the names of the options this reader accepts,
+    # or [nil] when the reader does not declare them.
+    #
+    # When declared, `IOStreams::Builder` rejects any other option before the reader is opened,
+    # naming the direction an option belongs to when it is only valid for the other direction.
+    def self.option_names
+      nil
+    end
+
     # When a Reader does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(input_stream, **args, &block)

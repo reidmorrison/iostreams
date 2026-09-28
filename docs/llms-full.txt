@@ -1672,6 +1672,41 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
+#### Reading and writing need separate options
+
+The options for a stream are passed to its reader when reading and to its writer when writing,
+and the two directions usually accept different options. For example, the PGP writer needs
+the `recipient` to encrypt for, while the PGP reader needs the `passphrase` for the private key.
+
+Options are strict: an option that does not apply to the direction being used raises an
+`ArgumentError` that names the direction it belongs to, rather than being silently ignored.
+So configure one path for writing and a separate path for reading:
+
+~~~ruby
+IOStreams.path("example.csv.pgp").
+  option(:pgp, recipient: "receiver@example.org").
+  write("name,login\nJack Jones,jjones\n")
+
+IOStreams.path("example.csv.pgp").
+  option(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
+Reading with the writer's options fails before any data is read:
+~~~ruby
+IOStreams.path("example.csv.pgp").
+  option(:pgp, recipient: "receiver@example.org").
+  read
+# ArgumentError: :recipient only applies when writing a :pgp stream and cannot be used when reading.
+#   Configure a separate path or stream without it for reading.
+~~~
+
+An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
+that lists the valid options.
+
+Options for a stream that is not in the pipeline are still ignored, as described above,
+since they are not passed to any reader or writer.
+
 #### Stream
 
 The `stream` method stops IOStreams from inferring the streams for this path and only uses the specified streams.
@@ -1766,6 +1801,25 @@ Supported extensions:
 
 The gems above are soft dependencies: IOStreams does not require them for installation,
 they only need to be added to the `Gemfile` when the corresponding extension is used.
+
+## Compression options
+
+GZip accepts a compression `level` when writing, from `0` (no compression) to `9` (best compression):
+
+~~~ruby
+IOStreams.path("sample.csv.gz").option(:gz, level: 9).write(data)
+~~~
+
+BZip2 passes its options through to `bzip2-ffi`: `block_size` (`1` to `9`) and `work_factor` (`0` to `250`)
+when writing, and `small` and `first_only` when reading:
+
+~~~ruby
+IOStreams.path("sample.csv.bz2").option(:bz2, block_size: 9).write(data)
+IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
+~~~
+
+Options are strict, so an option that a stream does not accept raises an `ArgumentError`.
+See [Streams](streams#reading-and-writing-need-separate-options).
 
 ## Reading an Excel Spreadsheet
 

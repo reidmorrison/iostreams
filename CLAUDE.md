@@ -59,5 +59,6 @@ The site also serves two files for AI assistants: [docs/llms.txt](docs/llms.txt)
 
 ## Conventions
 
+- **API calls are strict.** An option or argument that a method does not accept must raise `ArgumentError`, never be silently ignored. Accepting and discarding options leaves callers no way to tell their setting had no effect, and some ignored options give false assurance (for example a PGP `signer:` that is dropped when reading, so no signer is verified). Declare explicit keyword arguments rather than passing `**args` or an options hash through to a dependency unchecked. Each format `Reader`/`Writer` declares `self.option_names`, and `Builder#validate_options` rejects anything else with a message that names the direction an option belongs to; keep `option_names` in sync when changing a signature (`test/stream_options_test.rb` checks it). Moving from strict to lenient is backward compatible but moving back is not, so do not relax this without an explicit, documented design, such as a separate API for reader-only and writer-only options.
 - RuboCop is configured in `.rubocop.yml`: trailing-dot method chains, table-aligned hashes, max line length 128, target Ruby 3.2 syntax (`required_ruby_version >= 3.2` in the gemspec).
 - The pre-v1.6 deprecated API has been removed (as of v2.0.0). Do not reintroduce it.

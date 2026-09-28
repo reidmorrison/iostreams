@@ -24,6 +24,25 @@ Supported extensions:
 The gems above are soft dependencies: IOStreams does not require them for installation,
 they only need to be added to the `Gemfile` when the corresponding extension is used.
 
+## Compression options
+
+GZip accepts a compression `level` when writing, from `0` (no compression) to `9` (best compression):
+
+~~~ruby
+IOStreams.path("sample.csv.gz").option(:gz, level: 9).write(data)
+~~~
+
+BZip2 passes its options through to `bzip2-ffi`: `block_size` (`1` to `9`) and `work_factor` (`0` to `250`)
+when writing, and `small` and `first_only` when reading:
+
+~~~ruby
+IOStreams.path("sample.csv.bz2").option(:bz2, block_size: 9).write(data)
+IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
+~~~
+
+Options are strict, so an option that a stream does not accept raises an `ArgumentError`.
+See [Streams](streams#reading-and-writing-need-separate-options).
+
 ## Reading an Excel Spreadsheet
 
 Each row in the spreadsheet is converted into a CSV line, so the regular `:line`, `:array`,

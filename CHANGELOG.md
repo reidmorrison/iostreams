@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking
+
+- **Stream options are now strict.** An option supplied via `#option` or `#stream` that the stream does not accept now raises `ArgumentError` instead of being silently ignored. This only affects code that was passing invalid options:
+  - The BZip2 reader and writer previously accepted any option and ignored the ones `bzip2-ffi` does not use. They now accept only `autoclose`, `first_only` and `small` when reading, and `autoclose`, `block_size` and `work_factor` when writing.
+  - Every other stream already raised `ArgumentError` for an option it does not accept, so the only change there is a clearer error message.
+
+### Changed
+
+- The `ArgumentError` for an option supplied to a stream now says what is wrong. When the option only applies in the other direction, for example `option(:enc, compress: false)` when reading, the message names the direction it belongs to and suggests configuring a separate path for reading. Otherwise it lists the valid options. Previously the error was Ruby's `unknown keyword`, raised from inside the gem that implements the stream. See [#38](https://github.com/reidmorrison/iostreams/issues/38).
+
+### Added
+
+- The GZip writer accepts a `level` option to set the compression level, for example `option(:gz, level: 9)`. Previously any option raised `ArgumentError`.
+
 ## [2.0.0] - 2026-06-19
 
 ### Breaking

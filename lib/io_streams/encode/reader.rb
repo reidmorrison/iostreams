@@ -1,6 +1,10 @@
 module IOStreams
   module Encode
     class Reader < IOStreams::Reader
+      def self.option_names
+        %i[encoding cleaner replace]
+      end
+
       attr_reader :encoding, :cleaner
 
       NOT_PRINTABLE = /[^[:print:]|\r\n]/

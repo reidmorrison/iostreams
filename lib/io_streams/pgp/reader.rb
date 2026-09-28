@@ -3,6 +3,10 @@ require "open3"
 module IOStreams
   module Pgp
     class Reader < IOStreams::Reader
+      def self.option_names
+        %i[passphrase ignore_mdc_error]
+      end
+
       # Passphrase to use to open the private key to decrypt the received file
       class << self
         attr_writer :default_passphrase
