@@ -1,10 +1,18 @@
 require_relative "../test_helper"
+require_relative "../s3_stub"
 
 module Paths
   class S3Test < Minitest::Test
+    # Runs against the bucket in the 'S3_BUCKET_NAME' environment variable when it is set,
+    # otherwise against an in-memory S3.
     describe IOStreams::Paths::S3 do
       before do
-        skip "Supply 'S3_BUCKET_NAME' environment variable with S3 bucket name to test S3 paths" unless ENV["S3_BUCKET_NAME"]
+        IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+        S3Stub.install unless ENV["S3_BUCKET_NAME"]
+      end
+
+      after do
+        S3Stub.uninstall unless ENV["S3_BUCKET_NAME"]
       end
 
       let :file_name do
@@ -15,7 +23,7 @@ module Paths
         File.read(file_name)
       end
 
-      let(:root_path) { IOStreams::Paths::S3.new("s3://#{ENV.fetch('S3_BUCKET_NAME', nil)}/iostreams_test") }
+      let(:root_path) { IOStreams::Paths::S3.new("s3://#{ENV.fetch('S3_BUCKET_NAME', 'iostreams-test')}/iostreams_test") }
 
       let :existing_path do
         path = root_path.join("test.txt")
