@@ -275,6 +275,22 @@ module Paths
             assert_empty child.options
           end
         end
+
+        it "uses the same client for the children" do
+          path     = IOStreams::Paths::S3.new("s3://bucket/inbox", client: client)
+          children = path.each_child("**/*").to_a.map(&:first)
+
+          children.each { |child| assert_same client, child.client }
+        end
+
+        it "uses the same client options for the children" do
+          path = IOStreams::Paths::S3.new("s3://bucket/inbox", client: {stub_responses: true}, region: "eu-west-1")
+          path.client.stub_responses(:list_objects_v2, {name: "bucket", contents: [{key: "inbox/a.csv"}]})
+          children = path.each_child("**/*").to_a.map(&:first)
+
+          assert_equal ["inbox/a.csv"], children.map(&:path)
+          assert_equal "eu-west-1", children.first.client.config.region
+        end
       end
     end
   end

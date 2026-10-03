@@ -358,8 +358,10 @@ module IOStreams
 
       # Set the key directly rather than parsing it as part of a URL, since a key can contain
       # characters such as `?`, `+` or `%` that a URL parser would treat as a query or as escapes.
+      #
+      # The child uses this path's client, so that it has the same credentials and region.
       def child_path(bucket_name, key)
-        child      = self.class.new("s3://#{bucket_name}")
+        child      = self.class.new("s3://#{bucket_name}", client: client)
         child.path = key.dup.freeze
         child
       end
