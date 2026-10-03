@@ -32,6 +32,8 @@ module IOStreams
       @before_password_wait_seconds = 2
       @sshpass_wait_seconds         = 5
 
+      autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
+
       attr_reader :hostname, :username, :ssh_options, :url, :port
 
       # Stream to a remote file over sftp.
@@ -67,6 +69,11 @@ module IOStreams
       #       For example: `ssh-keyscan hostname`
       #   - Any other options supported by ssh_config.
       #     `man ssh_config` to see all available options.
+      #
+      #   `#each_child` lists files with the net-sftp gem instead of the sftp executable, so it only supports
+      #   these ssh options: HostKey, IdentityKey, IdentityFile, UserKnownHostsFile, StrictHostKeyChecking,
+      #   ConnectTimeout, ServerAliveInterval, ServerAliveCountMax and LogLevel. Any other option raises
+      #   ArgumentError.
       #
       # Examples:
       #
@@ -157,12 +164,14 @@ module IOStreams
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
 
-        Net::SFTP.start(hostname, username, build_ssh_options) do |sftp|
-          sftp.dir.glob(".", pattern, flags) do |path|
-            next if !directories && !path.file?
+        NetSSH.options(ssh_options, port: port, password: password) do |options|
+          Net::SFTP.start(hostname, username, options) do |sftp|
+            sftp.dir.glob(".", pattern, flags) do |path|
+              next if !directories && !path.file?
 
-            child = child_path(path.name)
-            yield(child, path.attributes.attributes) if allowed_child?(child)
+              child = child_path(path.name)
+              yield(child, path.attributes.attributes) if allowed_child?(child)
+            end
           end
         end
         nil
@@ -334,18 +343,6 @@ module IOStreams
         args << "--"
         args << "#{username}@#{hostname}"
         args
-      end
-
-      def build_ssh_options
-        options = ssh_options.dup
-        options[:logger]       ||= IOStreams.logger if IOStreams.logger
-        options[:port]         ||= port
-        options[:max_pkt_size] ||= 65_536
-        options[:password]     ||= @password
-        # Match the sftp executable, which uses `StrictHostKeyChecking=yes`, instead of the
-        # net-ssh default of trusting a host key the first time it is seen.
-        options[:verify_host_key] ||= :always
-        options
       end
 
       def map_log_level
