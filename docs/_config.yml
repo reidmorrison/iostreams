@@ -60,6 +60,7 @@ nav:
     items:
       - { page: pgp.html,        label: PGP }
       - { page: config.html,     label: Configuration }
+      - { page: upgrading.html,  label: Upgrading }
 
 exclude:
   - CLAUDE.md

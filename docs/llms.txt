@@ -19,6 +19,7 @@ configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#w
 - [Copying Between Files](https://iostreams.reidmorrison.com/copy_files): using `IOStreams.copy` to compress, decompress, encrypt, decrypt, and move files between storage locations.
 - [PGP Encryption](https://iostreams.reidmorrison.com/pgp): reading and writing PGP-encrypted files/streams by shelling out to GnuPG.
 - [Configuring IOStreams](https://iostreams.reidmorrison.com/config): setting up named roots via `IOStreams.add_root` so the same code can target different storage locations per environment.
+- [Upgrading IOStreams](https://iostreams.reidmorrison.com/upgrading): changes that may need updates to your application when upgrading, and the security settings to review.
 
 ## Optional
 

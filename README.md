@@ -17,44 +17,10 @@ Next, checkout the remaining [IOStreams documentation](https://iostreams.reidmor
 
 See the [CHANGELOG](CHANGELOG.md) for the release history and notable changes.
 
-## Upgrading to v2.1
+## Upgrading
 
-v2.1 fixes a number of security issues. Some of the fixes raise errors where invalid usage was previously
-silently ignored. See the [CHANGELOG](CHANGELOG.md) for the full list. The changes most likely to affect you:
-
-- **Stream options are strict.** An option supplied via `#option` or `#stream` that the stream does not accept
-  now raises `ArgumentError` instead of being ignored. For example, the BZip2 reader and writer previously
-  accepted and ignored any option.
-- **`allowed_columns`, `required_columns` and `skip_unknown` apply to every input when reading records**,
-  including JSON and `:hash` input, when `columns:` is supplied, and with `cleanse_header: false`.
-  Previously they were silently ignored in those cases.
-- **`IOStreams::Pgp.delete_keys` and `IOStreams::Pgp.export` require an `email:` or `key_id:`.**
-  Previously `delete_keys` without either deleted every key in the keyring on GnuPG 2.1 and later.
-
-New in v2.1, **allowed paths** can restrict which paths IOStreams can access, for example when file names
-come from untrusted input. See [Restricting access with allowed paths](https://iostreams.reidmorrison.com/path.html#restricting-access-with-allowed-paths).
-
-## Upgrading to v2.0
-
-v2.0 is a major release with breaking changes. See the [CHANGELOG](CHANGELOG.md) for the full list. The changes most likely to affect you:
-
-- **Ruby 3.2 or later is now required.** Older Ruby versions are no longer supported.
-- **Writing Zip files now requires the `zip_kit` gem.** The retired `zip_tricks` gem has been replaced by its successor, `zip_kit`. If your application writes Zip files, replace `gem "zip_tricks"` with `gem "zip_kit"` in your Gemfile. Reading Zip files is unaffected. The IOStreams API itself is unchanged.
-- **The deprecated pre-v1.6 API has been removed.** The `IOStreams::Deprecated` mix-in described below no longer exists. Any code still using those old apis must move to the current `IOStreams.path` / `IOStreams.stream` API.
-- **The deprecated PGP writer `compression:` option has been removed.** Use `compress:` instead (available since v1.11.0).
-- **`IOStreams::Pgp.logger` and `IOStreams::Pgp.logger=` have been removed.** Logging is now configured centrally for the whole library via `IOStreams.logger` / `IOStreams.logger=`. Replace `IOStreams::Pgp.logger = my_logger` with `IOStreams.logger = my_logger`. [Semantic Logger](https://logger.reidmorrison.com) is detected automatically when loaded.
-
-## Upgrading to v1.6
-
-The old, deprecated api's are no longer loaded by default with v1.6. To add back the deprecated api support, add
-the following line to your code:
-
-~~~ruby
-IOStreams.include(IOStreams::Deprecated)
-~~~
-
-It is important to move any of the old deprecated apis over to the new api, since they will be removed in a future
-release.
+See [Upgrading IOStreams](https://iostreams.reidmorrison.com/upgrading) for the changes that may need
+updates to your application, and the security settings to review, when upgrading.
 
 ## Versioning
 

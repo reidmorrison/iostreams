@@ -56,9 +56,16 @@ path = IOStreams.path("s3://bucket-name/path/example.csv")
 * url [String]
 
   Prefix must be: `s3://`, followed by bucket name, followed by key.
+  Any query string in the url is added to the S3 request parameters, for example
+  `s3://my-bucket-name/file_name.csv?acl=bucket-owner-full-control`.
   Examples:
     s3://my-bucket-name/file_name.txt
     s3://my-bucket-name/some_path/file_name.csv
+
+  Security warning: do not interpolate an untrusted file name into the url, since a name such as
+  `file.csv?acl=public-read` would set request parameters. Join it onto the path instead, which
+  does not parse it as a query:
+  `IOStreams.path("s3://my-bucket-name/uploads").join(untrusted_name)`
 
 #### Optional Arguments:
 
