@@ -187,19 +187,17 @@ module IOStreams
       end
 
       def stream_reader(&block)
-        IOStreams.temp_file("iostreams-sftp-reader") do |temp_file|
-          # Create the file first so that it is only readable by the current user.
-          Utils.create_temp_file(temp_file.to_s)
-          sftp_download(path, temp_file.to_s)
-          ::File.open(temp_file.to_s, "rb") { |io| builder.reader(io, &block) }
+        Utils.private_temp_file("iostreams-sftp-reader") do |file_name|
+          sftp_download(path, file_name)
+          ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
         end
       end
 
       def stream_writer(&block)
-        IOStreams.temp_file("iostreams-sftp-writer") do |temp_file|
-          Utils.create_temp_file(temp_file.to_s) { |io| builder.writer(io, &block) }
-          sftp_upload(temp_file.to_s, path)
-          temp_file.size
+        Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
+          ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+          sftp_upload(file_name, path)
+          ::File.size(file_name)
         end
       end
 
@@ -290,9 +288,9 @@ module IOStreams
       end
 
       def with_temp_file(options, option, value)
-        Utils.temp_file_name("iostreams-sftp-args", "key") do |file_name|
-          # sftp requires that private key is only readable by the current user
-          Utils.create_temp_file(file_name) { |io| io.write(value) }
+        # sftp requires that private key is only readable by the current user
+        Utils.private_temp_file("iostreams-sftp-args", "key") do |file_name|
+          ::File.binwrite(file_name, value)
 
           options[option] = file_name
           yield options

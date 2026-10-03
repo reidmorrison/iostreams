@@ -19,53 +19,87 @@ class UtilsTest < Minitest::Test
       end
     end
 
-    describe ".create_temp_file" do
-      it "creates a file that only the current user can read" do
-        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
-          IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
+    describe ".private_temp_file" do
+      it "yields an empty file that only the current user can read" do
+        IOStreams::Utils.private_temp_file("base", ".ext") do |file_name|
+          assert_equal 0, File.size(file_name)
+          assert_equal 0o600, File.stat(file_name).mode & 0o777
+        end
+      end
+
+      it "keeps the permissions when the file is written to" do
+        IOStreams::Utils.private_temp_file("base", ".ext") do |file_name|
+          File.binwrite(file_name, "secret")
 
           assert_equal "secret", File.read(file_name)
           assert_equal 0o600, File.stat(file_name).mode & 0o777
         end
       end
 
-      it "creates an empty file without a block" do
-        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
-          assert_nil IOStreams::Utils.create_temp_file(file_name)
-          assert_equal 0, File.size(file_name)
-          assert_equal 0o600, File.stat(file_name).mode & 0o777
-        end
-      end
-
       it "returns the value from the block" do
-        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
-          assert_equal 6, IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
-        end
+        assert_equal 257, IOStreams::Utils.private_temp_file("base", ".ext") { |_file_name| 257 }
       end
 
-      it "raises when the file already exists" do
-        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
-          File.write(file_name, "existing")
+      it "deletes the file afterwards" do
+        name = IOStreams::Utils.private_temp_file("base", ".ext") { |file_name| file_name }
 
-          assert_raises Errno::EEXIST do
-            IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
+        refute_path_exists name
+      end
+
+      it "deletes the file when the block raises" do
+        name = nil
+        assert_raises ArgumentError do
+          IOStreams::Utils.private_temp_file("base", ".ext") do |file_name|
+            name = file_name
+            raise(ArgumentError, "failed")
           end
-          assert_equal "existing", File.read(file_name)
         end
+
+        refute_path_exists name
       end
 
-      it "does not follow a link planted at the file name" do
-        IOStreams::Utils.temp_file_name("base", ".ext") do |target|
-          File.write(target, "target")
-          IOStreams::Utils.temp_file_name("link", ".ext") do |file_name|
-            File.symlink(target, file_name)
+      describe "when the file name already exists" do
+        # Dir::Tmpname adds a random value from `Random.urandom` to each name; fixing it at 0 makes the name predictable.
+        let(:random_bytes) { "\0\0\0\0".b }
+        let(:existing) { File.join(IOStreams.temp_dir, "base#{Time.now.strftime('%Y%m%d')}-#{$$}-0.ext") }
 
-            assert_raises Errno::EEXIST do
-              IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
+        after do
+          FileUtils.rm_f(existing)
+        end
+
+        it "uses another name and leaves the existing file" do
+          File.write(existing, "existing")
+          name = Random.stub(:urandom, random_bytes) do
+            IOStreams::Utils.private_temp_file("base", ".ext") { |file_name| file_name }
+          end
+
+          refute_equal existing, name
+          assert_equal "existing", File.read(existing)
+        end
+
+        it "does not follow a link planted at the file name" do
+          IOStreams::Utils.private_temp_file("target", ".ext") do |target|
+            File.symlink(target, existing)
+            Random.stub(:urandom, random_bytes) do
+              IOStreams::Utils.private_temp_file("base", ".ext") { |file_name| File.write(file_name, "secret") }
             end
-            assert_equal "target", File.read(target)
+
+            assert_equal "", File.read(target)
+            assert File.symlink?(existing)
           end
         end
+      end
+
+      it "does not run the block again when it raises Errno::EEXIST" do
+        count = 0
+        assert_raises Errno::EEXIST do
+          IOStreams::Utils.private_temp_file("base", ".ext") do |_file_name|
+            count += 1
+            raise(Errno::EEXIST, "from the block")
+          end
+        end
+
+        assert_equal 1, count
       end
     end
 

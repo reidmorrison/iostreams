@@ -263,9 +263,7 @@ module IOStreams
       # Read from AWS S3 file.
       def stream_reader(&block)
         # Since S3 download only supports a push stream, write it to a tempfile first.
-        Utils.temp_file_name("iostreams_s3") do |file_name|
-          # Create the file first so that it is only readable by the current user.
-          Utils.create_temp_file(file_name)
+        Utils.private_temp_file("iostreams_s3") do |file_name|
           read_file(file_name)
 
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
@@ -288,8 +286,8 @@ module IOStreams
       #   aborted.
       def stream_writer(&block)
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
-        Utils.temp_file_name("iostreams_s3") do |file_name|
-          result = Utils.create_temp_file(file_name) { |io| builder.writer(io, &block) }
+        Utils.private_temp_file("iostreams_s3") do |file_name|
+          result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
 
           # Upload file only once all data has been written to it
           write_file(file_name)
