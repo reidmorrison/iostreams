@@ -31,6 +31,15 @@ class SymmetricEncryptionReaderTest < Minitest::Test
 
         assert_equal decrypted, result
       end
+
+      it "ignores the writer-only compress option instead of raising" do
+        result =
+          File.open(file_name, "rb") do |file|
+            IOStreams::SymmetricEncryption::Reader.stream(file, compress: false, &:read)
+          end
+
+        assert_equal decrypted, result
+      end
     end
 
     describe ".file" do
