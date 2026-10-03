@@ -371,6 +371,70 @@ class AllowedPathsTest < Minitest::Test
       end
     end
 
+    describe "SFTP" do
+      before do
+        IOStreams.add_allowed_path("sftp://Example.com/data/in/")
+      end
+
+      it "adds the host, port and path" do
+        assert_equal "sftp://example.com:22/data/in", IOStreams.allowed_paths.last
+        assert_equal "sftp://example.com:2222", IOStreams.add_allowed_path("sftp://example.com:2222/")
+      end
+
+      it "allows a path within an allowed path" do
+        assert IOStreams.allowed_path?("sftp://example.com/data/in/file.csv")
+        assert IOStreams.allowed_path?("sftp://user@EXAMPLE.com:22/data/in/sub/../file.csv")
+      end
+
+      it "denies a path outside the allowed paths" do
+        refute IOStreams.allowed_path?("sftp://example.com/data/in/../out/file.csv")
+        refute IOStreams.allowed_path?("sftp://example.com/data/inbox/file.csv")
+        refute IOStreams.allowed_path?("sftp://example.com:2222/data/in/file.csv")
+        refute IOStreams.allowed_path?("sftp://other.com/data/in/file.csv")
+      end
+
+      it "denies before connecting" do
+        path = IOStreams.path("sftp://example.com/data/out/file.csv", username: "user", password: "secret")
+
+        assert_denied { path.read }
+        assert_denied { path.write("x") }
+        assert_denied { path.each_child { |child| child } }
+      end
+    end
+
+    describe "HTTP" do
+      before do
+        IOStreams.add_allowed_path("https://Example.com/files/")
+      end
+
+      it "adds the scheme, host, port and path" do
+        assert_equal "https://example.com:443/files", IOStreams.allowed_paths.last
+        assert_equal "http://example.com:8080", IOStreams.add_allowed_path("http://example.com:8080")
+      end
+
+      it "allows a url within an allowed path" do
+        assert IOStreams.allowed_path?("https://example.com/files/report.csv?date=today")
+        assert IOStreams.allowed_path?("https://user:secret@example.com:443/files/a/../report.csv")
+      end
+
+      it "denies a url outside the allowed paths" do
+        refute IOStreams.allowed_path?("https://example.com/files/../secret")
+        refute IOStreams.allowed_path?("https://example.com/files/%2e%2e/secret")
+        refute IOStreams.allowed_path?("https://example.com/files/..%2fsecret")
+        refute IOStreams.allowed_path?("https://example.com/files%5c..%5csecret")
+        refute IOStreams.allowed_path?("https://example.com/files_other/report.csv")
+        refute IOStreams.allowed_path?("http://example.com/files/report.csv")
+        refute IOStreams.allowed_path?("https://example.com:8443/files/report.csv")
+        refute IOStreams.allowed_path?("https://example.org/files/report.csv")
+      end
+
+      it "does not include credentials in the error" do
+        error = assert_denied { IOStreams.path("https://jack:TOP-SECRET@example.com/other").read }
+
+        refute_includes error.message, "TOP-SECRET"
+      end
+    end
+
     describe "path classes that do not support allowed paths" do
       it "denies access" do
         error = assert_denied { CustomPath.new("custom://a").read }

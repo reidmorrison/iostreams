@@ -221,13 +221,9 @@ module IOStreams
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
     # and this path is not within any of them.
     def authorize!
-      allowed_paths = IOStreams.allowed_paths
-      return if allowed_paths.empty? || (@permitted_path && @permitted_path == path)
+      return if IOStreams.allowed_paths.empty? || (@permitted_path && @permitted_path == path)
 
-      location = allowed_location
-      return if allowed_paths.any? { |allowed_path| within?(location, allowed_path) }
-
-      raise(Errors::AccessDenied, "Access denied to #{location}: it is not within any of the allowed paths")
+      authorize_location!(allowed_location)
     end
 
     # Returns [true|false] whether this path is within the allowed paths, see `#authorize!`.
@@ -248,6 +244,31 @@ module IOStreams
     # Raises [IOStreams::Errors::AccessDenied] when the location cannot be determined.
     def allowed_location
       raise(Errors::AccessDenied, "Access denied: #{self.class.name} does not support allowed paths")
+    end
+
+    # Raises [IOStreams::Errors::AccessDenied] when the supplied location, see `#allowed_location`,
+    # is not within any of the allowed paths.
+    def authorize_location!(location)
+      return if IOStreams.allowed_paths.any? { |allowed_path| within?(location, allowed_path) }
+
+      raise(Errors::AccessDenied, "Access denied to #{location}: it is not within any of the allowed paths")
+    end
+
+    # Returns [String] the supplied path with `.`, `..` and repeated `/` resolved, the way a remote server
+    # resolves them, without accessing it. The path always starts with `/`, and `..` cannot go above it.
+    def normalize_path(name)
+      segments = []
+      name.split("/").each do |segment|
+        case segment
+        when "", "."
+          next
+        when ".."
+          segments.pop
+        else
+          segments << segment
+        end
+      end
+      "/#{segments.join('/')}"
     end
 
     # Returns [true|false] whether a child found by `#each_child` is within the allowed paths, logging it when it is not.

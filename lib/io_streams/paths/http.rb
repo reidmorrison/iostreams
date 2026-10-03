@@ -151,14 +151,35 @@ module IOStreams
 
       # Validate that the host may be contacted, and that the scheme is still http(s)
       # after following a redirect.
+      #
+      # A redirect must also be within the allowed paths, see `IOStreams.add_allowed_path`.
       def validate_uri!(uri)
         unless %w[http https].include?(uri.scheme)
           raise(IOStreams::Errors::CommunicationsFailure,
                 "Invalid redirect, only http and https are supported: #{without_credentials(uri)}")
         end
+        authorize_location!(http_location(uri)) unless IOStreams.allowed_paths.empty?
         return if allow_hosts.nil? || allow_hosts.include?(uri.hostname)
 
         raise(IOStreams::Errors::CommunicationsFailure, "Host not in the allowed list of hosts: #{uri.hostname}")
+      end
+
+      # Returns [String] the scheme, host, port and path of the url, which is compared against the allowed paths.
+      def allowed_location
+        http_location(original_uri)
+      end
+
+      # Returns [String] the scheme, host, port and path of the supplied uri, without any credentials or query.
+      #
+      # The path is decoded and `.` and `..` resolved, the way most web servers resolve them, so that for
+      # example `%2e%2e` cannot be used to leave an allowed path. A backslash is treated as a `/`.
+      def http_location(uri)
+        raise(Errors::AccessDenied, "Access denied: #{without_credentials(uri)} has no host") if uri.host.to_s.empty?
+
+        path = URI.decode_uri_component(uri.path).tr("\\", "/")
+        "#{uri.scheme}://#{uri.host.downcase}:#{uri.port}#{normalize_path(path)}".chomp("/")
+      rescue ArgumentError => e
+        raise(Errors::AccessDenied, "Access denied to #{without_credentials(uri)}: #{e.message}")
       end
 
       # Returns [String] the uri without any user name or password, for use in error messages.
