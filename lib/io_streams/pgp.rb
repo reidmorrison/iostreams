@@ -455,6 +455,10 @@ module IOStreams
     #
     # After importing keys, they are not trusted and the relevant trust level must be set.
     #
+    # key_id: [String]
+    #   The fingerprint of the key, as hexadecimal digits only.
+    #   Raises ArgumentError when it contains any other characters.
+    #
     # level: [Integer]
     #   The owner-trust level to assign to the key:
     #     1 : Undefined  (no opinion)
@@ -472,6 +476,12 @@ module IOStreams
     #   key at this level allows that attacker to impersonate other recipients.
     #   When the key cannot be fully verified, supply a lower `level`.
     def self.set_trust(email: nil, key_id: nil, level: 5)
+      # The key_id is written into gpg's ownertrust input, where any other character, such as a newline,
+      # could add trust lines for other keys.
+      if key_id && !key_id.to_s.match?(/\A\h+\z/)
+        raise(ArgumentError, "Invalid :key_id, it must only contain hexadecimal digits: #{key_id.inspect}")
+      end
+
       version_check
       fingerprint = key_id || fingerprint(email: email)
       return unless fingerprint

@@ -500,6 +500,17 @@ class PgpTest < Minitest::Test
         refute_nil IOStreams::Pgp.set_trust(key_id: fingerprint)
       end
 
+      it "raises when the key_id is not hexadecimal" do
+        fingerprint = IOStreams::Pgp.send(:fingerprint, email: email)
+
+        ["#{fingerprint}:6:\nABCDEF0123456789ABCDEF0123456789ABCDEF01", "", "0x#{fingerprint}", "#{fingerprint} "].each do |key_id|
+          error = assert_raises ArgumentError do
+            IOStreams::Pgp.set_trust(key_id: key_id)
+          end
+          assert_includes error.message, "Invalid :key_id"
+        end
+      end
+
       it "trusts an existing key at the supplied level" do
         refute_nil IOStreams::Pgp.set_trust(email: email, level: 4)
       end
