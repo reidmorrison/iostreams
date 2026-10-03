@@ -146,6 +146,11 @@ When reading or writing records (`:hash`), the following options control the hea
   `IOStreams::Errors::InvalidHeader`.
   Default: true
 
+When reading records, `allowed_columns`, `required_columns` and `skip_unknown` apply to the
+header row, to the supplied `columns`, and, for formats without a header row such as JSON,
+to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
+are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
+
 Example, reading a headerless CSV file:
 
 ~~~ruby

@@ -64,17 +64,37 @@ module IOStreams
         @tabular        = IOStreams::Tabular.new(file_name: original_file_name, **args)
         @line_reader    = line_reader
         @cleanse_header = cleanse_header
+
+        # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
+        cleanse_columns if restricted? && !@tabular.header?
       end
 
       def each
         @line_reader.each do |line|
           if @tabular.header?
             @tabular.parse_header(line)
-            @tabular.cleanse_header! if @cleanse_header
+            cleanse_columns if @cleanse_header || restricted?
           else
-            yield @tabular.record_parse(line)
+            yield restrict(@tabular.record_parse(line))
           end
         end
+      end
+
+      private
+
+      def restricted?
+        @tabular.header.restricted?
+      end
+
+      def cleanse_columns
+        @tabular.header.cleanse!(rename: @cleanse_header)
+      end
+
+      # Formats such as JSON have no header row, so apply the allowed and required columns to each record's keys.
+      def restrict(record)
+        return record unless record.is_a?(Hash) && restricted? && @tabular.header.columns.nil?
+
+        @tabular.header.restrict_hash(record, rename: @cleanse_header)
       end
     end
   end
