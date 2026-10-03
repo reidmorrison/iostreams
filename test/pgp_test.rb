@@ -475,6 +475,75 @@ class PgpTest < Minitest::Test
 
         assert_equal 4, captured[:level]
       end
+
+      it "trusts the key by its key id when an earlier user id supplies it" do
+        fingerprint = "A" * 40
+        info        = [{key_id: fingerprint, email: "first@example.org"}, {email: "second@example.org"}]
+        captured    = {}
+        IOStreams::Pgp.stub(:key_info, info) do
+          IOStreams::Pgp.stub(:import, nil) do
+            IOStreams::Pgp.stub(:set_trust, ->(**kwargs) { captured = kwargs }) do
+              assert_equal "second@example.org", IOStreams::Pgp.import_and_trust(key: @public_key)
+            end
+          end
+        end
+
+        assert_equal fingerprint, captured[:key_id]
+      end
+    end
+
+    describe ".import_and_trust_recipient" do
+      before do
+        @public_key = public_key
+        # There is a timing issue with creating and then deleting keys.
+        # Call list_keys again to give GnuPGP time.
+        IOStreams::Pgp.list_keys(email: email, private: true)
+        IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
+      end
+
+      it "returns the fingerprint of the imported key" do
+        recipient = IOStreams::Pgp.import_and_trust_recipient(key: @public_key)
+
+        assert_match(/\A\h{40}\z/, recipient)
+        assert_equal recipient, IOStreams::Pgp.list_keys(email: email).first[:key_id]
+      end
+
+      it "returns a 64 digit fingerprint" do
+        fingerprint = "B" * 64
+
+        stub_import(key_id: fingerprint, email: email) do
+          assert_equal fingerprint, IOStreams::Pgp.import_and_trust_recipient(key: @public_key)
+        end
+      end
+
+      it "returns the email when only a short key id is available" do
+        stub_import(key_id: "C7F9D9CB", email: email) do
+          assert_equal email, IOStreams::Pgp.import_and_trust_recipient(key: @public_key)
+        end
+      end
+
+      it "returns the short key id when there is no email" do
+        stub_import(key_id: "C7F9D9CB") do
+          assert_equal "C7F9D9CB", IOStreams::Pgp.import_and_trust_recipient(key: @public_key)
+        end
+      end
+
+      it "passes the supplied trust_level through to set_trust" do
+        captured = {}
+        IOStreams::Pgp.stub(:set_trust, ->(**kwargs) { captured = kwargs }) do
+          IOStreams::Pgp.import_and_trust_recipient(key: @public_key, trust_level: 3)
+        end
+
+        assert_equal 3, captured[:level]
+      end
+
+      def stub_import(**info, &block)
+        IOStreams::Pgp.stub(:key_info, [info]) do
+          IOStreams::Pgp.stub(:import, nil) do
+            IOStreams::Pgp.stub(:set_trust, nil, &block)
+          end
+        end
+      end
     end
 
     describe ".set_trust" do

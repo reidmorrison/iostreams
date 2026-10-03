@@ -33,15 +33,23 @@ module IOStreams
       result
     end
 
-    # Creates a new temporary file that only the current user can read or write.
+    # Yields the name of a new, empty temporary file that only the current user can read or write.
     #
-    # Raises Errno::EEXIST when the file already exists, so that an existing file, or a
-    # link planted in a shared temp directory, is never written to.
+    # The file is created exclusively, so that an existing file, or a link planted in a shared
+    # temp directory, is never written to. Only a name collision when creating the file is retried,
+    # and the file is only deleted once it was created here, so that another process's file is never removed.
     #
-    # Yields the opened file when a block is supplied, otherwise just creates the empty file.
-    def self.create_temp_file(file_name, &block)
-      ::File.open(file_name, ::File::WRONLY | ::File::CREAT | ::File::EXCL | ::File::BINARY, 0o600) do |io|
-        block ? yield(io) : nil
+    # Returns the value from the block.
+    def self.private_temp_file(basename, extension = "")
+      file_name = ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir,
+                                        max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
+        ::File.open(tmpname, ::File::WRONLY | ::File::CREAT | ::File::EXCL, 0o600, &:close)
+      end
+
+      begin
+        yield(file_name)
+      ensure
+        ::FileUtils.rm_f(file_name)
       end
     end
 

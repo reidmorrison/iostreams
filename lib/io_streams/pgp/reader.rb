@@ -4,7 +4,7 @@ module IOStreams
   module Pgp
     class Reader < IOStreams::Reader
       def self.option_names
-        %i[passphrase ignore_mdc_error]
+        %i[passphrase ignore_mdc_error verify_first]
       end
 
       # Passphrase to use to open the private key to decrypt the received file
@@ -20,6 +20,15 @@ module IOStreams
 
       # Read from a PGP / GPG file , decompressing the contents as it is read.
       #
+      # SECURITY WARNING:
+      #   By default the decrypted contents are passed to the block as gpg decrypts them,
+      #   before gpg has checked the file's integrity (MDC) and any signature, since those are
+      #   only known once the whole file has been read. When either check fails,
+      #   `IOStreams::Pgp::Failure` is raised after the block has processed the data.
+      #   Do not commit any side effects, such as database updates, until the block returns
+      #   without raising, for example by processing the file within a database transaction.
+      #   Otherwise supply `verify_first: true`.
+      #
       # file_name: [String]
       #   Name of file to read from
       #
@@ -34,7 +43,15 @@ module IOStreams
       #   Only enable this for files from a trusted source: without MDC the decrypted
       #   contents are not protected against tampering.
       #   Default: false
-      def self.file(file_name, passphrase: nil, ignore_mdc_error: false)
+      #
+      # verify_first: [true|false]
+      #   Decrypt the whole file into a temporary file, only readable by the current user,
+      #   and only pass its contents to the block once gpg has checked the file's integrity
+      #   and any signature.
+      #   Requires local disk space for the decrypted contents, which are deleted afterwards,
+      #   and an extra pass over the data.
+      #   Default: false
+      def self.file(file_name, passphrase: nil, ignore_mdc_error: false, verify_first: false, &)
         # Cannot use `passphrase: self.default_passphrase` since it is considered private
         passphrase ||= default_passphrase
 
@@ -51,6 +68,8 @@ module IOStreams
 
         command = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
+
+        return decrypt_then_read(command, file_name, passphrase, &) if verify_first
 
         # Read decrypted contents from stdout
         Open3.popen3(*command) do |stdin, stdout, stderr, waith_thr|
@@ -69,6 +88,23 @@ module IOStreams
           result
         end
       end
+
+      # Decrypts the file into a temporary file, and only yields it once gpg has succeeded.
+      def self.decrypt_then_read(command, file_name, passphrase, &block)
+        Utils.private_temp_file("iostreams_pgp") do |temp_file_name|
+          Open3.popen3(*command) do |stdin, stdout, stderr, waith_thr|
+            stdin.puts(passphrase) if passphrase
+            stdin.close
+            ::File.open(temp_file_name, "wb") { |io| ::IO.copy_stream(stdout, io) }
+            unless waith_thr.value.success?
+              raise(Pgp::Failure, "GPG Failed to decrypt file: #{file_name}: #{stderr.read.chomp}")
+            end
+          end
+
+          ::File.open(temp_file_name, "rb", &block)
+        end
+      end
+      private_class_method :decrypt_then_read
     end
   end
 end

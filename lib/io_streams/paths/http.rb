@@ -18,6 +18,11 @@ module IOStreams
       #     Full url showing all the optional elements that can be set via the url:
       #       https://username:password@hostname/path/file_name
       #
+      #     SECURITY WARNING:
+      #       A username and password supplied in the url remain part of it, so `#to_s` and `#url`
+      #       return them, as does any log or error message that includes the path.
+      #       Supply them with the `username:` and `password:` arguments instead.
+      #
       #   username: [String]
       #     When supplied, basic authentication is used with the username and password.
       #
@@ -134,7 +139,7 @@ module IOStreams
             end
 
             # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-            Utils.temp_file_name("iostreams_http") do |file_name|
+            Utils.private_temp_file("iostreams_http") do |file_name|
               download_to_file(response, file_name)
               # Return a read stream
               result = ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
@@ -176,7 +181,7 @@ module IOStreams
 
       def download_to_file(response, file_name)
         size = 0
-        Utils.create_temp_file(file_name) do |io|
+        ::File.open(file_name, "wb") do |io|
           response.read_body do |chunk|
             size += chunk.bytesize
             if maximum_file_size && (size > maximum_file_size)

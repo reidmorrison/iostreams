@@ -259,7 +259,8 @@ IOStreams.path("sftp://example.org/path/file.txt",
   end
 ~~~
 
-Display the contents of a remote file, supplying the username and password in the url:
+Display the contents of a remote file, supplying the username and password in the url.
+Note that `#to_s` then includes the password, so prefer the `username:` and `password:` arguments above:
 ~~~ruby
 IOStreams.path("sftp://jack:OpenSesame@test.com:22/path/file_name.csv").reader do |io|
   puts io.read
@@ -297,6 +298,10 @@ end
   Format:
     "sftp://<host_name>/<file_name>"
     "sftp://username:password@hostname:22/path/file_name"
+
+  A username and password supplied in the url remain part of it, so `#to_s` returns them,
+  as does any log or error message that includes the path. To keep them out of logs, supply them
+  with the `username:` and `password:` arguments instead.
 
 #### Optional Arguments:
 
@@ -356,6 +361,10 @@ Notes:
   Format:
   * http://hostname/path/file_name
   * https://username:password@hostname/path/file_name
+
+  A username and password supplied in the url remain part of it, so `#to_s` returns them,
+  as does any log or error message that includes the path. To keep them out of logs, supply them
+  with the `username:` and `password:` arguments instead.
 
 #### Optional Arguments:
 
