@@ -435,18 +435,47 @@ module IOStreams
     # Notes:
     # - If the same email address has multiple keys then only the first is currently trusted.
     def self.import_and_trust(key:, trust_level: 5)
+      info = import_and_trust_key_info(key: key, trust_level: trust_level)
+      info[:email] || info[:key_id]
+    end
+
+    # Imports and trusts the supplied key, see #import_and_trust.
+    #
+    # Returns [String] the recipient to encrypt to: the key's fingerprint when gpg supplies it,
+    # otherwise the email address or key id returned by #import_and_trust.
+    #
+    # Encrypting to the fingerprint ensures that the imported key is used, since gpg looks up an
+    # email address in the keyring, where another key may have the same email address.
+    #
+    # Used internally by the PGP writer.
+    def self.import_and_trust_recipient(key:, trust_level: 5)
+      info   = import_and_trust_key_info(key: key, trust_level: trust_level)
+      key_id = info[:key_id].to_s
+      # gpg v2.1 and later supply the full fingerprint: 40 hex digits for v4 keys, 64 for v5 and v6 keys.
+      # Earlier versions only supply a short key id, which is not unique.
+      return key_id if key_id.match?(/\A(\h{40}|\h{64})\z/)
+
+      info[:email] || info[:key_id]
+    end
+
+    # Returns [Hash] the key info for the supplied key, after importing and trusting it.
+    def self.import_and_trust_key_info(key:, trust_level:)
       raise(ArgumentError, "Key cannot be empty") if key.nil? || (key == "")
 
-      key_info = key_info(key: key).last
+      infos = key_info(key: key)
+      info  = infos.last&.dup || {}
+      # When a key has several user ids, only the entry for its first user id includes the key id.
+      info[:key_id] ||= infos.reverse_each.find { |entry| entry[:key_id] }&.fetch(:key_id)
 
-      email = key_info.fetch(:email, nil)
-      key_id = key_info.fetch(:key_id, nil)
+      email  = info[:email]
+      key_id = info[:key_id]
       raise(ArgumentError, "Recipient email or key id cannot be extracted from supplied key") unless email || key_id
 
       import(key: key)
       set_trust(email: email, key_id: key_id, level: trust_level)
-      email || key_id
+      info
     end
+    private_class_method :import_and_trust_key_info
 
     # Set the trust level for an existing key.
     #
@@ -630,10 +659,11 @@ module IOStreams
           hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
           hash = {}
-        elsif (match = line.match(/\s+([A-Z0-9]{16,40})/))
+        elsif (match = line.match(/\s+([A-Z0-9]{16,64})/))
           # v2.2/v2.4 key id on separate line:
           # 18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
           # Or shorter format: 7932AB23D7238F6B
+          # Or a 64 digit fingerprint for v5 and v6 keys.
           hash[:key_id] ||= match[1]
         end
       end

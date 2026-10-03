@@ -187,7 +187,8 @@ module IOStreams
         recipients << audit_recipient if audit_recipient
 
         Array(import_and_trust_key).each do |key|
-          recipients << IOStreams::Pgp.import_and_trust(key: key, trust_level: import_and_trust_level)
+          # Encrypt to the imported key's fingerprint, since its email address could match another key in the keyring.
+          recipients << IOStreams::Pgp.import_and_trust_recipient(key: key, trust_level: import_and_trust_level)
         end
         recipients
       end
