@@ -2498,6 +2498,39 @@ Compression Performance
     :bzip2: size: 129MB  write: 430s  read: 130s  ( 5MB Memory )
 ~~~
 
+### Verifying a file before processing it
+
+gpg can only check a file's integrity (MDC) and its signature once it has read the whole file.
+By default IOStreams passes the decrypted contents to your block as gpg decrypts them, so that
+files of any size can be processed without storing the decrypted contents. When a check fails,
+`IOStreams::Pgp::Failure` is raised after the block has already processed the contents.
+
+For example, with a signed file whose contents were changed after it was signed, every record is
+processed before the `BAD signature` failure is raised:
+
+~~~ruby
+IOStreams.path("sample/example.csv.pgp").each(:hash) do |row|
+  # Receives every row, including the changed ones.
+end
+# IOStreams::Pgp::Failure: ... gpg: BAD signature from "Sender <sender@example.org>"
+~~~
+
+Either do not commit any side effects until the block returns without raising, for example
+by processing the file within a database transaction, or supply the `verify_first` option:
+
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase", verify_first: true)
+path.each(:hash) do |row|
+  # Only called once gpg has checked the whole file.
+end
+~~~
+
+With `verify_first`, the whole file is first decrypted into a temporary file that only the current
+user can read. The block is only called once gpg has successfully checked the file, and the
+temporary file is deleted afterwards. This requires local disk space for the decrypted contents,
+and an extra pass over the data.
+
 ### Reading legacy files without MDC integrity protection
 
 Modern GnuPG refuses to decrypt files that lack MDC (Modification Detection Code) integrity
