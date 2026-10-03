@@ -1,5 +1,6 @@
 require_relative "test_helper"
 require "tmpdir"
+require_relative "s3_stub"
 
 class AllowedPathsTest < Minitest::Test
   # A path class registered by an application that does not implement `#allowed_location`.
@@ -273,6 +274,100 @@ class AllowedPathsTest < Minitest::Test
         IOStreams.temp_file("allowed", ".txt") do |path|
           assert_denied { path.directory.join("other.txt").write("x") }
         end
+      end
+    end
+
+    describe "S3" do
+      before do
+        IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+        S3Stub.install
+        IOStreams.add_allowed_path("s3://bucket/allowed/")
+        IOStreams.path("s3://bucket/allowed/file.txt").write("allowed")
+      end
+
+      after do
+        S3Stub.uninstall
+      end
+
+      it "adds the bucket and key" do
+        assert_equal "s3://bucket/allowed", IOStreams.allowed_paths.last
+        assert_equal "s3://other", IOStreams.add_allowed_path("s3://other")
+      end
+
+      it "rejects an allowed path containing . or .." do
+        assert_raises(ArgumentError) { IOStreams.add_allowed_path("s3://bucket/allowed/../other") }
+      end
+
+      it "reads and writes within an allowed path" do
+        path = IOStreams.path("s3://bucket/allowed/nested/new.txt")
+        path.write("hello")
+
+        assert_equal "hello", path.read
+        assert_predicate path, :exist?
+        assert_equal 5, path.size
+      end
+
+      it "allows every key in an allowed bucket" do
+        IOStreams.add_allowed_path("s3://other")
+        IOStreams.path("s3://other/any/file.txt").write("x")
+
+        assert_equal "x", IOStreams.path("s3://other/any/file.txt").read
+      end
+
+      it "denies a path outside the allowed paths" do
+        assert_denied { IOStreams.path("s3://bucket/other/file.txt").write("x") }
+        assert_denied { IOStreams.path("s3://bucket/allowed_other/file.txt").read }
+        assert_denied { IOStreams.path("s3://bucket2/allowed/file.txt").read }
+        assert_denied { IOStreams.path("/allowed/file.txt").read }
+      end
+
+      it "denies keys containing . or .." do
+        assert_denied { IOStreams.path("s3://bucket/allowed/../other/file.txt").write("x") }
+        assert_denied { IOStreams.path("s3://bucket/allowed/./file.txt").read }
+      end
+
+      it "denies S3 operations outside the allowed paths" do
+        path = IOStreams.path("s3://bucket/other/file.txt")
+
+        assert_denied { path.exist? }
+        assert_denied { path.size }
+        assert_denied { path.delete }
+        assert_denied { path.read_file(File.join(base, "download.txt")) }
+        assert_denied { path.write_file(allowed_file) }
+        assert_denied { IOStreams.path("s3://bucket/other").each_child { |child| child } }
+      end
+
+      it "denies direct copies outside the allowed paths" do
+        source = IOStreams.path("s3://bucket/allowed/file.txt")
+
+        assert_denied { source.copy_to("s3://bucket/other/copy.txt", convert: false) }
+        assert_denied { source.move_to("s3://bucket/other/moved.txt") }
+        assert_denied { IOStreams.path("s3://bucket/other/copy.txt").copy_from(source, convert: false) }
+        assert_denied { IOStreams.path("s3://bucket/allowed/copy.txt").copy_from("s3://bucket/other/x", convert: false) }
+        assert_predicate source, :exist?
+      end
+
+      it "copies directly within an allowed path" do
+        IOStreams.path("s3://bucket/allowed/file.txt").copy_to("s3://bucket/allowed/copy.txt", convert: false)
+
+        assert_equal "allowed", IOStreams.path("s3://bucket/allowed/copy.txt").read
+      end
+
+      it "copies between local files and S3 within the allowed paths" do
+        IOStreams.path("s3://bucket/allowed/upload.txt").copy_from(allowed_file)
+
+        assert_equal "allowed", IOStreams.path("s3://bucket/allowed/upload.txt").read
+        assert_denied { IOStreams.path("s3://bucket/allowed/upload.txt").copy_from(outside_file) }
+      end
+
+      it "skips children with keys containing . or .." do
+        IOStreams.instance_variable_set(:@allowed_paths, [].freeze)
+        IOStreams.path("s3://bucket/allowed/../escaped.txt").write("x")
+        IOStreams.add_allowed_path("s3://bucket/allowed")
+
+        children = IOStreams.path("s3://bucket/allowed").children("**/*", hidden: true).collect(&:to_s)
+
+        assert_equal ["s3://bucket/allowed/file.txt"], children
       end
     end
 
