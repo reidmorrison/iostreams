@@ -39,6 +39,11 @@ module IOStreams
       # url: [String]
       #   "sftp://<host_name>/<file_name>"
       #
+      #   SECURITY WARNING:
+      #     A username and password supplied in the url remain part of it, so `#to_s` and `#url`
+      #     return them, as does any log or error message that includes the path.
+      #     Supply them with the `username:` and `password:` arguments instead.
+      #
       # username: [String]
       #   Name of user to login with.
       #

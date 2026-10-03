@@ -18,6 +18,11 @@ module IOStreams
       #     Full url showing all the optional elements that can be set via the url:
       #       https://username:password@hostname/path/file_name
       #
+      #     SECURITY WARNING:
+      #       A username and password supplied in the url remain part of it, so `#to_s` and `#url`
+      #       return them, as does any log or error message that includes the path.
+      #       Supply them with the `username:` and `password:` arguments instead.
+      #
       #   username: [String]
       #     When supplied, basic authentication is used with the username and password.
       #
