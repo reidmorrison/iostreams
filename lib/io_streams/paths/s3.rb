@@ -21,6 +21,15 @@ module IOStreams
       #     s3://my-bucket-name/file_name.txt
       #     s3://my-bucket-name/some_path/file_name.csv
       #
+      #   Any query string in the url is added to the S3 request parameters, for example:
+      #     s3://my-bucket-name/file_name.csv?acl=bucket-owner-full-control
+      #
+      #   SECURITY WARNING:
+      #     Do not interpolate untrusted file names into the url, since a name such as
+      #     `file.csv?acl=public-read` would set request parameters.
+      #     Instead join untrusted names onto the path, which does not parse them as a query:
+      #       IOStreams.path("s3://my-bucket-name/uploads").join(untrusted_name)
+      #
       # access_key_id: [String]
       #   AWS Access Key Id to use to access this bucket.
       #
@@ -255,6 +264,8 @@ module IOStreams
       def stream_reader(&block)
         # Since S3 download only supports a push stream, write it to a tempfile first.
         Utils.temp_file_name("iostreams_s3") do |file_name|
+          # Create the file first so that it is only readable by the current user.
+          Utils.create_temp_file(file_name)
           read_file(file_name)
 
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
@@ -278,7 +289,7 @@ module IOStreams
       def stream_writer(&block)
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
         Utils.temp_file_name("iostreams_s3") do |file_name|
-          result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+          result = Utils.create_temp_file(file_name) { |io| builder.writer(io, &block) }
 
           # Upload file only once all data has been written to it
           write_file(file_name)
@@ -327,7 +338,7 @@ module IOStreams
             file_name = ::File.join("s3://", resp.name, object.key)
             next unless matcher.match?(file_name)
 
-            yield(self.class.new(file_name), object.to_h)
+            yield(child_path(resp.name, object.key), object.to_h)
           end
           token = resp.next_continuation_token
           break if token.nil?
@@ -343,6 +354,16 @@ module IOStreams
       # Lazy load S3 client since it takes two seconds to create itself!
       def client
         @client ||= ::Aws::S3::Client.new(@client_options)
+      end
+
+      private
+
+      # Set the key directly rather than parsing it as part of a URL, since a key can contain
+      # characters such as `?`, `+` or `%` that a URL parser would treat as a query or as escapes.
+      def child_path(bucket_name, key)
+        child      = self.class.new("s3://#{bucket_name}")
+        child.path = key.dup.freeze
+        child
       end
     end
   end

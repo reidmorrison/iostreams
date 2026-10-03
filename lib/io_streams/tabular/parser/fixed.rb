@@ -143,6 +143,7 @@ module IOStreams
 
         class Column
           TYPES = %i[string integer float].freeze
+          LINE_BREAK = /\r\n|\r|\n/
 
           attr_reader :key, :size, :type, :decimals
 
@@ -179,7 +180,8 @@ module IOStreams
             formatted =
               case type
               when :string
-                value = value.to_s
+                # Replace line breaks with a space so that a value cannot add records.
+                value = value.to_s.gsub(LINE_BREAK, " ")
                 return value if size == -1
 
                 format(truncate ? "%-#{size}.#{size}s" : "%-#{size}s", value)

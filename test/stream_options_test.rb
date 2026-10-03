@@ -158,9 +158,8 @@ class StreamOptionsTest < Minitest::Test
           next if params.any? { |kind, _| kind == :keyrest }
 
           it "#{klass}.#{name} matches its keyword arguments" do
-            # rubocop:disable Style/HashSlice
+            # rubocop:disable-next Style/HashSlice
             keywords = params.select { |kind, _| %i[key keyreq].include?(kind) }.map(&:last)
-            # rubocop:enable Style/HashSlice
 
             assert_equal keywords.sort, klass.option_names.sort
           end

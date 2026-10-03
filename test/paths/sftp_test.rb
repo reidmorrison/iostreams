@@ -157,6 +157,27 @@ module Paths
             new_path("http://example.org/path/file.txt")
           end
         end
+
+        it "raises when the username could be read as an sftp option" do
+          ["-Dtouch /tmp/pwned", "-oProxyCommand=id"].each do |username|
+            error = assert_raises ArgumentError do
+              new_path(url, username: username, password: "secret")
+            end
+            assert_includes error.message, "Invalid SFTP username"
+          end
+        end
+
+        it "raises when the username contains control characters" do
+          assert_raises ArgumentError do
+            new_path(url, username: "jack\nbye", password: "secret")
+          end
+        end
+
+        it "ignores ssh options in the url query string" do
+          path = new_path("sftp://example.org/path/file.txt?ProxyCommand=id", username: "jack", password: "secret")
+
+          assert_empty path.ssh_options
+        end
       end
 
       describe "#relative?" do
@@ -193,6 +214,13 @@ module Paths
           assert_includes args, "-oStrictHostKeyChecking=yes"
           assert_includes args, "-b"
           assert_equal "jack@example.org", args.last
+        end
+
+        it "ends options before the destination" do
+          path = new_path(url, username: "jack", password: "secret")
+          args = path.send(:sftp_args, path.ssh_options)
+
+          assert_equal ["--", "jack@example.org"], args.last(2)
         end
 
         it "uses key-only authentication options when no password is supplied" do
@@ -294,6 +322,79 @@ module Paths
 
           with_io_streams_logger(logger) do
             assert_same logger, path.send(:build_ssh_options)[:logger]
+          end
+        end
+      end
+
+      describe "#raise_failure" do
+        it "removes the password from the sftp output" do
+          path  = new_path(url, username: "jack", password: "TOP-SECRET")
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            path.send(:raise_failure, "Download", "sftp> TOP-SECRET\nInvalid command.")
+          end
+
+          refute_includes error.message, "TOP-SECRET"
+          assert_includes error.message, "Download failed"
+          assert_includes error.message, "Invalid command."
+        end
+
+        it "handles missing output" do
+          path  = new_path(url, username: "jack", password: "secret")
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            path.send(:raise_failure, "Upload", nil)
+          end
+
+          assert_includes error.message, "Upload failed"
+        end
+      end
+
+      describe "#each_child" do
+        # Minimal stand-in for Net::SFTP that yields the supplied remote file names.
+        def with_stub_net_sftp(names)
+          stub_sftp = Module.new
+          stub_sftp.define_singleton_method(:start) do |hostname, username, options, &block|
+            stub_sftp.instance_variable_set(:@started, [hostname, username, options])
+            entries = names.map do |name|
+              attributes = Struct.new(:attributes).new({size: 1})
+              Struct.new(:name, :attributes) { def file? = true }.new(name, attributes)
+            end
+            dir = Object.new
+            dir.define_singleton_method(:glob) { |_dir, _pattern, _flags, &each| entries.each(&each) }
+            block.call(Struct.new(:dir).new(dir))
+          end
+
+          Net.const_set(:SFTP, stub_sftp)
+          yield(stub_sftp)
+        ensure
+          Net.send(:remove_const, :SFTP)
+        end
+
+        it "does not parse remote file names as part of a url" do
+          path = new_path(url, username: "jack", password: "secret", ssh_options: {"ServerAliveInterval" => 60})
+
+          children = nil
+          with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do
+            children = path.each_child.to_a.map(&:first)
+          end
+
+          assert_equal ["/inbox/a+b.csv?acl=public-read", "/inbox/c%41#d.csv"], children.map(&:path)
+          assert_equal "sftp://example.org/inbox/a+b.csv?acl=public-read", children.first.to_s
+          children.each do |child|
+            assert_instance_of IOStreams::Paths::SFTP, child
+            assert_equal "jack", child.username
+            assert_equal "secret", child.send(:password)
+            assert_equal({"ServerAliveInterval" => 60}, child.ssh_options)
+          end
+        end
+
+        it "requires a known host key" do
+          path = new_path(url, username: "jack", password: "secret")
+
+          with_stub_net_sftp([]) do |stub_sftp|
+            path.each_child.to_a
+            _hostname, _username, options = stub_sftp.instance_variable_get(:@started)
+
+            assert_equal :always, options[:verify_host_key]
           end
         end
       end

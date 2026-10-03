@@ -155,6 +155,48 @@ class PgpWriterTest < Minitest::Test
       end
     end
 
+    describe "signer_passphrase" do
+      # Stub gpg that records its arguments and what it reads from the passphrase file descriptor.
+      def with_stub_gpg
+        Dir.mktmpdir do |dir|
+          args_file       = ::File.join(dir, "args")
+          passphrase_file = ::File.join(dir, "passphrase")
+          executable      = ::File.join(dir, "gpg")
+          ::File.write(executable, <<~SCRIPT)
+            #!/bin/sh
+            printf '%s\n' "$@" > "#{args_file}"
+            cat <&#{IOStreams::Pgp::Writer::PASSPHRASE_FD} > "#{passphrase_file}"
+            cat > /dev/null
+          SCRIPT
+          ::File.chmod(0o700, executable)
+
+          # Resolve the version using the real gpg before swapping in the stub.
+          IOStreams::Pgp.pgp_version
+          original                  = IOStreams::Pgp.executable
+          IOStreams::Pgp.executable = executable
+          begin
+            yield(args_file, passphrase_file)
+          ensure
+            IOStreams::Pgp.executable = original
+          end
+        end
+      end
+
+      it "is supplied on a file descriptor instead of the command line" do
+        with_stub_gpg do |args_file, passphrase_file|
+          IOStreams::Pgp::Writer.file(file_name, encrypt: false, signer: "sender@example.org", signer_passphrase: "TOP-SECRET") do |io|
+            io.write(decrypted)
+          end
+
+          args = ::File.read(args_file).lines.map(&:chomp)
+
+          refute_includes args, "TOP-SECRET"
+          assert_equal ["--passphrase-fd", IOStreams::Pgp::Writer::PASSPHRASE_FD.to_s], args[args.index("--passphrase-fd"), 2]
+          assert_equal "TOP-SECRET\n", ::File.read(passphrase_file)
+        end
+      end
+    end
+
     describe "import_and_trust_key" do
       let :public_key do
         IOStreams::Pgp.export(email: "receiver@example.org")

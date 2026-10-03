@@ -13,6 +13,8 @@ module IOStreams
     # and then pass that filename in for this reader.
     def self.stream(output_stream, **args, &block)
       Utils.temp_file_name("iostreams_writer") do |file_name|
+        # Create the file first so that it is only readable by the current user.
+        Utils.create_temp_file(file_name)
         count = file(file_name, **args, &block)
         ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) }
         count

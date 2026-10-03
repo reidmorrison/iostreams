@@ -19,6 +19,56 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".create_temp_file" do
+      it "creates a file that only the current user can read" do
+        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
+          IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
+
+          assert_equal "secret", File.read(file_name)
+          assert_equal 0o600, File.stat(file_name).mode & 0o777
+        end
+      end
+
+      it "creates an empty file without a block" do
+        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
+          assert_nil IOStreams::Utils.create_temp_file(file_name)
+          assert_equal 0, File.size(file_name)
+          assert_equal 0o600, File.stat(file_name).mode & 0o777
+        end
+      end
+
+      it "returns the value from the block" do
+        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
+          assert_equal 6, IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
+        end
+      end
+
+      it "raises when the file already exists" do
+        IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
+          File.write(file_name, "existing")
+
+          assert_raises Errno::EEXIST do
+            IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
+          end
+          assert_equal "existing", File.read(file_name)
+        end
+      end
+
+      it "does not follow a link planted at the file name" do
+        IOStreams::Utils.temp_file_name("base", ".ext") do |target|
+          File.write(target, "target")
+          IOStreams::Utils.temp_file_name("link", ".ext") do |file_name|
+            File.symlink(target, file_name)
+
+            assert_raises Errno::EEXIST do
+              IOStreams::Utils.create_temp_file(file_name) { |io| io.write("secret") }
+            end
+            assert_equal "target", File.read(target)
+          end
+        end
+      end
+    end
+
     describe ".load_soft_dependency" do
       it "raises a helpful error when the gem cannot be loaded" do
         error = assert_raises LoadError do

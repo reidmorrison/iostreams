@@ -33,6 +33,18 @@ module IOStreams
       result
     end
 
+    # Creates a new temporary file that only the current user can read or write.
+    #
+    # Raises Errno::EEXIST when the file already exists, so that an existing file, or a
+    # link planted in a shared temp directory, is never written to.
+    #
+    # Yields the opened file when a block is supplied, otherwise just creates the empty file.
+    def self.create_temp_file(file_name, &block)
+      ::File.open(file_name, ::File::WRONLY | ::File::CREAT | ::File::EXCL | ::File::BINARY, 0o600) do |io|
+        block ? yield(io) : nil
+      end
+    end
+
     class URI
       attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
 

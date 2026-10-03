@@ -13,7 +13,7 @@ module IOStreams
     # and then pass that filename in for this reader.
     def self.stream(input_stream, **args, &block)
       Utils.temp_file_name("iostreams_reader") do |file_name|
-        ::File.open(file_name, "wb") { |target| ::IO.copy_stream(input_stream, target) }
+        Utils.create_temp_file(file_name) { |target| ::IO.copy_stream(input_stream, target) }
         file(file_name, **args, &block)
       end
     end

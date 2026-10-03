@@ -134,6 +134,16 @@ class PgpTest < Minitest::Test
         end
       end
 
+      it "does not treat an :email that starts with '--' as a gpg option" do
+        generated_key_id
+
+        # Without `--`, gpg would read this as `--comment` and list every key in the keyring.
+        assert_empty IOStreams::Pgp.list_keys(email: "--comment=x@example.com")
+        refute IOStreams::Pgp.key?(email: "--comment=x@example.com")
+        refute IOStreams::Pgp.delete_keys(email: "--comment=x@example.com", public: true, private: true)
+        assert IOStreams::Pgp.key?(key_id: generated_key_id)
+      end
+
       it "treats shell metacharacters in :email literally when deleting keys" do
         Dir.mktmpdir do |dir|
           marker    = ::File.join(dir, "pwned")
@@ -163,6 +173,16 @@ class PgpTest < Minitest::Test
     end
 
     describe ".delete_keys" do
+      it "raises when neither email nor key_id is supplied" do
+        generated_key_id
+
+        error = assert_raises ArgumentError do
+          IOStreams::Pgp.delete_keys(public: true, private: true)
+        end
+        assert_includes error.message, "Either :email, or :key_id must be supplied"
+        assert IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
+      end
+
       it "handles no keys" do
         refute IOStreams::Pgp.delete_keys(email: "random@iostreams.net", public: true, private: true)
       end
@@ -222,6 +242,42 @@ class PgpTest < Minitest::Test
       it "exports public keys as binary" do
         assert keys = IOStreams::Pgp.export(email: email, ascii: false)
         refute_match(/BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys, keys)
+      end
+
+      it "exports public keys by key_id" do
+        assert ascii_keys = IOStreams::Pgp.export(key_id: generated_key_id)
+        assert_match(/BEGIN PGP PUBLIC KEY BLOCK/, ascii_keys, ascii_keys)
+      end
+
+      it "raises when neither email nor key_id is supplied" do
+        error = assert_raises ArgumentError do
+          IOStreams::Pgp.export
+        end
+        assert_includes error.message, "Either :email, or :key_id must be supplied"
+      end
+
+      it "exports private keys using the passphrase" do
+        assert keys = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
+        assert_match(/BEGIN PGP PRIVATE KEY BLOCK/, keys)
+      end
+
+      it "supplies the passphrase on stdin instead of the command line" do
+        # Resolve the version first, since it also calls Open3.capture3.
+        IOStreams::Pgp.pgp_version
+        command = options = nil
+        capture = lambda do |*args, **kwargs|
+          command = args
+          options = kwargs
+          ["KEY", "", Struct.new(:success?).new(true)]
+        end
+
+        Open3.stub(:capture3, capture) do
+          IOStreams::Pgp.export(email: email, private: true, passphrase: "TOP-SECRET")
+        end
+
+        refute_includes command, "TOP-SECRET"
+        assert_equal ["--passphrase-fd", "0"], command[command.index("--passphrase-fd"), 2]
+        assert_equal "TOP-SECRET", options[:stdin_data]
       end
     end
 
@@ -442,6 +498,17 @@ class PgpTest < Minitest::Test
         fingerprint = IOStreams::Pgp.send(:fingerprint, email: email)
 
         refute_nil IOStreams::Pgp.set_trust(key_id: fingerprint)
+      end
+
+      it "raises when the key_id is not hexadecimal" do
+        fingerprint = IOStreams::Pgp.send(:fingerprint, email: email)
+
+        ["#{fingerprint}:6:\nABCDEF0123456789ABCDEF0123456789ABCDEF01", "", "0x#{fingerprint}", "#{fingerprint} "].each do |key_id|
+          error = assert_raises ArgumentError do
+            IOStreams::Pgp.set_trust(key_id: key_id)
+          end
+          assert_includes error.message, "Invalid :key_id"
+        end
       end
 
       it "trusts an existing key at the supplied level" do

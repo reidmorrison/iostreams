@@ -1901,6 +1901,9 @@ to or from the file's tabular format. The following formats are supported:
 * `:array` Each line is already an array of values
 * `:hash`  Each line is already a hash
 
+PSV has no way to escape values, so when writing PSV, a `|` within a value is replaced with `:`
+and a line break with a space, so that a value cannot add columns or records.
+
 ## Format inference
 
 The format is inferred from the file name when it contains a recognized extension:
@@ -1984,6 +1987,8 @@ Layout column definitions:
   and to space fill when rendering.
 * `:type` `:string` (default), `:integer`, or `:float`.
   Strings are left justified and space padded, numbers are right justified and zero padded.
+  When writing, line breaks within a string are replaced with a space so that a value cannot
+  add records.
   Raises `IOStreams::Errors::ValueTooLong` when an `:integer` or `:float` value cannot be
   rendered in `size` characters.
 * `:decimals` For `:float` columns, the number of decimal places to render.
@@ -2025,6 +2030,11 @@ When reading or writing records (`:hash`), the following options control the hea
   were not in the file at all. When false, an unknown column raises
   `IOStreams::Errors::InvalidHeader`.
   Default: true
+
+When reading records, `allowed_columns`, `required_columns` and `skip_unknown` apply to the
+header row, to the supplied `columns`, and, for formats without a header row such as JSON,
+to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
+are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
 
 Example, reading a headerless CSV file:
 

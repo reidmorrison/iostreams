@@ -391,6 +391,11 @@ class TabularTest < Minitest::Test
           assert psv_string = tabular.render({"third" => 23, "first_field" => "a|b|c", "second" => "|"})
           assert_equal "a:b:c|:|23", psv_string
         end
+
+        it "replaces line breaks so that a value cannot add records" do
+          assert psv_string = tabular.render({"first_field" => "Jack\nFORGED", "second" => "a\r\nb", "third" => "c\rd"})
+          assert_equal "Jack FORGED|a b|c d", psv_string
+        end
       end
 
       describe ":fixed format" do
@@ -433,6 +438,16 @@ class TabularTest < Minitest::Test
 
         it "renders no data as nil" do
           refute fixed.render({})
+        end
+
+        it "replaces line breaks so that a value cannot add records" do
+          assert string = fixed.render(name: "Jack\nFORGED", address: "over\r\nthere", zip: 34_618)
+          assert_equal "Jack FORGED            over there                                34618000000000000000.00", string
+        end
+
+        it "replaces line breaks in the remainder" do
+          assert string = fixed_with_remainder.render(name: "Jack", address: "over there", remainder: "XX\nFORGED")
+          assert_equal "Jack                   over there                              XX FORGED", string
         end
 
         it "any size last string" do

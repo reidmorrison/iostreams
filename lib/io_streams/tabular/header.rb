@@ -52,16 +52,22 @@ module IOStreams
       # - Spaces and '-' are converted to '_'.
       # - All characters except for letters, digits, and '_' are stripped.
       #
+      # Parameters:
+      #   rename [true|false]
+      #     Whether to cleanse the column names as described above.
+      #     When false, the column names are compared to `allowed_columns` and `required_columns` as-is.
+      #     Default: true
+      #
       # Notes:
       # * So that rejected columns can be identified in subsequent steps, they will be prefixed with `__rejected__`.
       #   For example, `Unknown Column` would be cleansed as `__rejected__Unknown Column`.
       # * Raises Tabular::InvalidHeader when there are no rejected columns left after cleansing.
-      def cleanse!
+      def cleanse!(rename: true)
         return [] if columns.nil? || columns.empty?
 
         ignored_columns = []
         self.columns    = columns.collect do |column|
-          cleansed = cleanse_column(column)
+          cleansed = rename ? cleanse_column(column) : column
           if allowed_columns.nil? || allowed_columns.include?(cleansed)
             cleansed
           else
@@ -112,6 +118,26 @@ module IOStreams
         end
       end
 
+      # Returns [true|false] whether `allowed_columns` or `required_columns` restrict the columns.
+      def restricted?
+        !allowed_columns.nil? || !required_columns.nil?
+      end
+
+      # Returns [Hash] the supplied hash after applying `allowed_columns`, `required_columns` and `skip_unknown`
+      # to its keys, as if its keys were the header row.
+      #
+      # Used for formats such as JSON where each record supplies its own keys instead of a header row.
+      def restrict_hash(hash, rename: true)
+        header = self.class.new(
+          columns:          hash.keys,
+          allowed_columns:  allowed_columns,
+          required_columns: required_columns,
+          skip_unknown:     skip_unknown
+        )
+        header.cleanse!(rename: rename)
+        header.to_hash(hash.values)
+      end
+
       def to_array(row, cleanse = true)
         if row.is_a?(Hash) && columns
           row = cleanse_hash(row) if cleanse
@@ -142,12 +168,13 @@ module IOStreams
       # For example, avoids issues with case etc.
       def cleanse_hash(hash)
         hash      = hash.transform_keys(&:to_s) unless hash.keys.all?(String)
-        unmatched = columns - hash.keys
+        allowed   = columns.reject { |column| column.start_with?(IGNORE_PREFIX) }
+        unmatched = allowed - hash.keys
         unless unmatched.empty?
           hash = hash.dup
           unmatched.each { |name| hash[cleanse_column(name)] = hash.delete(name) }
         end
-        hash.slice(*columns)
+        hash.slice(*allowed)
       end
 
       def cleanse_column(name)

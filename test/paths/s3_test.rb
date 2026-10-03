@@ -225,5 +225,49 @@ module Paths
         end
       end
     end
+
+    # Unit tests that use a stubbed S3 client, so they run in every environment.
+    describe "IOStreams::Paths::S3 without a connection" do
+      let :client do
+        IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+        client = Aws::S3::Client.new(stub_responses: true, region: "us-east-1", credentials: Aws::Credentials.new("id", "secret"))
+        client.stub_responses(
+          :list_objects_v2,
+          {
+            name:     "bucket",
+            contents: [{key: "inbox/a+b.csv?acl=public-read"}, {key: "inbox/c%41 d.csv"}]
+          }
+        )
+        client
+      end
+
+      describe "#join" do
+        it "joins a name that only shares a prefix with the key" do
+          path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)
+
+          assert_equal "s3://bucket/reports/reports_2024.csv", path.join("reports_2024.csv").to_s
+        end
+
+        it "joins a name onto the bucket root" do
+          path = IOStreams::Paths::S3.new("s3://bucket", client: client)
+
+          assert_equal "reports/2024.csv", path.join("reports/2024.csv").path
+        end
+      end
+
+      describe "#each_child" do
+        it "does not parse object keys as part of a url" do
+          path     = IOStreams::Paths::S3.new("s3://bucket/inbox", client: client)
+          children = path.each_child("**/*").to_a.map(&:first)
+
+          assert_equal ["inbox/a+b.csv?acl=public-read", "inbox/c%41 d.csv"], children.map(&:path)
+          children.each do |child|
+            assert_instance_of IOStreams::Paths::S3, child
+            assert_equal "bucket", child.bucket_name
+            assert_empty child.options
+          end
+        end
+      end
+    end
   end
 end

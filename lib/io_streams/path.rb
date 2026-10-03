@@ -1,5 +1,9 @@
 module IOStreams
   class Path < IOStreams::Stream
+    # Stream option names whose values must not be displayed, such as `passphrase` or `signer_passphrase`.
+    SENSITIVE_OPTION = /pass(phrase|word)|secret/i
+    private_constant :SENSITIVE_OPTION
+
     attr_accessor :path
 
     def initialize(path)
@@ -21,7 +25,7 @@ module IOStreams
 
       new_path         = dup
       new_path.builder = nil
-      new_path.path    = relative.start_with?(path) ? relative : ::File.join(path, relative)
+      new_path.path    = contains?(relative) ? relative : ::File.join(path, relative)
       new_path
     end
 
@@ -82,7 +86,7 @@ module IOStreams
     end
 
     # Cleanup an incomplete write to the target "file" if the copy fails.
-    # rubocop:disable Lint/SuppressedException
+    # rubocop:disable-next Lint/SuppressedException
     def copy_from(source, **args)
       super
     rescue StandardError => e
@@ -92,7 +96,6 @@ module IOStreams
       end
       raise(e)
     end
-    # rubocop:enable Lint/SuppressedException
 
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
@@ -190,15 +193,32 @@ module IOStreams
 
     def inspect
       str = "#<#{self.class.name}:#{path}"
-      str << " @builder=#{builder.streams.inspect}" if builder.streams
-      str << " @options=#{builder.options.inspect}" if builder.options
-      str << " pipeline=#{pipeline.inspect}>"
+      str << " @builder=#{redact(builder.streams).inspect}" if builder.streams
+      str << " @options=#{redact(builder.options).inspect}" if builder.options
+      str << " pipeline=#{redact(pipeline).inspect}>"
     end
 
     private
 
+    # Returns [Hash<Symbol:Hash>] the streams with the values of sensitive options replaced.
+    def redact(streams)
+      streams.transform_values do |options|
+        next options unless options.is_a?(Hash)
+
+        options.to_h { |name, value| [name, name.to_s.match?(SENSITIVE_OPTION) ? "[FILTERED]" : value] }
+      end
+    end
+
     def builder
       @builder ||= IOStreams::Builder.new(path)
+    end
+
+    # Returns [true|false] whether the supplied path is this path, or is within this path.
+    # For example "a/b" contains "a/b/c.csv", but not "a/bc.csv".
+    def contains?(other)
+      return true if path.empty? || other == path
+
+      other.start_with?(path.end_with?("/") ? path : "#{path}/")
     end
   end
 end

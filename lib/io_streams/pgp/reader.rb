@@ -47,7 +47,7 @@ module IOStreams
         args += ["--batch", "--no-tty", "--yes", "--decrypt"]
         # Only feed a passphrase when one is supplied; sign-only files need none.
         args += ["--passphrase-fd", "0"] if passphrase
-        args << file_name.to_s
+        args += ["--", file_name.to_s]
 
         command = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
