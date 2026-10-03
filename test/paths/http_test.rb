@@ -129,6 +129,18 @@ module Paths
           assert_includes error.message, "Invalid URL"
         end
 
+        it "does not include credentials in error messages" do
+          start_server { |_path| TestHTTPServer.response(404) }
+          url = "http://jack:TOP-SECRET@127.0.0.1:#{@server.port}/missing"
+
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            IOStreams::Paths::HTTP.new(url).read
+          end
+          refute_includes error.message, "TOP-SECRET"
+          refute_includes error.message, "jack"
+          assert_includes error.message, "http://127.0.0.1:#{@server.port}/missing"
+        end
+
         it "raises when the server requires authorization" do
           start_server { |_path| TestHTTPServer.response(401) }
 

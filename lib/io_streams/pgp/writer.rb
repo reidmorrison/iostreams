@@ -3,6 +3,9 @@ require "open3"
 module IOStreams
   module Pgp
     class Writer < IOStreams::Writer
+      # File descriptor in the gpg process that the signer passphrase is read from.
+      PASSPHRASE_FD = 3
+
       def self.option_names
         %i[encrypt recipient import_and_trust_key import_and_trust_level signer signer_passphrase
            compress compress_level]
@@ -127,13 +130,22 @@ module IOStreams
           recipients:        recipients
         )
         command = IOStreams::Pgp.gpg_command(*args)
+        IOStreams.logger&.debug { "IOStreams::Pgp::Writer.open: #{command.shelljoin}" }
 
-        # Do not log the command, it may contain the signer passphrase.
-        action = encrypt ? "encrypt" : "sign"
-        IOStreams.logger&.debug { "IOStreams::Pgp::Writer.open: #{action} -o #{file_name}" }
+        # Since stdin carries the data, supply the signer passphrase on file descriptor 3
+        # so that it is not visible in the process list.
+        spawn_options = {}
+        if signer_passphrase
+          passphrase_reader, passphrase_writer = IO.pipe
+          passphrase_writer.puts(signer_passphrase.to_s)
+          passphrase_writer.close
+          spawn_options[PASSPHRASE_FD] = passphrase_reader
+        end
 
         result = nil
-        Open3.popen2e(*command) do |stdin, out, waith_thr|
+        Open3.popen2e(*command, spawn_options) do |stdin, out, waith_thr|
+          # Only the gpg process needs the passphrase.
+          passphrase_reader&.close
           begin
             stdin.binmode
             result = yield(stdin)
@@ -149,6 +161,8 @@ module IOStreams
           end
         end
         result
+      ensure
+        passphrase_reader&.close
       end
 
       def self.build_args(file_name:, encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:)
@@ -158,7 +172,7 @@ module IOStreams
         if signer_passphrase
           args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
           args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
-          args += ["--passphrase", signer_passphrase.to_s]
+          args += ["--passphrase-fd", PASSPHRASE_FD.to_s]
         end
         args += ["-z", compress_level.to_s] if compress_level != 6
         args += ["--compress-algo", compress.to_s] unless compress == :none

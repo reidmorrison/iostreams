@@ -116,6 +116,22 @@ module IOStreams
         it "includes the class name and path" do
           assert_includes IOStreams::Path.new("a/b/file.csv").inspect, "a/b/file.csv"
         end
+
+        it "does not display passphrases set as options" do
+          path = IOStreams.path("a/b/file.csv.pgp").option(:pgp, passphrase: "TOP-SECRET")
+          str  = path.inspect
+
+          refute_includes str, "TOP-SECRET"
+          assert_includes str, "[FILTERED]"
+        end
+
+        it "does not display passphrases set as streams" do
+          path = IOStreams.path("a/b/file").stream(:pgp, recipient: "a@b.org", signer_passphrase: "TOP-SECRET")
+          str  = path.inspect
+
+          refute_includes str, "TOP-SECRET"
+          assert_includes str, "a@b.org"
+        end
       end
 
       describe "abstract methods" do

@@ -134,6 +134,16 @@ class PgpTest < Minitest::Test
         end
       end
 
+      it "does not treat an :email that starts with '--' as a gpg option" do
+        generated_key_id
+
+        # Without `--`, gpg would read this as `--comment` and list every key in the keyring.
+        assert_empty IOStreams::Pgp.list_keys(email: "--comment=x@example.com")
+        refute IOStreams::Pgp.key?(email: "--comment=x@example.com")
+        refute IOStreams::Pgp.delete_keys(email: "--comment=x@example.com", public: true, private: true)
+        assert IOStreams::Pgp.key?(key_id: generated_key_id)
+      end
+
       it "treats shell metacharacters in :email literally when deleting keys" do
         Dir.mktmpdir do |dir|
           marker    = ::File.join(dir, "pwned")
@@ -222,6 +232,30 @@ class PgpTest < Minitest::Test
       it "exports public keys as binary" do
         assert keys = IOStreams::Pgp.export(email: email, ascii: false)
         refute_match(/BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys, keys)
+      end
+
+      it "exports private keys using the passphrase" do
+        assert keys = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
+        assert_match(/BEGIN PGP PRIVATE KEY BLOCK/, keys)
+      end
+
+      it "supplies the passphrase on stdin instead of the command line" do
+        # Resolve the version first, since it also calls Open3.capture3.
+        IOStreams::Pgp.pgp_version
+        command = options = nil
+        capture = lambda do |*args, **kwargs|
+          command = args
+          options = kwargs
+          ["KEY", "", Struct.new(:success?).new(true)]
+        end
+
+        Open3.stub(:capture3, capture) do
+          IOStreams::Pgp.export(email: email, private: true, passphrase: "TOP-SECRET")
+        end
+
+        refute_includes command, "TOP-SECRET"
+        assert_equal ["--passphrase-fd", "0"], command[command.index("--passphrase-fd"), 2]
+        assert_equal "TOP-SECRET", options[:stdin_data]
       end
     end
 

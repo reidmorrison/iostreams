@@ -207,7 +207,8 @@ module IOStreams
     def self.list_keys(email: nil, key_id: nil, private: false)
       version_check
       args = [private ? "--list-secret-keys" : "--list-keys"]
-      args << (email || key_id).to_s if email || key_id
+      # `--` stops gpg from treating the email or key id as an option.
+      args += ["--", (email || key_id).to_s] if email || key_id
       command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true)
@@ -270,13 +271,14 @@ module IOStreams
       args << "--no-symkey-cache" if pgp_version.to_f >= 2.4
       args << "--armor" if ascii
       args += ["--no-tty", "--batch"]
-      args += passphrase ? ["--passphrase", passphrase] : ["--passphrase-fd", "0"]
-      args += private ? ["--export-secret-keys", email.to_s] : ["--export", email.to_s]
+      # Supply the passphrase on stdin so that it is not visible in the process list.
+      args += ["--passphrase-fd", "0"]
+      args << (private ? "--export-secret-keys" : "--export")
+      args += ["--", email.to_s]
       command = gpg_command(*args)
 
-      out, err, status = Open3.capture3(*command, binmode: true)
-      # Do not log the command, it may contain the passphrase.
-      IOStreams.logger&.debug { "IOStreams::Pgp.export: #{email}\n#{err}" }
+      out, err, status = Open3.capture3(*command, binmode: true, stdin_data: passphrase.to_s)
+      IOStreams.logger&.debug { "IOStreams::Pgp.export: #{command.shelljoin}\n#{err}" }
 
       raise(Pgp::Failure, "GPG Failed reading key: #{email}: #{err}") unless status.success? && out.length.positive?
 
@@ -479,7 +481,7 @@ module IOStreams
     # Public callers should identify keys by `key_id` (see #list_keys / #key_info).
     def self.fingerprint(email:)
       version_check
-      command = gpg_command("--list-keys", "--fingerprint", "--with-colons", email.to_s)
+      command = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", email.to_s)
       Open3.popen2e(*command) do |_stdin, out, waith_thr|
         output = out.read.chomp
         if !waith_thr.value.success? && output !~ /(public key not found|No public key)/i
@@ -636,7 +638,7 @@ module IOStreams
         key_id = key_info[:key_id]
         next unless key_id
 
-        command          = gpg_command("--batch", "--no-tty", "--yes", "--delete-#{keys}", key_id)
+        command          = gpg_command("--batch", "--no-tty", "--yes", "--delete-#{keys}", "--", key_id)
         out, err, status = Open3.capture3(*command, binmode: true)
         IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{command.shelljoin}\n#{err}#{out}" }
 
@@ -653,7 +655,7 @@ module IOStreams
 
       # List the fingerprints, then delete each one. Previously this shelled out
       # to a `for` loop, which allowed shell injection via :email / :key_id.
-      list_command        = gpg_command("--list-#{keys}", "--with-colons", "--fingerprint", (email || key_id).to_s)
+      list_command        = gpg_command("--list-#{keys}", "--with-colons", "--fingerprint", "--", (email || key_id).to_s)
       list_out, list_err, = Open3.capture3(*list_command, binmode: true)
       IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{list_command.shelljoin}\n#{list_err}: #{list_out}" }
 
@@ -663,7 +665,7 @@ module IOStreams
       return false if fingerprints.empty?
 
       fingerprints.each do |fingerprint|
-        command          = gpg_command("--batch", "--no-tty", "--yes", "--delete-#{keys}", fingerprint)
+        command          = gpg_command("--batch", "--no-tty", "--yes", "--delete-#{keys}", "--", fingerprint)
         out, err, status = Open3.capture3(*command, binmode: true)
         IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{command.shelljoin}\n#{err}: #{out}" }
 

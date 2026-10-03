@@ -11,7 +11,7 @@ module IOStreams
       def self.file(file_name, &block)
         # Stream into a temp file as csv
         Utils.temp_file_name("iostreams_csv") do |temp_file_name|
-          ::File.open(temp_file_name, "wb") { |io| new(file_name).each { |lines| io << lines.to_csv } }
+          Utils.create_temp_file(temp_file_name) { |io| new(file_name).each { |lines| io << lines.to_csv } }
           ::File.open(temp_file_name, "rb", &block)
         end
       end

@@ -102,7 +102,7 @@ module IOStreams
         # Not Ruby 2.5 yet: transform_keys(&:to_s)
         @ssh_options = {}
         ssh_options.each_pair { |key, value| @ssh_options[key.to_s] = value }
-        @ssh_options.merge(uri.query) if uri.query
+        validate_username!
 
         super(uri.path)
       end
@@ -155,19 +155,41 @@ module IOStreams
           sftp.dir.glob(".", pattern, flags) do |path|
             next if !directories && !path.file?
 
-            new_path = self.class.new("sftp://#{hostname}/#{path.name}", username: username, password: password, **ssh_options)
-            yield(new_path, path.attributes.attributes)
+            yield(child_path(path.name), path.attributes.attributes)
           end
         end
         nil
       end
 
+      protected
+
+      attr_writer :url
+
       private
 
       attr_reader :password
 
+      # Usernames are passed to the `sftp` executable, so reject values that it could treat as options.
+      def validate_username!
+        return if username.nil?
+        return unless username.to_s.start_with?("-") || username.to_s.match?(/[[:cntrl:]]/)
+
+        raise(ArgumentError, "Invalid SFTP username: it cannot start with '-' or contain control characters")
+      end
+
+      # Set the path directly rather than parsing it as part of a URL, since a file name can contain
+      # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
+      def child_path(name)
+        child      = self.class.new("sftp://#{hostname}", username: username, password: password, ssh_options: ssh_options)
+        child.path = "/#{name}".freeze
+        child.url  = "sftp://#{hostname}/#{name}"
+        child
+      end
+
       def stream_reader(&block)
         IOStreams.temp_file("iostreams-sftp-reader") do |temp_file|
+          # Create the file first so that it is only readable by the current user.
+          Utils.create_temp_file(temp_file.to_s)
           sftp_download(path, temp_file.to_s)
           ::File.open(temp_file.to_s, "rb") { |io| builder.reader(io, &block) }
         end
@@ -175,7 +197,7 @@ module IOStreams
 
       def stream_writer(&block)
         IOStreams.temp_file("iostreams-sftp-writer") do |temp_file|
-          ::File.open(temp_file.to_s, "wb") { |io| builder.writer(io, &block) }
+          Utils.create_temp_file(temp_file.to_s) { |io| builder.writer(io, &block) }
           sftp_upload(temp_file.to_s, path)
           temp_file.size
         end
@@ -197,12 +219,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            unless waith_thr.value.success?
-              raise(
-                Errors::CommunicationsFailure,
-                "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
-              )
-            end
+            raise_failure("Download", out) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -211,10 +228,7 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise(
-              Errors::CommunicationsFailure,
-              "Download failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
-            )
+            raise_failure("Download", out)
           end
         end
       end
@@ -229,12 +243,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            unless waith_thr.value.success?
-              raise(
-                Errors::CommunicationsFailure,
-                "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
-              )
-            end
+            raise_failure("Upload", out) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -243,12 +252,19 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise(
-              Errors::CommunicationsFailure,
-              "Upload failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
-            )
+            raise_failure("Upload", out)
           end
         end
+      end
+
+      # When the server does not prompt for a password, sftp reads the password line as a command
+      # and echoes it in its output, so remove it before the output is included in the error.
+      def raise_failure(action, out)
+        out = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
+        raise(
+          Errors::CommunicationsFailure,
+          "#{action} failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
+        )
       end
 
       def with_sftp_args
@@ -276,7 +292,7 @@ module IOStreams
       def with_temp_file(options, option, value)
         Utils.temp_file_name("iostreams-sftp-args", "key") do |file_name|
           # sftp requires that private key is only readable by the current user
-          ::File.open(file_name, "wb", 0o600) { |io| io.write(value) }
+          Utils.create_temp_file(file_name) { |io| io.write(value) }
 
           options[option] = file_name
           yield options
@@ -303,6 +319,8 @@ module IOStreams
         ssh_options.each_pair { |key, value| args << "-o#{key}=#{value}" }
         args << "-b"
         args << "-"
+        # Stop sftp from treating the destination as an option.
+        args << "--"
         args << "#{username}@#{hostname}"
         args
       end
@@ -313,6 +331,9 @@ module IOStreams
         options[:port]         ||= port
         options[:max_pkt_size] ||= 65_536
         options[:password]     ||= @password
+        # Match the sftp executable, which uses `StrictHostKeyChecking=yes`, instead of the
+        # net-ssh default of trusting a host key the first time it is seen.
+        options[:verify_host_key] ||= :always
         options
       end
 

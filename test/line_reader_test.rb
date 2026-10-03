@@ -61,6 +61,17 @@ class LineReaderTest < Minitest::Test
           assert_equal 4, lines.count
         end
 
+        it "keeps a field with many embedded lines" do
+          embedded = Array.new(1_000) { |i| "line #{i}" }.join("\n")
+          input    = StringIO.new("\"#{embedded}\",x\nnext,\"\"\"quoted\"\"\"\n")
+          lines    = []
+          IOStreams::Line::Reader.stream(input, embedded_within: '"') do |io|
+            io.each { |line| lines << line }
+          end
+
+          assert_equal ["\"#{embedded}\",x", "next,\"\"\"quoted\"\"\""], lines
+        end
+
         it "raises error for unbalanced quotes" do
           exc = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.file(unclosed_quote_file, embedded_within: '"') do |io|

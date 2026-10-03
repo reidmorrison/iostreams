@@ -94,7 +94,9 @@ module IOStreams
         line = _readline
         if line && @embedded_within
           initial_line_number = @line_number
-          while line.count(@embedded_within).odd?
+          # Count the delimiters incrementally, since recounting the whole line each time is quadratic.
+          embedded_count      = line.count(@embedded_within)
+          while embedded_count.odd?
             if eof? || line.length > @buffer_size * 10
               raise(Errors::MalformedDataError.new(
                       "Unbalanced delimited field, delimiter: #{@embedded_within}",
@@ -102,6 +104,7 @@ module IOStreams
                     ))
             end
             line << @delimiter
+            embedded_count += @delimiter.count(@embedded_within)
             next_line = _readline
             if next_line.nil?
               raise(Errors::MalformedDataError.new(
@@ -110,6 +113,7 @@ module IOStreams
                     ))
             end
             line << next_line
+            embedded_count += next_line.count(@embedded_within)
           end
         end
         line

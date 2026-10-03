@@ -108,7 +108,9 @@ module IOStreams
           request.basic_auth(username, password) if username && same_origin?(uri)
 
           http.request(request) do |response|
-            raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{uri}") if response.is_a?(Net::HTTPNotFound)
+            if response.is_a?(Net::HTTPNotFound)
+              raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{without_credentials(uri)}")
+            end
             if response.is_a?(Net::HTTPUnauthorized)
               raise(IOStreams::Errors::CommunicationsFailure, "Authorization Required: Invalid :username or :password.")
             end
@@ -117,7 +119,10 @@ module IOStreams
               raise(IOStreams::Errors::CommunicationsFailure, "Too many redirects") if http_redirect_count < 1
 
               location = response["location"]
-              raise(IOStreams::Errors::CommunicationsFailure, "Redirect missing location header: #{uri}") unless location
+              unless location
+                raise(IOStreams::Errors::CommunicationsFailure,
+                      "Redirect missing location header: #{without_credentials(uri)}")
+              end
 
               # Resolve relative redirects against the current uri.
               new_uri = uri.merge(location)
@@ -143,11 +148,21 @@ module IOStreams
       # after following a redirect.
       def validate_uri!(uri)
         unless %w[http https].include?(uri.scheme)
-          raise(IOStreams::Errors::CommunicationsFailure, "Invalid redirect, only http and https are supported: #{uri}")
+          raise(IOStreams::Errors::CommunicationsFailure,
+                "Invalid redirect, only http and https are supported: #{without_credentials(uri)}")
         end
         return if allow_hosts.nil? || allow_hosts.include?(uri.hostname)
 
         raise(IOStreams::Errors::CommunicationsFailure, "Host not in the allowed list of hosts: #{uri.hostname}")
+      end
+
+      # Returns [String] the uri without any user name or password, for use in error messages.
+      def without_credentials(uri)
+        return uri.to_s unless uri.user
+
+        uri      = uri.dup
+        uri.user = nil
+        uri.to_s
       end
 
       def same_origin?(uri)
@@ -161,7 +176,7 @@ module IOStreams
 
       def download_to_file(response, file_name)
         size = 0
-        ::File.open(file_name, "wb") do |io|
+        Utils.create_temp_file(file_name) do |io|
           response.read_body do |chunk|
             size += chunk.bytesize
             if maximum_file_size && (size > maximum_file_size)
