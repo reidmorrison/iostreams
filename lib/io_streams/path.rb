@@ -86,7 +86,7 @@ module IOStreams
     end
 
     # Cleanup an incomplete write to the target "file" if the copy fails.
-    # rubocop:disable Lint/SuppressedException
+    # rubocop:disable-next Lint/SuppressedException
     def copy_from(source, **args)
       super
     rescue StandardError => e
@@ -96,7 +96,6 @@ module IOStreams
       end
       raise(e)
     end
-    # rubocop:enable Lint/SuppressedException
 
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
