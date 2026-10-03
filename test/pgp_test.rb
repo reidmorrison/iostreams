@@ -173,6 +173,16 @@ class PgpTest < Minitest::Test
     end
 
     describe ".delete_keys" do
+      it "raises when neither email nor key_id is supplied" do
+        generated_key_id
+
+        error = assert_raises ArgumentError do
+          IOStreams::Pgp.delete_keys(public: true, private: true)
+        end
+        assert_includes error.message, "Either :email, or :key_id must be supplied"
+        assert IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
+      end
+
       it "handles no keys" do
         refute IOStreams::Pgp.delete_keys(email: "random@iostreams.net", public: true, private: true)
       end
@@ -232,6 +242,18 @@ class PgpTest < Minitest::Test
       it "exports public keys as binary" do
         assert keys = IOStreams::Pgp.export(email: email, ascii: false)
         refute_match(/BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys, keys)
+      end
+
+      it "exports public keys by key_id" do
+        assert ascii_keys = IOStreams::Pgp.export(key_id: generated_key_id)
+        assert_match(/BEGIN PGP PUBLIC KEY BLOCK/, ascii_keys, ascii_keys)
+      end
+
+      it "raises when neither email nor key_id is supplied" do
+        error = assert_raises ArgumentError do
+          IOStreams::Pgp.export
+        end
+        assert_includes error.message, "Either :email, or :key_id must be supplied"
       end
 
       it "exports private keys using the passphrase" do

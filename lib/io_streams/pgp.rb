@@ -160,13 +160,14 @@ module IOStreams
       end
     end
 
-    # Delete all private and public keys for a particular email.
+    # Delete all private and public keys for a particular email or key id.
     #
     # Returns false if no key was found.
     # Raises an exception if it fails to delete the key.
+    # Raises ArgumentError when neither :email nor :key_id is supplied.
     #
-    # email: [String] Optional email address for the key.
-    # key_id: [String] Optional id for the key.
+    # email: [String] Email address for the key.
+    # key_id: [String] Id for the key.
     #
     # public: [true|false]
     #   Whether to delete the public key
@@ -176,6 +177,8 @@ module IOStreams
     #   Whether to delete the private key
     #   Default: false
     def self.delete_keys(email: nil, key_id: nil, public: true, private: false)
+      raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
+
       version_check
       # Version 2.1+ uses delete_public_or_private_keys
       # Version < 2.1 uses delete_public_or_private_keys_v1
@@ -256,14 +259,20 @@ module IOStreams
       parse_list_output(out)
     end
 
-    # Returns [String] containing all the public keys for the supplied email address.
+    # Returns [String] containing all the public keys for the supplied email address or key id.
+    #
+    # Raises ArgumentError when neither :email nor :key_id is supplied.
     #
     # email: [String] Email address for requested key.
+    #
+    # key_id: [String] Id for the requested key.
     #
     # ascii: [true|false]
     #   Whether to export as ASCII text instead of binary format
     #   Default: true
-    def self.export(email:, ascii: true, private: false, passphrase: nil)
+    def self.export(email: nil, key_id: nil, ascii: true, private: false, passphrase: nil)
+      raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
+
       version_check
 
       args = []
@@ -274,13 +283,13 @@ module IOStreams
       # Supply the passphrase on stdin so that it is not visible in the process list.
       args += ["--passphrase-fd", "0"]
       args << (private ? "--export-secret-keys" : "--export")
-      args += ["--", email.to_s]
+      args += ["--", (email || key_id).to_s]
       command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true, stdin_data: passphrase.to_s)
       IOStreams.logger&.debug { "IOStreams::Pgp.export: #{command.shelljoin}\n#{err}" }
 
-      raise(Pgp::Failure, "GPG Failed reading key: #{email}: #{err}") unless status.success? && out.length.positive?
+      raise(Pgp::Failure, "GPG Failed reading key: #{email || key_id}: #{err}") unless status.success? && out.length.positive?
 
       out
     end

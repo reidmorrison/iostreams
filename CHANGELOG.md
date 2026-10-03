@@ -11,6 +11,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - **Stream options are now strict.** An option supplied via `#option` or `#stream` that the stream does not accept now raises `ArgumentError` instead of being silently ignored. This only affects code that was passing invalid options:
   - The BZip2 reader and writer previously accepted any option and ignored the ones `bzip2-ffi` does not use. They now accept only `autoclose`, `first_only` and `small` when reading, and `autoclose`, `block_size` and `work_factor` when writing.
   - Every other stream already raised `ArgumentError` for an option it does not accept, so the only change there is a clearer error message.
+- **`IOStreams::Pgp.delete_keys` requires an `email:` or `key_id:`.** Calling it with neither now raises `ArgumentError`. Previously, on GnuPG 2.1 and later, it deleted every key in the keyring (and with `private: true`, every secret key). To delete several keys, call it once per email or key id, for example for each key returned by `IOStreams::Pgp.list_keys`.
+- **`IOStreams::Pgp.export` raises `ArgumentError` when neither `email:` nor `key_id:` is supplied**, instead of `Pgp::Failure` for `email: nil`. It also accepts `key_id:` as an alternative to `email:`.
 
 ### Changed
 
