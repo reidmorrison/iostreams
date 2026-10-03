@@ -61,6 +61,24 @@ module IOStreams
       path
     end
 
+    # See Stream#reader.
+    #
+    # Raises [IOStreams::Errors::AccessDenied] when this path is not within any of the allowed paths,
+    # see `IOStreams.add_allowed_path`.
+    def reader(...)
+      authorize!
+      super
+    end
+
+    # See Stream#writer.
+    #
+    # Raises [IOStreams::Errors::AccessDenied] when this path is not within any of the allowed paths,
+    # see `IOStreams.add_allowed_path`.
+    def writer(...)
+      authorize!
+      super
+    end
+
     # Removes the last element of the path, the file name, before creating the entire path.
     # Returns self
     def mkpath
@@ -198,7 +216,54 @@ module IOStreams
       str << " pipeline=#{redact(pipeline).inspect}>"
     end
 
+    protected
+
+    # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
+    # and this path is not within any of them.
+    def authorize!
+      allowed_paths = IOStreams.allowed_paths
+      return if allowed_paths.empty? || (@permitted_path && @permitted_path == path)
+
+      location = allowed_location
+      return if allowed_paths.any? { |allowed_path| within?(location, allowed_path) }
+
+      raise(Errors::AccessDenied, "Access denied to #{location}: it is not within any of the allowed paths")
+    end
+
+    # Returns [true|false] whether this path is within the allowed paths, see `#authorize!`.
+    def allowed?
+      authorize!
+      true
+    rescue Errors::AccessDenied
+      false
+    end
+
     private
+
+    # Returns [String] the normalized location of this path, which is compared against the allowed paths.
+    #
+    # Each path class that can be used with allowed paths overrides this method. Without it every path
+    # of that class is denied once allowed paths have been added.
+    #
+    # Raises [IOStreams::Errors::AccessDenied] when the location cannot be determined.
+    def allowed_location
+      raise(Errors::AccessDenied, "Access denied: #{self.class.name} does not support allowed paths")
+    end
+
+    # Returns [true|false] whether a child found by `#each_child` is within the allowed paths, logging it when it is not.
+    def allowed_child?(child)
+      return true if child.allowed?
+
+      IOStreams.logger&.warn("Skipping #{child} since it is not within any of the allowed paths")
+      false
+    end
+
+    # Allows this exact path regardless of the allowed paths, for paths created by IOStreams itself such as temp files.
+    # Returns self
+    def permit!
+      @permitted_path = path
+      self
+    end
 
     # Returns [Hash<Symbol:Hash>] the streams with the values of sensitive options replaced.
     def redact(streams)
@@ -216,9 +281,12 @@ module IOStreams
     # Returns [true|false] whether the supplied path is this path, or is within this path.
     # For example "a/b" contains "a/b/c.csv", but not "a/bc.csv".
     def contains?(other)
-      return true if path.empty? || other == path
+      path.empty? || within?(other, path)
+    end
 
-      other.start_with?(path.end_with?("/") ? path : "#{path}/")
+    # Returns [true|false] whether the path `child` is `parent`, or is within `parent`.
+    def within?(child, parent)
+      child == parent || child.start_with?(parent.end_with?("/") ? parent : "#{parent}/")
     end
   end
 end
