@@ -25,7 +25,7 @@ module IOStreams
 
       new_path         = dup
       new_path.builder = nil
-      new_path.path    = relative.start_with?(path) ? relative : ::File.join(path, relative)
+      new_path.path    = contains?(relative) ? relative : ::File.join(path, relative)
       new_path
     end
 
@@ -212,6 +212,14 @@ module IOStreams
 
     def builder
       @builder ||= IOStreams::Builder.new(path)
+    end
+
+    # Returns [true|false] whether the supplied path is this path, or is within this path.
+    # For example "a/b" contains "a/b/c.csv", but not "a/bc.csv".
+    def contains?(other)
+      return true if path.empty? || other == path
+
+      other.start_with?(path.end_with?("/") ? path : "#{path}/")
     end
   end
 end

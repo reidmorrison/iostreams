@@ -29,6 +29,31 @@ module IOStreams
         it "return path as sent in when full path" do
           assert_equal ::File.join("some_path", "test", "second", "third", "file.xls"), path.join("some_path", "test", "second", "third", "file.xls").to_s
         end
+
+        it "joins an element that only shares a prefix with the path" do
+          assert_equal "some_path/some_path_2024.csv", path.join("some_path_2024.csv").to_s
+        end
+
+        it "joins an absolute path that only shares a prefix with the path" do
+          root = IOStreams::Path.new("/data/uploads")
+
+          assert_equal "/data/uploads/data/uploads_other/secret.csv", root.join("/data/uploads_other/secret.csv").to_s
+        end
+
+        it "returns the path when the element is the path" do
+          assert_equal "some_path", path.join("some_path").to_s
+        end
+
+        it "returns a full path when the path ends with a slash" do
+          root = IOStreams::Path.new("/data/")
+
+          assert_equal "/data/file.csv", root.join("/data/file.csv").to_s
+          assert_equal "/data/other.csv", root.join("other.csv").to_s
+        end
+
+        it "returns the element when the path is empty" do
+          assert_equal "file.csv", IOStreams::Path.new("").join("file.csv").to_s
+        end
       end
 
       describe "#absolute?" do

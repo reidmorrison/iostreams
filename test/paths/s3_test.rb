@@ -241,6 +241,20 @@ module Paths
         client
       end
 
+      describe "#join" do
+        it "joins a name that only shares a prefix with the key" do
+          path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)
+
+          assert_equal "s3://bucket/reports/reports_2024.csv", path.join("reports_2024.csv").to_s
+        end
+
+        it "joins a name onto the bucket root" do
+          path = IOStreams::Paths::S3.new("s3://bucket", client: client)
+
+          assert_equal "reports/2024.csv", path.join("reports/2024.csv").path
+        end
+      end
+
       describe "#each_child" do
         it "does not parse object keys as part of a url" do
           path     = IOStreams::Paths::S3.new("s3://bucket/inbox", client: client)
