@@ -7,13 +7,14 @@ module IOStreams
 
       attr_reader :encoding, :cleaner
 
-      NOT_PRINTABLE = /[^[:print:]|\r\n]/
+      NOT_PRINTABLE = /[^[:print:]\r\n]/
       # Builtin strip options to apply after encoding the read data.
+      # They return a new string, since the writer can be supplied the caller's string.
       CLEANSE_RULES = {
         # Strips all non printable characters
-        printable:             ->(data, _) { data.gsub!(NOT_PRINTABLE, "") || data },
+        printable:             ->(data, _) { data.gsub(NOT_PRINTABLE, "") },
         # Replaces non printable characters with the value specified in the `replace` option.
-        replace_non_printable: ->(data, replace) { data.gsub!(NOT_PRINTABLE, replace || "") || data }
+        replace_non_printable: ->(data, replace) { data.gsub(NOT_PRINTABLE, replace || "") }
       }.freeze
 
       # Read a line at a time from a file or stream
