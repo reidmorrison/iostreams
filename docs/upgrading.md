@@ -71,6 +71,10 @@ support raises `ArgumentError`.
 
 #### Other changes in behavior
 
+- SFTP `#each_child` lists the files in the path's directory. Previously it ignored the path and
+  listed the login directory, so `IOStreams.path("sftp://host/data/in").each_child("*.csv")`
+  listed `~/*.csv`, returning paths such as `/a.csv`. A url without a path, such as `sftp://host`,
+  still lists the login directory.
 - `Path#join` and `IOStreams.join` only return an element unchanged when it is the path itself or
   is inside it. Previously any element that started with the same characters was returned as-is,
   so `IOStreams.path("s3://bucket/reports").join("reports_2024.csv")` gave

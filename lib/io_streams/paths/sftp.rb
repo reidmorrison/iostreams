@@ -136,7 +136,9 @@ module IOStreams
 
       # TODO: Add #copy_from shortcut to detect when a file is supplied that does not require conversion.
 
-      # Search for files on the remote sftp server that match the provided pattern.
+      # Search for files on the remote sftp server that match the provided pattern, within this path.
+      # When the url does not include a path, for example `sftp://sftp.example.org`, it searches
+      # the login directory.
       #
       # The pattern matching works like Net::SFTP::Operations::Dir.glob and Dir.glob
       # Each child also returns attributes that contain the file size, ownership, file dates and other details.
@@ -149,7 +151,7 @@ module IOStreams
       #   end
       #
       # Example Output:
-      # sftp://sftp.example.org/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group",
+      # sftp://sftp.example.org/my_files/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group",
       #   :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
       def each_child(pattern = "*", case_sensitive: true, directories: false, hidden: false)
         unless block_given?
@@ -166,11 +168,12 @@ module IOStreams
 
         NetSSH.options(ssh_options, port: port, password: password) do |options|
           Net::SFTP.start(hostname, username, options) do |sftp|
-            sftp.dir.glob(".", pattern, flags) do |path|
-              next if !directories && !path.file?
+            # Without a path in the url, list the login directory.
+            sftp.dir.glob(path.empty? ? "." : path, pattern, flags) do |entry|
+              next if !directories && !entry.file?
 
-              child = child_path(path.name)
-              yield(child, path.attributes.attributes) if allowed_child?(child)
+              child = child_path(entry.name)
+              yield(child, entry.attributes.attributes) if allowed_child?(child)
             end
           end
         end
@@ -201,10 +204,13 @@ module IOStreams
 
       # Set the path directly rather than parsing it as part of a URL, since a file name can contain
       # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
+      #
+      # The supplied name is relative to this path, or to the login directory when this url has no path.
       def child_path(name)
-        child      = self.class.new("sftp://#{hostname}", username: username, password: password, ssh_options: ssh_options)
-        child.path = "/#{name}".freeze
-        child.url  = "sftp://#{hostname}/#{name}"
+        server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
+        child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
+        child.path = (path.empty? ? "/#{name}" : ::File.join(path, name)).freeze
+        child.url  = "#{server}#{child.path}"
         child
       end
 

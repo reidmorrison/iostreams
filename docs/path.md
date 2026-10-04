@@ -242,7 +242,8 @@ path = IOStreams.path("sftp://hostname/path/example.csv")
 IOStreams reads and writes SFTP files by shelling out to the `sftp` command line program,
 so it must be installed and on the `PATH`. When a password is supplied the `sshpass`
 program is also required to pass the password to `sftp`. Additionally the `net-sftp` gem
-must be added to the `Gemfile` to use `each_child`.
+must be added to the `Gemfile` to use `each_child`. `each_child` lists the files within the path's directory,
+or within the login directory when the url has no path, for example `sftp://hostname`.
 
 Read a file from a remote sftp server.
 ~~~ruby

@@ -359,7 +359,10 @@ module Paths
               Struct.new(:name, :attributes) { def file? = true }.new(name, attributes)
             end
             dir = Object.new
-            dir.define_singleton_method(:glob) { |_dir, _pattern, _flags, &each| entries.each(&each) }
+            dir.define_singleton_method(:glob) do |glob_dir, _pattern, _flags, &each|
+              stub_sftp.instance_variable_set(:@glob_dir, glob_dir)
+              entries.each(&each)
+            end
             block.call(Struct.new(:dir).new(dir))
           end
 
@@ -370,20 +373,55 @@ module Paths
         end
 
         it "does not parse remote file names as part of a url" do
-          path = new_path(url, username: "jack", password: "secret", ssh_options: {"ServerAliveInterval" => 60})
+          path = new_path("sftp://example.org/data", username: "jack", password: "secret",
+                                                       ssh_options: {"ServerAliveInterval" => 60})
 
           children = nil
           with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do
             children = path.each_child.to_a.map(&:first)
           end
 
-          assert_equal ["/inbox/a+b.csv?acl=public-read", "/inbox/c%41#d.csv"], children.map(&:path)
-          assert_equal "sftp://example.org/inbox/a+b.csv?acl=public-read", children.first.to_s
+          assert_equal ["/data/inbox/a+b.csv?acl=public-read", "/data/inbox/c%41#d.csv"], children.map(&:path)
+          assert_equal "sftp://example.org/data/inbox/a+b.csv?acl=public-read", children.first.to_s
           children.each do |child|
             assert_instance_of IOStreams::Paths::SFTP, child
             assert_equal "jack", child.username
             assert_equal "secret", child.send(:password)
             assert_equal({"ServerAliveInterval" => 60}, child.ssh_options)
+          end
+        end
+
+        it "lists the path's directory" do
+          path = new_path("sftp://example.org/data/in", username: "jack")
+
+          with_stub_net_sftp(["a.csv"]) do |stub_sftp|
+            children = path.each_child.to_a.map(&:first)
+
+            assert_equal "/data/in", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["/data/in/a.csv"], children.map(&:path)
+            assert_equal ["sftp://example.org/data/in/a.csv"], children.map(&:to_s)
+          end
+        end
+
+        it "lists the login directory when the url has no path" do
+          path = new_path("sftp://example.org", username: "jack")
+
+          with_stub_net_sftp(["a.csv"]) do |stub_sftp|
+            children = path.each_child.to_a.map(&:first)
+
+            assert_equal ".", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["/a.csv"], children.map(&:path)
+          end
+        end
+
+        it "keeps the port in the children" do
+          path = new_path("sftp://example.org:2222/data", username: "jack")
+
+          with_stub_net_sftp(["a.csv"]) do
+            child = path.each_child.to_a.first.first
+
+            assert_equal 2222, child.port
+            assert_equal "sftp://example.org:2222/data/a.csv", child.to_s
           end
         end
 
