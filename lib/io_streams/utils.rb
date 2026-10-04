@@ -19,6 +19,14 @@ module IOStreams
       value.respond_to?(:empty?) ? value.empty? : !value
     end
 
+    # Returns [Array<String>] the extensions of the file name, in lower case, for example `["csv", "gz"]` for `"Data.CSV.gz"`.
+    # The name of the file before the first `.` is not an extension, so a file named `gz` has no extensions.
+    def self.file_name_extensions(file_name)
+      parts = ::File.basename(file_name.to_s).sub(/\A\.+/, "").split(".")
+      parts.shift
+      parts.map(&:downcase)
+    end
+
     # Yields the path to a temporary file_name.
     #
     # The file is not created, and is deleted upon completion if present.

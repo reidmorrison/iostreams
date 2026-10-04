@@ -585,6 +585,17 @@ class StreamTest < Minitest::Test
         assert_nil stream.format
       end
 
+      it "reads records from a file with an upper case extension" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "DATA.JSON")
+          path.write(%({"name":"Jack, Jones"}\n))
+          records = []
+          path.each(:hash) { |record| records << record }
+
+          assert_equal [{"name" => "Jack, Jones"}], records
+        end
+      end
+
       it "returns set format with no file_name" do
         stream.format = :csv
 

@@ -139,10 +139,10 @@ module IOStreams
 
     # Returns the streams for the supplied file_name
     def parse_extensions
-      parts      = ::File.basename(file_name).split(".")
+      parts      = Utils.file_name_extensions(file_name)
       extensions = []
       while (extension = parts.pop)
-        sym = extension.downcase.to_sym
+        sym = extension.to_sym
         break unless IOStreams.extensions[sym]
 
         extensions.unshift(sym)

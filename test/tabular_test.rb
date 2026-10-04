@@ -530,6 +530,17 @@ class TabularTest < Minitest::Test
       it "is nil when the format cannot be inferred" do
         assert_nil IOStreams::Tabular.format_from_file_name("sample.unknown")
       end
+
+      it "detects an upper case extension" do
+        assert_equal :json, IOStreams::Tabular.format_from_file_name("SAMPLE.JSON")
+        assert_equal :csv, IOStreams::Tabular.format_from_file_name("Sample.Csv.GZ")
+      end
+
+      it "ignores the name of the file" do
+        assert_nil IOStreams::Tabular.format_from_file_name("hash.txt")
+        assert_nil IOStreams::Tabular.format_from_file_name("json")
+        assert_nil IOStreams::Tabular.format_from_file_name("/data/files.csv/sample.txt")
+      end
     end
 
     describe ".new" do
