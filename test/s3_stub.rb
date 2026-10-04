@@ -74,9 +74,10 @@ class S3Stub
     {}
   end
 
-  # `copy_source` is "<bucket>/<key>".
+  # `copy_source` is "<bucket>/<key>", with the key url-encoded.
   def copy_object(params)
     bucket, key = params[:copy_source].split("/", 2)
+    key         = URI.decode_uri_component(key)
     data        = objects[[bucket, key]]
     return "NoSuchKey" unless data
 

@@ -227,6 +227,30 @@ module Paths
         end
       end
 
+      describe "direct copies" do
+        let(:source) { root_path.join("copy test a+b %41 ?.txt") }
+        let(:target) { root_path.join("copy test target a+b %41 ?.txt") }
+
+        before { source.write("Hello World") }
+
+        after do
+          source.delete
+          target.delete
+        end
+
+        it "copies a key that needs url-encoding with copy_from" do
+          target.copy_from(source, convert: false)
+
+          assert_equal "Hello World", target.read
+        end
+
+        it "copies a key that needs url-encoding with copy_to" do
+          source.copy_to(target, convert: false)
+
+          assert_equal "Hello World", target.read
+        end
+      end
+
       describe "#partial_files_visible?" do
         it "visible only after upload" do
           refute_predicate root_path, :partial_files_visible?

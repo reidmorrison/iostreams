@@ -33,6 +33,7 @@ These bug fixes change behavior that existing code may depend on:
 - Reading a PGP file no longer hangs when the block returns before reading the whole file, for example `reader(:line, &:readline)` or `reader { |io| io.read(10) }` on a file larger than the pipe buffer. The rest of the file is now decrypted and checked by gpg before the result is returned.
 - The `:printable` and `:replace_non_printable` cleaners of the `:encode` stream no longer change the string supplied to the writer when writing binary data, for example with `encoding: "ASCII-8BIT"`, which also raised `FrozenError` for a frozen string.
 - Reading a CSV file with an unbalanced quote no longer takes quadratic time when the data is read as UTF-8 through an encode stream. The size of such a line is now limited in bytes rather than characters.
+- Copying between S3 paths with `convert: false`, or with `#move_to`, copies a key that contains a space, `+`, `%`, `?` or another character that must be url-encoded. Previously the key was not url-encoded, which S3 requires, so the copy failed or copied another object.
 
 ## [2.1.0] - 2026-10-04
 
