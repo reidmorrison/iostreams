@@ -35,8 +35,11 @@ module IOStreams
       #     Etc.
       #     Default: 'UTF-8'
       #
+      #     Binary data, such as the contents of a file, is treated as already being in this encoding,
+      #     so its characters are kept and only invalid characters are replaced, or raise an error.
+      #
       #   replace: [String]
-      #     The character to replace with when a character cannot be converted to the target encoding.
+      #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
       #     nil: Don't replace any invalid characters. Encoding::UndefinedConversionError is raised.
       #     Default: nil
       #
@@ -49,37 +52,41 @@ module IOStreams
       def initialize(input_stream, encoding: "UTF-8", cleaner: nil, replace: nil)
         super(input_stream)
 
-        @cleaner          = self.class.extract_cleaner(cleaner)
-        @encoding         = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
-        @encoding_options = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
-        @replace          = replace
+        @cleaner   = self.class.extract_cleaner(cleaner)
+        @encoding  = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
+        @replace   = replace
+        @converter = Converter.new(encoding: @encoding, replace: replace)
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
-        @read_cache_buffer = ("".encode(@encoding) if replace.nil? && !@input_stream.method(:read).arity.between?(0, 1))
+        @read_cache_buffer = (+"" unless @input_stream.method(:read).arity.between?(0, 1))
       end
 
-      # Returns [String] data returned from the input stream.
+      # Returns [String] data returned from the input stream, in the requested encoding.
       # Returns [nil] if end of file and no further data was read.
-      def read(size = nil)
-        block =
-          if @read_cache_buffer
-            begin
-              @input_stream.read(size, @read_cache_buffer)
-            rescue ArgumentError
-              # Handle arity of -1 when just 0..1
-              @read_cache_buffer = nil
-              @input_stream.read(size)
-            end
-          else
-            @input_stream.read(size)
+      #
+      # A multi-byte character that is split by `size` is returned by the next read.
+      # When `outbuf` is supplied, it is replaced with the data and returned.
+      def read(size = nil, outbuf = nil)
+        data = nil
+        loop do
+          block = read_block(size)
+          if block.nil?
+            data = @converter.finish
+            break
           end
 
-        # EOF reached?
-        return unless block
+          data = @converter.convert(block, final: size.nil?)
+          # Read again when the whole block is the start of a multi-byte character.
+          break unless data.empty? && !block.empty?
+        end
 
-        block = block.encode(@encoding, **@encoding_options) unless block.encoding == @encoding
-        block = @cleaner.call(block, @replace) if @cleaner
-        block
+        if data.nil?
+          outbuf&.clear
+          return
+        end
+
+        data = @cleaner.call(data, @replace) if @cleaner
+        outbuf ? outbuf.replace(data) : data
       end
 
       def self.extract_cleaner(cleaner)
@@ -94,6 +101,18 @@ module IOStreams
         when Proc
           cleaner
         end
+      end
+
+      private
+
+      def read_block(size)
+        return @input_stream.read(size) unless @read_cache_buffer
+
+        @input_stream.read(size, @read_cache_buffer)
+      rescue ArgumentError
+        # Handle arity of -1 when just 0..1
+        @read_cache_buffer = nil
+        @input_stream.read(size)
       end
     end
   end

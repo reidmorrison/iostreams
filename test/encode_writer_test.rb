@@ -92,5 +92,48 @@ class EncodeWriterTest < Minitest::Test
         assert_equal bad_data.size, count
       end
     end
+
+    describe "valid multi-byte characters" do
+      let(:text) { "Jos\u00e9, M\u00fcnchen \u{1F600}" }
+
+      def write(data_blocks, **args)
+        io = StringIO.new("".b)
+        IOStreams::Encode::Writer.stream(io, encoding: "UTF-8", **args) do |encoded|
+          data_blocks.each { |block| encoded.write(block) }
+        end
+        io.string.force_encoding("UTF-8")
+      end
+
+      it "writes them from binary data" do
+        assert_equal text, write([text.b])
+      end
+
+      it "keeps them when replacing invalid characters" do
+        assert_equal "#{text}?", write(["#{text}\xE9".b], replace: "?")
+      end
+
+      it "writes a character that is split across writes" do
+        assert_equal text, write(text.b.each_char.to_a)
+      end
+
+      it "raises for an incomplete character at the end" do
+        assert_raises(Encoding::UndefinedConversionError) { write(["abc\xC3".b]) }
+      end
+
+      it "replaces an incomplete character at the end" do
+        assert_equal "abc?", write(["abc\xC3".b], replace: "?")
+      end
+
+      it "copies a UTF-8 file to a path with an encode stream" do
+        Dir.mktmpdir do |dir|
+          source = File.join(dir, "source.txt")
+          target = File.join(dir, "target.txt")
+          File.write(source, text)
+          IOStreams.path(target).option(:encode, encoding: "UTF-8").copy_from(source)
+
+          assert_equal text, File.read(target, encoding: "UTF-8")
+        end
+      end
+    end
   end
 end

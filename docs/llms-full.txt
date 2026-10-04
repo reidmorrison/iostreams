@@ -1928,10 +1928,13 @@ Options:
 
 * `encoding: [String|Encoding]`
   The target encoding, for example `"UTF-8"`, `"US-ASCII"`, or `"ASCII-8BIT"`.
+  Data read from a file, or other binary data, is treated as already being in this encoding,
+  so its characters are kept and only invalid characters are replaced or raise an error.
+  Data with another encoding, such as a Ruby string being written, is converted.
   Default: `"UTF-8"`
 
 * `replace: [String]`
-  The character to replace with when a character cannot be converted to the target encoding.
+  The character to replace with when a character is invalid, or cannot be converted to the target encoding.
   Default: nil (raise `Encoding::UndefinedConversionError` on invalid characters)
 
 * `cleaner: [nil|Symbol|Proc]`

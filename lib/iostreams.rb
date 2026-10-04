@@ -25,6 +25,7 @@ module IOStreams
   end
 
   module Encode
+    autoload :Converter, "io_streams/encode/converter"
     autoload :Reader, "io_streams/encode/reader"
     autoload :Writer, "io_streams/encode/writer"
   end
