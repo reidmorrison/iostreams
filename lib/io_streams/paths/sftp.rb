@@ -377,7 +377,8 @@ module IOStreams
         args << "-"
         # Stop sftp from treating the destination as an option.
         args << "--"
-        args << "#{username}@#{hostname}"
+        # Without a username, sftp uses the one from the ssh config, or the current user.
+        args << (username ? "#{username}@#{hostname}" : hostname)
         args
       end
 

@@ -436,6 +436,26 @@ module Paths
           end
         end
 
+        it "connects without a username" do
+          path = new_path("sftp://example.org/data/file.csv")
+
+          with_stub_sftp do |calls|
+            path.write("data")
+
+            assert_equal "example.org", calls.first.first.last
+          end
+        end
+
+        it "connects with a username" do
+          path = new_path("sftp://example.org/data/file.csv", username: "jack")
+
+          with_stub_sftp do |calls|
+            path.write("data")
+
+            assert_equal "jack@example.org", calls.first.first.last
+          end
+        end
+
         it "is the target of a move" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "file.csv")
