@@ -190,6 +190,23 @@ module Paths
         it "returns the url" do
           assert_equal url, new_path(url, username: "jack", password: "secret").to_s
         end
+
+        it "returns the joined url" do
+          path = new_path("sftp://jack:secret@example.org:2222/data", ssh_options: {"HostKey" => "key"}).join("in", "file.csv")
+
+          assert_equal "/data/in/file.csv", path.path
+          assert_equal "sftp://jack:secret@example.org:2222/data/in/file.csv", path.to_s
+          assert_equal path.to_s, path.url
+          assert_equal({"HostKey" => "key"}, path.ssh_options)
+        end
+
+        it "returns the url of the directory" do
+          assert_equal "sftp://example.org/data", new_path("sftp://example.org/data/file.csv").directory.to_s
+        end
+
+        it "returns the url joined onto a url without a path" do
+          assert_equal "sftp://example.org/file.csv", new_path("sftp://example.org").join("file.csv").to_s
+        end
       end
 
       describe "#mkdir" do
