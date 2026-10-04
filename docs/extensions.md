@@ -41,8 +41,7 @@ IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
 ~~~
 
 Options are strict, so an option that a stream does not accept raises an `ArgumentError`.
-See [Streams](streams#reading-and-writing-need-separate-options). The exception is BZip2, which
-ignores any other option and logs a warning. In v3.0 it will raise an `ArgumentError` too.
+See [Streams](streams#reading-and-writing-need-separate-options).
 
 ## Reading an Excel Spreadsheet
 

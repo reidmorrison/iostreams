@@ -12,17 +12,6 @@ module IOStreams
       raise(LoadError, "Please install the gem '#{gem_name}' to support #{stream_type}. #{e.message}")
     end
 
-    # Log a warning for options that a stream ignores, until they raise `ArgumentError` in v3.0.
-    def self.warn_unknown_options(unknown, stream, direction, valid)
-      return if unknown.empty?
-
-      names = unknown.keys.map(&:inspect).join(", ")
-      IOStreams.logger&.warn(
-        "Ignoring unknown #{unknown.size == 1 ? 'option' : 'options'} #{names} when #{direction} a #{stream.inspect} " \
-        "stream. Valid options: #{valid.map(&:inspect).join(', ')}. In v3.0 this will raise ArgumentError."
-      )
-    end
-
     # Helper method: Returns [true|false] if a value is blank?
     def self.blank?(value)
       return true if value.nil?
