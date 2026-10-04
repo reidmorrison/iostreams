@@ -86,6 +86,12 @@ path.option(:pgp, recipient: "receiver@example.org")
 # => #<IOStreams::Paths::File:example.csv.pgp @options={:pgp=>{:recipient=>"receiver@example.org"}} pipeline={:pgp=>{:recipient=>"receiver@example.org"}}>  
 ~~~
 
+An email address only matches keys with exactly that email address, ignoring case. For example
+`receiver@example.org` does not match a key for `other_receiver@example.org`. The same applies to
+`signer`, and to the `email:` argument of `IOStreams::Pgp.list_keys`, `key?`, `export`, `delete_keys`
+and `set_trust`. To search the way gpg does, supply a value that is not just an email address,
+such as `*receiver@example.org`.
+
 Write data to the PGP file:
 ~~~ruby
 path.writer do |io|

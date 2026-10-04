@@ -40,6 +40,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - Reading a CSV file with an unbalanced quote no longer takes quadratic time, including when the data is read as UTF-8 through an encode stream. The size of such a line is now limited in bytes rather than characters.
 - Documented that a username and password supplied in an HTTP or SFTP url are returned by `#to_s`, and recommended supplying them with the `username:` and `password:` arguments instead.
 - Documented that an S3 URL query string is added to the S3 request parameters, and that untrusted file names should be added with `#join` rather than interpolated into the URL.
+- PGP: an email address now only matches keys with exactly that email address, ignoring case, for the writer's `recipient` and `signer`, and the `email:` argument of `IOStreams::Pgp.list_keys`, `key?`, `export`, `delete_keys` and `set_trust`. gpg treats a bare email address as a search for any user id containing it, so `delete_keys(email: "bob@example.com")` also deleted the keys for `jimbob@example.com` and `bob@example.com.attacker.net`, `set_trust(email:)` could trust one of those keys instead, and when the key for the recipient was missing, the file was encrypted to one of those keys instead of failing.
 
 ### Fixed
 
