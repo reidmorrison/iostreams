@@ -169,6 +169,24 @@ module Paths
           assert_includes path, "page=2"
         end
 
+        it "adds supplied parameters to a url that has a query string" do
+          start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+          url = "#{@server.base_url}/file?a=1&token=old&b=2&token=older#section"
+          path = IOStreams.path(url, parameters: {token: "new", q: "search term"})
+
+          assert_equal "#{@server.base_url}/file?a=1&b=2&token=new&q=search+term#section", path.to_s
+          path.read
+
+          assert_equal "/file?a=1&b=2&token=new&q=search+term", @server.requests.first[:path]
+        end
+
+        it "leaves the url unchanged without parameters" do
+          url = "https://example.org/file?a=1"
+
+          assert_equal url, IOStreams.path(url, parameters: {}).to_s
+        end
+
         it "downloads the joined path" do
           start_server { |path| TestHTTPServer.response(200, body: "Requested #{path}") }
 

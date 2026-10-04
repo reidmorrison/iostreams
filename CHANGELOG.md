@@ -54,6 +54,7 @@ These bug fixes change behavior that existing code may depend on:
 - The `ArgumentError` messages for calling both `#option` and `#stream`, or `#option` without a file name, no longer end with a stray `}`.
 - `file://` urls refer to local files, for example `IOStreams.path("file:///home/user/a%20b.csv")` is `/home/user/a b.csv`. Previously the whole url was used as a relative file name, so reading raised `Errno::ENOENT`. A file url is absolute, so one with a host other than `localhost`, such as `file://a.txt`, or with an unencoded `?` or `#`, raises `ArgumentError`.
 - An S3 path with an option that only some requests accept, such as `acl:` or the documented `?acl=` url form, can be read, and each S3 request is supplied the options it accepts. Previously every option was supplied to reading and writing, so reading a path with `acl:` raised `ArgumentError: unexpected value at params[:acl]`, while `#exist?`, `#size`, `#delete` and `#each_child` were supplied none, so for example they did not apply `request_payer` or the `sse_customer_*` options.
+- HTTP `parameters:` are added to a url that already has a query string, replacing any parameter with the same name, so that the last value supplied is used, and are added before a `#fragment`. Previously they were appended after a second `?`, so `https://example.org/file?a=1` with `parameters: {b: 2}` requested `?a=1?b=2`. Empty `parameters:` leave the url unchanged, instead of adding a `?`.
 
 ## [2.1.0] - 2026-10-04
 
