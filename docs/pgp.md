@@ -387,6 +387,9 @@ end
 # IOStreams::Pgp::Failure: ... gpg: BAD signature from "Sender <sender@example.org>"
 ~~~
 
+When the block returns before reading the whole file, for example after reading only the first
+line, the rest of the file is still decrypted and checked before the block's result is returned.
+
 Either do not commit any side effects until the block returns without raising, for example
 by processing the file within a database transaction, or supply the `verify_first` option:
 
