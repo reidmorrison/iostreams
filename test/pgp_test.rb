@@ -256,6 +256,12 @@ class PgpTest < Minitest::Test
         assert_includes error.message, "Either :email, or :key_id must be supplied"
       end
 
+      it "raises Pgp::Failure for a nil email without a key_id" do
+        assert_raises IOStreams::Pgp::Failure do
+          IOStreams::Pgp.export(email: nil)
+        end
+      end
+
       it "exports private keys using the passphrase" do
         assert keys = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
         assert_match(/BEGIN PGP PRIVATE KEY BLOCK/, keys)

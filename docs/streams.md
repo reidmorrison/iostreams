@@ -257,7 +257,8 @@ IOStreams.path("example.csv.pgp").
 ~~~
 
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
-that lists the valid options.
+that lists the valid options. The exception is BZip2, which ignores options it does not accept and
+logs a warning instead. In v3.0 it will raise an `ArgumentError` too.
 
 Options for a stream that is not in the pipeline are still ignored, as described above,
 since they are not passed to any reader or writer.
