@@ -42,9 +42,30 @@ class PgpTest < Minitest::Test
       # ap IOStreams::Pgp.list_keys(email: email, private: true)
     end
 
+    # Returns the supplied output from gpg instead of running it.
+    def with_gpg_output(out, err = "", success: true, &block)
+      # Resolve the version first, since it also calls Open3.capture3.
+      IOStreams::Pgp.pgp_version
+      Open3.stub(:capture3, [out, err, Struct.new(:success?).new(success)], &block)
+    end
+
     describe ".pgp_version" do
       it "returns pgp version" do
         assert IOStreams::Pgp.pgp_version
+      end
+
+      describe "when gpg fails" do
+        before { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
+
+        after { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
+
+        it "raises Pgp::Failure" do
+          error = Open3.stub(:capture3, ["", "gpg: failed", Struct.new(:success?).new(false)]) do
+            assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp.pgp_version }
+          end
+
+          assert_includes error.message, "gpg: failed"
+        end
       end
     end
 
@@ -285,6 +306,14 @@ class PgpTest < Minitest::Test
         refute_includes command, "TOP-SECRET"
         assert_equal ["--passphrase-fd", "0"], command[command.index("--passphrase-fd"), 2]
         assert_equal "TOP-SECRET", options[:stdin_data]
+      end
+    end
+
+    describe ".list_keys on an empty keyring" do
+      it "returns no keys" do
+        with_gpg_output("") do
+          assert_equal [], IOStreams::Pgp.list_keys
+        end
       end
     end
 

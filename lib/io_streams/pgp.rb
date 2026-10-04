@@ -230,7 +230,8 @@ module IOStreams
 
       out, err, status = Open3.capture3(*command, binmode: true)
       IOStreams.logger&.debug { "IOStreams::Pgp.list_keys: #{command.shelljoin}\n#{err}#{out}" }
-      if status.success? && out.length.positive?
+      if status.success?
+        # An empty keyring lists nothing.
         parse_list_output(out)
       else
         return [] if err =~ /(not found|No (public|secret) key|key not available)/i
@@ -566,31 +567,25 @@ module IOStreams
         command          = gpg_command("--version")
         out, err, status = Open3.capture3(*command)
         IOStreams.logger&.debug { "IOStreams::Pgp.version: #{command.shelljoin}\n#{err}#{out}" }
-        if status.success?
-          # Sample output
-          #   #{executable} (GnuPG) 2.0.30
-          #   libgcrypt 1.7.6
-          #   Copyright (C) 2015 Free Software Foundation, Inc.
-          #   License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
-          #   This is free software: you are free to change and redistribute it.
-          #   There is NO WARRANTY, to the extent permitted by law.
-          #
-          #   Home: ~/.gnupg
-          #   Supported algorithms:
-          #   Pubkey: RSA, RSA, RSA, ELG, DSA
-          #   Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
-          #           CAMELLIA128, CAMELLIA192, CAMELLIA256
-          #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
-          #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
-          if (match = out.lines.first.match(/(\d+\.\d+.\d+)/))
-            match[1]
-          end
-        else
-          if err !~ /(key not found|No (public|secret) key)/i
-            raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email || key_id}: #{err}#{out}")
-          end
+        raise(Pgp::Failure, "GPG Failed calling #{executable} --version: #{err}#{out}") unless status.success?
 
-          []
+        # Sample output
+        #   #{executable} (GnuPG) 2.0.30
+        #   libgcrypt 1.7.6
+        #   Copyright (C) 2015 Free Software Foundation, Inc.
+        #   License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+        #   This is free software: you are free to change and redistribute it.
+        #   There is NO WARRANTY, to the extent permitted by law.
+        #
+        #   Home: ~/.gnupg
+        #   Supported algorithms:
+        #   Pubkey: RSA, RSA, RSA, ELG, DSA
+        #   Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
+        #           CAMELLIA128, CAMELLIA192, CAMELLIA256
+        #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
+        #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
+        if (match = out.lines.first.match(/(\d+\.\d+.\d+)/))
+          match[1]
         end
       end
     end
