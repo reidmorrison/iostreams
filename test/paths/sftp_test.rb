@@ -395,6 +395,14 @@ module Paths
           Open3.stub(:popen2e, popen) { yield(calls) }
         end
 
+        it "returns the result of the block" do
+          path = new_path("sftp://example.org/data/file.csv", username: "jack")
+
+          with_stub_sftp do
+            assert_equal(:done, path.writer { |io| io.write("data") && :done })
+          end
+        end
+
         it "creates the directories of the file when requested" do
           path = new_path("sftp://example.org/data/in/file.csv", username: "jack")
 

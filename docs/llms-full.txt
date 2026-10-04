@@ -2922,6 +2922,13 @@ like a header row. Previously the column was empty.
 
 Fix: if a column must stay empty, remove the matching key from the hash before writing it.
 
+### Writing to SFTP returns the result of the block
+
+Writing to an SFTP path, for example with `#writer`, now returns the result of the block, like local
+and S3 paths, instead of the size of the file written.
+
+Fix: if you need the size, return it from the block, for example the total of what `io.write` returns.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

@@ -234,9 +234,9 @@ module IOStreams
 
       def stream_writer(&block)
         Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
-          ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+          result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
           sftp_upload(file_name, path)
-          ::File.size(file_name)
+          result
         end
       end
 

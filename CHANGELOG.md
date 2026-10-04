@@ -24,6 +24,7 @@ These bug fixes change behavior that existing code may depend on:
 - **Local `#each_child` and `IOStreams.each_child` honor `case_sensitive:` on every platform.** On a case-sensitive file system, such as on Linux, the default `case_sensitive: false` was ignored unless nothing matched, so `"r*.md"` did not return `README.md`, and `"*.csv"` did not return `DATA.CSV` when `data.csv` was also present. On a case-insensitive file system, such as on macOS, `case_sensitive: true` was ignored, so `"*.CSV"` returned `data.csv`.
 - **The file within a zip file written to a path is named after the path.** Writing `example.csv.zip`, or `example.csv.zip.pgp`, now names the file within the zip file `example.csv`, as documented. Previously it was named `file`, unless `entry_file_name:` was supplied.
 - **A hash key that matches a column once cleansed supplies its value.** When writing a hash with `columns:`, or reading JSON or `:hash` records with `columns:`, a column without a key of the same name now takes the value of the key that is the same once both are cleansed like a header row, so the key `"First Name"` supplies the column `first_name`. Previously the column was always empty, so for example `writer(:hash, columns: ["first_name"])` wrote an empty field for `{"First Name" => "Jack"}`. A key that matches the column exactly is still used first.
+- **Writing to an SFTP path returns the result of the block**, like local and S3 paths, for example from `#writer`. Previously it returned the size of the file written.
 
 ### Fixed
 
