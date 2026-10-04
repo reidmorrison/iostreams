@@ -296,6 +296,15 @@ module IOStreams
 
           assert_equal 2, children.size, children
         end
+
+        it "searches the current directory when the pattern has no directory" do
+          children = []
+          Dir.chdir(IOStreams.join("each_child_test").to_s) do
+            IOStreams.each_child("*.csv") { |path| children << path.to_s }
+          end
+
+          assert_equal %w[abc.csv def.csv], children.sort
+        end
       end
     end
   end
