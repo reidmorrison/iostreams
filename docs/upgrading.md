@@ -85,6 +85,16 @@ the key `a+b.csv`. Previously it was decoded as a space, and read the key `a b.c
 
 Fix: use a space, or `%20`, in the url for a space.
 
+### Local `each_child` honors `case_sensitive:`
+
+`#each_child` and `IOStreams.each_child` on local files now honor `case_sensitive:` on every platform.
+Previously, on a case-sensitive file system such as on Linux, the default `case_sensitive: false` was
+ignored unless nothing matched, and on a case-insensitive file system such as on macOS,
+`case_sensitive: true` was ignored.
+
+Fix: on Linux, check that patterns that relied on matching case, such as `"*.csv"` in a directory that
+also has `DATA.CSV`, return the files you expect, or supply `case_sensitive: true`.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
