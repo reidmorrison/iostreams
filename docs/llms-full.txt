@@ -2110,6 +2110,10 @@ header row, to the supplied `columns`, and, for formats without a header row suc
 to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
 are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
 
+When reading rows with `each(:array)`, they apply to the header row and to the supplied `columns`,
+including with `cleanse_header: false`. The header row is yielded as it was read, and each row
+still contains every value.
+
 Example, reading a headerless CSV file:
 
 ~~~ruby
@@ -2814,7 +2818,8 @@ Fix: remove the option, or use a separate path for reading and for writing. See
 
 When reading records, `allowed_columns`, `required_columns` and `skip_unknown` now apply to every
 input. Previously they were silently ignored for JSON and `:hash` input, when `columns:` was
-supplied, and with `cleanse_header: false`.
+supplied, and with `cleanse_header: false`. When reading rows with `each(:array)`, they now also
+apply to the supplied `columns:`, and to the header row with `cleanse_header: false`.
 
 When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
 as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise

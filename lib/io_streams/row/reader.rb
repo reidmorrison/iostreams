@@ -37,18 +37,35 @@ module IOStreams
         @tabular        = IOStreams::Tabular.new(file_name: original_file_name, **args)
         @line_reader    = line_reader
         @cleanse_header = cleanse_header
+
+        # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
+        cleanse_columns if restricted? && !@tabular.header?
       end
 
+      # Yields the header row as it was read, followed by each row.
+      #
+      # The allowed and required columns are applied to the header row, or to the supplied columns,
+      # even when `cleanse_header` is false, but each row still contains every value.
       def each
         @line_reader.each do |line|
           if @tabular.header?
             columns = @tabular.parse_header(line)
-            @tabular.cleanse_header! if @cleanse_header
+            cleanse_columns if @cleanse_header || restricted?
             yield columns
           else
             yield @tabular.row_parse(line)
           end
         end
+      end
+
+      private
+
+      def restricted?
+        @tabular.header.restricted?
+      end
+
+      def cleanse_columns
+        @tabular.header.cleanse!(rename: @cleanse_header)
       end
     end
   end

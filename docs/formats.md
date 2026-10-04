@@ -151,6 +151,10 @@ header row, to the supplied `columns`, and, for formats without a header row suc
 to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
 are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
 
+When reading rows with `each(:array)`, they apply to the header row and to the supplied `columns`,
+including with `cleanse_header: false`. The header row is yielded as it was read, and each row
+still contains every value.
+
 Example, reading a headerless CSV file:
 
 ~~~ruby

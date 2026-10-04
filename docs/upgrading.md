@@ -41,7 +41,8 @@ Fix: remove the option, or use a separate path for reading and for writing. See
 
 When reading records, `allowed_columns`, `required_columns` and `skip_unknown` now apply to every
 input. Previously they were silently ignored for JSON and `:hash` input, when `columns:` was
-supplied, and with `cleanse_header: false`.
+supplied, and with `cleanse_header: false`. When reading rows with `each(:array)`, they now also
+apply to the supplied `columns:`, and to the header row with `cleanse_header: false`.
 
 When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
 as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
