@@ -335,12 +335,13 @@ module IOStreams
           return
         end
 
-        prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, "")
+        # Use the key directly rather than parsing it as part of a URL, and list within it as a directory,
+        # so that a key such as "reports" does not also list "reports_2024.csv".
+        prefix = matcher.path.path
+        prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
         each_object(prefix) do |name, object|
           next if !directories && object.key.end_with?("/")
-
-          file_name = ::File.join("s3://", name, object.key)
-          next unless matcher.match?(file_name)
+          next unless ::File.fnmatch?(matcher.pattern, object.key.delete_prefix(prefix), matcher.flags)
 
           child = child_path(name, object.key)
           next unless allowed_child?(child)
@@ -389,9 +390,10 @@ module IOStreams
       # Set the key directly rather than parsing it as part of a URL, since a key can contain
       # characters such as `?`, `+` or `%` that a URL parser would treat as a query or as escapes.
       #
-      # The child uses this path's client, so that it has the same credentials and region.
+      # The child uses this path's client and options, so that it has the same credentials, region
+      # and request parameters, such as `request_payer` or an SSE-C key.
       def child_path(bucket_name, key)
-        child      = self.class.new("s3://#{bucket_name}", client: client)
+        child      = self.class.new("s3://#{bucket_name}", client: client, **options)
         child.path = key.dup.freeze
         child
       end

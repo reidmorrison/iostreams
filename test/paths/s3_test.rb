@@ -291,6 +291,53 @@ module Paths
           assert_equal ["inbox/a.csv"], children.map(&:path)
           assert_equal "eu-west-1", children.first.client.config.region
         end
+
+        describe "with objects in the bucket" do
+          before do
+            IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+            S3Stub.install
+            ["reports/a.csv", "reports/2024/b.csv", "reports_x.csv", "reports_2024/c.csv", "reports.csv", "dir a+b/d.csv", "100%/e.csv"].
+              each { |key| IOStreams.path("s3://bucket").join(key).write("data") }
+          end
+
+          after do
+            S3Stub.uninstall
+          end
+
+          it "only returns children within the path" do
+            children = IOStreams.path("s3://bucket/reports").children("*.csv", hidden: true).map(&:to_s)
+
+            assert_equal ["s3://bucket/reports/a.csv"], children
+          end
+
+          it "only returns children within the path when the pattern is recursive" do
+            children = IOStreams.path("s3://bucket/reports").children("**/*.csv").map(&:to_s)
+
+            assert_equal ["s3://bucket/reports/2024/b.csv", "s3://bucket/reports/a.csv"], children.sort
+          end
+
+          it "lists a key that contains characters a url parser would decode" do
+            children = IOStreams.path("s3://bucket").join("dir a+b").children("*.csv").map(&:path)
+
+            assert_equal ["dir a+b/d.csv"], children
+          end
+
+          it "lists a key that contains a percent sign" do
+            children = IOStreams.path("s3://bucket").join("100%").children("*.csv").map(&:path)
+
+            assert_equal ["100%/e.csv"], children
+          end
+
+          it "lists the whole bucket" do
+            assert_includes IOStreams.path("s3://bucket").children("*.csv").map(&:path), "reports_x.csv"
+          end
+
+          it "uses the same options for the children" do
+            children = IOStreams.path("s3://bucket/reports", request_payer: "requester").children("*.csv")
+
+            assert_equal [{request_payer: "requester"}], children.map(&:options)
+          end
+        end
       end
     end
   end
