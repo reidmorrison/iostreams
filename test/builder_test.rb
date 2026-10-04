@@ -152,7 +152,7 @@ class BuilderTest < Minitest::Test
         streams.stream(:gz)
 
         streams.reader(string_io) do |io|
-          assert_kind_of ::Zlib::GzipReader, io, io
+          assert_kind_of IOStreams::Gzip::Reader::Members, io, io
         end
       end
 
