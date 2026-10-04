@@ -62,12 +62,8 @@ class RecordReaderTest < Minitest::Test
       let(:csv) { "Name,Admin\nx,true\n" }
       let(:json) { %({"Name":"x","admin":true}\n) }
 
-      before do
-        IOStreams.enforce_column_restrictions = true
-      end
-
-      after do
-        IOStreams.enforce_column_restrictions = false
+      it "is enforced by default" do
+        assert_predicate IOStreams, :enforce_column_restrictions?
       end
 
       it "skips unknown columns in a csv header row" do
@@ -123,7 +119,7 @@ class RecordReaderTest < Minitest::Test
       end
     end
 
-    describe "allowed_columns without enforce_column_restrictions" do
+    describe "allowed_columns when enforce_column_restrictions is false" do
       def read(input, **args)
         records = []
         IOStreams::Record::Reader.stream(StringIO.new(input), **args) { |io| io.each { |record| records << record } }
@@ -144,8 +140,12 @@ class RecordReaderTest < Minitest::Test
       let(:csv) { "Name,Admin\nx,true\n" }
       let(:json) { %({"Name":"x","admin":true}\n{"Name":"y","admin":false}\n) }
 
-      it "is not enforced by default" do
-        refute_predicate IOStreams, :enforce_column_restrictions?
+      before do
+        IOStreams.enforce_column_restrictions = false
+      end
+
+      after do
+        IOStreams.enforce_column_restrictions = true
       end
 
       it "only accepts true or false" do

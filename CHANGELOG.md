@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - Unreleased
+
+### Breaking
+
+These changes were postponed from v2.1, where each one logged a warning via `IOStreams.logger` when it would change the result.
+
+- **`allowed_columns`, `required_columns` and `skip_unknown` now apply to every input when reading records.** `IOStreams.enforce_column_restrictions` now defaults to true. Previously they were only applied to a header row read from the file, and only when `cleanse_header` was true, so they were ignored for JSON and `:hash` input, when `columns:` was supplied, and with `cleanse_header: false`. Since the format is usually inferred from the file name, renaming an upload from `.csv` to `.json` bypassed the allow list. When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed like a header row (for example `"Name"` becomes `"name"`), unknown keys are skipped or raise `IOStreams::Errors::InvalidHeader`, and a record missing a required column raises `IOStreams::Errors::InvalidHeader`. Set `IOStreams.enforce_column_restrictions = false` to keep the previous behavior.
+- **BZip2 options are strict.** The BZip2 reader and writer now raise `ArgumentError` for an option they do not accept, like every other stream, instead of ignoring it. They accept `autoclose`, `first_only` and `small` when reading, and `autoclose`, `block_size` and `work_factor` when writing.
+- **`IOStreams::Pgp.export(email: nil)` without a `key_id:` raises `ArgumentError`** instead of `IOStreams::Pgp::Failure`.
+
 ## [2.1.0] - 2026-10-04
 
 ### Breaking

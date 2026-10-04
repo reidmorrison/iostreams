@@ -141,17 +141,18 @@ To disable logging entirely, set the logger to `nil`:
 IOStreams.logger = nil
 ~~~
 
-IOStreams also logs warnings for behavior that will change in the next major version. See
-[Coming in v3.0](upgrading#coming-in-v30).
-
 ## enforce_column_restrictions
 
 Applies `allowed_columns`, `required_columns` and `skip_unknown` to every input when reading
 records, including JSON records, so that renaming an uploaded file from `.csv` to `.json` cannot
-bypass them. Set it in an initializer:
+bypass them.
+
+To return to the behavior before v3.0, where they only apply to a header row read from the file,
+set it to false in an initializer. A warning is then logged when applying them would change the
+records read:
 
 ~~~ruby
-IOStreams.enforce_column_restrictions = true
+IOStreams.enforce_column_restrictions = false
 ~~~
 
-Default: false. It will default to true in v3.0. See [Header options](formats#header-options).
+Default: true. It defaulted to false before v3.0. See [Header options](formats#header-options).

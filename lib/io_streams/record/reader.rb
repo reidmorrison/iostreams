@@ -58,8 +58,8 @@ module IOStreams
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
       #
       # Note:
-      # * `allowed_columns`, `required_columns` and `skip_unknown` only apply to every input, including JSON records,
-      #   supplied `columns` and `cleanse_header: false`, when `IOStreams.enforce_column_restrictions?` is true.
+      # * `allowed_columns`, `required_columns` and `skip_unknown` apply to every input, including JSON records,
+      #   supplied `columns` and `cleanse_header: false`, unless `IOStreams.enforce_column_restrictions?` is false.
       def initialize(line_reader, cleanse_header: true, original_file_name: nil, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
@@ -142,8 +142,8 @@ module IOStreams
       def warn_restriction
         @warned = true
         IOStreams.logger&.warn(
-          "allowed_columns and required_columns are not applied to this input, but would change the records read. " \
-          "In v3.0 they will apply to every input. Set `IOStreams.enforce_column_restrictions = true` to apply them now."
+          "allowed_columns and required_columns are not applied to this input since " \
+          "`IOStreams.enforce_column_restrictions` is false, but would change the records read."
         )
       end
     end
