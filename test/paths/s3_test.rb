@@ -192,6 +192,20 @@ module Paths
           end
         end
 
+        it "moves to a local file" do
+          source = root_path.join("move_test_source.txt")
+          Dir.mktmpdir do |dir|
+            source.write("Hello World")
+            target = IOStreams.path(dir, "move_test_target.txt")
+
+            assert_equal target, source.move_to(target)
+            assert_equal "Hello World", target.read
+            refute_predicate source, :exist?
+          end
+        ensure
+          source&.delete
+        end
+
         it "missing source file" do
           source = root_path.join("move_test_source.txt")
 

@@ -215,7 +215,8 @@ module IOStreams
       # - Can copy across buckets.
       # - No stream conversions are applied.
       def move_to(target_path)
-        target = copy_to(target_path, convert: false)
+        target = IOStreams.new(target_path)
+        copy_to(target, convert: false)
         delete
         target
       end
