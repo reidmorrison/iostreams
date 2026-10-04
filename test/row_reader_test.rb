@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "logger"
 
 class RowReaderTest < Minitest::Test
   describe IOStreams::Row::Reader do
@@ -75,6 +76,51 @@ class RowReaderTest < Minitest::Test
         rows = read_rows(allowed_columns: ["name"])
 
         assert_equal [%w[Name Secret], %w[Jack x]], rows
+      end
+
+      describe "when enforce_column_restrictions is false" do
+        # Returns [Array] the rows read, and the warnings logged.
+        def read_with_warnings(**args)
+          output   = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :warn)
+          rows = read_rows(**args)
+          [rows, output.string.lines.grep(/enforce_column_restrictions/).size]
+        ensure
+          IOStreams.logger = original
+        end
+
+        before do
+          IOStreams.enforce_column_restrictions = false
+        end
+
+        after do
+          IOStreams.enforce_column_restrictions = true
+        end
+
+        it "still applies required columns to the header row by default" do
+          assert_raises(IOStreams::Errors::InvalidHeader) { read_rows(required_columns: ["missing"]) }
+        end
+
+        it "warns instead of applying them with cleanse_header: false" do
+          rows, warnings = read_with_warnings(required_columns: ["missing"], cleanse_header: false)
+
+          assert_equal [%w[Name Secret], %w[Jack x]], rows
+          assert_equal 1, warnings
+        end
+
+        it "warns instead of applying them to supplied columns" do
+          rows, warnings = read_with_warnings(columns: %w[name secret], allowed_columns: ["name"], skip_unknown: false)
+
+          assert_equal [%w[Name Secret], %w[Jack x]], rows
+          assert_equal 1, warnings
+        end
+
+        it "does not warn when they would not change the columns" do
+          _rows, warnings = read_with_warnings(columns: %w[name secret], allowed_columns: %w[name secret])
+
+          assert_equal 0, warnings
+        end
       end
     end
   end

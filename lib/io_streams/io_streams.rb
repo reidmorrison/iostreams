@@ -334,6 +334,37 @@ module IOStreams
 
   @temp_dir = nil
 
+  # Apply `allowed_columns`, `required_columns` and `skip_unknown` to every input when reading records.
+  #
+  # When true, they apply to a header row read from the file, to the supplied `columns:`, to a header row
+  # read with `cleanse_header: false`, and to the keys of each JSON or `:hash` record. JSON keys are cleansed
+  # like a header row, unless `cleanse_header` is false, unknown keys are skipped or raise
+  # `IOStreams::Errors::InvalidHeader`, and a record missing a required column raises
+  # `IOStreams::Errors::InvalidHeader`.
+  #
+  # When false, as before v3.0, they only apply to a header row read from the file, and only when
+  # `cleanse_header` is true. They are ignored for JSON and `:hash` input, when `columns:` is supplied, and
+  # with `cleanse_header: false`, and a warning is logged when applying them would change the result.
+  # Since the format is usually inferred from the file name, renaming an uploaded file to `.json`
+  # then bypasses them.
+  #
+  # Default: true. It defaulted to false before v3.0.
+  #
+  # Example:
+  #   IOStreams.enforce_column_restrictions = false
+  def self.enforce_column_restrictions=(enforce)
+    raise(ArgumentError, "enforce_column_restrictions must be true or false") unless [true, false].include?(enforce)
+
+    @enforce_column_restrictions = enforce
+  end
+
+  # Returns [true|false] whether column restrictions apply to every input, see `IOStreams.enforce_column_restrictions=`.
+  def self.enforce_column_restrictions?
+    @enforce_column_restrictions
+  end
+
+  @enforce_column_restrictions = true
+
   # Returns [Logger] the logger used by IOStreams for debug logging.
   #
   # When SemanticLogger is loaded a SemanticLogger instance is used by default,

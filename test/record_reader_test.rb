@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "logger"
 
 class RecordReaderTest < Minitest::Test
   describe IOStreams::Record::Reader do
@@ -61,6 +62,10 @@ class RecordReaderTest < Minitest::Test
       let(:csv) { "Name,Admin\nx,true\n" }
       let(:json) { %({"Name":"x","admin":true}\n) }
 
+      it "is enforced by default" do
+        assert_predicate IOStreams, :enforce_column_restrictions?
+      end
+
       it "skips unknown columns in a csv header row" do
         assert_equal [{"name" => "x"}], read(csv, allowed_columns: ["name"])
       end
@@ -111,6 +116,86 @@ class RecordReaderTest < Minitest::Test
 
       it "does not rename supplied columns when no columns are restricted" do
         assert_equal [{"First Name" => "x"}], read("x\n", columns: ["First Name"])
+      end
+    end
+
+    describe "allowed_columns when enforce_column_restrictions is false" do
+      def read(input, **args)
+        records = []
+        IOStreams::Record::Reader.stream(StringIO.new(input), **args) { |io| io.each { |record| records << record } }
+        records
+      end
+
+      # Returns [Array] the records read, and the warnings logged.
+      def read_with_warnings(input, **args)
+        output   = StringIO.new
+        original = IOStreams.logger
+        IOStreams.logger = Logger.new(output, level: :warn)
+        records = read(input, **args)
+        [records, output.string.lines.grep(/enforce_column_restrictions/).size]
+      ensure
+        IOStreams.logger = original
+      end
+
+      let(:csv) { "Name,Admin\nx,true\n" }
+      let(:json) { %({"Name":"x","admin":true}\n{"Name":"y","admin":false}\n) }
+
+      before do
+        IOStreams.enforce_column_restrictions = false
+      end
+
+      after do
+        IOStreams.enforce_column_restrictions = true
+      end
+
+      it "only accepts true or false" do
+        assert_raises ArgumentError do
+          IOStreams.enforce_column_restrictions = "yes"
+        end
+      end
+
+      it "skips unknown columns in a csv header row without warning" do
+        assert_equal [[{"name" => "x"}], 0], read_with_warnings(csv, allowed_columns: ["name"])
+      end
+
+      it "does not apply them to json records, and warns once" do
+        expected = [{"Name" => "x", "admin" => true}, {"Name" => "y", "admin" => false}]
+
+        assert_equal [expected, 1], read_with_warnings(json, format: :json, allowed_columns: ["name"])
+      end
+
+      it "does not raise when a json record is missing a required column, and warns" do
+        assert_equal 1, read_with_warnings(json, format: :json, required_columns: ["state"]).last
+      end
+
+      it "does not warn when they would not change json records" do
+        input = %({"name":"x"}\n)
+
+        assert_equal [[{"name" => "x"}], 0], read_with_warnings(input, format: :json, allowed_columns: ["name"])
+      end
+
+      it "does not apply them to supplied columns, and warns" do
+        records, warnings = read_with_warnings("x,true\n", columns: %w[name admin], allowed_columns: ["name"])
+
+        assert_equal [{"name" => "x", "admin" => "true"}], records
+        assert_equal 1, warnings
+      end
+
+      it "does not raise for supplied columns when skip_unknown is false, and warns" do
+        args = {columns: %w[name admin], allowed_columns: ["name"], skip_unknown: false}
+
+        assert_equal 1, read_with_warnings("x,true\n", **args).last
+      end
+
+      it "does not apply them without cleansing the header, and warns" do
+        records, warnings = read_with_warnings(csv, allowed_columns: ["Name"], cleanse_header: false)
+
+        assert_equal [{"Name" => "x", "Admin" => "true"}], records
+        assert_equal 1, warnings
+      end
+
+      it "does not warn when no columns are restricted" do
+        assert_equal 0, read_with_warnings(json, format: :json).last
       end
     end
 

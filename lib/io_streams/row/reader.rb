@@ -37,20 +37,26 @@ module IOStreams
         @tabular        = IOStreams::Tabular.new(file_name: original_file_name, **args)
         @line_reader    = line_reader
         @cleanse_header = cleanse_header
+        @warned         = false
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
-        cleanse_columns if restricted? && !@tabular.header?
+        restrict_columns if restricted? && !@tabular.header?
       end
 
       # Yields the header row as it was read, followed by each row.
       #
       # The allowed and required columns are applied to the header row, or to the supplied columns,
-      # even when `cleanse_header` is false, but each row still contains every value.
+      # even when `cleanse_header` is false, unless `IOStreams.enforce_column_restrictions?` is false.
+      # Each row still contains every value.
       def each
         @line_reader.each do |line|
           if @tabular.header?
             columns = @tabular.parse_header(line)
-            cleanse_columns if @cleanse_header || restricted?
+            if @cleanse_header
+              cleanse_columns
+            elsif restricted?
+              restrict_columns
+            end
             yield columns
           else
             yield @tabular.row_parse(line)
@@ -66,6 +72,39 @@ module IOStreams
 
       def cleanse_columns
         @tabular.header.cleanse!(rename: @cleanse_header)
+      end
+
+      # Apply the allowed and required columns to supplied columns, or to a header row read with
+      # `cleanse_header: false`. Unless `IOStreams.enforce_column_restrictions?`, only warn when they would
+      # change the columns.
+      def restrict_columns
+        return cleanse_columns if IOStreams.enforce_column_restrictions?
+        return if @warned
+
+        header = @tabular.header
+        copy   = IOStreams::Tabular::Header.new(
+          columns:          header.columns,
+          allowed_columns:  header.allowed_columns,
+          required_columns: header.required_columns,
+          skip_unknown:     header.skip_unknown
+        )
+        changed =
+          begin
+            copy.cleanse!(rename: @cleanse_header)
+            copy.columns != header.columns
+          rescue IOStreams::Errors::InvalidHeader
+            true
+          end
+        warn_restriction if changed
+      end
+
+      # Warn once per reader.
+      def warn_restriction
+        @warned = true
+        IOStreams.logger&.warn(
+          "allowed_columns and required_columns are not applied to this input since " \
+          "`IOStreams.enforce_column_restrictions` is false, but would change the header row read."
+        )
       end
     end
   end

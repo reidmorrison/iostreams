@@ -2117,6 +2117,12 @@ When reading rows with `each(:array)`, they apply to the header row and to the s
 including with `cleanse_header: false`. The header row is yielded as it was read, and each row
 still contains every value.
 
+To return to the behavior before v3.0, where they only apply to a header row read from the file,
+and only when `cleanse_header` is true, set `IOStreams.enforce_column_restrictions = false`.
+This applies to reading both records and rows. A warning is then logged when applying them would
+change the records or the header row read. Since the format is usually inferred from the file name,
+renaming an uploaded file from `.csv` to `.json` then bypasses them.
+
 Example, reading a headerless CSV file:
 
 ~~~ruby
@@ -2792,6 +2798,22 @@ To disable logging entirely, set the logger to `nil`:
 IOStreams.logger = nil
 ~~~
 
+## enforce_column_restrictions
+
+Applies `allowed_columns`, `required_columns` and `skip_unknown` to every input when reading
+records, including JSON records, so that renaming an uploaded file from `.csv` to `.json` cannot
+bypass them.
+
+To return to the behavior before v3.0, where they only apply to a header row read from the file,
+set it to false in an initializer. A warning is then logged when applying them would change the
+records read:
+
+~~~ruby
+IOStreams.enforce_column_restrictions = false
+~~~
+
+Default: true. It defaulted to false before v3.0. See [Header options](formats#header-options).
+
 ---
 
 # Upgrading IOStreams
@@ -2800,38 +2822,19 @@ This page covers the changes that may need updates to your application when upgr
 and the security issues to check. For every change in each release, see the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md).
 
-## Upgrading to v2.1
+## Upgrading to v3.0
 
-v2.1 is a security release. The documented behavior of the API is unchanged, but some calls that
-were invalid and were silently ignored now raise an error instead. Most applications upgrade
-without any code changes.
+v3.0 is a major release with the breaking changes that were postponed from v2.1. In v2.1 each one
+logged a warning via `IOStreams.logger` when it would change the result, so check your logs from
+v2.1 for them before upgrading. It also includes bug fixes that change behavior that existing code
+may depend on, described at the end of this section.
 
-### Changes that may need code changes
-
-#### Stream options are strict
-
-An option supplied via `#option` or `#stream` that the stream does not accept now raises
-`ArgumentError` instead of being silently ignored. When the option only applies in the other
-direction, for example a writer option supplied when reading, the message says so:
-
-~~~ruby
-IOStreams.path("file.csv.pgp").option(:pgp, recipient: "receiver@example.org").read
-# ArgumentError: :recipient only applies when writing a :pgp stream and cannot be used when reading.
-#   Configure a separate path or stream without it for reading.
-~~~
-
-The BZip2 reader and writer previously accepted any option. They now accept only `autoclose`,
-`first_only` and `small` when reading, and `autoclose`, `block_size` and `work_factor` when writing.
-
-Fix: remove the option, or use a separate path for reading and for writing. See
-[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
-
-#### Column restrictions apply to every input
+### Column restrictions apply to every input
 
 When reading records, `allowed_columns`, `required_columns` and `skip_unknown` now apply to every
-input. Previously they were silently ignored for JSON and `:hash` input, when `columns:` was
-supplied, and with `cleanse_header: false`. When reading rows with `each(:array)`, they now also
-apply to the supplied `columns:`, and to the header row with `cleanse_header: false`.
+input. Previously they were ignored for JSON and `:hash` input, when `columns:` was supplied, and
+with `cleanse_header: false`. When reading rows with `each(:array)`, they now also apply to the
+supplied `columns:`, and to the header row with `cleanse_header: false`.
 
 When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
 as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
@@ -2839,14 +2842,68 @@ as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped
 required column raises `IOStreams::Errors::InvalidHeader`.
 
 Fix: check that the JSON files you read with these options have the expected keys. See
-[Header options](formats#header-options).
+[Header options](formats#header-options). To keep the previous behavior, set
+`IOStreams.enforce_column_restrictions = false` in an initializer, which defaulted to false in v2.1.
+Renaming an uploaded file from `.csv` to `.json` then bypasses the restrictions.
 
-#### PGP `delete_keys` and `export` require an email or key id
+### BZip2 options are strict
 
-`IOStreams::Pgp.delete_keys` and `IOStreams::Pgp.export` raise `ArgumentError` unless an `email:`
-or `key_id:` is supplied. Previously, on GnuPG 2.1 and later, `delete_keys` without either deleted
-every key in the keyring. To delete several keys, call it once for each key, for example for each
-key returned by `IOStreams::Pgp.list_keys`.
+The BZip2 reader and writer now raise `ArgumentError` for an option they do not accept, like every
+other stream. Previously they ignored it. They accept `autoclose`, `first_only` and `small` when
+reading, and `autoclose`, `block_size` and `work_factor` when writing.
+
+Fix: remove the option, or use a separate path for reading and for writing. See
+[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
+
+### PGP `export` without an email or key id
+
+`IOStreams::Pgp.export(email: nil)` without a `key_id:` now raises `ArgumentError`, instead of
+`IOStreams::Pgp::Failure`.
+
+### PGP email addresses match exactly
+
+An email address supplied as a PGP `recipient` or `signer`, or as the `email:` of
+`IOStreams::Pgp.list_keys`, `key?`, `export`, `delete_keys` or `set_trust`, now only matches keys with
+exactly that email address, ignoring case. gpg treats a bare email address as a search for any user id
+that contains it, so previously `bob@example.com` also matched `jimbob@example.com`.
+
+Fix: supply the exact email address of each key. To search the way gpg does, supply a value that is not
+just an email address, such as `*example.com`.
+
+### Reading gzip returns every member
+
+Reading a gzip file that contains several members, for example concatenated gzip files, now returns
+the contents of every member, instead of only the first. The stream supplied to the block when reading
+gzip is no longer a `Zlib::GzipReader`; like the other streams it responds to `#read`, `#readpartial`
+and `#eof?`.
+
+Fix: replace calls such as `#gets` on the gzip stream with `each(:line)`.
+
+### The encode stream validates every read
+
+With the `:encode` stream, data read from a file is treated as already being in the requested encoding,
+so valid characters are kept instead of being replaced, and an invalid character raises
+`Encoding::UndefinedConversionError` unless `replace:` is supplied. Previously reading lines let invalid
+characters through without raising.
+
+Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
+invalid characters instead of raising.
+
+## Upgrading to v2.1
+
+v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
+described below. Most applications upgrade without any code changes. The changes that would break
+existing code were postponed to v3.0, and log a warning in v2.1. See [Upgrading to v3.0](#upgrading-to-v30).
+
+### Changes that may need code changes
+
+#### PGP `delete_keys` requires an email or key id
+
+`IOStreams::Pgp.delete_keys` raises `ArgumentError` unless an `email:` or `key_id:` is supplied.
+Previously, on GnuPG 2.1 and later, calling it without either deleted every key in the keyring, and
+with `private: true`, every secret key. This is the only breaking change in v2.1, since that could
+not be undone. To delete several keys, call it once for each key, for example for each key returned
+by `IOStreams::Pgp.list_keys`.
 
 #### SFTP `#each_child` requires a known host key
 
@@ -2872,6 +2929,12 @@ support raises `ArgumentError`.
 - When writing PSV or fixed width files, a line break within a value is replaced with a space, so
   that a value can no longer start a separate record.
 - Internal temp files are created so that only the current user can read them.
+- When reading lines, newlines within quoted values are kept within the line when the tabular format
+  quotes its values, such as CSV. Previously this depended on whether the file name contained `.csv`,
+  so `.format(:psv)` on a `.csv` file still joined quoted lines, and `.format(:csv)` on a stream
+  without a file name did not.
+- An `ArgumentError` for an option that a stream does not accept now says which direction the option
+  belongs to, or lists the valid options. Previously it was Ruby's `unknown keyword` error.
 
 ### Security checklist
 
@@ -2965,10 +3028,17 @@ contents are not protected against tampering. See
 
 #### Column restrictions on uploaded files
 
-Before v2.1, `allowed_columns` and `required_columns` were ignored for JSON input. Since the format
-is usually inferred from the file name, renaming an upload from `.csv` to `.json` bypassed them.
-If your application relies on them to restrict which columns an upload can set, check whether any
-uploads were affected.
+In v2.1, by default, `allowed_columns` and `required_columns` are ignored for JSON input. Since the format
+is usually inferred from the file name, renaming an upload from `.csv` to `.json` bypasses them.
+If your application relies on them to restrict which columns an upload can set, apply them to every
+input in an initializer, new in v2.1, and check whether any uploads were affected:
+
+~~~ruby
+IOStreams.enforce_column_restrictions = true
+~~~
+
+See [Column restrictions apply to every input](#column-restrictions-apply-to-every-input) for what
+it changes.
 
 ## Upgrading to v2.0
 
