@@ -44,6 +44,7 @@ These bug fixes change behavior that existing code may depend on:
 - `IOStreams::Pgp.import` returns the name of a key whose user id has no email address, with a `nil` email. Previously it returned the name `"Joe Bloggs"` and the email address `"pgp_test@iostreams.net"`, values left over from its tests, for such a key, and for a key whose user id it could not read.
 - Reading a zip file whose first entry is a folder reads the first file in it. Previously it raised `NoMethodError`.
 - `#move_to` from S3 to a path that is not on S3, such as a local file, returns the target path. Previously it returned the number of bytes copied.
+- `#mkpath` and `#mkdir` on SFTP paths create the directories when a file is written, so `#move_to` an SFTP path, which calls `#mkpath`, works. Previously `#mkpath` raised `NotImplementedError`, which also made every `#move_to` an SFTP path raise, and `#mkdir` did nothing.
 
 ## [2.1.0] - 2026-10-04
 
