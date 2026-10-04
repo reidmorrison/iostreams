@@ -22,15 +22,21 @@ module IOStreams
 
     # Yields the path to a temporary file_name.
     #
-    # File is deleted upon completion if present.
+    # The file is not created, and is deleted upon completion if present.
+    #
+    # Only the name is chosen within `Dir::Tmpname.create`, which retries whenever its block raises
+    # `Errno::EEXIST`, so that the supplied block is never run again when it raises `Errno::EEXIST` itself.
     def self.temp_file_name(basename, extension = "")
-      result = nil
-      ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir, max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
-        result = yield(tmpname)
-      ensure
-        ::FileUtils.rm_f(tmpname)
+      file_name = ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir,
+                                        max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
+        raise(Errno::EEXIST, tmpname) if ::File.exist?(tmpname) || ::File.symlink?(tmpname)
       end
-      result
+
+      begin
+        yield(file_name)
+      ensure
+        ::FileUtils.rm_f(file_name)
+      end
     end
 
     # Yields the name of a new, empty temporary file that only the current user can read or write.

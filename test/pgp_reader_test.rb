@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "timeout"
 
 class PgpReaderTest < Minitest::Test
   describe IOStreams::Pgp::Reader do
@@ -24,6 +25,32 @@ class PgpReaderTest < Minitest::Test
         result = IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase", &:read)
 
         assert_equal decrypted, result
+      end
+
+      describe "when the block does not read the whole file" do
+        let :large_data do
+          "line of decrypted data\n" * 100_000
+        end
+
+        before do
+          IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") { |io| io.write(large_data) }
+        end
+
+        it "returns the result of the block" do
+          result = Timeout.timeout(30) do
+            IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase") { |io| io.read(10) }
+          end
+
+          assert_equal large_data[0, 10], result
+        end
+
+        it "returns the first line" do
+          result = Timeout.timeout(30) do
+            IOStreams.path(temp_file.path).stream(:pgp, passphrase: "receiver_passphrase").reader(:line, &:readline)
+          end
+
+          assert_equal "line of decrypted data", result
+        end
       end
 
       it "fails with bad passphrase" do

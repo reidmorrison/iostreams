@@ -180,22 +180,28 @@ module IOStreams
     # # Advanced copy with custom stream conversions on source and target.
     # source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
+    #
+    # Notes:
+    # - The source is opened before the target, so that the target is not changed when the source
+    #   cannot be read, for example when it does not exist.
     def copy_from(source, convert: true, mode: nil, **args)
       if convert
         stream = IOStreams.new(source)
         if mode
-          writer(mode, **args) do |target|
-            stream.each(mode) { |row| target << row }
+          stream.reader(mode) do |rows|
+            writer(mode, **args) do |target|
+              rows.each { |row| target << row }
+            end
           end
         else
-          writer(**args) do |target|
-            stream.reader { |src| IO.copy_stream(src, target) }
+          stream.reader do |src|
+            writer(**args) { |target| IO.copy_stream(src, target) }
           end
         end
       else
         stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
-        dup.stream(:none).writer do |target|
-          stream.stream(:none).reader { |src| IO.copy_stream(src, target) }
+        stream.stream(:none).reader do |src|
+          dup.stream(:none).writer { |target| IO.copy_stream(src, target) }
         end
       end
     end

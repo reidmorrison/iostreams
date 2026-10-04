@@ -164,6 +164,119 @@ class EncodeReaderTest < Minitest::Test
           end
         end
       end
+
+      describe "valid multi-byte characters" do
+        let(:text) { "Jos\u00e9, M\u00fcnchen \u{1F600}" }
+
+        it "reads them from binary data" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new(text.b), encoding: "UTF-8", &:read)
+
+          assert_equal text, data
+          assert_equal Encoding::UTF_8, data.encoding
+        end
+
+        it "keeps them when replacing invalid characters" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new("#{text}\xE9".b), encoding: "UTF-8", replace: "?", &:read)
+
+          assert_equal "#{text}?", data
+        end
+
+        it "returns a character that is split across reads" do
+          chunks = []
+          IOStreams::Encode::Reader.stream(StringIO.new(text.b), encoding: "UTF-8") do |io|
+            while (chunk = io.read(1))
+              chunks << chunk
+            end
+          end
+
+          assert_equal text, chunks.join
+          chunks.each { |chunk| assert_predicate chunk, :valid_encoding? }
+        end
+
+        it "returns a character that is split across reads when replacing invalid characters" do
+          chunks = []
+          IOStreams::Encode::Reader.stream(StringIO.new(text.b), encoding: "UTF-8", replace: "") do |io|
+            while (chunk = io.read(3))
+              chunks << chunk
+            end
+          end
+
+          assert_equal text, chunks.join
+        end
+
+        it "raises for an invalid character when reading in blocks" do
+          assert_raises ::Encoding::UndefinedConversionError do
+            IOStreams::Encode::Reader.stream(StringIO.new(bad_data), encoding: "UTF-8") do |io|
+              while io.read(3)
+              end
+            end
+          end
+        end
+
+        it "raises for an incomplete character at the end" do
+          assert_raises ::Encoding::UndefinedConversionError do
+            IOStreams::Encode::Reader.stream(StringIO.new("abc\xC3".b), encoding: "UTF-8") do |io|
+              while io.read(2)
+              end
+            end
+          end
+        end
+
+        it "replaces an incomplete character at the end" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new("abc\xC3".b), encoding: "UTF-8", replace: "?") do |io|
+            chunks = []
+            while (chunk = io.read(2))
+              chunks << chunk
+            end
+            chunks.join
+          end
+
+          assert_equal "abc?", data
+        end
+
+        it "reads lines from a file where a character is split by the block size" do
+          Tempfile.create(%w[iostreams .csv]) do |file|
+            # The 65,536th byte is the first byte of "é", so the first block ends in the middle of it.
+            file.binmode
+            file.write("#{'x' * 65_534}\n#{"\u00e9,Jos\u00e9\n" * 3}".b)
+            file.close
+            lines = []
+            IOStreams.path(file.path).option(:encode, encoding: "UTF-8").each(:line) { |line| lines << line }
+
+            assert_equal ["x" * 65_534, "\u00e9,Jos\u00e9", "\u00e9,Jos\u00e9", "\u00e9,Jos\u00e9"], lines
+          end
+        end
+      end
+
+      describe "buffer argument" do
+        it "replaces and returns the supplied buffer" do
+          buffer = +"previous"
+          IOStreams::Encode::Reader.stream(StringIO.new("hello"), encoding: "UTF-8") do |io|
+            assert_same buffer, io.read(3, buffer)
+            assert_equal "hel", buffer
+            assert_nil io.read(10, io.read(10, buffer))
+            assert_empty buffer
+          end
+        end
+
+        it "returns a new string from each read without a buffer" do
+          IOStreams::Encode::Reader.stream(StringIO.new("hello"), encoding: "UTF-8") do |io|
+            first = io.read(2)
+
+            assert_equal "he", first
+            io.read(2)
+
+            assert_equal "he", first
+          end
+        end
+
+        it "copies with IO.copy_stream" do
+          output = StringIO.new
+          IOStreams::Encode::Reader.stream(StringIO.new("Jos\u00e9".b), encoding: "UTF-8") { |io| IO.copy_stream(io, output) }
+
+          assert_equal "Jos\u00e9", output.string.force_encoding("UTF-8")
+        end
+      end
     end
   end
 end

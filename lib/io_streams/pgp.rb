@@ -38,6 +38,20 @@ module IOStreams
       Shellwords.split(executable) + args.map(&:to_s)
     end
 
+    # Returns [String] the supplied email address or key id, in the form that gpg uses to find the key.
+    #
+    # gpg treats a bare email address as a case-insensitive search for any user id containing it, so that
+    # `bob@example.com` also finds `jimbob@example.com` and `bob@example.com.attacker.net`. Enclosing an
+    # email address in `<` and `>` only finds keys with exactly that email address, ignoring case.
+    # Anything else, such as a key id, fingerprint, name, an email address already in `<` and `>`, or a value
+    # that starts with one of gpg's search prefixes, such as `*` for a substring search, is returned unchanged.
+    #
+    # Used internally, including by the PGP writer.
+    def self.user_id(value)
+      value = value.to_s
+      value.match?(/\A[^<>@\s*=&+#^][^<>@\s]*@[^<>@\s]+\z/) ? "<#{value}>" : value
+    end
+
     # Generate a new ultimate trusted local public and private key.
     #
     # Returns [String] the key id for the generated key.
@@ -211,7 +225,7 @@ module IOStreams
       version_check
       args = [private ? "--list-secret-keys" : "--list-keys"]
       # `--` stops gpg from treating the email or key id as an option.
-      args += ["--", (email || key_id).to_s] if email || key_id
+      args += ["--", user_id(email || key_id)] if email || key_id
       command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true)
@@ -283,7 +297,7 @@ module IOStreams
       # Supply the passphrase on stdin so that it is not visible in the process list.
       args += ["--passphrase-fd", "0"]
       args << (private ? "--export-secret-keys" : "--export")
-      args += ["--", (email || key_id).to_s]
+      args += ["--", user_id(email || key_id)]
       command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true, stdin_data: passphrase.to_s)
@@ -529,7 +543,7 @@ module IOStreams
     # Public callers should identify keys by `key_id` (see #list_keys / #key_info).
     def self.fingerprint(email:)
       version_check
-      command = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", email.to_s)
+      command = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", user_id(email))
       Open3.popen2e(*command) do |_stdin, out, waith_thr|
         output = out.read.chomp
         if !waith_thr.value.success? && output !~ /(public key not found|No public key)/i
@@ -704,7 +718,7 @@ module IOStreams
 
       # List the fingerprints, then delete each one. Previously this shelled out
       # to a `for` loop, which allowed shell injection via :email / :key_id.
-      list_command        = gpg_command("--list-#{keys}", "--with-colons", "--fingerprint", "--", (email || key_id).to_s)
+      list_command        = gpg_command("--list-#{keys}", "--with-colons", "--fingerprint", "--", user_id(email || key_id))
       list_out, list_err, = Open3.capture3(*list_command, binmode: true)
       IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{list_command.shelljoin}\n#{list_err}: #{list_out}" }
 

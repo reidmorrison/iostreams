@@ -591,6 +591,93 @@ class PgpTest < Minitest::Test
         refute_nil IOStreams::Pgp.set_trust(email: email, level: 4)
       end
     end
+
+    describe "email addresses within other email addresses" do
+      let(:exact_email) { "match_test@iostreams.net" }
+      let(:other_emails) { %w[other_match_test@iostreams.net match_test@iostreams.net.example.org] }
+
+      def generate(email)
+        IOStreams::Pgp.generate_key(
+          name: "Match Test", email: email, passphrase: nil,
+          key_type: "EDDSA", key_curve: "ed25519", key_usage: "sign", subkey_type: "ECDH", subkey_curve: "cv25519"
+        )
+      end
+
+      def fingerprints(email)
+        IOStreams::Pgp.list_keys(email: email).map { |key| key[:key_id] }
+      end
+
+      before do
+        skip "Requires GnuPG 2.1 or later" if IOStreams::Pgp.pgp_version.to_f < 2.1
+
+        other_emails.each { |email| generate(email) }
+      end
+
+      after do
+        ([exact_email] + other_emails).each do |email|
+          IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
+        end
+      end
+
+      it "lists only the keys for the exact email address" do
+        generate(exact_email)
+
+        assert_equal([exact_email], IOStreams::Pgp.list_keys(email: exact_email).map { |key| key[:email] })
+      end
+
+      it "matches the email address ignoring case" do
+        generate(exact_email)
+
+        assert_equal([exact_email], IOStreams::Pgp.list_keys(email: exact_email.upcase).map { |key| key[:email] })
+      end
+
+      it "does not find a key for another email address that contains it" do
+        refute IOStreams::Pgp.key?(email: exact_email)
+      end
+
+      it "only deletes the keys for the exact email address" do
+        generate(exact_email)
+
+        assert IOStreams::Pgp.delete_keys(email: exact_email, public: true, private: true)
+        other_emails.each { |email| assert IOStreams::Pgp.key?(email: email), "Deleted the key for #{email}" }
+      end
+
+      it "trusts the key for the exact email address" do
+        generate(exact_email)
+
+        assert_equal fingerprints(exact_email).first, IOStreams::Pgp.send(:fingerprint, email: exact_email)
+      end
+
+      it "does not encrypt to another email address that contains the recipient" do
+        Tempfile.create("iostreams") do |file|
+          assert_raises IOStreams::Pgp::Failure do
+            IOStreams::Pgp::Writer.file(file.path, recipient: exact_email) { |io| io.write("secret") }
+          end
+        end
+      end
+
+      it "encrypts to the exact email address" do
+        generate(exact_email)
+        Tempfile.create("iostreams") do |file|
+          IOStreams::Pgp::Writer.file(file.path, recipient: exact_email) { |io| io.write("secret") }
+
+          assert_equal "secret", IOStreams::Pgp::Reader.file(file.path, &:read)
+        end
+      end
+    end
+
+    describe ".user_id" do
+      it "encloses an email address so that it only matches exactly" do
+        assert_equal "<jack@example.org>", IOStreams::Pgp.user_id("jack@example.org")
+      end
+
+      it "returns other values unchanged" do
+        ["<jack@example.org>", "Jack Jones", "3A5456F5", "CB3E582C87C4D569C52F4A28C0A5F177F20E39B0", "@example.org",
+         "Jack <jack@example.org>", "*jack@example.org", "=Jack <jack@example.org>"].each do |value|
+          assert_equal value, IOStreams::Pgp.user_id(value)
+        end
+      end
+    end
   end
 
   # Pure parsing tests against the documented output of several gpg versions.

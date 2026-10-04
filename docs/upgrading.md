@@ -15,13 +15,15 @@ and the security issues to check. For every change in each release, see the
 
 v3.0 is a major release with the breaking changes that were postponed from v2.1. In v2.1 each one
 logged a warning via `IOStreams.logger` when it would change the result, so check your logs from
-v2.1 for them before upgrading.
+v2.1 for them before upgrading. It also includes bug fixes that change behavior that existing code
+may depend on, described at the end of this section.
 
 ### Column restrictions apply to every input
 
 When reading records, `allowed_columns`, `required_columns` and `skip_unknown` now apply to every
 input. Previously they were ignored for JSON and `:hash` input, when `columns:` was supplied, and
-with `cleanse_header: false`.
+with `cleanse_header: false`. When reading rows with `each(:array)`, they now also apply to the
+supplied `columns:`, and to the header row with `cleanse_header: false`.
 
 When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
 as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
@@ -46,6 +48,35 @@ Fix: remove the option, or use a separate path for reading and for writing. See
 
 `IOStreams::Pgp.export(email: nil)` without a `key_id:` now raises `ArgumentError`, instead of
 `IOStreams::Pgp::Failure`.
+
+### PGP email addresses match exactly
+
+An email address supplied as a PGP `recipient` or `signer`, or as the `email:` of
+`IOStreams::Pgp.list_keys`, `key?`, `export`, `delete_keys` or `set_trust`, now only matches keys with
+exactly that email address, ignoring case. gpg treats a bare email address as a search for any user id
+that contains it, so previously `bob@example.com` also matched `jimbob@example.com`.
+
+Fix: supply the exact email address of each key. To search the way gpg does, supply a value that is not
+just an email address, such as `*example.com`.
+
+### Reading gzip returns every member
+
+Reading a gzip file that contains several members, for example concatenated gzip files, now returns
+the contents of every member, instead of only the first. The stream supplied to the block when reading
+gzip is no longer a `Zlib::GzipReader`; like the other streams it responds to `#read`, `#readpartial`
+and `#eof?`.
+
+Fix: replace calls such as `#gets` on the gzip stream with `each(:line)`.
+
+### The encode stream validates every read
+
+With the `:encode` stream, data read from a file is treated as already being in the requested encoding,
+so valid characters are kept instead of being replaced, and an invalid character raises
+`Encoding::UndefinedConversionError` unless `replace:` is supplied. Previously reading lines let invalid
+characters through without raising.
+
+Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
+invalid characters instead of raising.
 
 ## Upgrading to v2.1
 

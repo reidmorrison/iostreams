@@ -28,6 +28,8 @@ module IOStreams
       #   Do not commit any side effects, such as database updates, until the block returns
       #   without raising, for example by processing the file within a database transaction.
       #   Otherwise supply `verify_first: true`.
+      #   When the block returns before reading the whole file, the rest is still decrypted and checked
+      #   before the block's result is returned.
       #
       # file_name: [String]
       #   Name of file to read from
@@ -78,7 +80,11 @@ module IOStreams
           result =
             begin
               stdout.binmode
-              yield(stdout)
+              value = yield(stdout)
+              # When the block does not read to the end, gpg waits to write the rest, so it would never finish.
+              # Read the rest so that gpg finishes, and checks the integrity and signature of the whole file.
+              ::IO.copy_stream(stdout, ::File::NULL)
+              value
             rescue Errno::EPIPE
               # Ignore broken pipe because gpg terminates early due to an error
               raise(Pgp::Failure, "GPG Failed reading from encrypted file: #{file_name}: #{stderr.read.chomp}")

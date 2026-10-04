@@ -86,6 +86,12 @@ path.option(:pgp, recipient: "receiver@example.org")
 # => #<IOStreams::Paths::File:example.csv.pgp @options={:pgp=>{:recipient=>"receiver@example.org"}} pipeline={:pgp=>{:recipient=>"receiver@example.org"}}>  
 ~~~
 
+An email address only matches keys with exactly that email address, ignoring case. For example
+`receiver@example.org` does not match a key for `other_receiver@example.org`. The same applies to
+`signer`, and to the `email:` argument of `IOStreams::Pgp.list_keys`, `key?`, `export`, `delete_keys`
+and `set_trust`. To search the way gpg does, supply a value that is not just an email address,
+such as `*receiver@example.org`.
+
 Write data to the PGP file:
 ~~~ruby
 path.writer do |io|
@@ -386,6 +392,9 @@ IOStreams.path("sample/example.csv.pgp").each(:hash) do |row|
 end
 # IOStreams::Pgp::Failure: ... gpg: BAD signature from "Sender <sender@example.org>"
 ~~~
+
+When the block returns before reading the whole file, for example after reading only the first
+line, the rest of the file is still decrypted and checked before the block's result is returned.
 
 Either do not commit any side effects until the block returns without raising, for example
 by processing the file within a database transaction, or supply the `verify_first` option:

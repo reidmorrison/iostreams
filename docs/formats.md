@@ -151,11 +151,15 @@ header row, to the supplied `columns`, and, for formats without a header row suc
 to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
 are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
 
+When reading rows with `each(:array)`, they apply to the header row and to the supplied `columns`,
+including with `cleanse_header: false`. The header row is yielded as it was read, and each row
+still contains every value.
+
 To return to the behavior before v3.0, where they only apply to a header row read from the file,
 and only when `cleanse_header` is true, set `IOStreams.enforce_column_restrictions = false`.
-A warning is then logged when applying them would change the records read. Since the format is
-usually inferred from the file name, renaming an uploaded file from `.csv` to `.json` then
-bypasses them.
+This applies to reading both records and rows. A warning is then logged when applying them would
+change the records or the header row read. Since the format is usually inferred from the file name,
+renaming an uploaded file from `.csv` to `.json` then bypasses them.
 
 Example, reading a headerless CSV file:
 

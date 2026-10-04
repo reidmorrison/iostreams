@@ -17,6 +17,44 @@ class UtilsTest < Minitest::Test
 
         refute_equal file_name, file_name2
       end
+
+      it "does not run the block again when it raises Errno::EEXIST" do
+        count = 0
+        assert_raises Errno::EEXIST do
+          IOStreams::Utils.temp_file_name("base", ".ext") do |_file_name|
+            count += 1
+            raise(Errno::EEXIST, "from the block")
+          end
+        end
+
+        assert_equal 1, count
+      end
+
+      it "deletes the file when the block raises" do
+        name = nil
+        assert_raises ArgumentError do
+          IOStreams::Utils.temp_file_name("base", ".ext") do |file_name|
+            name = file_name
+            File.write(file_name, "data")
+            raise(ArgumentError, "failed")
+          end
+        end
+
+        refute_path_exists name
+      end
+
+      it "uses another name when the file name already exists, and leaves the existing file" do
+        existing = File.join(IOStreams.temp_dir, "base#{Time.now.strftime('%Y%m%d')}-#{$$}-0.ext")
+        File.write(existing, "existing")
+        name = Random.stub(:urandom, "\0\0\0\0".b) do
+          IOStreams::Utils.temp_file_name("base", ".ext") { |file_name| file_name }
+        end
+
+        refute_equal existing, name
+        assert_equal "existing", File.read(existing)
+      ensure
+        FileUtils.rm_f(existing)
+      end
     end
 
     describe ".private_temp_file" do

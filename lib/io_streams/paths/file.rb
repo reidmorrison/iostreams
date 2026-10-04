@@ -100,8 +100,8 @@ module IOStreams
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
 
-        # Dir.each_child("testdir") {|x| puts "Got #{x}" }
-        full_pattern = ::File.join(path, pattern)
+        # An empty path is the current directory. `File.join("", pattern)` would search the root directory instead.
+        full_pattern = path.empty? ? pattern : ::File.join(path, pattern)
 
         results = Dir.glob(full_pattern, flags)
 
@@ -111,7 +111,7 @@ module IOStreams
         if results.empty? && !case_sensitive && pattern.match?(/[A-Z]/)
           # Try converting the pattern to lowercase and re-matching
           lowercase_pattern = pattern.downcase
-          lowercase_full_pattern = ::File.join(path, lowercase_pattern)
+          lowercase_full_pattern = path.empty? ? lowercase_pattern : ::File.join(path, lowercase_pattern)
           results = Dir.glob(lowercase_full_pattern, flags)
         end
 

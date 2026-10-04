@@ -83,7 +83,27 @@ module IOStreams
         url
       end
 
+      # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
+      #
+      # Characters that cannot appear in a url path, such as a space, `?` or `#`, are percent-encoded in the url.
+      # A `%` is assumed to already be percent-encoded.
+      def path=(path)
+        super
+        uri           = URI.parse(url)
+        uri.path      = escape_path(self.path)
+        @url          = uri.to_s
+        @original_uri = nil
+      end
+
       private
+
+      # Characters that can appear in a url path, besides `%`, which is assumed to already be percent-encoded.
+      PATH_CHARACTERS = %r{[A-Za-z0-9\-._~!$&'()*+,;=:@/%]}
+      private_constant :PATH_CHARACTERS
+
+      def escape_path(path)
+        path.each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
+      end
 
       attr_reader :allow_hosts, :maximum_file_size
 

@@ -90,6 +90,29 @@ class LineReaderTest < Minitest::Test
           assert_includes exc.message, "Unbalanced delimited field, delimiter:"
         end
 
+        it "limits an unbalanced line by its size in bytes" do
+          # Returns UTF-8 strings, as when reading through an encode stream.
+          utf8_reader = Class.new do
+            def initialize(data)
+              @io = StringIO.new(data.b)
+            end
+
+            def read(size)
+              @io.read(size)&.force_encoding("UTF-8")
+            end
+          end
+          # 200 lines of a two byte character are 400 characters, but 600 bytes, which exceeds
+          # the limit of 10 times the 51 byte buffer before the closing quote is reached.
+          input = utf8_reader.new("\"#{"\u00e9\n" * 200}end\"\n")
+          exc   = assert_raises(IOStreams::Errors::MalformedDataError) do
+            IOStreams::Line::Reader.stream(input, embedded_within: '"', buffer_size: 51) do |io|
+              io.each { |line| line }
+            end
+          end
+
+          assert_includes exc.message, "Unbalanced delimited field, delimiter:"
+        end
+
         it "raises error for unclosed quote before eof" do
           exc = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.file(unclosed_quote_large_file, embedded_within: '"', buffer_size: 20) do |io|

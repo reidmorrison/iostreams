@@ -128,6 +128,13 @@ module IOStreams
         url
       end
 
+      # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
+      def path=(path)
+        super
+        separator = self.path.start_with?("/") ? "" : "/"
+        @url      = "#{url[%r{\A[^:/]+://[^/?#]*}]}#{separator}#{self.path}"
+      end
+
       # Note that mkdir is delayed and only executed when the file write is performed.
       def mkdir
         @mkdir = true
@@ -180,10 +187,6 @@ module IOStreams
         nil
       end
 
-      protected
-
-      attr_writer :url
-
       private
 
       attr_reader :password
@@ -210,7 +213,6 @@ module IOStreams
         server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
         child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
         child.path = (path.empty? ? "/#{name}" : ::File.join(path, name)).freeze
-        child.url  = "#{server}#{child.path}"
         child
       end
 

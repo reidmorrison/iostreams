@@ -47,6 +47,8 @@ module IOStreams
       end
 
       # Supply a hash or an array to render
+      #
+      # Returns self, so that calls can be chained.
       def <<(array)
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
 
@@ -57,6 +59,7 @@ module IOStreams
         else
           @line_writer << @tabular.render(array)
         end
+        self
       end
     end
   end

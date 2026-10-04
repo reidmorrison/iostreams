@@ -169,6 +169,28 @@ module Paths
           assert_includes path, "page=2"
         end
 
+        it "downloads the joined path" do
+          start_server { |path| TestHTTPServer.response(200, body: "Requested #{path}") }
+
+          path = IOStreams.path("#{@server.base_url}/files?token=abc").join("2024", "report 1.csv")
+
+          assert_equal "#{@server.base_url}/files/2024/report%201.csv?token=abc", path.to_s
+          assert_equal "Requested /files/2024/report%201.csv?token=abc", path.read
+        end
+
+        it "downloads the directory" do
+          start_server { |path| TestHTTPServer.response(200, body: "Requested #{path}") }
+
+          assert_equal "Requested /files", IOStreams.path("#{@server.base_url}/files/report.csv").directory.read
+        end
+
+        it "encodes characters in a joined name that would change the url" do
+          path = IOStreams.path("https://example.com/files").join("a?b#c.csv")
+
+          assert_equal "https://example.com/files/a%3Fb%23c.csv", path.to_s
+          assert_equal "/files/a?b#c.csv", path.path
+        end
+
         it "follows a relative redirect" do
           start_server do |path|
             if path == "/redirect"
@@ -236,6 +258,16 @@ module Paths
             IOStreams.add_allowed_path("#{@server.base_url}/files")
 
             assert_equal body, IOStreams.path("#{@server.base_url}/files/report.csv").read
+          end
+
+          it "denies a joined path outside the allowed paths without contacting the server" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files/public")
+
+            assert_raises IOStreams::Errors::AccessDenied do
+              IOStreams.path("#{@server.base_url}/files/public").join("..", "secret.csv").read
+            end
+            assert_empty @server.requests
           end
 
           it "denies a url outside the allowed paths without contacting the server" do

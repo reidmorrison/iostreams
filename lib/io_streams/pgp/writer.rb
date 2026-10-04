@@ -168,7 +168,7 @@ module IOStreams
       def self.build_args(file_name:, encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:)
         args = ["--batch", "--no-tty", "--yes"]
         args << "--encrypt" if encrypt
-        args += ["--sign", "--local-user", signer.to_s] if signer
+        args += ["--sign", "--local-user", IOStreams::Pgp.user_id(signer)] if signer
         if signer_passphrase
           args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
           args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
@@ -176,7 +176,7 @@ module IOStreams
         end
         args += ["-z", compress_level.to_s] if compress_level != 6
         args += ["--compress-algo", compress.to_s] unless compress == :none
-        recipients.each { |address| args += ["--recipient", address.to_s] }
+        recipients.each { |address| args += ["--recipient", IOStreams::Pgp.user_id(address)] }
         args += ["-o", file_name.to_s]
         args
       end
