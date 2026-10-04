@@ -95,6 +95,14 @@ ignored unless nothing matched, and on a case-insensitive file system such as on
 Fix: on Linux, check that patterns that relied on matching case, such as `"*.csv"` in a directory that
 also has `DATA.CSV`, return the files you expect, or supply `case_sensitive: true`.
 
+### The file within a written zip file is named after the path
+
+Writing to a path such as `example.csv.zip` now names the file within the zip file `example.csv`, as
+documented, instead of `file`.
+
+Fix: if the program that reads the zip file expects the name `file`, supply
+`option(:zip, entry_file_name: "file")`.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

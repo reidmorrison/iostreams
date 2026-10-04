@@ -55,9 +55,44 @@ class ZipWriterTest < Minitest::Test
         entry_names = []
         Zip::File.open(zip_file_name) { |zip| zip.each { |entry| entry_names << entry.name } }
 
-        assert_equal [File.join(Dir.tmpdir, "iostreams_zip_writer_test.csv")], entry_names
+        assert_equal ["iostreams_zip_writer_test.csv"], entry_names
       ensure
         File.delete(zip_file_name) if zip_file_name && File.exist?(zip_file_name)
+      end
+
+      it "names the entry after the path written" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "example.csv.zip").write("a,b\n")
+          entry_names = []
+          Zip::File.open(File.join(dir, "example.csv.zip")) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+          assert_equal ["example.csv"], entry_names
+        end
+      end
+
+      it "names the entry after the file name, without the zip and later extensions" do
+        assert_equal({entry_file_name: "example.csv"}, IOStreams::Zip::Writer.file_name_options("reports/example.csv.zip.pgp"))
+        assert_equal({entry_file_name: "a.zip.csv"}, IOStreams::Zip::Writer.file_name_options("a.zip.csv.ZIP"))
+        assert_empty IOStreams::Zip::Writer.file_name_options("example.csv")
+        assert_equal({zip_file_name: "a.csv"}, IOStreams::Zip::Writer.file_name_options("b.csv.zip", zip_file_name: "a.csv"))
+      end
+
+      it "names the entry after the file name of a stream" do
+        output = StringIO.new("".b)
+        IOStreams.stream(output).file_name("reports/example.csv.zip").write("a,b\n")
+        entry_names = []
+        Zip::File.open_buffer(output.string) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+        assert_equal ["example.csv"], entry_names
+      end
+
+      it "names the entry file without a file name" do
+        output = StringIO.new("".b)
+        IOStreams.stream(output).stream(:zip).write("a,b\n")
+        entry_names = []
+        Zip::File.open_buffer(output.string) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+        assert_equal ["file"], entry_names
       end
 
       it "honors an explicit entry_file_name" do

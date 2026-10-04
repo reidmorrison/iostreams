@@ -171,6 +171,8 @@ module IOStreams
     def open_stream(type, stream, io_stream, opts, &)
       klass = class_for_stream(type, stream)
       validate_options(type, stream, klass, opts)
+      # A stream can default its options from the file name, such as the name of the file within a zip file.
+      opts = klass.file_name_options(file_name, **opts) if file_name && klass.respond_to?(:file_name_options)
       klass.open(io_stream, **opts, &)
     end
 
