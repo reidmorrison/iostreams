@@ -13,50 +13,19 @@ and the security issues to check. For every change in each release, see the
 
 ## Upgrading to v2.1
 
-v2.1 is a security release. The documented behavior of the API is unchanged, but some calls that
-were invalid and were silently ignored now raise an error instead. Most applications upgrade
-without any code changes.
+v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
+described below. Most applications upgrade without any code changes. The changes that would break
+existing code are postponed to v3.0, and log a warning in v2.1. See [Coming in v3.0](#coming-in-v30).
 
 ### Changes that may need code changes
 
-#### Stream options are strict
+#### PGP `delete_keys` requires an email or key id
 
-An option supplied via `#option` or `#stream` that the stream does not accept now raises
-`ArgumentError` instead of being silently ignored. When the option only applies in the other
-direction, for example a writer option supplied when reading, the message says so:
-
-~~~ruby
-IOStreams.path("file.csv.pgp").option(:pgp, recipient: "receiver@example.org").read
-# ArgumentError: :recipient only applies when writing a :pgp stream and cannot be used when reading.
-#   Configure a separate path or stream without it for reading.
-~~~
-
-The BZip2 reader and writer previously accepted any option. They now accept only `autoclose`,
-`first_only` and `small` when reading, and `autoclose`, `block_size` and `work_factor` when writing.
-
-Fix: remove the option, or use a separate path for reading and for writing. See
-[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
-
-#### Column restrictions apply to every input
-
-When reading records, `allowed_columns`, `required_columns` and `skip_unknown` now apply to every
-input. Previously they were silently ignored for JSON and `:hash` input, when `columns:` was
-supplied, and with `cleanse_header: false`.
-
-When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
-as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
-`IOStreams::Errors::InvalidHeader` when `skip_unknown: false`, and a record that is missing a
-required column raises `IOStreams::Errors::InvalidHeader`.
-
-Fix: check that the JSON files you read with these options have the expected keys. See
-[Header options](formats#header-options).
-
-#### PGP `delete_keys` and `export` require an email or key id
-
-`IOStreams::Pgp.delete_keys` and `IOStreams::Pgp.export` raise `ArgumentError` unless an `email:`
-or `key_id:` is supplied. Previously, on GnuPG 2.1 and later, `delete_keys` without either deleted
-every key in the keyring. To delete several keys, call it once for each key, for example for each
-key returned by `IOStreams::Pgp.list_keys`.
+`IOStreams::Pgp.delete_keys` raises `ArgumentError` unless an `email:` or `key_id:` is supplied.
+Previously, on GnuPG 2.1 and later, calling it without either deleted every key in the keyring, and
+with `private: true`, every secret key. This is the only breaking change in v2.1, since that could
+not be undone. To delete several keys, call it once for each key, for example for each key returned
+by `IOStreams::Pgp.list_keys`.
 
 #### SFTP `#each_child` requires a known host key
 
@@ -82,6 +51,12 @@ support raises `ArgumentError`.
 - When writing PSV or fixed width files, a line break within a value is replaced with a space, so
   that a value can no longer start a separate record.
 - Internal temp files are created so that only the current user can read them.
+- When reading lines, newlines within quoted values are kept within the line when the tabular format
+  quotes its values, such as CSV. Previously this depended on whether the file name contained `.csv`,
+  so `.format(:psv)` on a `.csv` file still joined quoted lines, and `.format(:csv)` on a stream
+  without a file name did not.
+- An `ArgumentError` for an option that a stream does not accept now says which direction the option
+  belongs to, or lists the valid options. Previously it was Ruby's `unknown keyword` error.
 
 ### Security checklist
 
@@ -175,10 +150,51 @@ contents are not protected against tampering. See
 
 #### Column restrictions on uploaded files
 
-Before v2.1, `allowed_columns` and `required_columns` were ignored for JSON input. Since the format
-is usually inferred from the file name, renaming an upload from `.csv` to `.json` bypassed them.
-If your application relies on them to restrict which columns an upload can set, check whether any
-uploads were affected.
+By default, `allowed_columns` and `required_columns` are ignored for JSON input. Since the format
+is usually inferred from the file name, renaming an upload from `.csv` to `.json` bypasses them.
+If your application relies on them to restrict which columns an upload can set, apply them to every
+input in an initializer, new in v2.1, and check whether any uploads were affected:
+
+~~~ruby
+IOStreams.enforce_column_restrictions = true
+~~~
+
+See [Column restrictions apply to every input](#column-restrictions-apply-to-every-input) for what
+it changes.
+
+## Coming in v3.0
+
+These changes are postponed to v3.0 since they could break existing code. Each one logs a warning
+in v2.1 via `IOStreams.logger` when it would change the result, so check your logs for them.
+
+### Column restrictions apply to every input
+
+When reading records, `allowed_columns`, `required_columns` and `skip_unknown` will apply to every
+input. In v2.1 they are ignored for JSON and `:hash` input, when `columns:` is supplied, and with
+`cleanse_header: false`.
+
+When either `allowed_columns` or `required_columns` is set, JSON keys will be cleansed the same way
+as a header row, for example `"Name"` becomes `"name"`. Unknown keys will be skipped, or raise
+`IOStreams::Errors::InvalidHeader` when `skip_unknown: false`, and a record that is missing a
+required column will raise `IOStreams::Errors::InvalidHeader`.
+
+To prepare: set `IOStreams.enforce_column_restrictions = true`, and check that the JSON files you
+read with these options have the expected keys. See [Header options](formats#header-options).
+
+### BZip2 options are strict
+
+The BZip2 reader and writer ignore any option they do not accept, and log a warning. In v3.0 it will
+raise `ArgumentError`, like every other stream. They accept `autoclose`, `first_only` and `small` when
+reading, and `autoclose`, `block_size` and `work_factor` when writing.
+
+To prepare: remove the option, or use a separate path for reading and for writing. See
+[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
+
+### PGP `export` without an email or key id
+
+`IOStreams::Pgp.export(email: nil)` without a `key_id:` raises `IOStreams::Pgp::Failure`, as it did
+before v2.1. In v3.0 it will raise `ArgumentError`. Calling it without either argument already raises
+`ArgumentError`.
 
 ## Upgrading to v2.0
 

@@ -262,6 +262,8 @@ module IOStreams
     # Returns [String] containing all the public keys for the supplied email address or key id.
     #
     # Raises ArgumentError when neither :email nor :key_id is supplied.
+    # Raises Pgp::Failure when `email: nil` is supplied without a :key_id, as before :key_id was added.
+    # In v3.0 this will raise ArgumentError instead.
     #
     # email: [String] Email address for requested key.
     #
@@ -270,8 +272,12 @@ module IOStreams
     # ascii: [true|false]
     #   Whether to export as ASCII text instead of binary format
     #   Default: true
-    def self.export(email: nil, key_id: nil, ascii: true, private: false, passphrase: nil)
-      raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
+    def self.export(email: (email_omitted = true) && nil, key_id: nil, ascii: true, private: false, passphrase: nil)
+      if email.nil? && key_id.nil?
+        raise(ArgumentError, "Either :email, or :key_id must be supplied") if email_omitted
+
+        raise(Pgp::Failure, "GPG Failed reading key: no email address or key id was supplied")
+      end
 
       version_check
 

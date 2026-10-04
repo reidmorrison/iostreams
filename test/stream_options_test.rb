@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "logger"
 
 # Options supplied via `#option` / `#stream` are strict: an option the stream does not accept
 # raises instead of being silently ignored.
@@ -110,16 +111,32 @@ class StreamOptionsTest < Minitest::Test
         assert_equal data, path("a.bz2").option(:bz2, small: true).read
       end
 
-      it "rejects an unknown option when writing" do
-        error = assert_raises(ArgumentError) { path("a.bz2").option(:bz2, bogus: 1).write(data) }
-        assert_equal "Unknown option :bogus when writing a :bz2 stream. " \
-                     "Valid options: :autoclose, :block_size, :work_factor.",
-                     error.message
+      it "ignores an unknown option when writing, and warns" do
+        output = with_logger { path("a.bz2").option(:bz2, bogus: 1).write(data) }
+
+        assert_equal data, path("a.bz2").read
+        assert_includes output, "Ignoring unknown option :bogus when writing a :bz2 stream. " \
+                                "Valid options: :autoclose, :block_size, :work_factor. In v3.0 this will raise ArgumentError."
       end
 
-      it "rejects an unknown option when called directly" do
-        assert_raises(ArgumentError) { IOStreams::Bzip2::Writer.stream(StringIO.new, bogus: 1) { |io| io.write(data) } }
-        assert_raises(ArgumentError) { IOStreams::Bzip2::Reader.stream(StringIO.new, bogus: 1, &:read) }
+      it "ignores an unknown option when reading, and warns" do
+        path("a.bz2").write(data)
+        result = nil
+        output = with_logger { result = path("a.bz2").option(:bz2, bogus: 1, block_size: 1).read }
+
+        assert_equal data, result
+        assert_includes output, "Ignoring unknown options :bogus, :block_size when reading a :bz2 stream. " \
+                                "Valid options: :autoclose, :first_only, :small."
+      end
+
+      def with_logger
+        output   = StringIO.new
+        original = IOStreams.logger
+        IOStreams.logger = Logger.new(output, level: :warn)
+        yield
+        output.string
+      ensure
+        IOStreams.logger = original
       end
     end
 

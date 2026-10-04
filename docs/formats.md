@@ -146,10 +146,23 @@ When reading or writing records (`:hash`), the following options control the hea
   `IOStreams::Errors::InvalidHeader`.
   Default: true
 
-When reading records, `allowed_columns`, `required_columns` and `skip_unknown` apply to the
-header row, to the supplied `columns`, and, for formats without a header row such as JSON,
-to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
-are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
+By default, when reading records, `allowed_columns`, `required_columns` and `skip_unknown` only
+apply to a header row read from the file, and only when `cleanse_header` is true. They are ignored
+for JSON and `:hash` input, when `columns` are supplied, and with `cleanse_header: false`, and a
+warning is logged when applying them would change the records read.
+
+Since the format is usually inferred from the file name, renaming an uploaded file from `.csv` to
+`.json` bypasses them. When they restrict which columns an upload can set, apply them to every input
+in an initializer:
+
+~~~ruby
+IOStreams.enforce_column_restrictions = true
+~~~
+
+They then also apply to the supplied `columns`, to a header row read with `cleanse_header: false`,
+and, for formats without a header row such as JSON, to the keys of each record. When either
+`allowed_columns` or `required_columns` is set, JSON keys are cleansed the same way as a header row,
+unless `cleanse_header: false` is supplied. This will be the default in v3.0.
 
 Example, reading a headerless CSV file:
 
