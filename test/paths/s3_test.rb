@@ -339,6 +339,36 @@ module Paths
           end
         end
       end
+
+      describe "#copy_from" do
+        before do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          S3Stub.install
+          IOStreams.path("s3://bucket/reports/a.csv").write("data")
+        end
+
+        after do
+          S3Stub.uninstall
+        end
+
+        it "keeps an existing object when the copy fails" do
+          target = IOStreams.path("s3://bucket/reports/a.csv")
+
+          assert_raises(Errno::ENOENT) { target.copy_from("/does/not/exist.csv") }
+          assert_equal "data", target.read
+        end
+
+        it "keeps an existing object when the copy fails part way" do
+          target         = IOStreams.path("s3://bucket/reports/a.csv")
+          failing_source = Object.new
+          def failing_source.read(*)
+            raise(IOError, "failed part way")
+          end
+
+          assert_raises(IOError) { target.copy_from(failing_source) }
+          assert_equal "data", target.read
+        end
+      end
     end
   end
 end

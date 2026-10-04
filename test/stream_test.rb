@@ -815,6 +815,50 @@ class StreamTest < Minitest::Test
         # The target retains the GZip compressed contents of the source.
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").stream(:gz).read
       end
+
+      it "copies rows in the supplied mode" do
+        source_path.write("name,zip\nJack,12345\n")
+        target_path.copy_from(source_path, mode: :hash)
+
+        assert_equal "name,zip\nJack,12345\n", target_path.read
+      end
+
+      describe "when the source cannot be read" do
+        let(:missing_source) { IOStreams.join("copy_test", "missing.csv") }
+
+        before do
+          target_path.write("existing data")
+        end
+
+        it "leaves an existing target unchanged" do
+          assert_raises(Errno::ENOENT) { target_path.copy_from(missing_source) }
+
+          assert_equal "existing data", target_path.read
+        end
+
+        it "leaves an existing target unchanged when copying rows" do
+          assert_raises(Errno::ENOENT) { target_path.copy_from(missing_source, mode: :line) }
+
+          assert_equal "existing data", target_path.read
+        end
+
+        it "leaves an existing target unchanged without conversions" do
+          assert_raises(Errno::ENOENT) { target_path.copy_from(missing_source, convert: false) }
+
+          assert_equal "existing data", target_path.read
+        end
+      end
+
+      it "removes a new target when the copy fails part way" do
+        failing_source = Object.new
+        def failing_source.read(*)
+          raise(IOError, "failed part way")
+        end
+
+        assert_raises(IOError) { target_path.copy_from(failing_source) }
+
+        refute_predicate target_path, :exist?
+      end
     end
 
     describe "#copy_to" do
