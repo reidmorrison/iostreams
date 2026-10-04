@@ -51,6 +51,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - When writing PSV or fixed width files, line breaks within a value are now replaced with a space. Previously a value such as `"Jack\nFORGED"` wrote a separate record. PSV already replaced `|` with `:` for the same reason.
 - Chaining `<<` when writing arrays or hashes, for example `io << row1 << row2` within `writer(:array)` or `writer(:hash)`, writes each row. Previously `<<` returned the underlying line writer, so every row after the first in a chain was written as its Ruby `inspect` output, such as `{"name" => "Jill"}`.
 - `IOStreams.each_child` with a pattern that has no directory, such as `IOStreams.each_child("*.csv")`, searches the current directory. Previously it searched the root directory `/`, so `"**/*.csv"` searched the entire file system.
+- `IOStreams.temp_file` runs the block once. Previously, when the block raised `Errno::EEXIST`, for example from `Dir.mkdir`, the block was run again with a new file name up to 5 times, and then a `RuntimeError` was raised instead. It also no longer chooses the name of a file that already exists, which it then deleted when the block finished.
 
 ## [2.0.0] - 2026-06-19
 
