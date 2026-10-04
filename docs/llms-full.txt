@@ -2929,6 +2929,15 @@ and S3 paths, instead of the size of the file written.
 
 Fix: if you need the size, return it from the block, for example the total of what `io.write` returns.
 
+### Options that a mode or copy cannot use raise `ArgumentError`
+
+`#reader` and `#writer` in the `:stream` mode, which is the default, `#copy_from` and `#copy_to` without
+a `mode:`, and `#copy_from` and `#copy_to` with `convert: false`, now raise `ArgumentError` for any
+option, instead of ignoring it. Options for the `:line`, `:array` and `:hash` modes already raised.
+
+Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
+example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

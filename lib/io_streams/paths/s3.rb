@@ -228,6 +228,7 @@ module IOStreams
         target = IOStreams.new(target_path)
         return super(target, convert: convert, **args) unless target.is_a?(self.class)
 
+        reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         target.authorize!
         client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: copy_source))
@@ -243,6 +244,7 @@ module IOStreams
           return super(source, convert: convert, **args)
         end
 
+        reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         source.authorize!
         client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source.copy_source))

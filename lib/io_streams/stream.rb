@@ -1,5 +1,8 @@
 module IOStreams
   class Stream
+    # Why a copy with `convert: false` cannot accept options.
+    UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is".freeze
+
     attr_reader :io_stream
     attr_writer :builder
 
@@ -108,6 +111,7 @@ module IOStreams
     def reader(mode = :stream, **args, &)
       case mode
       when :stream
+        reject_stream_mode_options!(args)
         stream_reader(&)
       when :line
         line_reader(**args, &)
@@ -134,6 +138,7 @@ module IOStreams
     def writer(mode = :stream, **args, &)
       case mode
       when :stream
+        reject_stream_mode_options!(args)
         stream_writer(&)
       when :line
         line_writer(**args, &)
@@ -169,6 +174,9 @@ module IOStreams
     #   :mode [:line, :array, :hash]
     #     When convert is `true` then use this mode to convert the contents of the file.
     #
+    #   Any other options are passed to the writer for the `mode`, see `#writer`. Without a `mode`,
+    #   or with `convert: false`, no other options are accepted.
+    #
     # Examples:
     #
     # # Copy and convert streams based on file extensions
@@ -194,11 +202,13 @@ module IOStreams
             end
           end
         else
+          reject_copy_options!("when copying without a `mode:`", **args)
           stream.reader do |src|
-            writer(**args) { |target| IO.copy_stream(src, target) }
+            writer { |target| IO.copy_stream(src, target) }
           end
         end
       else
+        reject_copy_options!(UNCONVERTED_COPY, mode: mode, **args)
         IOStreams.new(source).without_streams.reader do |src|
           without_streams.writer { |target| IO.copy_stream(src, target) }
         end
@@ -330,6 +340,14 @@ module IOStreams
 
     protected
 
+    # Options are strict: raise rather than ignore options that a copy cannot use.
+    def reject_copy_options!(reason, **options)
+      names = options.compact.keys
+      return if names.empty?
+
+      raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used #{reason}")
+    end
+
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
     # changing the streams or options of this one.
     def without_streams
@@ -339,6 +357,18 @@ module IOStreams
     end
 
     private
+
+    # Options are strict: raise rather than ignore options that the :stream mode cannot use.
+    def reject_stream_mode_options!(options)
+      return if options.empty?
+
+      names = options.keys.map(&:inspect).join(", ")
+      raise(
+        ArgumentError,
+        "Unknown #{options.size == 1 ? 'option' : 'options'} for the :stream mode: #{names}. " \
+        "Use #option or #stream to configure the streams."
+      )
+    end
 
     def builder
       @builder ||= IOStreams::Builder.new

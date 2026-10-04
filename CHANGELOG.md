@@ -25,6 +25,7 @@ These bug fixes change behavior that existing code may depend on:
 - **The file within a zip file written to a path is named after the path.** Writing `example.csv.zip`, or `example.csv.zip.pgp`, now names the file within the zip file `example.csv`, as documented. Previously it was named `file`, unless `entry_file_name:` was supplied.
 - **A hash key that matches a column once cleansed supplies its value.** When writing a hash with `columns:`, or reading JSON or `:hash` records with `columns:`, a column without a key of the same name now takes the value of the key that is the same once both are cleansed like a header row, so the key `"First Name"` supplies the column `first_name`. Previously the column was always empty, so for example `writer(:hash, columns: ["first_name"])` wrote an empty field for `{"First Name" => "Jack"}`. A key that matches the column exactly is still used first.
 - **Writing to an SFTP path returns the result of the block**, like local and S3 paths, for example from `#writer`. Previously it returned the size of the file written.
+- **`#reader`, `#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for options they cannot use**, instead of ignoring them, so that a misspelled option is reported. This applies to options supplied to the `:stream` mode, which is the default, to `#copy_from` and `#copy_to` without a `mode:`, and to `#copy_from` and `#copy_to` with `convert: false`, including `mode:`. Options for the `:line`, `:array` and `:hash` modes already raised.
 
 ### Fixed
 

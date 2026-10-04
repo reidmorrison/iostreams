@@ -20,6 +20,45 @@ class StreamOptionsTest < Minitest::Test
       IOStreams.path(::File.join(dir, name))
     end
 
+    describe "options that a mode or copy cannot use" do
+      it "raises for an option to the :stream mode when reading" do
+        path("a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("a.csv").reader(buffer_size: 10, &:read) }
+        assert_equal "Unknown option for the :stream mode: :buffer_size. Use #option or #stream to configure the streams.",
+                     error.message
+      end
+
+      it "raises for options to the :stream mode when writing" do
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:stream, columns: [], delimiter: "|") { |io| io << data } }
+        assert_match(/\AUnknown options for the :stream mode: :columns, :delimiter\./, error.message)
+      end
+
+      it "raises for an option when copying without a mode" do
+        path("a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), columns: %w[id]) }
+        assert_equal ":columns cannot be used when copying without a `mode:`", error.message
+        refute_path_exists ::File.join(dir, "b.csv")
+      end
+
+      it "passes options to the writer when copying with a mode" do
+        path("a.csv").write(data)
+        path("b.csv").copy_from(path("a.csv"), mode: :hash, columns: %w[name])
+
+        assert_equal "name\nJack\n", path("b.csv").read
+      end
+
+      it "raises for options when copying without converting" do
+        path("a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), convert: false, mode: :hash, columns: %w[id]) }
+        assert_equal ":mode, :columns cannot be used with `convert: false`, which copies the data as-is", error.message
+        error = assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.csv"), convert: false, columns: %w[id]) }
+        assert_equal ":columns cannot be used with `convert: false`, which copies the data as-is", error.message
+      end
+    end
+
     describe "an option that only applies in the other direction" do
       it "names the direction when a writer option is used to read" do
         path("a.csv.enc").option(:enc, compress: false).write(data)
