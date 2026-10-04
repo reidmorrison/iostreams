@@ -56,9 +56,16 @@ path = IOStreams.path("s3://bucket-name/path/example.csv")
 * url [String]
 
   Prefix must be: `s3://`, followed by bucket name, followed by key.
+  Any query string in the url is added to the S3 request parameters, for example
+  `s3://my-bucket-name/file_name.csv?acl=bucket-owner-full-control`.
   Examples:
     s3://my-bucket-name/file_name.txt
     s3://my-bucket-name/some_path/file_name.csv
+
+  Security warning: do not interpolate an untrusted file name into the url, since a name such as
+  `file.csv?acl=public-read` would set request parameters. Join it onto the path instead, which
+  does not parse it as a query:
+  `IOStreams.path("s3://my-bucket-name/uploads").join(untrusted_name)`
 
 #### Optional Arguments:
 
@@ -585,3 +592,54 @@ IOStreams.add_root(:ftp, "s3://my-app-ftp-bucket-name/ftp")
 ~~~
 
 The code calling `IOStreams.join` does not change at all, see [Config](config) for more examples.
+
+### Restricting access with allowed paths
+
+Roots make paths easy to build, but they do not stop a path from leaving the root, for example
+`IOStreams.join("../../etc/passwd")`. When file names come from untrusted input, such as a user or a
+job's configuration, add allowed paths in an initializer to restrict which paths IOStreams can access:
+
+~~~ruby
+IOStreams.add_allowed_path("/var/my_app/uploads")
+IOStreams.add_allowed_path("s3://my-app-bucket-name/export")
+IOStreams.add_allowed_path("sftp://sftp.example.org/outbound")
+IOStreams.add_allowed_path("https://reports.example.org/daily")
+~~~
+
+Once any allowed path has been added, reading, writing, listing, deleting or otherwise accessing a
+path that is not within one of them raises `IOStreams::Errors::AccessDenied`:
+
+~~~ruby
+IOStreams.path("/var/my_app/uploads/file.csv").read
+# => "..."
+
+IOStreams.path("/var/my_app/uploads/../secrets.yml").read
+# => IOStreams::Errors::AccessDenied
+
+# Check without raising:
+IOStreams.allowed_path?("/etc/passwd")
+# => false
+~~~
+
+Paths are normalized before they are compared:
+
+- Local file names are resolved to their real path, so neither `..` nor a symbolic link can be used to
+  leave an allowed path. A relative allowed path is resolved against the current working directory
+  when it is added.
+- S3 paths must be in the same bucket. Keys containing `.` or `..` segments are denied, since some
+  services that implement the S3 API resolve them.
+- SFTP and HTTP paths must have the same host and port, and for HTTP the same scheme. `.` and `..`
+  are resolved the way the server resolves them. Every HTTP redirect is checked as well.
+
+Notes:
+
+- By default no allowed paths are added, and every path is accessible.
+- `each_child` skips children that are not within the allowed paths, for example a symbolic link to a
+  file elsewhere.
+- Temp files from `IOStreams.temp_file` are always accessible.
+- `IOStreams.allowed_paths` returns the normalized allowed paths, and `IOStreams.delete_allowed_path`
+  removes one.
+- Paths from a scheme added with `IOStreams.register_scheme` are denied, unless its path class
+  implements the private method `#allowed_location`.
+- A local file could be replaced with a symbolic link after it is checked but before it is opened.
+  Do not allow paths where untrusted users can create files.

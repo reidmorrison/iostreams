@@ -94,6 +94,8 @@ module IOStreams
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
+        authorize!
+
         flags = 0
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
@@ -116,7 +118,8 @@ module IOStreams
         results.each do |full_path|
           next if !directories && ::File.directory?(full_path)
 
-          yield(self.class.new(full_path))
+          child = self.class.new(full_path)
+          yield(child) if allowed_child?(child)
         end
       end
 
@@ -128,6 +131,8 @@ module IOStreams
         target = IOStreams.new(target_path)
         return super(target) unless target.is_a?(self.class)
 
+        authorize!
+        target.authorize!
         target.mkpath
         # In case the file is being moved across partitions
         FileUtils.move(path, target.to_s)
@@ -135,25 +140,30 @@ module IOStreams
       end
 
       def mkpath
+        authorize!
         dir = ::File.dirname(path)
         FileUtils.mkdir_p(dir)
         self
       end
 
       def mkdir
+        authorize!
         FileUtils.mkdir_p(path)
         self
       end
 
       def exist?
+        authorize!
         ::File.exist?(path)
       end
 
       def size
+        authorize!
         ::File.size(path)
       end
 
       def delete
+        authorize!
         return self unless exist?
 
         ::File.directory?(path) ? Dir.delete(path) : ::File.unlink(path)
@@ -161,6 +171,7 @@ module IOStreams
       end
 
       def delete_all
+        authorize!
         return self unless exist?
 
         ::File.directory?(path) ? FileUtils.remove_dir(path) : ::File.unlink(path)
@@ -169,10 +180,45 @@ module IOStreams
 
       # Returns the real path by stripping `.`, `..` and expands any symlinks.
       def realpath
+        authorize!
         self.class.new(::File.realpath(path))
       end
 
       private
+
+      # Returns [String] the real path of this file, following any symbolic links, which is compared
+      # against the allowed paths.
+      #
+      # The part of the path that does not exist yet, for example a file that is about to be written,
+      # is appended to the real path of the part that does exist. It cannot contain `.` or `..`, since
+      # what they refer to depends on directories that have not been created yet.
+      def allowed_location
+        existing = ::File.absolute_path?(path) ? path : ::File.join(Dir.pwd, path)
+        missing  = []
+        until present?(existing)
+          parent = ::File.dirname(existing)
+          break if parent == existing
+
+          missing.unshift(::File.basename(existing))
+          existing = parent
+        end
+
+        if missing.intersect?([".", ".."])
+          raise(Errors::AccessDenied, "Access denied to #{path}: '.' and '..' are not allowed after a missing directory")
+        end
+
+        ::File.join(::File.realpath(existing), *missing)
+      rescue SystemCallError => e
+        raise(Errors::AccessDenied, "Access denied to #{path}: #{e.message}")
+      end
+
+      # Returns [true|false] whether the file, directory or symbolic link exists, without following the link.
+      def present?(file_name)
+        ::File.lstat(file_name)
+        true
+      rescue SystemCallError
+        false
+      end
 
       # Read from file
       def stream_reader(&block)

@@ -18,6 +18,10 @@ module IOStreams
     class CommunicationsFailure < Error
     end
 
+    # When a path is not within any of the allowed paths, see `IOStreams.add_allowed_path`.
+    class AccessDenied < Error
+    end
+
     # When the specified delimiter is not found in the supplied stream / file
     class DelimiterNotFound < Error
     end

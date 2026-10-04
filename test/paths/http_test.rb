@@ -226,6 +226,58 @@ module Paths
           assert_includes error.message, "only http and https"
         end
 
+        describe "allowed paths" do
+          after do
+            IOStreams.instance_variable_set(:@allowed_paths, [].freeze)
+          end
+
+          it "downloads a url within an allowed path" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            assert_equal body, IOStreams.path("#{@server.base_url}/files/report.csv").read
+          end
+
+          it "denies a url outside the allowed paths without contacting the server" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            assert_raises IOStreams::Errors::AccessDenied do
+              IOStreams.path("#{@server.base_url}/secret").read
+            end
+            assert_empty @server.requests
+          end
+
+          it "denies a redirect outside the allowed paths" do
+            start_server do |path|
+              if path == "/files/report.csv"
+                TestHTTPServer.response(302, headers: {"Location" => "/secret"})
+              else
+                TestHTTPServer.response(200, body: "secret")
+              end
+            end
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            assert_raises IOStreams::Errors::AccessDenied do
+              IOStreams.path("#{@server.base_url}/files/report.csv").read
+            end
+            assert_equal(["/files/report.csv"], @server.requests.collect { |request| request[:path] })
+          end
+
+          it "follows a redirect within the allowed paths" do
+            start_server do |path|
+              if path == "/files/report.csv"
+                TestHTTPServer.response(302, headers: {"Location" => "/files/moved.csv"})
+              else
+                TestHTTPServer.response(200, body: body)
+              end
+            end
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            assert_equal body, IOStreams.path("#{@server.base_url}/files/report.csv").read
+          end
+        end
+
         it "aborts a download that exceeds the maximum file size" do
           start_server { |_path| TestHTTPServer.response(200, body: body) }
 

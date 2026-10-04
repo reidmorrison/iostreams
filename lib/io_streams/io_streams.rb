@@ -119,8 +119,12 @@ module IOStreams
   #
   # Example:
   #   IOStreams.temp_file("export", ".csv") { |path| path.write("Hello World") }
+  #
+  # Note: The temp file is accessible even when it is not within the allowed paths, see `IOStreams.add_allowed_path`.
   def self.temp_file(basename, extension = "")
-    Utils.temp_file_name(basename, extension) { |file_name| yield(Paths::File.new(file_name).stream(:none)) }
+    Utils.temp_file_name(basename, extension) do |file_name|
+      yield(Paths::File.new(file_name).send(:permit!).stream(:none))
+    end
   end
 
   # Returns [IOStreams::Paths::File] current or named users home path
@@ -241,6 +245,77 @@ module IOStreams
     @root_paths.dup
   end
 
+  # Restrict IOStreams to only access paths within the supplied path.
+  #
+  # Once any allowed path has been added, reading, writing, listing, deleting or otherwise accessing
+  # a path that is not within one of the allowed paths raises `IOStreams::Errors::AccessDenied`.
+  # This prevents an untrusted file name, for example one supplied by a user, from accessing anything
+  # else that the process can access.
+  #
+  # Parameters: Same as `IOStreams.path`
+  #
+  # Returns [String] the normalized path that was added, against which paths are compared.
+  #
+  # Example:
+  #    IOStreams.add_allowed_path("/var/data/uploads")
+  #    IOStreams.add_allowed_path("s3://my-bucket/exports")
+  #
+  #    IOStreams.path("/var/data/uploads/file.csv").read
+  #    IOStreams.path("/etc/passwd").read
+  #    # => IOStreams::Errors::AccessDenied
+  #
+  # Notes:
+  # * By default no allowed paths are added, and every path is accessible.
+  # * Add allowed paths in an initializer at startup, where they cannot be changed by untrusted input.
+  # * Paths are normalized before they are compared, so `..` cannot be used to leave an allowed path:
+  #   * Local file names are resolved to their real path, following symbolic links.
+  #     A relative path is resolved against the current working directory when it is added.
+  #   * For S3 the bucket must match, and keys containing `.` or `..` segments are denied.
+  #   * For SFTP and HTTP the host and port must match, and `.` and `..` segments are resolved.
+  # * `#each_child` skips children that are not within the allowed paths, for example a symbolic link
+  #   to a file elsewhere.
+  # * Temp files created by `IOStreams.temp_file` are always accessible.
+  # * Paths from a scheme registered with `IOStreams.register_scheme` are denied, unless its path class
+  #   implements the private method `#allowed_location`.
+  # * A local file could be replaced with a symbolic link after it is checked but before it is opened.
+  #   Allowed paths do not prevent this, so do not allow paths where untrusted users can create files.
+  def self.add_allowed_path(*elements, **args)
+    location = allowed_location(path(*elements, **args))
+    @allowed_paths_mutex.synchronize { @allowed_paths = (@allowed_paths + [location]).uniq.freeze }
+    location
+  end
+
+  # Removes a path previously added with `IOStreams.add_allowed_path`.
+  #
+  # Returns [String] the normalized path that was removed.
+  def self.delete_allowed_path(*elements, **args)
+    location = allowed_location(path(*elements, **args))
+    @allowed_paths_mutex.synchronize { @allowed_paths = (@allowed_paths - [location]).freeze }
+    location
+  end
+
+  # Returns [Array<String>] the normalized allowed paths, see `IOStreams.add_allowed_path`.
+  def self.allowed_paths
+    @allowed_paths
+  end
+
+  # Returns [true|false] whether the supplied path can be accessed, see `IOStreams.add_allowed_path`.
+  #
+  # Always true when no allowed paths have been added.
+  #
+  # Parameters: Same as `IOStreams.path`
+  def self.allowed_path?(*elements, **args)
+    path(*elements, **args).send(:allowed?)
+  end
+
+  def self.allowed_location(path)
+    path.send(:allowed_location)
+  rescue Errors::AccessDenied => e
+    raise(ArgumentError, e.message)
+  end
+
+  private_class_method :allowed_location
+
   # Set the temporary path to use when creating local temp files.
   def self.temp_dir=(temp_dir)
     temp_dir = File.expand_path(temp_dir)
@@ -326,6 +401,10 @@ module IOStreams
 
   # Hold root paths
   @root_paths = {}
+
+  # Hold allowed paths. Replaced rather than modified, so that it can be read without a lock.
+  @allowed_paths       = [].freeze
+  @allowed_paths_mutex = Mutex.new
 
   # A registry to hold formats for processing files during upload or download
   @extensions = {}

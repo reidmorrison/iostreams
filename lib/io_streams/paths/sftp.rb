@@ -150,6 +150,7 @@ module IOStreams
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
+        authorize!
         Utils.load_soft_dependency("net-sftp", "SFTP glob capability", "net/sftp") unless defined?(Net::SFTP)
 
         flags = ::File::FNM_EXTGLOB
@@ -160,7 +161,8 @@ module IOStreams
           sftp.dir.glob(".", pattern, flags) do |path|
             next if !directories && !path.file?
 
-            yield(child_path(path.name), path.attributes.attributes)
+            child = child_path(path.name)
+            yield(child, path.attributes.attributes) if allowed_child?(child)
           end
         end
         nil
@@ -173,6 +175,12 @@ module IOStreams
       private
 
       attr_reader :password
+
+      # Returns [String] the host, port and path, which is compared against the allowed paths.
+      # `.` and `..` are resolved the way the sftp server resolves them.
+      def allowed_location
+        "sftp://#{hostname.to_s.downcase}:#{port}#{normalize_path(path)}".chomp("/")
+      end
 
       # Usernames are passed to the `sftp` executable, so reject values that it could treat as options.
       def validate_username!

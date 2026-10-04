@@ -194,6 +194,7 @@ module IOStreams
       end
 
       def delete
+        authorize!
         client.delete_object(bucket: bucket_name, key: path)
         self
       rescue Aws::S3::Errors::NotFound
@@ -201,6 +202,7 @@ module IOStreams
       end
 
       def exist?
+        authorize!
         client.head_object(bucket: bucket_name, key: path)
         true
       rescue Aws::S3::Errors::NotFound
@@ -225,6 +227,8 @@ module IOStreams
         target = IOStreams.new(target_path)
         return super(target, convert: convert, **args) unless target.is_a?(self.class)
 
+        authorize!
+        target.authorize!
         source_name = ::File.join(bucket_name, path)
         client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: source_name))
         target
@@ -239,6 +243,8 @@ module IOStreams
           return super(source, convert: convert, **args)
         end
 
+        authorize!
+        source.authorize!
         source_name = ::File.join(source.bucket_name, source.path)
         client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source_name))
       end
@@ -253,6 +259,7 @@ module IOStreams
       end
 
       def size
+        authorize!
         client.head_object(bucket: bucket_name, key: path).content_length
       rescue Aws::S3::Errors::NotFound
         nil
@@ -272,6 +279,7 @@ module IOStreams
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def read_file(file_name)
+        authorize!
         ::File.open(file_name, "wb") do |file|
           client.get_object(options.merge(response_target: file, bucket: bucket_name, key: path))
         end
@@ -297,6 +305,7 @@ module IOStreams
 
       # Shortcut method if caller has a filename already with no other streams applied:
       def write_file(file_name)
+        authorize!
         if ::File.size(file_name) > MULTIPART_UPLOAD_SIZE
           # Use multipart file upload
           s3  = Aws::S3::Resource.new(client: client)
@@ -317,29 +326,26 @@ module IOStreams
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
+        authorize!
         matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
 
         # When the pattern includes an exact file name without any pattern characters
         if matcher.pattern.nil?
-          yield(matcher.path) if matcher.path.exist?
+          yield(matcher.path) if allowed_child?(matcher.path) && matcher.path.exist?
           return
         end
 
         prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, "")
-        token  = nil
-        loop do
-          # Fetches upto 1,000 entries at a time
-          resp = client.list_objects_v2(bucket: bucket_name, prefix: prefix, continuation_token: token)
-          resp.contents.each do |object|
-            next if !directories && object.key.end_with?("/")
+        each_object(prefix) do |name, object|
+          next if !directories && object.key.end_with?("/")
 
-            file_name = ::File.join("s3://", resp.name, object.key)
-            next unless matcher.match?(file_name)
+          file_name = ::File.join("s3://", name, object.key)
+          next unless matcher.match?(file_name)
 
-            yield(child_path(resp.name, object.key), object.to_h)
-          end
-          token = resp.next_continuation_token
-          break if token.nil?
+          child = child_path(name, object.key)
+          next unless allowed_child?(child)
+
+          yield(child, object.to_h)
         end
         nil
       end
@@ -355,6 +361,30 @@ module IOStreams
       end
 
       private
+
+      # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
+      def each_object(prefix)
+        token = nil
+        loop do
+          # Fetches upto 1,000 entries at a time
+          resp = client.list_objects_v2(bucket: bucket_name, prefix: prefix, continuation_token: token)
+          resp.contents.each { |object| yield(resp.name, object) }
+          token = resp.next_continuation_token
+          break if token.nil?
+        end
+      end
+
+      # Returns [String] the bucket and key, which is compared against the allowed paths.
+      #
+      # S3 treats `.` and `..` in a key as ordinary characters, but other services that implement the
+      # S3 API may resolve them, so keys containing them are denied.
+      def allowed_location
+        if path.split("/").intersect?([".", ".."])
+          raise(Errors::AccessDenied, "Access denied to #{self}: '.' and '..' are not allowed in S3 keys")
+        end
+
+        to_s.sub(%r{/+\z}, "")
+      end
 
       # Set the key directly rather than parsing it as part of a URL, since a key can contain
       # characters such as `?`, `+` or `%` that a URL parser would treat as a query or as escapes.
