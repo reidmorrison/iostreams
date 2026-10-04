@@ -95,9 +95,11 @@ module IOStreams
         if line && @embedded_within
           initial_line_number = @line_number
           # Count the delimiters incrementally, since recounting the whole line each time is quadratic.
+          # For the same reason limit the size of the line in bytes, since `#length` counts the characters
+          # in a multi-byte string such as UTF-8 each time it is called.
           embedded_count      = line.count(@embedded_within)
           while embedded_count.odd?
-            if eof? || line.length > @buffer_size * 10
+            if eof? || line.bytesize > @buffer_size * 10
               raise(Errors::MalformedDataError.new(
                       "Unbalanced delimited field, delimiter: #{@embedded_within}",
                       initial_line_number
