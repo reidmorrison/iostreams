@@ -827,6 +827,29 @@ class StreamTest < Minitest::Test
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").stream(:gz).read
       end
 
+      it "copies without conversions from a source with options" do
+        source_path.write("Hello World")
+        source = IOStreams.join("copy_test", "source.csv.gz").option(:gz)
+        target_path.copy_from(source, convert: false)
+
+        assert_equal "Hello World", target_path.stream(:gz).read
+      end
+
+      it "copies without conversions without changing the streams of either path" do
+        source = IOStreams.join("copy_test", "source.csv.gz")
+        source.write("Hello World")
+        target = IOStreams.join("copy_test", "target.csv.gz")
+        target.copy_from(source, convert: false)
+
+        assert_equal "Hello World", source.read
+        assert_equal "Hello World", target.read
+        target.write("Changed")
+
+        refute_equal "Changed", target.stream(:none).read.b
+      ensure
+        target&.delete
+      end
+
       it "copies rows in the supplied mode" do
         source_path.write("name,zip\nJack,12345\n")
         target_path.copy_from(source_path, mode: :hash)

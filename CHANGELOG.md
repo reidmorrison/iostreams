@@ -37,6 +37,7 @@ These bug fixes change behavior that existing code may depend on:
 - Copying between S3 paths with `convert: false`, or with `#move_to`, copies a key that contains a space, `+`, `%`, `?` or another character that must be url-encoded. Previously the key was not url-encoded, which S3 requires, so the copy failed or copied another object.
 - The format of a file is detected from an upper case extension, so `DATA.JSON` is read as JSON. Previously it was read as CSV, the default. The format and the streams are also no longer detected from the name of the file before its first `.`, or from a directory name: previously `hash.txt` was read as the `:hash` format, a file named `gz` was read as gzip, and `reports.json/data.txt` was read as JSON.
 - Local `#each_child` returns the children of a directory whose name contains a pattern character such as `[`, `{`, `*` or `?`. Previously it returned nothing, or the children of other directories. Within the pattern itself such characters must still be escaped with `\`. It also no longer yields the directory itself, as `dir/.`, with `hidden: true` and `directories: true`.
+- `#copy_from` and `#copy_to` with `convert: false` no longer change the streams of the source or target path. Previously both paths were left with no streams, as with `stream(:none)`, so for example a later `#read` of a `.gz` source returned its compressed data, and a source with an `#option` raised `ArgumentError`.
 
 ## [2.1.0] - 2026-10-04
 
