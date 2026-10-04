@@ -124,6 +124,19 @@ module Paths
           assert_equal url, path.url
         end
 
+        it "is the root directory without a path" do
+          assert_equal "/", new_path("sftp://example.org").path
+          assert_equal "/", new_path("sftp://example.org/").path
+          assert_equal new_path("sftp://example.org/").join("a.csv"), new_path("sftp://example.org").join("a.csv")
+        end
+
+        it "is within the login directory when the path starts with ~" do
+          assert_equal "~", new_path("sftp://example.org/~").path
+          assert_equal "~/data/a.csv", new_path("sftp://example.org/~/data/a.csv").path
+          assert_equal "sftp://example.org/~", new_path("sftp://example.org/~/a.csv").directory.to_s
+          assert_equal "/~data/a.csv", new_path("sftp://example.org/~data/a.csv").path
+        end
+
         it "keeps a plus sign in the path" do
           path = new_path("sftp://example.org/path/a+b.txt", username: "jack", password: "secret")
 
@@ -436,6 +449,20 @@ module Paths
           end
         end
 
+        it "writes a path within the login directory relative to it" do
+          path = new_path("sftp://example.org/~", username: "jack").join("in", "file.csv")
+
+          with_stub_sftp do |calls|
+            path.mkpath.write("data")
+
+            commands = calls.first.last.string.lines(chomp: true)
+
+            assert_equal "sftp://example.org/~/in/file.csv", path.to_s
+            assert_equal '-mkdir "in"', commands.first
+            assert_match(%r{\Aput ".*" "in/file.csv"\z}, commands[1])
+          end
+        end
+
         it "connects without a username" do
           path = new_path("sftp://example.org/data/file.csv")
 
@@ -527,14 +554,40 @@ module Paths
           end
         end
 
-        it "lists the login directory when the url has no path" do
-          path = new_path("sftp://example.org", username: "jack")
+        it "lists the root directory when the url has no path" do
+          %w[sftp://example.org sftp://example.org/].each do |url|
+            path = new_path(url, username: "jack")
+
+            with_stub_net_sftp(["a.csv"]) do |stub_sftp|
+              children = path.each_child.to_a.map(&:first)
+
+              assert_equal "/", stub_sftp.instance_variable_get(:@glob_dir)
+              assert_equal ["/a.csv"], children.map(&:path)
+              assert_equal ["sftp://example.org/a.csv"], children.map(&:to_s)
+            end
+          end
+        end
+
+        it "lists the login directory" do
+          path = new_path("sftp://example.org/~", username: "jack")
 
           with_stub_net_sftp(["a.csv"]) do |stub_sftp|
             children = path.each_child.to_a.map(&:first)
 
             assert_equal ".", stub_sftp.instance_variable_get(:@glob_dir)
-            assert_equal ["/a.csv"], children.map(&:path)
+            assert_equal ["~/a.csv"], children.map(&:path)
+            assert_equal ["sftp://example.org/~/a.csv"], children.map(&:to_s)
+          end
+        end
+
+        it "lists a directory within the login directory" do
+          path = new_path("sftp://example.org/~/data", username: "jack")
+
+          with_stub_net_sftp(["a.csv"]) do |stub_sftp|
+            children = path.each_child.to_a.map(&:first)
+
+            assert_equal "data", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["sftp://example.org/~/data/a.csv"], children.map(&:to_s)
           end
         end
 

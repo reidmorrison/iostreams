@@ -157,6 +157,18 @@ such as `key` or `bucket`. Each S3 request is supplied the options that it accep
 
 Fix: correct or remove the option.
 
+### SFTP urls without a path are the root directory
+
+`IOStreams.path("sftp://host")` is now the root directory `/`, like `sftp://host/`, so `#each_child`
+lists `/` instead of the login directory. Previously the children it returned were in `/` regardless, so
+reading a listed file read the wrong file. Reading, writing and `#join` already used `/`, so for example
+`IOStreams.path("sftp://host").join("a.csv")` is still `/a.csv`. A path starting with `~` is now within
+the login directory, as curl does, for example `sftp://host/~/data/a.csv`.
+
+Fix: use `sftp://host/~` to list the login directory. On a server that confines users to their own
+directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
+now refers to the login directory, not to a directory named `~`.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

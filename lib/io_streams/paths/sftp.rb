@@ -41,6 +41,12 @@ module IOStreams
       # url: [String]
       #   "sftp://<host_name>/<file_name>"
       #
+      #   The path is absolute, so `sftp://host/data/a.csv` is `/data/a.csv`, and a url without a path,
+      #   such as `sftp://host`, is the root directory `/`.
+      #   Start the path with `~` for a path within the login directory instead, as curl does:
+      #   `sftp://host/~/data/a.csv` is `data/a.csv` within the login directory, and `sftp://host/~`
+      #   is the login directory.
+      #
       #   SECURITY WARNING:
       #     A username and password supplied in the url remain part of it, so `#to_s` and `#url`
       #     return them, as does any log or error message that includes the path.
@@ -116,7 +122,14 @@ module IOStreams
         ssh_options.each_pair { |key, value| @ssh_options[key.to_s] = value }
         validate_username!
 
-        super(uri.path)
+        super(self.class.url_path(uri.path))
+      end
+
+      # Returns [String] the path of a url: `~` for the login directory, and `/` for a url without a path.
+      def self.url_path(path)
+        return "/" if path.empty?
+
+        path.sub(%r{\A/~(?=/|\z)}, "~")
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -130,7 +143,8 @@ module IOStreams
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       def path=(path)
-        super
+        # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.
+        super([".", ""].include?(path) ? "~" : path)
         separator = self.path.start_with?("/") ? "" : "/"
         @url      = "#{url[%r{\A[^:/]+://[^/?#]*}]}#{separator}#{self.path}"
       end
@@ -154,7 +168,7 @@ module IOStreams
 
       # Search for files on the remote sftp server that match the provided pattern, within this path.
       # When the url does not include a path, for example `sftp://sftp.example.org`, it searches
-      # the login directory.
+      # the root directory `/`. To search the login directory, use `sftp://sftp.example.org/~`.
       #
       # The pattern matching works like Net::SFTP::Operations::Dir.glob and Dir.glob
       # Each child also returns attributes that contain the file size, ownership, file dates and other details.
@@ -184,8 +198,7 @@ module IOStreams
 
         NetSSH.options(ssh_options, port: port, password: password) do |options|
           Net::SFTP.start(hostname, username, options) do |sftp|
-            # Without a path in the url, list the login directory.
-            sftp.dir.glob(path.empty? ? "." : path, pattern, flags) do |entry|
+            sftp.dir.glob(remote_path, pattern, flags) do |entry|
               next if !directories && !entry.file?
 
               child = child_path(entry.name)
@@ -217,17 +230,26 @@ module IOStreams
       # Set the path directly rather than parsing it as part of a URL, since a file name can contain
       # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
       #
-      # The supplied name is relative to this path, or to the login directory when this url has no path.
+      # The supplied name is relative to this path.
       def child_path(name)
         server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
         child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
-        child.path = (path.empty? ? "/#{name}" : ::File.join(path, name)).freeze
+        child.path = ::File.join(path, name).freeze
         child
+      end
+
+      # Returns [String] the name of this path on the server, where a path within the login
+      # directory, which starts with `~`, is relative.
+      def remote_path
+        return path unless path.start_with?("~")
+
+        relative = path.delete_prefix("~").delete_prefix("/")
+        relative.empty? ? "." : relative
       end
 
       def stream_reader(&block)
         Utils.private_temp_file("iostreams-sftp-reader") do |file_name|
-          sftp_download(path, file_name)
+          sftp_download(remote_path, file_name)
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
         end
       end
@@ -235,7 +257,7 @@ module IOStreams
       def stream_writer(&block)
         Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          sftp_upload(file_name, path)
+          sftp_upload(file_name, remote_path)
           result
         end
       end

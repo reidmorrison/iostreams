@@ -40,6 +40,20 @@ class AllowedPathsTest < Minitest::Test
       assert_raises(IOStreams::Errors::AccessDenied, &)
     end
 
+    describe "sftp paths within the login directory" do
+      before { IOStreams.add_allowed_path("sftp://example.org/~/outbound") }
+
+      it "allows a path within an allowed login directory path" do
+        assert_predicate IOStreams.path("sftp://example.org/~/outbound/a.csv"), :allowed?
+      end
+
+      it "denies the same path from the root directory, or outside it" do
+        refute_predicate IOStreams.path("sftp://example.org/outbound/a.csv"), :allowed?
+        refute_predicate IOStreams.path("sftp://example.org/~/outbound/../a.csv"), :allowed?
+        refute_predicate IOStreams.path("sftp://example.org/~/../outbound/a.csv"), :allowed?
+      end
+    end
+
     describe "file urls" do
       it "allows a file url within an allowed path" do
         assert_equal "allowed", IOStreams.path("file://#{allowed_file}").read

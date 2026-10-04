@@ -1121,8 +1121,18 @@ path = IOStreams.path("sftp://hostname/path/example.csv")
 IOStreams reads and writes SFTP files by shelling out to the `sftp` command line program,
 so it must be installed and on the `PATH`. When a password is supplied the `sshpass`
 program is also required to pass the password to `sftp`. Additionally the `net-sftp` gem
-must be added to the `Gemfile` to use `each_child`. `each_child` lists the files within the path's directory,
-or within the login directory when the url has no path, for example `sftp://hostname`.
+must be added to the `Gemfile` to use `each_child`. `each_child` lists the files within the path's directory.
+
+The path in the url is absolute, so `sftp://hostname/path/example.csv` is `/path/example.csv`, and a
+url without a path, such as `sftp://hostname`, is the root directory `/`. On many servers the user is
+confined to their own directory, which is then `/`. To refer to a path within the login directory
+instead, start the path with `~`, as curl does, for example `sftp://hostname/~` to list the login
+directory:
+
+~~~ruby
+# The file data/example.csv within the login directory
+path = IOStreams.path("sftp://hostname/~/data/example.csv")
+~~~
 
 Read a file from a remote sftp server.
 ~~~ruby
@@ -2976,6 +2986,18 @@ such as `key` or `bucket`. Each S3 request is supplied the options that it accep
 `#size`, `#delete` and `#each_child`.
 
 Fix: correct or remove the option.
+
+### SFTP urls without a path are the root directory
+
+`IOStreams.path("sftp://host")` is now the root directory `/`, like `sftp://host/`, so `#each_child`
+lists `/` instead of the login directory. Previously the children it returned were in `/` regardless, so
+reading a listed file read the wrong file. Reading, writing and `#join` already used `/`, so for example
+`IOStreams.path("sftp://host").join("a.csv")` is still `/a.csv`. A path starting with `~` is now within
+the login directory, as curl does, for example `sftp://host/~/data/a.csv`.
+
+Fix: use `sftp://host/~` to list the login directory. On a server that confines users to their own
+directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
+now refers to the login directory, not to a directory named `~`.
 
 ## Upgrading to v2.1
 
