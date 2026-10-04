@@ -585,6 +585,17 @@ class StreamTest < Minitest::Test
         assert_nil stream.format
       end
 
+      it "reads records from a file with an upper case extension" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "DATA.JSON")
+          path.write(%({"name":"Jack, Jones"}\n))
+          records = []
+          path.each(:hash) { |record| records << record }
+
+          assert_equal [{"name" => "Jack, Jones"}], records
+        end
+      end
+
       it "returns set format with no file_name" do
         stream.format = :csv
 
@@ -814,6 +825,29 @@ class StreamTest < Minitest::Test
 
         # The target retains the GZip compressed contents of the source.
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").stream(:gz).read
+      end
+
+      it "copies without conversions from a source with options" do
+        source_path.write("Hello World")
+        source = IOStreams.join("copy_test", "source.csv.gz").option(:gz)
+        target_path.copy_from(source, convert: false)
+
+        assert_equal "Hello World", target_path.stream(:gz).read
+      end
+
+      it "copies without conversions without changing the streams of either path" do
+        source = IOStreams.join("copy_test", "source.csv.gz")
+        source.write("Hello World")
+        target = IOStreams.join("copy_test", "target.csv.gz")
+        target.copy_from(source, convert: false)
+
+        assert_equal "Hello World", source.read
+        assert_equal "Hello World", target.read
+        target.write("Changed")
+
+        refute_equal "Changed", target.stream(:none).read.b
+      ensure
+        target&.delete
       end
 
       it "copies rows in the supplied mode" do

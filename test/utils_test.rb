@@ -191,6 +191,12 @@ class UtilsTest < Minitest::Test
 
         assert_equal "/a b/file.txt", uri.path
       end
+
+      it "keeps a plus sign in the path" do
+        uri = IOStreams::Utils::URI.new("s3://bucket/a+b/c%2Bd.csv")
+
+        assert_equal "/a+b/c+d.csv", uri.path
+      end
     end
   end
 end

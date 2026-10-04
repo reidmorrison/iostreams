@@ -139,10 +139,10 @@ module IOStreams
 
     # Returns the streams for the supplied file_name
     def parse_extensions
-      parts      = ::File.basename(file_name).split(".")
+      parts      = Utils.file_name_extensions(file_name)
       extensions = []
       while (extension = parts.pop)
-        sym = extension.downcase.to_sym
+        sym = extension.to_sym
         break unless IOStreams.extensions[sym]
 
         extensions.unshift(sym)
@@ -171,6 +171,8 @@ module IOStreams
     def open_stream(type, stream, io_stream, opts, &)
       klass = class_for_stream(type, stream)
       validate_options(type, stream, klass, opts)
+      # A stream can default its options from the file name, such as the name of the file within a zip file.
+      opts = klass.file_name_options(file_name, **opts) if file_name && klass.respond_to?(:file_name_options)
       klass.open(io_stream, **opts, &)
     end
 

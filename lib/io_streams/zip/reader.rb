@@ -6,8 +6,8 @@ module IOStreams
       end
 
       # Read from a zip file or stream, decompressing the contents as it is read
-      # The input stream from the first file found in the zip file is passed
-      # to the supplied block.
+      # The input stream from the first file found in the zip file, skipping any folders,
+      # is passed to the supplied block.
       #
       # Parameters:
       #   entry_file_name: [String]
@@ -37,13 +37,9 @@ module IOStreams
         end
 
         def self.get_entry(zin, entry_file_name)
-          if entry_file_name.nil?
-            zin.get_next_entry
-            return true
-          end
-
           while (entry = zin.get_next_entry)
-            return true if entry.name == entry_file_name
+            # The first file, skipping any folders.
+            return true if entry_file_name.nil? ? !entry.directory? : entry.name == entry_file_name
           end
           false
         end
@@ -58,13 +54,9 @@ module IOStreams
             if entry_file_name
               zip_file.get_input_stream(entry_file_name, &block)
             else
-              result = nil
-              # Return the first file
-              zip_file.each do |entry|
-                result = entry.get_input_stream(&block)
-                break
-              end
-              result
+              # Return the first file, skipping any folders.
+              entry = zip_file.find(&:file?)
+              entry&.get_input_stream(&block)
             end
           end
         end

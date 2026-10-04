@@ -25,6 +25,18 @@ class ZipReaderTest < Minitest::Test
     end
 
     describe ".file" do
+      it "reads the first file, skipping folders" do
+        Dir.mktmpdir do |dir|
+          zip_file_name = File.join(dir, "folder.zip")
+          Zip::File.open(zip_file_name, create: true) do |zip|
+            zip.mkdir("folder")
+            zip.get_output_stream("folder/data.csv") { |io| io.write("a,b\n") }
+          end
+
+          assert_equal "a,b\n", IOStreams.path(zip_file_name).read
+        end
+      end
+
       it "reads the first file" do
         result = IOStreams::Zip::Reader.file(file_name, &:read)
 

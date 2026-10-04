@@ -230,7 +230,8 @@ module IOStreams
 
       out, err, status = Open3.capture3(*command, binmode: true)
       IOStreams.logger&.debug { "IOStreams::Pgp.list_keys: #{command.shelljoin}\n#{err}#{out}" }
-      if status.success? && out.length.positive?
+      if status.success?
+        # An empty keyring lists nothing.
         parse_list_output(out)
       else
         return [] if err =~ /(not found|No (public|secret) key|key not available)/i
@@ -368,23 +369,13 @@ module IOStreams
 
         results = []
         secret  = false
-        name    = "Joe Bloggs" # Default name if we can't extract it
-        email_addr = nil
 
         output.each_line do |line|
           if line =~ /secret key imported/
             secret = true
-          elsif (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]+)\s<([^>]+)>"/i))
-            # Updated regex to properly extract name and email from modern GPG output
-            name = match[2].to_s.strip
-            email_addr = match[3].to_s.strip
-
-            results << {
-              key_id:  match[1].to_s.strip,
-              private: secret,
-              name:    name,
-              email:   email_addr
-            }
+          elsif (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]*)"/i))
+            name, email_addr = parse_user_id(match[2])
+            results << {key_id: match[1].to_s.strip, private: secret, name: name, email: email_addr}
             secret = false
           end
         end
@@ -399,20 +390,10 @@ module IOStreams
           output.each_line do |line|
             if (match = line.match(/key\s+([0-9A-F]+):/i))
               key_id = match[1].to_s.strip
-            elsif (match = line.match(/["']([^"']+)["']<([^>]+)>/i))
-              name = match[1].to_s.strip
-              email_addr = match[2].to_s.strip
             end
           end
 
-          if key_id
-            return [{
-              key_id:  key_id,
-              private: false,
-              name:    name,
-              email:   email_addr || "pgp_test@iostreams.net"
-            }]
-          end
+          return [{key_id: key_id, private: false, name: nil, email: nil}] if key_id
         end
 
         # Return empty array if we couldn't parse anything but the import was successful
@@ -421,6 +402,15 @@ module IOStreams
 
       raise(Pgp::Failure, "GPG Failed importing key: #{err}#{out}")
     end
+
+    # Returns [String, String] the name and email address of a user id, such as `"Joe Bloggs <j@bloggs.net>"`.
+    # The email address is nil when the user id does not have one.
+    def self.parse_user_id(user_id)
+      match = user_id.match(/\A(.*?)\s*<([^>]*)>\z/)
+      match ? [match[1].strip, match[2].strip] : [user_id.strip, nil]
+    end
+
+    private_class_method :parse_user_id
 
     # Imports the supplied key and then marks it as trusted at the supplied trust level.
     #
@@ -566,31 +556,25 @@ module IOStreams
         command          = gpg_command("--version")
         out, err, status = Open3.capture3(*command)
         IOStreams.logger&.debug { "IOStreams::Pgp.version: #{command.shelljoin}\n#{err}#{out}" }
-        if status.success?
-          # Sample output
-          #   #{executable} (GnuPG) 2.0.30
-          #   libgcrypt 1.7.6
-          #   Copyright (C) 2015 Free Software Foundation, Inc.
-          #   License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
-          #   This is free software: you are free to change and redistribute it.
-          #   There is NO WARRANTY, to the extent permitted by law.
-          #
-          #   Home: ~/.gnupg
-          #   Supported algorithms:
-          #   Pubkey: RSA, RSA, RSA, ELG, DSA
-          #   Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
-          #           CAMELLIA128, CAMELLIA192, CAMELLIA256
-          #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
-          #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
-          if (match = out.lines.first.match(/(\d+\.\d+.\d+)/))
-            match[1]
-          end
-        else
-          if err !~ /(key not found|No (public|secret) key)/i
-            raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email || key_id}: #{err}#{out}")
-          end
+        raise(Pgp::Failure, "GPG Failed calling #{executable} --version: #{err}#{out}") unless status.success?
 
-          []
+        # Sample output
+        #   #{executable} (GnuPG) 2.0.30
+        #   libgcrypt 1.7.6
+        #   Copyright (C) 2015 Free Software Foundation, Inc.
+        #   License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+        #   This is free software: you are free to change and redistribute it.
+        #   There is NO WARRANTY, to the extent permitted by law.
+        #
+        #   Home: ~/.gnupg
+        #   Supported algorithms:
+        #   Pubkey: RSA, RSA, RSA, ELG, DSA
+        #   Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
+        #           CAMELLIA128, CAMELLIA192, CAMELLIA256
+        #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
+        #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
+        if (match = out.lines.first.match(/(\d+\.\d+.\d+)/))
+          match[1]
         end
       end
     end

@@ -2889,6 +2889,46 @@ characters through without raising.
 Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
 invalid characters instead of raising.
 
+### A `+` in an S3 or SFTP url is kept
+
+A `+` in the path of an S3 or SFTP url is now kept, so `IOStreams.path("s3://bucket/a+b.csv")` reads
+the key `a+b.csv`. Previously it was decoded as a space, and read the key `a b.csv`.
+
+Fix: use a space, or `%20`, in the url for a space.
+
+### Local `each_child` honors `case_sensitive:`
+
+`#each_child` and `IOStreams.each_child` on local files now honor `case_sensitive:` on every platform.
+Previously, on a case-sensitive file system such as on Linux, the default `case_sensitive: false` was
+ignored unless nothing matched, and on a case-insensitive file system such as on macOS,
+`case_sensitive: true` was ignored.
+
+Fix: on Linux, check that patterns that relied on matching case, such as `"*.csv"` in a directory that
+also has `DATA.CSV`, return the files you expect, or supply `case_sensitive: true`.
+
+### The file within a written zip file is named after the path
+
+Writing to a path such as `example.csv.zip` now names the file within the zip file `example.csv`, as
+documented, instead of `file`.
+
+Fix: if the program that reads the zip file expects the name `file`, supply
+`option(:zip, entry_file_name: "file")`.
+
+### Hash keys match columns once cleansed
+
+When writing a hash with `columns:`, or reading JSON or `:hash` records with `columns:`, a key such as
+`"First Name"` now supplies the value of the column `first_name`, since they are the same once cleansed
+like a header row. Previously the column was empty.
+
+Fix: if a column must stay empty, remove the matching key from the hash before writing it.
+
+### Writing to SFTP returns the result of the block
+
+Writing to an SFTP path, for example with `#writer`, now returns the result of the block, like local
+and S3 paths, instead of the size of the file written.
+
+Fix: if you need the size, return it from the block, for example the total of what `io.write` returns.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

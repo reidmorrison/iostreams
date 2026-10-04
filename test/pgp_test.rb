@@ -42,9 +42,30 @@ class PgpTest < Minitest::Test
       # ap IOStreams::Pgp.list_keys(email: email, private: true)
     end
 
+    # Returns the supplied output from gpg instead of running it.
+    def with_gpg_output(out, err = "", success: true, &block)
+      # Resolve the version first, since it also calls Open3.capture3.
+      IOStreams::Pgp.pgp_version
+      Open3.stub(:capture3, [out, err, Struct.new(:success?).new(success)], &block)
+    end
+
     describe ".pgp_version" do
       it "returns pgp version" do
         assert IOStreams::Pgp.pgp_version
+      end
+
+      describe "when gpg fails" do
+        before { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
+
+        after { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
+
+        it "raises Pgp::Failure" do
+          error = Open3.stub(:capture3, ["", "gpg: failed", Struct.new(:success?).new(false)]) do
+            assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp.pgp_version }
+          end
+
+          assert_includes error.message, "gpg: failed"
+        end
       end
     end
 
@@ -288,6 +309,14 @@ class PgpTest < Minitest::Test
       end
     end
 
+    describe ".list_keys on an empty keyring" do
+      it "returns no keys" do
+        with_gpg_output("") do
+          assert_equal [], IOStreams::Pgp.list_keys
+        end
+      end
+    end
+
     describe ".list_keys" do
       before do
         generated_key_id
@@ -373,6 +402,44 @@ class PgpTest < Minitest::Test
         assert_equal user_name, key[:name]
         refute key[:private], key
         refute key.key?(:trust)
+      end
+    end
+
+    describe ".import output" do
+      it "returns the name of a key without an email address" do
+        output = <<~OUTPUT
+          gpg: key 7932AB23D7238F6B: public key "Build Server" imported
+          gpg: Total number processed: 1
+          gpg:               imported: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "7932AB23D7238F6B", private: false, name: "Build Server", email: nil}], keys
+      end
+
+      it "returns the name and email address of a key" do
+        output = <<~OUTPUT
+          gpg: key 7932AB23D7238F6B: public key "Jack Jones <jack@example.org>" imported
+          gpg: Total number processed: 1
+          gpg:               imported: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "7932AB23D7238F6B", private: false, name: "Jack Jones", email: "jack@example.org"}], keys
+      end
+
+      it "does not make up a name or email address" do
+        output = <<~OUTPUT
+          gpg: key 7932AB23D7238F6B: public key imported
+          gpg: Total number processed: 1
+          gpg:               imported: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "7932AB23D7238F6B", private: false, name: nil, email: nil}], keys
       end
     end
 

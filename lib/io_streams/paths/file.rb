@@ -5,6 +5,13 @@ module IOStreams
     class File < IOStreams::Path
       attr_accessor :create_path
 
+      # Characters that make a pattern element match names, rather than be a name.
+      PATTERN_CHARACTERS = /[*?\[{\\]/
+      # A brace whose alternatives contain a directory, such as `{a,b/c}`.
+      BRACE_WITH_SLASH   = /\{[^}]*\/[^}]*\}/
+      # A pattern element that names a hidden file, such as `.env`.
+      HIDDEN_ELEMENT     = /(?:\A|[\/{,])\./
+
       def initialize(file_name, create_path: true)
         @create_path = create_path
         super(file_name)
@@ -96,23 +103,20 @@ module IOStreams
 
         authorize!
 
-        flags = 0
+        flags = ::File::FNM_PATHNAME | ::File::FNM_EXTGLOB
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
 
-        # An empty path is the current directory. `File.join("", pattern)` would search the root directory instead.
-        full_pattern = path.empty? ? pattern : ::File.join(path, pattern)
+        directory, pattern = split_pattern(pattern)
+        # `Dir.glob` ignores FNM_CASEFOLD on a case-sensitive file system, such as on Linux, so it lists every
+        # candidate and `File.fnmatch?` matches the pattern. The directory is supplied as `base`, so that
+        # characters such as `[` in its name are not pattern characters.
+        glob_flags = hidden || pattern.match?(HIDDEN_ELEMENT) ? ::File::FNM_DOTMATCH : 0
+        candidates = Dir.glob(candidate_pattern(pattern), glob_flags, base: directory)
+        results    = candidates.filter_map do |name|
+          next if ::File.basename(name).match?(/\A\.\.?\z/) || !::File.fnmatch?(pattern, name, flags)
 
-        results = Dir.glob(full_pattern, flags)
-
-        # On some platforms or Ruby versions, FNM_CASEFOLD may not work properly
-        # with complex patterns. If case-insensitive matching returns no results
-        # but we expected some, try a more robust approach.
-        if results.empty? && !case_sensitive && pattern.match?(/[A-Z]/)
-          # Try converting the pattern to lowercase and re-matching
-          lowercase_pattern = pattern.downcase
-          lowercase_full_pattern = path.empty? ? lowercase_pattern : ::File.join(path, lowercase_pattern)
-          results = Dir.glob(lowercase_full_pattern, flags)
+          directory ? ::File.join(directory, name) : name
         end
 
         results.each do |full_path|
@@ -185,6 +189,28 @@ module IOStreams
       end
 
       private
+
+      # Returns [String, String] the directory to search, and the pattern to match within it.
+      # Leading directories without pattern characters are searched directly, rather than matched.
+      # The directory is nil for the current directory.
+      def split_pattern(pattern)
+        elements = pattern.split("/")
+        index    = elements.find_index { |element| element.match?(PATTERN_CHARACTERS) } || [elements.size - 1, 0].max
+        index    = 0 if pattern.match?(BRACE_WITH_SLASH)
+        return [(path unless path.empty?), pattern] if index.zero?
+
+        # An absolute pattern starts with an empty element.
+        prefix = elements[0...index].join("/")
+        prefix = "/" if prefix.empty?
+        [path.empty? ? prefix : ::File.join(path, prefix), elements[index..].join("/")]
+      end
+
+      # Returns [String] a pattern that lists every file that the pattern could match.
+      def candidate_pattern(pattern)
+        return "**/*" if pattern.include?("**") || pattern.match?(BRACE_WITH_SLASH)
+
+        Array.new(pattern.count("/") + 1, "*").join("/")
+      end
 
       # Returns [String] the real path of this file, following any symbolic links, which is compared
       # against the allowed paths.

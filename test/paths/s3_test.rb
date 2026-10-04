@@ -192,6 +192,20 @@ module Paths
           end
         end
 
+        it "moves to a local file" do
+          source = root_path.join("move_test_source.txt")
+          Dir.mktmpdir do |dir|
+            source.write("Hello World")
+            target = IOStreams.path(dir, "move_test_target.txt")
+
+            assert_equal target, source.move_to(target)
+            assert_equal "Hello World", target.read
+            refute_predicate source, :exist?
+          end
+        ensure
+          source&.delete
+        end
+
         it "missing source file" do
           source = root_path.join("move_test_source.txt")
 
@@ -227,6 +241,30 @@ module Paths
         end
       end
 
+      describe "direct copies" do
+        let(:source) { root_path.join("copy test a+b %41 ?.txt") }
+        let(:target) { root_path.join("copy test target a+b %41 ?.txt") }
+
+        before { source.write("Hello World") }
+
+        after do
+          source.delete
+          target.delete
+        end
+
+        it "copies a key that needs url-encoding with copy_from" do
+          target.copy_from(source, convert: false)
+
+          assert_equal "Hello World", target.read
+        end
+
+        it "copies a key that needs url-encoding with copy_to" do
+          source.copy_to(target, convert: false)
+
+          assert_equal "Hello World", target.read
+        end
+      end
+
       describe "#partial_files_visible?" do
         it "visible only after upload" do
           refute_predicate root_path, :partial_files_visible?
@@ -247,6 +285,14 @@ module Paths
           }
         )
         client
+      end
+
+      describe "#initialize" do
+        it "keeps a plus sign in the key" do
+          path = IOStreams::Paths::S3.new("s3://bucket/reports/a+b.csv", client: client)
+
+          assert_equal "reports/a+b.csv", path.path
+        end
       end
 
       describe "#join" do

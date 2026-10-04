@@ -189,7 +189,7 @@ module IOStreams
 
     # Returns the registered format that will be used for the supplied file name.
     def self.format_from_file_name(file_name)
-      file_name.to_s.split(".").reverse_each { |ext| return ext.to_sym if @formats.include?(ext.to_sym) }
+      Utils.file_name_extensions(file_name).reverse_each { |ext| return ext.to_sym if @formats.include?(ext.to_sym) }
       nil
     end
 

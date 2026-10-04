@@ -199,9 +199,8 @@ module IOStreams
           end
         end
       else
-        stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
-        stream.stream(:none).reader do |src|
-          dup.stream(:none).writer { |target| IO.copy_stream(src, target) }
+        IOStreams.new(source).without_streams.reader do |src|
+          without_streams.writer { |target| IO.copy_stream(src, target) }
         end
       end
     end
@@ -327,6 +326,16 @@ module IOStreams
     #   IOStreams.path(".profile.sh").extension     #=> "sh"
     def extension
       extname&.sub(/^\./, "")
+    end
+
+    protected
+
+    # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
+    # changing the streams or options of this one.
+    def without_streams
+      copy = dup
+      copy.instance_variable_set(:@builder, IOStreams::Builder.new(file_name).stream(:none))
+      copy
     end
 
     private

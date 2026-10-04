@@ -67,11 +67,50 @@ module Paths
         end
 
         it "find matches case-sensitive" do
-          skip "TODO"
           expected = [file_path.to_s, file_path2.to_s]
-          actual   = root.children("**/Test*.TXT", case_sensitive: true).collect(&:to_s)
 
-          refute_equal expected, actual.sort
+          assert_empty root.children("**/Test*.TXT", case_sensitive: true)
+          assert_equal expected.sort, root.children("**/test*.txt", case_sensitive: true).collect(&:to_s).sort
+        end
+
+        it "matches a name case-insensitive without a recursive pattern" do
+          path = root.join("README.md")
+          path.write("data")
+
+          assert_equal [path.to_s], root.children("r*.md").collect(&:to_s)
+          assert_equal [path.to_s], root.children("readme.md").collect(&:to_s)
+        end
+
+        it "finds children of a directory with pattern characters in its name" do
+          ["dir [1]", "dir {a,b}", "dir *?"].each do |name|
+            path = root.join(name, "data.csv")
+            path.write("data")
+
+            assert_equal [path.to_s], root.join(name).children("*.csv").collect(&:to_s)
+            # Within a pattern the characters must be escaped.
+            escaped = name.gsub(/[\[\]{}*?]/) { |char| "\\#{char}" }
+
+            assert_equal [path.to_s], root.children("#{escaped}/*.csv").collect(&:to_s)
+          end
+        end
+
+        it "finds hidden children only when requested" do
+          visible = root.join("dir/data.csv")
+          visible.write("data")
+          hidden = root.join(".hidden/data.csv")
+          hidden.write("data")
+
+          assert_equal [visible.to_s], root.children("**/*.csv").collect(&:to_s)
+          assert_equal [hidden.to_s, visible.to_s], root.children("**/*.csv", hidden: true).collect(&:to_s).sort
+          assert_equal [hidden.to_s], root.children(".hidden/*.csv").collect(&:to_s)
+        end
+
+        it "returns directories only when requested" do
+          root.join("dir/data.csv").write("data")
+
+          assert_empty root.children("*")
+          assert_equal [root.join("dir").to_s], root.children("*", directories: true).collect(&:to_s)
+          assert_equal [root.join("dir").to_s], root.children("*", directories: true, hidden: true).collect(&:to_s)
         end
 
         it "with no block returns enumerator" do

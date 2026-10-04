@@ -124,6 +124,12 @@ module Paths
           assert_equal url, path.url
         end
 
+        it "keeps a plus sign in the path" do
+          path = new_path("sftp://example.org/path/a+b.txt", username: "jack", password: "secret")
+
+          assert_equal "/path/a+b.txt", path.path
+        end
+
         it "reads the username and password from arguments" do
           path = new_path(url, username: "jack", password: "secret")
 
@@ -374,6 +380,95 @@ module Paths
           end
 
           refute_includes error.message, "sshpass"
+        end
+      end
+
+      describe "writing" do
+        # Runs the block with a stand-in for the sftp executable, returning the arguments and batch commands it received.
+        def with_stub_sftp
+          calls = []
+          popen = lambda do |*args, &block|
+            commands = StringIO.new
+            calls << [args, commands]
+            block.call(commands, StringIO.new(""), Struct.new(:value).new(Struct.new(:success?).new(true)))
+          end
+          Open3.stub(:popen2e, popen) { yield(calls) }
+        end
+
+        it "returns the result of the block" do
+          path = new_path("sftp://example.org/data/file.csv", username: "jack")
+
+          with_stub_sftp do
+            assert_equal(:done, path.writer { |io| io.write("data") && :done })
+          end
+        end
+
+        it "creates the directories of the file when requested" do
+          path = new_path("sftp://example.org/data/in/file.csv", username: "jack")
+
+          with_stub_sftp do |calls|
+            path.mkpath.write("data")
+
+            commands = calls.first.last.string.lines(chomp: true)
+
+            assert_equal ['-mkdir "/data"', '-mkdir "/data/in"'], commands.first(2)
+            assert_match(%r{\Aput ".*" "/data/in/file.csv"\z}, commands[2])
+          end
+        end
+
+        it "creates the directories of a path joined to a directory" do
+          directory = new_path("sftp://example.org/data/in", username: "jack").mkdir
+
+          with_stub_sftp do |calls|
+            directory.join("file.csv").write("data")
+
+            assert_equal ['-mkdir "/data"', '-mkdir "/data/in"'], calls.first.last.string.lines(chomp: true).first(2)
+          end
+        end
+
+        it "does not create directories unless requested" do
+          path = new_path("sftp://example.org/data/in/file.csv", username: "jack")
+
+          with_stub_sftp do |calls|
+            path.write("data")
+
+            refute_match(/mkdir/, calls.first.last.string)
+          end
+        end
+
+        it "connects without a username" do
+          path = new_path("sftp://example.org/data/file.csv")
+
+          with_stub_sftp do |calls|
+            path.write("data")
+
+            assert_equal "example.org", calls.first.first.last
+          end
+        end
+
+        it "connects with a username" do
+          path = new_path("sftp://example.org/data/file.csv", username: "jack")
+
+          with_stub_sftp do |calls|
+            path.write("data")
+
+            assert_equal "jack@example.org", calls.first.first.last
+          end
+        end
+
+        it "is the target of a move" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "file.csv")
+            source.write("data")
+            target = new_path("sftp://example.org/data/in/file.csv", username: "jack")
+
+            with_stub_sftp do |calls|
+              assert_equal target, source.move_to(target)
+
+              assert_match(%r{-mkdir "/data/in"}, calls.first.last.string)
+            end
+            refute_predicate source, :exist?
+          end
         end
       end
 

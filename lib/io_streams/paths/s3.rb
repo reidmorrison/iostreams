@@ -215,7 +215,8 @@ module IOStreams
       # - Can copy across buckets.
       # - No stream conversions are applied.
       def move_to(target_path)
-        target = copy_to(target_path, convert: false)
+        target = IOStreams.new(target_path)
+        copy_to(target, convert: false)
         delete
         target
       end
@@ -229,8 +230,7 @@ module IOStreams
 
         authorize!
         target.authorize!
-        source_name = ::File.join(bucket_name, path)
-        client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: source_name))
+        client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: copy_source))
         target
       end
 
@@ -245,8 +245,7 @@ module IOStreams
 
         authorize!
         source.authorize!
-        source_name = ::File.join(source.bucket_name, source.path)
-        client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source_name))
+        client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source.copy_source))
       end
 
       # S3 logically creates paths when a key is set.
@@ -359,6 +358,13 @@ module IOStreams
       # Lazy load S3 client since it takes two seconds to create itself!
       def client
         @client ||= ::Aws::S3::Client.new(@client_options)
+      end
+
+      protected
+
+      # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.
+      def copy_source
+        "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
       end
 
       private

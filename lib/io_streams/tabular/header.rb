@@ -164,17 +164,22 @@ module IOStreams
         h
       end
 
-      # Perform cleansing on returned Hash keys during the narrowing process.
-      # For example, avoids issues with case etc.
+      # Returns [Hash] the values of the hash for each column.
+      # A column without a key of the same name takes the value of the first key that is the same once
+      # both are cleansed, so that for example the key `"First Name"` supplies the column `"first_name"`.
       def cleanse_hash(hash)
         hash      = hash.transform_keys(&:to_s) unless hash.keys.all?(String)
         allowed   = columns.reject { |column| column.start_with?(IGNORE_PREFIX) }
         unmatched = allowed - hash.keys
-        unless unmatched.empty?
-          hash = hash.dup
-          unmatched.each { |name| hash[cleanse_column(name)] = hash.delete(name) }
+        return hash.slice(*allowed) if unmatched.empty?
+
+        wanted  = unmatched.to_h { |column| [cleanse_column(column), column] }
+        matched = {}
+        hash.each_pair do |key, value|
+          column = wanted[cleanse_column(key)]
+          matched[column] = value if column && !matched.key?(column)
         end
-        hash.slice(*allowed)
+        hash.slice(*allowed).merge(matched)
       end
 
       def cleanse_column(name)

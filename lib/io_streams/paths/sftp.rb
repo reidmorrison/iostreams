@@ -135,8 +135,17 @@ module IOStreams
         @url      = "#{url[%r{\A[^:/]+://[^/?#]*}]}#{separator}#{self.path}"
       end
 
-      # Note that mkdir is delayed and only executed when the file write is performed.
+      # Creates the directories of this path, when a file is next written to this path, or to a path
+      # joined to it, since each write connects to the server separately.
+      # Returns self
       def mkdir
+        @mkdir = true
+        self
+      end
+
+      # Creates the directories of this file, excluding the file name, when the file is next written.
+      # Returns self
+      def mkpath
         @mkdir = true
         self
       end
@@ -225,9 +234,9 @@ module IOStreams
 
       def stream_writer(&block)
         Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
-          ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+          result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
           sftp_upload(file_name, path)
-          ::File.size(file_name)
+          result
         end
       end
 
@@ -271,6 +280,8 @@ module IOStreams
               # Give time for password to be processed and stdin to be passed to sftp process.
               sleep self.class.sshpass_wait_seconds
             end
+            # The `-` prefix ignores the failure when a directory already exists.
+            parent_directories(remote_file_name).each { |directory| writer.puts "-mkdir #{directory.inspect}" } if @mkdir
             writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
             writer.puts "bye"
             writer.close
@@ -287,6 +298,18 @@ module IOStreams
             raise_failure("Upload", out)
           end
         end
+      end
+
+      # Returns [Array<String>] each directory of the file name, from the top down.
+      # For example `["/a", "/a/b"]` for `"/a/b/file.csv"`.
+      def parent_directories(file_name)
+        directories = []
+        directory   = ::File.dirname(file_name)
+        until ["/", "."].include?(directory)
+          directories.unshift(directory)
+          directory = ::File.dirname(directory)
+        end
+        directories
       end
 
       # When the server does not prompt for a password, sftp reads the password line as a command
@@ -354,7 +377,8 @@ module IOStreams
         args << "-"
         # Stop sftp from treating the destination as an option.
         args << "--"
-        args << "#{username}@#{hostname}"
+        # Without a username, sftp uses the one from the ssh config, or the current user.
+        args << (username ? "#{username}@#{hostname}" : hostname)
         args
       end
 

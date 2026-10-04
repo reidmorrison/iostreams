@@ -235,6 +235,12 @@ class BuilderTest < Minitest::Test
         assert_equal %i[xlsx zip gz pgp], streams.send(:parse_extensions)
       end
 
+      it "ignores the name of the file" do
+        assert_equal [], IOStreams::Builder.new("my/path/gz").send(:parse_extensions)
+        assert_equal [], IOStreams::Builder.new("my/path.zip/abc").send(:parse_extensions)
+        assert_equal %i[gz], IOStreams::Builder.new("my/path/.zip.gz").send(:parse_extensions)
+      end
+
       describe "case-insensitive" do
         let(:file_name) { "a.XlsX.GzIp" }
 
