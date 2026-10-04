@@ -47,6 +47,7 @@ These bug fixes change behavior that existing code may depend on:
 - `#move_to` from S3 to a path that is not on S3, such as a local file, returns the target path. Previously it returned the number of bytes copied.
 - `#mkpath` and `#mkdir` on SFTP paths create the directories when a file is written, so `#move_to` an SFTP path, which calls `#mkpath`, works. Previously `#mkpath` raised `NotImplementedError`, which also made every `#move_to` an SFTP path raise, and `#mkdir` did nothing.
 - Reading or writing an SFTP path without a username connects as the user from the ssh config, or the current user, as `sftp` does. Previously it failed with the usage text of `sftp`.
+- The `ArgumentError` messages for calling both `#option` and `#stream`, or `#option` without a file name, no longer end with a stray `}`.
 
 ## [2.1.0] - 2026-10-04
 

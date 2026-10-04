@@ -44,9 +44,10 @@ class BuilderTest < Minitest::Test
 
       it "will not add an option if a stream was already set" do
         streams.stream(:pgp, passphrase: "unlock-me")
-        assert_raises ArgumentError do
+        error = assert_raises ArgumentError do
           streams.option(:pgp, passphrase: "unlock-me")
         end
+        assert_equal "Cannot call both #option and #stream on the same streams instance", error.message
       end
 
       it "will not add an invalid option" do
@@ -59,9 +60,10 @@ class BuilderTest < Minitest::Test
         let(:file_name) { nil }
 
         it "prevents options being set" do
-          assert_raises ArgumentError do
+          error = assert_raises ArgumentError do
             streams.option(:pgp, passphrase: "unlock-me")
           end
+          assert_equal "Cannot call #option unless the `file_name` was already set", error.message
         end
       end
     end
@@ -114,9 +116,10 @@ class BuilderTest < Minitest::Test
 
       it "will not add a stream if an option was already set" do
         streams.option(:pgp, passphrase: "unlock-me")
-        assert_raises ArgumentError do
+        error = assert_raises ArgumentError do
           streams.stream(:pgp, passphrase: "unlock-me")
         end
+        assert_equal "Cannot call both #option and #stream on the same streams instance", error.message
       end
 
       it "will not add an invalid stream" do
