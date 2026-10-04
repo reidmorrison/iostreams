@@ -34,6 +34,15 @@ The simplest case is a file on the local disk:
 path = IOStreams.path("somewhere/example.csv")
 ~~~
 
+A `file://` url is also accepted. It is always absolute, so it has an empty host or `localhost`, and
+characters such as a space, `?` or `#` are percent-encoded. Supply a relative path without `file://`.
+
+~~~ruby
+IOStreams.path("file:///home/user/my%20file.csv")
+# Same as:
+IOStreams.path("/home/user/my file.csv")
+~~~
+
 #### Optional Arguments:
 
 * `:create_path` set to false to stop IOStreams from automatically creating the output directories 

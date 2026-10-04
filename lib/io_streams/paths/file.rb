@@ -12,9 +12,29 @@ module IOStreams
       # A pattern element that names a hidden file, such as `.env`.
       HIDDEN_ELEMENT     = /(?:\A|[\/{,])\./
 
+      # Parameters:
+      #   file_name [String]
+      #     The name of the file, relative to the current directory unless it starts with `/`.
+      #     Or a `file://` url, which is always absolute: `file:///home/user/a.txt`, or `file://localhost/home/user/a.txt`.
+      #     Characters in the url such as a space, `?` or `#` must be percent-encoded, for example `%20`.
       def initialize(file_name, create_path: true)
         @create_path = create_path
-        super(file_name)
+        super(file_name.to_s.match?(%r{\Afile://}i) ? self.class.path_from_url(file_name.to_s) : file_name)
+      end
+
+      # Returns [String] the absolute path of a `file://` url.
+      def self.path_from_url(url)
+        host, separator, path = url[7..].partition("/")
+        unless host.empty? || host.casecmp?("localhost")
+          raise(ArgumentError,
+                "Invalid file url #{url.inspect}: a file url is absolute, such as 'file:///home/user/a.txt'. " \
+                "Supply a relative path without 'file://', such as 'a.txt'.")
+        end
+        if path.match?(/[?#]/)
+          raise(ArgumentError, "Invalid file url #{url.inspect}: percent-encode '?' as '%3F' and '#' as '%23'.")
+        end
+
+        "/#{::URI.decode_uri_component(separator.empty? ? '' : path)}"
       end
 
       # Yields Paths within the current path.

@@ -40,6 +40,17 @@ class AllowedPathsTest < Minitest::Test
       assert_raises(IOStreams::Errors::AccessDenied, &)
     end
 
+    describe "file urls" do
+      it "allows a file url within an allowed path" do
+        assert_equal "allowed", IOStreams.path("file://#{allowed_file}").read
+      end
+
+      it "denies a file url outside the allowed paths" do
+        assert_denied { IOStreams.path("file://#{outside_file}").read }
+        assert_denied { IOStreams.path("file://#{allowed}/%2E%2E/outside/file.txt").read }
+      end
+    end
+
     describe ".add_allowed_path" do
       it "returns the real path that was added" do
         link = File.join(base, "link")

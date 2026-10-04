@@ -51,6 +51,7 @@ These bug fixes change behavior that existing code may depend on:
 - `#mkpath` and `#mkdir` on SFTP paths create the directories when a file is written, so `#move_to` an SFTP path, which calls `#mkpath`, works. Previously `#mkpath` raised `NotImplementedError`, which also made every `#move_to` an SFTP path raise, and `#mkdir` did nothing.
 - Reading or writing an SFTP path without a username connects as the user from the ssh config, or the current user, as `sftp` does. Previously it failed with the usage text of `sftp`.
 - The `ArgumentError` messages for calling both `#option` and `#stream`, or `#option` without a file name, no longer end with a stray `}`.
+- `file://` urls refer to local files, for example `IOStreams.path("file:///home/user/a%20b.csv")` is `/home/user/a b.csv`. Previously the whole url was used as a relative file name, so reading raised `Errno::ENOENT`. A file url is absolute, so one with a host other than `localhost`, such as `file://a.txt`, or with an unencoded `?` or `#`, raises `ArgumentError`.
 
 ## [2.1.0] - 2026-10-04
 
