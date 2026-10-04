@@ -229,17 +229,19 @@ module IOStreams
         end
       end
 
-      # Use sftp and sshpass executables to download to a local file
+      # Use the sftp executable to download to a local file, via sshpass when a password is supplied
       def sftp_download(remote_file_name, local_file_name)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
-            # Give time for remote sftp server to get ready to accept the password.
-            sleep self.class.before_password_wait_seconds
+            if password
+              # Give time for remote sftp server to get ready to accept the password.
+              sleep self.class.before_password_wait_seconds
 
-            writer.puts password
+              writer.puts password
 
-            # Give time for password to be processed and stdin to be passed to sftp process.
-            sleep self.class.sshpass_wait_seconds
+              # Give time for password to be processed and stdin to be passed to sftp process.
+              sleep self.class.sshpass_wait_seconds
+            end
 
             writer.puts "get #{remote_file_name.inspect} #{local_file_name.inspect}"
             writer.puts "bye"
@@ -262,9 +264,11 @@ module IOStreams
       def sftp_upload(local_file_name, remote_file_name)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
-            writer.puts(password) if password
-            # Give time for password to be processed and stdin to be passed to sftp process.
-            sleep self.class.sshpass_wait_seconds
+            if password
+              writer.puts(password)
+              # Give time for password to be processed and stdin to be passed to sftp process.
+              sleep self.class.sshpass_wait_seconds
+            end
             writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
             writer.puts "bye"
             writer.close
@@ -289,7 +293,7 @@ module IOStreams
         out = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
         raise(
           Errors::CommunicationsFailure,
-          "#{action} failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
+          "#{action} failed calling #{self.class.sftp_bin}#{" via #{self.class.sshpass_bin}" if password}: #{out}"
         )
       end
 
@@ -326,7 +330,8 @@ module IOStreams
       end
 
       def sftp_args(ssh_options)
-        args = [self.class.sshpass_bin, self.class.sftp_bin]
+        # sshpass is only needed to supply the password to sftp.
+        args = password ? [self.class.sshpass_bin, self.class.sftp_bin] : [self.class.sftp_bin]
         # Force sftp to use the password when supplied,
         # and stop sftp from prompting for a password when none was supplied.
         if password

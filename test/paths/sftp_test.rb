@@ -227,6 +227,8 @@ module Paths
           path = new_path(url, username: "jack", ssh_options: {IdentityFile: "~/.ssh/id_rsa"})
           args = path.send(:sftp_args, path.ssh_options)
 
+          assert_equal IOStreams::Paths::SFTP.sftp_bin, args[0]
+          refute_includes args, IOStreams::Paths::SFTP.sshpass_bin
           assert_includes args, "-oBatchMode=yes"
           assert_includes args, "-oPasswordAuthentication=no"
           assert_includes args, "-oIdentitiesOnly=yes"
@@ -345,6 +347,16 @@ module Paths
           end
 
           assert_includes error.message, "Upload failed"
+          assert_includes error.message, "via sshpass"
+        end
+
+        it "does not mention sshpass when no password is supplied" do
+          path  = new_path(url, username: "jack")
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            path.send(:raise_failure, "Upload", nil)
+          end
+
+          refute_includes error.message, "sshpass"
         end
       end
 
