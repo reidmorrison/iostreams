@@ -2938,6 +2938,15 @@ option, instead of ignoring it. Options for the `:line`, `:array` and `:hash` mo
 Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
 example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
 
+### Gzip and `.enc` streams leave your IO open
+
+When reading or writing an IO that you supply with `IOStreams.stream(io)`, the `:gz`, `:gzip` and `:enc`
+streams no longer close `io` when the block finishes, like every other stream. Paths are not affected,
+since IOStreams opens and closes their files itself.
+
+Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
+reads until it is closed.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

@@ -51,9 +51,9 @@ module IOStreams
 
         alias eof eof?
 
-        # Closes the gzip reader, which closes the input stream.
+        # Finishes the gzip reader, without closing the input stream, which belongs to the caller.
         def close
-          @gzip.close unless @gzip.closed?
+          @gzip.finish unless @gzip.closed?
         end
 
         private
@@ -122,10 +122,6 @@ module IOStreams
 
         def readpartial(maxlen, outbuf = nil)
           read(maxlen, outbuf) || raise(EOFError, "end of file reached")
-        end
-
-        def close
-          @input_stream.close if @input_stream.respond_to?(:close)
         end
       end
     end

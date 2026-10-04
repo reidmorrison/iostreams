@@ -6,10 +6,19 @@ module IOStreams
       end
 
       # read from a file/stream using Symmetric Encryption
-      def self.stream(input_stream, **args, &)
+      #
+      # Like `SymmetricEncryption::Reader.open`, but does not close the input stream, which belongs to the caller.
+      def self.stream(input_stream, buffer_size: 16_384, **args)
         Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(SymmetricEncryption)
 
-        ::SymmetricEncryption::Reader.open(input_stream, **args, &)
+        begin
+          reader = ::SymmetricEncryption::Reader.new(input_stream, buffer_size: buffer_size, **args)
+          io     = !reader.eof? && reader.compressed? ? ::Zlib::GzipReader.new(reader) : reader
+          yield io
+        ensure
+          io.finish if io.is_a?(::Zlib::GzipReader) && !io.closed?
+          reader&.close(false)
+        end
       end
     end
   end

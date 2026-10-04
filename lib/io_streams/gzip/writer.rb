@@ -11,11 +11,14 @@ module IOStreams
       #   level: [Integer]
       #     Compression level, from 0 (no compression) to 9 (best compression).
       #     Default: Zlib::DEFAULT_COMPRESSION
-      def self.stream(input_stream, level: nil, &block)
-        io = ::Zlib::GzipWriter.new(input_stream, level)
+      #
+      # The output stream is not closed, since it belongs to the caller.
+      def self.stream(output_stream, level: nil, &block)
+        io = ::Zlib::GzipWriter.new(output_stream, level)
         block.call(io)
       ensure
-        io&.close
+        # Unlike #close, #finish does not close the output stream.
+        io.finish if io && !io.closed?
       end
     end
   end
