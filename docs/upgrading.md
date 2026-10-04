@@ -103,6 +103,14 @@ documented, instead of `file`.
 Fix: if the program that reads the zip file expects the name `file`, supply
 `option(:zip, entry_file_name: "file")`.
 
+### Hash keys match columns once cleansed
+
+When writing a hash with `columns:`, or reading JSON or `:hash` records with `columns:`, a key such as
+`"First Name"` now supplies the value of the column `first_name`, since they are the same once cleansed
+like a header row. Previously the column was empty.
+
+Fix: if a column must stay empty, remove the matching key from the hash before writing it.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

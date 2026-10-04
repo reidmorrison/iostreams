@@ -110,6 +110,10 @@ class RecordReaderTest < Minitest::Test
         assert_includes error.message, "state"
       end
 
+      it "reads a supplied column from a json key that matches it once cleansed" do
+        assert_equal [{"name" => "x", "admin" => true}], read(json, format: :json, columns: %w[name admin])
+      end
+
       it "does not change json records when no columns are restricted" do
         assert_equal [{"Name" => "x", "admin" => true}], read(json, format: :json)
       end

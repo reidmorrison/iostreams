@@ -322,6 +322,31 @@ class TabularTest < Minitest::Test
         assert_equal "1,,3", csv_string
       end
 
+      it "renders a hash whose keys match the columns once cleansed" do
+        assert csv_string = tabular.render({"Third" => "3", "First Field" => "1", "second-field" => "2"})
+        assert_equal "1,,3", csv_string
+      end
+
+      it "prefers a key that matches the column exactly" do
+        assert csv_string = tabular.render({"Third" => "x", "third" => "3", "first_field" => "1"})
+        assert_equal "1,,3", csv_string
+      end
+
+      it "renders a hash for columns that are not cleansed" do
+        tabular = IOStreams::Tabular.new(columns: ["First Field", "Second"], format: format)
+
+        assert_equal "1,2", tabular.render({"first_field" => "1", "Second" => "2"})
+      end
+
+      it "writes a hash whose keys match the columns once cleansed" do
+        output = StringIO.new
+        IOStreams.stream(output).format(:csv).writer(:hash, columns: ["first_name"]) do |io|
+          io << {"First Name" => "Jack"}
+        end
+
+        assert_equal "first_name\nJack\n", output.string
+      end
+
       it "renders a hash including nil and boolean" do
         assert csv_string = tabular.render({"third" => true, "first_field" => false, "second" => nil})
         assert_equal "false,,true", csv_string
