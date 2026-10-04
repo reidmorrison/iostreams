@@ -2889,6 +2889,13 @@ characters through without raising.
 Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
 invalid characters instead of raising.
 
+### A `+` in an S3 or SFTP url is kept
+
+A `+` in the path of an S3 or SFTP url is now kept, so `IOStreams.path("s3://bucket/a+b.csv")` reads
+the key `a+b.csv`. Previously it was decoded as a space, and read the key `a b.csv`.
+
+Fix: use a space, or `%20`, in the url for a space.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

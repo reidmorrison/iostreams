@@ -1,4 +1,3 @@
-require "cgi"
 require "uri"
 require "tmpdir"
 module IOStreams
@@ -67,7 +66,8 @@ module IOStreams
         uri       = ::URI.parse(url)
         @scheme   = uri.scheme
         @hostname = uri.hostname
-        @path     = CGI.unescape(uri.path)
+        # Unlike a query string, `+` in a path is not a space.
+        @path     = ::URI.decode_uri_component(uri.path)
         @user     = uri.user
         @password = uri.password
         @port     = uri.port

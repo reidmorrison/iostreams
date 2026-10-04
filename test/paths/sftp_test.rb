@@ -124,6 +124,12 @@ module Paths
           assert_equal url, path.url
         end
 
+        it "keeps a plus sign in the path" do
+          path = new_path("sftp://example.org/path/a+b.txt", username: "jack", password: "secret")
+
+          assert_equal "/path/a+b.txt", path.path
+        end
+
         it "reads the username and password from arguments" do
           path = new_path(url, username: "jack", password: "secret")
 

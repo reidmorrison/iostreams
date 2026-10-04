@@ -249,6 +249,14 @@ module Paths
         client
       end
 
+      describe "#initialize" do
+        it "keeps a plus sign in the key" do
+          path = IOStreams::Paths::S3.new("s3://bucket/reports/a+b.csv", client: client)
+
+          assert_equal "reports/a+b.csv", path.path
+        end
+      end
+
       describe "#join" do
         it "joins a name that only shares a prefix with the key" do
           path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)
