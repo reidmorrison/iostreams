@@ -147,6 +147,16 @@ compare equal to other objects.
 
 Fix: to compare only the file names or keys, compare `#path`, for example `a.path == b.path`.
 
+### Unknown S3 options raise `ArgumentError`
+
+An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now
+raises `ArgumentError` when the path is created, as does a request parameter that the path sets itself,
+such as `key` or `bucket`. Each S3 request is supplied the options that it accepts, so for example
+`acl` applies when writing and copying, and `request_payer` to every request, including `#exist?`,
+`#size`, `#delete` and `#each_child`.
+
+Fix: correct or remove the option.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

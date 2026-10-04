@@ -302,6 +302,64 @@ module Paths
         end
       end
 
+      describe "options" do
+        # Returns the parameters of each request the client received.
+        def capture_requests(client)
+          requests = Hash.new { |hash, key| hash[key] = [] }
+          client.handlers.add(Class.new(Seahorse::Client::Handler) do
+            define_method(:call) do |context|
+              requests[context.operation_name] << context.params
+              @handler.call(context)
+            end
+          end, step: :initialize)
+          requests
+        end
+
+        it "reads a path with a writer option, such as acl" do
+          client.stub_responses(:get_object, {body: "data"})
+          path = IOStreams::Paths::S3.new("s3://bucket/a.txt?acl=public-read", client: client)
+          requests = capture_requests(client)
+
+          assert_equal "data", path.read
+          refute requests[:get_object].first.key?(:acl)
+        end
+
+        it "writes with a writer option" do
+          path = IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, acl: "bucket-owner-full-control")
+          requests = capture_requests(client)
+          path.write("data")
+
+          assert_equal "bucket-owner-full-control", requests[:put_object].first[:acl]
+        end
+
+        it "supplies an option to every request that accepts it" do
+          client.stub_responses(:head_object, {content_length: 4})
+          client.stub_responses(:get_object, {body: "data"})
+          path = IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, request_payer: "requester")
+          requests = capture_requests(client)
+          path.size
+          path.exist?
+          path.read
+          path.write("data")
+          path.delete
+          path.directory.each_child { |child| child }
+
+          %i[head_object get_object put_object delete_object list_objects_v2].each do |operation|
+            assert_equal ["requester"], requests[operation].map { |params| params[:request_payer] }.uniq, operation
+          end
+        end
+
+        it "raises for an option that no request accepts" do
+          error = assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, acll: "public-read") }
+          assert_equal "Unknown S3 option: :acll", error.message
+          assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?bogus=1&key=b") }
+        end
+
+        it "raises for a request parameter that the path sets" do
+          assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, bucket: "other") }
+        end
+      end
+
       describe "#join" do
         it "joins a name that only shares a prefix with the key" do
           path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)

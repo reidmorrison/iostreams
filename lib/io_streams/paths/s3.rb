@@ -8,6 +8,11 @@ module IOStreams
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
+      # The S3 operations that a path calls, each of which is supplied the options that it accepts.
+      OPERATIONS = %i[get_object head_object put_object copy_object delete_object list_objects_v2].freeze
+      # Request parameters that the path sets itself, which cannot be supplied as options.
+      PATH_PARAMETERS = %i[bucket key body response_target copy_source prefix continuation_token].freeze
+
       # When an upload file exceeds this size, use a multipart file upload.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
@@ -50,6 +55,10 @@ module IOStreams
       #
       #   Example:
       #     IOStreams::Paths::S3.new("s3://bucket/path/file_name.txt", client: { endpoint: "https://s3.test.com" })
+      #
+      # Any other options are supplied to each S3 request that accepts them, for example `acl` when
+      # writing or copying, and `request_payer` to every request. An option that no request accepts
+      # raises ArgumentError.
       #
       # Writer specific options:
       #
@@ -180,8 +189,16 @@ module IOStreams
 
         @options = args
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
+        validate_options!
 
         super(key)
+      end
+
+      # Returns [Array<Symbol>] the options that the S3 operation accepts.
+      def self.operation_options(operation)
+        @operation_options ||= {}
+        @operation_options[operation] ||=
+          (::Aws::S3::Client.api.operation(operation).input.shape.member_names - PATH_PARAMETERS).freeze
       end
 
       def to_s
@@ -195,7 +212,7 @@ module IOStreams
 
       def delete
         authorize!
-        client.delete_object(bucket: bucket_name, key: path)
+        client.delete_object(options_for(:delete_object).merge(bucket: bucket_name, key: path))
         self
       rescue Aws::S3::Errors::NotFound
         self
@@ -203,7 +220,7 @@ module IOStreams
 
       def exist?
         authorize!
-        client.head_object(bucket: bucket_name, key: path)
+        client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: path))
         true
       rescue Aws::S3::Errors::NotFound
         false
@@ -231,7 +248,9 @@ module IOStreams
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         target.authorize!
-        client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: copy_source))
+        client.copy_object(
+          options_for(:copy_object).merge(bucket: target.bucket_name, key: target.path, copy_source: copy_source)
+        )
         target
       end
 
@@ -247,7 +266,7 @@ module IOStreams
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         source.authorize!
-        client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source.copy_source))
+        client.copy_object(options_for(:copy_object).merge(bucket: bucket_name, key: path, copy_source: source.copy_source))
       end
 
       # S3 logically creates paths when a key is set.
@@ -261,7 +280,7 @@ module IOStreams
 
       def size
         authorize!
-        client.head_object(bucket: bucket_name, key: path).content_length
+        client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: path)).content_length
       rescue Aws::S3::Errors::NotFound
         nil
       end
@@ -282,7 +301,7 @@ module IOStreams
       def read_file(file_name)
         authorize!
         ::File.open(file_name, "wb") do |file|
-          client.get_object(options.merge(response_target: file, bucket: bucket_name, key: path))
+          client.get_object(options_for(:get_object).merge(response_target: file, bucket: bucket_name, key: path))
         end
       end
 
@@ -311,10 +330,11 @@ module IOStreams
           # Use multipart file upload
           s3  = Aws::S3::Resource.new(client: client)
           obj = s3.bucket(bucket_name).object(path)
-          obj.upload_file(file_name, options)
+          # Supplies each part of a multipart upload with the options that it accepts.
+          obj.upload_file(file_name, options_for(:put_object))
         else
           ::File.open(file_name, "rb") do |file|
-            client.put_object(options.merge(bucket: bucket_name, key: path, body: file))
+            client.put_object(options_for(:put_object).merge(bucket: bucket_name, key: path, body: file))
           end
         end
       end
@@ -364,6 +384,14 @@ module IOStreams
 
       protected
 
+      # Returns [Hash] the options that the S3 operation accepts.
+      #
+      # Options apply to the operations that accept them, so for example `acl` applies when writing
+      # and copying, and `request_payer` to every operation.
+      def options_for(operation)
+        options.slice(*self.class.operation_options(operation))
+      end
+
       # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.
       def copy_source
         "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
@@ -371,12 +399,23 @@ module IOStreams
 
       private
 
+      # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.
+      def validate_options!
+        accepted = OPERATIONS.flat_map { |operation| self.class.operation_options(operation) }
+        unknown  = options.keys - accepted
+        return if unknown.empty?
+
+        raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
+      end
+
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
       def each_object(prefix)
         token = nil
         loop do
           # Fetches upto 1,000 entries at a time
-          resp = client.list_objects_v2(bucket: bucket_name, prefix: prefix, continuation_token: token)
+          resp = client.list_objects_v2(
+            options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: prefix, continuation_token: token)
+          )
           resp.contents.each { |object| yield(resp.name, object) }
           token = resp.next_continuation_token
           break if token.nil?

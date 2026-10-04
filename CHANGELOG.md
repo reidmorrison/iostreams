@@ -28,6 +28,7 @@ These bug fixes change behavior that existing code may depend on:
 - **`#reader`, `#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for options they cannot use**, instead of ignoring them, so that a misspelled option is reported. This applies to options supplied to the `:stream` mode, which is the default, to `#copy_from` and `#copy_to` without a `mode:`, and to `#copy_from` and `#copy_to` with `convert: false`, including `mode:`. Options for the `:line`, `:array` and `:hash` modes already raised.
 - **The gzip and `.enc` streams no longer close the IO supplied to them**, like every other stream. Reading or writing an IO with `IOStreams.stream(io)` through the `:gz`, `:gzip` or `:enc` stream closed `io` when the block finished, while the `:bz2`, `:zip`, `:pgp` and `:encode` streams left it open.
 - **Paths compare by their full name, see `#to_s`.** `==` and `<=>` compared only `#path`, so paths with the same key or file name compared equal across S3 buckets, SFTP or HTTP hosts and ports, and stores, for example `IOStreams.path("s3://bucket-a/x.csv") == IOStreams.path("s3://bucket-b/x.csv")`, and comparing a path with anything else raised `NoMethodError`. A path is now equal to a path of the same class with the same `#to_s`, ignoring its streams, and to a `String` equal to its `#to_s`, such as `path == "/home/user/a.txt"`, and is not equal to anything else. Paths with the same location are also the same `Hash` key, and `#uniq` removes duplicates.
+- **S3 options are strict.** An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now raises `ArgumentError` when the path is created, for example a misspelled `acll: "public-read"`, as does a request parameter that the path sets itself, such as `key` or `bucket`. Previously an unknown option raised from the AWS SDK when the path was used.
 
 ### Fixed
 
@@ -52,6 +53,7 @@ These bug fixes change behavior that existing code may depend on:
 - Reading or writing an SFTP path without a username connects as the user from the ssh config, or the current user, as `sftp` does. Previously it failed with the usage text of `sftp`.
 - The `ArgumentError` messages for calling both `#option` and `#stream`, or `#option` without a file name, no longer end with a stray `}`.
 - `file://` urls refer to local files, for example `IOStreams.path("file:///home/user/a%20b.csv")` is `/home/user/a b.csv`. Previously the whole url was used as a relative file name, so reading raised `Errno::ENOENT`. A file url is absolute, so one with a host other than `localhost`, such as `file://a.txt`, or with an unencoded `?` or `#`, raises `ArgumentError`.
+- An S3 path with an option that only some requests accept, such as `acl:` or the documented `?acl=` url form, can be read, and each S3 request is supplied the options it accepts. Previously every option was supplied to reading and writing, so reading a path with `acl:` raised `ArgumentError: unexpected value at params[:acl]`, while `#exist?`, `#size`, `#delete` and `#each_child` were supplied none, so for example they did not apply `request_payer` or the `sse_customer_*` options.
 
 ## [2.1.0] - 2026-10-04
 
