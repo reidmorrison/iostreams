@@ -538,15 +538,11 @@ class StreamTest < Minitest::Test
             stream << {} << {first_name: "Able", last_name: "Smith"}
             stream << {}
           end
-          # Accept both old and new hash syntax formats due to Ruby version differences
-          expected_old = "first_name,last_name\nJack,Johnson\n\n{:first_name=>\"Able\", :last_name=>\"Smith\"}\n\n"
-          expected_new = "first_name,last_name\nJack,Johnson\n\n{first_name: \"Able\", last_name: \"Smith\"}\n\n"
 
-          assert_includes [expected_old, expected_new], io.string, io.string.inspect
+          assert_equal "first_name,last_name\nJack,Johnson\n\nAble,Smith\n\n", io.string, io.string.inspect
         end
 
         it "nil values" do
-          skip "TODO"
           io = StringIO.new
           IOStreams::Stream.new(io).writer(:hash) do |stream|
             stream << {first_name: "Jack", last_name: "Johnson"}
@@ -555,7 +551,7 @@ class StreamTest < Minitest::Test
             stream << {}
           end
 
-          assert_equal "first_name,last_name\nJack,Johnson\n\n{:first_name=>\"Able\", :last_name=>\"Smith\"}\n\n", io.string, io.string.inspect
+          assert_equal "first_name,last_name\nJack,Johnson\n\nAble,Smith\nAble,\n\n", io.string, io.string.inspect
         end
 
         it "honors format" do

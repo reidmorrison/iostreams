@@ -55,5 +55,19 @@ class RowWriterTest < Minitest::Test
         assert_equal raw_csv_data, io_string.string
       end
     end
+
+    describe "#<<" do
+      it "returns the row writer so that calls can be chained" do
+        io_string = StringIO.new
+        IOStreams::Line::Writer.stream(io_string) do |io|
+          IOStreams::Row::Writer.stream(io) do |stream|
+            assert_same stream, stream << %w[name zip]
+            stream << %w[name zip] << %w[Jack 12345]
+          end
+        end
+
+        assert_equal "name,zip\nname,zip\nJack,12345\n", io_string.string
+      end
+    end
   end
 end

@@ -68,6 +68,7 @@ module IOStreams
         @line_writer << @tabular.render_header if columns && @tabular.requires_header?
       end
 
+      # Returns self, so that calls can be chained.
       def <<(hash)
         raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
 
@@ -77,6 +78,7 @@ module IOStreams
           @line_writer << @tabular.render_header
         end
         @line_writer << @tabular.render(hash)
+        self
       end
     end
   end
