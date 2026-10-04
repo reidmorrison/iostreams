@@ -369,23 +369,13 @@ module IOStreams
 
         results = []
         secret  = false
-        name    = "Joe Bloggs" # Default name if we can't extract it
-        email_addr = nil
 
         output.each_line do |line|
           if line =~ /secret key imported/
             secret = true
-          elsif (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]+)\s<([^>]+)>"/i))
-            # Updated regex to properly extract name and email from modern GPG output
-            name = match[2].to_s.strip
-            email_addr = match[3].to_s.strip
-
-            results << {
-              key_id:  match[1].to_s.strip,
-              private: secret,
-              name:    name,
-              email:   email_addr
-            }
+          elsif (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]*)"/i))
+            name, email_addr = parse_user_id(match[2])
+            results << {key_id: match[1].to_s.strip, private: secret, name: name, email: email_addr}
             secret = false
           end
         end
@@ -400,20 +390,10 @@ module IOStreams
           output.each_line do |line|
             if (match = line.match(/key\s+([0-9A-F]+):/i))
               key_id = match[1].to_s.strip
-            elsif (match = line.match(/["']([^"']+)["']<([^>]+)>/i))
-              name = match[1].to_s.strip
-              email_addr = match[2].to_s.strip
             end
           end
 
-          if key_id
-            return [{
-              key_id:  key_id,
-              private: false,
-              name:    name,
-              email:   email_addr || "pgp_test@iostreams.net"
-            }]
-          end
+          return [{key_id: key_id, private: false, name: nil, email: nil}] if key_id
         end
 
         # Return empty array if we couldn't parse anything but the import was successful
@@ -422,6 +402,15 @@ module IOStreams
 
       raise(Pgp::Failure, "GPG Failed importing key: #{err}#{out}")
     end
+
+    # Returns [String, String] the name and email address of a user id, such as `"Joe Bloggs <j@bloggs.net>"`.
+    # The email address is nil when the user id does not have one.
+    def self.parse_user_id(user_id)
+      match = user_id.match(/\A(.*?)\s*<([^>]*)>\z/)
+      match ? [match[1].strip, match[2].strip] : [user_id.strip, nil]
+    end
+
+    private_class_method :parse_user_id
 
     # Imports the supplied key and then marks it as trusted at the supplied trust level.
     #

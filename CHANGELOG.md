@@ -39,6 +39,7 @@ These bug fixes change behavior that existing code may depend on:
 - Local `#each_child` returns the children of a directory whose name contains a pattern character such as `[`, `{`, `*` or `?`. Previously it returned nothing, or the children of other directories. Within the pattern itself such characters must still be escaped with `\`. It also no longer yields the directory itself, as `dir/.`, with `hidden: true` and `directories: true`.
 - `#copy_from` and `#copy_to` with `convert: false` no longer change the streams of the source or target path. Previously both paths were left with no streams, as with `stream(:none)`, so for example a later `#read` of a `.gz` source returned its compressed data, and a source with an `#option` raised `ArgumentError`.
 - `IOStreams::Pgp.list_keys` returns `[]` for an empty keyring, instead of raising `IOStreams::Pgp::Failure`, and `IOStreams::Pgp.pgp_version` raises `IOStreams::Pgp::Failure` with gpg's error when `gpg --version` fails, instead of `NameError`.
+- `IOStreams::Pgp.import` returns the name of a key whose user id has no email address, with a `nil` email. Previously it returned the name `"Joe Bloggs"` and the email address `"pgp_test@iostreams.net"`, values left over from its tests, for such a key, and for a key whose user id it could not read.
 
 ## [2.1.0] - 2026-10-04
 

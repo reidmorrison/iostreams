@@ -405,6 +405,44 @@ class PgpTest < Minitest::Test
       end
     end
 
+    describe ".import output" do
+      it "returns the name of a key without an email address" do
+        output = <<~OUTPUT
+          gpg: key 7932AB23D7238F6B: public key "Build Server" imported
+          gpg: Total number processed: 1
+          gpg:               imported: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "7932AB23D7238F6B", private: false, name: "Build Server", email: nil}], keys
+      end
+
+      it "returns the name and email address of a key" do
+        output = <<~OUTPUT
+          gpg: key 7932AB23D7238F6B: public key "Jack Jones <jack@example.org>" imported
+          gpg: Total number processed: 1
+          gpg:               imported: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "7932AB23D7238F6B", private: false, name: "Jack Jones", email: "jack@example.org"}], keys
+      end
+
+      it "does not make up a name or email address" do
+        output = <<~OUTPUT
+          gpg: key 7932AB23D7238F6B: public key imported
+          gpg: Total number processed: 1
+          gpg:               imported: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "7932AB23D7238F6B", private: false, name: nil, email: nil}], keys
+      end
+    end
+
     describe ".import" do
       it "handle duplicate public key" do
         generated_key_id
