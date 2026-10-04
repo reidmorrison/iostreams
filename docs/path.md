@@ -242,7 +242,8 @@ path = IOStreams.path("sftp://hostname/path/example.csv")
 IOStreams reads and writes SFTP files by shelling out to the `sftp` command line program,
 so it must be installed and on the `PATH`. When a password is supplied the `sshpass`
 program is also required to pass the password to `sftp`. Additionally the `net-sftp` gem
-must be added to the `Gemfile` to use `each_child`.
+must be added to the `Gemfile` to use `each_child`. `each_child` lists the files within the path's directory,
+or within the login directory when the url has no path, for example `sftp://hostname`.
 
 Read a file from a remote sftp server.
 ~~~ruby
@@ -341,6 +342,12 @@ end
 
   * Any other options supported by ssh_config.
     `man ssh_config` to see all available options.
+
+  `each_child` lists files with the `net-sftp` gem instead of the `sftp` program, so it only supports
+  these ssh options: `HostKey`, `IdentityKey`, `IdentityFile`, `UserKnownHostsFile`,
+  `StrictHostKeyChecking`, `ConnectTimeout`, `ServerAliveInterval`, `ServerAliveCountMax` and
+  `LogLevel`. Any other option raises `ArgumentError`. Unlike the `sftp` program, `net-sftp` needs the
+  `ed25519` and `bcrypt_pbkdf` gems to use ed25519 host or identity keys.
 
 Notes:
 * Since the `sftp` program operates on local files, reading from or writing to an SFTP path

@@ -62,12 +62,19 @@ key returned by `IOStreams::Pgp.list_keys`.
 
 `#each_child` on an SFTP path now verifies the server's host key, the same way reading and writing
 already did. Previously it trusted a host key the first time it was seen. If listing files now
-fails, add the server's host key to the `known_hosts` file of the user running the application,
-for example with `ssh-keyscan hostname >> ~/.ssh/known_hosts` after confirming the key is correct.
-See [SFTP](path#sftp-sftp).
+fails, supply the server's host key with the `HostKey` ssh option, or add it to the `known_hosts`
+file of the user running the application. See [SFTP](path#sftp-sftp).
+
+`#each_child` now also supports the `HostKey`, `IdentityKey` and `IdentityFile` ssh options, and
+some others. Previously any ssh option made it raise `ArgumentError`. Any ssh option it does not
+support raises `ArgumentError`.
 
 #### Other changes in behavior
 
+- SFTP `#each_child` lists the files in the path's directory. Previously it ignored the path and
+  listed the login directory, so `IOStreams.path("sftp://host/data/in").each_child("*.csv")`
+  listed `~/*.csv`, returning paths such as `/a.csv`. A url without a path, such as `sftp://host`,
+  still lists the login directory.
 - `Path#join` and `IOStreams.join` only return an element unchanged when it is the path itself or
   is inside it. Previously any element that started with the same characters was returned as-is,
   so `IOStreams.path("s3://bucket/reports").join("reports_2024.csv")` gave

@@ -227,6 +227,8 @@ module Paths
           path = new_path(url, username: "jack", ssh_options: {IdentityFile: "~/.ssh/id_rsa"})
           args = path.send(:sftp_args, path.ssh_options)
 
+          assert_equal IOStreams::Paths::SFTP.sftp_bin, args[0]
+          refute_includes args, IOStreams::Paths::SFTP.sshpass_bin
           assert_includes args, "-oBatchMode=yes"
           assert_includes args, "-oPasswordAuthentication=no"
           assert_includes args, "-oIdentitiesOnly=yes"
@@ -298,10 +300,13 @@ module Paths
         Struct.new(:level).new(level)
       end
 
-      describe "#build_ssh_options" do
+      describe "NetSSH.options" do
+        def net_ssh_options(password: "secret")
+          IOStreams::Paths::SFTP::NetSSH.options({}, port: 22, password: password) { |options| options }
+        end
+
         it "fills in the default port, packet size, and password" do
-          path    = new_path(url, username: "jack", password: "secret")
-          options = path.send(:build_ssh_options)
+          options = net_ssh_options
 
           assert_equal 22, options[:port]
           assert_equal 65_536, options[:max_pkt_size]
@@ -309,19 +314,16 @@ module Paths
         end
 
         it "omits the logger when IOStreams.logger is nil" do
-          path = new_path(url, username: "jack", password: "secret")
-
           with_io_streams_logger(nil) do
-            refute path.send(:build_ssh_options).key?(:logger)
+            refute net_ssh_options.key?(:logger)
           end
         end
 
         it "passes IOStreams.logger through to net-ssh" do
-          path   = new_path(url, username: "jack", password: "secret")
           logger = logger_stub(:info)
 
           with_io_streams_logger(logger) do
-            assert_same logger, path.send(:build_ssh_options)[:logger]
+            assert_same logger, net_ssh_options[:logger]
           end
         end
       end
@@ -345,6 +347,16 @@ module Paths
           end
 
           assert_includes error.message, "Upload failed"
+          assert_includes error.message, "via sshpass"
+        end
+
+        it "does not mention sshpass when no password is supplied" do
+          path  = new_path(url, username: "jack")
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            path.send(:raise_failure, "Upload", nil)
+          end
+
+          refute_includes error.message, "sshpass"
         end
       end
 
@@ -359,7 +371,10 @@ module Paths
               Struct.new(:name, :attributes) { def file? = true }.new(name, attributes)
             end
             dir = Object.new
-            dir.define_singleton_method(:glob) { |_dir, _pattern, _flags, &each| entries.each(&each) }
+            dir.define_singleton_method(:glob) do |glob_dir, _pattern, _flags, &each|
+              stub_sftp.instance_variable_set(:@glob_dir, glob_dir)
+              entries.each(&each)
+            end
             block.call(Struct.new(:dir).new(dir))
           end
 
@@ -370,20 +385,55 @@ module Paths
         end
 
         it "does not parse remote file names as part of a url" do
-          path = new_path(url, username: "jack", password: "secret", ssh_options: {"ServerAliveInterval" => 60})
+          path = new_path("sftp://example.org/data", username: "jack", password: "secret",
+                                                       ssh_options: {"ServerAliveInterval" => 60})
 
           children = nil
           with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do
             children = path.each_child.to_a.map(&:first)
           end
 
-          assert_equal ["/inbox/a+b.csv?acl=public-read", "/inbox/c%41#d.csv"], children.map(&:path)
-          assert_equal "sftp://example.org/inbox/a+b.csv?acl=public-read", children.first.to_s
+          assert_equal ["/data/inbox/a+b.csv?acl=public-read", "/data/inbox/c%41#d.csv"], children.map(&:path)
+          assert_equal "sftp://example.org/data/inbox/a+b.csv?acl=public-read", children.first.to_s
           children.each do |child|
             assert_instance_of IOStreams::Paths::SFTP, child
             assert_equal "jack", child.username
             assert_equal "secret", child.send(:password)
             assert_equal({"ServerAliveInterval" => 60}, child.ssh_options)
+          end
+        end
+
+        it "lists the path's directory" do
+          path = new_path("sftp://example.org/data/in", username: "jack")
+
+          with_stub_net_sftp(["a.csv"]) do |stub_sftp|
+            children = path.each_child.to_a.map(&:first)
+
+            assert_equal "/data/in", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["/data/in/a.csv"], children.map(&:path)
+            assert_equal ["sftp://example.org/data/in/a.csv"], children.map(&:to_s)
+          end
+        end
+
+        it "lists the login directory when the url has no path" do
+          path = new_path("sftp://example.org", username: "jack")
+
+          with_stub_net_sftp(["a.csv"]) do |stub_sftp|
+            children = path.each_child.to_a.map(&:first)
+
+            assert_equal ".", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["/a.csv"], children.map(&:path)
+          end
+        end
+
+        it "keeps the port in the children" do
+          path = new_path("sftp://example.org:2222/data", username: "jack")
+
+          with_stub_net_sftp(["a.csv"]) do
+            child = path.each_child.to_a.first.first
+
+            assert_equal 2222, child.port
+            assert_equal "sftp://example.org:2222/data/a.csv", child.to_s
           end
         end
 
@@ -396,6 +446,109 @@ module Paths
 
             assert_equal :always, options[:verify_host_key]
           end
+        end
+
+        # Returns [Hash] the options that #each_child supplied to Net::SFTP.start, and the contents of the
+        # known hosts file at that time, since it is a temp file that is deleted afterwards.
+        def net_ssh_options(path)
+          known_hosts = nil
+          options     = nil
+          with_stub_net_sftp([]) do |stub_sftp|
+            stub_sftp.define_singleton_method(:start) do |_hostname, _username, opts, &_block|
+              options = opts
+              return unless opts[:user_known_hosts_file]&.first&.include?("iostreams-sftp-known-hosts")
+
+              known_hosts = File.read(opts[:user_known_hosts_file].first)
+            end
+            path.each_child.to_a
+          end
+          [options, known_hosts]
+        end
+
+        it "supplies only options that net-ssh accepts" do
+          require "net/ssh"
+          path = new_path(url, username: "jack", password: "secret",
+                                     ssh_options: {"HostKey" => "host-key", "IdentityKey" => "key", "LogLevel" => "DEBUG"})
+          options, = net_ssh_options(path)
+
+          assert_empty options.keys - Net::SSH::VALID_OPTIONS
+        end
+
+        it "uses HostKey as the known hosts file" do
+          path                 = new_path(url, username: "jack", ssh_options: {"HostKey" => "[example.org]:22 ssh-ed25519 AAAA"})
+          options, known_hosts = net_ssh_options(path)
+
+          assert_equal "[example.org]:22 ssh-ed25519 AAAA", known_hosts
+          assert_equal :always, options[:verify_host_key]
+        end
+
+        it "uses HostKey instead of UserKnownHostsFile" do
+          path                 = new_path(url, username:    "jack",
+                                               ssh_options: {"HostKey" => "host-key", "UserKnownHostsFile" => "/known_hosts"})
+          options, known_hosts = net_ssh_options(path)
+
+          assert_equal "host-key", known_hosts
+          refute_includes options[:user_known_hosts_file], "/known_hosts"
+        end
+
+        it "uses UserKnownHostsFile" do
+          path = new_path(url, username: "jack", ssh_options: {"UserKnownHostsFile" => "/a/known_hosts /b/known_hosts"})
+          options, = net_ssh_options(path)
+
+          assert_equal ["/a/known_hosts", "/b/known_hosts"], options[:user_known_hosts_file]
+        end
+
+        it "uses only the supplied identity" do
+          path = new_path(url, username: "jack", ssh_options: {"IdentityKey" => "private-key"})
+          options, = net_ssh_options(path)
+
+          assert_equal ["private-key"], options[:key_data]
+          assert options[:keys_only]
+          assert_equal %w[publickey], options[:auth_methods]
+        end
+
+        it "uses the identity file" do
+          path = new_path(url, username: "jack", ssh_options: {"IdentityFile" => "~/.ssh/private_key"})
+          options, = net_ssh_options(path)
+
+          assert_equal ["~/.ssh/private_key"], options[:keys]
+          assert options[:keys_only]
+        end
+
+        it "uses only the password when one is supplied" do
+          options, = net_ssh_options(new_path(url, username: "jack", password: "secret"))
+
+          assert_equal "secret", options[:password]
+          assert_equal %w[password keyboard-interactive], options[:auth_methods]
+          assert options[:non_interactive]
+        end
+
+        it "translates the remaining supported options" do
+          path = new_path(url, username: "jack", ssh_options: {
+                            "StrictHostKeyChecking" => "accept-new", "ConnectTimeout" => "10",
+                                  "ServerAliveInterval" => 60, "ServerAliveCountMax" => "3", "LogLevel" => "ERROR"
+                          })
+          options, = net_ssh_options(path)
+
+          assert_equal :accept_new, options[:verify_host_key]
+          assert_equal 10, options[:timeout]
+          assert options[:keepalive]
+          assert_equal 60, options[:keepalive_interval]
+          assert_equal 3, options[:keepalive_maxcount]
+          assert_equal :error, options[:verbose]
+        end
+
+        it "rejects an ssh option that net-ssh does not support" do
+          path = new_path(url, username: "jack", ssh_options: {"Compression" => "yes"})
+
+          error = assert_raises(ArgumentError) { net_ssh_options(path) }
+          assert_includes error.message, "does not support the ssh option \"Compression\""
+        end
+
+        it "rejects an invalid StrictHostKeyChecking value" do
+          path = new_path(url, username: "jack", ssh_options: {"StrictHostKeyChecking" => "maybe"})
+
+          assert_raises(ArgumentError) { net_ssh_options(path) }
         end
       end
 

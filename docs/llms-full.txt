@@ -1112,7 +1112,8 @@ path = IOStreams.path("sftp://hostname/path/example.csv")
 IOStreams reads and writes SFTP files by shelling out to the `sftp` command line program,
 so it must be installed and on the `PATH`. When a password is supplied the `sshpass`
 program is also required to pass the password to `sftp`. Additionally the `net-sftp` gem
-must be added to the `Gemfile` to use `each_child`.
+must be added to the `Gemfile` to use `each_child`. `each_child` lists the files within the path's directory,
+or within the login directory when the url has no path, for example `sftp://hostname`.
 
 Read a file from a remote sftp server.
 ~~~ruby
@@ -1211,6 +1212,12 @@ end
 
   * Any other options supported by ssh_config.
     `man ssh_config` to see all available options.
+
+  `each_child` lists files with the `net-sftp` gem instead of the `sftp` program, so it only supports
+  these ssh options: `HostKey`, `IdentityKey`, `IdentityFile`, `UserKnownHostsFile`,
+  `StrictHostKeyChecking`, `ConnectTimeout`, `ServerAliveInterval`, `ServerAliveCountMax` and
+  `LogLevel`. Any other option raises `ArgumentError`. Unlike the `sftp` program, `net-sftp` needs the
+  `ed25519` and `bcrypt_pbkdf` gems to use ed25519 host or identity keys.
 
 Notes:
 * Since the `sftp` program operates on local files, reading from or writing to an SFTP path
@@ -2828,12 +2835,19 @@ key returned by `IOStreams::Pgp.list_keys`.
 
 `#each_child` on an SFTP path now verifies the server's host key, the same way reading and writing
 already did. Previously it trusted a host key the first time it was seen. If listing files now
-fails, add the server's host key to the `known_hosts` file of the user running the application,
-for example with `ssh-keyscan hostname >> ~/.ssh/known_hosts` after confirming the key is correct.
-See [SFTP](path#sftp-sftp).
+fails, supply the server's host key with the `HostKey` ssh option, or add it to the `known_hosts`
+file of the user running the application. See [SFTP](path#sftp-sftp).
+
+`#each_child` now also supports the `HostKey`, `IdentityKey` and `IdentityFile` ssh options, and
+some others. Previously any ssh option made it raise `ArgumentError`. Any ssh option it does not
+support raises `ArgumentError`.
 
 #### Other changes in behavior
 
+- SFTP `#each_child` lists the files in the path's directory. Previously it ignored the path and
+  listed the login directory, so `IOStreams.path("sftp://host/data/in").each_child("*.csv")`
+  listed `~/*.csv`, returning paths such as `/a.csv`. A url without a path, such as `sftp://host`,
+  still lists the login directory.
 - `Path#join` and `IOStreams.join` only return an element unchanged when it is the path itself or
   is inside it. Previously any element that started with the same characters was returned as-is,
   so `IOStreams.path("s3://bucket/reports").join("reports_2024.csv")` gave

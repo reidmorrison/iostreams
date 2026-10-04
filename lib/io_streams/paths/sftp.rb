@@ -32,6 +32,8 @@ module IOStreams
       @before_password_wait_seconds = 2
       @sshpass_wait_seconds         = 5
 
+      autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
+
       attr_reader :hostname, :username, :ssh_options, :url, :port
 
       # Stream to a remote file over sftp.
@@ -67,6 +69,11 @@ module IOStreams
       #       For example: `ssh-keyscan hostname`
       #   - Any other options supported by ssh_config.
       #     `man ssh_config` to see all available options.
+      #
+      #   `#each_child` lists files with the net-sftp gem instead of the sftp executable, so it only supports
+      #   these ssh options: HostKey, IdentityKey, IdentityFile, UserKnownHostsFile, StrictHostKeyChecking,
+      #   ConnectTimeout, ServerAliveInterval, ServerAliveCountMax and LogLevel. Any other option raises
+      #   ArgumentError.
       #
       # Examples:
       #
@@ -129,7 +136,9 @@ module IOStreams
 
       # TODO: Add #copy_from shortcut to detect when a file is supplied that does not require conversion.
 
-      # Search for files on the remote sftp server that match the provided pattern.
+      # Search for files on the remote sftp server that match the provided pattern, within this path.
+      # When the url does not include a path, for example `sftp://sftp.example.org`, it searches
+      # the login directory.
       #
       # The pattern matching works like Net::SFTP::Operations::Dir.glob and Dir.glob
       # Each child also returns attributes that contain the file size, ownership, file dates and other details.
@@ -142,7 +151,7 @@ module IOStreams
       #   end
       #
       # Example Output:
-      # sftp://sftp.example.org/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group",
+      # sftp://sftp.example.org/my_files/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group",
       #   :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
       def each_child(pattern = "*", case_sensitive: true, directories: false, hidden: false)
         unless block_given?
@@ -157,12 +166,15 @@ module IOStreams
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
 
-        Net::SFTP.start(hostname, username, build_ssh_options) do |sftp|
-          sftp.dir.glob(".", pattern, flags) do |path|
-            next if !directories && !path.file?
+        NetSSH.options(ssh_options, port: port, password: password) do |options|
+          Net::SFTP.start(hostname, username, options) do |sftp|
+            # Without a path in the url, list the login directory.
+            sftp.dir.glob(path.empty? ? "." : path, pattern, flags) do |entry|
+              next if !directories && !entry.file?
 
-            child = child_path(path.name)
-            yield(child, path.attributes.attributes) if allowed_child?(child)
+              child = child_path(entry.name)
+              yield(child, entry.attributes.attributes) if allowed_child?(child)
+            end
           end
         end
         nil
@@ -192,10 +204,13 @@ module IOStreams
 
       # Set the path directly rather than parsing it as part of a URL, since a file name can contain
       # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
+      #
+      # The supplied name is relative to this path, or to the login directory when this url has no path.
       def child_path(name)
-        child      = self.class.new("sftp://#{hostname}", username: username, password: password, ssh_options: ssh_options)
-        child.path = "/#{name}".freeze
-        child.url  = "sftp://#{hostname}/#{name}"
+        server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
+        child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
+        child.path = (path.empty? ? "/#{name}" : ::File.join(path, name)).freeze
+        child.url  = "#{server}#{child.path}"
         child
       end
 
@@ -214,17 +229,19 @@ module IOStreams
         end
       end
 
-      # Use sftp and sshpass executables to download to a local file
+      # Use the sftp executable to download to a local file, via sshpass when a password is supplied
       def sftp_download(remote_file_name, local_file_name)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
-            # Give time for remote sftp server to get ready to accept the password.
-            sleep self.class.before_password_wait_seconds
+            if password
+              # Give time for remote sftp server to get ready to accept the password.
+              sleep self.class.before_password_wait_seconds
 
-            writer.puts password
+              writer.puts password
 
-            # Give time for password to be processed and stdin to be passed to sftp process.
-            sleep self.class.sshpass_wait_seconds
+              # Give time for password to be processed and stdin to be passed to sftp process.
+              sleep self.class.sshpass_wait_seconds
+            end
 
             writer.puts "get #{remote_file_name.inspect} #{local_file_name.inspect}"
             writer.puts "bye"
@@ -247,9 +264,11 @@ module IOStreams
       def sftp_upload(local_file_name, remote_file_name)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
-            writer.puts(password) if password
-            # Give time for password to be processed and stdin to be passed to sftp process.
-            sleep self.class.sshpass_wait_seconds
+            if password
+              writer.puts(password)
+              # Give time for password to be processed and stdin to be passed to sftp process.
+              sleep self.class.sshpass_wait_seconds
+            end
             writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
             writer.puts "bye"
             writer.close
@@ -274,7 +293,7 @@ module IOStreams
         out = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
         raise(
           Errors::CommunicationsFailure,
-          "#{action} failed calling #{self.class.sftp_bin} via #{self.class.sshpass_bin}: #{out}"
+          "#{action} failed calling #{self.class.sftp_bin}#{" via #{self.class.sshpass_bin}" if password}: #{out}"
         )
       end
 
@@ -311,7 +330,8 @@ module IOStreams
       end
 
       def sftp_args(ssh_options)
-        args = [self.class.sshpass_bin, self.class.sftp_bin]
+        # sshpass is only needed to supply the password to sftp.
+        args = password ? [self.class.sshpass_bin, self.class.sftp_bin] : [self.class.sftp_bin]
         # Force sftp to use the password when supplied,
         # and stop sftp from prompting for a password when none was supplied.
         if password
@@ -334,18 +354,6 @@ module IOStreams
         args << "--"
         args << "#{username}@#{hostname}"
         args
-      end
-
-      def build_ssh_options
-        options = ssh_options.dup
-        options[:logger]       ||= IOStreams.logger if IOStreams.logger
-        options[:port]         ||= port
-        options[:max_pkt_size] ||= 65_536
-        options[:password]     ||= @password
-        # Match the sftp executable, which uses `StrictHostKeyChecking=yes`, instead of the
-        # net-ssh default of trusting a host key the first time it is seen.
-        options[:verify_host_key] ||= :always
-        options
       end
 
       def map_log_level
