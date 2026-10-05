@@ -399,6 +399,16 @@ module IOStreams
 
       private
 
+      # Skips the HEAD before a copy to this path, and the DELETE after a failed one.
+      #
+      # S3 only stores an object once its upload completes, and a multipart upload is aborted when it fails,
+      # so a failed copy never leaves an incomplete object to delete. The DELETE could instead remove a
+      # complete object when only the response to its upload was lost, or one created by another writer
+      # during the copy.
+      def existed_before_copy?
+        true
+      end
+
       # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.
       def validate_options!
         accepted = OPERATIONS.flat_map { |operation| self.class.operation_options(operation) }

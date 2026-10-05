@@ -479,6 +479,26 @@ module Paths
           assert_raises(IOError) { target.copy_from(failing_source) }
           assert_equal "data", target.read
         end
+
+        it "uploads without a head request" do
+          target = IOStreams.path("s3://bucket/reports/new.csv")
+
+          target.copy_from(StringIO.new("new data"))
+
+          assert_equal([:put_object], target.client.api_requests.map { |request| request[:operation_name] })
+          assert_equal "new data", target.read
+        end
+
+        it "does not delete a new object when the copy fails" do
+          target         = IOStreams.path("s3://bucket/reports/new.csv")
+          failing_source = Object.new
+          def failing_source.read(*)
+            raise(IOError, "failed part way")
+          end
+
+          assert_raises(IOError) { target.copy_from(failing_source) }
+          assert_empty(target.client.api_requests.map { |request| request[:operation_name] })
+        end
       end
     end
   end
