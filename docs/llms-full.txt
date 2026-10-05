@@ -81,7 +81,8 @@ million without changes.
 
 With [roots](config), the storage location lives in a startup initializer instead of being scattered
 through the code. Point the `:default` root at the local file system in development and at an S3
-bucket in production, and the exact same application code runs in both.
+bucket in production, and the exact same application code runs in both. A path can also come straight from an
+environment variable or a configuration system. See [Paths are configuration](config#paths-are-configuration).
 
 ### Capabilities
 
@@ -2711,6 +2712,42 @@ Select highest level: 5
 ---
 
 # Configuring IOStreams
+
+## Paths are configuration
+
+A path or url is configuration, not code. Keep it in an environment variable or a centralized configuration
+system, and pass it to IOStreams, so that the exact same application code runs against local files in
+development and a completely different file store in staging or production.
+
+~~~ruby
+# Development: EXPORT_PATH=~/exports/daily.csv
+# Staging:     EXPORT_PATH=sftp://staging.example.org/~/exports/daily.csv
+# Production:  EXPORT_PATH=s3://my-bucket/exports/daily.csv
+IOStreams.path(ENV.fetch("EXPORT_PATH")).write(report)
+~~~
+
+This also helps when infrastructure changes. For example, while migrating production from on-premises
+servers to the cloud, the on-premises instance can keep reading and writing local files while the cloud
+instance uses S3, both running the same release with only their configuration differing.
+
+The same path written for each file store refers to the equivalent place. For example `~/exports` is within
+the home directory, and `sftp://hostname/~/exports` is within the login directory on the SFTP server.
+
+To keep code independent of where its files are stored:
+
+* Use the methods on the path, such as `exist?`, `each_child`, `move_to`, `delete`, `reader` and `writer`,
+  rather than passing `path.to_s` to `File` or `Dir`, which only work with local files.
+* Do not check the scheme of a path to decide what to do with it.
+* Keep credentials in configuration too, for example the AWS environment variables or credential files for S3,
+  and the ssh config for SFTP.
+
+When an application uses several locations, [roots](#add_root) give them names, and each root can be set from
+configuration:
+
+~~~ruby
+IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))
+IOStreams.join("exports", "daily.csv").write(report)
+~~~
 
 ## add_root
 
