@@ -11,18 +11,22 @@ module IOStreams
       BRACE_WITH_SLASH   = /\{[^}]*\/[^}]*\}/
       # A pattern element that names a hidden file, such as `.env`.
       HIDDEN_ELEMENT     = /(?:\A|[\/{,])\./
+      # A file name within the home directory, `~` or starting with `~/`, rather than `~user` or `~$Book1.xlsx`.
+      HOME_DIRECTORY     = %r{\A~(?:/|\z)}
 
       # Parameters:
       #   file_name [String]
       #     The name of the file, relative to the current directory unless it starts with `/`.
+      #     A name of `~`, or starting with `~/`, is within the current user's home directory, as with
+      #     `sftp://hostname/~/a.txt` for the login directory, so that a configured path can change between
+      #     local files and SFTP without changing the code. Use `./~` for a directory called `~` in the current directory.
       #     Or a `file://` url, which is always absolute: `file:///home/user/a.txt`, or `file://localhost/home/user/a.txt`.
-      #     A `file://` url can also start with `~` for the current user's home directory, such as `file://~/a.txt`
-      #     or `file:///~/a.txt`, like `sftp://hostname/~/a.txt` for the login directory, so that a configured url
-      #     can change between local files and SFTP without changing the code.
+      #     A `file://` url can also start with `~` for the home directory, such as `file://~/a.txt` or `file:///~/a.txt`.
       #     Characters in the url such as a space, `?` or `#` must be percent-encoded, for example `%20`.
       def initialize(file_name, create_path: true)
         @create_path = create_path
-        super(file_name.to_s.match?(%r{\Afile://}i) ? self.class.path_from_url(file_name.to_s) : file_name)
+        file_name    = file_name.to_s
+        super(file_name.match?(%r{\Afile://}i) ? self.class.path_from_url(file_name) : self.class.home_path(file_name))
       end
 
       # Returns [String] the absolute path of a `file://` url.
@@ -44,10 +48,21 @@ module IOStreams
           raise(ArgumentError, "Invalid file url #{url.inspect}: percent-encode '?' as '%3F' and '#' as '%23'.")
         end
 
-        within_home = path[%r{\A~(?:/|\z)(.*)}m, 1]
-        return "/#{::URI.decode_uri_component(path)}" unless within_home
+        path.match?(HOME_DIRECTORY) ? home_path(::URI.decode_uri_component(path)) : "/#{::URI.decode_uri_component(path)}"
+      end
 
-        within_home.empty? ? Dir.home : ::File.join(Dir.home, ::URI.decode_uri_component(within_home))
+      # Returns [String] the file name with a leading `~` replaced by the home directory, or the file name unchanged.
+      def self.home_path(file_name)
+        return file_name unless file_name.match?(HOME_DIRECTORY)
+
+        home = file_name.sub(HOME_DIRECTORY) { "#{Dir.home}/" }.chomp("/")
+        if ::File.directory?("~")
+          IOStreams.logger&.warn(
+            "#{file_name} is within the home directory: #{home}. " \
+            "Use ./#{file_name} for the directory called ~ in the current directory: #{Dir.pwd}"
+          )
+        end
+        home
       end
 
       # Yields Paths within the current path.
@@ -149,7 +164,10 @@ module IOStreams
         results    = candidates.filter_map do |name|
           next if ::File.basename(name).match?(/\A\.\.?\z/) || !::File.fnmatch?(pattern, name, flags)
 
-          directory ? ::File.join(directory, name) : name
+          next ::File.join(directory, name) if directory
+
+          # A child of the current directory called `~` is not the home directory.
+          name.match?(HOME_DIRECTORY) ? "./#{name}" : name
         end
 
         results.each do |full_path|

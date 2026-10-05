@@ -54,6 +54,29 @@ class AllowedPathsTest < Minitest::Test
       end
     end
 
+    describe "home directory" do
+      def with_home(home)
+        original    = Dir.home
+        ENV["HOME"] = home
+        yield
+      ensure
+        ENV["HOME"] = original
+      end
+
+      it "allows a path within the home directory when it is within an allowed path" do
+        with_home(allowed) { assert_equal "allowed", IOStreams.path("~/file.txt").read }
+      end
+
+      it "denies a path within the home directory when it is outside the allowed paths" do
+        with_home(outside) { assert_denied { IOStreams.path("~/file.txt").read } }
+        Dir.chdir(allowed) do
+          FileUtils.mkdir_p("~")
+
+          with_home(outside) { assert_denied { IOStreams.path("~/file.txt").exist? } }
+        end
+      end
+    end
+
     describe "file urls" do
       it "allows a file url within an allowed path" do
         assert_equal "allowed", IOStreams.path("file://#{allowed_file}").read

@@ -43,24 +43,27 @@ IOStreams.path("file:///home/user/my%20file.csv")
 IOStreams.path("/home/user/my file.csv")
 ~~~
 
-A `file://` url can also start with `~` for the current user's home directory. This is not part of the
-`file://` standard, but it matches an [SFTP](#sftp-sftp) url, where `~` is the login directory, so the
-location of a file can be configured, for example in an environment variable, as a local file in one
-environment and on an SFTP server in another, without changing the code:
+A file name of `~`, or starting with `~/`, is within the current user's home directory. This matches an
+[SFTP](#sftp-sftp) url, where `~` is the login directory, so the location of a file can be configured, for example
+in an environment variable, as a local file in one environment and on an SFTP server in another, without changing
+the code. A `file://` url can also start with `~`, although that is not part of the `file://` standard:
 
 ~~~ruby
 # The file data/example.csv within the home directory
-IOStreams.path("file://~/data/example.csv")
+IOStreams.path("~/data/example.csv")
 # Same as:
+IOStreams.path("file://~/data/example.csv")
 IOStreams.path("file:///~/data/example.csv")
 
 # The file data/example.csv within the login directory on the SFTP server
 IOStreams.path("sftp://hostname/~/data/example.csv")
 ~~~
 
-A `~` in a file name that is not a url is not expanded, so `~/example.csv` is the file `example.csv` within
-a directory called `~`, in the current directory. In code, `IOStreams.home` is the current user's home directory,
-`IOStreams.home("username")` is another user's, and `IOStreams.working_path` is the current working directory:
+Only a leading `~` on its own is the home directory, so `~user/a.csv`, `~$Book1.xlsx` and `a/~/b.csv` are
+unchanged. Use `./~/example.csv` for a directory called `~` in the current directory.
+
+In code, `IOStreams.home` is the current user's home directory, `IOStreams.home("username")` is another user's,
+and `IOStreams.working_path` is the current working directory:
 
 ~~~ruby
 IOStreams.home.join("my file.csv")
