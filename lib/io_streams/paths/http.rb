@@ -6,9 +6,14 @@ module IOStreams
     class HTTP < IOStreams::Path
       attr_reader :username, :password, :http_redirect_count, :url
 
+      # Requests that do not change the file, so that they can follow a redirect to another host.
+      SAFE_REQUESTS = [Net::HTTP::Get, Net::HTTP::Head].freeze
+      private_constant :SAFE_REQUESTS
+
       # Stream to/from a remote file over http(s).
       #
       # Reading uses an HTTP GET, and writing uses an HTTP PUT of the entire file.
+      # `#exist?` and `#size` use an HTTP HEAD, and `#delete` uses an HTTP DELETE.
       #
       # Parameters:
       #   url: [String]
@@ -70,8 +75,8 @@ module IOStreams
       #   host. They are not resent when a redirect points at a different scheme, host, or port,
       #   so that a redirect cannot leak the credentials to another server.
       # - A redirect from https to http is not followed, so that the data cannot be read or changed in transit.
-      # - When writing, a redirect is only followed to the same scheme, host, and port, so that a
-      #   redirect cannot send the data being uploaded to another server.
+      # - When writing or deleting, a redirect is only followed to the same scheme, host, and port, so that a
+      #   redirect cannot send the data being uploaded to another server, or delete a file on it.
       # - Each redirect that is followed is logged at info level via `IOStreams.logger`.
       def initialize(url, username: nil, password: nil, http_redirect_count: 10, parameters: nil,
                      allow_hosts: nil, maximum_file_size: nil, headers: nil)
@@ -100,6 +105,36 @@ module IOStreams
 
       def to_s
         url
+      end
+
+      # Returns [true|false] whether the file exists, using an HTTP HEAD.
+      #
+      # Returns false when the server responds with 404 Not Found or 410 Gone.
+      # Raises [IOStreams::Errors::CommunicationsFailure] for any other unsuccessful response, for example when
+      # the server does not support HEAD requests.
+      def exist?
+        authorize!
+        send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true) { |_response| true } || false
+      end
+
+      # Returns [Integer] the size of the file from the Content-Length of an HTTP HEAD, or nil when the file does
+      # not exist, or the server does not supply its size.
+      def size
+        authorize!
+        send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true, &:content_length)
+      end
+
+      # Deletes the file, using an HTTP DELETE.
+      #
+      # Returns self
+      #
+      # Notes:
+      # * No error is raised when the server responds with 404 Not Found or 410 Gone.
+      # * Like writing, only a 307 or 308 redirect to the same scheme, host, and port is followed.
+      def delete
+        authorize!
+        send_request(Net::HTTP::Delete, url, http_redirect_count, allow_missing: true) { |_response| nil }
+        self
       end
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
@@ -196,17 +231,29 @@ module IOStreams
         end
       end
 
-      # Sends the request, following redirects, and yields the successful response.
+      # An upload is a single request, so that a failed copy to this path never leaves an incomplete file to delete.
+      # Also avoids an HTTP HEAD request before every copy.
+      def existed_before_copy?
+        true
+      end
+
+      # Sends the request, following redirects, and returns the result of the block, which is called
+      # with the successful response.
       #
       # When a body_file_name is supplied its contents are sent as the body of the request.
-      def send_request(request_class, uri, http_redirect_count, body_file_name: nil, &block)
-        uri = URI.parse(uri) unless uri.is_a?(URI)
+      # When allow_missing is true, returns nil without calling the block when the server responds with
+      # 404 Not Found or 410 Gone.
+      def send_request(request_class, uri, http_redirect_count, body_file_name: nil, allow_missing: false, &block)
+        uri    = URI.parse(uri) unless uri.is_a?(URI)
+        result = nil
 
         validate_uri!(uri)
 
         Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https") do |http|
           request = build_request(request_class, uri)
-          body    = body_file_name ? ::File.open(body_file_name, "rb") : nil
+          # So that the Content-Length is the size of the file, not of a compressed response.
+          request["Accept-Encoding"] = "identity" if request_class == Net::HTTP::Head
+          body = body_file_name ? ::File.open(body_file_name, "rb") : nil
           if body
             request.body_stream    = body
             request.content_length = body.size
@@ -215,6 +262,8 @@ module IOStreams
 
           begin
             http.request(request) do |response|
+              return nil if allow_missing && (response.is_a?(Net::HTTPNotFound) || response.is_a?(Net::HTTPGone))
+
               if response.is_a?(Net::HTTPNotFound)
                 raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{without_credentials(uri)}")
               end
@@ -224,19 +273,23 @@ module IOStreams
 
               if response.is_a?(Net::HTTPRedirection)
                 new_uri = redirect_uri(uri, response, http_redirect_count, request_class)
-                return send_request(request_class, new_uri, http_redirect_count - 1, body_file_name: body_file_name, &block)
+                return send_request(
+                  request_class, new_uri, http_redirect_count - 1,
+                  body_file_name: body_file_name, allow_missing: allow_missing, &block
+                )
               end
 
               unless response.is_a?(Net::HTTPSuccess)
                 raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}")
               end
 
-              block.call(response)
+              result = block.call(response)
             end
           ensure
             body&.close
           end
         end
+        result
       end
 
       # Returns [Net::HTTPRequest] the request, with the supplied headers and credentials
@@ -256,10 +309,11 @@ module IOStreams
         raise(IOStreams::Errors::CommunicationsFailure, "Too many redirects") if http_redirect_count < 1
 
         # Other redirects change the request into a GET, which would discard the body being sent.
-        if request_class != Net::HTTP::Get && !%w[307 308].include?(response.code)
+        if !SAFE_REQUESTS.include?(request_class) && !%w[307 308].include?(response.code)
           raise(
             IOStreams::Errors::CommunicationsFailure,
-            "Only a 307 or 308 redirect can be followed when writing, received #{response.code}: #{without_credentials(uri)}"
+            "Only a 307 or 308 redirect can be followed when writing or deleting, " \
+            "received #{response.code}: #{without_credentials(uri)}"
           )
         end
 
@@ -279,11 +333,11 @@ module IOStreams
           )
         end
 
-        # A redirect to another server would send it the data being uploaded.
-        if request_class != Net::HTTP::Get && !same_origin?(new_uri)
+        # A redirect to another server would send it the data being uploaded, or delete a file on it.
+        if !SAFE_REQUESTS.include?(request_class) && !same_origin?(new_uri)
           raise(
             IOStreams::Errors::CommunicationsFailure,
-            "Only a redirect to the same scheme, host and port can be followed when writing: " \
+            "Only a redirect to the same scheme, host and port can be followed when writing or deleting: " \
             "#{without_credentials(uri)} to #{without_credentials(new_uri)}"
           )
         end

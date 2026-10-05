@@ -1276,6 +1276,7 @@ Notes:
 ### HTTP (http://, https://)
 
 Read from a remote file over HTTP or HTTPS using an HTTP GET, and write to one using an HTTP PUT.
+`exist?` and `size` use an HTTP HEAD, and `delete` uses an HTTP DELETE.
 
 ~~~ruby
 IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').read
@@ -1293,6 +1294,11 @@ Notes:
   is uploaded again to its location. Other redirects change the request into a GET, which would discard
   the upload, and a redirect to another server would send it the data being uploaded, so they raise
   `IOStreams::Errors::CommunicationsFailure`.
+* `exist?` returns `false`, `size` returns `nil`, and `delete` does nothing when the server responds
+  with `404 Not Found` or `410 Gone`. Any other unsuccessful response raises
+  `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or DELETE.
+* `delete` follows redirects the same way as writing. `exist?` and `size` follow redirects the same way as reading.
+* `move_to` from an HTTP path downloads the file and then deletes it with an HTTP DELETE.
 * A redirect from `https` to `http` is not followed, when reading or writing, and raises
   `IOStreams::Errors::CommunicationsFailure`.
 * Each redirect that is followed is logged at info level via `IOStreams.logger`, without any
@@ -1391,8 +1397,8 @@ IOStreams.path(untrusted_url, maximum_file_size: 50 * 1024 * 1024).read
 Basic authentication credentials, and the supplied `headers:`, are only ever sent to the original
 host. They are not resent when a redirect points at a different scheme, host, or port, so a redirect
 cannot leak them to another server. A redirect from `https` to `http` is not followed, so the data
-cannot be read or changed in transit. When writing, a redirect is only followed to the same scheme,
-host and port, so a redirect cannot send the data being uploaded to another server. Each redirect
+cannot be read or changed in transit. When writing or deleting, a redirect is only followed to the same scheme,
+host and port, so a redirect cannot send the data being uploaded to another server, or delete a file on it. Each redirect
 that is followed is logged at info level via `IOStreams.logger`. For stronger guarantees, route these downloads through an egress proxy or network
 policy that blocks private, loopback, and link-local (cloud metadata) addresses.
 
@@ -1483,8 +1489,8 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 ~~~
 
 Notes:
-* These operations are supported by File and S3 paths. SFTP supports `each_child`,
-  and HTTP paths do not support any of them.
+* These operations are supported by File and S3 paths. SFTP supports `each_child`.
+  HTTP paths support `exist?`, `size`, `delete`, and `move_to` from an HTTP path, see below.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
   Supply `case_sensitive: true` or `hidden: true` to change this behavior.
 
