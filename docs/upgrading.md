@@ -255,6 +255,16 @@ Fix: use `sftp://host/~` to list the login directory. On a server that confines 
 directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
 now refers to the login directory, not to a directory named `~`.
 
+### SFTP and HTTP urls without a path end with `/`
+
+`#to_s` of an SFTP or HTTP url without a path now ends with `/`, like the root of an S3 bucket,
+`s3://bucket/`. For example `IOStreams.path("sftp://host").to_s` is `sftp://host/`, and
+`IOStreams.path("https://host?a=1").to_s` is `https://host/?a=1`. Previously the url was returned as
+supplied, so `sftp://host` and `sftp://host/` were not equal, although they are the same location.
+
+Fix: compare paths with paths, such as `path == IOStreams.path("sftp://host")`, or compare with the
+url ending with `/`.
+
 ### SFTP `each_child` is case-insensitive
 
 `#each_child` on an SFTP path is now case-insensitive by default, like local and S3 paths, as documented, so

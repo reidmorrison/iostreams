@@ -117,7 +117,7 @@ module IOStreams
         @hostname = uri.hostname
         @mkdir    = false
         @username = username || uri.user
-        @url      = url
+        @url      = Utils.root_url(url)
         @password = password || uri.password
         @port     = uri.port || 22
         # Not Ruby 2.5 yet: transform_keys(&:to_s)

@@ -423,6 +423,17 @@ module Paths
           assert_equal url, new_path(url, username: "jack", password: "secret").to_s
         end
 
+        it "returns the root directory of a url without a path" do
+          %w[sftp://example.org sftp://example.org/].each do |url|
+            path = new_path(url)
+
+            assert_equal "sftp://example.org/", path.to_s, url
+            assert_equal path.directory, path, url
+          end
+          assert_equal "sftp://jack@example.org:2222/", new_path("sftp://jack@example.org:2222").to_s
+          assert_equal new_path("sftp://example.org"), new_path("sftp://example.org/")
+        end
+
         it "returns the joined url" do
           path = new_path("sftp://jack:secret@example.org:2222/data", ssh_options: {"HostKey" => "key"}).join("in", "file.csv")
 

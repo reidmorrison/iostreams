@@ -156,6 +156,20 @@ module Paths
         end
       end
 
+      describe "#to_s" do
+        it "returns the root path of a url without a path" do
+          %w[https://example.com https://example.com/].each do |url|
+            path = IOStreams::Paths::HTTP.new(url)
+
+            assert_equal "https://example.com/", path.to_s, url
+            assert_equal path.directory, path, url
+          end
+          assert_equal "https://example.com/?a=1#b", IOStreams::Paths::HTTP.new("https://example.com?a=1#b").to_s
+          assert_equal "https://example.com/?a=1", IOStreams::Paths::HTTP.new("https://example.com", parameters: {a: 1}).to_s
+          assert_equal IOStreams::Paths::HTTP.new("https://example.com"), IOStreams::Paths::HTTP.new("https://example.com/")
+        end
+      end
+
       describe "#absolute?" do
         it "is always true" do
           %w[https://example.com https://example.com/a.csv].each do |url|

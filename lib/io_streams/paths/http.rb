@@ -94,6 +94,7 @@ module IOStreams
         @allow_hosts         = allow_hosts.nil? ? nil : Array(allow_hosts)
         @maximum_file_size   = maximum_file_size
         @headers             = validate_headers(headers)
+        url                  = Utils.root_url(url)
         @url                 = parameters ? add_parameters(url, parameters) : url
         # Decoded like S3 and SFTP paths, so that for example `#basename` is the file name rather than its url form.
         # Unlike a query string, `+` in a path is not a space. A url without a path is the root path `/`.

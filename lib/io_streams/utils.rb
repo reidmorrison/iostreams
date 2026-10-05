@@ -11,6 +11,12 @@ module IOStreams
       raise(LoadError, "Please install the gem '#{gem_name}' to support #{stream_type}. #{e.message}")
     end
 
+    # Returns [String] the url with the path `/` when it has no path, such as `sftp://host` or `https://host?a=1`,
+    # so that the root of a host is always written the same way, like the root of an S3 bucket, `s3://bucket/`.
+    def self.root_url(url)
+      url.sub(%r{\A([^:/]+://[^/?#]*)(?=[?#]|\z)}, "\\1/")
+    end
+
     # Helper method: Returns [true|false] if a value is blank?
     def self.blank?(value)
       return true if value.nil?
