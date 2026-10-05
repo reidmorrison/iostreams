@@ -4,7 +4,6 @@ module IOStreams
     UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is".freeze
 
     attr_reader :io_stream
-    attr_writer :builder
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
@@ -339,6 +338,10 @@ module IOStreams
     end
 
     protected
+
+    # Replaces the streams and options, for example `#join` and `#directory` clear them on a copy of a path.
+    # Not public, since a builder is internal.
+    attr_writer :builder
 
     # Options are strict: raise rather than ignore options that a copy cannot use.
     def reject_copy_options!(reason, **options)

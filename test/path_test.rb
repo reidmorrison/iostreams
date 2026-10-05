@@ -67,6 +67,23 @@ module IOStreams
         end
       end
 
+      describe "#builder=" do
+        it "is not public" do
+          path = IOStreams.path("a.csv.gz").stream(:none)
+
+          assert_raises(NoMethodError) { path.builder = nil }
+          assert_equal({}, path.pipeline)
+        end
+
+        it "is cleared by #join and #directory" do
+          path = IOStreams.path("/data/a.csv").stream(:gz)
+
+          assert_equal({gz: {}}, path.pipeline)
+          assert_equal({}, path.join("b.csv").pipeline)
+          assert_equal({}, path.directory.pipeline)
+        end
+      end
+
       describe "#absolute?" do
         it "true on absolute" do
           assert_equal true, IOStreams::Path.new("/a/b/c/d").absolute?

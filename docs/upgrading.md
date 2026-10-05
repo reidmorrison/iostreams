@@ -167,6 +167,15 @@ path.path = "data/out.csv"
 path = root.join("out.csv")
 ```
 
+### `#builder=` is not public
+
+`#builder=` is no longer public on a path or a stream, so calling it raises `NoMethodError`. It takes
+an internal object, so the only use outside IOStreams was `path.builder = nil`, to remove the streams
+and options set with `#stream` or `#option`.
+
+Fix: create the path again with `IOStreams.path`, which has no streams or options, or use the path
+that `#join` or `#directory` returns, which does not keep them.
+
 ### Unknown S3 options raise `ArgumentError`
 
 An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now
