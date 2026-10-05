@@ -339,9 +339,15 @@ module IOStreams
         end
       end
 
+      # Yields each child that matches the pattern, and its attributes, the hash of the object listed by S3.
+      #
+      # S3 has no directories, only keys that contain `/`. With `directories: true` the directories within the
+      # keys are also returned, such as `a` and `a/b` for the key `a/b/c.csv`, along with any empty folder
+      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder.
+      #
       # Notes:
       # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
-      def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
+      def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false, &)
         unless block_given?
           return to_enum(__method__, pattern,
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
@@ -352,7 +358,7 @@ module IOStreams
 
         # When the pattern includes an exact file name without any pattern characters
         if matcher.pattern.nil?
-          yield(matcher.path) if allowed_child?(matcher.path) && matcher.path.exist?
+          each_exact_child(matcher.path, directories, &)
           return
         end
 
@@ -360,9 +366,19 @@ module IOStreams
         # so that a key such as "reports" does not also list "reports_2024.csv".
         prefix = matcher.path.path
         prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
+        listed = {}
         each_object(prefix) do |name, object|
-          next if !directories && object.key.end_with?("/")
-          next unless ::File.fnmatch?(matcher.pattern, object.key.delete_prefix(prefix), matcher.flags)
+          relative = object.key.delete_prefix(prefix)
+          if directories
+            each_directory(relative, listed) do |directory|
+              next unless ::File.fnmatch?(matcher.pattern, directory, matcher.flags)
+
+              child = child_path(name, "#{prefix}#{directory}")
+              yield(child, relative == "#{directory}/" ? object.to_h : {}) if allowed_child?(child)
+            end
+          end
+          next if object.key.end_with?("/")
+          next unless ::File.fnmatch?(matcher.pattern, relative, matcher.flags)
 
           child = child_path(name, object.key)
           next unless allowed_child?(child)
@@ -416,6 +432,43 @@ module IOStreams
         return if unknown.empty?
 
         raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
+      end
+
+      # Yields the child, when it is an object, or a directory and `directories`, with its attributes,
+      # in the same form as those of a listed object.
+      def each_exact_child(child, directories)
+        return unless allowed_child?(child)
+
+        response = client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: child.path))
+        yield(child,
+              {key:           child.path,
+               last_modified: response.last_modified,
+               etag:          response.etag,
+               size:          response.content_length,
+               storage_class: response.storage_class}.compact)
+      rescue Aws::S3::Errors::NotFound
+        return unless directories
+
+        resp = client.list_objects_v2(
+          options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: "#{child.path}/", max_keys: 1)
+        )
+        yield(child, {}) if resp.contents.any?
+      end
+
+      # Yields the name of each directory within the relative key that has not already been listed,
+      # such as `a` and `a/b` for `a/b/c.csv`, or for the empty folder `a/b/`.
+      def each_directory(relative, listed)
+        elements = relative.split("/")
+        elements.pop unless relative.end_with?("/")
+        elements.each_index do |index|
+          break if elements[index].empty?
+
+          directory = elements[0..index].join("/")
+          next if listed.key?(directory)
+
+          listed[directory] = true
+          yield(directory)
+        end
       end
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.

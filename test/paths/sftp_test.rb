@@ -65,7 +65,7 @@ module Paths
 
       describe "#each_child" do
         let(:each_root) { root_path.join("each_child_test") }
-        let(:file_names) { %w[test1.txt test2.csv sub/test3.txt] }
+        let(:file_names) { %w[test1.txt test2.csv TEST4.CSV sub/test3.txt] }
 
         # Writing with a password waits several seconds per file, so only write the files once.
         def self.write_files_once
@@ -79,7 +79,7 @@ module Paths
         end
 
         it "returns the files in the directory" do
-          assert_equal [each_root.join("test1.txt").to_s, each_root.join("test2.csv").to_s],
+          assert_equal %w[TEST4.CSV test1.txt test2.csv].collect { |name| each_root.join(name).to_s },
                        each_root.children.collect(&:to_s).sort
         end
 
@@ -88,8 +88,21 @@ module Paths
                        each_root.children("**/*").collect(&:to_s).sort
         end
 
-        it "returns the files that match the pattern" do
-          assert_equal [each_root.join("test2.csv").to_s], each_root.children("*.csv").collect(&:to_s)
+        it "returns the files that match the pattern, ignoring case" do
+          assert_equal [each_root.join("TEST4.CSV").to_s, each_root.join("test2.csv").to_s],
+                       each_root.children("*.csv").collect(&:to_s).sort
+        end
+
+        it "returns the files that match the pattern with case_sensitive: true" do
+          assert_equal [each_root.join("test2.csv").to_s], each_root.children("*.csv", case_sensitive: true).collect(&:to_s)
+        end
+
+        it "returns nothing when the directory does not exist" do
+          assert_empty each_root.join("missing").children
+        end
+
+        it "returns nothing for a file" do
+          assert_empty each_root.join("test1.txt").children
         end
 
         it "returns directories" do
@@ -146,6 +159,66 @@ module Paths
             assert_equal raw, write_path.read
           end
         end
+      end
+    end
+
+    # Net::SFTP::StatusException, with the SFTP status code.
+    class StubStatusException < StandardError
+      attr_reader :code
+
+      def initialize(code)
+        super("SFTP status #{code}")
+        @code = code
+      end
+    end
+
+    # Minimal stand-in for a Net::SFTP session, with a directory containing the supplied file names, which can
+    # include sub-directories, relative to `root`, which defaults to the first name looked up.
+    # A missing directory raises "no such file", and an unreadable sub-directory "permission denied".
+    class StubSFTPSession
+      Attributes = Struct.new(:attributes, :directory) do
+        def directory? = directory
+        def file? = !directory
+      end
+      Entry = Struct.new(:name, :attributes) do
+        def directory? = attributes.directory?
+        def file? = attributes.file?
+      end
+
+      # The remote directories that were listed.
+      attr_reader :listed
+
+      def initialize(names, root:, missing:, unreadable:)
+        @names      = names
+        @root       = root
+        @missing    = missing
+        @unreadable = unreadable
+        @listed     = []
+      end
+
+      def stat!(name)
+        raise StubStatusException, 2 if @missing
+
+        @root  ||= name
+        relative = name.delete_prefix(@root).delete_prefix("/")
+        return Attributes.new({}, true) if relative.empty? || @names.any? { |n| n.start_with?("#{relative}/") }
+        raise StubStatusException, 2 unless @names.include?(relative)
+
+        Attributes.new({size: 1}, false)
+      end
+
+      def dir
+        self
+      end
+
+      def entries(name)
+        listed << name
+        relative = name == @root ? "" : "#{name.delete_prefix("#{@root}/")}/"
+        raise StubStatusException, 3 if @unreadable.include?(relative.chomp("/"))
+
+        @names.filter_map { |n| n.delete_prefix(relative).split("/") if n.start_with?(relative) }.
+          group_by(&:first).
+          map { |child, elements| Entry.new(child, Attributes.new({size: 1}, elements.first.size > 1)) }
       end
     end
 
@@ -544,21 +617,15 @@ module Paths
       end
 
       describe "#each_child" do
-        # Minimal stand-in for Net::SFTP that yields the supplied remote file names.
-        def with_stub_net_sftp(names)
+        # Minimal stand-in for Net::SFTP. Records the options supplied to `start`, and the directories listed.
+        def with_stub_net_sftp(names, root: nil, missing: false, unreadable: [])
           stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
           stub_sftp.define_singleton_method(:start) do |hostname, username, options, &block|
             stub_sftp.instance_variable_set(:@started, [hostname, username, options])
-            entries = names.map do |name|
-              attributes = Struct.new(:attributes).new({size: 1})
-              Struct.new(:name, :attributes) { def file? = true }.new(name, attributes)
-            end
-            dir = Object.new
-            dir.define_singleton_method(:glob) do |glob_dir, _pattern, _flags, &each|
-              stub_sftp.instance_variable_set(:@glob_dir, glob_dir)
-              entries.each(&each)
-            end
-            block.call(Struct.new(:dir).new(dir))
+            session = StubSFTPSession.new(names, root: root, missing: missing, unreadable: unreadable)
+            stub_sftp.instance_variable_set(:@listed, session.listed)
+            block.call(session)
           end
 
           Net.const_set(:SFTP, stub_sftp)
@@ -573,7 +640,7 @@ module Paths
 
           children = nil
           with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do
-            children = path.each_child.to_a.map(&:first)
+            children = path.each_child("**/*").to_a.map(&:first)
           end
 
           assert_equal ["/data/inbox/a+b.csv?acl=public-read", "/data/inbox/c%41#d.csv"], children.map(&:path)
@@ -592,7 +659,7 @@ module Paths
           with_stub_net_sftp(["a.csv"]) do |stub_sftp|
             children = path.each_child.to_a.map(&:first)
 
-            assert_equal "/data/in", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["/data/in"], stub_sftp.instance_variable_get(:@listed)
             assert_equal ["/data/in/a.csv"], children.map(&:path)
             assert_equal ["sftp://example.org/data/in/a.csv"], children.map(&:to_s)
           end
@@ -605,7 +672,7 @@ module Paths
             with_stub_net_sftp(["a.csv"]) do |stub_sftp|
               children = path.each_child.to_a.map(&:first)
 
-              assert_equal "/", stub_sftp.instance_variable_get(:@glob_dir)
+              assert_equal ["/"], stub_sftp.instance_variable_get(:@listed)
               assert_equal ["/a.csv"], children.map(&:path)
               assert_equal ["sftp://example.org/a.csv"], children.map(&:to_s)
             end
@@ -618,7 +685,7 @@ module Paths
           with_stub_net_sftp(["a.csv"]) do |stub_sftp|
             children = path.each_child.to_a.map(&:first)
 
-            assert_equal ".", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["."], stub_sftp.instance_variable_get(:@listed)
             assert_equal ["~/a.csv"], children.map(&:path)
             assert_equal ["sftp://example.org/~/a.csv"], children.map(&:to_s)
           end
@@ -630,8 +697,69 @@ module Paths
           with_stub_net_sftp(["a.csv"]) do |stub_sftp|
             children = path.each_child.to_a.map(&:first)
 
-            assert_equal "data", stub_sftp.instance_variable_get(:@glob_dir)
+            assert_equal ["data"], stub_sftp.instance_variable_get(:@listed)
             assert_equal ["sftp://example.org/~/data/a.csv"], children.map(&:to_s)
+          end
+        end
+
+        it "only lists the directories that the pattern can match within" do
+          path  = new_path("sftp://example.org/data", username: "jack")
+          names = %w[a.csv sub/b.csv sub/deeper/c.csv]
+
+          {
+            "*.csv"    => [%w[/data], %w[a.csv]],
+            "*/*.csv"  => [%w[/data /data/sub], %w[sub/b.csv]],
+            "sub/*"    => [%w[/data/sub], %w[sub/b.csv]],
+            "**/*.csv" => [%w[/data /data/sub /data/sub/deeper], %w[a.csv sub/b.csv sub/deeper/c.csv]]
+          }.each_pair do |pattern, (listed, expected)|
+            with_stub_net_sftp(names, root: "/data") do |stub_sftp|
+              children = path.children(pattern)
+
+              assert_equal listed, stub_sftp.instance_variable_get(:@listed), pattern
+              assert_equal(expected.map { |name| "/data/#{name}" }, children.map(&:path), pattern)
+            end
+          end
+        end
+
+        it "returns nothing when the directory does not exist" do
+          with_stub_net_sftp(["a.csv"], missing: true) do
+            assert_empty new_path("sftp://example.org/missing", username: "jack").children
+          end
+        end
+
+        it "skips a sub-directory that cannot be read" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv locked/b.csv sub/c.csv], unreadable: ["locked"]) do
+            assert_equal %w[/data/a.csv /data/sub/c.csv], path.children("**/*").map(&:path)
+          end
+        end
+
+        it "is case-insensitive by default" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv B.CSV]) do
+            assert_equal %w[/data/B.CSV /data/a.csv], path.children("*.csv").map(&:path)
+            assert_equal %w[/data/a.csv], path.children("*.csv", case_sensitive: true).map(&:path)
+          end
+        end
+
+        it "returns directories" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv sub/b.csv]) do
+            assert_equal %w[/data/a.csv /data/sub], path.children(directories: true).map(&:path)
+          end
+        end
+
+        it "yields an exact name with its attributes" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv], root: "/data") do |stub_sftp|
+            children = path.each_child("a.csv").to_a
+
+            assert_equal([["/data/a.csv", {size: 1}]], children.map { |child, attributes| [child.path, attributes] })
+            assert_empty stub_sftp.instance_variable_get(:@listed)
           end
         end
 

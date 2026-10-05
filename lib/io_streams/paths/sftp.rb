@@ -32,6 +32,7 @@ module IOStreams
       @before_password_wait_seconds = 2
       @sshpass_wait_seconds         = 5
 
+      autoload :Listing, "io_streams/paths/sftp/listing"
       autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
 
       attr_reader :hostname, :username, :ssh_options, :url, :port
@@ -172,7 +173,12 @@ module IOStreams
       # When the url does not include a path, for example `sftp://sftp.example.org`, it searches
       # the root directory `/`. To search the login directory, use `sftp://sftp.example.org/~`.
       #
-      # The pattern matching works like Net::SFTP::Operations::Dir.glob and Dir.glob
+      # The pattern matching works like Dir.glob, and is case-insensitive by default, like local and S3 paths.
+      # Only the directories that the pattern can match within are listed, so for example `*.csv` only lists
+      # this directory, and `**/*.csv` lists every directory within it.
+      # A directory within it that cannot be read is skipped, like Dir.glob.
+      # When this path does not exist, or is not a directory, nothing is returned.
+      #
       # Each child also returns attributes that contain the file size, ownership, file dates and other details.
       #
       # Example Code:
@@ -185,7 +191,7 @@ module IOStreams
       # Example Output:
       # sftp://sftp.example.org/my_files/a/b/c/test.txt {:type=>1, :size=>37, :owner=>"test_owner", :group=>"test_group",
       #   :permissions=>420, :atime=>1572378136, :mtime=>1572378136, :link_count=>1, :extended=>{}}
-      def each_child(pattern = "*", case_sensitive: true, directories: false, hidden: false)
+      def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
         unless block_given?
           return to_enum(__method__, pattern,
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
@@ -194,21 +200,29 @@ module IOStreams
         authorize!
         Utils.load_soft_dependency("net-sftp", "SFTP glob capability", "net/sftp") unless defined?(Net::SFTP)
 
-        flags = ::File::FNM_EXTGLOB
-        flags |= ::File::FNM_CASEFOLD unless case_sensitive
-        flags |= ::File::FNM_DOTMATCH if hidden
-
+        matcher   = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
+        directory = matcher.path
         NetSSH.options(ssh_options, port: port, password: password) do |options|
           Net::SFTP.start(hostname, username, options) do |sftp|
-            sftp.dir.glob(remote_path, pattern, flags) do |entry|
-              next if !directories && !entry.file?
-
-              child = child_path(entry.name)
-              yield(child, entry.attributes.attributes) if allowed_child?(child)
+            Listing.each(sftp, directory.remote_path, matcher.pattern, matcher.flags,
+                         directories: directories) do |name, attributes|
+              child = name ? child_path(name, directory.path) : directory
+              yield(child, attributes) if allowed_child?(child)
             end
           end
         end
         nil
+      end
+
+      protected
+
+      # Returns [String] the name of this path on the server, where a path within the login
+      # directory, which starts with `~`, is relative.
+      def remote_path
+        return path unless path.start_with?("~")
+
+        relative = path.delete_prefix("~").delete_prefix("/")
+        relative.empty? ? "." : relative
       end
 
       private
@@ -232,21 +246,12 @@ module IOStreams
       # Set the path directly rather than parsing it as part of a URL, since a file name can contain
       # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
       #
-      # The supplied name is relative to this path.
-      def child_path(name)
+      # The supplied name is relative to the supplied directory, which defaults to this path.
+      def child_path(name, directory = path)
         server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
         child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
-        child.path = ::File.join(path, name).freeze
+        child.path = ::File.join(directory, name).freeze
         child
-      end
-
-      # Returns [String] the name of this path on the server, where a path within the login
-      # directory, which starts with `~`, is relative.
-      def remote_path
-        return path unless path.start_with?("~")
-
-        relative = path.delete_prefix("~").delete_prefix("/")
-        relative.empty? ? "." : relative
       end
 
       def stream_reader(&block)
