@@ -394,6 +394,17 @@ module Paths
         end
       end
 
+      describe "#absolute?" do
+        it "is always true" do
+          %w[s3://bucket s3://bucket/a.csv s3://bucket/a/b.csv].each do |url|
+            path = IOStreams::Paths::S3.new(url, client: client)
+
+            assert_predicate path, :absolute?, url
+            refute_predicate path, :relative?, url
+          end
+        end
+      end
+
       describe "#directory" do
         it "returns the directory of the key" do
           path = IOStreams::Paths::S3.new("s3://bucket/a/b/c.csv", client: client)

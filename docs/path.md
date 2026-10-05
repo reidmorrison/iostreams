@@ -635,7 +635,7 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 ~~~
 
 Notes:
-* These operations are supported by File and S3 paths. SFTP supports `each_child`.
+* These operations are supported by File and S3 paths. SFTP supports `each_child`, `delete`, `move_to` and `mkpath`.
   HTTP paths support `exist?`, `size`, `delete`, `move_to` and `mkpath`, which does nothing since HTTP
   has no directories.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.

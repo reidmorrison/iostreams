@@ -135,9 +135,14 @@ module IOStreams
         path.sub(%r{\A/~(?=/|\z)}, "~")
       end
 
-      # Does not support relative file names since there is no concept of current working directory
+      # Does not support relative file names since there is no concept of current working directory.
+      # A path within the login directory, such as `~/a.csv`, is also absolute, like `~/a.csv` for a local file.
       def relative?
         false
+      end
+
+      def absolute?
+        true
       end
 
       def to_s
@@ -156,6 +161,30 @@ module IOStreams
       # Returns self
       def mkpath
         @mkdir = true
+        self
+      end
+
+      # When path is a file, deletes this file.
+      # When path is a directory, attempts to delete this directory. If the directory contains
+      # any children it will fail.
+      #
+      # Returns self
+      #
+      # Notes:
+      # * No error is raised if the file or directory is not present.
+      # * Only the file is removed, not any of the parent paths.
+      def delete
+        authorize!
+        Utils.load_soft_dependency("net-sftp", "SFTP delete capability", "net/sftp") unless defined?(Net::SFTP)
+
+        NetSSH.options(ssh_options, port: port, password: password) do |options|
+          Net::SFTP.start(hostname, username, options) do |sftp|
+            attributes = sftp.lstat!(remote_path)
+            attributes.directory? ? sftp.rmdir!(remote_path) : sftp.remove!(remote_path)
+          rescue Net::SFTP::StatusException => e
+            raise unless e.code == Listing::NO_SUCH_FILE
+          end
+        end
         self
       end
 

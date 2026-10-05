@@ -213,6 +213,10 @@ module IOStreams
         false
       end
 
+      def absolute?
+        true
+      end
+
       def delete
         authorize!
         client.delete_object(options_for(:delete_object).merge(bucket: bucket_name, key: path))

@@ -85,6 +85,15 @@ the key `a+b.csv`. Previously it was decoded as a space, and read the key `a b.c
 
 Fix: use a space, or `%20`, in the url for a space.
 
+### The path of an HTTP url is decoded
+
+`#path` of an `http://` or `https://` path is now decoded, like S3 and SFTP paths, so
+`IOStreams.path("https://example.com/my%20file.csv").path` is `/my file.csv`, and `#basename` is
+`my file.csv`. Previously it was `/my%20file.csv`. `#to_s` still returns the url unchanged. A url without
+a path, such as `https://example.com`, now has the path `/`, where it was empty.
+
+Fix: use `#to_s` where the url is needed, and remove any code that decodes the `#path` of an HTTP path.
+
 ### Local `each_child` honors `case_sensitive:`
 
 `#each_child` and `IOStreams.each_child` on local files now honor `case_sensitive:` on every platform.

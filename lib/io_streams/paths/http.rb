@@ -95,12 +95,19 @@ module IOStreams
         @maximum_file_size   = maximum_file_size
         @headers             = validate_headers(headers)
         @url                 = parameters ? add_parameters(url, parameters) : url
-        super(uri.path)
+        # Decoded like S3 and SFTP paths, so that for example `#basename` is the file name rather than its url form.
+        # Unlike a query string, `+` in a path is not a space. A url without a path is the root path `/`.
+        path                 = URI.decode_uri_component(uri.path)
+        super(path.empty? ? "/" : path)
       end
 
       # Does not support relative file names since there is no concept of current working directory
       def relative?
         false
+      end
+
+      def absolute?
+        true
       end
 
       def to_s
@@ -155,12 +162,19 @@ module IOStreams
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
-      # Characters that cannot appear in a url path, such as a space, `?` or `#`, are percent-encoded in the url.
-      # A `%` is assumed to already be percent-encoded.
+      # Each directory or file name that is unchanged keeps its encoding from the url, so that for example the
+      # directory of `a%2541/b.csv` is still `a%2541`, rather than `a%41` from encoding its decoded name `a%41`.
+      #
+      # In a new name, such as from `#join`, characters that cannot appear in a url path, such as a space, `?`
+      # or `#`, are percent-encoded in the url. A `%` followed by two hexadecimal digits is assumed to already be
+      # percent-encoded, any other `%` is encoded.
       def path=(path)
         super
         uri           = URI.parse(url)
-        uri.path      = escape_path(self.path)
+        encoded       = uri.path.split("/", -1)
+        uri.path      = self.path.split("/", -1).each_with_index.map do |name, index|
+          encoded[index] && URI.decode_uri_component(encoded[index]) == name ? encoded[index] : escape_path(name)
+        end.join("/")
         @url          = uri.to_s
         @original_uri = nil
       end
@@ -187,8 +201,13 @@ module IOStreams
       PATH_CHARACTERS = %r{[A-Za-z0-9\-._~!$&'()*+,;=:@/%]}
       private_constant :PATH_CHARACTERS
 
+      # A `%` that does not start a percent-encoded character.
+      UNENCODED_PERCENT = /%(?![0-9A-Fa-f]{2})/
+      private_constant :UNENCODED_PERCENT
+
       def escape_path(path)
-        path.each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
+        path.gsub(UNENCODED_PERCENT, "%25").
+          each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
       end
 
       attr_reader :allow_hosts, :maximum_file_size, :headers
