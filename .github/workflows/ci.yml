@@ -33,5 +33,29 @@ jobs:
             echo "Bundle install attempt $i failed, retrying in 10 seconds..."
             sleep 10
           done
+      - name: Start SFTP Server
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q sshpass
+          ssh-keygen -q -t ed25519 -N "" -f "$RUNNER_TEMP/sftp_identity"
+          docker run -d --name iostreams-sftp -p 2222:2222 \
+            -e USER_NAME=iostreams -e USER_PASSWORD=iostreams -e PASSWORD_ACCESS=true \
+            -e PUBLIC_KEY="$(cat "$RUNNER_TEMP/sftp_identity.pub")" \
+            lscr.io/linuxserver/openssh-server:latest
+          # Only the ed25519 key, so that #each_child needs the ed25519 gem to verify it.
+          for i in $(seq 1 60); do
+            host_key="$(ssh-keyscan -p 2222 -t ed25519 localhost 2>/dev/null || true)"
+            [ -n "$host_key" ] && break
+            sleep 1
+          done
+          [ -n "$host_key" ] || { docker logs iostreams-sftp; exit 1; }
+          docker exec -u iostreams iostreams-sftp mkdir -p /config/iostreams_test
+          {
+            echo "SFTP_HOSTNAME=localhost:2222"
+            echo "SFTP_USERNAME=iostreams"
+            echo "SFTP_PASSWORD=iostreams"
+            echo "SFTP_DIR=~/iostreams_test"
+            echo "SFTP_IDENTITY_FILE=$RUNNER_TEMP/sftp_identity"
+            echo "SFTP_HOST_KEY=$host_key"
+          } >> "$GITHUB_ENV"
       - name: Run Tests
         run: bundle exec rake

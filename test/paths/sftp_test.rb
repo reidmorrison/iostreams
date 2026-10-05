@@ -20,12 +20,11 @@ module Paths
       let(:file_name) { File.join(File.dirname(__FILE__), "..", "files", "text file.txt") }
       let(:raw) { File.read(file_name) }
 
+      # Verify the server against the supplied host key instead of the `known_hosts` file.
+      let(:host_key_options) { ENV["SFTP_HOST_KEY"] ? {"HostKey" => ENV["SFTP_HOST_KEY"]} : {} }
+
       let(:root_path) do
-        if ENV["SFTP_HOST_KEY"]
-          IOStreams::Paths::SFTP.new(url, username: username, password: password, ssh_options: {"HostKey" => ENV["SFTP_HOST_KEY"]})
-        else
-          IOStreams::Paths::SFTP.new(url, username: username, password: password)
-        end
+        IOStreams::Paths::SFTP.new(url, username: username, password: password, ssh_options: host_key_options)
       end
 
       let :existing_path do
@@ -64,6 +63,51 @@ module Paths
         end
       end
 
+      describe "#each_child" do
+        let(:each_root) { root_path.join("each_child_test") }
+        let(:file_names) { %w[test1.txt test2.csv sub/test3.txt] }
+
+        # Writing with a password waits several seconds per file, so only write the files once.
+        def self.write_files_once
+          @write_files_once ||= yield || true
+        end
+
+        before do
+          self.class.write_files_once do
+            file_names.each { |file_name| each_root.join(file_name).mkpath.write(raw) }
+          end
+        end
+
+        it "returns the files in the directory" do
+          assert_equal [each_root.join("test1.txt").to_s, each_root.join("test2.csv").to_s],
+                       each_root.children.collect(&:to_s).sort
+        end
+
+        it "returns the files in every directory" do
+          assert_equal file_names.collect { |file_name| each_root.join(file_name).to_s }.sort,
+                       each_root.children("**/*").collect(&:to_s).sort
+        end
+
+        it "returns the files that match the pattern" do
+          assert_equal [each_root.join("test2.csv").to_s], each_root.children("*.csv").collect(&:to_s)
+        end
+
+        it "returns directories" do
+          assert_includes each_root.children(directories: true).collect(&:to_s), each_root.join("sub").to_s
+        end
+
+        it "yields the attributes" do
+          attributes = {}
+          each_root.each_child("test1.txt") { |child, attrs| attributes[child.to_s] = attrs }
+
+          assert_equal raw.bytesize, attributes.fetch(each_root.join("test1.txt").to_s)[:size]
+        end
+
+        it "returns children that can be read" do
+          assert_equal raw, each_root.children("*.txt").first.read
+        end
+      end
+
       describe "#writer" do
         it "writes" do
           assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
@@ -78,7 +122,7 @@ module Paths
 
         describe "use identity file instead of password" do
           let :root_path do
-            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityFile" => ENV.fetch("SFTP_IDENTITY_FILE", nil)})
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: host_key_options.merge("IdentityFile" => ENV.fetch("SFTP_IDENTITY_FILE", nil)))
           end
 
           it "writes" do
@@ -92,7 +136,7 @@ module Paths
         describe "use identity key instead of password" do
           let :root_path do
             key = File.binread(ENV.fetch("SFTP_IDENTITY_FILE", nil))
-            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: {"IdentityKey" => key})
+            IOStreams::Paths::SFTP.new(url, username: identity_username, ssh_options: host_key_options.merge("IdentityKey" => key))
           end
 
           it "writes" do
