@@ -80,6 +80,8 @@ module IOStreams
       #   these ssh options: HostKey, IdentityKey, IdentityFile, UserKnownHostsFile, StrictHostKeyChecking,
       #   ConnectTimeout, ServerAliveInterval, ServerAliveCountMax and LogLevel. Any other option raises
       #   ArgumentError.
+      #   It also needs the ed25519 gem, and the bcrypt_pbkdf gem except on JRuby, when the host key or the
+      #   identity key is an ed25519 key. Reading and writing do not, since the sftp executable supports them.
       #
       # Examples:
       #

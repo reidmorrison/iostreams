@@ -1154,6 +1154,22 @@ so it must be installed and on the `PATH`. When a password is supplied the `sshp
 program is also required to pass the password to `sftp`. Additionally the `net-sftp` gem
 must be added to the `Gemfile` to use `each_child`. `each_child` lists the files within the path's directory.
 
+`each_child` also needs the `ed25519` gem, and the `bcrypt_pbkdf` gem except on JRuby, when the
+server's host key or the identity key is an ed25519 key:
+
+~~~ruby
+gem "net-sftp"
+gem "bcrypt_pbkdf", platform: :ruby
+gem "ed25519"
+~~~
+
+Reading and writing do not need these gems, since the `sftp` program supports ed25519 keys itself.
+Without them `each_child` fails as follows:
+* An ed25519 identity key raises `NotImplementedError`: "unsupported key type `ssh-ed25519'".
+* A `HostKey` that only contains the ed25519 key raises `Net::SSH::HostKeyUnknown`, even though the
+  key is correct, because the ed25519 entry is skipped. The full output of `ssh-keyscan hostname`
+  also includes the server's other key types, which work without these gems.
+
 The path in the url is absolute, so `sftp://hostname/path/example.csv` is `/path/example.csv`, and a
 url without a path, such as `sftp://hostname`, is the root directory `/`. On many servers the user is
 confined to their own directory, which is then `/`. To refer to a path within the login directory
@@ -1267,7 +1283,7 @@ end
   these ssh options: `HostKey`, `IdentityKey`, `IdentityFile`, `UserKnownHostsFile`,
   `StrictHostKeyChecking`, `ConnectTimeout`, `ServerAliveInterval`, `ServerAliveCountMax` and
   `LogLevel`. Any other option raises `ArgumentError`. Unlike the `sftp` program, `net-sftp` needs the
-  `ed25519` and `bcrypt_pbkdf` gems to use ed25519 host or identity keys.
+  `ed25519` and `bcrypt_pbkdf` gems to use ed25519 host or identity keys, see above.
 
 Notes:
 * Since the `sftp` program operates on local files, reading from or writing to an SFTP path

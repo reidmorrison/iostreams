@@ -41,9 +41,9 @@ jobs:
             -e USER_NAME=iostreams -e USER_PASSWORD=iostreams -e PASSWORD_ACCESS=true \
             -e PUBLIC_KEY="$(cat "$RUNNER_TEMP/sftp_identity.pub")" \
             lscr.io/linuxserver/openssh-server:latest
-          # ECDSA, since net-ssh, which #each_child uses, ignores ED25519 host keys without the ed25519 gem.
+          # Only the ed25519 key, so that #each_child needs the ed25519 gem to verify it.
           for i in $(seq 1 60); do
-            host_key="$(ssh-keyscan -p 2222 -t ecdsa localhost 2>/dev/null)"
+            host_key="$(ssh-keyscan -p 2222 -t ed25519 localhost 2>/dev/null)"
             [ -n "$host_key" ] && break
             sleep 1
           done
