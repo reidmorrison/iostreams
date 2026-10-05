@@ -233,6 +233,34 @@ module IOStreams
         false
       end
 
+      # Returns [true|false] whether an object exists with this key.
+      # A folder object, with a key ending in `/`, is a directory rather than a file.
+      def file?
+        authorize!
+        file_key? && exist?
+      end
+
+      # Returns [true|false] whether this path is a directory, which S3 only has within keys: when any key
+      # starts with this path followed by `/`, such as `a` and `a/b` for the key `a/b/c.csv`, or when a folder
+      # object exists, such as `a/`. The bucket itself is always a directory.
+      def directory?
+        authorize!
+        path.empty? || directory_keys(1).any?
+      end
+
+      # Returns [true|false] whether this path is an object without any data, or a directory without any keys
+      # within it other than its folder object.
+      def empty?
+        authorize!
+        if file_key?
+          size = self.size
+          return size.zero? if size
+        end
+
+        keys = directory_keys(2)
+        path.empty? ? keys.empty? : keys == [directory_prefix]
+      end
+
       # Moves this file to the `target_path` by copying it to the new name and then deleting the current file.
       #
       # Notes:
@@ -438,6 +466,23 @@ module IOStreams
       end
 
       private
+
+      # Returns [true|false] whether this path can be the key of a file, rather than the bucket or a folder object.
+      def file_key?
+        !path.empty? && !path.end_with?("/")
+      end
+
+      # Returns [String] the prefix of the keys within this path as a directory.
+      def directory_prefix
+        path.empty? ? "" : "#{path.chomp('/')}/"
+      end
+
+      # Returns [Array<String>] upto `max_keys` of the keys within this path as a directory.
+      def directory_keys(max_keys)
+        client.list_objects_v2(
+          options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: directory_prefix, max_keys: max_keys)
+        ).contents.map(&:key)
+      end
 
       # Skips the HEAD before a copy to this path, and the DELETE after a failed one.
       #

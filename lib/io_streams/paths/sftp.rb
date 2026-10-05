@@ -174,18 +174,43 @@ module IOStreams
       # * No error is raised if the file or directory is not present.
       # * Only the file is removed, not any of the parent paths.
       def delete
-        authorize!
-        Utils.load_soft_dependency("net-sftp", "SFTP delete capability", "net/sftp") unless defined?(Net::SFTP)
-
-        NetSSH.options(ssh_options, port: port, password: password) do |options|
-          Net::SFTP.start(hostname, username, options) do |sftp|
-            attributes = sftp.lstat!(remote_path)
-            attributes.directory? ? sftp.rmdir!(remote_path) : sftp.remove!(remote_path)
-          rescue Net::SFTP::StatusException => e
-            raise unless e.code == Listing::NO_SUCH_FILE
-          end
+        with_net_sftp("SFTP delete capability") do |sftp|
+          attributes = sftp.lstat!(remote_path)
+          attributes.directory? ? sftp.rmdir!(remote_path) : sftp.remove!(remote_path)
+        rescue Net::SFTP::StatusException => e
+          raise unless e.code == Listing::NO_SUCH_FILE
         end
         self
+      end
+
+      # Returns [true|false] whether the file or directory exists.
+      def exist?
+        !remote_attributes("SFTP exist? capability").nil?
+      end
+
+      # Returns [Integer] the size of the file, or nil when it does not exist.
+      def size
+        remote_attributes("SFTP size capability")&.size
+      end
+
+      def file?
+        remote_attributes("SFTP file? capability")&.file? || false
+      end
+
+      def directory?
+        remote_attributes("SFTP directory? capability")&.directory? || false
+      end
+
+      def empty?
+        with_net_sftp("SFTP empty? capability") do |sftp|
+          attributes = Listing.remote_attributes(sftp, remote_path)
+          if attributes&.directory?
+            sftp.dir.entries(remote_path).all? { |entry| %w[. ..].include?(entry.name) }
+          else
+            size = attributes&.size
+            !size.nil? && size.zero?
+          end
+        end
       end
 
       # TODO: Add #copy_from shortcut to detect when a file is supplied that does not require conversion.
@@ -218,18 +243,13 @@ module IOStreams
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
-        authorize!
-        Utils.load_soft_dependency("net-sftp", "SFTP glob capability", "net/sftp") unless defined?(Net::SFTP)
-
         matcher   = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
         directory = matcher.path
-        NetSSH.options(ssh_options, port: port, password: password) do |options|
-          Net::SFTP.start(hostname, username, options) do |sftp|
-            Listing.each(sftp, directory.remote_path, matcher.pattern, matcher.flags,
-                         directories: directories) do |name, attributes|
-              child = name ? child_path(name, directory.path) : directory
-              yield(child, attributes) if allowed_child?(child)
-            end
+        with_net_sftp("SFTP glob capability") do |sftp|
+          Listing.each(sftp, directory.remote_path, matcher.pattern, matcher.flags,
+                       directories: directories) do |name, attributes|
+            child = name ? child_path(name, directory.path) : directory
+            yield(child, attributes) if allowed_child?(child)
           end
         end
         nil
@@ -263,6 +283,24 @@ module IOStreams
 
       attr_reader :password
 
+      # Connects to the server with Net::SFTP, which supplies the named capability, and yields the session.
+      # Returns the result of the block.
+      def with_net_sftp(capability)
+        authorize!
+        Utils.load_soft_dependency("net-sftp", capability, "net/sftp") unless defined?(Net::SFTP)
+
+        result = nil
+        NetSSH.options(ssh_options, port: port, password: password) do |options|
+          Net::SFTP.start(hostname, username, options) { |sftp| result = yield(sftp) }
+        end
+        result
+      end
+
+      # Returns the attributes of this path on the server, or nil when it does not exist.
+      def remote_attributes(capability)
+        with_net_sftp(capability) { |sftp| Listing.remote_attributes(sftp, remote_path) }
+      end
+
       # Returns [String] the host, port and path, which is compared against the allowed paths.
       # `.` and `..` are resolved the way the sftp server resolves them.
       def allowed_location
@@ -293,6 +331,15 @@ module IOStreams
           sftp_download(remote_path, file_name)
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
         end
+      end
+
+      # Skips connecting to the server to check whether the target exists before a copy to this path, and so
+      # never deletes the target after a failed copy, as before SFTP paths supported `#exist?`.
+      #
+      # The data is written to a local temp file, and only uploaded once it is complete, so a copy that fails
+      # while reading the source never changes the server. Only a failed upload can leave an incomplete file.
+      def existed_before_copy?
+        true
       end
 
       def stream_writer(&block)

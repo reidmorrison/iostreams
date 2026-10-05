@@ -106,6 +106,28 @@ module IOStreams
       raise NotImplementedError
     end
 
+    # Returns [Integer] the size of the file, or nil when it does not exist or is empty, like `File.size?`.
+    def size?
+      size = self.size
+      size if size&.positive?
+    end
+
+    # Returns [true|false] whether this path is a file that exists.
+    def file?
+      raise NotImplementedError
+    end
+
+    # Returns [true|false] whether this path is a directory that exists.
+    def directory?
+      raise NotImplementedError
+    end
+
+    # Returns [true|false] whether this path is a directory without any children, or a file without any data.
+    # Returns false when it does not exist.
+    def empty?
+      raise NotImplementedError
+    end
+
     # Removes an incomplete target "file" when the copy fails.
     #
     # Only a target that did not exist before the copy is removed, so that a failed copy never deletes
@@ -196,14 +218,6 @@ module IOStreams
     def partial_files_visible?
       true
     end
-
-    # TODO: Other possible methods:
-    # - rename - File.rename
-    # - rmtree - delete everything under this path - FileUtils.rm_r
-    # - directory?
-    # - file?
-    # - empty?
-    # - find(ignore_error: true) - Find.find
 
     # Paths are sortable by their full name, see #to_s.
     # Returns [nil] when compared with anything other than a path or a String.

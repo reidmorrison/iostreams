@@ -1442,6 +1442,20 @@ path.exist?
 path.size
 # => 64
 
+# Size of the file in bytes, or nil when it does not exist or is empty, like `File.size?`.
+path.size?
+# => 64
+
+# Is it a file, or a directory?
+path.file?
+# => true
+path.directory?
+# => false
+
+# Is it an empty file, or a directory without any children?
+path.empty?
+# => false
+
 # Delete the file.
 path.delete
 
@@ -1506,9 +1520,13 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 ~~~
 
 Notes:
-* These operations are supported by File and S3 paths. SFTP supports `each_child`, `delete`, `move_to` and `mkpath`.
-  HTTP paths support `exist?`, `size`, `delete`, `move_to` and `mkpath`, which does nothing since HTTP
-  has no directories.
+* These operations are supported by File, S3 and SFTP paths. HTTP paths support all of them except
+  `each_child`. HTTP has no directories, so `directory?` is always false and `mkpath` does nothing.
+* S3 has no directories either, only keys that contain `/`. An S3 path is a directory when any key is
+  within it, such as `a` and `a/b` for the key `a/b/c.csv`, or when a folder object exists for it, with
+  a key ending in `/`, such as the folders created by the S3 console. An S3 directory is `empty?` when
+  only its folder object exists.
+* `file?`, `directory?` and `empty?` are false when the path does not exist.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
   Supply `case_sensitive: true` or `hidden: true` to change this behavior.
 * Supply `directories: true` to also return directories. S3 has no directories, only keys that contain `/`,

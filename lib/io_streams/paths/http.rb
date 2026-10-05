@@ -141,6 +141,23 @@ module IOStreams
         send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true, &:content_length)
       end
 
+      # Returns [true|false] whether the file exists, see `#exist?`. HTTP has no directories, so every url that
+      # exists is a file.
+      def file?
+        exist?
+      end
+
+      # Returns false, since HTTP has no directories.
+      def directory?
+        authorize!
+        false
+      end
+
+      # Returns [true|false] whether the file exists and has a Content-Length of zero, using an HTTP HEAD.
+      def empty?
+        size&.zero? || false
+      end
+
       # Deletes the file, using an HTTP DELETE.
       #
       # Returns self
