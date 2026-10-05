@@ -43,7 +43,7 @@ jobs:
             lscr.io/linuxserver/openssh-server:latest
           # Only the ed25519 key, so that #each_child needs the ed25519 gem to verify it.
           for i in $(seq 1 60); do
-            host_key="$(ssh-keyscan -p 2222 -t ed25519 localhost 2>/dev/null)"
+            host_key="$(ssh-keyscan -p 2222 -t ed25519 localhost 2>/dev/null || true)"
             [ -n "$host_key" ] && break
             sleep 1
           done
