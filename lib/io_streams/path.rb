@@ -15,10 +15,13 @@ module IOStreams
       @builder   = nil
     end
 
+    # Returns [IOStreams::Path] a new path with the elements joined to this path.
+    # Without any elements it returns a copy of this path, keeping its streams and options.
+    #
     # If elements already contains the current path then it is used as is without
     # adding the current path for a second time
     def join(*elements)
-      return self if elements.empty?
+      return dup if elements.empty?
 
       elements = elements.collect(&:to_s)
       relative = ::File.join(*elements)
@@ -124,7 +127,7 @@ module IOStreams
     # Notes:
     # - Currently only supports moving individual files, not directories.
     def move_to(target_path)
-      target = IOStreams.new(target_path)
+      target = to_stream(target_path)
       target.mkpath
       target.copy_from(self, convert: false)
       delete

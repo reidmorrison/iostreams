@@ -12,6 +12,14 @@ module IOStreams
       @format_option = nil
     end
 
+    # A copy has its own streams and options, so that changing them does not change the original.
+    def initialize_copy(source)
+      super
+      @streams        = @streams&.transform_values(&:dup)
+      @options        = @options&.transform_values(&:dup)
+      @format_options = @format_options&.dup
+    end
+
     # Supply an option that is only applied once the file name extensions have been parsed.
     # Note:
     # - Cannot set both `stream` and `option`

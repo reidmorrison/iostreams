@@ -176,6 +176,31 @@ and options set with `#stream` or `#option`.
 Fix: create the path again with `IOStreams.path`, which has no streams or options, or use the path
 that `#join` or `#directory` returns, which does not keep them.
 
+### Paths and streams are copied, not shared
+
+`IOStreams.path(path)`, `IOStreams.stream(stream)` and `IOStreams.new(stream)` now return a copy of
+the path or stream supplied, instead of the same object. `IOStreams.join` without any elements,
+`IOStreams.root`, `IOStreams.roots`, and `Path#join` without any elements also return copies.
+The copy keeps the streams and options, and is equal to the original with `==`, but changing it, for
+example with `#stream` or `#option`, no longer changes the original, or a root path for the whole
+process.
+
+Fix: code that relied on changing the original through the returned object should keep and use the
+returned object instead:
+
+```ruby
+# Before: also changed `path`
+IOStreams.path(path).option(:pgp, passphrase: "secret")
+path.read
+
+# After
+path = IOStreams.path(path).option(:pgp, passphrase: "secret")
+path.read
+```
+
+To change the streams of a root, supply them each time the root is used, for example
+`IOStreams.join("a.csv").stream(:none)`. Code that compares with `equal?` should compare with `==`.
+
 ### Unknown S3 options raise `ArgumentError`
 
 An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now

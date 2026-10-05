@@ -6,8 +6,15 @@ module IOStreams
       describe ".join" do
         let(:path) { IOStreams::Path.new("some_path") }
 
-        it "returns self when no elements" do
-          assert_same path, path.join
+        it "returns a copy when no elements" do
+          path.stream(:gz)
+          copy = path.join
+          copy.stream(:enc)
+
+          refute_same path, copy
+          assert_equal path, copy
+          assert_equal({gz: {}}, path.pipeline)
+          assert_equal({gz: {}, enc: {}}, copy.pipeline)
         end
 
         it "adds element to path" do

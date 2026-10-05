@@ -232,7 +232,7 @@ module IOStreams
       # - Can copy across buckets.
       # - No stream conversions are applied.
       def move_to(target_path)
-        target = IOStreams.new(target_path)
+        target = to_stream(target_path)
         copy_to(target, convert: false)
         delete
         target
@@ -242,7 +242,7 @@ module IOStreams
       def copy_to(target_path, convert: true, **args)
         return super if convert || (size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
 
-        target = IOStreams.new(target_path)
+        target = to_stream(target_path)
         return super(target, convert: convert, **args) unless target.is_a?(self.class)
 
         reject_copy_options!(UNCONVERTED_COPY, **args)
@@ -258,7 +258,7 @@ module IOStreams
       def copy_from(source_path, convert: true, **args)
         return super(source_path, convert: true, **args) if convert
 
-        source = IOStreams.new(source_path)
+        source = to_stream(source_path)
         if !source.is_a?(self.class) || (source.size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
           return super(source, convert: convert, **args)
         end

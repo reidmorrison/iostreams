@@ -44,8 +44,11 @@ module IOStreams
   # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
   # IOStreams.path('blah.zip').stream(:zip).stream(:encode, encoding: 'BINARY').read
   #
+  #
+  # A path supplied on its own is copied, keeping its streams and options, so that changing the
+  # returned path, for example with `#option`, does not change the path supplied.
   def self.path(*elements, **args)
-    return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
+    return elements.first.dup if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
 
     elements         = elements.collect(&:to_s)
     path             = ::File.join(*elements)
@@ -59,15 +62,18 @@ module IOStreams
   # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').each(:line){ ... }
   # IOStreams.stream(io).file_name('blah.csv.zip').each(:line) { ... }
   # IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
+  #
+  # A stream supplied is copied, keeping its streams and options, so that changing the
+  # returned stream does not change the stream supplied.
   def self.stream(io_stream)
-    return io_stream if io_stream.is_a?(Stream)
+    return io_stream.dup if io_stream.is_a?(Stream)
 
     Stream.new(io_stream)
   end
 
   # For processing by either a file name or an open IO stream.
   def self.new(file_name_or_io)
-    return file_name_or_io if file_name_or_io.is_a?(Stream)
+    return file_name_or_io.dup if file_name_or_io.is_a?(Stream)
 
     file_name_or_io.is_a?(String) ? path(file_name_or_io) : stream(file_name_or_io)
   end
@@ -237,9 +243,11 @@ module IOStreams
 
   private_class_method :split_name
 
-  # Returns [IOStreams::Paths::File] the default root path, or the named root path
+  # Returns [IOStreams::Path] a copy of the default root path, or the named root path,
+  # so that changing it does not change the root.
   def self.root(root = :default)
-    @root_paths[root.to_sym] || raise(ArgumentError, "Root: #{root.inspect} has not been registered.")
+    path = @root_paths[root.to_sym] || raise(ArgumentError, "Root: #{root.inspect} has not been registered.")
+    path.dup
   end
 
   # Add a named root path
@@ -249,8 +257,9 @@ module IOStreams
     @root_paths[root.to_sym] = path(*elements, **args)
   end
 
+  # Returns [Hash<Symbol, IOStreams::Path>] a copy of each root path, by name.
   def self.roots
-    @root_paths.dup
+    @root_paths.transform_values(&:dup)
   end
 
   # Restrict IOStreams to only access paths within the supplied path.
