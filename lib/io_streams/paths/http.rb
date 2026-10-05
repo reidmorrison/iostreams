@@ -148,6 +148,11 @@ module IOStreams
 
       protected
 
+      # Returns [String] the url without the user name, password, query or fragment, see #loggable.
+      def display_name
+        loggable(URI.parse(url))
+      end
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
       # Characters that cannot appear in a url path, such as a space, `?` or `#`, are percent-encoded in the url.

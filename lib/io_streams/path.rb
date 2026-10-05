@@ -248,13 +248,18 @@ module IOStreams
     # Does not create the builder, so that a frozen path can be inspected, for example in a `FrozenError` message.
     def inspect
       builder = @builder || IOStreams::Builder.new(path)
-      str     = "#<#{self.class.name}:#{path}"
+      str     = "#<#{self.class.name}:#{display_name}"
       str << " @builder=#{redact(builder.streams).inspect}" if builder.streams
       str << " @options=#{redact(builder.options).inspect}" if builder.options
       str << " pipeline=#{redact(builder.pipeline).inspect}>"
     end
 
     protected
+
+    # Returns [String] the full name of this path, see #to_s, without any credentials, for `#inspect` and logging.
+    def display_name
+      to_s
+    end
 
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
@@ -317,7 +322,7 @@ module IOStreams
     def allowed_child?(child)
       return true if child.allowed?
 
-      IOStreams.logger&.warn("Skipping #{child} since it is not within any of the allowed paths")
+      IOStreams.logger&.warn("Skipping #{child.display_name} since it is not within any of the allowed paths")
       false
     end
 

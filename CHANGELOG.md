@@ -52,6 +52,7 @@ These bug fixes change behavior that existing code may depend on:
 
 ### Fixed
 
+- `#inspect` shows the full name of a path, such as `#<IOStreams::Paths::S3:s3://bucket/a.csv pipeline={}>`, without any user name, password or query of an SFTP or HTTP url. Previously it showed only `#path`, such as `a.csv`, so paths in different buckets or on different hosts looked the same. The warning logged when `#each_child` skips a child outside the allowed paths also no longer includes the password of an SFTP or HTTP url.
 - `#directory` of an S3 key without a directory, such as `s3://bucket/a.csv`, is the bucket `s3://bucket/`. Previously it was the key `.`, shown as `s3://bucket/.`, so a path joined to it, such as `path.directory.join("b.csv")`, used the key `./b.csv`, a different object from `b.csv`.
 - A frozen path, such as a root path held in a constant, can be inspected, and an S3 path can list its children and check that it exists. Previously each raised `FrozenError`, whose message was itself replaced by `...` since inspecting the path failed too. Paths joined to it, as in `EXPORT.join("a.csv").read`, already worked.
 - An S3 path shares its client with the paths copied from it, such as by `#join` or `#directory`, so the client and its credentials are created once. Previously each copy created its own client unless the original had already created one.

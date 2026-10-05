@@ -266,6 +266,41 @@ module IOStreams
           assert_includes IOStreams::Path.new("a/b/file.csv").inspect, "a/b/file.csv"
         end
 
+        it "includes the full name of the path" do
+          {
+            "/data/a.csv"                        => "/data/a.csv",
+            "s3://bucket/data/a.csv"             => "s3://bucket/data/a.csv",
+            "sftp://example.org:2222/~/a.csv"    => "sftp://example.org:2222/~/a.csv",
+            "https://example.org:8443/a%20b.csv" => "https://example.org:8443/a%20b.csv"
+          }.each_pair do |url, name|
+            assert_equal "#<#{IOStreams.path(url).class.name}:#{name} pipeline={}>", IOStreams.path(url).inspect
+          end
+        end
+
+        it "includes the full name of a joined path" do
+          assert_includes IOStreams.path("s3://bucket/a.csv").directory.join("b.csv").inspect, "S3:s3://bucket/b.csv "
+        end
+
+        it "does not display credentials in the url" do
+          {
+            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "SFTP:sftp://example.org/a.csv ",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "HTTP:https://example.org/a.csv "
+          }.each_pair do |url, name|
+            str = IOStreams.path(url).inspect
+
+            refute_includes str, "TOP-SECRET"
+            refute_includes str, "jack"
+            assert_includes str, name
+          end
+        end
+
+        it "does not display credentials supplied as arguments" do
+          str = IOStreams.path("sftp://example.org/a.csv", username: "jack", password: "TOP-SECRET").inspect
+
+          refute_includes str, "TOP-SECRET"
+          assert_includes str, "SFTP:sftp://example.org/a.csv "
+        end
+
         it "does not display passphrases set as options" do
           path = IOStreams.path("a/b/file.csv.pgp").option(:pgp, passphrase: "TOP-SECRET")
           str  = path.inspect
