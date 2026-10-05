@@ -404,6 +404,13 @@ module IOStreams
 
       protected
 
+      # Sets the key, for example when called by `#join` or `#directory`.
+      #
+      # The directory of a key without a directory, such as `a.csv`, is the bucket itself, not the key `.`.
+      def path=(path)
+        super(path == "." ? "" : path)
+      end
+
       # Returns [Hash] the options that the S3 operation accepts.
       #
       # Options apply to the operations that accept them, so for example `acl` applies when writing

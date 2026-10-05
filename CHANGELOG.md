@@ -52,6 +52,7 @@ These bug fixes change behavior that existing code may depend on:
 
 ### Fixed
 
+- `#directory` of an S3 key without a directory, such as `s3://bucket/a.csv`, is the bucket `s3://bucket/`. Previously it was the key `.`, shown as `s3://bucket/.`, so a path joined to it, such as `path.directory.join("b.csv")`, used the key `./b.csv`, a different object from `b.csv`.
 - A frozen path, such as a root path held in a constant, can be inspected, and an S3 path can list its children and check that it exists. Previously each raised `FrozenError`, whose message was itself replaced by `...` since inspecting the path failed too. Paths joined to it, as in `EXPORT.join("a.csv").read`, already worked.
 - An S3 path shares its client with the paths copied from it, such as by `#join` or `#directory`, so the client and its credentials are created once. Previously each copy created its own client unless the original had already created one.
 - Chaining `<<` when writing arrays or hashes, for example `io << row1 << row2` within `writer(:array)` or `writer(:hash)`, writes each row. Previously `<<` returned the underlying line writer, so every row after the first in a chain was written as its Ruby `inspect` output, such as `{"name" => "Jill"}`.

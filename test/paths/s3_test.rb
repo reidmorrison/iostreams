@@ -394,6 +394,24 @@ module Paths
         end
       end
 
+      describe "#directory" do
+        it "returns the directory of the key" do
+          path = IOStreams::Paths::S3.new("s3://bucket/a/b/c.csv", client: client)
+
+          assert_equal "s3://bucket/a/b", path.directory.to_s
+        end
+
+        it "returns the bucket for a key without a directory" do
+          %w[s3://bucket/a.csv s3://bucket/a/ s3://bucket].each do |url|
+            directory = IOStreams::Paths::S3.new(url, client: client).directory
+
+            assert_equal "", directory.path, url
+            assert_equal "s3://bucket/", directory.to_s, url
+            assert_equal "b.csv", directory.join("b.csv").path, url
+          end
+        end
+      end
+
       describe "#join" do
         it "shares the client with the joined path" do
           path   = IOStreams::Paths::S3.new("s3://bucket/data", client: {stub_responses: true}, region: "eu-west-1").freeze
