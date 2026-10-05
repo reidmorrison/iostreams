@@ -1289,9 +1289,14 @@ Notes:
   block completes, so that the server receives its size in the `Content-Length` header.
   The `Content-Type` is `application/octet-stream` unless supplied with `headers:`.
   Any 2xx response is treated as success.
-* Only a `307` or `308` redirect is followed when writing, and the file is uploaded again to its location.
-  Other redirects change the request into a GET, which would discard the upload, so they raise
+* Only a `307` or `308` redirect to the same scheme, host and port is followed when writing, and the file
+  is uploaded again to its location. Other redirects change the request into a GET, which would discard
+  the upload, and a redirect to another server would send it the data being uploaded, so they raise
   `IOStreams::Errors::CommunicationsFailure`.
+* A redirect from `https` to `http` is not followed, when reading or writing, and raises
+  `IOStreams::Errors::CommunicationsFailure`.
+* Each redirect that is followed is logged at info level via `IOStreams.logger`, without any
+  user name, password or query string.
 
 #### Required Arguments:
 
@@ -1347,8 +1352,8 @@ Notes:
 
   Optional headers to add to every request, when reading and when writing, for example
   `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` when writing.
-  The `Authorization`, `Proxy-Authorization` and `Cookie` headers are not resent when a redirect
-  points at a different scheme, host, or port.
+  Since any header may hold a credential, such as `X-Api-Key`, none of them are resent when a
+  redirect points at a different scheme, host, or port.
   Default: `nil` (no additional headers).
 
 ~~~ruby 
@@ -1383,10 +1388,12 @@ IOStreams.path(untrusted_url, http_redirect_count: 0).read
 IOStreams.path(untrusted_url, maximum_file_size: 50 * 1024 * 1024).read
 ~~~
 
-Basic authentication credentials, and the `Authorization`, `Proxy-Authorization` and `Cookie` headers,
-are only ever sent to the original host. They are not resent
-when a redirect points at a different scheme, host, or port, so a redirect cannot leak them to
-another server. For stronger guarantees, route these downloads through an egress proxy or network
+Basic authentication credentials, and the supplied `headers:`, are only ever sent to the original
+host. They are not resent when a redirect points at a different scheme, host, or port, so a redirect
+cannot leak them to another server. A redirect from `https` to `http` is not followed, so the data
+cannot be read or changed in transit. When writing, a redirect is only followed to the same scheme,
+host and port, so a redirect cannot send the data being uploaded to another server. Each redirect
+that is followed is logged at info level via `IOStreams.logger`. For stronger guarantees, route these downloads through an egress proxy or network
 policy that blocks private, loopback, and link-local (cloud metadata) addresses.
 
 Similarly when using https:
@@ -3094,6 +3101,15 @@ so files written to `~/data/example.csv` are in `./~/data/example.csv`. A warnin
 when the current directory contains a directory called `~`. A name such as `~user/a.csv` or `~$Book1.xlsx` is unchanged.
 
 Fix: move any files that were written to the `~` directory, or use `./~/data/example.csv` to keep using it.
+
+### HTTPS downloads are not redirected to HTTP
+
+Reading an `https://` path no longer follows a redirect to an `http://` url, and raises
+`IOStreams::Errors::CommunicationsFailure` instead. Previously the download continued over plain http,
+where the data could be read or changed in transit.
+
+Fix: read the `http://` url directly if plain http is acceptable for that server, or have the
+server redirect to an `https://` url.
 
 ## Upgrading to v2.1
 

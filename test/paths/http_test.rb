@@ -1,6 +1,7 @@
 require_relative "../test_helper"
 require "socket"
 require "base64"
+require "logger"
 
 module Paths
   class HTTPTest < Minitest::Test
@@ -584,29 +585,51 @@ module Paths
             end
           end
 
-          it "does not resend credentials across a redirect to another host" do
+          it "does not follow a redirect to another port" do
             @other = TestHTTPServer.new { |_path| TestHTTPServer.response(201) }
             start_server { |_path| TestHTTPServer.response(307, headers: {"Location" => "#{@other.base_url}/file.txt"}) }
 
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").write(body)
+            end
+            assert_includes error.message, "same scheme, host and port"
+            assert_empty @other.requests
+          end
+
+          it "does not follow a redirect to another host" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(307, headers: {"Location" => "http://localhost:#{@server.port}/file.txt"})
+              else
+                TestHTTPServer.response(201)
+              end
+            end
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").write(body)
+            end
+            assert_includes error.message, "same scheme, host and port"
+            assert_equal 1, @server.requests.size
+          end
+
+          it "sends the headers and credentials across a same-origin redirect" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(307, headers: {"Location" => "/file.txt"})
+              else
+                TestHTTPServer.response(201)
+              end
+            end
+
             IOStreams::Paths::HTTP.new(
               "#{@server.base_url}/redirect",
-              username: "jack", password: "secret",
-              headers: {"Cookie" => "session=1", "Proxy-Authorization" => "Basic abc", "Content-Type" => "text/plain"}
+              username: "jack", password: "secret", headers: {"X-Api-Key" => "key"}
             ).write(body)
 
-            original = @server.requests.first[:headers]
+            redirected = @server.requests.last[:headers]
 
-            refute_nil original["authorization"]
-            assert_equal "session=1", original["cookie"]
-
-            redirected = @other.requests.first
-
-            assert_equal body, redirected[:body]
-            assert_nil redirected[:headers]["authorization"]
-            assert_nil redirected[:headers]["cookie"]
-            assert_nil redirected[:headers]["proxy-authorization"]
-            # Headers without credentials are still sent.
-            assert_equal "text/plain", redirected[:headers]["content-type"]
+            refute_nil redirected["authorization"]
+            assert_equal "key", redirected["x-api-key"]
           end
 
           it "rejects a redirect to a host outside the allow list" do
@@ -630,6 +653,60 @@ module Paths
           end
         end
 
+        describe "redirects" do
+          def redirect_to(location, status: 307)
+            response             = Net::HTTPResponse::CODE_TO_OBJ[status.to_s].new("1.1", status.to_s, "Redirect")
+            response["location"] = location
+            response
+          end
+
+          it "does not follow a redirect from https to http" do
+            path = IOStreams::Paths::HTTP.new("https://example.com/file")
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              path.send(:redirect_uri, URI.parse(path.url), redirect_to("http://example.com/file"), 1, Net::HTTP::Get)
+            end
+            assert_includes error.message, "from https to http"
+          end
+
+          it "follows a redirect from http to https when reading" do
+            path    = IOStreams::Paths::HTTP.new("http://example.com/file")
+            new_uri = path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Get)
+
+            assert_equal "https://example.com/file", new_uri.to_s
+          end
+
+          it "does not follow a redirect from http to https when writing" do
+            path = IOStreams::Paths::HTTP.new("http://example.com/file")
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Put)
+            end
+            assert_includes error.message, "same scheme, host and port"
+          end
+
+          it "logs each redirect that is followed, without credentials or the query" do
+            start_server do |path|
+              if path.start_with?("/redirect")
+                TestHTTPServer.response(302, headers: {"Location" => "/file?X-Amz-Signature=secret"})
+              else
+                TestHTTPServer.response(200, body: body)
+              end
+            end
+            output   = StringIO.new
+            original = IOStreams.logger
+            IOStreams.logger = Logger.new(output, level: :info)
+
+            url = "http://jack:secret@127.0.0.1:#{@server.port}/redirect?token=secret"
+            IOStreams::Paths::HTTP.new(url).read
+
+            assert_includes output.string, "Following HTTP 302 redirect from #{@server.base_url}/redirect to #{@server.base_url}/file"
+            refute_includes output.string, "secret"
+          ensure
+            IOStreams.logger = original
+          end
+        end
+
         describe "headers:" do
           it "sends the supplied headers when reading" do
             start_server { |_path| TestHTTPServer.response(200, body: body) }
@@ -637,6 +714,39 @@ module Paths
             IOStreams::Paths::HTTP.new("#{@server.base_url}/file", headers: {"Authorization" => "Bearer token"}).read
 
             assert_equal "Bearer token", @server.requests.first[:headers]["authorization"]
+          end
+
+          it "does not send the supplied headers across a redirect to another host" do
+            @other = TestHTTPServer.new { |_path| TestHTTPServer.response(200, body: body) }
+            start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "#{@other.base_url}/file"}) }
+
+            result = IOStreams::Paths::HTTP.new(
+              "#{@server.base_url}/redirect",
+              headers: {"X-Api-Key" => "key", "Cookie" => "session=1", "Accept" => "text/csv"}
+            ).read
+
+            assert_equal body, result
+            assert_equal "key", @server.requests.first[:headers]["x-api-key"]
+
+            redirected = @other.requests.first[:headers]
+
+            assert_nil redirected["x-api-key"]
+            assert_nil redirected["cookie"]
+            refute_equal "text/csv", redirected["accept"]
+          end
+
+          it "sends the supplied headers across a same-origin redirect" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(302, headers: {"Location" => "/file"})
+              else
+                TestHTTPServer.response(200, body: body)
+              end
+            end
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect", headers: {"X-Api-Key" => "key"}).read
+
+            assert(@server.requests.all? { |request| request[:headers]["x-api-key"] == "key" })
           end
 
           it "rejects headers that are not a hash" do

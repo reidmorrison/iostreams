@@ -180,6 +180,15 @@ when the current directory contains a directory called `~`. A name such as `~use
 
 Fix: move any files that were written to the `~` directory, or use `./~/data/example.csv` to keep using it.
 
+### HTTPS downloads are not redirected to HTTP
+
+Reading an `https://` path no longer follows a redirect to an `http://` url, and raises
+`IOStreams::Errors::CommunicationsFailure` instead. Previously the download continued over plain http,
+where the data could be read or changed in transit.
+
+Fix: read the `http://` url directly if plain http is acceptable for that server, or have the
+server redirect to an `https://` url.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

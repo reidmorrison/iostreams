@@ -6,10 +6,6 @@ module IOStreams
     class HTTP < IOStreams::Path
       attr_reader :username, :password, :http_redirect_count, :url
 
-      # Headers that hold credentials, which are not sent across a redirect to another host.
-      CREDENTIAL_HEADERS = %w[authorization proxy-authorization cookie].freeze
-      private_constant :CREDENTIAL_HEADERS
-
       # Stream to/from a remote file over http(s).
       #
       # Reading uses an HTTP GET, and writing uses an HTTP PUT of the entire file.
@@ -62,7 +58,7 @@ module IOStreams
       #   headers: [Hash]
       #     Optional headers to add to every request, for example
       #     `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` when writing.
-      #     The `Authorization`, `Proxy-Authorization` and `Cookie` headers are not resent
+      #     Since any header may hold a credential, such as `X-Api-Key`, none of them are resent
       #     when a redirect points at a different scheme, host, or port.
       #     Default: nil (no additional headers).
       #
@@ -70,9 +66,13 @@ module IOStreams
       # - Redirect targets are supplied by the remote server. Validating only the url that is
       #   passed in is therefore not sufficient to prevent SSRF: use `allow_hosts` (or disable
       #   redirects with `http_redirect_count: 0`) when the url is not fully trusted.
-      # - Basic authentication credentials, and the credential headers above, are only sent to
-      #   the original host. They are not resent when a redirect points at a different scheme,
-      #   host, or port, so that a redirect cannot leak the credentials to another server.
+      # - Basic authentication credentials, and the supplied headers, are only sent to the original
+      #   host. They are not resent when a redirect points at a different scheme, host, or port,
+      #   so that a redirect cannot leak the credentials to another server.
+      # - A redirect from https to http is not followed, so that the data cannot be read or changed in transit.
+      # - When writing, a redirect is only followed to the same scheme, host, and port, so that a
+      #   redirect cannot send the data being uploaded to another server.
+      # - Each redirect that is followed is logged at info level via `IOStreams.logger`.
       def initialize(url, username: nil, password: nil, http_redirect_count: 10, parameters: nil,
                      allow_hosts: nil, maximum_file_size: nil, headers: nil)
         uri = URI.parse(url)
@@ -181,8 +181,9 @@ module IOStreams
       # Notes:
       # * The data is written to a tempfile first, and then uploaded in a single request once
       #   the block completes, so that the server receives its size in the Content-Length header.
-      # * Only a 307 or 308 redirect is followed when writing, since the other redirects
-      #   change the request into a GET, which would discard the upload.
+      # * Only a 307 or 308 redirect to the same scheme, host, and port is followed when writing.
+      #   The other redirects change the request into a GET, which would discard the upload, and
+      #   a redirect to another server would send it the data being uploaded.
       def stream_writer(&block)
         if maximum_file_size
           raise(ArgumentError, "maximum_file_size: only applies when reading from an HTTP path, not when writing")
@@ -238,16 +239,15 @@ module IOStreams
         end
       end
 
-      # Returns [Net::HTTPRequest] the request with the supplied headers and credentials
-      # that may be sent to the supplied uri.
+      # Returns [Net::HTTPRequest] the request, with the supplied headers and credentials
+      # when it is sent to the original host.
       def build_request(request_class, uri)
-        request     = request_class.new(uri)
-        same_origin = same_origin?(uri)
-        headers.each do |name, value|
-          request[name] = value if same_origin || !CREDENTIAL_HEADERS.include?(name.downcase)
+        request = request_class.new(uri)
+        # Only send headers and credentials to the original host to avoid leaking them via a redirect.
+        if same_origin?(uri)
+          headers.each { |name, value| request[name] = value }
+          request.basic_auth(username, password) if username
         end
-        # Only send credentials to the original host to avoid leaking them via a redirect.
-        request.basic_auth(username, password) if username && same_origin
         request
       end
 
@@ -270,7 +270,26 @@ module IOStreams
         end
 
         # Resolve relative redirects against the current uri.
-        uri.merge(location)
+        new_uri = uri.merge(location)
+
+        if uri.scheme == "https" && new_uri.scheme == "http"
+          raise(
+            IOStreams::Errors::CommunicationsFailure,
+            "Redirect from https to http is not followed: #{without_credentials(uri)} to #{without_credentials(new_uri)}"
+          )
+        end
+
+        # A redirect to another server would send it the data being uploaded.
+        if request_class != Net::HTTP::Get && !same_origin?(new_uri)
+          raise(
+            IOStreams::Errors::CommunicationsFailure,
+            "Only a redirect to the same scheme, host and port can be followed when writing: " \
+            "#{without_credentials(uri)} to #{without_credentials(new_uri)}"
+          )
+        end
+
+        IOStreams.logger&.info("Following HTTP #{response.code} redirect from #{loggable(uri)} to #{loggable(new_uri)}")
+        new_uri
       end
 
       # Validate that the host may be contacted, and that the scheme is still http(s)
@@ -312,6 +331,16 @@ module IOStreams
 
         uri      = uri.dup
         uri.user = nil
+        uri.to_s
+      end
+
+      # Returns [String] the uri without any user name, password, query or fragment, for logging.
+      # The query is removed since it can hold credentials, such as the signature of a pre-signed url.
+      def loggable(uri)
+        uri          = uri.dup
+        uri.user     = nil
+        uri.query    = nil
+        uri.fragment = nil
         uri.to_s
       end
 
