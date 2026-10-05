@@ -287,7 +287,7 @@ module Paths
         end
 
         it "copies a key that needs url-encoding with copy_from" do
-          target.copy_from(source, convert: false)
+          assert_equal 11, target.copy_from(source, convert: false)
 
           assert_equal "Hello World", target.read
         end
@@ -300,7 +300,7 @@ module Paths
         end
 
         it "copies a key that needs url-encoding with copy_to" do
-          source.copy_to(target, convert: false)
+          assert_equal 11, source.copy_to(target, convert: false)
 
           assert_equal "Hello World", target.read
         end

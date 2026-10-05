@@ -194,6 +194,8 @@ module IOStreams
     # source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
     #
+    # Returns [Integer] the number of bytes copied, when copying without a `mode:`.
+    #
     # Notes:
     # - The source is opened before the target, so that the target is not changed when the source
     #   cannot be read, for example when it does not exist.

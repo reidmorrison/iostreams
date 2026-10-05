@@ -94,6 +94,14 @@ a path, such as `https://example.com`, now has the path `/`, where it was empty.
 
 Fix: use `#to_s` where the url is needed, and remove any code that decodes the `#path` of an HTTP path.
 
+### A direct copy between S3 paths returns the number of bytes
+
+`#copy_from` and `#copy_to` with `convert: false` between two S3 paths now return the number of bytes
+copied, like every other copy. Previously `#copy_from` returned the response from the S3 `copy_object`
+call, and `#copy_to` returned the target path. `#move_to` still returns the target path.
+
+Fix: use the target path that was supplied to `#copy_to`, instead of its return value.
+
 ### Local `each_child` honors `case_sensitive:`
 
 `#each_child` and `IOStreams.each_child` on local files now honor `case_sensitive:` on every platform.
