@@ -16,6 +16,9 @@ module IOStreams
       #   file_name [String]
       #     The name of the file, relative to the current directory unless it starts with `/`.
       #     Or a `file://` url, which is always absolute: `file:///home/user/a.txt`, or `file://localhost/home/user/a.txt`.
+      #     A `file://` url can also start with `~` for the current user's home directory, such as `file://~/a.txt`
+      #     or `file:///~/a.txt`, like `sftp://hostname/~/a.txt` for the login directory, so that a configured url
+      #     can change between local files and SFTP without changing the code.
       #     Characters in the url such as a space, `?` or `#` must be percent-encoded, for example `%20`.
       def initialize(file_name, create_path: true)
         @create_path = create_path
@@ -25,16 +28,26 @@ module IOStreams
       # Returns [String] the absolute path of a `file://` url.
       def self.path_from_url(url)
         host, separator, path = url[7..].partition("/")
+        path                  = "" if separator.empty?
+        # `file://~/a.txt` is not a standard file url, since `~` is the host, but it is the same as `file:///~/a.txt`.
+        if host == "~"
+          host = ""
+          path = "~/#{path}"
+        end
         unless host.empty? || host.casecmp?("localhost")
           raise(ArgumentError,
-                "Invalid file url #{url.inspect}: a file url is absolute, such as 'file:///home/user/a.txt'. " \
+                "Invalid file url #{url.inspect}: a file url is absolute, such as 'file:///home/user/a.txt', " \
+                "or within the home directory, such as 'file://~/a.txt'. " \
                 "Supply a relative path without 'file://', such as 'a.txt'.")
         end
         if path.match?(/[?#]/)
           raise(ArgumentError, "Invalid file url #{url.inspect}: percent-encode '?' as '%3F' and '#' as '%23'.")
         end
 
-        "/#{::URI.decode_uri_component(separator.empty? ? '' : path)}"
+        within_home = path[%r{\A~(?:/|\z)(.*)}m, 1]
+        return "/#{::URI.decode_uri_component(path)}" unless within_home
+
+        within_home.empty? ? Dir.home : ::File.join(Dir.home, ::URI.decode_uri_component(within_home))
       end
 
       # Yields Paths within the current path.

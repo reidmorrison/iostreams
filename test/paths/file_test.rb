@@ -42,6 +42,17 @@ module Paths
           assert_raises(ArgumentError) { IOStreams.path("file://server/share/a.txt") }
         end
 
+        it "starts with ~ for the home directory, like an sftp url" do
+          assert_equal Dir.home, IOStreams.path("file://~").to_s
+          assert_equal Dir.home, IOStreams.path("file://~/").to_s
+          assert_equal Dir.home, IOStreams.path("file:///~").to_s
+          assert_equal ::File.join(Dir.home, "data/a b.csv"), IOStreams.path("file://~/data/a%20b.csv").to_s
+          assert_equal ::File.join(Dir.home, "data/a.csv"), IOStreams.path("file:///~/data/a.csv").to_s
+          assert_equal ::File.join(Dir.home, "data/a.csv"), IOStreams.path("file://localhost/~/data/a.csv").to_s
+          assert_equal "/~a/b.csv", IOStreams.path("file:///~a/b.csv").to_s
+          assert_raises(ArgumentError) { IOStreams.path("file://~user/a.txt") }
+        end
+
         it "rejects a query or fragment" do
           assert_raises(ArgumentError) { IOStreams.path("file:///tmp/a.txt?x=1") }
           assert_raises(ArgumentError) { IOStreams.path("file:///tmp/a.txt#x") }

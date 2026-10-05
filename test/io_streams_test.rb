@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "etc"
 require "json"
 
 module IOStreams
@@ -30,6 +31,27 @@ module IOStreams
           path = ::File.expand_path(::File.join(__dir__, "../tmp/downloads"))
 
           assert_equal path, IOStreams.root(:downloads).to_s
+        end
+      end
+
+      describe ".home" do
+        it "returns the current user's home path" do
+          assert_instance_of IOStreams::Paths::File, IOStreams.home
+          assert_equal Dir.home, IOStreams.home.to_s
+          assert_equal ::File.join(Dir.home, "a.txt"), IOStreams.home.join("a.txt").to_s
+        end
+
+        it "returns a named user's home path" do
+          user = Etc.getpwuid.name
+
+          assert_equal Dir.home(user), IOStreams.home(user).to_s
+        end
+      end
+
+      describe ".working_path" do
+        it "returns the current working path" do
+          assert_instance_of IOStreams::Paths::File, IOStreams.working_path
+          assert_equal Dir.pwd, IOStreams.working_path.to_s
         end
       end
 
