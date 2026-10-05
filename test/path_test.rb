@@ -56,6 +56,17 @@ module IOStreams
         end
       end
 
+      describe "#path=" do
+        it "is not public" do
+          %w[/data/a.csv s3://bucket/a.csv sftp://example.org/a.csv https://example.org/a.csv].each do |name|
+            path = IOStreams.path(name)
+
+            assert_raises(NoMethodError, name) { path.path = "b.csv" }
+            assert_equal name, path.to_s
+          end
+        end
+      end
+
       describe "#absolute?" do
         it "true on absolute" do
           assert_equal true, IOStreams::Path.new("/a/b/c/d").absolute?
@@ -174,6 +185,17 @@ module IOStreams
 
           assert_equal 2, paths.uniq.size
           assert_equal 1, {IOStreams.path("a.csv") => 1}[IOStreams.path("a.csv")]
+        end
+
+        it "keeps its hash key when joined" do
+          %w[/data s3://bucket/data sftp://example.org/data https://example.org/data].each do |name|
+            path   = IOStreams.path(name)
+            hash   = {path => 1}
+            joined = path.join("a.csv")
+
+            assert_equal 1, hash[path], name
+            assert_equal "#{name}/a.csv", joined.to_s
+          end
         end
 
         it "sorts paths in different locations" do

@@ -4,7 +4,7 @@ module IOStreams
     SENSITIVE_OPTION = /pass(phrase|word)|secret/i
     private_constant :SENSITIVE_OPTION
 
-    attr_accessor :path
+    attr_reader :path
 
     def initialize(path)
       raise(ArgumentError, "Path cannot be nil") if path.nil?
@@ -250,6 +250,10 @@ module IOStreams
     end
 
     protected
+
+    # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
+    # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
+    attr_writer :path
 
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
     # and this path is not within any of them.

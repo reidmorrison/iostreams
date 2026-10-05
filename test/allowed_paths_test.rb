@@ -233,13 +233,6 @@ class AllowedPathsTest < Minitest::Test
         Dir.chdir(outside) { assert_denied { IOStreams.path("file.txt").read } }
       end
 
-      it "checks the path after it is changed" do
-        path      = IOStreams.path(allowed_file)
-        path.path = outside_file
-
-        assert_denied { path.read }
-      end
-
       it "denies file operations outside the allowed paths" do
         path = IOStreams.path(outside_file)
 

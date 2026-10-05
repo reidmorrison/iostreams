@@ -147,6 +147,26 @@ compare equal to other objects.
 
 Fix: to compare only the file names or keys, compare `#path`, for example `a.path == b.path`.
 
+### `#path` is read-only
+
+`Path#path=` is no longer public, so changing the name of an existing path raises `NoMethodError`.
+A path is a `Hash` key for its location, so changing it in place meant it could no longer be found in
+a `Hash` or `Set` that held it.
+
+Fix: create a new path instead. `#join` and `#directory` return a new path that keeps the settings of
+the original, such as the S3 client or the SFTP credentials:
+
+```ruby
+root = IOStreams.path("s3://bucket/data", region: "us-east-1")
+
+# Before
+path      = root.join("in.csv")
+path.path = "data/out.csv"
+
+# After
+path = root.join("out.csv")
+```
+
 ### Unknown S3 options raise `ArgumentError`
 
 An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now
