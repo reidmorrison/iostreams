@@ -176,6 +176,7 @@ module IOStreams
           child = self.class.new(full_path)
           yield(child) if allowed_child?(child)
         end
+        nil
       end
 
       # Moves this file to the `target_path` by copying it to the new name and then deleting the current file.

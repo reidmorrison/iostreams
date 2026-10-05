@@ -219,6 +219,10 @@ module Paths
           assert_equal [root.join("dir").to_s], root.children("*", directories: true, hidden: true).collect(&:to_s)
         end
 
+        it "returns nil when given a block" do
+          assert_nil(root.each_child("**/*") { |child| child })
+        end
+
         it "with no block returns enumerator" do
           expected = [file_path.to_s, file_path2.to_s]
           actual   = root.each_child("**/*").first(100).collect(&:to_s)

@@ -312,6 +312,26 @@ module IOStreams
           assert_equal [IOStreams.join("each_child_test", "abc.csv").to_s], children
         end
 
+        it "yields an exact directory name only when requested" do
+          directory = IOStreams.join("each_child_test").to_s
+          children  = []
+          IOStreams.each_child(directory) { |path| children << path.to_s }
+
+          assert_empty children
+          IOStreams.each_child(directory, directories: true) { |path| children << path.to_s }
+
+          assert_equal [directory], children
+        end
+
+        it "yields an exact file name in the current directory" do
+          children = []
+          Dir.chdir(IOStreams.join("each_child_test").to_s) do
+            IOStreams.each_child("abc.csv") { |path| children << path.to_s }
+          end
+
+          assert_equal ["abc.csv"], children
+        end
+
         it "yields matching children" do
           children = []
           IOStreams.each_child(IOStreams.join("each_child_test", "*.csv").to_s) { |path| children << path.to_s }

@@ -640,6 +640,12 @@ Notes:
   has no directories.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
   Supply `case_sensitive: true` or `hidden: true` to change this behavior.
+* Supply `directories: true` to also return directories. S3 has no directories, only keys that contain `/`,
+  so the directories within the keys are returned, such as `a` and `a/b` for the key `a/b/c.csv`.
+* `each_child` returns nothing when the path does not exist, or is a file. A directory below the path
+  that cannot be read is skipped.
+* S3 and SFTP paths also yield the attributes of each child, such as its size, as the second argument
+  to the block.
 
 ### Using root paths
 

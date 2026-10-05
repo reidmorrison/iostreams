@@ -154,6 +154,40 @@ module Paths
           assert_equal expected.collect(&:to_s).sort, each_root.children("abd/*").collect(&:to_s).sort
         end
 
+        it "returns the directories within the keys" do
+          write_raw_data
+
+          assert_equal %w[abd xyz].collect { |name| each_root.join(name).to_s },
+                       each_root.children(directories: true).collect(&:to_s).sort
+          assert_equal (%w[abd abd/extra xyz] + files_for_test).collect { |name| each_root.join(name).to_s }.sort,
+                       each_root.children("**/*", directories: true).collect(&:to_s).sort
+        end
+
+        it "returns an empty folder as a directory" do
+          folder = each_root.join("empty_folder")
+          folder.client.put_object(bucket: folder.bucket_name, key: "#{folder.path}/", body: "")
+
+          assert_includes each_root.children(directories: true).collect(&:to_s), folder.to_s
+          refute_includes each_root.children("**/*").collect(&:to_s), "#{folder}/"
+        ensure
+          folder.client.delete_object(bucket: folder.bucket_name, key: "#{folder.path}/")
+        end
+
+        it "yields the attributes of an exact name" do
+          write_raw_data
+          children = each_root.each_child("abd/test1.txt").to_a
+
+          assert_equal([each_root.join("abd/test1.txt").to_s], children.collect { |child, _| child.to_s })
+          assert_equal raw.bytesize, children.first.last[:size]
+        end
+
+        it "returns an exact directory name only when requested" do
+          write_raw_data
+
+          assert_empty each_root.children("abd")
+          assert_equal [each_root.join("abd").to_s], each_root.children("abd", directories: true).collect(&:to_s)
+        end
+
         it "missing path" do
           count = 0
           missing_path.each_child { |_| count += 1 }
