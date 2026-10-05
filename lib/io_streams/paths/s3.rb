@@ -178,8 +178,11 @@ module IOStreams
         @bucket_name = uri.hostname
         key          = uri.path.sub(%r{\A/}, "")
 
+        # The client is created when first used, and is shared by copies of this path, such as from `#join`.
+        # It is held in a Hash so that it is also created when this path is frozen, for example a root path.
+        @client_cache = {}
         if client && !client.is_a?(Hash)
-          @client = client
+          @client_cache[:client] = client
         else
           @client_options                     = client.is_a?(Hash) ? client.dup : {}
           @client_options[:access_key_id]     = access_key_id if access_key_id
@@ -393,9 +396,10 @@ module IOStreams
         false
       end
 
-      # Lazy load S3 client since it takes two seconds to create itself!
+      # Returns [Aws::S3::Client] the client, created when first used since resolving the credentials can be slow,
+      # for example from the EC2 instance metadata service.
       def client
-        @client ||= ::Aws::S3::Client.new(@client_options)
+        @client_cache[:client] ||= ::Aws::S3::Client.new(@client_options)
       end
 
       protected

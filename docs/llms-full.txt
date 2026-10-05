@@ -3153,6 +3153,21 @@ path.read
 To change the streams of a root, supply them each time the root is used, for example
 `IOStreams.join("a.csv").stream(:none)`. Code that compares with `equal?` should compare with `==`.
 
+### `IOStreams.add_root` returns a frozen path
+
+`IOStreams.add_root` now freezes the root path it adds, and returns it, so changing the returned path,
+for example with `#stream` or `#option`, raises `FrozenError` instead of changing the root for the
+whole process.
+
+Fix: change the copy that `IOStreams.root` or `IOStreams.join` returns instead, each time the root is
+used:
+
+```ruby
+IOStreams.add_root(:exports, "s3://bucket/exports")
+
+IOStreams.join("a.csv.pgp", root: :exports).option(:pgp, passphrase: "secret").write(data)
+```
+
 ### Unknown S3 options raise `ArgumentError`
 
 An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now

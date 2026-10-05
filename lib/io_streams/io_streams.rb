@@ -251,10 +251,13 @@ module IOStreams
   end
 
   # Add a named root path
+  #
+  # Returns [IOStreams::Path] the root path, which is frozen so that it cannot be changed for the whole process.
+  # `IOStreams.root` and `IOStreams.join` return copies of it that can be changed.
   def self.add_root(root, *elements, **args)
     raise(ArgumentError, "Invalid characters in root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
 
-    @root_paths[root.to_sym] = path(*elements, **args)
+    @root_paths[root.to_sym] = path(*elements, **args).freeze
   end
 
   # Returns [Hash<Symbol, IOStreams::Path>] a copy of each root path, by name.

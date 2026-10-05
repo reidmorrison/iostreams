@@ -91,6 +91,38 @@ module IOStreams
         end
       end
 
+      describe "a frozen root" do
+        %w[/data s3://bucket/data sftp://example.org/data https://example.org/data].each do |name|
+          it "can be inspected, joined and compared for #{name}" do
+            root = IOStreams.path(name).freeze
+
+            assert_includes root.inspect, "pipeline={}"
+            assert_equal "#{name}/a.csv", root.join("a.csv").to_s
+            refute_predicate root.join("a.csv"), :frozen?
+            assert_equal IOStreams.path(name), root
+            assert_equal IOStreams.path(name).directory, root.directory
+          end
+        end
+
+        it "can list its children" do
+          Dir.mktmpdir do |dir|
+            ::File.write(::File.join(dir, "a.csv"), "data")
+            root = IOStreams.path(dir).freeze
+
+            assert_equal [::File.join(dir, "a.csv")], root.children("*.csv").map(&:to_s)
+            assert_predicate root, :exist?
+            assert_equal "data", root.join("a.csv").read
+          end
+        end
+
+        it "explains a change in the error" do
+          root  = IOStreams.path("/data").freeze
+          error = assert_raises(FrozenError) { root.stream(:gz) }
+
+          assert_includes error.message, "IOStreams::Paths::File:/data"
+        end
+      end
+
       describe "#absolute?" do
         it "true on absolute" do
           assert_equal true, IOStreams::Path.new("/a/b/c/d").absolute?

@@ -245,11 +245,13 @@ module IOStreams
       [self.class, to_s].hash
     end
 
+    # Does not create the builder, so that a frozen path can be inspected, for example in a `FrozenError` message.
     def inspect
-      str = "#<#{self.class.name}:#{path}"
+      builder = @builder || IOStreams::Builder.new(path)
+      str     = "#<#{self.class.name}:#{path}"
       str << " @builder=#{redact(builder.streams).inspect}" if builder.streams
       str << " @options=#{redact(builder.options).inspect}" if builder.options
-      str << " pipeline=#{redact(pipeline).inspect}>"
+      str << " pipeline=#{redact(builder.pipeline).inspect}>"
     end
 
     protected
