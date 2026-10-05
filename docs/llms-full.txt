@@ -81,7 +81,8 @@ million without changes.
 
 With [roots](config), the storage location lives in a startup initializer instead of being scattered
 through the code. Point the `:default` root at the local file system in development and at an S3
-bucket in production, and the exact same application code runs in both.
+bucket in production, and the exact same application code runs in both. A path can also come straight from an
+environment variable or a configuration system. See [Paths are configuration](config#paths-are-configuration).
 
 ### Capabilities
 
@@ -911,6 +912,36 @@ characters such as a space, `?` or `#` are percent-encoded. Supply a relative pa
 IOStreams.path("file:///home/user/my%20file.csv")
 # Same as:
 IOStreams.path("/home/user/my file.csv")
+~~~
+
+A file name of `~`, or starting with `~/`, is within the current user's home directory. This matches an
+[SFTP](#sftp-sftp) url, where `~` is the login directory, so the location of a file can be configured, for example
+in an environment variable, as a local file in one environment and on an SFTP server in another, without changing
+the code. A `file://` url can also start with `~`, although that is not part of the `file://` standard:
+
+~~~ruby
+# The file data/example.csv within the home directory
+IOStreams.path("~/data/example.csv")
+# Same as:
+IOStreams.path("file://~/data/example.csv")
+IOStreams.path("file:///~/data/example.csv")
+
+# The file data/example.csv within the login directory on the SFTP server
+IOStreams.path("sftp://hostname/~/data/example.csv")
+~~~
+
+Only a leading `~` on its own is the home directory, so `~user/a.csv`, `~$Book1.xlsx` and `a/~/b.csv` are
+unchanged. Use `./~/example.csv` for a directory called `~` in the current directory.
+
+In code, `IOStreams.home` is the current user's home directory, `IOStreams.home("username")` is another user's,
+and `IOStreams.working_path` is the current working directory:
+
+~~~ruby
+IOStreams.home.join("my file.csv")
+# Same as, when the home directory is /home/user:
+IOStreams.path("/home/user/my file.csv")
+
+IOStreams.working_path.join("my file.csv")
 ~~~
 
 #### Optional Arguments:
@@ -2682,6 +2713,42 @@ Select highest level: 5
 
 # Configuring IOStreams
 
+## Paths are configuration
+
+A path or url is configuration, not code. Keep it in an environment variable or a centralized configuration
+system, and pass it to IOStreams, so that the exact same application code runs against local files in
+development and a completely different file store in staging or production.
+
+~~~ruby
+# Development: EXPORT_PATH=~/exports/daily.csv
+# Staging:     EXPORT_PATH=sftp://staging.example.org/~/exports/daily.csv
+# Production:  EXPORT_PATH=s3://my-bucket/exports/daily.csv
+IOStreams.path(ENV.fetch("EXPORT_PATH")).write(report)
+~~~
+
+This also helps when infrastructure changes. For example, while migrating production from on-premises
+servers to the cloud, the on-premises instance can keep reading and writing local files while the cloud
+instance uses S3, both running the same release with only their configuration differing.
+
+The same path written for each file store refers to the equivalent place. For example `~/exports` is within
+the home directory, and `sftp://hostname/~/exports` is within the login directory on the SFTP server.
+
+To keep code independent of where its files are stored:
+
+* Use the methods on the path, such as `exist?`, `each_child`, `move_to`, `delete`, `reader` and `writer`,
+  rather than passing `path.to_s` to `File` or `Dir`, which only work with local files.
+* Do not check the scheme of a path to decide what to do with it.
+* Keep credentials in configuration too, for example the AWS environment variables or credential files for S3,
+  and the ssh config for SFTP.
+
+When an application uses several locations, [roots](#add_root) give them names, and each root can be set from
+configuration:
+
+~~~ruby
+IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))
+IOStreams.join("exports", "daily.csv").write(report)
+~~~
+
 ## add_root
 
 Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
@@ -2998,6 +3065,17 @@ the login directory, as curl does, for example `sftp://host/~/data/a.csv`.
 Fix: use `sftp://host/~` to list the login directory. On a server that confines users to their own
 directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
 now refers to the login directory, not to a directory named `~`.
+
+### A local `~` is the home directory
+
+A local file name of `~`, or starting with `~/`, is now within the current user's home directory, so
+`IOStreams.path("~/data/example.csv")` is `/home/user/data/example.csv`. This matches an SFTP url, where
+`sftp://hostname/~/data/example.csv` is within the login directory, so a configured path can change between local
+files and SFTP without changing the code. Previously `~` was a directory called `~` in the current directory,
+so files written to `~/data/example.csv` are in `./~/data/example.csv`. A warning is logged via `IOStreams.logger`
+when the current directory contains a directory called `~`. A name such as `~user/a.csv` or `~$Book1.xlsx` is unchanged.
+
+Fix: move any files that were written to the `~` directory, or use `./~/data/example.csv` to keep using it.
 
 ## Upgrading to v2.1
 

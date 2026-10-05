@@ -169,6 +169,17 @@ Fix: use `sftp://host/~` to list the login directory. On a server that confines 
 directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
 now refers to the login directory, not to a directory named `~`.
 
+### A local `~` is the home directory
+
+A local file name of `~`, or starting with `~/`, is now within the current user's home directory, so
+`IOStreams.path("~/data/example.csv")` is `/home/user/data/example.csv`. This matches an SFTP url, where
+`sftp://hostname/~/data/example.csv` is within the login directory, so a configured path can change between local
+files and SFTP without changing the code. Previously `~` was a directory called `~` in the current directory,
+so files written to `~/data/example.csv` are in `./~/data/example.csv`. A warning is logged via `IOStreams.logger`
+when the current directory contains a directory called `~`. A name such as `~user/a.csv` or `~$Book1.xlsx` is unchanged.
+
+Fix: move any files that were written to the `~` directory, or use `./~/data/example.csv` to keep using it.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

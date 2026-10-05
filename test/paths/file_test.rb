@@ -1,4 +1,6 @@
 require_relative "../test_helper"
+require "logger"
+require "tmpdir"
 
 module Paths
   class FileTest < Minitest::Test
@@ -15,6 +17,68 @@ module Paths
         path = root.join("some_test_dir/test_file2.txt")
         path.writer { |io| io << "Hello World2" }
         path
+      end
+
+      describe "home directory" do
+        # Runs the block with a temporary home directory and current directory.
+        def in_home
+          Dir.mktmpdir do |dir|
+            home     = ::File.join(::File.realpath(dir), "home")
+            current  = ::File.join(::File.realpath(dir), "current")
+            original = Dir.home
+            FileUtils.mkdir_p([home, current])
+            ENV["HOME"] = home
+            Dir.chdir(current) { yield(home, current) }
+          ensure
+            ENV["HOME"] = original
+          end
+        end
+
+        it "starts with ~ for the home directory" do
+          in_home do |home|
+            IOStreams.path("~/data/a.csv").write("data")
+
+            assert_equal "data", ::File.read(::File.join(home, "data/a.csv"))
+            assert_equal ::File.join(home, "data/a.csv"), IOStreams.path("~", "data", "a.csv").to_s
+            assert_equal ::File.join(home, "data"), IOStreams.path("~/data/").to_s
+            assert_equal home, IOStreams.path("~").to_s
+            assert_predicate IOStreams.path("~/data/a.csv"), :absolute?
+            assert_equal ["#{home}/data/a.csv"], IOStreams.path("~/data").children.collect(&:to_s)
+          end
+        end
+
+        it "does not expand ~ elsewhere, or ~ followed by a name" do
+          assert_equal "~user/a.txt", IOStreams.path("~user/a.txt").to_s
+          assert_equal "~$Book1.xlsx", IOStreams.path("~$Book1.xlsx").to_s
+          assert_equal "a/~/b.txt", IOStreams.path("a/~/b.txt").to_s
+          assert_equal "./~/b.txt", IOStreams.path("./~/b.txt").to_s
+        end
+
+        it "yields a child of the current directory called ~ as ./~" do
+          in_home do |_home, current|
+            FileUtils.mkdir_p(::File.join(current, "~"))
+            ::File.write(::File.join(current, "~", "a.txt"), "data")
+
+            children = IOStreams.path("").children("**/*").collect(&:to_s)
+
+            assert_equal ["./~/a.txt"], children
+            assert_equal "data", IOStreams.path(children.first).read
+          end
+        end
+
+        it "warns when the current directory contains a directory called ~" do
+          in_home do |home, current|
+            FileUtils.mkdir_p(::File.join(current, "~"))
+            output   = StringIO.new
+            original = IOStreams.logger
+            IOStreams.logger = Logger.new(output, level: :warn)
+
+            assert_equal ::File.join(home, "a.txt"), IOStreams.path("~/a.txt").to_s
+            assert_match "Use ./~/a.txt for the directory called ~ in the current directory", output.string
+          ensure
+            IOStreams.logger = original
+          end
+        end
       end
 
       describe "file urls" do
@@ -40,6 +104,17 @@ module Paths
           error = assert_raises(ArgumentError) { IOStreams.path("file://a.txt") }
           assert_match(%r{Supply a relative path without 'file://'}, error.message)
           assert_raises(ArgumentError) { IOStreams.path("file://server/share/a.txt") }
+        end
+
+        it "starts with ~ for the home directory, like an sftp url" do
+          assert_equal Dir.home, IOStreams.path("file://~").to_s
+          assert_equal Dir.home, IOStreams.path("file://~/").to_s
+          assert_equal Dir.home, IOStreams.path("file:///~").to_s
+          assert_equal ::File.join(Dir.home, "data/a b.csv"), IOStreams.path("file://~/data/a%20b.csv").to_s
+          assert_equal ::File.join(Dir.home, "data/a.csv"), IOStreams.path("file:///~/data/a.csv").to_s
+          assert_equal ::File.join(Dir.home, "data/a.csv"), IOStreams.path("file://localhost/~/data/a.csv").to_s
+          assert_equal "/~a/b.csv", IOStreams.path("file:///~a/b.csv").to_s
+          assert_raises(ArgumentError) { IOStreams.path("file://~user/a.txt") }
         end
 
         it "rejects a query or fragment" do

@@ -74,7 +74,8 @@ million without changes.
 
 With [roots](config), the storage location lives in a startup initializer instead of being scattered
 through the code. Point the `:default` root at the local file system in development and at an S3
-bucket in production, and the exact same application code runs in both.
+bucket in production, and the exact same application code runs in both. A path can also come straight from an
+environment variable or a configuration system. See [Paths are configuration](config#paths-are-configuration).
 
 ### Capabilities
 
