@@ -107,6 +107,15 @@ module IOStreams
         url
       end
 
+      # HTTP has no directories, so there is nothing to create.
+      def mkpath
+        self
+      end
+
+      def mkdir
+        self
+      end
+
       # Returns [true|false] whether the file exists, using an HTTP HEAD.
       #
       # Returns false when the server responds with 404 Not Found or 410 Gone.
@@ -231,8 +240,11 @@ module IOStreams
         end
       end
 
-      # An upload is a single request, so that a failed copy to this path never leaves an incomplete file to delete.
-      # Also avoids an HTTP HEAD request before every copy.
+      # Skips the HTTP HEAD before a copy to this path, and the HTTP DELETE after a failed one.
+      #
+      # An upload is a single request with its Content-Length, so a server can discard a truncated upload
+      # instead of keeping an incomplete file. A url can also be limited to an upload, such as a pre-signed
+      # url, where a HEAD or DELETE request fails, so that a copy to it would always fail.
       def existed_before_copy?
         true
       end

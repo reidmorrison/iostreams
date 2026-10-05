@@ -428,6 +428,7 @@ Notes:
   `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or DELETE.
 * `delete` follows redirects the same way as writing. `exist?` and `size` follow redirects the same way as reading.
 * `move_to` from an HTTP path downloads the file and then deletes it with an HTTP DELETE.
+  `move_to` an HTTP path uploads the file and then deletes the source.
 * A redirect from `https` to `http` is not followed, when reading or writing, and raises
   `IOStreams::Errors::CommunicationsFailure`.
 * Each redirect that is followed is logged at info level via `IOStreams.logger`, without any
@@ -619,7 +620,8 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 
 Notes:
 * These operations are supported by File and S3 paths. SFTP supports `each_child`.
-  HTTP paths support `exist?`, `size`, `delete`, and `move_to` from an HTTP path, see below.
+  HTTP paths support `exist?`, `size`, `delete`, `move_to` and `mkpath`, which does nothing since HTTP
+  has no directories.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
   Supply `case_sensitive: true` or `hidden: true` to change this behavior.
 

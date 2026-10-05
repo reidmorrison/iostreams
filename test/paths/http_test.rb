@@ -840,7 +840,34 @@ module Paths
           end
         end
 
+        describe "#mkpath" do
+          it "returns the path without contacting the server" do
+            start_server { |_path| TestHTTPServer.response(200) }
+            path = IOStreams.path("#{@server.base_url}/files/file.txt")
+
+            assert_same path, path.mkpath
+            assert_same path, path.mkdir
+            assert_empty @server.requests
+          end
+        end
+
         describe "#move_to" do
+          it "uploads a local file and then deletes it" do
+            start_server { |_path| TestHTTPServer.response(201) }
+
+            IOStreams.temp_file("iostreams_http", ".txt") do |source|
+              source.write(body)
+              target = IOStreams.path("#{@server.base_url}/files/file.txt")
+
+              assert_same target, source.move_to(target)
+              refute_predicate source, :exist?
+            end
+            request = @server.requests.first
+
+            assert_equal(["PUT"], @server.requests.map { |r| r[:method] })
+            assert_equal body, request[:body]
+          end
+
           it "downloads the file and then deletes it" do
             start_server { |_path| TestHTTPServer.response(200, body: body) }
 
