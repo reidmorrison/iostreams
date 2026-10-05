@@ -180,6 +180,26 @@ when the current directory contains a directory called `~`. A name such as `~use
 
 Fix: move any files that were written to the `~` directory, or use `./~/data/example.csv` to keep using it.
 
+### A failed copy to S3 does not delete the target
+
+`#copy_from` an S3 path no longer deletes the object when the copy fails. S3 only stores an object once its
+upload completes, so a failed copy never leaves an incomplete object. The delete could instead remove a
+complete object when only the response to its upload was lost, or an object that another writer created
+during the copy.
+
+Fix: none is needed in most cases. When the copy raises, the object is either unchanged or completely
+replaced. Code that relied on a failed copy always removing the object should call `#delete` after
+the error.
+
+### HTTPS downloads are not redirected to HTTP
+
+Reading an `https://` path no longer follows a redirect to an `http://` url, and raises
+`IOStreams::Errors::CommunicationsFailure` instead. Previously the download continued over plain http,
+where the data could be read or changed in transit.
+
+Fix: read the `http://` url directly if plain http is acceptable for that server, or have the
+server redirect to an `https://` url.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

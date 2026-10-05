@@ -106,7 +106,8 @@ module IOStreams
     # Removes an incomplete target "file" when the copy fails.
     #
     # Only a target that did not exist before the copy is removed, so that a failed copy never deletes
-    # existing data, for example an S3 object that is only replaced once the upload completes.
+    # existing data. A path whose upload is stored only once it completes, such as S3 or HTTP, overrides
+    # `#existed_before_copy?` to skip this entirely.
     def copy_from(source, **args)
       existed = existed_before_copy?
       begin

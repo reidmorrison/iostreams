@@ -1,11 +1,12 @@
 require_relative "../test_helper"
 require "socket"
 require "base64"
+require "logger"
 
 module Paths
   class HTTPTest < Minitest::Test
-    # Minimal HTTP server used to exercise redirect, credential, allow-list and
-    # download-size handling without depending on an external service.
+    # Minimal HTTP server used to exercise redirect, credential, allow-list,
+    # download-size and upload handling without depending on an external service.
     class TestHTTPServer
       attr_reader :port, :requests
 
@@ -30,8 +31,9 @@ module Paths
 
       # Build a raw HTTP response string.
       def self.response(status, body: "", headers: {})
-        reason = {200 => "OK", 302 => "Found", 401 => "Unauthorized", 404 => "Not Found",
-                  500 => "Internal Server Error"}[status]
+        reason = {200 => "OK", 201 => "Created", 204 => "No Content", 301 => "Moved Permanently", 302 => "Found",
+                  307 => "Temporary Redirect", 308 => "Permanent Redirect", 401 => "Unauthorized",
+                  404 => "Not Found", 405 => "Method Not Allowed", 410 => "Gone", 500 => "Internal Server Error"}[status]
         all    = {"Content-Length" => body.bytesize.to_s, "Connection" => "close"}.merge(headers)
         lines  = ["HTTP/1.1 #{status} #{reason}"]
         all.each { |key, value| lines << "#{key}: #{value}" }
@@ -61,8 +63,10 @@ module Paths
           key, value                  = line.split(":", 2)
           headers[key.strip.downcase] = value.to_s.strip
         end
-        @requests << {method: method, path: path, headers: headers}
-        client.write(@handler.call(path))
+        body    = headers["content-length"] ? client.read(headers["content-length"].to_i) : nil
+        request = {method: method, path: path, headers: headers, body: body}
+        @requests << request
+        client.write(@handler.call(path, request))
       ensure
         client&.close
       end
@@ -278,6 +282,35 @@ module Paths
             assert_equal body, IOStreams.path("#{@server.base_url}/files/report.csv").read
           end
 
+          it "uploads to a url within an allowed path" do
+            start_server { |_path| TestHTTPServer.response(201) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            IOStreams.path("#{@server.base_url}/files/report.csv").write(body)
+
+            assert_equal body, @server.requests.first[:body]
+          end
+
+          it "denies an upload outside the allowed paths without contacting the server" do
+            start_server { |_path| TestHTTPServer.response(201) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            assert_raises IOStreams::Errors::AccessDenied do
+              IOStreams.path("#{@server.base_url}/secret.csv").write(body)
+            end
+            assert_empty @server.requests
+          end
+
+          it "denies a redirected upload outside the allowed paths" do
+            start_server { |_path| TestHTTPServer.response(307, headers: {"Location" => "/secret.csv"}) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            assert_raises IOStreams::Errors::AccessDenied do
+              IOStreams.path("#{@server.base_url}/files/report.csv").write(body)
+            end
+            assert_equal 1, @server.requests.size
+          end
+
           it "denies a joined path outside the allowed paths without contacting the server" do
             start_server { |_path| TestHTTPServer.response(200, body: body) }
             IOStreams.add_allowed_path("#{@server.base_url}/files/public")
@@ -403,6 +436,552 @@ module Paths
           # Same scheme, host and port, so credentials are sent on both requests.
           assert_equal 2, @server.requests.size
           assert(@server.requests.all? { |request| request[:headers]["authorization"] })
+        end
+        describe "#write" do
+          it "uploads the file with a put" do
+            start_server { |_path| TestHTTPServer.response(201) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/upload/file.txt").write(body)
+
+            request = @server.requests.first
+
+            assert_equal "PUT", request[:method]
+            assert_equal "/upload/file.txt", request[:path]
+            assert_equal body, request[:body]
+            assert_equal body.bytesize.to_s, request[:headers]["content-length"]
+            assert_equal "application/octet-stream", request[:headers]["content-type"]
+          end
+
+          it "accepts a 204 No Content response" do
+            start_server { |_path| TestHTTPServer.response(204) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").write(body)
+
+            assert_equal body, @server.requests.first[:body]
+          end
+
+          it "returns the result of the block" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            result = IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").writer do |io|
+              io.write(body)
+              :done
+            end
+
+            assert_equal :done, result
+          end
+
+          it "applies the streams for the file name" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt.gz").write(body)
+
+            assert_equal body, Zlib.gunzip(@server.requests.first[:body])
+          end
+
+          it "writes lines" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").writer(:line) do |io|
+              io << "one"
+              io << "two"
+            end
+
+            assert_equal "one\ntwo\n", @server.requests.first[:body]
+          end
+
+          it "uploads an empty file" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").writer { |_io| nil }
+
+            assert_equal "0", @server.requests.first[:headers]["content-length"]
+          end
+
+          it "sends the supplied headers" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            IOStreams::Paths::HTTP.new(
+              "#{@server.base_url}/file.csv",
+              headers: {"Content-Type" => "text/csv", :"X-Custom" => "value"}
+            ).write(body)
+
+            headers = @server.requests.first[:headers]
+
+            assert_equal "text/csv", headers["content-type"]
+            assert_equal "value", headers["x-custom"]
+          end
+
+          it "sends basic auth credentials" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt", username: "jack", password: "secret").write(body)
+
+            assert auth = @server.requests.first[:headers]["authorization"]
+            assert_equal %w[jack secret], Base64.decode64(auth.sub(/\ABasic /, "")).split(":")
+          end
+
+          it "raises when the server requires authorization" do
+            start_server { |_path| TestHTTPServer.response(401) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").write(body)
+            end
+            assert_includes error.message, "Authorization Required"
+          end
+
+          it "raises on an unsuccessful response code" do
+            start_server { |_path| TestHTTPServer.response(405) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").write(body)
+            end
+            assert_includes error.message, "405"
+          end
+
+          it "follows a 307 redirect, resending the body" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(307, headers: {"Location" => "/file.txt"})
+              else
+                TestHTTPServer.response(201)
+              end
+            end
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").write(body)
+
+            assert_equal 2, @server.requests.size
+            target = @server.requests.last
+
+            assert_equal "PUT", target[:method]
+            assert_equal "/file.txt", target[:path]
+            assert_equal body, target[:body]
+          end
+
+          it "follows a 308 redirect" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(308, headers: {"Location" => "/file.txt"})
+              else
+                TestHTTPServer.response(201)
+              end
+            end
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").write(body)
+
+            assert_equal body, @server.requests.last[:body]
+          end
+
+          it "does not follow a redirect that would change the upload into a get" do
+            [301, 302].each do |status|
+              @server&.shutdown
+              start_server { |_path| TestHTTPServer.response(status, headers: {"Location" => "/file.txt"}) }
+
+              error = assert_raises IOStreams::Errors::CommunicationsFailure do
+                IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").write(body)
+              end
+              assert_includes error.message, "Only a 307 or 308 redirect"
+              assert_equal 1, @server.requests.size
+            end
+          end
+
+          it "does not follow a redirect to another port" do
+            @other = TestHTTPServer.new { |_path| TestHTTPServer.response(201) }
+            start_server { |_path| TestHTTPServer.response(307, headers: {"Location" => "#{@other.base_url}/file.txt"}) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").write(body)
+            end
+            assert_includes error.message, "same scheme, host and port"
+            assert_empty @other.requests
+          end
+
+          it "does not follow a redirect to another host" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(307, headers: {"Location" => "http://localhost:#{@server.port}/file.txt"})
+              else
+                TestHTTPServer.response(201)
+              end
+            end
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").write(body)
+            end
+            assert_includes error.message, "same scheme, host and port"
+            assert_equal 1, @server.requests.size
+          end
+
+          it "sends the headers and credentials across a same-origin redirect" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(307, headers: {"Location" => "/file.txt"})
+              else
+                TestHTTPServer.response(201)
+              end
+            end
+
+            IOStreams::Paths::HTTP.new(
+              "#{@server.base_url}/redirect",
+              username: "jack", password: "secret", headers: {"X-Api-Key" => "key"}
+            ).write(body)
+
+            redirected = @server.requests.last[:headers]
+
+            refute_nil redirected["authorization"]
+            assert_equal "key", redirected["x-api-key"]
+          end
+
+          it "rejects a redirect to a host outside the allow list" do
+            @other = TestHTTPServer.new { |_path| TestHTTPServer.response(201) }
+            start_server { |_path| TestHTTPServer.response(307, headers: {"Location" => "#{@other.base_url}/file.txt"}) }
+
+            assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect", allow_hosts: "localhost").write(body)
+            end
+            assert_empty @other.requests
+          end
+
+          it "rejects a maximum_file_size, which only applies when reading" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            error = assert_raises ArgumentError do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt", maximum_file_size: 10).write(body)
+            end
+            assert_includes error.message, "maximum_file_size"
+            assert_empty @server.requests
+          end
+        end
+
+        describe "#exist?" do
+          it "returns true when the file exists, using a head request" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            assert_predicate IOStreams.path("#{@server.base_url}/file.txt"), :exist?
+            assert_equal "HEAD", @server.requests.first[:method]
+          end
+
+          it "returns false when the file is not found" do
+            start_server { |_path| TestHTTPServer.response(404) }
+
+            refute_predicate IOStreams.path("#{@server.base_url}/file.txt"), :exist?
+          end
+
+          it "returns false when the file is gone" do
+            start_server { |_path| TestHTTPServer.response(410) }
+
+            refute_predicate IOStreams.path("#{@server.base_url}/file.txt"), :exist?
+          end
+
+          it "raises when the server does not support head requests" do
+            start_server { |_path| TestHTTPServer.response(405) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams.path("#{@server.base_url}/file.txt").exist?
+            end
+            assert_includes error.message, "405"
+          end
+
+          it "raises when the server requires authorization" do
+            start_server { |_path| TestHTTPServer.response(401) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams.path("#{@server.base_url}/file.txt").exist?
+            end
+            assert_includes error.message, "Authorization Required"
+          end
+
+          it "sends the supplied headers and credentials" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            IOStreams::Paths::HTTP.new(
+              "#{@server.base_url}/file.txt", username: "jack", password: "secret", headers: {"X-Api-Key" => "key"}
+            ).exist?
+
+            headers = @server.requests.first[:headers]
+
+            refute_nil headers["authorization"]
+            assert_equal "key", headers["x-api-key"]
+          end
+
+          it "follows a redirect to another host, without the supplied headers" do
+            @other = TestHTTPServer.new { |_path| TestHTTPServer.response(404) }
+            start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "#{@other.base_url}/file.txt"}) }
+
+            refute_predicate IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt", headers: {"X-Api-Key" => "key"}), :exist?
+
+            redirected = @other.requests.first
+
+            assert_equal "HEAD", redirected[:method]
+            assert_nil redirected[:headers]["x-api-key"]
+          end
+
+          it "denies a url outside the allowed paths without contacting the server" do
+            start_server { |_path| TestHTTPServer.response(200) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+
+            assert_raises IOStreams::Errors::AccessDenied do
+              IOStreams.path("#{@server.base_url}/secret.csv").exist?
+            end
+            assert_empty @server.requests
+          ensure
+            IOStreams.instance_variable_set(:@allowed_paths, [].freeze)
+          end
+        end
+
+        describe "#size" do
+          it "returns the content length from a head request" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            assert_equal body.bytesize, IOStreams.path("#{@server.base_url}/file.txt").size
+
+            request = @server.requests.first
+
+            assert_equal "HEAD", request[:method]
+            assert_equal "identity", request[:headers]["accept-encoding"]
+          end
+
+          it "returns nil when the file is not found" do
+            start_server { |_path| TestHTTPServer.response(404) }
+
+            assert_nil IOStreams.path("#{@server.base_url}/file.txt").size
+          end
+        end
+
+        describe "#delete" do
+          it "deletes the file, returning the path" do
+            start_server { |_path| TestHTTPServer.response(204) }
+            path = IOStreams.path("#{@server.base_url}/file.txt")
+
+            assert_same path, path.delete
+
+            request = @server.requests.first
+
+            assert_equal "DELETE", request[:method]
+            assert_equal "/file.txt", request[:path]
+          end
+
+          it "does not raise when the file is not found" do
+            start_server { |_path| TestHTTPServer.response(404) }
+            path = IOStreams.path("#{@server.base_url}/file.txt")
+
+            assert_same path, path.delete
+          end
+
+          it "does not raise when the file is gone" do
+            start_server { |_path| TestHTTPServer.response(410) }
+            path = IOStreams.path("#{@server.base_url}/file.txt")
+
+            assert_same path, path.delete
+          end
+
+          it "raises on an unsuccessful response code" do
+            start_server { |_path| TestHTTPServer.response(405) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams.path("#{@server.base_url}/file.txt").delete
+            end
+            assert_includes error.message, "405"
+          end
+
+          it "follows a same-origin 307 redirect" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(307, headers: {"Location" => "/file.txt"})
+              else
+                TestHTTPServer.response(204)
+              end
+            end
+
+            IOStreams.path("#{@server.base_url}/redirect").delete
+
+            assert_equal(%w[DELETE DELETE], @server.requests.map { |request| request[:method] })
+            assert_equal "/file.txt", @server.requests.last[:path]
+          end
+
+          it "does not follow a redirect to another host" do
+            @other = TestHTTPServer.new { |_path| TestHTTPServer.response(204) }
+            start_server { |_path| TestHTTPServer.response(307, headers: {"Location" => "#{@other.base_url}/file.txt"}) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams.path("#{@server.base_url}/redirect").delete
+            end
+            assert_includes error.message, "same scheme, host and port"
+            assert_empty @other.requests
+          end
+
+          it "does not follow a redirect that would change the request into a get" do
+            start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "/file.txt"}) }
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams.path("#{@server.base_url}/redirect").delete
+            end
+            assert_includes error.message, "Only a 307 or 308 redirect"
+            assert_equal 1, @server.requests.size
+          end
+        end
+
+        describe "#copy_from" do
+          it "uploads without a head request" do
+            start_server { |_path| TestHTTPServer.response(201) }
+
+            IOStreams.path("#{@server.base_url}/file.txt").copy_from(StringIO.new(body))
+
+            assert_equal(["PUT"], @server.requests.map { |request| request[:method] })
+          end
+
+          it "does not delete the file when the upload fails" do
+            start_server { |_path| TestHTTPServer.response(500) }
+
+            assert_raises IOStreams::Errors::CommunicationsFailure do
+              IOStreams.path("#{@server.base_url}/file.txt").copy_from(StringIO.new(body))
+            end
+            assert_equal(["PUT"], @server.requests.map { |request| request[:method] })
+          end
+        end
+
+        describe "#mkpath" do
+          it "returns the path without contacting the server" do
+            start_server { |_path| TestHTTPServer.response(200) }
+            path = IOStreams.path("#{@server.base_url}/files/file.txt")
+
+            assert_same path, path.mkpath
+            assert_same path, path.mkdir
+            assert_empty @server.requests
+          end
+        end
+
+        describe "#move_to" do
+          it "uploads a local file and then deletes it" do
+            start_server { |_path| TestHTTPServer.response(201) }
+
+            IOStreams.temp_file("iostreams_http", ".txt") do |source|
+              source.write(body)
+              target = IOStreams.path("#{@server.base_url}/files/file.txt")
+
+              assert_same target, source.move_to(target)
+              refute_predicate source, :exist?
+            end
+            request = @server.requests.first
+
+            assert_equal(["PUT"], @server.requests.map { |r| r[:method] })
+            assert_equal body, request[:body]
+          end
+
+          it "downloads the file and then deletes it" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            IOStreams.temp_file("iostreams_http", ".txt") do |target|
+              IOStreams.path("#{@server.base_url}/file.txt").move_to(target)
+
+              assert_equal body, target.read
+            end
+            assert_equal(%w[GET DELETE], @server.requests.map { |request| request[:method] })
+          end
+        end
+
+        describe "redirects" do
+          def redirect_to(location, status: 307)
+            response             = Net::HTTPResponse::CODE_TO_OBJ[status.to_s].new("1.1", status.to_s, "Redirect")
+            response["location"] = location
+            response
+          end
+
+          it "does not follow a redirect from https to http" do
+            path = IOStreams::Paths::HTTP.new("https://example.com/file")
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              path.send(:redirect_uri, URI.parse(path.url), redirect_to("http://example.com/file"), 1, Net::HTTP::Get)
+            end
+            assert_includes error.message, "from https to http"
+          end
+
+          it "follows a redirect from http to https when reading" do
+            path    = IOStreams::Paths::HTTP.new("http://example.com/file")
+            new_uri = path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Get)
+
+            assert_equal "https://example.com/file", new_uri.to_s
+          end
+
+          it "does not follow a redirect from http to https when writing" do
+            path = IOStreams::Paths::HTTP.new("http://example.com/file")
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Put)
+            end
+            assert_includes error.message, "same scheme, host and port"
+          end
+
+          it "logs each redirect that is followed, without credentials or the query" do
+            start_server do |path|
+              if path.start_with?("/redirect")
+                TestHTTPServer.response(302, headers: {"Location" => "/file?X-Amz-Signature=secret"})
+              else
+                TestHTTPServer.response(200, body: body)
+              end
+            end
+            output   = StringIO.new
+            original = IOStreams.logger
+            IOStreams.logger = Logger.new(output, level: :info)
+
+            url = "http://jack:secret@127.0.0.1:#{@server.port}/redirect?token=secret"
+            IOStreams::Paths::HTTP.new(url).read
+
+            assert_includes output.string, "Following HTTP 302 redirect from #{@server.base_url}/redirect to #{@server.base_url}/file"
+            refute_includes output.string, "secret"
+          ensure
+            IOStreams.logger = original
+          end
+        end
+
+        describe "headers:" do
+          it "sends the supplied headers when reading" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file", headers: {"Authorization" => "Bearer token"}).read
+
+            assert_equal "Bearer token", @server.requests.first[:headers]["authorization"]
+          end
+
+          it "does not send the supplied headers across a redirect to another host" do
+            @other = TestHTTPServer.new { |_path| TestHTTPServer.response(200, body: body) }
+            start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "#{@other.base_url}/file"}) }
+
+            result = IOStreams::Paths::HTTP.new(
+              "#{@server.base_url}/redirect",
+              headers: {"X-Api-Key" => "key", "Cookie" => "session=1", "Accept" => "text/csv"}
+            ).read
+
+            assert_equal body, result
+            assert_equal "key", @server.requests.first[:headers]["x-api-key"]
+
+            redirected = @other.requests.first[:headers]
+
+            assert_nil redirected["x-api-key"]
+            assert_nil redirected["cookie"]
+            refute_equal "text/csv", redirected["accept"]
+          end
+
+          it "sends the supplied headers across a same-origin redirect" do
+            start_server do |path|
+              if path == "/redirect"
+                TestHTTPServer.response(302, headers: {"Location" => "/file"})
+              else
+                TestHTTPServer.response(200, body: body)
+              end
+            end
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect", headers: {"X-Api-Key" => "key"}).read
+
+            assert(@server.requests.all? { |request| request[:headers]["x-api-key"] == "key" })
+          end
+
+          it "rejects headers that are not a hash" do
+            error = assert_raises ArgumentError do
+              IOStreams::Paths::HTTP.new("http://example.com/file", headers: "Authorization: Bearer token")
+            end
+            assert_includes error.message, "headers:"
+          end
         end
       end
     end

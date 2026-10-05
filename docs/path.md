@@ -20,7 +20,7 @@ IOStreams supports accessing files in the following places:
 * AWS S3
 * Google Cloud Storage (Using the AWS S3 Client)
 * SFTP
-* HTTP(S) (Read only)
+* HTTP(S) (Read with GET, write with PUT)
 
 Are you using another cloud provider and want to add support for your favorite?
 Checkout the supplied [IOStreams S3 path provider](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)
@@ -404,15 +404,35 @@ Notes:
 
 ### HTTP (http://, https://)
 
-Read from a remote file over HTTP or HTTPS using an HTTP Get.
+Read from a remote file over HTTP or HTTPS using an HTTP GET, and write to one using an HTTP PUT.
+`exist?` and `size` use an HTTP HEAD, and `delete` uses an HTTP DELETE.
 
 ~~~ruby
 IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').read
+
+IOStreams.path('https://example.com/upload/report.csv', headers: {"Authorization" => "Bearer token"}).write(data)
 ~~~
 
 Notes:
 * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
-* Currently writing to an HTTP(S) server is not supported. Up to submitting a Pull Request with capability?
+* Writing also streams into a tempfile first, which is uploaded in a single PUT request once the
+  block completes, so that the server receives its size in the `Content-Length` header.
+  The `Content-Type` is `application/octet-stream` unless supplied with `headers:`.
+  Any 2xx response is treated as success.
+* Only a `307` or `308` redirect to the same scheme, host and port is followed when writing, and the file
+  is uploaded again to its location. Other redirects change the request into a GET, which would discard
+  the upload, and a redirect to another server would send it the data being uploaded, so they raise
+  `IOStreams::Errors::CommunicationsFailure`.
+* `exist?` returns `false`, `size` returns `nil`, and `delete` does nothing when the server responds
+  with `404 Not Found` or `410 Gone`. Any other unsuccessful response raises
+  `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or DELETE.
+* `delete` follows redirects the same way as writing. `exist?` and `size` follow redirects the same way as reading.
+* `move_to` from an HTTP path downloads the file and then deletes it with an HTTP DELETE.
+  `move_to` an HTTP path uploads the file and then deletes the source.
+* A redirect from `https` to `http` is not followed, when reading or writing, and raises
+  `IOStreams::Errors::CommunicationsFailure`.
+* Each redirect that is followed is logged at info level via `IOStreams.logger`, without any
+  user name, password or query string.
 
 #### Required Arguments:
 
@@ -461,7 +481,16 @@ Notes:
 
   Optional maximum number of bytes to download. When the response body exceeds this size the
   download is aborted with an `IOStreams::Errors::CommunicationsFailure`.
+  Only applies when reading: writing to a path with a `maximum_file_size` raises `ArgumentError`.
   Default: `nil` (no limit).
+
+* headers: [Hash]
+
+  Optional headers to add to every request, when reading and when writing, for example
+  `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` when writing.
+  Since any header may hold a credential, such as `X-Api-Key`, none of them are resent when a
+  redirect points at a different scheme, host, or port.
+  Default: `nil` (no additional headers).
 
 ~~~ruby 
 path = IOStreams.path("http://hostname/path/example.csv")
@@ -495,9 +524,12 @@ IOStreams.path(untrusted_url, http_redirect_count: 0).read
 IOStreams.path(untrusted_url, maximum_file_size: 50 * 1024 * 1024).read
 ~~~
 
-Basic authentication credentials are only ever sent to the original host. They are not resent
-when a redirect points at a different scheme, host, or port, so a redirect cannot leak them to
-another server. For stronger guarantees, route these downloads through an egress proxy or network
+Basic authentication credentials, and the supplied `headers:`, are only ever sent to the original
+host. They are not resent when a redirect points at a different scheme, host, or port, so a redirect
+cannot leak them to another server. A redirect from `https` to `http` is not followed, so the data
+cannot be read or changed in transit. When writing or deleting, a redirect is only followed to the same scheme,
+host and port, so a redirect cannot send the data being uploaded to another server, or delete a file on it. Each redirect
+that is followed is logged at info level via `IOStreams.logger`. For stronger guarantees, route these downloads through an egress proxy or network
 policy that blocks private, loopback, and link-local (cloud metadata) addresses.
 
 Similarly when using https:
@@ -587,8 +619,9 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 ~~~
 
 Notes:
-* These operations are supported by File and S3 paths. SFTP supports `each_child`,
-  and HTTP paths are read-only so they do not support any of them.
+* These operations are supported by File and S3 paths. SFTP supports `each_child`.
+  HTTP paths support `exist?`, `size`, `delete`, `move_to` and `mkpath`, which does nothing since HTTP
+  has no directories.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
   Supply `case_sensitive: true` or `hidden: true` to change this behavior.
 
