@@ -6,7 +6,13 @@ module IOStreams
     class HTTP < IOStreams::Path
       attr_reader :username, :password, :http_redirect_count, :url
 
+      # Headers that hold credentials, which are not sent across a redirect to another host.
+      CREDENTIAL_HEADERS = %w[authorization proxy-authorization cookie].freeze
+      private_constant :CREDENTIAL_HEADERS
+
       # Stream to/from a remote file over http(s).
+      #
+      # Reading uses an HTTP GET, and writing uses an HTTP PUT of the entire file.
       #
       # Parameters:
       #   url: [String]
@@ -50,17 +56,25 @@ module IOStreams
       #     Optional maximum number of bytes to download.
       #     When the response body exceeds this size the download is aborted with a
       #     CommunicationsFailure, protecting against unbounded (denial of service) responses.
+      #     Only applies when reading: writing to a path with a maximum_file_size raises ArgumentError.
       #     Default: nil (no limit).
+      #
+      #   headers: [Hash]
+      #     Optional headers to add to every request, for example
+      #     `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` when writing.
+      #     The `Authorization`, `Proxy-Authorization` and `Cookie` headers are not resent
+      #     when a redirect points at a different scheme, host, or port.
+      #     Default: nil (no additional headers).
       #
       # Security notes:
       # - Redirect targets are supplied by the remote server. Validating only the url that is
       #   passed in is therefore not sufficient to prevent SSRF: use `allow_hosts` (or disable
       #   redirects with `http_redirect_count: 0`) when the url is not fully trusted.
-      # - Basic authentication credentials are only sent to the original host. They are not
-      #   resent when a redirect points at a different scheme, host, or port, so that a
-      #   redirect cannot leak the credentials to another server.
+      # - Basic authentication credentials, and the credential headers above, are only sent to
+      #   the original host. They are not resent when a redirect points at a different scheme,
+      #   host, or port, so that a redirect cannot leak the credentials to another server.
       def initialize(url, username: nil, password: nil, http_redirect_count: 10, parameters: nil,
-                     allow_hosts: nil, maximum_file_size: nil)
+                     allow_hosts: nil, maximum_file_size: nil, headers: nil)
         uri = URI.parse(url)
         unless %w[http https].include?(uri.scheme)
           raise(
@@ -74,6 +88,7 @@ module IOStreams
         @http_redirect_count = http_redirect_count
         @allow_hosts         = allow_hosts.nil? ? nil : Array(allow_hosts)
         @maximum_file_size   = maximum_file_size
+        @headers             = validate_headers(headers)
         @url                 = parameters ? add_parameters(url, parameters) : url
         super(uri.path)
       end
@@ -125,7 +140,15 @@ module IOStreams
         path.each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
       end
 
-      attr_reader :allow_hosts, :maximum_file_size
+      attr_reader :allow_hosts, :maximum_file_size, :headers
+
+      # Returns [Hash<String, String>] the supplied headers, frozen.
+      def validate_headers(headers)
+        return {}.freeze if headers.nil?
+        raise(ArgumentError, "headers: must be a Hash, not #{headers.class}") unless headers.is_a?(Hash)
+
+        headers.to_h { |name, value| [name.to_s.freeze, value.to_s.freeze] }.freeze
+      end
 
       # Read a file using an http get.
       #
@@ -137,56 +160,117 @@ module IOStreams
       #
       # Notes:
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
-      def stream_reader(&)
-        handle_redirects(url, http_redirect_count, &)
+      def stream_reader(&block)
+        result = nil
+        send_request(Net::HTTP::Get, url, http_redirect_count) do |response|
+          # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
+          Utils.private_temp_file("iostreams_http") do |file_name|
+            download_to_file(response, file_name)
+            # Return a read stream
+            result = ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
+          end
+        end
+        result
       end
 
-      def handle_redirects(uri, http_redirect_count, &block)
-        uri    = URI.parse(uri) unless uri.is_a?(URI)
-        result = nil
+      # Write a file using an http put.
+      #
+      # For example:
+      #   IOStreams.path('https://example.com/upload/file.csv').write("name,age\njack,21\n")
+      #
+      # Notes:
+      # * The data is written to a tempfile first, and then uploaded in a single request once
+      #   the block completes, so that the server receives its size in the Content-Length header.
+      # * Only a 307 or 308 redirect is followed when writing, since the other redirects
+      #   change the request into a GET, which would discard the upload.
+      def stream_writer(&block)
+        if maximum_file_size
+          raise(ArgumentError, "maximum_file_size: only applies when reading from an HTTP path, not when writing")
+        end
+
+        Utils.private_temp_file("iostreams_http") do |file_name|
+          result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+          send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil }
+          result
+        end
+      end
+
+      # Sends the request, following redirects, and yields the successful response.
+      #
+      # When a body_file_name is supplied its contents are sent as the body of the request.
+      def send_request(request_class, uri, http_redirect_count, body_file_name: nil, &block)
+        uri = URI.parse(uri) unless uri.is_a?(URI)
 
         validate_uri!(uri)
 
         Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https") do |http|
-          request = Net::HTTP::Get.new(uri)
-          # Only send credentials to the original host to avoid leaking them via a redirect.
-          request.basic_auth(username, password) if username && same_origin?(uri)
+          request = build_request(request_class, uri)
+          body    = body_file_name ? ::File.open(body_file_name, "rb") : nil
+          if body
+            request.body_stream    = body
+            request.content_length = body.size
+            request.content_type   = "application/octet-stream" unless request["content-type"]
+          end
 
-          http.request(request) do |response|
-            if response.is_a?(Net::HTTPNotFound)
-              raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{without_credentials(uri)}")
-            end
-            if response.is_a?(Net::HTTPUnauthorized)
-              raise(IOStreams::Errors::CommunicationsFailure, "Authorization Required: Invalid :username or :password.")
-            end
-
-            if response.is_a?(Net::HTTPRedirection)
-              raise(IOStreams::Errors::CommunicationsFailure, "Too many redirects") if http_redirect_count < 1
-
-              location = response["location"]
-              unless location
-                raise(IOStreams::Errors::CommunicationsFailure,
-                      "Redirect missing location header: #{without_credentials(uri)}")
+          begin
+            http.request(request) do |response|
+              if response.is_a?(Net::HTTPNotFound)
+                raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{without_credentials(uri)}")
+              end
+              if response.is_a?(Net::HTTPUnauthorized)
+                raise(IOStreams::Errors::CommunicationsFailure, "Authorization Required: Invalid :username or :password.")
               end
 
-              # Resolve relative redirects against the current uri.
-              new_uri = uri.merge(location)
-              return handle_redirects(new_uri, http_redirect_count - 1, &block)
-            end
+              if response.is_a?(Net::HTTPRedirection)
+                new_uri = redirect_uri(uri, response, http_redirect_count, request_class)
+                return send_request(request_class, new_uri, http_redirect_count - 1, body_file_name: body_file_name, &block)
+              end
 
-            unless response.is_a?(Net::HTTPSuccess)
-              raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}")
-            end
+              unless response.is_a?(Net::HTTPSuccess)
+                raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}")
+              end
 
-            # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-            Utils.private_temp_file("iostreams_http") do |file_name|
-              download_to_file(response, file_name)
-              # Return a read stream
-              result = ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
+              block.call(response)
             end
+          ensure
+            body&.close
           end
         end
-        result
+      end
+
+      # Returns [Net::HTTPRequest] the request with the supplied headers and credentials
+      # that may be sent to the supplied uri.
+      def build_request(request_class, uri)
+        request     = request_class.new(uri)
+        same_origin = same_origin?(uri)
+        headers.each do |name, value|
+          request[name] = value if same_origin || !CREDENTIAL_HEADERS.include?(name.downcase)
+        end
+        # Only send credentials to the original host to avoid leaking them via a redirect.
+        request.basic_auth(username, password) if username && same_origin
+        request
+      end
+
+      # Returns [URI] the location to redirect to, resolved against the current uri.
+      def redirect_uri(uri, response, http_redirect_count, request_class)
+        raise(IOStreams::Errors::CommunicationsFailure, "Too many redirects") if http_redirect_count < 1
+
+        # Other redirects change the request into a GET, which would discard the body being sent.
+        if request_class != Net::HTTP::Get && !%w[307 308].include?(response.code)
+          raise(
+            IOStreams::Errors::CommunicationsFailure,
+            "Only a 307 or 308 redirect can be followed when writing, received #{response.code}: #{without_credentials(uri)}"
+          )
+        end
+
+        location = response["location"]
+        unless location
+          raise(IOStreams::Errors::CommunicationsFailure,
+                "Redirect missing location header: #{without_credentials(uri)}")
+        end
+
+        # Resolve relative redirects against the current uri.
+        uri.merge(location)
       end
 
       # Validate that the host may be contacted, and that the scheme is still http(s)

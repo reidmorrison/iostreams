@@ -32,6 +32,11 @@ These bug fixes change behavior that existing code may depend on:
 - **An SFTP url without a path is the root directory `/`, and a path starting with `~` is within the login directory.** `IOStreams.path("sftp://host").each_child` lists `/`, like `sftp://host/`. Previously it listed the login directory, but returned children in `/`, so reading a listed file read `/a.csv` instead of the file in the login directory. Use `sftp://host/~` to list the login directory, and `sftp://host/~/data/a.csv` for the file `data/a.csv` within it, as curl does.
 - **A local file name of `~`, or starting with `~/`, is within the home directory**, for example `IOStreams.path("~/data/a.csv")` is `/home/user/data/a.csv`, as `sftp://hostname/~/data/a.csv` is within the login directory, so a configured path can change between local files and SFTP without changing the code. Previously it was within a directory called `~` in the current directory. Use `./~/data/a.csv` for that directory, and a warning is logged via `IOStreams.logger` when the current directory contains one. A name such as `~user/a.csv` or `~$Book1.xlsx` is unchanged.
 
+### Added
+
+- **Write to HTTP(S) paths.** Writing to an `http://` or `https://` path uploads the file with an HTTP PUT, for example `IOStreams.path("https://example.com/upload/report.csv").write(data)`. The file is written to a tempfile first and uploaded once the block completes, with its `Content-Length`. Only a `307` or `308` redirect is followed when writing. Previously writing to an HTTP path raised `NoMethodError`.
+- **`headers:` for HTTP(S) paths** adds headers to every request, when reading and when writing, for example a bearer token or the `Content-Type` of an upload. The `Authorization`, `Proxy-Authorization` and `Cookie` headers are not resent across a redirect to another host.
+
 ### Fixed
 
 - Chaining `<<` when writing arrays or hashes, for example `io << row1 << row2` within `writer(:array)` or `writer(:hash)`, writes each row. Previously `<<` returned the underlying line writer, so every row after the first in a chain was written as its Ruby `inspect` output, such as `{"name" => "Jill"}`.

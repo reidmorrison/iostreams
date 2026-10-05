@@ -98,7 +98,7 @@ environment variable or a configuration system. See [Paths are configuration](co
 * AWS S3
 * Google Cloud Storage (Using the AWS S3 Client)
 * SFTP
-* HTTP(S) (Read only)
+* HTTP(S) (Read with GET, write with PUT)
 
 #### File formats
 * CSV

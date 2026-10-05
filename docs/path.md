@@ -20,7 +20,7 @@ IOStreams supports accessing files in the following places:
 * AWS S3
 * Google Cloud Storage (Using the AWS S3 Client)
 * SFTP
-* HTTP(S) (Read only)
+* HTTP(S) (Read with GET, write with PUT)
 
 Are you using another cloud provider and want to add support for your favorite?
 Checkout the supplied [IOStreams S3 path provider](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)
@@ -404,15 +404,23 @@ Notes:
 
 ### HTTP (http://, https://)
 
-Read from a remote file over HTTP or HTTPS using an HTTP Get.
+Read from a remote file over HTTP or HTTPS using an HTTP GET, and write to one using an HTTP PUT.
 
 ~~~ruby
 IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').read
+
+IOStreams.path('https://example.com/upload/report.csv', headers: {"Authorization" => "Bearer token"}).write(data)
 ~~~
 
 Notes:
 * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
-* Currently writing to an HTTP(S) server is not supported. Up to submitting a Pull Request with capability?
+* Writing also streams into a tempfile first, which is uploaded in a single PUT request once the
+  block completes, so that the server receives its size in the `Content-Length` header.
+  The `Content-Type` is `application/octet-stream` unless supplied with `headers:`.
+  Any 2xx response is treated as success.
+* Only a `307` or `308` redirect is followed when writing, and the file is uploaded again to its location.
+  Other redirects change the request into a GET, which would discard the upload, so they raise
+  `IOStreams::Errors::CommunicationsFailure`.
 
 #### Required Arguments:
 
@@ -461,7 +469,16 @@ Notes:
 
   Optional maximum number of bytes to download. When the response body exceeds this size the
   download is aborted with an `IOStreams::Errors::CommunicationsFailure`.
+  Only applies when reading: writing to a path with a `maximum_file_size` raises `ArgumentError`.
   Default: `nil` (no limit).
+
+* headers: [Hash]
+
+  Optional headers to add to every request, when reading and when writing, for example
+  `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` when writing.
+  The `Authorization`, `Proxy-Authorization` and `Cookie` headers are not resent when a redirect
+  points at a different scheme, host, or port.
+  Default: `nil` (no additional headers).
 
 ~~~ruby 
 path = IOStreams.path("http://hostname/path/example.csv")
@@ -495,7 +512,8 @@ IOStreams.path(untrusted_url, http_redirect_count: 0).read
 IOStreams.path(untrusted_url, maximum_file_size: 50 * 1024 * 1024).read
 ~~~
 
-Basic authentication credentials are only ever sent to the original host. They are not resent
+Basic authentication credentials, and the `Authorization`, `Proxy-Authorization` and `Cookie` headers,
+are only ever sent to the original host. They are not resent
 when a redirect points at a different scheme, host, or port, so a redirect cannot leak them to
 another server. For stronger guarantees, route these downloads through an egress proxy or network
 policy that blocks private, loopback, and link-local (cloud metadata) addresses.
@@ -588,7 +606,7 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 
 Notes:
 * These operations are supported by File and S3 paths. SFTP supports `each_child`,
-  and HTTP paths are read-only so they do not support any of them.
+  and HTTP paths do not support any of them.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
   Supply `case_sensitive: true` or `hidden: true` to change this behavior.
 
