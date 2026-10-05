@@ -118,6 +118,57 @@ and S3 paths, instead of the size of the file written.
 
 Fix: if you need the size, return it from the block, for example the total of what `io.write` returns.
 
+### Options that a mode or copy cannot use raise `ArgumentError`
+
+`#reader` and `#writer` in the `:stream` mode, which is the default, `#copy_from` and `#copy_to` without
+a `mode:`, and `#copy_from` and `#copy_to` with `convert: false`, now raise `ArgumentError` for any
+option, instead of ignoring it. Options for the `:line`, `:array` and `:hash` modes already raised.
+
+Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
+example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
+
+### Gzip and `.enc` streams leave your IO open
+
+When reading or writing an IO that you supply with `IOStreams.stream(io)`, the `:gz`, `:gzip` and `:enc`
+streams no longer close `io` when the block finishes, like every other stream. Paths are not affected,
+since IOStreams opens and closes their files itself.
+
+Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
+reads until it is closed.
+
+### Paths compare by their full name
+
+`==` and `<=>` now compare the full name of a path, as returned by `#to_s`, instead of only `#path`, so
+paths in different S3 buckets, on different SFTP or HTTP hosts, or in different stores are no longer
+equal, even with the same key or file name. A path also equals a `String` of its full name, such as
+`IOStreams.path("/home/user/a.txt") == "/home/user/a.txt"`. Names are compared as given, so a relative
+path does not equal its absolute path, and `"a.txt" == path` is false, since a `String` does not
+compare equal to other objects.
+
+Fix: to compare only the file names or keys, compare `#path`, for example `a.path == b.path`.
+
+### Unknown S3 options raise `ArgumentError`
+
+An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now
+raises `ArgumentError` when the path is created, as does a request parameter that the path sets itself,
+such as `key` or `bucket`. Each S3 request is supplied the options that it accepts, so for example
+`acl` applies when writing and copying, and `request_payer` to every request, including `#exist?`,
+`#size`, `#delete` and `#each_child`.
+
+Fix: correct or remove the option.
+
+### SFTP urls without a path are the root directory
+
+`IOStreams.path("sftp://host")` is now the root directory `/`, like `sftp://host/`, so `#each_child`
+lists `/` instead of the login directory. Previously the children it returned were in `/` regardless, so
+reading a listed file read the wrong file. Reading, writing and `#join` already used `/`, so for example
+`IOStreams.path("sftp://host").join("a.csv")` is still `/a.csv`. A path starting with `~` is now within
+the login directory, as curl does, for example `sftp://host/~/data/a.csv`.
+
+Fix: use `sftp://host/~` to list the login directory. On a server that confines users to their own
+directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
+now refers to the login directory, not to a directory named `~`.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

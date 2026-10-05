@@ -23,6 +23,10 @@ module IOStreams
       #       return them, as does any log or error message that includes the path.
       #       Supply them with the `username:` and `password:` arguments instead.
       #
+      #   parameters: [Hash]
+      #     Parameters to add to the query string of the url, for example `{q: "search term"}`.
+      #     A parameter replaces any with the same name already in the url.
+      #
       #   username: [String]
       #     When supplied, basic authentication is used with the username and password.
       #
@@ -70,7 +74,7 @@ module IOStreams
         @http_redirect_count = http_redirect_count
         @allow_hosts         = allow_hosts.nil? ? nil : Array(allow_hosts)
         @maximum_file_size   = maximum_file_size
-        @url                 = parameters ? "#{url}?#{URI.encode_www_form(parameters)}" : url
+        @url                 = parameters ? add_parameters(url, parameters) : url
         super(uri.path)
       end
 
@@ -96,6 +100,22 @@ module IOStreams
       end
 
       private
+
+      # Returns [String] the url with the parameters added to its query string.
+      #
+      # A parameter replaces any with the same name in the url, so that the last value supplied is used,
+      # for example to override a setting in a common url. The rest of the url is unchanged.
+      def add_parameters(url, parameters)
+        return url if parameters.empty?
+
+        url, hash, fragment = url.partition("#")
+        url, _, query       = url.partition("?")
+        names               = parameters.keys.map(&:to_s)
+        kept                = query.split("&").reject do |pair|
+          names.include?(URI.decode_www_form_component(pair.split("=", 2).first.to_s))
+        end
+        "#{url}?#{[*kept, URI.encode_www_form(parameters)].join('&')}#{hash}#{fragment}"
+      end
 
       # Characters that can appear in a url path, besides `%`, which is assumed to already be percent-encoded.
       PATH_CHARACTERS = %r{[A-Za-z0-9\-._~!$&'()*+,;=:@/%]}

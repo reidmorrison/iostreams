@@ -135,6 +135,52 @@ module IOStreams
           assert_equal IOStreams::Path.new("a/b"), IOStreams::Path.new("a/b")
           refute_equal IOStreams::Path.new("a/b"), IOStreams::Path.new("a/c")
         end
+
+        it "is equal to a String of its name" do
+          path = IOStreams.path("/home/user/a.txt")
+
+          # The path must be the receiver, since `String#==` is false for anything that is not a String.
+          # rubocop:disable Minitest/AssertEqual, Minitest/RefuteEqual
+          assert_operator path, :==, "/home/user/a.txt"
+          refute_operator path, :==, "/home/user/b.txt"
+          refute_operator IOStreams.path("a.txt"), :==, "/home/user/a.txt"
+          assert_operator IOStreams.path("s3://bucket/a.txt"), :==, "s3://bucket/a.txt"
+          # rubocop:enable Minitest/AssertEqual, Minitest/RefuteEqual
+        end
+
+        it "is not equal to anything else" do
+          path = IOStreams.path("a.txt")
+
+          refute_equal path, nil
+          refute_equal path, 1
+          refute_equal path, :"a.txt"
+          assert_nil path <=> 1
+        end
+
+        it "is not equal to a path in another location with the same name" do
+          refute_equal IOStreams.path("s3://bucket-a/reports/x.csv"), IOStreams.path("s3://bucket-b/reports/x.csv")
+          refute_equal IOStreams.path("s3://bucket/reports/x.csv"), IOStreams.path("reports/x.csv")
+          refute_equal IOStreams.path("sftp://host1/data/x.csv"), IOStreams.path("sftp://host2/data/x.csv")
+          refute_equal IOStreams.path("sftp://host/data/x.csv"), IOStreams.path("sftp://host:2222/data/x.csv")
+          refute_equal IOStreams.path("https://example.org/x.csv"), IOStreams.path("https://example.com/x.csv")
+        end
+
+        it "ignores the streams" do
+          assert_equal IOStreams.path("a.csv.gz"), IOStreams.path("a.csv.gz").stream(:none)
+        end
+
+        it "is a hash key for its location" do
+          paths = [IOStreams.path("a.csv"), IOStreams.path("a.csv"), IOStreams.path("s3://bucket/a.csv")]
+
+          assert_equal 2, paths.uniq.size
+          assert_equal 1, {IOStreams.path("a.csv") => 1}[IOStreams.path("a.csv")]
+        end
+
+        it "sorts paths in different locations" do
+          paths = [IOStreams.path("s3://b/x.csv"), IOStreams.path("s3://a/y.csv")]
+
+          assert_equal %w[s3://a/y.csv s3://b/x.csv], paths.sort.map(&:to_s)
+        end
       end
 
       describe "#inspect" do

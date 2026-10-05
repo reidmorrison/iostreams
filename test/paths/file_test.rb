@@ -17,6 +17,37 @@ module Paths
         path
       end
 
+      describe "file urls" do
+        it "reads and writes an absolute path" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path("file://#{dir}/a%20b+c.txt")
+            path.write("data")
+
+            assert_instance_of IOStreams::Paths::File, path
+            assert_equal "#{dir}/a b+c.txt", path.to_s
+            assert_equal "data", File.read(File.join(dir, "a b+c.txt"))
+            assert_equal "data", IOStreams.path("file://localhost#{dir}", "a b+c.txt").read
+          end
+        end
+
+        it "is absolute" do
+          assert_equal "/", IOStreams.path("file:///").to_s
+          assert_equal "/", IOStreams.path("file://localhost").to_s
+          assert_equal "/tmp/a?b#c.txt", IOStreams.path("FILE:///tmp/a%3Fb%23c.txt").to_s
+        end
+
+        it "rejects a host, since a relative path is supplied without file://" do
+          error = assert_raises(ArgumentError) { IOStreams.path("file://a.txt") }
+          assert_match(%r{Supply a relative path without 'file://'}, error.message)
+          assert_raises(ArgumentError) { IOStreams.path("file://server/share/a.txt") }
+        end
+
+        it "rejects a query or fragment" do
+          assert_raises(ArgumentError) { IOStreams.path("file:///tmp/a.txt?x=1") }
+          assert_raises(ArgumentError) { IOStreams.path("file:///tmp/a.txt#x") }
+        end
+      end
+
       describe "#each" do
         it "reads lines" do
           records = []

@@ -201,14 +201,44 @@ module IOStreams
     # - empty?
     # - find(ignore_error: true) - Find.find
 
-    # Paths are sortable by name
+    # Paths are sortable by their full name, see #to_s.
+    # Returns [nil] when compared with anything other than a path or a String.
     def <=>(other)
-      path <=> other.path
+      case other
+      when Path
+        to_s <=> other.to_s
+      when String
+        to_s <=> other
+      end
     end
 
-    # Compare by path name, ignore streams
+    # Returns [true|false] whether this path is the same location as the other path, or the String.
+    #
+    # The full name of the path is compared, see #to_s, including the bucket of an S3 path and the
+    # host of an SFTP or HTTP path, so that paths in different locations are never equal.
+    # The streams and options are ignored.
+    #
+    # Names are compared exactly as given, so a relative path never equals an absolute path:
+    #   IOStreams.path("/home/user/a.txt") == "/home/user/a.txt"   # => true
+    #   IOStreams.path("a.txt") == "/home/user/a.txt"              # => false
     def ==(other)
-      path == other.path
+      case other
+      when Path
+        other.instance_of?(self.class) && other.to_s == to_s
+      when String
+        to_s == other
+      else
+        false
+      end
+    end
+
+    # Paths are equal hash keys when they are the same location, see #==.
+    def eql?(other)
+      other.instance_of?(self.class) && other.to_s == to_s
+    end
+
+    def hash
+      [self.class, to_s].hash
     end
 
     def inspect

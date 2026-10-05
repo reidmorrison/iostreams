@@ -8,10 +8,19 @@ module IOStreams
       # Write to stream using Symmetric Encryption
       # By default the output stream is compressed.
       # If the input_stream is already compressed consider setting compress: false.
-      def self.stream(input_stream, compress: true, **args, &)
+      #
+      # Like `SymmetricEncryption::Writer.open`, but does not close the output stream, which belongs to the caller.
+      def self.stream(output_stream, compress: true, **args)
         Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(SymmetricEncryption)
 
-        ::SymmetricEncryption::Writer.open(input_stream, compress: compress, **args, &)
+        begin
+          writer = ::SymmetricEncryption::Writer.new(output_stream, compress: compress, **args)
+          io     = compress ? ::Zlib::GzipWriter.new(writer) : writer
+          yield io
+        ensure
+          io.finish if io.is_a?(::Zlib::GzipWriter) && !io.closed?
+          writer&.close(false)
+        end
       end
 
       # Write to stream using Symmetric Encryption

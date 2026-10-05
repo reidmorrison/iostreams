@@ -18,8 +18,8 @@ module IOStreams
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
-      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @streams
-      raise(ArgumentError, "Cannot call #option unless the `file_name` was already set}") unless file_name
+      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
+      raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
 
       @options ||= {}
       if (opts = @options[stream])
@@ -32,7 +32,7 @@ module IOStreams
 
     def stream(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
-      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @options
+      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @options
 
       # To prevent any streams from being applied supply a stream named `:none`
       if stream == :none
