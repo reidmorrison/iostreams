@@ -181,6 +181,16 @@ module Paths
         end
       end
 
+      describe "#blank?" do
+        it "is false without making a request" do
+          path = IOStreams::Paths::HTTP.new("https://server/path")
+
+          Net::HTTP.stub(:start, ->(*) { flunk "blank? must not make a request" }) do
+            refute_predicate path, :blank?
+          end
+        end
+      end
+
       describe "#directory" do
         it "returns the host for a url without a directory" do
           %w[https://example.com https://example.com/ https://example.com/a.csv].each do |url|

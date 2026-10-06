@@ -318,6 +318,26 @@ module IOStreams
         end
       end
 
+      describe "#blank?" do
+        it "is true for an empty name" do
+          assert_predicate IOStreams.path(""), :blank?
+        end
+
+        it "is false when the file does not exist" do
+          refute_predicate IOStreams.path("/tmp/does_not_exist"), :blank?
+        end
+
+        it "is false when the file exists and is empty" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "empty.txt")
+            path.write("")
+
+            assert_predicate path, :empty?
+            refute_predicate path, :blank?
+          end
+        end
+      end
+
       describe "abstract methods" do
         it "raise NotImplementedError" do
           path = IOStreams::Path.new("a/b/c")
