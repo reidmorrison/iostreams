@@ -5,12 +5,6 @@ module IOStreams
         %i[entry_file_name]
       end
 
-      # Not `zip_file_name`, which the writer accepts in place of `entry_file_name`, since reading
-      # would then read the first file in the zip file instead of the one named.
-      def self.valid_option_names
-        option_names
-      end
-
       # Read from a zip file or stream, decompressing the contents as it is read
       # The input stream from the first file found in the zip file, skipping any folders,
       # is passed to the supplied block.

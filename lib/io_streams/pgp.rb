@@ -550,6 +550,36 @@ module IOStreams
     end
     private_class_method :fingerprint
 
+    # Returns [Array<String>] the fingerprints of the primary keys that gpg finds for the supplied
+    # email address, key id or fingerprint, see `user_id`, or [] when there are none.
+    #
+    # Used internally by the PGP reader to check who signed a file.
+    def self.primary_fingerprints(value)
+      version_check
+      command = gpg_command("--list-keys", "--with-colons", "--", user_id(value))
+      out, err, status = Open3.capture3(*command, binmode: true)
+      unless status.success?
+        return [] if err =~ /(not found|No public key|key not available)/i
+
+        raise(Pgp::Failure, "GPG Failed calling '#{executable}' to list keys for #{value}: #{err}#{out}")
+      end
+
+      # A primary key is listed as `pub`, followed by its `fpr`, then its subkeys as `sub`, each followed by its own.
+      fingerprints = []
+      primary      = false
+      out.each_line do |line|
+        fields = line.split(":")
+        case fields[0]
+        when "pub"
+          primary = true
+        when "fpr"
+          fingerprints << fields[9] if primary
+          primary = false
+        end
+      end
+      fingerprints
+    end
+
     # Returns [String] the version of pgp currently installed
     def self.pgp_version
       @pgp_version ||= begin

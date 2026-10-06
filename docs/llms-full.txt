@@ -1899,18 +1899,18 @@ Reading ignores the options that only say how to write the file, such as the gzi
 or `compress` for `.enc`, whose header records whether the file was compressed. Writing ignores
 the options that only say how to read the file, such as the PGP `passphrase`.
 
-A few options for writing raise an `ArgumentError` when reading instead, since reading does not do
-what they ask:
+Some options apply to both: `entry_file_name` names the file within a zip file when writing, and
+chooses the file to read, while the PGP `signer` signs the file when writing, and when reading
+requires that the file was signed by that key, see [PGP](pgp).
 
-* `signer` for PGP: the reader does not check who signed the file.
-* `import_and_trust_key` for PGP: the reader does not import keys.
-* `zip_file_name` for Zip: use `entry_file_name` to choose the file within the zip file to read.
+The PGP `import_and_trust_key` raises an `ArgumentError` when reading instead, since the reader
+does not import keys:
 
 ~~~ruby
 IOStreams.path("example.csv.pgp").
-  option(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org").
+  option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: public_pgp_key).
   read
-# ArgumentError: :signer only applies when writing a :pgp stream and cannot be used when reading.
+# ArgumentError: :import_and_trust_key only applies when writing a :pgp stream and cannot be used when reading.
 #   Configure a separate path or stream without it for reading.
 ~~~
 
@@ -2517,6 +2517,27 @@ path.read
 This time when we read the file the signature is automatically verified. However, this only works if the receiver
 has already imported the senders public key.
 
+##### Check who signed the file
+
+gpg verifies any signature in the file, but on its own it accepts a file that is not signed, or that is signed
+by any key in the keyring. To require that the file was signed by the sender, supply the `signer` when reading:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org")
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
+
+The `signer` is an email address, key id or fingerprint. An email address only matches keys with exactly that
+email address, ignoring case. Reading raises `IOStreams::Pgp::Failure` unless the file has a good signature by
+one of the signer's keys, and gpg fully or ultimately trusts that key, for example after importing it with
+`IOStreams::Pgp.import_and_trust`, or setting its trust with `IOStreams::Pgp.set_trust`.
+
+Like the integrity and signature checks, this check can only be made once the whole file has been read, so by
+default `IOStreams::Pgp::Failure` is raised after the contents have been processed. Supply `verify_first: true`
+to only process the contents once every check has passed, see
+[Verifying a file before processing it](#verifying-a-file-before-processing-it).
+
 ##### Sign without encrypting
 
 Sometimes the contents do not need to be kept secret, but the recipient still needs to verify that the file came from
@@ -3041,6 +3062,14 @@ the other.
 
 Fix: correct or remove the option. See
 [Options for reading and writing](streams#options-for-reading-and-writing).
+
+### Zip `zip_file_name` is removed
+
+The Zip writer no longer accepts `zip_file_name`, which the documentation replaced with `entry_file_name`
+long ago, and `option(:zip, zip_file_name: "a.csv")` raises `ArgumentError`.
+
+Fix: use `entry_file_name`, which names the file within the zip file when writing, and chooses the file
+to read: `option(:zip, entry_file_name: "a.csv")`.
 
 ### PGP `export` without an email or key id
 

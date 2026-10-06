@@ -250,18 +250,18 @@ Reading ignores the options that only say how to write the file, such as the gzi
 or `compress` for `.enc`, whose header records whether the file was compressed. Writing ignores
 the options that only say how to read the file, such as the PGP `passphrase`.
 
-A few options for writing raise an `ArgumentError` when reading instead, since reading does not do
-what they ask:
+Some options apply to both: `entry_file_name` names the file within a zip file when writing, and
+chooses the file to read, while the PGP `signer` signs the file when writing, and when reading
+requires that the file was signed by that key, see [PGP](pgp).
 
-* `signer` for PGP: the reader does not check who signed the file.
-* `import_and_trust_key` for PGP: the reader does not import keys.
-* `zip_file_name` for Zip: use `entry_file_name` to choose the file within the zip file to read.
+The PGP `import_and_trust_key` raises an `ArgumentError` when reading instead, since the reader
+does not import keys:
 
 ~~~ruby
 IOStreams.path("example.csv.pgp").
-  option(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org").
+  option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: public_pgp_key).
   read
-# ArgumentError: :signer only applies when writing a :pgp stream and cannot be used when reading.
+# ArgumentError: :import_and_trust_key only applies when writing a :pgp stream and cannot be used when reading.
 #   Configure a separate path or stream without it for reading.
 ~~~
 

@@ -45,6 +45,14 @@ the other.
 Fix: correct or remove the option. See
 [Options for reading and writing](streams#options-for-reading-and-writing).
 
+### Zip `zip_file_name` is removed
+
+The Zip writer no longer accepts `zip_file_name`, which the documentation replaced with `entry_file_name`
+long ago, and `option(:zip, zip_file_name: "a.csv")` raises `ArgumentError`.
+
+Fix: use `entry_file_name`, which names the file within the zip file when writing, and chooses the file
+to read: `option(:zip, entry_file_name: "a.csv")`.
+
 ### PGP `export` without an email or key id
 
 `IOStreams::Pgp.export(email: nil)` without a `key_id:` now raises `ArgumentError`, instead of

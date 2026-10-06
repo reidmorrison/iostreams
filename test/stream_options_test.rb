@@ -93,35 +93,28 @@ class StreamOptionsTest < Minitest::Test
         path("a.csv.pgp").option(:pgp, recipient: "receiver@example.org").write(data)
 
         error = assert_raises(ArgumentError) do
-          path("a.csv.pgp").option(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org").read
+          path("a.csv.pgp").option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: "key").read
         end
-        assert_equal ":signer only applies when writing a :pgp stream and cannot be used when reading. " \
+        assert_equal ":import_and_trust_key only applies when writing a :pgp stream and cannot be used when reading. " \
                      "Configure a separate path or stream without it for reading.",
                      error.message
       end
 
-      it "lists every option that is not valid for reading" do
-        error = assert_raises(ArgumentError) do
-          IOStreams.stream(StringIO.new(data)).stream(:pgp, signer: "sender@example.org", import_and_trust_key: "key").read
-        end
-        assert_match(/\A:signer, :import_and_trust_key only apply when writing a :pgp stream/, error.message)
-        assert_match(/without them for reading\.\z/, error.message)
-      end
+      it "reads PGP with the signer used to write" do
+        pgp = path("a.csv.pgp").option(:pgp, recipient: "receiver@example.org", passphrase: "receiver_passphrase",
+                                             signer: "sender@example.org", signer_passphrase: "sender_passphrase")
+        pgp.write(data)
 
-      it "does not read the first file in a zip file instead of the one named for writing" do
-        path("a.zip").option(:zip, entry_file_name: "a.csv").write(data)
-
-        error = assert_raises(ArgumentError) { path("a.zip").option(:zip, zip_file_name: "a.csv").read }
-        assert_equal ":zip_file_name only applies when writing a :zip stream and cannot be used when reading. " \
-                     "Configure a separate path or stream without it for reading.",
-                     error.message
+        assert_equal data, pgp.read
       end
 
       it "validates every stream in the pipeline" do
-        path("a.csv.zip.enc").write(data)
+        path("a.csv.pgp.enc").option(:pgp, recipient: "receiver@example.org").write(data)
 
-        error = assert_raises(ArgumentError) { path("a.csv.zip.enc").option(:zip, zip_file_name: "a.csv").read }
-        assert_match(/\A:zip_file_name only applies when writing a :zip stream/, error.message)
+        error = assert_raises(ArgumentError) do
+          path("a.csv.pgp.enc").option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: "key").read
+        end
+        assert_match(/\A:import_and_trust_key only applies when writing a :pgp stream/, error.message)
       end
     end
 
@@ -146,6 +139,11 @@ class StreamOptionsTest < Minitest::Test
       it "lists every unknown option" do
         error = assert_raises(ArgumentError) { path("a.csv.enc").option(:enc, compres: false, bogus: 1) }
         assert_match(/\AUnknown options :compres, :bogus for a :enc stream\./, error.message)
+      end
+
+      it "no longer accepts zip_file_name, which entry_file_name replaced" do
+        error = assert_raises(ArgumentError) { path("a.zip").option(:zip, zip_file_name: "a.csv") }
+        assert_equal "Unknown option :zip_file_name for a :zip stream. Valid options: :entry_file_name.", error.message
       end
 
       it "says when a stream accepts no options" do

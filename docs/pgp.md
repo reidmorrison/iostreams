@@ -152,6 +152,27 @@ path.read
 This time when we read the file the signature is automatically verified. However, this only works if the receiver
 has already imported the senders public key.
 
+##### Check who signed the file
+
+gpg verifies any signature in the file, but on its own it accepts a file that is not signed, or that is signed
+by any key in the keyring. To require that the file was signed by the sender, supply the `signer` when reading:
+~~~ruby
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org")
+path.read
+# => "name,login\nJack Jones,jjones\nJill Smith,jsmith\n"
+~~~
+
+The `signer` is an email address, key id or fingerprint. An email address only matches keys with exactly that
+email address, ignoring case. Reading raises `IOStreams::Pgp::Failure` unless the file has a good signature by
+one of the signer's keys, and gpg fully or ultimately trusts that key, for example after importing it with
+`IOStreams::Pgp.import_and_trust`, or setting its trust with `IOStreams::Pgp.set_trust`.
+
+Like the integrity and signature checks, this check can only be made once the whole file has been read, so by
+default `IOStreams::Pgp::Failure` is raised after the contents have been processed. Supply `verify_first: true`
+to only process the contents once every check has passed, see
+[Verifying a file before processing it](#verifying-a-file-before-processing-it).
+
 ##### Sign without encrypting
 
 Sometimes the contents do not need to be kept secret, but the recipient still needs to verify that the file came from

@@ -2,7 +2,7 @@ module IOStreams
   module Zip
     class Writer < IOStreams::Writer
       def self.option_names
-        %i[zip_file_name entry_file_name]
+        %i[entry_file_name]
       end
 
       # When writing to a file, default the entry name within the zip to the file name
@@ -15,7 +15,7 @@ module IOStreams
       # being written, without its directory or `.zip` extension, unless an entry name was supplied.
       # For example `"example.csv"` for `"reports/example.csv.zip.pgp"`.
       def self.file_name_options(file_name, **options)
-        return options if options[:entry_file_name] || options[:zip_file_name]
+        return options if options[:entry_file_name]
 
         match = ::File.basename(file_name.to_s).match(/\A(.+)\.zip(?:\.[^.]+)*\z/i)
         match ? options.merge(entry_file_name: match[1]) : options
@@ -42,7 +42,7 @@ module IOStreams
       #   then copied across. `zip_kit` streams to non-seekable outputs by emitting
       #   data descriptors instead, so we can write straight to the output stream and
       #   avoid the temp file round-trip.
-      def self.stream(output_stream, zip_file_name: nil, entry_file_name: zip_file_name)
+      def self.stream(output_stream, entry_file_name: nil)
         entry_file_name ||= "file"
 
         Utils.load_soft_dependency("zip_kit", "Zip") unless defined?(ZipKit::Streamer)
