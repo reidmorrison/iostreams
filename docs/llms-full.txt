@@ -2135,6 +2135,25 @@ end
 IOStreams.register_extension(:xz, MyXz)
 ~~~
 
+A reader or writer class that accepts a secret, such as a passphrase or an API key, declares the options that
+hold it, so that `#inspect` on a path or stream does not display their values, for example in an error message
+or a log:
+
+~~~ruby
+class MyVault::Reader < IOStreams::Reader
+  def self.option_names
+    %i[api_key region]
+  end
+
+  def self.sensitive_option_names
+    %i[api_key]
+  end
+end
+~~~
+
+As a precaution, the value of any option whose name contains `passphrase`, `password` or `secret` is not
+displayed either.
+
 A format that file names do not name, such as `:encode`, which converts the text that the application
 reads or writes, answers `file_name_extension?` with `false`. It is applied whenever its options are set
 with `option`, ahead of the streams that the file name's extensions apply, and a file name ending in its

@@ -298,6 +298,17 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
+    describe ".sensitive_option_names" do
+      # A class can only declare its own options sensitive.
+      IOStreams.extensions.each_value.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
+        next unless klass.respond_to?(:sensitive_option_names) && klass.respond_to?(:option_names) && klass.option_names
+
+        it "#{klass} declares only its own options sensitive" do
+          assert_empty klass.sensitive_option_names - klass.option_names
+        end
+      end
+    end
+
     describe ".valid_option_names" do
       it "accepts the options of both directions unless a class overrides it" do
         assert_nil IOStreams::Pgp::Reader.valid_option_names

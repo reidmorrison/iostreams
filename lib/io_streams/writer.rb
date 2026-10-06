@@ -24,6 +24,12 @@ module IOStreams
       nil
     end
 
+    # Returns [Array<Symbol>] the names of the options whose values must not be displayed, such as a passphrase,
+    # so that `#inspect` on a path or stream does not display them, see `IOStreams::StreamFormat#redact_options`.
+    def self.sensitive_option_names
+      []
+    end
+
     # When a Writer does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(output_stream, **args, &block)

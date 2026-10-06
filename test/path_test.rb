@@ -343,6 +343,23 @@ module IOStreams
           refute_includes str, "TOP-SECRET"
           assert_includes str, "a@b.org"
         end
+
+        it "does not display an option that a registered format declares sensitive" do
+          reader = Class.new(IOStreams::Reader) do
+            def self.option_names = %i[api_key region]
+            def self.sensitive_option_names = %i[api_key]
+            def self.stream(io, **) = yield(io)
+          end
+          IOStreams.register_extension(:vault_test, reader, nil)
+          begin
+            str = IOStreams.path("a.csv.vault_test").option(:vault_test, api_key: "TOP-SECRET", region: "east").inspect
+
+            refute_includes str, "TOP-SECRET"
+            assert_includes str, "east"
+          ensure
+            IOStreams.deregister_extension(:vault_test)
+          end
+        end
       end
 
       describe "#blank?" do

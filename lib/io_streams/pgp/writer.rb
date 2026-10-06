@@ -11,6 +11,10 @@ module IOStreams
            compress compress_level]
       end
 
+      def self.sensitive_option_names
+        %i[signer_passphrase]
+      end
+
       class << self
         # Sign all encrypted files with this users key.
         # Default: Do not sign encrypted files.

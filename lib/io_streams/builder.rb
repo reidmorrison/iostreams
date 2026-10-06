@@ -101,6 +101,22 @@ module IOStreams
       @streams.delete(stream_name.to_sym)
     end
 
+    # Returns [IOStreams::Builder] a copy to display, for example by `#inspect`, with the value of each sensitive
+    # option, such as a passphrase, replaced. Each stream's format decides which of its options are sensitive,
+    # see `IOStreams::StreamFormat#redact_options`.
+    def redacted
+      copy = dup
+      copy.redact!
+      copy
+    end
+
+    # Does not display the values of sensitive options, see #redacted.
+    def inspect
+      copy = redacted
+      "#<#{self.class.name} @file_name=#{file_name.inspect}, @streams=#{copy.streams.inspect}, " \
+        "@options=#{copy.options.inspect}>"
+    end
+
     # Returns [true|false] whether a stream in the pipeline compresses the data.
     # Each stream's format answers for itself, see `IOStreams.register_extension`.
     def compressed?
@@ -113,7 +129,27 @@ module IOStreams
       pipeline.each_key.any? { |stream| stream_format(stream).encrypted? }
     end
 
+    protected
+
+    # Replaces the value of each sensitive option of this copy, see #redacted.
+    def redact!
+      @streams = redact(@streams) if @streams
+      @options = redact(@options) if @options
+    end
+
     private
+
+    # Returns [Hash<Symbol:Hash>] the options of each stream with the value of each sensitive option replaced,
+    # or every value of a stream whose format is no longer registered, since it cannot say which are sensitive.
+    def redact(streams)
+      streams.to_h do |stream, opts|
+        format = IOStreams.extensions[stream]
+        next [stream, opts] unless opts.is_a?(Hash)
+        next [stream, opts.transform_values { "[FILTERED]" }] unless format
+
+        [stream, format.redact_options(opts)]
+      end
+    end
 
     def build_pipeline
       return {} unless file_name

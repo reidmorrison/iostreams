@@ -822,6 +822,22 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#inspect" do
+      it "does not display passphrases set as streams" do
+        str = IOStreams.stream(StringIO.new).stream(:pgp, passphrase: "TOP-SECRET").inspect
+
+        refute_includes str, "TOP-SECRET"
+        assert_includes str, "[FILTERED]"
+      end
+
+      it "does not display passphrases set as options" do
+        str = IOStreams.stream(StringIO.new).file_name("a.csv.pgp").option(:pgp, signer_passphrase: "TOP-SECRET").inspect
+
+        refute_includes str, "TOP-SECRET"
+        assert_includes str, "a.csv.pgp"
+      end
+    end
+
     describe "#setting" do
       it "returns the options set for a stream option" do
         path = IOStreams.path("file.csv.pgp")
