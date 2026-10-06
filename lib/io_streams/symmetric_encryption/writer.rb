@@ -5,6 +5,11 @@ module IOStreams
         %i[compress version cipher_name header random_key random_iv]
       end
 
+      # Also how much of the file to read at a time, which writing does not use.
+      def self.valid_option_names
+        option_names + %i[buffer_size]
+      end
+
       # Write to stream using Symmetric Encryption
       # By default the output stream is compressed.
       # If the input_stream is already compressed consider setting compress: false.

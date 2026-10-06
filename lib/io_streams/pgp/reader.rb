@@ -7,6 +7,17 @@ module IOStreams
         %i[passphrase ignore_mdc_error verify_first]
       end
 
+      # Also the writer's options that reading does not need: gpg reads both encrypted and signed-only
+      # files, decrypts with the private key of whichever recipient the file was encrypted for, and reads
+      # how it was compressed from the file. `import_and_trust_level` and `signer_passphrase` only apply
+      # to the keys being imported or signed with.
+      #
+      # Not `signer` or `import_and_trust_key`, since a caller could expect them to check who signed
+      # the file, or to import the key, and reading does neither.
+      def self.valid_option_names
+        option_names + %i[encrypt recipient import_and_trust_level signer_passphrase compress compress_level]
+      end
+
       # Passphrase to use to open the private key to decrypt the received file
       class << self
         attr_writer :default_passphrase

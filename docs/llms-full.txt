@@ -1852,6 +1852,8 @@ IOStreams.path("example.gz.pgp").pipeline
 
 If the relevant stream is not found for this file it is ignored.
 For example, if the file does not have a pgp extension then the pgp option is ignored.
+The names of the options are still checked, so a misspelled option raises an `ArgumentError` for any file,
+see [Options for reading and writing](#options-for-reading-and-writing).
 ~~~ruby
 IOStreams.path("example.csv.gz").
   option(:pgp, passphrase: "receiver_passphrase").
@@ -1876,40 +1878,52 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-#### Reading and writing need separate options
+#### Options for reading and writing
 
 The options for a stream are passed to its reader when reading and to its writer when writing,
 and the two directions usually accept different options. For example, the PGP writer needs
 the `recipient` to encrypt for, while the PGP reader needs the `passphrase` for the private key.
 
-Options are strict: an option that does not apply to the direction being used raises an
-`ArgumentError` that names the direction it belongs to, rather than being silently ignored.
-So configure one path for writing and a separate path for reading:
+So that a path can be written and then read with the same options, each direction ignores the
+options of the other direction that it does not need:
 
 ~~~ruby
-IOStreams.path("example.csv.pgp").
-  option(:pgp, recipient: "receiver@example.org").
-  write("name,login\nJack Jones,jjones\n")
+path = IOStreams.path("example.csv.pgp").
+  option(:pgp, recipient: "receiver@example.org", passphrase: "receiver_passphrase")
 
-IOStreams.path("example.csv.pgp").
-  option(:pgp, passphrase: "receiver_passphrase").
-  read
+path.write("name,login\nJack Jones,jjones\n")
+path.read
 ~~~
 
-Reading with the writer's options fails before any data is read:
+Reading ignores the options that only say how to write the file, such as the gzip compression `level`,
+or `compress` for `.enc`, whose header records whether the file was compressed. Writing ignores
+the options that only say how to read the file, such as the PGP `passphrase`.
+
+A few options for writing raise an `ArgumentError` when reading instead, since reading does not do
+what they ask:
+
+* `signer` for PGP: the reader does not check who signed the file.
+* `import_and_trust_key` for PGP: the reader does not import keys.
+* `zip_file_name` for Zip: use `entry_file_name` to choose the file within the zip file to read.
+
 ~~~ruby
 IOStreams.path("example.csv.pgp").
-  option(:pgp, recipient: "receiver@example.org").
+  option(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org").
   read
-# ArgumentError: :recipient only applies when writing a :pgp stream and cannot be used when reading.
+# ArgumentError: :signer only applies when writing a :pgp stream and cannot be used when reading.
 #   Configure a separate path or stream without it for reading.
 ~~~
 
-An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
-that lists the valid options.
+An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError` that lists
+the valid options as soon as it is set, even when the file name does not include that stream. So the same
+code reports it wherever it runs, rather than only where the path, for example from configuration,
+includes that extension:
 
-Options for a stream that is not in the pipeline are still ignored, as described above,
-since they are not passed to any reader or writer.
+~~~ruby
+IOStreams.path("example.csv").option(:enc, compres: false)
+# ArgumentError: Unknown option :compres for a :enc stream.
+#   Valid options: :buffer_size, :version, :compress, :cipher_name, :header, :random_key, :random_iv.
+~~~
 
 #### Stream
 
@@ -2022,8 +2036,9 @@ IOStreams.path("sample.csv.bz2").option(:bz2, block_size: 9).write(data)
 IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
 ~~~
 
-Options are strict, so an option that a stream does not accept raises an `ArgumentError`.
-See [Streams](streams#reading-and-writing-need-separate-options).
+Reading ignores the options for writing, and writing ignores the options for reading, so the same path
+can be written and then read. An option that neither accepts, such as a misspelled one, raises an `ArgumentError`.
+See [Options for reading and writing](streams#options-for-reading-and-writing).
 
 ## Reading an Excel Spreadsheet
 
@@ -3019,12 +3034,13 @@ Renaming an uploaded file from `.csv` to `.json` then bypasses the restrictions.
 
 ### BZip2 options are strict
 
-The BZip2 reader and writer now raise `ArgumentError` for an option they do not accept, like every
-other stream. Previously they ignored it. They accept `autoclose`, `first_only` and `small` when
-reading, and `autoclose`, `block_size` and `work_factor` when writing.
+The BZip2 reader and writer now raise `ArgumentError` for an option that neither of them accepts, like
+every other stream. Previously they ignored it. They accept `autoclose`, `first_only` and `small` when
+reading, and `autoclose`, `block_size` and `work_factor` when writing, and each ignores the options of
+the other.
 
-Fix: remove the option, or use a separate path for reading and for writing. See
-[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
+Fix: correct or remove the option. See
+[Options for reading and writing](streams#options-for-reading-and-writing).
 
 ### PGP `export` without an email or key id
 
@@ -3125,6 +3141,17 @@ option, instead of ignoring it. Options for the `:line`, `:array` and `:hash` mo
 
 Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
 example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
+
+### Misspelled stream options raise when they are set
+
+An option supplied to `#option` or `#stream` that neither the reader nor the writer for the stream
+accepts now raises `ArgumentError` when it is set, even when the file name does not include that stream.
+Previously it was only checked once the stream was used, so for example
+`IOStreams.path("data.csv").option(:pgp, recipent: "partner@example.org")` was ignored, and only raised
+for a `.pgp` file, which could be only in production when the path comes from configuration.
+
+Fix: correct or remove the option. See
+[Options for reading and writing](streams#options-for-reading-and-writing).
 
 ### Gzip and `.enc` streams leave your IO open
 

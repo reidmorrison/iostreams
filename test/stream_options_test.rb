@@ -1,7 +1,8 @@
 require_relative "test_helper"
 
-# Options supplied via `#option` / `#stream` are strict: an option the stream does not accept
-# raises instead of being silently ignored.
+# Options supplied via `#option` / `#stream` are strict: an option that is not valid for the stream
+# raises instead of being silently ignored. An option for the other direction is only ignored
+# when it is in the `valid_option_names` of the reader or writer being used.
 class StreamOptionsTest < Minitest::Test
   describe "stream options" do
     let :dir do
@@ -60,70 +61,103 @@ class StreamOptionsTest < Minitest::Test
     end
 
     describe "an option that only applies in the other direction" do
-      it "names the direction when a writer option is used to read" do
-        path("a.csv.enc").option(:enc, compress: false).write(data)
+      it "reads with the options used to write" do
+        enc = path("a.csv.enc").option(:enc, compress: false)
+        enc.write(data)
 
-        error = assert_raises(ArgumentError) { path("a.csv.enc").option(:enc, compress: false).read }
-        assert_equal ":compress only applies when writing a :enc stream and cannot be used when reading. " \
+        assert_equal data, enc.read
+      end
+
+      it "writes with the options used to read" do
+        enc = path("a.csv.enc").option(:enc, buffer_size: 4096)
+        enc.write(data)
+
+        assert_equal data, enc.read
+      end
+
+      it "reads and writes PGP with the options for both" do
+        pgp = path("a.csv.pgp").option(:pgp, recipient: "receiver@example.org", passphrase: "receiver_passphrase")
+        pgp.write(data)
+
+        assert_equal data, pgp.read
+      end
+
+      it "applies to #stream as well as #option" do
+        enc = path("a.csv.enc").stream(:enc, compress: false)
+        enc.write(data)
+
+        assert_equal data, enc.read
+      end
+
+      it "names the direction of an option that is not valid for reading" do
+        path("a.csv.pgp").option(:pgp, recipient: "receiver@example.org").write(data)
+
+        error = assert_raises(ArgumentError) do
+          path("a.csv.pgp").option(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org").read
+        end
+        assert_equal ":signer only applies when writing a :pgp stream and cannot be used when reading. " \
                      "Configure a separate path or stream without it for reading.",
                      error.message
       end
 
-      it "names the direction when a reader option is used to write" do
-        error = assert_raises(ArgumentError) { path("a.csv.enc").option(:enc, buffer_size: 4096).write(data) }
-        assert_equal ":buffer_size only applies when reading a :enc stream and cannot be used when writing. " \
-                     "Configure a separate path or stream without it for writing.",
+      it "lists every option that is not valid for reading" do
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(StringIO.new(data)).stream(:pgp, signer: "sender@example.org", import_and_trust_key: "key").read
+        end
+        assert_match(/\A:signer, :import_and_trust_key only apply when writing a :pgp stream/, error.message)
+        assert_match(/without them for reading\.\z/, error.message)
+      end
+
+      it "does not read the first file in a zip file instead of the one named for writing" do
+        path("a.zip").option(:zip, entry_file_name: "a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("a.zip").option(:zip, zip_file_name: "a.csv").read }
+        assert_equal ":zip_file_name only applies when writing a :zip stream and cannot be used when reading. " \
+                     "Configure a separate path or stream without it for reading.",
                      error.message
       end
 
-      it "lists every option that belongs to the other direction" do
-        error = assert_raises(ArgumentError) do
-          path("a.pgp").option(:pgp, passphrase: "secret", ignore_mdc_error: true).write(data)
-        end
-        assert_match(/\A:passphrase, :ignore_mdc_error only apply when reading a :pgp stream/, error.message)
-        assert_match(/without them for writing\.\z/, error.message)
-      end
+      it "validates every stream in the pipeline" do
+        path("a.csv.zip.enc").write(data)
 
-      it "applies to #stream as well as #option" do
-        path("a.csv.enc").write(data)
-
-        error = assert_raises(ArgumentError) { path("a.csv.enc").stream(:enc, compress: false).read }
-        assert_match(/only applies when writing/, error.message)
-      end
-
-      it "reads back with a separate path that omits the writer option" do
-        path("a.csv.enc").option(:enc, compress: false).write(data)
-
-        assert_equal data, path("a.csv.enc").read
+        error = assert_raises(ArgumentError) { path("a.csv.zip.enc").option(:zip, zip_file_name: "a.csv").read }
+        assert_match(/\A:zip_file_name only applies when writing a :zip stream/, error.message)
       end
     end
 
     describe "an option that no direction accepts" do
-      it "lists the valid options" do
-        error = assert_raises(ArgumentError) { path("a.csv.enc").option(:enc, compres: false).write(data) }
-        assert_equal "Unknown option :compres when writing a :enc stream. " \
-                     "Valid options: :compress, :version, :cipher_name, :header, :random_key, :random_iv.",
+      it "raises when it is set, listing the valid options" do
+        error = assert_raises(ArgumentError) { path("a.csv.enc").option(:enc, compres: false) }
+        assert_equal "Unknown option :compres for a :enc stream. " \
+                     "Valid options: :buffer_size, :version, :compress, :cipher_name, :header, :random_key, :random_iv.",
                      error.message
       end
 
+      it "raises even when the file name does not include the stream" do
+        error = assert_raises(ArgumentError) { path("a.csv").option(:pgp, recipent: "receiver@example.org") }
+        assert_match(/\AUnknown option :recipent for a :pgp stream\. Valid options: :passphrase,/, error.message)
+      end
+
+      it "raises for #stream as well as #option" do
+        error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new(data)).stream(:gz, levl: 9) }
+        assert_equal "Unknown option :levl for a :gz stream. Valid options: :level.", error.message
+      end
+
+      it "lists every unknown option" do
+        error = assert_raises(ArgumentError) { path("a.csv.enc").option(:enc, compres: false, bogus: 1) }
+        assert_match(/\AUnknown options :compres, :bogus for a :enc stream\./, error.message)
+      end
+
       it "says when a stream accepts no options" do
-        path("a.gz").write(data)
-
-        error = assert_raises(ArgumentError) { path("a.gz").option(:gz, bogus: 1).read }
-        assert_equal "Unknown option :bogus when reading a :gz stream. Valid options: none.", error.message
+        error = assert_raises(ArgumentError) { path("a.xlsx").option(:xlsx, sheet: 1) }
+        assert_equal "Unknown option :sheet for a :xlsx stream. Valid options: none.", error.message
       end
 
-      it "reports both kinds together" do
-        error = assert_raises(ArgumentError) do
-          path("a.csv.enc").option(:enc, buffer_size: 4096, bogus: 1).write(data)
-        end
-        assert_match(/\A:buffer_size only applies when reading/, error.message)
-        assert_match(/Unknown option :bogus when writing a :enc stream/, error.message)
-      end
+      it "does not change the options already set" do
+        enc = path("a.csv.enc").option(:enc, compress: false)
 
-      it "validates every stream in the pipeline" do
-        error = assert_raises(ArgumentError) { path("a.csv.gz.enc").option(:gz, bogus: 1).write(data) }
-        assert_match(/Unknown option :bogus when writing a :gz stream/, error.message)
+        assert_raises(ArgumentError) { enc.option(:enc, compres: true) }
+        assert_equal({compress: false}, enc.setting(:enc))
       end
     end
 
@@ -134,11 +168,11 @@ class StreamOptionsTest < Minitest::Test
         assert_equal data, path("a.gz").read
       end
 
-      it "rejects the level when reading" do
-        path("a.gz").write(data)
+      it "ignores the level when reading" do
+        gz = path("a.gz").option(:gz, level: 9)
+        gz.write(data)
 
-        error = assert_raises(ArgumentError) { path("a.gz").option(:gz, level: 9).read }
-        assert_match(/\A:level only applies when writing a :gz stream/, error.message)
+        assert_equal data, gz.read
       end
     end
 
@@ -149,10 +183,17 @@ class StreamOptionsTest < Minitest::Test
         assert_equal data, path("a.bz2").option(:bz2, small: true).read
       end
 
-      it "rejects an unknown option when writing" do
-        error = assert_raises(ArgumentError) { path("a.bz2").option(:bz2, bogus: 1).write(data) }
-        assert_equal "Unknown option :bogus when writing a :bz2 stream. " \
-                     "Valid options: :autoclose, :block_size, :work_factor.",
+      it "ignores the options for the other direction" do
+        bz2 = path("a.bz2").option(:bz2, block_size: 1, small: true)
+        bz2.write(data)
+
+        assert_equal data, bz2.read
+      end
+
+      it "rejects an unknown option" do
+        error = assert_raises(ArgumentError) { path("a.bz2").option(:bz2, bogus: 1) }
+        assert_equal "Unknown option :bogus for a :bz2 stream. " \
+                     "Valid options: :autoclose, :first_only, :small, :block_size, :work_factor.",
                      error.message
       end
 
@@ -166,6 +207,35 @@ class StreamOptionsTest < Minitest::Test
       it "is not validated by the base classes" do
         assert_nil IOStreams::Reader.option_names
         assert_nil IOStreams::Writer.option_names
+        assert_nil IOStreams::Reader.valid_option_names
+        assert_nil IOStreams::Writer.valid_option_names
+      end
+
+      it "validates a reader that declares its options when its writer does not" do
+        reader = Class.new(IOStreams::Reader) do
+          def self.option_names
+            %i[size]
+          end
+
+          def self.stream(io, **)
+            yield(io)
+          end
+        end
+        writer = Class.new do
+          def self.open(io, **)
+            yield(io)
+          end
+        end
+        IOStreams.register_extension(:half_strict_test, reader, writer)
+        begin
+          # Not checked when set, since the writer's options are not known.
+          stream = IOStreams.stream(StringIO.new(data)).stream(:half_strict_test, bogus: 1)
+
+          error = assert_raises(ArgumentError) { stream.read }
+          assert_equal "Unknown option :bogus when reading a :half_strict_test stream. Valid options: :size.", error.message
+        ensure
+          IOStreams.deregister_extension(:half_strict_test)
+        end
       end
 
       it "is not validated when it does not inherit from the base classes" do
@@ -201,6 +271,23 @@ class StreamOptionsTest < Minitest::Test
             keywords = params.select { |kind, _| %i[key keyreq].include?(kind) }.map(&:last)
 
             assert_equal keywords.sort, klass.option_names.sort
+          end
+        end
+      end
+    end
+
+    describe ".valid_option_names" do
+      # A class is valid for the options it accepts, and can only add options of the other direction,
+      # which it ignores.
+      IOStreams.extensions.each_value.map { |ext| [ext.reader_class, ext.writer_class] }.uniq.each do |pair|
+        [pair, pair.reverse].each do |klass, other|
+          next unless klass.respond_to?(:option_names) && klass.option_names
+
+          it "#{klass} includes its options, and only adds those of the other direction" do
+            other_names = other.respond_to?(:option_names) ? other.option_names.to_a : []
+
+            assert_empty klass.option_names - klass.valid_option_names
+            assert_empty klass.valid_option_names - klass.option_names - other_names
           end
         end
       end

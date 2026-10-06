@@ -40,8 +40,9 @@ IOStreams.path("sample.csv.bz2").option(:bz2, block_size: 9).write(data)
 IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
 ~~~
 
-Options are strict, so an option that a stream does not accept raises an `ArgumentError`.
-See [Streams](streams#reading-and-writing-need-separate-options).
+Reading ignores the options for writing, and writing ignores the options for reading, so the same path
+can be written and then read. An option that neither accepts, such as a misspelled one, raises an `ArgumentError`.
+See [Options for reading and writing](streams#options-for-reading-and-writing).
 
 ## Reading an Excel Spreadsheet
 

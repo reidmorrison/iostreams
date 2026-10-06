@@ -37,12 +37,13 @@ Renaming an uploaded file from `.csv` to `.json` then bypasses the restrictions.
 
 ### BZip2 options are strict
 
-The BZip2 reader and writer now raise `ArgumentError` for an option they do not accept, like every
-other stream. Previously they ignored it. They accept `autoclose`, `first_only` and `small` when
-reading, and `autoclose`, `block_size` and `work_factor` when writing.
+The BZip2 reader and writer now raise `ArgumentError` for an option that neither of them accepts, like
+every other stream. Previously they ignored it. They accept `autoclose`, `first_only` and `small` when
+reading, and `autoclose`, `block_size` and `work_factor` when writing, and each ignores the options of
+the other.
 
-Fix: remove the option, or use a separate path for reading and for writing. See
-[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
+Fix: correct or remove the option. See
+[Options for reading and writing](streams#options-for-reading-and-writing).
 
 ### PGP `export` without an email or key id
 
@@ -143,6 +144,17 @@ option, instead of ignoring it. Options for the `:line`, `:array` and `:hash` mo
 
 Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
 example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
+
+### Misspelled stream options raise when they are set
+
+An option supplied to `#option` or `#stream` that neither the reader nor the writer for the stream
+accepts now raises `ArgumentError` when it is set, even when the file name does not include that stream.
+Previously it was only checked once the stream was used, so for example
+`IOStreams.path("data.csv").option(:pgp, recipent: "partner@example.org")` was ignored, and only raised
+for a `.pgp` file, which could be only in production when the path comes from configuration.
+
+Fix: correct or remove the option. See
+[Options for reading and writing](streams#options-for-reading-and-writing).
 
 ### Gzip and `.enc` streams leave your IO open
 

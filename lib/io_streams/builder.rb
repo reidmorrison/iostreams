@@ -23,12 +23,15 @@ module IOStreams
     # Supply an option that is only applied once the file name extensions have been parsed.
     # Note:
     # - Cannot set both `stream` and `option`
+    # - Raises ArgumentError for an option that neither the reader nor the writer for the stream accepts,
+    #   even when the file name does not include the stream.
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
 
+      reject_unknown_options(stream, options)
       @options ||= {}
       if (opts = @options[stream])
         opts.merge!(options)
@@ -49,6 +52,7 @@ module IOStreams
       end
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
 
+      reject_unknown_options(stream, options)
       @streams ||= {}
       if (opts = @streams[stream])
         opts.merge!(options)
@@ -179,22 +183,30 @@ module IOStreams
     def open_stream(type, stream, io_stream, opts, &)
       klass = class_for_stream(type, stream)
       validate_options(type, stream, klass, opts)
+      # Pass only the options that the stream uses, leaving out those that are valid but that it does not need,
+      # such as `compress` when reading `.enc`.
+      accepted = option_names(klass)
+      opts     = opts.slice(*accepted) if accepted
       # A stream can default its options from the file name, such as the name of the file within a zip file.
       opts = klass.file_name_options(file_name, **opts) if file_name && klass.respond_to?(:file_name_options)
       klass.open(io_stream, **opts, &)
     end
 
-    # Options are strict: an option the stream does not accept raises instead of being ignored.
-    # One option hash is shared by the reader and the writer for a stream, so when the option
-    # is only valid in the other direction the message says so.
+    # Options are strict: an option that is not valid for the stream raises instead of being ignored.
+    #
+    # One option hash is shared by the reader and the writer for a stream, so that the same path
+    # can be written and then read. So the options that are valid in one direction can include those
+    # of the other direction that it does not need, such as `compress` when reading `.enc`, whose header
+    # records it, see `valid_option_names`. Any other option for the other direction raises, with a message
+    # that names the direction it belongs to.
     #
     # Streams registered via `IOStreams.register_extension` need not inherit from `IOStreams::Reader`
-    # or `IOStreams::Writer`, so a class that does not declare `option_names` is not validated here.
+    # or `IOStreams::Writer`, so a class that does not declare its options is not validated here.
     def validate_options(type, stream, klass, opts)
-      accepted = option_names(klass)
-      return if accepted.nil?
+      valid = valid_option_names(klass)
+      return if valid.nil?
 
-      unknown = opts.keys - accepted
+      unknown = opts.keys - valid
       return if unknown.empty?
 
       other_type  = type == :reader ? :writer : :reader
@@ -211,19 +223,45 @@ module IOStreams
                     "for #{direction}."
       end
       if invalid.any?
-        valid = accepted.empty? ? "none" : list(accepted)
         messages << "Unknown #{invalid.size == 1 ? 'option' : 'options'} #{list(invalid)} when #{direction} " \
-                    "a #{stream.inspect} stream. Valid options: #{valid}."
+                    "a #{stream.inspect} stream. Valid options: #{list(valid)}."
       end
       raise(ArgumentError, messages.join(" "))
+    end
+
+    # Options are checked when they are set, against the options that are valid when either reading or
+    # writing the stream, since it is not yet known which will be used. So a misspelled option raises wherever
+    # the code runs, even when the file name does not include the stream, rather than only where the path,
+    # for example from configuration, includes it.
+    #
+    # Not checked when the reader or the writer for the stream does not declare its options.
+    def reject_unknown_options(stream, options)
+      extension = IOStreams.extensions[stream]
+      classes   = [extension.reader_class, extension.writer_class].compact
+      names     = classes.map { |klass| valid_option_names(klass) }
+      return if names.empty? || names.include?(nil)
+
+      unknown = options.keys - names.flatten
+      return if unknown.empty?
+
+      # The reader's options and then the writer's, in the order that they declare them.
+      valid = (classes.flat_map { |klass| option_names(klass) || [] } + names.flatten).uniq
+      raise(ArgumentError, "Unknown #{unknown.size == 1 ? 'option' : 'options'} #{list(unknown)} for a " \
+                           "#{stream.inspect} stream. Valid options: #{list(valid)}.")
     end
 
     def option_names(klass)
       klass.option_names if klass.respond_to?(:option_names)
     end
 
+    # A class that does not inherit from `IOStreams::Reader` or `IOStreams::Writer` need not declare
+    # `valid_option_names`, which defaults to `option_names`.
+    def valid_option_names(klass)
+      klass.respond_to?(:valid_option_names) ? klass.valid_option_names : option_names(klass)
+    end
+
     def list(names)
-      names.map(&:inspect).join(", ")
+      names.empty? ? "none" : names.map(&:inspect).join(", ")
     end
   end
 end

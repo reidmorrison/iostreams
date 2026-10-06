@@ -11,6 +11,12 @@ module IOStreams
            compress compress_level]
       end
 
+      # Also the reader's options for decrypting and checking a file, which writing does not need.
+      # The passphrase for the key that signs the file is `signer_passphrase`.
+      def self.valid_option_names
+        option_names + %i[passphrase ignore_mdc_error verify_first]
+      end
+
       class << self
         # Sign all encrypted files with this users key.
         # Default: Do not sign encrypted files.

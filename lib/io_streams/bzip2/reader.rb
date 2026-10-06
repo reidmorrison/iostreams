@@ -5,6 +5,12 @@ module IOStreams
         %i[autoclose first_only small]
       end
 
+      # Also the writer's options, which reading does not need, since the block size is read from the
+      # compressed data, and the work factor only applies when writing.
+      def self.valid_option_names
+        option_names + %i[block_size work_factor]
+      end
+
       # Read from a Bzip2 stream, decompressing the contents as it is read
       #
       # Parameters are passed through to `Bzip2::FFI::Reader`:

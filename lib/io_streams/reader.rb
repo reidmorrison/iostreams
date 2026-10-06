@@ -3,10 +3,24 @@ module IOStreams
     # Returns [Array<Symbol>] the names of the options this reader accepts,
     # or [nil] when the reader does not declare them.
     #
-    # When declared, `IOStreams::Builder` rejects any other option before the reader is opened,
-    # naming the direction an option belongs to when it is only valid for the other direction.
+    # When declared, only these options are passed to the reader.
     def self.option_names
       nil
+    end
+
+    # Returns [Array<Symbol>] the names of the options that are valid when reading the stream,
+    # or [nil] when the reader does not declare them.
+    #
+    # `IOStreams::Builder` rejects any other option before the reader is opened, naming the direction
+    # an option belongs to when it is only valid for the other direction.
+    #
+    # One option hash is shared by the reader and the writer for a stream, so that the same path
+    # can be written and then read. So this can also include the writer's options that reading does
+    # not need, such as the compression level of a gzip file, which are ignored when reading. Only add
+    # an option of the writer when ignoring it cannot change the result: a caller could expect any other
+    # option to have an effect, so it must raise.
+    def self.valid_option_names
+      option_names
     end
 
     # When a Reader does not support streams, we copy the stream to a local temp file
