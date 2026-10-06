@@ -10,6 +10,27 @@ module IOStreams
     autoload :Reader, "io_streams/pgp/reader"
     autoload :Writer, "io_streams/pgp/writer"
 
+    # Returns [Class] the class that decrypts.
+    def self.reader_class
+      Reader
+    end
+
+    # Returns [Class] the class that encrypts.
+    def self.writer_class
+      Writer
+    end
+
+    # Returns [true|false] whether data in this format is compressed: false, since compression within an
+    # encrypted file is optional, and only the file records whether it was used.
+    def self.compressed?
+      false
+    end
+
+    # Returns [true|false] whether data in this format is encrypted.
+    def self.encrypted?
+      true
+    end
+
     class Failure < StandardError
     end
 

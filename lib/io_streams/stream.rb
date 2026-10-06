@@ -72,6 +72,35 @@ module IOStreams
       self
     end
 
+    # Returns [true|false] whether a stream in the #pipeline compresses the data, such as `:gz` or `:zip`,
+    # whether it was inferred from the file name or set with #stream.
+    #
+    # Compression within an encrypted stream, such as `:pgp` or `:enc`, is not reported, since only the
+    # encrypted data records whether it was used.
+    #
+    # Example:
+    #   IOStreams.path("data.csv.gz.pgp").compressed?
+    #   # => true
+    #
+    #   IOStreams.path("tempfile2527").stream(:gz).compressed?
+    #   # => true
+    #
+    #   IOStreams.path("data.csv.gz").stream(:none).compressed?
+    #   # => false
+    def compressed?
+      builder.compressed?
+    end
+
+    # Returns [true|false] whether a stream in the #pipeline encrypts the data, such as `:pgp` or `:enc`,
+    # whether it was inferred from the file name or set with #stream.
+    #
+    # Example:
+    #   IOStreams.path("data.csv.gz.pgp").encrypted?
+    #   # => true
+    def encrypted?
+      builder.encrypted?
+    end
+
     # Iterate over a file / stream returning one line at a time.
     #
     # Example: Read a line at a time

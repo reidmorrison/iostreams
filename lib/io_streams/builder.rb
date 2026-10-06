@@ -129,6 +129,18 @@ module IOStreams
       format && IOStreams::Tabular.parser_class(format).quote_character
     end
 
+    # Returns [true|false] whether a stream in the pipeline compresses the data.
+    # Each stream's format answers for itself, see `IOStreams.register_extension`.
+    def compressed?
+      pipeline.each_key.any? { |stream| stream_format(stream).compressed? }
+    end
+
+    # Returns [true|false] whether a stream in the pipeline encrypts the data.
+    # Each stream's format answers for itself, see `IOStreams.register_extension`.
+    def encrypted?
+      pipeline.each_key.any? { |stream| stream_format(stream).encrypted? }
+    end
+
     private
 
     def build_pipeline
@@ -143,10 +155,14 @@ module IOStreams
       built_streams
     end
 
+    # Returns the format registered for the stream, see `IOStreams.register_extension`.
+    def stream_format(stream)
+      IOStreams.extensions[stream&.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+    end
+
     def class_for_stream(type, stream)
-      ext = IOStreams.extensions[stream&.to_sym] ||
-            raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
-      ext.send("#{type}_class") || raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
+      stream_format(stream).send("#{type}_class") ||
+        raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
     end
 
     # Returns the streams for the supplied file_name

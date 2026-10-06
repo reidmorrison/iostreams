@@ -285,19 +285,91 @@ module IOStreams
       end
 
       describe ".register_extension" do
+        let(:compressed_format) do
+          Module.new do
+            def self.reader_class
+              IOStreams::Gzip::Reader
+            end
+
+            def self.writer_class
+              IOStreams::Gzip::Writer
+            end
+
+            def self.compressed?
+              true
+            end
+
+            def self.encrypted?
+              false
+            end
+          end
+        end
+
         it "registers a new extension" do
           IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
 
           assert extension = IOStreams.extensions[:abc123]
+          assert_instance_of IOStreams::Extension, extension
           assert_equal IOStreams::Gzip::Reader, extension.reader_class
           assert_equal IOStreams::Gzip::Writer, extension.writer_class
         ensure
           IOStreams.deregister_extension(:abc123)
         end
 
+        it "registers reader and writer classes as a format that is neither compressed nor encrypted" do
+          IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+
+          refute_predicate IOStreams.extensions[:abc123], :compressed?
+          refute_predicate IOStreams.extensions[:abc123], :encrypted?
+          refute_predicate IOStreams.path("data.csv.abc123"), :compressed?
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
+        it "does not allow the registered classes to be changed" do
+          IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+
+          assert_raises(FrozenError) { IOStreams.extensions[:abc123].writer_class = String }
+          assert_equal IOStreams::Gzip::Writer, IOStreams.extensions[:abc123].writer_class
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
+        it "registers a format" do
+          IOStreams.register_extension(:abc123, compressed_format)
+
+          assert_equal compressed_format, IOStreams.extensions[:abc123]
+          assert_predicate IOStreams.path("data.csv.abc123"), :compressed?
+          refute_predicate IOStreams.path("data.csv.abc123"), :encrypted?
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
+        it "raises an exception for a format that does not respond to every method" do
+          error = assert_raises ArgumentError do
+            IOStreams.register_extension(:abc123, Module.new)
+          end
+
+          assert_includes error.message, "does not respond to reader_class, writer_class, compressed?, encrypted?"
+          refute IOStreams.extensions.key?(:abc123)
+        end
+
+        it "raises an exception for the wrong number of arguments" do
+          error = assert_raises(ArgumentError) { IOStreams.register_extension(:abc123) }
+
+          assert_includes error.message, "given 1, expected 2..3"
+          assert_raises ArgumentError do
+            IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer, IOStreams::Gzip)
+          end
+          refute IOStreams.extensions.key?(:abc123)
+        end
+
         it "raises an exception for an invalid extension name" do
           assert_raises ArgumentError do
             IOStreams.register_extension("invalid name", IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+          end
+          assert_raises ArgumentError do
+            IOStreams.register_extension("invalid name", IOStreams::Gzip)
           end
         end
       end
@@ -321,6 +393,34 @@ module IOStreams
         it "includes the registered extensions" do
           %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm encode].each do |extension|
             assert_includes IOStreams.extensions.keys, extension
+          end
+        end
+
+        it "returns the format registered for each built-in extension" do
+          {
+            bz2:    IOStreams::Bzip2,
+            enc:    IOStreams::SymmetricEncryption,
+            gz:     IOStreams::Gzip,
+            gzip:   IOStreams::Gzip,
+            zip:    IOStreams::Zip,
+            pgp:    IOStreams::Pgp,
+            gpg:    IOStreams::Pgp,
+            xlsx:   IOStreams::Xlsx,
+            xlsm:   IOStreams::Xlsx,
+            encode: IOStreams::Encode
+          }.each_pair do |extension, format|
+            assert_equal format, IOStreams.extensions[extension], extension
+          end
+        end
+
+        it "declares whether each built-in format is compressed or encrypted" do
+          compressed = %i[bz2 gz gzip zip xlsx xlsm]
+          encrypted  = %i[enc pgp gpg]
+          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm encode].each do |extension|
+            format = IOStreams.extensions[extension]
+
+            assert_equal compressed.include?(extension), format.compressed?, extension
+            assert_equal encrypted.include?(extension), format.encrypted?, extension
           end
         end
       end

@@ -97,12 +97,46 @@ Options:
 
 ## Registering a custom extension
 
-To add a new extension, supply its reader and writer classes. Both must implement `.open`
-that yields a stream implementing `#read` or `#write` respectively. See any of the streams
-under `lib/io_streams` for examples.
+To add a new extension, register the format that reads and writes it, usually a module that answers
+`reader_class`, `writer_class`, `compressed?` and `encrypted?`. The reader and writer classes must
+implement `.open` that yields a stream implementing `#read` or `#write` respectively. See any of the
+streams under `lib/io_streams` for examples.
+
+~~~ruby
+module MyXz
+  def self.reader_class
+    MyXz::Reader
+  end
+
+  def self.writer_class
+    MyXz::Writer
+  end
+
+  # Whether data in this format is compressed, for `#compressed?` on a path or stream.
+  def self.compressed?
+    true
+  end
+
+  # Whether data in this format is encrypted, for `#encrypted?` on a path or stream.
+  def self.encrypted?
+    false
+  end
+end
+
+IOStreams.register_extension(:xz, MyXz)
+~~~
+
+A format that is neither compressed nor encrypted can instead be registered with just its reader and
+writer classes:
 
 ~~~ruby
 IOStreams.register_extension(:xls, MyXls::Reader, MyXls::Writer)
+~~~
+
+To use a registered format for another extension, register the format that `IOStreams.extensions` returns:
+
+~~~ruby
+IOStreams.register_extension(:tgz, IOStreams.extensions[:gz])
 ~~~
 
 Similarly, to support a new storage location, supply a Path class for its URI scheme.

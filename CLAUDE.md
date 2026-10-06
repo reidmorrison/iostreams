@@ -34,11 +34,11 @@ Core pipeline (lib/io_streams/):
 - `builder.rb` - `Builder` parses file-name extensions (e.g. `.csv.gz.enc`) into an ordered pipeline of reader/writer streams, merging in user-supplied `#stream`/`#option` settings. `#option` adjusts an auto-detected stream; `#stream` replaces auto-detection entirely (`:none` disables it). The two are mutually exclusive on one instance.
 - `reader.rb` / `writer.rb` - base classes. Every format stream is a `Reader` (implements `#read`) or `Writer` (implements `#write`) opened via `.open`/`.stream`/`.file` class methods that yield the wrapped stream to a block. The base classes provide automatic fallback: a format that only works on files (e.g. zip, xlsx) gets the input copied to a temp file first.
 
-Registries at the bottom of `lib/io_streams/io_streams.rb` map file extensions to reader/writer classes and URI schemes to path classes; new formats are added with `IOStreams.register_extension` / `IOStreams.register_scheme`.
+Registries at the bottom of `lib/io_streams/io_streams.rb` map file extensions to formats and URI schemes to path classes; new formats are added with `IOStreams.register_extension` / `IOStreams.register_scheme`. A format is a module, such as `IOStreams::Gzip` in `lib/io_streams/gzip.rb`, that answers `reader_class`, `writer_class`, `compressed?` and `encrypted?`. Facts about a format's data, which apply in both directions, belong on its module; its `Reader` and `Writer` hold what applies to one direction, such as `option_names`. A format registered with just its reader and writer classes is wrapped in a frozen `IOStreams::Extension`, which is neither compressed nor encrypted.
 
 Reading uses a pull model (each stream reads from the previous one on demand); writing uses a push model. See CONTRIBUTING.md for the design philosophy.
 
-`lib/iostreams.rb` defines all autoloads; everything is lazy-loaded so optional dependencies are only required when the corresponding format is used.
+`lib/iostreams.rb` defines the top-level autoloads, and each format module autoloads its own reader and writer; everything is lazy-loaded so optional dependencies are only required when the corresponding format is used.
 
 `IOStreams::Pgp` shells out to the `gpg` executable rather than using a library.
 

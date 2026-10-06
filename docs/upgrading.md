@@ -359,6 +359,41 @@ where the data could be read or changed in transit.
 Fix: read the `http://` url directly if plain http is acceptable for that server, or have the
 server redirect to an `https://` url.
 
+### `compressed?` and `encrypted?` follow the streams
+
+`#compressed?` and `#encrypted?` now report whether a stream in the pipeline compresses or encrypts the
+data, whether it was inferred from the file name or set with `#stream`. Previously they only checked the
+last extension of the file name:
+
+* `IOStreams.path("data.csv.gz.pgp").compressed?` is now `true`.
+* `IOStreams.path("tempfile2527").stream(:gz).compressed?` is now `true`.
+* `IOStreams.path("data.csv.gz").stream(:none).compressed?` is now `false`.
+
+Compression within a PGP or `.enc` file is still not reported, since only the encrypted data records
+whether it was compressed.
+
+Fix: none is needed, unless code relied on the previous result, for example to decide whether to
+compress data before it is encrypted.
+
+### Extensions are registered as formats
+
+`IOStreams.extensions` now returns the format registered for each built-in extension, such as
+`IOStreams::Gzip` for `:gz`, instead of an `IOStreams::Extension` struct. A format answers
+`reader_class` and `writer_class` as before, but not the methods of a struct, such as `to_a`, `to_h`,
+`==` or `[]`. An extension registered with its reader and writer classes is still an
+`IOStreams::Extension`, which is now frozen, so its setters, such as `writer_class=`, raise `FrozenError`.
+Previously the setters changed the registered extension for the whole process.
+
+An extension registered with just its reader and writer classes is neither compressed nor encrypted.
+So after replacing a built-in extension that is, such as `:xlsx`, `:gz` or `:pgp`, with your own reader
+and writer classes, `#compressed?` or `#encrypted?` is now `false` for its files. Previously both were
+based on the file name.
+
+Fix: use `reader_class` and `writer_class` instead of the methods of a struct, and
+`IOStreams.register_extension` to change a registered extension. To replace the reader or writer of an
+extension whose data is compressed or encrypted, register a format that says so, see
+[Registering a custom extension](extensions#registering-a-custom-extension).
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
