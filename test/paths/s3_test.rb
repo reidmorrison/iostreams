@@ -95,6 +95,52 @@ module Paths
         end
       end
 
+      describe "file and directory predicates" do
+        let(:dir) { root_path.join("predicates_test") }
+        let(:keys) { %w[a/data.txt a/empty.txt folder/] }
+
+        before do
+          dir.join("a/data.txt").write(raw)
+          dir.join("a/empty.txt").write("")
+          # An empty folder, as created by the S3 console.
+          dir.client.put_object(bucket: dir.bucket_name, key: "#{dir.path}/folder/", body: "")
+        end
+
+        after do
+          keys.each { |key| dir.client.delete_object(bucket: dir.bucket_name, key: "#{dir.path}/#{key}") }
+        end
+
+        it "#file? is true for an object" do
+          assert_predicate dir.join("a/data.txt"), :file?
+          refute_predicate dir.join("a"), :file?
+          refute_predicate dir.join("folder"), :file?
+          refute_predicate dir.join("a/missing.txt"), :file?
+        end
+
+        it "#directory? is true for a path within a key, or a folder object" do
+          assert_predicate dir, :directory?
+          assert_predicate dir.join("a"), :directory?
+          assert_predicate dir.join("folder"), :directory?
+          assert_predicate IOStreams::Paths::S3.new("s3://#{dir.bucket_name}"), :directory?
+          refute_predicate dir.join("a/data.txt"), :directory?
+          refute_predicate dir.join("missing"), :directory?
+        end
+
+        it "#empty? is true for an empty object or folder" do
+          assert_predicate dir.join("a/empty.txt"), :empty?
+          assert_predicate dir.join("folder"), :empty?
+          refute_predicate dir.join("a/data.txt"), :empty?
+          refute_predicate dir.join("a"), :empty?
+          refute_predicate dir.join("missing"), :empty?
+        end
+
+        it "#size? returns the size of an object with data" do
+          assert_equal raw.size, dir.join("a/data.txt").size?
+          assert_nil dir.join("a/empty.txt").size?
+          assert_nil dir.join("a/missing.txt").size?
+        end
+      end
+
       describe "#writer" do
         it "writes" do
           assert_equal(raw.size, write_path.writer { |io| io.write(raw) })

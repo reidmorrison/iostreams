@@ -882,6 +882,56 @@ module Paths
           end
         end
 
+        describe "#size?" do
+          it "returns nil for an empty or missing file" do
+            start_server { |path| TestHTTPServer.response(path == "/empty.txt" ? 200 : 404, body: "") }
+
+            assert_nil IOStreams.path("#{@server.base_url}/empty.txt").size?
+            assert_nil IOStreams.path("#{@server.base_url}/missing.txt").size?
+          end
+
+          it "returns the size of a file" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            assert_equal body.bytesize, IOStreams.path("#{@server.base_url}/file.txt").size?
+          end
+        end
+
+        describe "#file?" do
+          it "is true when the file exists" do
+            start_server { |path| TestHTTPServer.response(path == "/file.txt" ? 200 : 404, body: "") }
+
+            assert_predicate IOStreams.path("#{@server.base_url}/file.txt"), :file?
+            refute_predicate IOStreams.path("#{@server.base_url}/missing.txt"), :file?
+            assert(@server.requests.all? { |request| request[:method] == "HEAD" })
+          end
+        end
+
+        describe "#directory?" do
+          it "is always false, without a request" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            refute_predicate IOStreams.path("#{@server.base_url}/files"), :directory?
+            assert_empty @server.requests
+          end
+        end
+
+        describe "#empty?" do
+          it "is true when the file exists without any data" do
+            start_server do |path|
+              case path
+              when "/empty.txt" then TestHTTPServer.response(200, body: "")
+              when "/file.txt" then TestHTTPServer.response(200, body: body)
+              else TestHTTPServer.response(404)
+              end
+            end
+
+            assert_predicate IOStreams.path("#{@server.base_url}/empty.txt"), :empty?
+            refute_predicate IOStreams.path("#{@server.base_url}/file.txt"), :empty?
+            refute_predicate IOStreams.path("#{@server.base_url}/missing.txt"), :empty?
+          end
+        end
+
         describe "#delete" do
           it "deletes the file, returning the path" do
             start_server { |_path| TestHTTPServer.response(204) }

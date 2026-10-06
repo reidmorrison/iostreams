@@ -218,6 +218,26 @@ module IOStreams
         ::File.size(path)
       end
 
+      def size?
+        authorize!
+        ::File.size?(path)
+      end
+
+      def file?
+        authorize!
+        ::File.file?(path)
+      end
+
+      def directory?
+        authorize!
+        ::File.directory?(path)
+      end
+
+      def empty?
+        authorize!
+        ::File.directory?(path) ? Dir.empty?(path) : ::File.empty?(path)
+      end
+
       def delete
         authorize!
         return self unless exist?

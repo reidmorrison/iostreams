@@ -143,6 +143,55 @@ module Paths
         end
       end
 
+      describe "file and directory predicates" do
+        let(:dir) { root_path.join("predicates_test") }
+        let(:empty_file) { dir.join("empty.txt") }
+        let(:empty_dir) { dir.join("empty_dir") }
+
+        before do
+          existing_path
+          dir.join("data.txt").mkpath.write(raw)
+          empty_file.write("")
+          empty_dir.join("a.txt").mkpath.write(raw)
+          empty_dir.join("a.txt").delete
+        end
+
+        after do
+          [dir.join("data.txt"), empty_file, empty_dir, dir].each(&:delete) if ENV["SFTP_HOSTNAME"]
+        end
+
+        it "#exist? and #size" do
+          assert_predicate existing_path, :exist?
+          assert_predicate dir, :exist?
+          refute_predicate missing_file_path, :exist?
+          assert_equal raw.size, existing_path.size
+          assert_nil missing_file_path.size
+        end
+
+        it "#file? and #directory?" do
+          assert_predicate existing_path, :file?
+          refute_predicate existing_path, :directory?
+          assert_predicate dir, :directory?
+          refute_predicate dir, :file?
+          refute_predicate missing_file_path, :file?
+          refute_predicate missing_file_path, :directory?
+        end
+
+        it "#empty?" do
+          assert_predicate empty_file, :empty?
+          assert_predicate empty_dir, :empty?
+          refute_predicate existing_path, :empty?
+          refute_predicate dir, :empty?
+          refute_predicate missing_file_path, :empty?
+        end
+
+        it "#size?" do
+          assert_equal raw.size, existing_path.size?
+          assert_nil empty_file.size?
+          assert_nil missing_file_path.size?
+        end
+      end
+
       describe "#move_to" do
         it "moves the file" do
           target = root_path.join("move_test.txt")
@@ -304,6 +353,37 @@ module Paths
         raise StubStatusException, @error if @error
 
         deleted << [:rmdir, name]
+      end
+    end
+
+    # Minimal stand-in for a Net::SFTP session, with the supplied remote files, as a Hash of name to size,
+    # and directories, as a Hash of name to the names of their entries.
+    class StubStatSession
+      Attributes = Struct.new(:file_size, :directory) do
+        def size = file_size
+        def directory? = directory
+        def file? = !directory
+      end
+      Entry = Struct.new(:name)
+
+      def initialize(files, directories)
+        @files       = files
+        @directories = directories
+      end
+
+      def stat!(name)
+        return Attributes.new(4096, true) if @directories.key?(name)
+        return Attributes.new(@files[name], false) if @files.key?(name)
+
+        raise StubStatusException, 2
+      end
+
+      def dir
+        self
+      end
+
+      def entries(name)
+        %w[. ..].concat(@directories.fetch(name)).map { |entry| Entry.new(entry) }
       end
     end
 
@@ -1049,6 +1129,76 @@ module Paths
             error = assert_raises(StubStatusException) { path.delete }
 
             assert_equal 3, error.code
+          end
+        end
+      end
+
+      describe "file and directory predicates" do
+        def with_stub_net_sftp(&)
+          session = StubStatSession.new(
+            {"/data/a.csv" => 5, "/data/empty.csv" => 0, "a.csv" => 3},
+            {"/data" => %w[a.csv empty.csv], "/data/empty" => [], "." => %w[a.csv]}
+          )
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |_hostname, _username, _options, &block| block.call(session) }
+
+          StubNetSFTP.replace(stub_sftp, &)
+        end
+
+        def path(name)
+          new_path("sftp://example.org#{name}", username: "jack")
+        end
+
+        it "#exist?" do
+          with_stub_net_sftp do
+            assert_predicate path("/data/a.csv"), :exist?
+            assert_predicate path("/data"), :exist?
+            refute_predicate path("/data/missing.csv"), :exist?
+          end
+        end
+
+        it "#size" do
+          with_stub_net_sftp do
+            assert_equal 5, path("/data/a.csv").size
+            assert_equal 3, path("/~/a.csv").size
+            assert_nil path("/data/missing.csv").size
+          end
+        end
+
+        it "#size?" do
+          with_stub_net_sftp do
+            assert_equal 5, path("/data/a.csv").size?
+            assert_nil path("/data/empty.csv").size?
+            assert_nil path("/data/missing.csv").size?
+          end
+        end
+
+        it "#file?" do
+          with_stub_net_sftp do
+            assert_predicate path("/data/a.csv"), :file?
+            refute_predicate path("/data"), :file?
+            refute_predicate path("/data/missing.csv"), :file?
+          end
+        end
+
+        it "#directory?" do
+          with_stub_net_sftp do
+            assert_predicate path("/data"), :directory?
+            assert_predicate path("/~"), :directory?
+            refute_predicate path("/data/a.csv"), :directory?
+            refute_predicate path("/data/missing"), :directory?
+          end
+        end
+
+        it "#empty?" do
+          with_stub_net_sftp do
+            assert_predicate path("/data/empty.csv"), :empty?
+            assert_predicate path("/data/empty"), :empty?
+            refute_predicate path("/data/a.csv"), :empty?
+            refute_predicate path("/data"), :empty?
+            refute_predicate path("/~"), :empty?
+            refute_predicate path("/data/missing"), :empty?
           end
         end
       end

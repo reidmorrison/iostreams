@@ -12,6 +12,7 @@ if ENV["COVERAGE"]
 end
 
 require "yaml"
+require "fileutils"
 require "minitest/autorun"
 require "minitest/mock"
 require "iostreams"
@@ -31,6 +32,12 @@ SymmetricEncryption.cipher = SymmetricEncryption::Cipher.new(
 
 # IOStreams.logger = Logger.new($stdout)
 # IOStreams::Pgp.executable = 'gpg1'
+
+# Keep the test PGP keys in a keyring local to this checkout, instead of the user's ~/.gnupg,
+# so that concurrent test runs in separate git worktrees do not delete each other's keys.
+gnupg_home = File.expand_path(File.join(__dir__, "../tmp/gnupg"))
+FileUtils.mkdir_p(gnupg_home, mode: 0o700)
+ENV["GNUPGHOME"] = gnupg_home
 
 # Test PGP Keys
 unless IOStreams::Pgp.key?(email: "sender@example.org")

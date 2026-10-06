@@ -49,15 +49,15 @@ class ZipWriterTest < Minitest::Test
       end
 
       it "derives the entry name from a .zip file name" do
-        zip_file_name = File.join(Dir.tmpdir, "iostreams_zip_writer_test.csv.zip")
-        IOStreams::Zip::Writer.file(zip_file_name) { |io| io.write(decompressed) }
+        Dir.mktmpdir do |dir|
+          zip_file_name = File.join(dir, "iostreams_zip_writer_test.csv.zip")
+          IOStreams::Zip::Writer.file(zip_file_name) { |io| io.write(decompressed) }
 
-        entry_names = []
-        Zip::File.open(zip_file_name) { |zip| zip.each { |entry| entry_names << entry.name } }
+          entry_names = []
+          Zip::File.open(zip_file_name) { |zip| zip.each { |entry| entry_names << entry.name } }
 
-        assert_equal ["iostreams_zip_writer_test.csv"], entry_names
-      ensure
-        File.delete(zip_file_name) if zip_file_name && File.exist?(zip_file_name)
+          assert_equal ["iostreams_zip_writer_test.csv"], entry_names
+        end
       end
 
       it "names the entry after the path written" do

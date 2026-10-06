@@ -61,7 +61,7 @@ Metrics/BlockLength:
 
 # Soften limits
 Metrics/ClassLength:
-  Max: 250
+  Max: 300
   Exclude:
     - "test/**/*"
 
@@ -126,3 +126,8 @@ Style/SpecialGlobalVars:
 # Make it easier for developers to move between Elixir and Ruby.
 Style/StringLiterals:
   EnforcedStyle: double_quotes
+
+# `#size?` returns the size or nil, like `File.size?` and `Pathname#size?`.
+Naming/PredicateMethod:
+  AllowedMethods:
+    - size?

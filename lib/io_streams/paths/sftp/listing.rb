@@ -72,6 +72,7 @@ module IOStreams
         end
 
         # Returns the attributes of the remote file or directory, or nil when it does not exist.
+        # Also used by `SFTP#exist?`, `#size`, `#file?`, `#directory?` and `#empty?`.
         def self.remote_attributes(sftp, remote_name)
           sftp.stat!(remote_name)
         rescue Net::SFTP::StatusException => e
@@ -80,7 +81,7 @@ module IOStreams
           nil
         end
 
-        private_class_method :depth, :each_entry, :entries, :remote_attributes
+        private_class_method :depth, :each_entry, :entries
       end
     end
   end

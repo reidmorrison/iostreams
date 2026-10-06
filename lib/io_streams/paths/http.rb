@@ -141,6 +141,23 @@ module IOStreams
         send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true, &:content_length)
       end
 
+      # Returns [true|false] whether the file exists, see `#exist?`. HTTP has no directories, so every url that
+      # exists is a file.
+      def file?
+        exist?
+      end
+
+      # Returns false, since HTTP has no directories.
+      def directory?
+        authorize!
+        false
+      end
+
+      # Returns [true|false] whether the file exists and has a Content-Length of zero, using an HTTP HEAD.
+      def empty?
+        size&.zero? || false
+      end
+
       # Deletes the file, using an HTTP DELETE.
       #
       # Returns self
@@ -265,15 +282,6 @@ module IOStreams
           send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil }
           result
         end
-      end
-
-      # Skips the HTTP HEAD before a copy to this path, and the HTTP DELETE after a failed one.
-      #
-      # An upload is a single request with its Content-Length, so a server can discard a truncated upload
-      # instead of keeping an incomplete file. A url can also be limited to an upload, such as a pre-signed
-      # url, where a HEAD or DELETE request fails, so that a copy to it would always fail.
-      def existed_before_copy?
-        true
       end
 
       # Sends the request, following redirects, and returns the result of the block, which is called

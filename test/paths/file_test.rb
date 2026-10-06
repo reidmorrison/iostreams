@@ -278,6 +278,68 @@ module Paths
         end
       end
 
+      describe "#size?" do
+        it "returns the size of a file" do
+          assert_equal data.size, file_path.size?
+        end
+
+        it "returns nil for an empty file" do
+          path = directory.join("empty.txt")
+          path.write("")
+
+          assert_nil path.size?
+        end
+
+        it "returns nil when not found" do
+          assert_nil directory.join("abc.txt").size?
+        end
+      end
+
+      describe "#file?" do
+        it "is true for a file" do
+          assert_predicate file_path, :file?
+        end
+
+        it "is false for a directory, or when not found" do
+          file_path
+
+          refute_predicate directory, :file?
+          refute_predicate directory.join("abc.txt"), :file?
+        end
+      end
+
+      describe "#directory?" do
+        it "is true for a directory" do
+          file_path
+
+          assert_predicate directory, :directory?
+        end
+
+        it "is false for a file, or when not found" do
+          refute_predicate file_path, :directory?
+          refute_predicate directory.join("oh_no"), :directory?
+        end
+      end
+
+      describe "#empty?" do
+        it "is true for an empty directory or file" do
+          empty_file = directory.join("empty.txt")
+          empty_file.write("")
+
+          assert_predicate empty_file, :empty?
+          assert_predicate directory.join("empty_dir").mkdir, :empty?
+        end
+
+        it "is false for a directory with children, or a file with data" do
+          refute_predicate file_path, :empty?
+          refute_predicate directory, :empty?
+        end
+
+        it "is false when not found" do
+          refute_predicate directory.join("oh_no"), :empty?
+        end
+      end
+
       describe "#realpath" do
         it "already a real path" do
           path = ::File.expand_path(__dir__, "../files/test.csv")
