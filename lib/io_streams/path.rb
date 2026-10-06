@@ -128,6 +128,16 @@ module IOStreams
       raise NotImplementedError
     end
 
+    # Returns [true|false] whether this path has an empty name, see `#to_s`.
+    #
+    # Defined explicitly so that ActiveSupport's `Object#blank?` (and therefore `present?`,
+    # `presence`, and ActiveModel's `validates_presence_of` / `allow_blank:`) does not fall back
+    # to `#empty?`. `#empty?` means "the file has no content" and may perform I/O, whereas
+    # `blank?` should only mean "no path was supplied".
+    def blank?
+      to_s.empty?
+    end
+
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
     #

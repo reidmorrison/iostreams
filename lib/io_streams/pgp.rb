@@ -177,9 +177,22 @@ module IOStreams
       params << "Passphrase: #{passphrase}\n" if passphrase
       params << "%commit"
 
-      command = gpg_command("--batch", "--gen-key", "--no-tty")
+      args       = ["--batch", "--no-tty"]
+      stdin_data = params
+      # Signing the subkey binding unlocks the new key. Without loopback, gpg-agent asks pinentry
+      # for the passphrase whenever it no longer has it cached, which fails without a tty.
+      # So supply it on the first line of stdin, ahead of the parameters.
+      if modern
+        args += ["--pinentry-mode", "loopback"]
+        if passphrase
+          args += ["--passphrase-fd", "0"]
+          stdin_data = "#{passphrase}\n#{params}"
+        end
+      end
+      args << "--gen-key"
+      command = gpg_command(*args)
 
-      out, err, status = Open3.capture3(*command, binmode: true, stdin_data: params)
+      out, err, status = Open3.capture3(*command, binmode: true, stdin_data: stdin_data)
       # Do not log `params`, it contains the passphrase.
       IOStreams.logger&.debug { "IOStreams::Pgp.generate_key: #{command.shelljoin}\n#{err}#{out}" }
 
