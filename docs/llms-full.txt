@@ -2094,6 +2094,11 @@ for an example of what is required.
 IOStreams.register_scheme(:gcs, MyGoogleCloudStoragePath)
 ~~~
 
+When writing fails, the path class is responsible for not leaving an incomplete file behind, for example
+by writing to a temp file and only uploading it once it is complete, like the S3, SFTP and HTTP paths,
+or by removing the incomplete file, like the local file path. IOStreams does not delete the target of a
+failed write or copy.
+
 ---
 
 # File Formats

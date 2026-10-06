@@ -128,21 +128,6 @@ module IOStreams
       raise NotImplementedError
     end
 
-    # Removes an incomplete target "file" when the copy fails.
-    #
-    # Only a target that did not exist before the copy is removed, so that a failed copy never deletes
-    # existing data. A path whose upload is stored only once it completes, such as S3 or HTTP, overrides
-    # `#existed_before_copy?` to skip this entirely.
-    def copy_from(source, **args)
-      existed = existed_before_copy?
-      begin
-        super
-      rescue StandardError => e
-        delete_incomplete_copy unless existed
-        raise(e)
-      end
-    end
-
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
     #
@@ -345,19 +330,6 @@ module IOStreams
     def permit!
       @permitted_path = path
       self
-    end
-
-    # Returns [true|false] whether this path exists, or true when that cannot be determined.
-    def existed_before_copy?
-      exist?
-    rescue NotImplementedError
-      true
-    end
-
-    # rubocop:disable-next Lint/SuppressedException
-    def delete_incomplete_copy
-      delete
-    rescue NotImplementedError
     end
 
     # Returns [Hash<Symbol:Hash>] the streams with the values of sensitive options replaced.

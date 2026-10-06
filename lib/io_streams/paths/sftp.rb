@@ -333,15 +333,6 @@ module IOStreams
         end
       end
 
-      # Skips connecting to the server to check whether the target exists before a copy to this path, and so
-      # never deletes the target after a failed copy, as before SFTP paths supported `#exist?`.
-      #
-      # The data is written to a local temp file, and only uploaded once it is complete, so a copy that fails
-      # while reading the source never changes the server. Only a failed upload can leave an incomplete file.
-      def existed_before_copy?
-        true
-      end
-
       def stream_writer(&block)
         Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }

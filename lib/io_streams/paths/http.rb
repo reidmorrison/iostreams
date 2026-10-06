@@ -284,15 +284,6 @@ module IOStreams
         end
       end
 
-      # Skips the HTTP HEAD before a copy to this path, and the HTTP DELETE after a failed one.
-      #
-      # An upload is a single request with its Content-Length, so a server can discard a truncated upload
-      # instead of keeping an incomplete file. A url can also be limited to an upload, such as a pre-signed
-      # url, where a HEAD or DELETE request fails, so that a copy to it would always fail.
-      def existed_before_copy?
-        true
-      end
-
       # Sends the request, following redirects, and returns the result of the block, which is called
       # with the successful response.
       #
