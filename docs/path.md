@@ -635,7 +635,7 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 ~~~
 
 Notes:
-* These operations are supported by File and S3 paths. SFTP supports `each_child`.
+* These operations are supported by File and S3 paths. SFTP supports `each_child`, `delete`, `move_to` and `mkpath`.
   HTTP paths support `exist?`, `size`, `delete`, `move_to` and `mkpath`, which does nothing since HTTP
   has no directories.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
@@ -644,8 +644,15 @@ Notes:
   so the directories within the keys are returned, such as `a` and `a/b` for the key `a/b/c.csv`.
 * `each_child` returns nothing when the path does not exist, or is a file. A directory below the path
   that cannot be read is skipped.
-* S3 and SFTP paths also yield the attributes of each child, such as its size, as the second argument
-  to the block.
+* S3 and SFTP paths also yield the attributes of each child as the second argument to the block.
+  These attributes are specific to each store, and are not available for local files:
+  * S3 yields the attributes of the object in the listing, such as `:size`, `:last_modified` (a `Time`),
+    `:etag` and `:storage_class`. A directory has empty attributes, unless a folder object exists for it.
+  * SFTP yields the attributes returned by the server, such as `:size`, `:permissions` and `:mtime`
+    (seconds since the epoch). Which attributes are present depends on the server.
+
+  Code that runs against more than one store, for example where the path is configured, should only use
+  the first argument, and use methods on the path, such as `size`, for anything else.
 
 ### Using root paths
 

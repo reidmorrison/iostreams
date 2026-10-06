@@ -85,6 +85,23 @@ the key `a+b.csv`. Previously it was decoded as a space, and read the key `a b.c
 
 Fix: use a space, or `%20`, in the url for a space.
 
+### The path of an HTTP url is decoded
+
+`#path` of an `http://` or `https://` path is now decoded, like S3 and SFTP paths, so
+`IOStreams.path("https://example.com/my%20file.csv").path` is `/my file.csv`, and `#basename` is
+`my file.csv`. Previously it was `/my%20file.csv`. `#to_s` still returns the url unchanged. A url without
+a path, such as `https://example.com`, now has the path `/`, where it was empty.
+
+Fix: use `#to_s` where the url is needed, and remove any code that decodes the `#path` of an HTTP path.
+
+### A direct copy between S3 paths returns the number of bytes
+
+`#copy_from` and `#copy_to` with `convert: false` between two S3 paths now return the number of bytes
+copied, like every other copy. Previously `#copy_from` returned the response from the S3 `copy_object`
+call, and `#copy_to` returned the target path. `#move_to` still returns the target path.
+
+Fix: use the target path that was supplied to `#copy_to`, instead of its return value.
+
 ### Local `each_child` honors `case_sensitive:`
 
 `#each_child` and `IOStreams.each_child` on local files now honor `case_sensitive:` on every platform.
@@ -237,6 +254,16 @@ the login directory, as curl does, for example `sftp://host/~/data/a.csv`.
 Fix: use `sftp://host/~` to list the login directory. On a server that confines users to their own
 directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
 now refers to the login directory, not to a directory named `~`.
+
+### SFTP and HTTP urls without a path end with `/`
+
+`#to_s` of an SFTP or HTTP url without a path now ends with `/`, like the root of an S3 bucket,
+`s3://bucket/`. For example `IOStreams.path("sftp://host").to_s` is `sftp://host/`, and
+`IOStreams.path("https://host?a=1").to_s` is `https://host/?a=1`. Previously the url was returned as
+supplied, so `sftp://host` and `sftp://host/` were not equal, although they are the same location.
+
+Fix: compare paths with paths, such as `path == IOStreams.path("sftp://host")`, or compare with the
+url ending with `/`.
 
 ### SFTP `each_child` is case-insensitive
 

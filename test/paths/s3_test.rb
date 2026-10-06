@@ -287,7 +287,7 @@ module Paths
         end
 
         it "copies a key that needs url-encoding with copy_from" do
-          target.copy_from(source, convert: false)
+          assert_equal 11, target.copy_from(source, convert: false)
 
           assert_equal "Hello World", target.read
         end
@@ -300,7 +300,7 @@ module Paths
         end
 
         it "copies a key that needs url-encoding with copy_to" do
-          source.copy_to(target, convert: false)
+          assert_equal 11, source.copy_to(target, convert: false)
 
           assert_equal "Hello World", target.read
         end
@@ -391,6 +391,17 @@ module Paths
 
         it "raises for a request parameter that the path sets" do
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, bucket: "other") }
+        end
+      end
+
+      describe "#absolute?" do
+        it "is always true" do
+          %w[s3://bucket s3://bucket/a.csv s3://bucket/a/b.csv].each do |url|
+            path = IOStreams::Paths::S3.new(url, client: client)
+
+            assert_predicate path, :absolute?, url
+            refute_predicate path, :relative?, url
+          end
         end
       end
 

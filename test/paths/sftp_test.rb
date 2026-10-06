@@ -121,6 +121,41 @@ module Paths
         end
       end
 
+      describe "#delete" do
+        it "deletes a file" do
+          path = existing_path
+
+          assert_same path, path.delete
+          assert_raises(IOStreams::Errors::CommunicationsFailure) { path.read }
+        end
+
+        it "deletes an empty directory" do
+          directory = root_path.join("delete_test_dir")
+          directory.join("a.txt").mkpath.write(raw)
+          directory.join("a.txt").delete
+          directory.delete
+
+          assert_empty root_path.children("delete_test_dir", directories: true)
+        end
+
+        it "does not raise when the file does not exist" do
+          assert_same missing_file_path, missing_file_path.delete
+        end
+      end
+
+      describe "#move_to" do
+        it "moves the file" do
+          target = root_path.join("move_test.txt")
+          target.delete
+
+          assert_equal target.to_s, existing_path.move_to(target).to_s
+          assert_equal raw, target.read
+          assert_raises(IOStreams::Errors::CommunicationsFailure) { existing_path.read }
+        ensure
+          target&.delete
+        end
+      end
+
       describe "#writer" do
         it "writes" do
           assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
@@ -159,6 +194,19 @@ module Paths
             assert_equal raw, write_path.read
           end
         end
+      end
+    end
+
+    module StubNetSFTP
+      # Replaces Net::SFTP with the supplied stand-in while the block runs, then restores the real Net::SFTP when it
+      # was loaded, so that the tests against a live server still work when they run afterwards.
+      def self.replace(stub_sftp)
+        original = Net.send(:remove_const, :SFTP) if defined?(Net::SFTP)
+        Net.const_set(:SFTP, stub_sftp)
+        yield
+      ensure
+        Net.send(:remove_const, :SFTP)
+        Net.const_set(:SFTP, original) if original
       end
     end
 
@@ -219,6 +267,43 @@ module Paths
         @names.filter_map { |n| n.delete_prefix(relative).split("/") if n.start_with?(relative) }.
           group_by(&:first).
           map { |child, elements| Entry.new(child, Attributes.new({size: 1}, elements.first.size > 1)) }
+      end
+    end
+
+    # Minimal stand-in for a Net::SFTP session, for deleting the supplied files and directories.
+    # Raises the supplied SFTP status code, when given, instead of deleting.
+    class StubDeleteSession
+      Attributes = Struct.new(:directory) do
+        def directory? = directory
+      end
+
+      # The [operation, remote name] of each file or directory that was deleted.
+      attr_reader :deleted
+
+      def initialize(files, directories, error)
+        @files       = files
+        @directories = directories
+        @error       = error
+        @deleted     = []
+      end
+
+      def lstat!(name)
+        return Attributes.new(true) if @directories.include?(name)
+        return Attributes.new(false) if @files.include?(name)
+
+        raise StubStatusException, 2
+      end
+
+      def remove!(name)
+        raise StubStatusException, @error if @error
+
+        deleted << [:remove, name]
+      end
+
+      def rmdir!(name)
+        raise StubStatusException, @error if @error
+
+        deleted << [:rmdir, name]
       end
     end
 
@@ -322,9 +407,31 @@ module Paths
         end
       end
 
+      describe "#absolute?" do
+        it "is always true" do
+          %w[sftp://example.org sftp://example.org/a.csv sftp://example.org/~ sftp://example.org/~/a.csv].each do |url|
+            path = new_path(url, username: "jack")
+
+            assert_predicate path, :absolute?, url
+            refute_predicate path, :relative?, url
+          end
+        end
+      end
+
       describe "#to_s" do
         it "returns the url" do
           assert_equal url, new_path(url, username: "jack", password: "secret").to_s
+        end
+
+        it "returns the root directory of a url without a path" do
+          %w[sftp://example.org sftp://example.org/].each do |url|
+            path = new_path(url)
+
+            assert_equal "sftp://example.org/", path.to_s, url
+            assert_equal path.directory, path, url
+          end
+          assert_equal "sftp://jack@example.org:2222/", new_path("sftp://jack@example.org:2222").to_s
+          assert_equal new_path("sftp://example.org"), new_path("sftp://example.org/")
         end
 
         it "returns the joined url" do
@@ -628,10 +735,7 @@ module Paths
             block.call(session)
           end
 
-          Net.const_set(:SFTP, stub_sftp)
-          yield(stub_sftp)
-        ensure
-          Net.send(:remove_const, :SFTP)
+          StubNetSFTP.replace(stub_sftp) { yield(stub_sftp) }
         end
 
         it "does not parse remote file names as part of a url" do
@@ -886,6 +990,66 @@ module Paths
           path = new_path(url, username: "jack", ssh_options: {"StrictHostKeyChecking" => "maybe"})
 
           assert_raises(ArgumentError) { net_ssh_options(path) }
+        end
+      end
+
+      describe "#delete" do
+        # Minimal stand-in for Net::SFTP, with a session that holds the supplied remote files and directories.
+        def with_stub_net_sftp(files: [], directories: [], error: nil)
+          session = StubDeleteSession.new(files, directories, error)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |_hostname, _username, _options, &block| block.call(session) }
+
+          StubNetSFTP.replace(stub_sftp) { yield(session) }
+        end
+
+        it "removes a file" do
+          path = new_path("sftp://example.org/data/a.csv", username: "jack")
+
+          with_stub_net_sftp(files: ["/data/a.csv"]) do |session|
+            assert_same path, path.delete
+            assert_equal [[:remove, "/data/a.csv"]], session.deleted
+          end
+        end
+
+        it "removes a directory" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(directories: ["/data"]) do |session|
+            path.delete
+
+            assert_equal [[:rmdir, "/data"]], session.deleted
+          end
+        end
+
+        it "removes a file within the login directory" do
+          path = new_path("sftp://example.org/~/a.csv", username: "jack")
+
+          with_stub_net_sftp(files: ["a.csv"]) do |session|
+            path.delete
+
+            assert_equal [[:remove, "a.csv"]], session.deleted
+          end
+        end
+
+        it "does not raise when the file does not exist" do
+          path = new_path("sftp://example.org/data/a.csv", username: "jack")
+
+          with_stub_net_sftp do |session|
+            assert_same path, path.delete
+            assert_empty session.deleted
+          end
+        end
+
+        it "raises any other failure" do
+          path = new_path("sftp://example.org/data/a.csv", username: "jack")
+
+          with_stub_net_sftp(files: ["/data/a.csv"], error: 3) do
+            error = assert_raises(StubStatusException) { path.delete }
+
+            assert_equal 3, error.code
+          end
         end
       end
 

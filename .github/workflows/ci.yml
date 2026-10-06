@@ -37,10 +37,19 @@ jobs:
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q sshpass
           ssh-keygen -q -t ed25519 -N "" -f "$RUNNER_TEMP/sftp_identity"
+          # Pull from GitHub's registry rather than lscr.io, which rate limits the parallel jobs,
+          # retrying with a backoff in case it is rate limited too.
+          image=ghcr.io/linuxserver/openssh-server:latest
+          for i in 1 2 3 4 5; do
+            docker pull -q "$image" && break
+            [ "$i" -eq 5 ] && exit 1
+            echo "Pull attempt $i failed, retrying in $((i * 10)) seconds..."
+            sleep $((i * 10))
+          done
           docker run -d --name iostreams-sftp -p 2222:2222 \
             -e USER_NAME=iostreams -e USER_PASSWORD=iostreams -e PASSWORD_ACCESS=true \
             -e PUBLIC_KEY="$(cat "$RUNNER_TEMP/sftp_identity.pub")" \
-            lscr.io/linuxserver/openssh-server:latest
+            "$image"
           # Only the ed25519 key, so that #each_child needs the ed25519 gem to verify it.
           for i in $(seq 1 60); do
             host_key="$(ssh-keyscan -p 2222 -t ed25519 localhost 2>/dev/null || true)"

@@ -140,6 +140,77 @@ module Paths
         end
       end
 
+      describe "#path" do
+        it "decodes the url path" do
+          path = IOStreams::Paths::HTTP.new("https://example.com/a%20b/my%20file+1.csv")
+
+          assert_equal "/a b/my file+1.csv", path.path
+          assert_equal "my file+1.csv", path.basename
+          assert_equal "https://example.com/a%20b/my%20file+1.csv", path.to_s
+        end
+
+        it "is the root path for a url without a path" do
+          %w[https://example.com https://example.com/ https://example.com?a=1].each do |url|
+            assert_equal "/", IOStreams::Paths::HTTP.new(url).path, url
+          end
+        end
+      end
+
+      describe "#to_s" do
+        it "returns the root path of a url without a path" do
+          %w[https://example.com https://example.com/].each do |url|
+            path = IOStreams::Paths::HTTP.new(url)
+
+            assert_equal "https://example.com/", path.to_s, url
+            assert_equal path.directory, path, url
+          end
+          assert_equal "https://example.com/?a=1#b", IOStreams::Paths::HTTP.new("https://example.com?a=1#b").to_s
+          assert_equal "https://example.com/?a=1", IOStreams::Paths::HTTP.new("https://example.com", parameters: {a: 1}).to_s
+          assert_equal IOStreams::Paths::HTTP.new("https://example.com"), IOStreams::Paths::HTTP.new("https://example.com/")
+        end
+      end
+
+      describe "#absolute?" do
+        it "is always true" do
+          %w[https://example.com https://example.com/a.csv].each do |url|
+            path = IOStreams::Paths::HTTP.new(url)
+
+            assert_predicate path, :absolute?, url
+            refute_predicate path, :relative?, url
+          end
+        end
+      end
+
+      describe "#directory" do
+        it "returns the host for a url without a directory" do
+          %w[https://example.com https://example.com/ https://example.com/a.csv].each do |url|
+            assert_equal "https://example.com/", IOStreams::Paths::HTTP.new(url).directory.to_s, url
+          end
+        end
+
+        it "keeps the encoding of the directory" do
+          path = IOStreams::Paths::HTTP.new("https://example.com/a%20b/c%2541/d.csv")
+
+          assert_equal "https://example.com/a%20b/c%2541", path.directory.to_s
+          assert_equal "/a b/c%41", path.directory.path
+        end
+      end
+
+      describe "#join" do
+        it "keeps a percent-encoded character in a joined name" do
+          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("my%20file.csv")
+
+          assert_equal "https://example.com/files/my%20file.csv", path.to_s
+        end
+
+        it "encodes a % that is not percent-encoded in a joined name" do
+          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("100%.csv")
+
+          assert_equal "https://example.com/files/100%25.csv", path.to_s
+          assert_equal "100%.csv", path.basename
+        end
+      end
+
       it "does not support streams" do
         assert_raises URI::InvalidURIError do
           io = StringIO.new

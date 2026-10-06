@@ -213,6 +213,10 @@ module IOStreams
         false
       end
 
+      def absolute?
+        true
+      end
+
       def delete
         authorize!
         client.delete_object(options_for(:delete_object).merge(bucket: bucket_name, key: path))
@@ -242,8 +246,13 @@ module IOStreams
       end
 
       # Make S3 perform direct copies within S3 itself.
+      #
+      # Returns [Integer] the number of bytes copied, like any other copy.
       def copy_to(target_path, convert: true, **args)
-        return super if convert || (size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
+        return super if convert
+
+        bytes = size.to_i
+        return super if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
 
         target = to_stream(target_path)
         return super(target, convert: convert, **args) unless target.is_a?(self.class)
@@ -254,22 +263,26 @@ module IOStreams
         client.copy_object(
           options_for(:copy_object).merge(bucket: target.bucket_name, key: target.path, copy_source: copy_source)
         )
-        target
+        bytes
       end
 
       # Make S3 perform direct copies within S3 itself.
+      #
+      # Returns [Integer] the number of bytes copied, like any other copy.
       def copy_from(source_path, convert: true, **args)
         return super(source_path, convert: true, **args) if convert
 
         source = to_stream(source_path)
-        if !source.is_a?(self.class) || (source.size.to_i >= S3_COPY_OBJECT_SIZE_LIMIT)
-          return super(source, convert: convert, **args)
-        end
+        return super(source, convert: convert, **args) unless source.is_a?(self.class)
+
+        bytes = source.size.to_i
+        return super(source, convert: convert, **args) if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
 
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         source.authorize!
         client.copy_object(options_for(:copy_object).merge(bucket: bucket_name, key: path, copy_source: source.copy_source))
+        bytes
       end
 
       # S3 logically creates paths when a key is set.
