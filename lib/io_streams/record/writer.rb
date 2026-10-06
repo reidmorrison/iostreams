@@ -9,30 +9,14 @@ module IOStreams
       # Write a record as a Hash at a time to a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
-      def self.stream(line_writer, **args)
-        # Pass-through if already a record writer
-        return yield(line_writer) if line_writer.is_a?(self.class)
-
-        yield new(line_writer, **args)
-      end
-
-      # When writing to a file also add the line writer stream
-      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args, &block)
-        IOStreams::Line::Writer.file(file_name, delimiter: delimiter) do |io|
-          yield new(io, original_file_name: original_file_name, **args, &block)
-        end
-      end
-
-      # Create a Tabular writer that takes individual
-      # Parse a delimited data source.
       #
       # Parameters
-      #   format: [Symbol]
-      #     :csv, :hash, :array, :json, :psv, :fixed
-      #
-      #   file_name: [String]
+      #   original_file_name: [String]
       #     When `:format` is not supplied the file name can be used to infer the required format.
       #     Optional. Default: nil
+      #
+      #   format: [Symbol]
+      #     :csv, :hash, :array, :json, :psv, :fixed
       #
       #   format_options: [Hash]
       #     Any specialized format specific options. For example, `:fixed` format requires the file definition.
@@ -58,14 +42,37 @@ module IOStreams
       #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
       #     false:
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
-      def initialize(line_writer, columns: nil, original_file_name: nil, **args)
+      def self.stream(line_writer, original_file_name: nil, **args)
+        # Pass-through if already a record writer
+        return yield(line_writer) if line_writer.is_a?(self.class)
+
+        yield new(line_writer, tabular: IOStreams::Tabular.new(file_name: original_file_name, **args))
+      end
+
+      # When writing to a file also add the line writer stream. See `.stream` for the parameters.
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
+        tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
+        IOStreams::Line::Writer.file(file_name, delimiter: delimiter) do |io|
+          yield new(io, tabular: tabular)
+        end
+      end
+
+      # Create a writer that takes individual records as hashes.
+      #
+      # Parameters
+      #   line_writer: [#<<]
+      #     Anything that accepts a line / record at a time when #<< is called on it.
+      #
+      #   tabular: [IOStreams::Tabular]
+      #     Renders each record in its format, and holds the header.
+      def initialize(line_writer, tabular:)
         raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
-        @tabular     = IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
+        @tabular     = tabular
         @line_writer = line_writer
 
-        # Render header line when `columns` is supplied.
-        @line_writer << @tabular.render_header if columns && @tabular.requires_header?
+        # Render the header line when the columns were supplied.
+        @line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.header?
       end
 
       # Returns self, so that calls can be chained.

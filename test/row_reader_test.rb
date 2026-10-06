@@ -33,6 +33,14 @@ class RowReaderTest < Minitest::Test
         assert_equal expected, rows
         assert_equal expected.size, count
       end
+
+      it "keeps newlines within quoted values when reading a file" do
+        embedded_file_name = File.join(File.dirname(__FILE__), "files", "embedded_lines_test.csv")
+        rows               = []
+        IOStreams::Row::Reader.file(embedded_file_name) { |io| io.each { |row| rows << row } }
+
+        assert_equal CSV.read(embedded_file_name), rows
+      end
     end
 
     describe "allowed and required columns" do

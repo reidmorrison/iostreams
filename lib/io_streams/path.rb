@@ -10,9 +10,11 @@ module IOStreams
       raise(ArgumentError, "Path cannot be nil") if path.nil?
       raise(ArgumentError, "Path must be a string: #{path.inspect}, class: #{path.class}") unless path.is_a?(String)
 
-      @path      = path.frozen? ? path : path.dup.freeze
-      @io_stream = nil
-      @builder   = nil
+      @path           = path.frozen? ? path : path.dup.freeze
+      @io_stream      = nil
+      @builder        = nil
+      @format         = nil
+      @format_options = nil
     end
 
     # Returns [IOStreams::Path] a new path with the elements joined to this path.
@@ -26,9 +28,9 @@ module IOStreams
       elements = elements.collect(&:to_s)
       relative = ::File.join(*elements)
 
-      new_path         = dup
-      new_path.builder = nil
-      new_path.path    = contains?(relative) ? relative : ::File.join(path, relative)
+      new_path = dup
+      new_path.clear_configuration
+      new_path.path = contains?(relative) ? relative : ::File.join(path, relative)
       new_path
     end
 
@@ -162,9 +164,9 @@ module IOStreams
     #   IOStreams.path("test").directory            #=> "."
     #   IOStreams.path(".profile").directory        #=> "."
     def directory
-      new_path         = dup
-      new_path.builder = nil
-      new_path.path    = ::File.dirname(path)
+      new_path = dup
+      new_path.clear_configuration
+      new_path.path = ::File.dirname(path)
       new_path
     end
 

@@ -50,6 +50,16 @@ class RecordReaderTest < Minitest::Test
 
         assert_equal expected, rows
       end
+
+      it "keeps newlines within quoted values when reading a file" do
+        embedded_file_name = File.join(File.dirname(__FILE__), "files", "embedded_lines_test.csv")
+        records            = []
+        IOStreams::Record::Reader.file(embedded_file_name, cleanse_header: false) { |io| io.each { |row| records << row } }
+
+        header, *rows = CSV.read(embedded_file_name)
+
+        assert_equal rows.map { |row| header.zip(row).to_h }, records
+      end
     end
 
     describe "allowed_columns" do

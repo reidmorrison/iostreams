@@ -102,6 +102,14 @@ module IOStreams
       parser.requires_header?
     end
 
+    # Returns [String] the quote character within which the format embeds field delimiters and newlines,
+    # such as `"` for CSV, or [nil] when the format has no such quoting.
+    #
+    # So that the lines of the data are split where this format, which parses them, expects.
+    def quote_character
+      parser.class.quote_character
+    end
+
     # Returns [Array] the header row/line after parsing and cleansing.
     # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
     #
@@ -197,6 +205,12 @@ module IOStreams
     def self.parser_class(format)
       @formats[format&.to_sym] ||
         raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
+    end
+
+    # Returns [String] the quote character of the registered format, see #quote_character,
+    # or [nil] when the format has no such quoting, or when the format is nil.
+    def self.quote_character(format)
+      parser_class(format).quote_character unless format.nil?
     end
 
     register_format(:array, IOStreams::Tabular::Parser::Array)

@@ -44,7 +44,7 @@ module IOStreams
       #
       # Note:
       # * When reached via `IOStreams::Stream`, `embedded_within` defaults to the quote character of the
-      #   resolved tabular format (e.g. `"` for CSV). See `IOStreams::Builder#quote_character`.
+      #   tabular format (e.g. `"` for CSV). See `IOStreams::Tabular#quote_character`.
       def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
         super(input_stream)
 

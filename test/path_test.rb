@@ -91,6 +91,33 @@ module IOStreams
         end
       end
 
+      describe "#format" do
+        let(:path) { IOStreams.path("/data/a.txt").format(:fixed).format_options(layout: [{size: 2, key: "id"}]) }
+
+        it "is cleared by #join and #directory, with the format options" do
+          assert_equal :json, path.join("b.json").format
+          assert_nil path.join("b.json").format_options
+          assert_nil path.directory.format
+          assert_nil path.directory.format_options
+        end
+
+        it "is kept by a copy" do
+          copy = IOStreams.path(path)
+
+          assert_equal :fixed, copy.format
+          assert_equal({layout: [{size: 2, key: "id"}]}, copy.format_options)
+        end
+      end
+
+      describe "#clear_configuration" do
+        it "is not public" do
+          path = IOStreams.path("/data/a.txt").format(:psv)
+
+          assert_raises(NoMethodError) { path.clear_configuration }
+          assert_equal :psv, path.format
+        end
+      end
+
       describe "a frozen root" do
         %w[/data s3://bucket/data sftp://example.org/data https://example.org/data].each do |name|
           it "can be inspected, joined and compared for #{name}" do

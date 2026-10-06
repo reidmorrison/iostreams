@@ -1,23 +1,20 @@
 module IOStreams
   # Build the streams that need to be applied to a path during reading or writing.
   class Builder
-    attr_accessor :file_name, :format_options
+    attr_accessor :file_name
     attr_reader :streams, :options
 
     def initialize(file_name = nil)
-      @file_name     = file_name
-      @streams       = nil
-      @options       = nil
-      @format        = nil
-      @format_option = nil
+      @file_name = file_name
+      @streams   = nil
+      @options   = nil
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
     def initialize_copy(source)
       super
-      @streams        = @streams&.transform_values(&:dup)
-      @options        = @options&.transform_values(&:dup)
-      @format_options = @format_options&.dup
+      @streams = @streams&.transform_values(&:dup)
+      @options = @options&.transform_values(&:dup)
     end
 
     # Supply an option that is only applied once the file name extensions have been parsed.
@@ -101,32 +98,6 @@ module IOStreams
     def remove_from_pipeline(stream_name)
       @streams ||= build_pipeline
       @streams.delete(stream_name.to_sym)
-    end
-
-    # Returns the tabular format if set, otherwise tries to autodetect the format if the file_name has been set
-    # Returns [nil] if no format is set, or if it cannot be determined from the file_name
-    def format
-      @format ||= file_name ? Tabular.format_from_file_name(file_name) : nil
-    end
-
-    def format=(format)
-      unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
-        raise(ArgumentError, "Invalid format: #{format.inspect}")
-      end
-
-      @format = format
-    end
-
-    # Returns [String] the quote character within which field delimiters and newlines may be
-    # embedded for the current tabular format, or [nil] when the format has no such quoting,
-    # or when the format cannot be determined.
-    #
-    # Used by the line reader to avoid treating a newline as a line ending when it is embedded
-    # within a quoted field (e.g. CSV). Delegates to the format's parser, so the per-format
-    # knowledge lives with the parser. Driven entirely by `format`, so an explicitly set format
-    # (e.g. `.format(:psv)`) overrides any extension auto-detected from the `file_name`.
-    def quote_character
-      format && IOStreams::Tabular.parser_class(format).quote_character
     end
 
     # Returns [true|false] whether a stream in the pipeline compresses the data.

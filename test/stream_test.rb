@@ -498,6 +498,26 @@ class StreamTest < Minitest::Test
           assert_equal "first_name|last_name\nJack|Johnson\n", io.string, io.string.inspect
         end
 
+        it "writes the header from the supplied columns before any rows" do
+          io = StringIO.new
+          IOStreams::Stream.new(io).writer(:array, columns: %w[first_name last_name]) do |stream|
+            assert_equal "first_name,last_name\n", io.string
+
+            stream << %w[Jack Johnson]
+          end
+
+          assert_equal "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
+        end
+
+        it "does not write a header from the supplied columns for a format without one" do
+          io = StringIO.new
+          IOStreams::Stream.new(io).format(:json).writer(:hash, columns: %w[first_name last_name]) do |stream|
+            stream << {"first_name" => "Jack", "last_name" => "Johnson"}
+          end
+
+          assert_equal %({"first_name":"Jack","last_name":"Johnson"}\n), io.string, io.string.inspect
+        end
+
         it "auto detects format" do
           io = StringIO.new
           IOStreams::Stream.new(io).file_name("abc.psv").writer(:array) do |stream|
@@ -616,34 +636,89 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe "#quote_character" do
-      it "is the double quote for csv" do
-        stream.format = :csv
+    describe "#format_options" do
+      it "returns the format options that were set" do
+        stream.format_options = {layout: [{size: 2, key: "id"}]}
 
-        assert_equal '"', stream.send(:builder).quote_character
+        assert_equal({layout: [{size: 2, key: "id"}]}, stream.format_options)
       end
 
-      it "is nil for psv" do
-        stream.format = :psv
-
-        assert_nil stream.send(:builder).quote_character
+      it "is nil when not set" do
+        assert_nil stream.format_options
       end
 
-      it "is nil when the format cannot be determined" do
-        assert_nil stream.send(:builder).quote_character
+      it "is copied, so that changing the copy does not change the original" do
+        stream.format(:fixed).format_options(layout: [{size: 2, key: "id"}])
+        copy = IOStreams.stream(stream)
+        copy.format_options[:truncate] = false
+
+        assert_equal :fixed, copy.format
+        assert_equal({layout: [{size: 2, key: "id"}]}, stream.format_options)
       end
 
-      it "follows an explicit format over the file name extension" do
-        stream.file_name = "abc.csv"
-        stream.format    = :psv
+      it "reads rows in the format with its options" do
+        rows = []
+        IOStreams::Stream.new(StringIO.new("01Jack\n02Jill\n")).
+          format(:fixed).
+          format_options(layout: [{size: 2, key: "id"}, {size: 4, key: "name"}]).
+          each(:hash) { |row| rows << row }
 
-        assert_nil stream.send(:builder).quote_character
+        assert_equal [{"id" => "01", "name" => "Jack"}, {"id" => "02", "name" => "Jill"}], rows
       end
     end
 
     describe "embedded_within line handling" do
       let :pipe_delimited_csv_file do
         File.join(File.dirname(__FILE__), "files", "pipe_delimited_with_quotes.csv")
+      end
+
+      let :multiline_cell_file do
+        File.join(File.dirname(__FILE__), "files", "multiline_cell.xlsx")
+      end
+
+      let :quoted_newline_csv do
+        %(name,note\n"Jack","line one\nline two"\n)
+      end
+
+      it "keeps a newline within a quoted value in a row of a file name without a tabular extension" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "data.txt")
+          path.write(quoted_newline_csv)
+          rows = []
+          path.each(:array) { |row| rows << row }
+
+          assert_equal [%w[name note], ["Jack", "line one\nline two"]], rows
+        end
+      end
+
+      it "keeps a newline within a quoted value in a record of a stream without a file name" do
+        records = []
+        IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:hash) { |record| records << record }
+
+        assert_equal [{"name" => "Jack", "note" => "line one\nline two"}], records
+      end
+
+      it "keeps a newline within a spreadsheet cell, which is read as csv" do
+        rows = []
+        IOStreams.path(multiline_cell_file).each(:array) { |row| rows << row }
+
+        assert_equal [["first column", "second column", "third column"], ["data 1", "data 2", "more\ndata"]], rows
+      end
+
+      it "splits lines for the format supplied when reading records" do
+        # The escaped quote within the JSON value is not a CSV quote, so it must not join the next line.
+        io      = StringIO.new(%({"name":"5\\" pipe"}\n{"name":"Jill"}\n))
+        records = []
+        IOStreams::Stream.new(io).file_name("data.csv").each(:hash, format: :json) { |record| records << record }
+
+        assert_equal [{"name" => %(5" pipe)}, {"name" => "Jill"}], records
+      end
+
+      it "does not join lines of a file name without a tabular extension when reading lines" do
+        lines = []
+        IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).file_name("data.txt").each(:line) { |line| lines << line }
+
+        assert_equal ["name,note", %("Jack","line one), %(line two")], lines
       end
 
       it "joins newlines embedded within quotes for a .csv file" do
