@@ -3,9 +3,23 @@ module IOStreams
     # Returns [Array<Symbol>] the names of the options this writer accepts,
     # or [nil] when the writer does not declare them.
     #
-    # When declared, `IOStreams::Builder` rejects any other option before the writer is opened,
-    # naming the direction an option belongs to when it is only valid for the other direction.
+    # When declared, only these options are passed to the writer.
     def self.option_names
+      nil
+    end
+
+    # Returns [Array<Symbol>] the names of the options that are valid when writing the stream,
+    # or [nil] to accept the options of both the reader and the writer registered for the stream.
+    #
+    # `IOStreams::Builder` rejects any other option before the writer is opened, naming the direction
+    # an option belongs to when it is only valid for the other direction.
+    #
+    # One option hash is shared by the reader and the writer for a stream, so that the same path can be
+    # written and then read. So by default the reader's options are also valid when writing, and are
+    # ignored, since only `option_names` are passed to the writer. Override this to exclude an option of
+    # the reader that a caller could expect to have an effect when writing, which must raise until the
+    # writer supports it.
+    def self.valid_option_names
       nil
     end
 

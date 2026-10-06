@@ -451,7 +451,9 @@ module IOStreams
     # Encrypting to the fingerprint ensures that the imported key is used, since gpg looks up an
     # email address in the keyring, where another key may have the same email address.
     #
-    # Used internally by the PGP writer.
+    # When `trust_level` is nil, the key is imported without changing its trust.
+    #
+    # Used internally by the PGP reader and writer.
     def self.import_and_trust_recipient(key:, trust_level: 5)
       info   = import_and_trust_key_info(key: key, trust_level: trust_level)
       key_id = info[:key_id].to_s
@@ -476,7 +478,8 @@ module IOStreams
       raise(ArgumentError, "Recipient email or key id cannot be extracted from supplied key") unless email || key_id
 
       import(key: key)
-      set_trust(email: email, key_id: key_id, level: trust_level)
+      # Without a trust level, the trust of the key is not changed.
+      set_trust(email: email, key_id: key_id, level: trust_level) if trust_level
       info
     end
     private_class_method :import_and_trust_key_info
@@ -549,6 +552,36 @@ module IOStreams
       end
     end
     private_class_method :fingerprint
+
+    # Returns [Array<String>] the fingerprints of the primary keys that gpg finds for the supplied
+    # email address, key id or fingerprint, see `user_id`, or [] when there are none.
+    #
+    # Used internally by the PGP reader to check who signed a file.
+    def self.primary_fingerprints(value)
+      version_check
+      command = gpg_command("--list-keys", "--with-colons", "--", user_id(value))
+      out, err, status = Open3.capture3(*command, binmode: true)
+      unless status.success?
+        return [] if err =~ /(not found|No public key|key not available)/i
+
+        raise(Pgp::Failure, "GPG Failed calling '#{executable}' to list keys for #{value}: #{err}#{out}")
+      end
+
+      # A primary key is listed as `pub`, followed by its `fpr`, then its subkeys as `sub`, each followed by its own.
+      fingerprints = []
+      primary      = false
+      out.each_line do |line|
+        fields = line.split(":")
+        case fields[0]
+        when "pub"
+          primary = true
+        when "fpr"
+          fingerprints << fields[9] if primary
+          primary = false
+        end
+      end
+      fingerprints
+    end
 
     # Returns [String] the version of pgp currently installed
     def self.pgp_version

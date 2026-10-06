@@ -74,7 +74,7 @@ class ZipWriterTest < Minitest::Test
         assert_equal({entry_file_name: "example.csv"}, IOStreams::Zip::Writer.file_name_options("reports/example.csv.zip.pgp"))
         assert_equal({entry_file_name: "a.zip.csv"}, IOStreams::Zip::Writer.file_name_options("a.zip.csv.ZIP"))
         assert_empty IOStreams::Zip::Writer.file_name_options("example.csv")
-        assert_equal({zip_file_name: "a.csv"}, IOStreams::Zip::Writer.file_name_options("b.csv.zip", zip_file_name: "a.csv"))
+        assert_equal({entry_file_name: "a.csv"}, IOStreams::Zip::Writer.file_name_options("b.csv.zip", entry_file_name: "a.csv"))
       end
 
       it "names the entry after the file name of a stream" do

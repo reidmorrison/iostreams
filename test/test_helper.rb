@@ -53,6 +53,18 @@ unless IOStreams::Pgp.key?(email: "receiver2@example.org")
   IOStreams::Pgp.generate_key(name: "Receiver2", email: "receiver2@example.org", passphrase: "receiver2_passphrase", key_length: 2048)
 end
 
+# Returns [String] the public key of a PGP key that gpg does not trust, after resetting its trust,
+# since tests that import it can change its trust.
+def untrusted_pgp_key
+  unless IOStreams::Pgp.key?(email: "untrusted@example.org")
+    IOStreams::Pgp.generate_key(name: "Untrusted", email: "untrusted@example.org", passphrase: "untrusted_passphrase",
+                                key_type: "EDDSA", key_curve: "ed25519", key_usage: "sign",
+                                subkey_type: "ECDH", subkey_curve: "cv25519")
+  end
+  IOStreams::Pgp.set_trust(email: "untrusted@example.org", level: 2)
+  IOStreams::Pgp.export(email: "untrusted@example.org")
+end
+
 # Test paths
 root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))
