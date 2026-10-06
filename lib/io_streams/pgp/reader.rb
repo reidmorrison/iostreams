@@ -107,11 +107,7 @@ module IOStreams
         signers = expected_signers(signer, import_and_trust_key, import_and_trust_level)
         check   = signers.empty? ? nil : ->(status) { verify_signers(file_name, signers, status) }
 
-        args = []
-        # Use --pinentry-mode loopback for all GnuPG versions >= 2.1
-        args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
-        # Use --no-symkey-cache for GnuPG versions >= 2.4 to avoid caching session keys
-        args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
+        args = IOStreams::Pgp.passphrase_args
         args << "--ignore-mdc-error" if ignore_mdc_error
         args += ["--status-fd", STATUS_FD.to_s] if check
         args += ["--batch", "--no-tty", "--yes", "--decrypt"]
@@ -204,7 +200,7 @@ module IOStreams
       def self.imported_fingerprint(key, trust_level)
         fingerprint = IOStreams::Pgp.import_and_trust_recipient(key: key, trust_level: trust_level)
         # Earlier versions of gpg do not supply the fingerprint of the key.
-        return fingerprint.upcase if fingerprint.match?(/\A(\h{40}|\h{64})\z/)
+        return fingerprint.upcase if IOStreams::Pgp.fingerprint?(fingerprint)
 
         raise(Pgp::Failure, "Checking who signed a file with import_and_trust_key requires gpg v2.1 or later")
       end

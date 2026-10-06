@@ -138,7 +138,7 @@ module IOStreams
       # were all introduced in GnuPG 2.1. Keep older versions working by only
       # emitting them when a 2.1+ binary is detected. `--batch --gen-key` accepts
       # all of these on 2.1+, so there is no need for the newer `--full-gen-key`.
-      modern = pgp_version.to_f >= 2.1
+      modern = version_at_least?("2.1")
 
       unless modern
         new_options = {
@@ -232,7 +232,7 @@ module IOStreams
       version_check
       # Version 2.1+ uses delete_public_or_private_keys
       # Version < 2.1 uses delete_public_or_private_keys_v1
-      method_name = pgp_version.to_f >= 2.1 ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
+      method_name = version_at_least?("2.1") ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
       status      = false
       status      = send(method_name, email: email, key_id: key_id, private: true) if private
       status      = send(method_name, email: email, key_id: key_id, private: false) if public
@@ -326,9 +326,7 @@ module IOStreams
 
       version_check
 
-      args = []
-      args += ["--pinentry-mode", "loopback"] if pgp_version.to_f >= 2.1
-      args << "--no-symkey-cache" if pgp_version.to_f >= 2.4
+      args = passphrase_args
       args << "--armor" if ascii
       args += ["--no-tty", "--batch"]
       # Supply the passphrase on stdin so that it is not visible in the process list.
@@ -493,9 +491,8 @@ module IOStreams
     def self.import_and_trust_recipient(key:, trust_level: 5)
       info   = import_and_trust_key_info(key: key, trust_level: trust_level)
       key_id = info[:key_id].to_s
-      # gpg v2.1 and later supply the full fingerprint: 40 hex digits for v4 keys, 64 for v5 and v6 keys.
-      # Earlier versions only supply a short key id, which is not unique.
-      return key_id if key_id.match?(/\A(\h{40}|\h{64})\z/)
+      # gpg v2.1 and later supply the full fingerprint. Earlier versions only supply a short key id, which is not unique.
+      return key_id if fingerprint?(key_id)
 
       info[:email] || info[:key_id]
     end
@@ -646,6 +643,42 @@ module IOStreams
           match[1]
         end
       end
+    end
+
+    # Returns [true|false] whether the installed gpg is at least the supplied version, such as "2.1".
+    # Versions are compared by their numbers, so that for example 2.10 is later than 2.4.
+    def self.version_at_least?(version)
+      Gem::Version.new(pgp_version.to_s) >= Gem::Version.new(version)
+    end
+
+    # Returns [Array<String>] the arguments that stop gpg from asking pinentry for a passphrase, which fails without
+    # a tty, so that it reads the one supplied with `--passphrase-fd`, and from caching the session keys of the
+    # data that it decrypts.
+    #
+    # Used internally, including by the PGP reader and writer.
+    def self.passphrase_args
+      args = []
+      # Loopback pinentry is available from GnuPG 2.1.
+      args += ["--pinentry-mode", "loopback"] if version_at_least?("2.1")
+      # Avoid caching session keys, from GnuPG 2.4.
+      args << "--no-symkey-cache" if version_at_least?("2.4")
+      args
+    end
+
+    # Returns [true|false] whether gpg can encrypt to a key in a file supplied with `--recipient-file`, which is
+    # available from GnuPG 2.1.14.
+    #
+    # Used internally by the PGP writer.
+    def self.recipient_file?
+      version_at_least?("2.1.14")
+    end
+
+    # Returns [true|false] whether the value is the full fingerprint of a key: 40 hexadecimal digits for a v4 key,
+    # or 64 for a v5 or v6 key. Not a short key id, which is not unique, nor an email address.
+    #
+    # Used internally, including by the PGP reader and writer.
+    def self.fingerprint?(value)
+      value.to_s.match?(/\A(\h{40}|\h{64})\z/)
     end
 
     def self.version_check

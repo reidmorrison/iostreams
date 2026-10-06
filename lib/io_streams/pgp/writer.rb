@@ -178,11 +178,7 @@ module IOStreams
         args = ["--batch", "--no-tty", "--yes"]
         args << "--encrypt" if encrypt
         args += ["--sign", "--local-user", IOStreams::Pgp.user_id(signer)] if signer
-        if signer_passphrase
-          args += ["--pinentry-mode", "loopback"] if IOStreams::Pgp.pgp_version.to_f >= 2.1
-          args << "--no-symkey-cache" if IOStreams::Pgp.pgp_version.to_f >= 2.4
-          args += ["--passphrase-fd", PASSPHRASE_FD.to_s]
-        end
+        args += [*IOStreams::Pgp.passphrase_args, "--passphrase-fd", PASSPHRASE_FD.to_s] if signer_passphrase
         args += ["-z", compress_level.to_s] if compress_level != 6
         args += ["--compress-algo", compress.to_s] unless compress == :none
         recipients.each { |address| args += ["--recipient", IOStreams::Pgp.user_id(address)] }
@@ -215,8 +211,8 @@ module IOStreams
       #
       # gpg before v2.1.14 does not support `--recipient-file`, so the imported keys are recipients instead.
       def self.with_recipient_files(recipients, imported, &)
-        files       = Gem::Version.new(IOStreams::Pgp.pgp_version) >= Gem::Version.new("2.1.14")
-        keys, other = imported.partition { |value| files && value.match?(/\A(\h{40}|\h{64})\z/) }
+        files       = IOStreams::Pgp.recipient_file?
+        keys, other = imported.partition { |value| files && IOStreams::Pgp.fingerprint?(value) }
         write_recipient_files(keys, [], recipients + other, &)
       end
       private_class_method :with_recipient_files

@@ -29,8 +29,7 @@ class PgpTest < Minitest::Test
     end
 
     let :gpg_v24_or_above do
-      ver = IOStreams::Pgp.pgp_version.to_f
-      ver >= 2.4
+      IOStreams::Pgp.version_at_least?("2.4")
     end
 
     before do
@@ -69,6 +68,71 @@ class PgpTest < Minitest::Test
       end
     end
 
+    describe "gpg capabilities" do
+      # Pretends that the supplied version of gpg is installed.
+      def with_pgp_version(version)
+        IOStreams::Pgp.instance_variable_set(:@pgp_version, version)
+        yield
+      ensure
+        IOStreams::Pgp.instance_variable_set(:@pgp_version, nil)
+      end
+
+      describe ".version_at_least?" do
+        it "compares versions by their numbers" do
+          with_pgp_version("2.10.0") do
+            assert IOStreams::Pgp.version_at_least?("2.4")
+            assert IOStreams::Pgp.version_at_least?("2.10")
+            refute IOStreams::Pgp.version_at_least?("2.11")
+          end
+        end
+
+        it "is false for any version when the version is not known" do
+          with_pgp_version(nil) do
+            IOStreams::Pgp.stub(:pgp_version, nil) do
+              refute IOStreams::Pgp.version_at_least?("1.0")
+            end
+          end
+        end
+      end
+
+      describe ".passphrase_args" do
+        {
+          "2.0.30" => [],
+          "2.2.40" => ["--pinentry-mode", "loopback"],
+          "2.4.7"  => ["--pinentry-mode", "loopback", "--no-symkey-cache"],
+          "2.10.0" => ["--pinentry-mode", "loopback", "--no-symkey-cache"]
+        }.each_pair do |version, expected|
+          it "are #{expected.inspect} for gpg #{version}" do
+            with_pgp_version(version) { assert_equal expected, IOStreams::Pgp.passphrase_args }
+          end
+        end
+      end
+
+      describe ".recipient_file?" do
+        it "is true from gpg 2.1.14" do
+          with_pgp_version("2.1.14") { assert_predicate IOStreams::Pgp, :recipient_file? }
+          with_pgp_version("2.10.0") { assert_predicate IOStreams::Pgp, :recipient_file? }
+        end
+
+        it "is false before gpg 2.1.14" do
+          with_pgp_version("2.1.13") { refute_predicate IOStreams::Pgp, :recipient_file? }
+        end
+      end
+
+      describe ".fingerprint?" do
+        it "is true for the fingerprint of a v4 key, or a v5 or v6 key" do
+          assert IOStreams::Pgp.fingerprint?("18A0FC1C09C0D8AE34CE659257DC4AE323C7368C")
+          assert IOStreams::Pgp.fingerprint?("A" * 64)
+        end
+
+        it "is false for a short key id, an email address, or nil" do
+          refute IOStreams::Pgp.fingerprint?("7932AB23D7238F6B")
+          refute IOStreams::Pgp.fingerprint?("pgp_test@iostreams.net")
+          refute IOStreams::Pgp.fingerprint?(nil)
+        end
+      end
+    end
+
     describe ".generate_key" do
       it "returns the key id" do
         assert generated_key_id
@@ -87,7 +151,7 @@ class PgpTest < Minitest::Test
 
       describe "on GnuPG 2.1 or later" do
         before do
-          skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp.pgp_version.to_f >= 2.1
+          skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp.version_at_least?("2.1")
         end
 
         it "generates an unprotected key when passphrase is nil" do
@@ -675,7 +739,7 @@ class PgpTest < Minitest::Test
       end
 
       before do
-        skip "Requires GnuPG 2.1 or later" if IOStreams::Pgp.pgp_version.to_f < 2.1
+        skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp.version_at_least?("2.1")
 
         other_emails.each { |email| generate(email) }
       end
