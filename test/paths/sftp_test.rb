@@ -157,7 +157,7 @@ module Paths
         end
 
         after do
-          [dir.join("data.txt"), empty_file, empty_dir, dir].each(&:delete)
+          [dir.join("data.txt"), empty_file, empty_dir, dir].each(&:delete) if ENV["SFTP_HOSTNAME"]
         end
 
         it "#exist? and #size" do
