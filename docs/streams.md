@@ -182,6 +182,23 @@ path.pipeline
 
 The `pipeline` above includes `:gz` to indicate that the file should compressed / decompressed with GZip.
 
+`compressed?` and `encrypted?` report whether a stream in the pipeline compresses or encrypts the file,
+whether it was inferred from the file name or set with `stream`:
+
+~~~ruby
+IOStreams.path("example.csv.gz.pgp").compressed?
+# => true
+
+IOStreams.path("example.csv.gz.pgp").encrypted?
+# => true
+
+IOStreams.path("tempfile2527").stream(:gz).compressed?
+# => true
+~~~
+
+Compression within an encrypted file, such as PGP or Symmetric Encryption, is not reported, since only the
+encrypted data records whether it was compressed.
+
 #### Option
 
 Each path supports several options which can be supplied using the `option` method. 

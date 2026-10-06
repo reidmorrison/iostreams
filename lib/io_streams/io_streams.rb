@@ -402,15 +402,41 @@ module IOStreams
 
   @logger = (SemanticLogger[IOStreams] if defined?(SemanticLogger::Logger))
 
-  # Register a file extension and the reader and writer streaming classes
+  # Register a file extension and the format that reads and writes it.
+  #
+  # The format, usually a module such as `IOStreams::Gzip`, answers:
+  #   reader_class: [Class|nil] the class that reads the format, or nil when it cannot be read.
+  #   writer_class: [Class|nil] the class that writes the format, or nil when it cannot be written.
+  #   compressed?:  [true|false] whether data in the format is compressed.
+  #   encrypted?:   [true|false] whether data in the format is encrypted.
+  #
+  # Or supply just the reader and writer classes, for a format that is neither compressed nor encrypted.
+  #
+  # The reader and writer classes must implement `.open`, see `IOStreams::Reader` and `IOStreams::Writer`.
   #
   # Example:
-  #   # MyXls::Reader and MyXls::Writer must implement .open
+  #   register_extension(:xz, MyXz)
+  #
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
-  def self.register_extension(extension, reader_class, writer_class)
+  def self.register_extension(extension, *format_or_classes)
+    format =
+      case format_or_classes.size
+      when 1
+        format_or_classes.first
+      when 2
+        Extension.new(*format_or_classes).freeze
+      else
+        raise(ArgumentError, "wrong number of arguments (given #{format_or_classes.size + 1}, expected 2..3)")
+      end
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
 
-    @extensions[extension&.to_sym] = Extension.new(reader_class, writer_class)
+    missing = FORMAT_METHODS.reject { |name| format.respond_to?(name) }
+    unless missing.empty?
+      raise(ArgumentError,
+            "Invalid format for extension #{extension.inspect}: #{format.inspect} does not respond to #{missing.join(', ')}")
+    end
+
+    @extensions[extension&.to_sym] = format
   end
 
   # De-Register a file extension
@@ -425,7 +451,8 @@ module IOStreams
     @extensions.delete(extension.to_sym)
   end
 
-  # Registered file extensions
+  # Returns [Hash<Symbol, Object>] the format registered for each file extension, see `register_extension`.
+  # A format registered by its reader and writer classes is a frozen `IOStreams::Extension`.
   def self.extensions
     @extensions.dup
   end
@@ -448,7 +475,21 @@ module IOStreams
     @schemes[scheme_name&.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
   end
 
-  Extension = Struct.new(:reader_class, :writer_class)
+  # The methods that a format registered with `register_extension` must respond to.
+  FORMAT_METHODS = %i[reader_class writer_class compressed? encrypted?].freeze
+  private_constant :FORMAT_METHODS
+
+  # A format registered with `register_extension` by its reader and writer classes,
+  # whose data is neither compressed nor encrypted.
+  Extension = Struct.new(:reader_class, :writer_class) do
+    def compressed?
+      false
+    end
+
+    def encrypted?
+      false
+    end
+  end
 
   # Hold root paths
   @root_paths = {}
@@ -462,16 +503,16 @@ module IOStreams
   @schemes    = {}
 
   # Register File extensions
-  register_extension(:bz2, IOStreams::Bzip2::Reader, IOStreams::Bzip2::Writer)
-  register_extension(:enc, IOStreams::SymmetricEncryption::Reader, IOStreams::SymmetricEncryption::Writer)
-  register_extension(:gz, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
-  register_extension(:gzip, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
-  register_extension(:zip, IOStreams::Zip::Reader, IOStreams::Zip::Writer)
-  register_extension(:pgp, IOStreams::Pgp::Reader, IOStreams::Pgp::Writer)
-  register_extension(:gpg, IOStreams::Pgp::Reader, IOStreams::Pgp::Writer)
-  register_extension(:xlsx, IOStreams::Xlsx::Reader, nil)
-  register_extension(:xlsm, IOStreams::Xlsx::Reader, nil)
-  register_extension(:encode, IOStreams::Encode::Reader, IOStreams::Encode::Writer)
+  register_extension(:bz2, IOStreams::Bzip2)
+  register_extension(:enc, IOStreams::SymmetricEncryption)
+  register_extension(:gz, IOStreams::Gzip)
+  register_extension(:gzip, IOStreams::Gzip)
+  register_extension(:zip, IOStreams::Zip)
+  register_extension(:pgp, IOStreams::Pgp)
+  register_extension(:gpg, IOStreams::Pgp)
+  register_extension(:xlsx, IOStreams::Xlsx)
+  register_extension(:xlsm, IOStreams::Xlsx)
+  register_extension(:encode, IOStreams::Encode)
 
   # Register Schemes
   #

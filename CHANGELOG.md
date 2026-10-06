@@ -18,6 +18,11 @@ This option is removed:
 
 - **The Zip writer no longer accepts `zip_file_name`.** Use `entry_file_name`, which the documentation has used in its place for a long time, and which also chooses the file to read within a zip file. `option(:zip, zip_file_name: "a.csv")` now raises `ArgumentError`.
 
+These changes affect code that registers extensions, or reads them with `IOStreams.extensions`:
+
+- **`IOStreams.extensions` returns the format registered for each extension**, such as `IOStreams::Gzip` for `:gz`, instead of an `IOStreams::Extension` struct. A format answers `reader_class` and `writer_class` as before, and also `compressed?` and `encrypted?`, but not the methods of a struct, such as `to_a`, `to_h`, `==` or `[]`. An extension registered with its reader and writer classes is still an `IOStreams::Extension`, which is now frozen, so its setters, such as `writer_class=`, raise `FrozenError`. Previously the setters changed the registered extension for the whole process, since `IOStreams.extensions` returns a copy of the registry that shares its entries.
+- **An extension registered with just its reader and writer classes is neither compressed nor encrypted.** So after replacing a built-in extension that is, such as `:xlsx`, `:gz` or `:pgp`, with your own reader and writer classes, `#compressed?` or `#encrypted?` is now `false` for its files, where previously both were based on the file name. Register a format that answers `compressed?` or `encrypted?` to keep them `true`.
+
 These bug fixes change behavior that existing code may depend on:
 
 - **`allowed_columns`, `required_columns` and `skip_unknown` now also apply when reading rows** with `each(:array)`: to the supplied `columns:`, and to the header row with `cleanse_header: false`. Previously they were ignored in both cases, as they were when reading records. The header row is still yielded as it was read, and each row still contains every value. Set `IOStreams.enforce_column_restrictions = false` to keep the previous behavior, which logs a warning when applying them would change the header row.
@@ -50,6 +55,7 @@ These bug fixes change behavior that existing code may depend on:
 - **An exact name supplied to `#each_child` is returned the same way as one that matches a pattern.** On an S3 path it is now yielded with its attributes, like the children that match a pattern. `IOStreams.each_child` with a name without any pattern characters now yields the attributes for S3 and SFTP paths, and only yields a directory with `directories: true`; previously it yielded only the path, and yielded a local directory regardless.
 - **Local `#each_child` returns `nil`**, like S3 and SFTP paths. Previously it returned an internal array of the names it found, including directories that it did not yield.
 - **A local file name of `~`, or starting with `~/`, is within the home directory**, for example `IOStreams.path("~/data/a.csv")` is `/home/user/data/a.csv`, as `sftp://hostname/~/data/a.csv` is within the login directory, so a configured path can change between local files and SFTP without changing the code. Previously it was within a directory called `~` in the current directory. Use `./~/data/a.csv` for that directory, and a warning is logged via `IOStreams.logger` when the current directory contains one. A name such as `~user/a.csv` or `~$Book1.xlsx` is unchanged.
+- **`#compressed?` and `#encrypted?` follow the streams.** They are true when a stream in the pipeline compresses or encrypts the data, whether it was inferred from the file name or set with `#stream`, so `IOStreams.path("data.csv.gz.pgp").compressed?` and `IOStreams.path("tempfile2527").stream(:gz).compressed?` are now true, and `IOStreams.path("data.csv.gz").stream(:none).compressed?` is now false. Previously they only checked the last extension of the file name. Compression within PGP or `.enc` data is still not reported, since only the encrypted data records whether it was used.
 
 ### Added
 
@@ -61,6 +67,8 @@ These bug fixes change behavior that existing code may depend on:
 - **`#exist?`, `#size` and `#delete` for HTTP(S) paths.** `#exist?` and `#size` use an HTTP HEAD, and `#delete` uses an HTTP DELETE. A `404 Not Found` or `410 Gone` response means the file does not exist. `#delete` follows the same redirects as writing. `#move_to` from an HTTP path now deletes it once it is copied; previously it copied the file and then raised `NotImplementedError`. `#mkpath` does nothing, like S3, so `#move_to` an HTTP path also works.
 - **`#delete` for SFTP paths** deletes a file, or an empty directory, and does nothing when it does not exist, like local and S3 paths. It uses `net-sftp`, like `#each_child`. `#move_to` from an SFTP path now deletes it once it is copied; previously it copied the file and then raised `NotImplementedError`, leaving both copies.
 - **Each HTTP(S) redirect that is followed is logged** at info level via `IOStreams.logger`, without any user name, password or query string, which can hold the signature of a pre-signed url.
+- **`#compressed?` and `#encrypted?` for streams**, such as `IOStreams.stream(io).stream(:gz).compressed?`, like paths.
+- **Register a format with `IOStreams.register_extension(:xz, MyXz)`**, a module that answers `reader_class`, `writer_class`, `compressed?` and `encrypted?`, so that a custom format can declare that its data is compressed or encrypted. The built-in formats are registered this way, so their readers and writers are now loaded when first used, rather than when `iostreams` is required. Registering the reader and writer classes still works, for a format that is neither compressed nor encrypted.
 
 ### Fixed
 

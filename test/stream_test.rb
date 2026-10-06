@@ -795,6 +795,65 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#compressed?" do
+      it "is true when a stream inferred from the file name compresses the data" do
+        assert_predicate IOStreams.path("data.csv.gz"), :compressed?
+      end
+
+      it "is true when the compressed data is then encrypted" do
+        assert_predicate IOStreams.path("data.csv.gz.pgp"), :compressed?
+      end
+
+      it "is true for a stream set with #stream" do
+        assert_predicate IOStreams.path("tempfile2527").stream(:gz), :compressed?
+        assert_predicate stream.stream(:bz2), :compressed?
+      end
+
+      it "is false when the streams are disabled" do
+        refute_predicate IOStreams.path("data.csv.gz").stream(:none), :compressed?
+      end
+
+      it "is false for an encrypted stream, which records any compression within the encrypted data" do
+        refute_predicate IOStreams.path("data.csv.pgp"), :compressed?
+        refute_predicate IOStreams.path("data.csv.enc"), :compressed?
+      end
+
+      it "is false when no stream is inferred from the file name" do
+        refute_predicate IOStreams.path("data.csv"), :compressed?
+        refute_predicate IOStreams.path("data.csv.gz.bak"), :compressed?
+        refute_predicate stream, :compressed?
+      end
+    end
+
+    describe "#encrypted?" do
+      it "is true when a stream inferred from the file name encrypts the data" do
+        assert_predicate IOStreams.path("data.csv.pgp"), :encrypted?
+        assert_predicate IOStreams.path("data.csv.enc"), :encrypted?
+      end
+
+      it "is true when the encrypted data is then compressed" do
+        assert_predicate IOStreams.path("data.csv.pgp.gz"), :encrypted?
+      end
+
+      it "is true for a stream set with #stream" do
+        assert_predicate IOStreams.path("tempfile2527").stream(:pgp), :encrypted?
+        assert_predicate stream.stream(:enc), :encrypted?
+      end
+
+      it "is false when the streams are disabled" do
+        refute_predicate IOStreams.path("data.csv.pgp").stream(:none), :encrypted?
+      end
+
+      it "is false for a compressed stream" do
+        refute_predicate IOStreams.path("data.csv.gz"), :encrypted?
+      end
+
+      it "is false when no stream is inferred from the file name" do
+        refute_predicate IOStreams.path("data.csv"), :encrypted?
+        refute_predicate stream, :encrypted?
+      end
+    end
+
     describe "#copy_from" do
       let :source_path do
         IOStreams.join("copy_test", "source.csv.gz")
