@@ -404,7 +404,8 @@ module IOStreams
 
   # Register a file extension and the format that reads and writes it.
   #
-  # The format, usually a module such as `IOStreams::Gzip`, answers:
+  # The format, usually a module such as `IOStreams::Gzip`, extends `IOStreams::StreamFormat` for the options
+  # of its reader and writer, and answers:
   #   reader_class: [Class|nil] the class that reads the format, or nil when it cannot be read.
   #   writer_class: [Class|nil] the class that writes the format, or nil when it cannot be written.
   #   compressed?:  [true|false] whether data in the format is compressed.
@@ -433,7 +434,8 @@ module IOStreams
     missing = FORMAT_METHODS.reject { |name| format.respond_to?(name) }
     unless missing.empty?
       raise(ArgumentError,
-            "Invalid format for extension #{extension.inspect}: #{format.inspect} does not respond to #{missing.join(', ')}")
+            "Invalid format for extension #{extension.inspect}: #{format.inspect} does not respond to " \
+            "#{missing.join(', ')}. See IOStreams.register_extension.")
     end
 
     @extensions[extension&.to_sym] = format
@@ -476,12 +478,14 @@ module IOStreams
   end
 
   # The methods that a format registered with `register_extension` must respond to.
-  FORMAT_METHODS = %i[reader_class writer_class compressed? encrypted?].freeze
+  FORMAT_METHODS = %i[reader_class writer_class compressed? encrypted? option_names valid_option_names].freeze
   private_constant :FORMAT_METHODS
 
   # A format registered with `register_extension` by its reader and writer classes,
   # whose data is neither compressed nor encrypted.
   Extension = Struct.new(:reader_class, :writer_class) do
+    include StreamFormat
+
     def compressed?
       false
     end

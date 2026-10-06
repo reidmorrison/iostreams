@@ -1,6 +1,8 @@
 module IOStreams
   # Zip compression: reads a file within a zip file, and writes a zip file that contains one file.
   module Zip
+    extend StreamFormat
+
     autoload :Reader, "io_streams/zip/reader"
     autoload :Writer, "io_streams/zip/writer"
 

@@ -98,12 +98,15 @@ Options:
 ## Registering a custom extension
 
 To add a new extension, register the format that reads and writes it, usually a module that answers
-`reader_class`, `writer_class`, `compressed?` and `encrypted?`. The reader and writer classes must
-implement `.open` that yields a stream implementing `#read` or `#write` respectively. See any of the
-streams under `lib/io_streams` for examples.
+`reader_class`, `writer_class`, `compressed?` and `encrypted?`, and extends `IOStreams::StreamFormat`,
+which checks the options supplied for the stream against those of its reader and writer. The reader and
+writer classes must implement `.open` that yields a stream implementing `#read` or `#write` respectively.
+See any of the streams under `lib/io_streams` for examples.
 
 ~~~ruby
 module MyXz
+  extend IOStreams::StreamFormat
+
   def self.reader_class
     MyXz::Reader
   end

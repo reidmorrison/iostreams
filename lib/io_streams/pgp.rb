@@ -7,6 +7,8 @@ module IOStreams
   # - Designed for processing larger files since a process is spawned for each file processed.
   # - For small in memory files or individual emails, use the 'opengpgme' library.
   module Pgp
+    extend StreamFormat
+
     autoload :Reader, "io_streams/pgp/reader"
     autoload :Writer, "io_streams/pgp/writer"
 

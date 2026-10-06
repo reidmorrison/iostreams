@@ -1,6 +1,8 @@
 module IOStreams
   # Converts text to an encoding, and optionally cleanses it.
   module Encode
+    extend StreamFormat
+
     autoload :Converter, "io_streams/encode/converter"
     autoload :Reader, "io_streams/encode/reader"
     autoload :Writer, "io_streams/encode/writer"

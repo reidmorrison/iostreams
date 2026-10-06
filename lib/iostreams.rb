@@ -6,6 +6,7 @@ module IOStreams
   autoload :Path,                "io_streams/path"
   autoload :Reader,              "io_streams/reader"
   autoload :Stream,              "io_streams/stream"
+  autoload :StreamFormat,        "io_streams/stream_format"
   autoload :Tabular,             "io_streams/tabular"
   autoload :Utils,               "io_streams/utils"
   autoload :Writer,              "io_streams/writer"

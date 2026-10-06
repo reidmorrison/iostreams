@@ -287,6 +287,8 @@ module IOStreams
       describe ".register_extension" do
         let(:compressed_format) do
           Module.new do
+            extend IOStreams::StreamFormat
+
             def self.reader_class
               IOStreams::Gzip::Reader
             end
@@ -345,12 +347,36 @@ module IOStreams
           IOStreams.deregister_extension(:abc123)
         end
 
+        it "validates the options of a format" do
+          IOStreams.register_extension(:abc123, compressed_format)
+
+          error = assert_raises(ArgumentError) { IOStreams.path("data.csv.abc123").option(:abc123, bogus: 1) }
+          assert_equal "Unknown option :bogus for a :abc123 stream. Valid options: :level.", error.message
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
         it "raises an exception for a format that does not respond to every method" do
           error = assert_raises ArgumentError do
             IOStreams.register_extension(:abc123, Module.new)
           end
 
-          assert_includes error.message, "does not respond to reader_class, writer_class, compressed?, encrypted?"
+          assert_includes error.message,
+                          "does not respond to reader_class, writer_class, compressed?, encrypted?, option_names, " \
+                          "valid_option_names. See IOStreams.register_extension."
+          refute IOStreams.extensions.key?(:abc123)
+        end
+
+        it "raises an exception for a format that does not extend IOStreams::StreamFormat" do
+          format = Module.new do
+            def self.reader_class = IOStreams::Gzip::Reader
+            def self.writer_class = IOStreams::Gzip::Writer
+            def self.compressed? = true
+            def self.encrypted? = false
+          end
+          error = assert_raises(ArgumentError) { IOStreams.register_extension(:abc123, format) }
+
+          assert_includes error.message, "does not respond to option_names, valid_option_names."
           refute IOStreams.extensions.key?(:abc123)
         end
 

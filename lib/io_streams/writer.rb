@@ -9,7 +9,8 @@ module IOStreams
     end
 
     # Returns [Array<Symbol>] the names of the options that are valid when writing the stream,
-    # or [nil] to accept the options of both the reader and the writer registered for the stream.
+    # or [nil] to accept the options of both the reader and the writer of its format,
+    # see `IOStreams::StreamFormat#valid_option_names`.
     #
     # `IOStreams::Builder` rejects any other option before the writer is opened, naming the direction
     # an option belongs to when it is only valid for the other direction.
