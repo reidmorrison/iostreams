@@ -1,6 +1,8 @@
 module IOStreams
   # Gzip compression.
   module Gzip
+    extend StreamFormat
+
     autoload :Reader, "io_streams/gzip/reader"
     autoload :Writer, "io_streams/gzip/writer"
 

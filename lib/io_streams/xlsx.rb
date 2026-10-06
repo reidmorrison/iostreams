@@ -1,6 +1,8 @@
 module IOStreams
   # Excel workbooks, which are read as CSV. They cannot be written.
   module Xlsx
+    extend StreamFormat
+
     autoload :Reader, "io_streams/xlsx/reader"
 
     # Returns [Class] the class that reads a workbook.

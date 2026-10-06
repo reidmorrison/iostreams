@@ -1,6 +1,8 @@
 module IOStreams
   # Bzip2 compression, using the `bzip2-ffi` gem.
   module Bzip2
+    extend StreamFormat
+
     autoload :Reader, "io_streams/bzip2/reader"
     autoload :Writer, "io_streams/bzip2/writer"
 

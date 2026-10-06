@@ -1,6 +1,8 @@
 module IOStreams
   # Encryption using the `symmetric-encryption` gem.
   module SymmetricEncryption
+    extend StreamFormat
+
     autoload :Reader, "io_streams/symmetric_encryption/reader"
     autoload :Writer, "io_streams/symmetric_encryption/writer"
 
