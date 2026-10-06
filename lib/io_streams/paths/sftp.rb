@@ -243,13 +243,20 @@ module IOStreams
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
-        matcher   = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
-        directory = matcher.path
+        matcher   = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
+        directory = matcher.directory.empty? ? self : child_path(matcher.directory)
         with_net_sftp("SFTP glob capability") do |sftp|
-          Listing.each(sftp, directory.remote_path, matcher.pattern, matcher.flags,
-                       directories: directories) do |name, attributes|
-            child = name ? child_path(name, directory.path) : directory
-            yield(child, attributes) if allowed_child?(child)
+          if matcher.exact?
+            # When the pattern is an exact file name without any pattern characters
+            child      = child_path(matcher.pattern, directory.path)
+            attributes = Listing.remote_attributes(sftp, child.remote_path)
+            found      = attributes && (attributes.file? || (directories && attributes.directory?))
+            yield(child, attributes.attributes) if found && allowed_child?(child)
+          else
+            Listing.each(sftp, directory.remote_path, matcher, directories: directories) do |name, attributes|
+              child = child_path(name, directory.path)
+              yield(child, attributes) if allowed_child?(child)
+            end
           end
         end
         nil

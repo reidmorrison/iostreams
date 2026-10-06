@@ -11,36 +11,21 @@ module IOStreams
         PERMISSION_DENIED = 3
 
         # Yields [String, Hash] the name relative to the directory, and the attributes, of each file
-        # within the remote directory whose name matches the pattern, and of each directory when `directories`.
-        #
-        # When the pattern is nil, yields nil and the attributes of the directory itself, when it is a file,
-        # or a directory and `directories`, since the pattern was a name without any pattern characters.
+        # within the remote directory whose name the matcher matches, and of each directory when `directories`.
+        # Only the sub-directories that the matcher can match names within are listed,
+        # see `IOStreams::Paths::Matcher#depth`.
         #
         # Yields nothing when the directory does not exist, or is not a directory.
-        def self.each(sftp, directory, pattern, flags, directories:)
+        def self.each(sftp, directory, matcher, directories:)
           attributes = remote_attributes(sftp, directory)
-          return unless attributes
+          return unless attributes&.directory?
 
-          if pattern.nil?
-            yield(nil, attributes.attributes) if attributes.file? || (directories && attributes.directory?)
-            return
-          end
-          return unless attributes.directory?
-
-          each_entry(sftp, directory, nil, depth(pattern)) do |name, entry|
+          each_entry(sftp, directory, nil, matcher.depth) do |name, entry|
             next if !directories && !entry.file?
-            next unless ::File.fnmatch?(pattern, name, flags)
+            next unless matcher.match?(name)
 
             yield(name, entry.attributes.attributes)
           end
-        end
-
-        # Returns [Integer] how many levels of sub-directories the pattern can match within,
-        # or nil when it can match at any level.
-        def self.depth(pattern)
-          return if pattern.include?("**") || pattern.match?(Paths::File::BRACE_WITH_SLASH)
-
-          pattern.count("/")
         end
 
         # Yields the name, relative to the directory, and the entry, of each entry in the remote directory,
@@ -72,7 +57,7 @@ module IOStreams
         end
 
         # Returns the attributes of the remote file or directory, or nil when it does not exist.
-        # Also used by `SFTP#exist?`, `#size`, `#file?`, `#directory?` and `#empty?`.
+        # Also used by `SFTP#exist?`, `#size`, `#file?`, `#directory?`, `#empty?`, and `#each_child` for an exact name.
         def self.remote_attributes(sftp, remote_name)
           sftp.stat!(remote_name)
         rescue Net::SFTP::StatusException => e
@@ -81,7 +66,7 @@ module IOStreams
           nil
         end
 
-        private_class_method :depth, :each_entry, :entries
+        private_class_method :each_entry, :entries
       end
     end
   end

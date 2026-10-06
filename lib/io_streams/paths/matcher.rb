@@ -1,59 +1,78 @@
 module IOStreams
   module Paths
-    # Implement fnmatch logic for any path iterator
+    # A pattern supplied to `#each_child`, such as `"a/b/**/*.csv"`, which matches names like `Dir.glob`.
+    #
+    # The elements of the pattern before the first one with pattern characters are a directory, so that it is
+    # listed directly rather than matched, and the rest is the pattern matched within it. Each path class lists
+    # the directory within itself, and asks the matcher which names match:
+    #   "a/b/c/**/*"  => directory: "a/b/c", pattern: "**/*"
+    #   "a/b/c?/**/*" => directory: "a/b",   pattern: "c?/**/*"
+    #   "**/*"        => directory: "",      pattern: "**/*"
+    #   "a/b.csv"     => directory: "a",     pattern: "b.csv", which is #exact?
     class Matcher
-      # Characters indicating that pattern matching is required
-      MATCH_START_CHARS = /[*?\[{]/
+      # Characters that make a pattern element match names, rather than be a name.
+      PATTERN_CHARACTERS = /[*?\[{\\]/
+      # A brace whose alternatives contain a directory, such as `{a,b/c}`.
+      BRACE_WITH_SLASH   = /\{[^}]*\/[^}]*\}/
+      # A pattern element that names a hidden file, such as `.env`.
+      HIDDEN_ELEMENT     = /(?:\A|[\/{,])\./
 
-      attr_reader :path, :pattern, :flags
+      attr_reader :directory, :pattern, :flags
 
-      # If the supplied pattern contains sub-directories without wildcards, navigate down to that directory
-      # first before applying wildcard lookups from that point on.
+      # Parameters
+      #   pattern: [String]
+      #     The pattern, see `IOStreams::Paths::File#each_child`.
       #
-      # Examples: If the current path is "/path/work"
-      #   "a/b/c/**/*"  => "/path/work/a/b/c"
-      #   "a/b/c?/**/*" => "/path/work/a/b"
-      #   "**/*"        => "/path/work"
+      #   case_sensitive: [true|false]
+      #     Whether the pattern is case-sensitive.
       #
-      # Note: Absolute paths in the pattern are not supported.
-      def initialize(path, pattern, case_sensitive: false, hidden: false)
-        extract_optimized_path(path, pattern)
-
-        @flags = ::File::FNM_EXTGLOB | ::File::FNM_PATHNAME
-        @flags |= ::File::FNM_CASEFOLD unless case_sensitive
-        @flags |= ::File::FNM_DOTMATCH if hidden
+      #   hidden: [true|false]
+      #     Whether a wildcard matches hidden names, which start with `.`.
+      def initialize(pattern, case_sensitive: false, hidden: false)
+        @hidden              = hidden
+        @directory, @pattern = split(pattern)
+        @flags               = ::File::FNM_EXTGLOB | ::File::FNM_PATHNAME
+        @flags              |= ::File::FNM_CASEFOLD unless case_sensitive
+        @flags              |= ::File::FNM_DOTMATCH if hidden
       end
 
-      # Returns whether the relative `file_name` matches
-      def match?(file_name)
-        relative_file_name = file_name.sub(path.to_s, "").sub(%r{\A/}, "")
-        ::File.fnmatch?(pattern, relative_file_name, flags)
+      # Returns [true|false] whether the name, relative to the #directory, matches the pattern.
+      def match?(name)
+        ::File.fnmatch?(pattern, name, flags)
       end
 
-      # Whether this pattern includes a recursive match.
-      # I.e. Includes `**` anywhere in the path
-      def recursive?
-        @recursive ||= pattern.nil? ? false : pattern.include?("**")
+      # Returns [true|false] whether the pattern has no pattern characters, so that it is the name of a child
+      # of the #directory, which a path can look up directly rather than list.
+      def exact?
+        !pattern.match?(PATTERN_CHARACTERS)
+      end
+
+      # Returns [Integer] how many levels of sub-directories within the #directory the pattern can match names in,
+      # or [nil] when it can match names at any level, such as with `**`.
+      def depth
+        return if pattern.include?("**") || pattern.match?(BRACE_WITH_SLASH)
+
+        pattern.count("/")
+      end
+
+      # Returns [true|false] whether the pattern can match a hidden name: with `hidden: true`, or when the pattern
+      # names one explicitly, such as `.env`.
+      def hidden?
+        @hidden || pattern.match?(HIDDEN_ELEMENT)
       end
 
       private
 
-      def extract_optimized_path(path, pattern)
+      # Returns [String, String] the directory, and the pattern within it.
+      # The last element is the pattern when no element has pattern characters, so that it is matched within its
+      # directory. An absolute directory without any elements is `/`.
+      def split(pattern)
         elements = pattern.split("/")
-        index    = elements.find_index { |e| e.match(MATCH_START_CHARS) }
-        if index.nil?
-          # No index means it has no pattern.
-          @path    = path.nil? ? IOStreams.path(pattern) : path.join(pattern)
-          @pattern = nil
-        elsif index.zero?
-          # Cannot optimize path since the very first entry contains a wildcard
-          @path    = path || IOStreams.path
-          @pattern = pattern
-        else
-          new_path = elements[0..(index - 1)].join("/")
-          @path    = path.nil? ? IOStreams.path(new_path) : path.join(new_path)
-          @pattern = elements[index..].join("/")
-        end
+        index    = elements.find_index { |element| element.match?(PATTERN_CHARACTERS) } || [elements.size - 1, 0].max
+        return ["", pattern] if index.zero?
+
+        directory = elements[0...index].join("/")
+        [directory.empty? ? "/" : directory, elements[index..].join("/")]
       end
     end
   end

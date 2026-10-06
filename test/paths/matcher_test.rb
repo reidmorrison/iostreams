@@ -6,116 +6,155 @@ module Paths
       let :cases do
         [
           {
-            path:             "/path/work",
             pattern:          "a/b/c/**/*",
-            expected_path:    "/path/work/a/b/c",
+            directory:        "a/b/c",
             expected_pattern: "**/*",
-            recursive:        true,
-            matches:          %w[/path/work/a/b/c/any/file /path/work/a/b/c/other/file],
-            not_matches:      %w[/path/work/a/b/c/.profile /path/work/a/b/c/sub/.name]
+            depth:            nil,
+            matches:          %w[any/file other/file],
+            not_matches:      %w[.profile sub/.name]
           },
-          {path: "/path/work", pattern: "a/b/c?/**", expected_path: "/path/work/a/b", expected_pattern: "c?/**", recursive: true},
-          {path: "/path/work", pattern: "**", expected_path: "/path/work", expected_pattern: "**", recursive: true},
-          # Case-insensitive exists that returns the actual file name.
-          {path: "/path/work", pattern: "a/b/file.txt", expected_path: "/path/work/a/b/file.txt", expected_pattern: nil, recursive: false},
+          {pattern: "a/b/c?/**", directory: "a/b", expected_pattern: "c?/**", depth: nil},
+          {pattern: "**", directory: "", expected_pattern: "**", depth: nil},
+          # An exact name is matched within its directory, so that a path can find it regardless of its case.
           {
-            path:             "/path/work",
+            pattern:          "a/b/file.txt",
+            directory:        "a/b",
+            expected_pattern: "file.txt",
+            depth:            0,
+            exact:            true,
+            matches:          %w[file.txt FILE.TXT],
+            not_matches:      %w[file.txt.gz]
+          },
+          {
             pattern:          "a/b/file*{zip,gz}",
-            expected_path:    "/path/work/a/b",
+            directory:        "a/b",
             expected_pattern: "file*{zip,gz}",
-            recursive:        false,
-            matches:          %w[/path/work/a/b/file.GZ /path/work/a/b/FILE.ZIP /path/work/a/b/file123.zIp],
-            not_matches:      %w[/path/work/a/b/.profile /path/work/a/b/filter.zip /path/work/a/b/outgoing/filter.zip],
+            depth:            0,
+            matches:          %w[file.GZ FILE.ZIP file123.zIp],
+            not_matches:      %w[.profile filter.zip outgoing/filter.zip],
             case_sensitive:   false
           },
           {
-            path:             "/path/work",
             pattern:          "a/b/*",
-            expected_path:    "/path/work/a/b",
+            directory:        "a/b",
             expected_pattern: "*",
-            recursive:        false,
-            matches:          %w[/path/work/a/b/file.GZ /path/work/a/b/FILE.ZIP /path/work/a/b/file123.zIp],
-            not_matches:      %w[/path/work/a/b/.profile /path/work/a/b/my/filter.zip /path/work/a/b/outgoing/filter.zip],
+            depth:            0,
+            matches:          %w[file.GZ FILE.ZIP file123.zIp],
+            not_matches:      %w[.profile my/filter.zip outgoing/filter.zip],
             case_sensitive:   false
           },
           {
-            path:             "/path/work",
             pattern:          "a/b/file*{zip,gz}",
-            expected_path:    "/path/work/a/b",
+            directory:        "a/b",
             expected_pattern: "file*{zip,gz}",
-            recursive:        false,
-            matches:          %w[/path/work/a/b/file.gz /path/work/a/b/file.zip],
-            not_matches:      %w[/path/work/a/b/file.GZ /path/work/a/b/FILE.ZIP],
+            depth:            0,
+            matches:          %w[file.gz file.zip],
+            not_matches:      %w[file.GZ FILE.ZIP],
             case_sensitive:   true
           },
-          {path: "/path/work", pattern: "file.txt", expected_path: "/path/work/file.txt", expected_pattern: nil, recursive: false},
-          {path: "/path/work", pattern: "*", expected_path: "/path/work", expected_pattern: "*", recursive: false}
+          {pattern: "file.txt", directory: "", expected_pattern: "file.txt", depth: 0, exact: true},
+          {pattern: "*", directory: "", expected_pattern: "*", depth: 0},
+          {pattern: "*/*.csv", directory: "", expected_pattern: "*/*.csv", depth: 1, matches: %w[sub/a.csv], not_matches: %w[a.csv]},
+          {pattern: "/data/*.csv", directory: "/data", expected_pattern: "*.csv", depth: 0},
+          {pattern: "/a.csv", directory: "/", expected_pattern: "a.csv", depth: 0, exact: true},
+          {pattern: "s3://bucket/data/*.csv", directory: "s3://bucket/data", expected_pattern: "*.csv", depth: 0},
+          # Alternatives that contain a directory can match names at different depths.
+          {
+            pattern:          "data/{a,b/c}.csv",
+            directory:        "data",
+            expected_pattern: "{a,b/c}.csv",
+            depth:            nil,
+            matches:          %w[a.csv b/c.csv],
+            not_matches:      %w[b.csv]
+          },
+          # `\` escapes the next character, so it is a pattern character.
+          {pattern: "my\\file.csv", directory: "", expected_pattern: "my\\file.csv", depth: 0, matches: %w[myfile.csv]},
+          {pattern: "a\\*.csv", directory: "", expected_pattern: "a\\*.csv", depth: 0, matches: %w[a*.csv], not_matches: %w[ab.csv]}
         ]
       end
-      # , case_sensitive: false, hidden: false
 
-      describe "#recursive?" do
-        it "identifies recursive paths correctly" do
+      it "splits the directory from the pattern" do
+        cases.each do |test_case|
+          matcher = IOStreams::Paths::Matcher.new(test_case[:pattern])
+
+          assert_equal test_case[:directory], matcher.directory, test_case
+          assert_equal test_case[:expected_pattern], matcher.pattern, test_case
+        end
+      end
+
+      describe "#exact?" do
+        it "is true when the pattern has no pattern characters" do
           cases.each do |test_case|
-            path    = IOStreams.path(test_case[:path])
-            matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
+            matcher = IOStreams::Paths::Matcher.new(test_case[:pattern])
 
-            assert_equal test_case[:recursive], matcher.recursive?, test_case
+            assert_equal test_case.fetch(:exact, false), matcher.exact?, test_case
           end
         end
       end
 
-      describe "#path?" do
-        it "optimizes path correctly" do
+      describe "#depth" do
+        it "is the number of sub-directories that the pattern can match names in, or nil for any" do
           cases.each do |test_case|
-            path    = IOStreams.path(test_case[:path])
-            matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
+            matcher = IOStreams::Paths::Matcher.new(test_case[:pattern])
 
-            assert_equal test_case[:expected_path], matcher.path.to_s, test_case
-          end
-        end
-      end
-
-      describe "#pattern" do
-        it "optimizes pattern correctly" do
-          cases.each do |test_case|
-            path    = IOStreams.path(test_case[:path])
-            matcher = IOStreams::Paths::Matcher.new(path, test_case[:pattern])
-            if test_case[:expected_pattern].nil?
-              assert_nil matcher.pattern, test_case
+            if test_case[:depth].nil?
+              assert_nil matcher.depth, test_case
             else
-              assert_equal test_case[:expected_pattern], matcher.pattern, test_case
+              assert_equal test_case[:depth], matcher.depth, test_case
             end
           end
         end
       end
 
       describe "#match?" do
-        it "matches" do
+        it "matches a name within the directory" do
           cases.each do |test_case|
-            path           = IOStreams.path(test_case[:path])
-            case_sensitive = test_case.fetch(:case_sensitive, false)
-            matcher        = IOStreams::Paths::Matcher.new(path, test_case[:pattern], case_sensitive: case_sensitive)
             next unless test_case[:matches]
 
-            test_case[:matches].each do |file_name|
+            matcher = IOStreams::Paths::Matcher.new(test_case[:pattern], case_sensitive: test_case.fetch(:case_sensitive, false))
+
+            test_case[:matches].each do |name|
               # Matcher exposes #match?, not the =~ that assert_match relies on.
-              assert matcher.match?(file_name), test_case.merge(file_name: file_name) # rubocop:disable Minitest/AssertMatch
+              assert matcher.match?(name), test_case.merge(name: name) # rubocop:disable Minitest/AssertMatch
             end
           end
         end
 
-        it "should not match" do
-          cases.each_with_index do |test_case, index|
-            path           = IOStreams.path(test_case[:path])
-            case_sensitive = test_case.key?(:case_sensitive) ? test_case[:case_sensitive] : false
-            matcher        = IOStreams::Paths::Matcher.new(path, test_case[:pattern], case_sensitive: case_sensitive)
+        it "does not match other names" do
+          cases.each do |test_case|
             next unless test_case[:not_matches]
 
-            test_case[:not_matches].each do |file_name|
+            matcher = IOStreams::Paths::Matcher.new(test_case[:pattern], case_sensitive: test_case.fetch(:case_sensitive, false))
+
+            test_case[:not_matches].each do |name|
               # Matcher exposes #match?, not the =~ that refute_match relies on.
-              refute matcher.match?(file_name), -> { {case_sensitive: case_sensitive, test_case_number: index + 1, failed_file_name: file_name, test_case: test_case}.ai } # rubocop:disable Minitest/RefuteMatch
+              refute matcher.match?(name), test_case.merge(name: name) # rubocop:disable Minitest/RefuteMatch
             end
+          end
+        end
+
+        it "matches hidden names with hidden: true" do
+          refute IOStreams::Paths::Matcher.new("*").match?(".profile") # rubocop:disable Minitest/RefuteMatch
+          assert IOStreams::Paths::Matcher.new("*", hidden: true).match?(".profile") # rubocop:disable Minitest/AssertMatch
+        end
+      end
+
+      describe "#hidden?" do
+        it "is false unless hidden names are requested or named" do
+          refute_predicate IOStreams::Paths::Matcher.new("*.csv"), :hidden?
+        end
+
+        it "is false when only the directory is hidden, since it is listed rather than matched" do
+          refute_predicate IOStreams::Paths::Matcher.new("a/.config/*"), :hidden?
+        end
+
+        it "is true with hidden: true" do
+          assert_predicate IOStreams::Paths::Matcher.new("*.csv", hidden: true), :hidden?
+        end
+
+        it "is true when the pattern names a hidden file" do
+          %w[.env */.config/* {a,.b}].each do |pattern|
+            assert_predicate IOStreams::Paths::Matcher.new(pattern), :hidden?, pattern
           end
         end
       end

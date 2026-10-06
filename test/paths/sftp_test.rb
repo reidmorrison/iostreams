@@ -905,6 +905,25 @@ module Paths
           end
         end
 
+        it "matches a pattern within the path even when it starts with the name of the path" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv data/inner.csv], root: "/data") do |stub_sftp|
+            children = path.children("data/*.csv")
+
+            assert_equal %w[/data/data], stub_sftp.instance_variable_get(:@listed)
+            assert_equal %w[/data/data/inner.csv], children.map(&:path)
+          end
+        end
+
+        it "treats a backslash as escaping the next character, like local paths" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[ab.csv], root: "/data") do
+            assert_equal %w[/data/ab.csv], path.children("a\\b.csv").map(&:path)
+          end
+        end
+
         it "returns nothing when the directory does not exist" do
           with_stub_net_sftp(["a.csv"], missing: true) do
             assert_empty new_path("sftp://example.org/missing", username: "jack").children
