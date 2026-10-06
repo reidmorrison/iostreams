@@ -57,13 +57,8 @@ module IOStreams
       def <<(array)
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
 
-        if @tabular.header?
-          # If header (columns) was not supplied as an argument, assume first line is the header.
-          @tabular.header.columns = array
-          @line_writer << @tabular.render_header
-        else
-          @line_writer << @tabular.render(array)
-        end
+        # If header (columns) was not supplied as an argument, assume first line is the header.
+        @line_writer << (@tabular.header? ? @tabular.render_header(array) : @tabular.render(array))
         self
       end
     end

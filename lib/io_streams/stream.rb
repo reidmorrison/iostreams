@@ -407,8 +407,8 @@ module IOStreams
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
     # changing the streams or options of this one.
     def without_streams
-      copy = dup
-      copy.instance_variable_set(:@builder, IOStreams::Builder.new(file_name).stream(:none))
+      copy         = dup
+      copy.builder = IOStreams::Builder.new(file_name).stream(:none)
       copy
     end
 

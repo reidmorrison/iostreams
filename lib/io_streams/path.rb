@@ -192,6 +192,26 @@ module IOStreams
       raise NotImplementedError
     end
 
+    # Returns [true|false] whether this path can be accessed: whether it is within the allowed paths,
+    # see `IOStreams.add_allowed_path`.
+    #
+    # Always true when no allowed paths have been added.
+    #
+    # Example:
+    #   IOStreams.add_allowed_path("/var/data/uploads")
+    #
+    #   IOStreams.path("/var/data/uploads/file.csv").allowed?
+    #   # => true
+    #
+    #   IOStreams.path("/etc/passwd").allowed?
+    #   # => false
+    def allowed?
+      authorize!
+      true
+    rescue Errors::AccessDenied
+      false
+    end
+
     # Returns [true|false] whether partially created files are visible on this path.
     #
     # With local file systems a file that is still being written to is visbile.
@@ -267,14 +287,6 @@ module IOStreams
       return if IOStreams.allowed_paths.empty? || (@permitted_path && @permitted_path == path)
 
       authorize_location!(allowed_location)
-    end
-
-    # Returns [true|false] whether this path is within the allowed paths, see `#authorize!`.
-    def allowed?
-      authorize!
-      true
-    rescue Errors::AccessDenied
-      false
     end
 
     private

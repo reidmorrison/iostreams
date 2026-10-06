@@ -129,6 +129,7 @@ module IOStreams
   # Note: The temp file is accessible even when it is not within the allowed paths, see `IOStreams.add_allowed_path`.
   def self.temp_file(basename, extension = "")
     Utils.temp_file_name(basename, extension) do |file_name|
+      # `Path#permit!` is not public, since it would let any caller access a path outside the allowed paths.
       yield(Paths::File.new(file_name).send(:permit!).stream(:none))
     end
   end
@@ -314,10 +315,11 @@ module IOStreams
   #
   # Parameters: Same as `IOStreams.path`
   def self.allowed_path?(*elements, **args)
-    path(*elements, **args).send(:allowed?)
+    path(*elements, **args).allowed?
   end
 
   def self.allowed_location(path)
+    # `Path#allowed_location` is not public, so that how each path is normalized is not part of the public API.
     path.send(:allowed_location)
   rescue Errors::AccessDenied => e
     raise(ArgumentError, e.message)

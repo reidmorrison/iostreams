@@ -81,8 +81,7 @@ module IOStreams
 
         if @tabular.header?
           # Extract header from the keys from the first row when not supplied above.
-          @tabular.header.columns = hash.keys
-          @line_writer << @tabular.render_header
+          @line_writer << @tabular.render_header(hash.keys)
         end
         @line_writer << @tabular.render(hash)
         self

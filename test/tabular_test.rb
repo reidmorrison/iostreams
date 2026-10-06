@@ -516,6 +516,14 @@ class TabularTest < Minitest::Test
 
         assert_nil tabular.render_header
       end
+
+      it "renders the supplied columns, which become the header columns" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+
+        assert_equal "name,zip", tabular.render_header(%i[name zip])
+        assert_equal %w[name zip], tabular.header.columns
+        refute_predicate tabular, :header?
+      end
     end
 
     describe "#header?" do
