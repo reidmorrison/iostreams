@@ -404,12 +404,15 @@ module IOStreams
 
   # Register a file extension and the format that reads and writes it.
   #
-  # The format, usually a module such as `IOStreams::Gzip`, extends `IOStreams::StreamFormat` for the options
-  # of its reader and writer, and answers:
+  # The format, usually a module such as `IOStreams::Gzip`, extends `IOStreams::StreamFormat`, which checks the
+  # options of its reader and writer and opens them, and answers:
   #   reader_class: [Class|nil] the class that reads the format, or nil when it cannot be read.
   #   writer_class: [Class|nil] the class that writes the format, or nil when it cannot be written.
   #   compressed?:  [true|false] whether data in the format is compressed.
   #   encrypted?:   [true|false] whether data in the format is encrypted.
+  #
+  # A format that file names do not name, such as `:encode`, also answers `file_name_extension?` with false,
+  # see `IOStreams::StreamFormat#file_name_extension?`.
   #
   # Or supply just the reader and writer classes, for a format that is neither compressed nor encrypted.
   #
@@ -478,7 +481,10 @@ module IOStreams
   end
 
   # The methods that a format registered with `register_extension` must respond to.
-  FORMAT_METHODS = %i[reader_class writer_class compressed? encrypted? option_names valid_option_names].freeze
+  FORMAT_METHODS = %i[
+    reader_class writer_class compressed? encrypted? file_name_extension?
+    option_names valid_option_names validate_options open_stream
+  ].freeze
   private_constant :FORMAT_METHODS
 
   # A format registered with `register_extension` by its reader and writer classes,

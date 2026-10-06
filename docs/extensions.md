@@ -99,9 +99,9 @@ Options:
 
 To add a new extension, register the format that reads and writes it, usually a module that answers
 `reader_class`, `writer_class`, `compressed?` and `encrypted?`, and extends `IOStreams::StreamFormat`,
-which checks the options supplied for the stream against those of its reader and writer. The reader and
-writer classes must implement `.open` that yields a stream implementing `#read` or `#write` respectively.
-See any of the streams under `lib/io_streams` for examples.
+which checks the options supplied for the stream against those of its reader and writer, and opens them
+with the options that each one uses. The reader and writer classes must implement `.open` that yields a
+stream implementing `#read` or `#write` respectively. See any of the streams under `lib/io_streams` for examples.
 
 ~~~ruby
 module MyXz
@@ -127,6 +127,23 @@ module MyXz
 end
 
 IOStreams.register_extension(:xz, MyXz)
+~~~
+
+A format that file names do not name, such as `:encode`, which converts the text that the application
+reads or writes, answers `file_name_extension?` with `false`. It is applied whenever its options are set
+with `option`, ahead of the streams that the file name's extensions apply, and a file name ending in its
+name does not apply it:
+
+~~~ruby
+module MyTrim
+  extend IOStreams::StreamFormat
+
+  # ... reader_class, writer_class, compressed? and encrypted?
+
+  def self.file_name_extension?
+    false
+  end
+end
 ~~~
 
 A format that is neither compressed nor encrypted can instead be registered with just its reader and

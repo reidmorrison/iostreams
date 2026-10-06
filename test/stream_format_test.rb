@@ -65,5 +65,91 @@ class StreamFormatTest < Minitest::Test
         assert_nil format.valid_option_names
       end
     end
+
+    describe "#file_name_extension?" do
+      it "is true by default" do
+        assert_predicate gzip, :file_name_extension?
+        assert_predicate IOStreams::Extension.new(nil, nil), :file_name_extension?
+      end
+
+      it "is false for the encode stream, which file names do not name" do
+        refute_predicate IOStreams.extensions[:encode], :file_name_extension?
+      end
+    end
+
+    describe "#validate_options" do
+      # A format whose reader does not accept the writer's options.
+      let(:format) do
+        reader = Class.new(IOStreams::Reader) do
+          def self.option_names = %i[size]
+          def self.valid_option_names = option_names
+        end
+        writer = Class.new(IOStreams::Writer) do
+          def self.option_names = %i[level]
+        end
+        IOStreams::Extension.new(reader, writer)
+      end
+
+      it "accepts valid options" do
+        assert_nil format.validate_options(:reader, {size: 1}, name: :test)
+        assert_nil format.validate_options(:writer, {size: 1, level: 1}, name: :test)
+        assert_nil format.validate_options(nil, {size: 1, level: 1}, name: :test)
+      end
+
+      it "names the stream as it was set, when either direction is possible" do
+        error = assert_raises(ArgumentError) { gzip.validate_options(nil, {levl: 1}, name: :gzip) }
+
+        assert_equal "Unknown option :levl for a :gzip stream. Valid options: :level.", error.message
+      end
+
+      it "names the direction that an option only applies to" do
+        error = assert_raises(ArgumentError) { format.validate_options(:reader, {level: 1, bogus: 2}, name: :test) }
+
+        assert_equal ":level only applies when writing a :test stream and cannot be used when reading. " \
+                     "Configure a separate path or stream without it for reading. " \
+                     "Unknown option :bogus when reading a :test stream. Valid options: :size.",
+                     error.message
+      end
+
+      it "does not check the options of a class that does not declare them" do
+        assert_nil IOStreams::Extension.new(Class.new, nil).validate_options(:reader, {anything: 1}, name: :test)
+      end
+    end
+
+    describe "#open_stream" do
+      it "supplies only the options that the class uses" do
+        enc     = IOStreams.extensions[:enc]
+        options = {compress: false}
+        io      = StringIO.new
+        enc.open_stream(:writer, io, options, name: :enc) { |stream| stream.write("hello") }
+
+        assert_equal "hello", enc.open_stream(:reader, StringIO.new(io.string), options, name: :enc, &:read)
+      end
+
+      it "defaults the options from the file name" do
+        io = StringIO.new
+        IOStreams.extensions[:zip].open_stream(:writer, io, {}, name: :zip, file_name: "reports/example.csv.zip") do |stream|
+          stream.write("hello")
+        end
+
+        assert_includes io.string, "example.csv"
+      end
+
+      it "validates the options" do
+        error = assert_raises(ArgumentError) do
+          gzip.open_stream(:reader, StringIO.new, {levl: 1}, name: :gz) { |_stream| flunk }
+        end
+
+        assert_equal "Unknown option :levl when reading a :gz stream. Valid options: :level.", error.message
+      end
+
+      it "raises when the format cannot be read or written in the direction" do
+        error = assert_raises(ArgumentError) do
+          IOStreams.extensions[:xlsx].open_stream(:writer, StringIO.new, {}, name: :xlsx) { |_stream| flunk }
+        end
+
+        assert_equal "No writer registered for Stream type: :xlsx", error.message
+      end
+    end
   end
 end
