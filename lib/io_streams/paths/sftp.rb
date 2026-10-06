@@ -208,6 +208,11 @@ module IOStreams
 
       protected
 
+      # Returns [String] the url without the user name, password, or query, which can hold ssh options such as a key.
+      def display_name
+        url.sub(%r{\A([^:/]+://)[^/?#]*@}, "\\1").sub(/[?#].*\z/m, "")
+      end
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       def path=(path)
         # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.

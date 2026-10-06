@@ -205,6 +205,18 @@ module IOStreams
             IOStreams.add_root("invalid name", "/tmp")
           end
         end
+
+        it "freezes the root path it returns" do
+          root = IOStreams.add_root(:frozen_test, "/tmp/frozen_test")
+
+          assert_predicate root, :frozen?
+          assert_raises(FrozenError) { root.stream(:gz) }
+          refute_predicate IOStreams.root(:frozen_test), :frozen?
+          assert_equal({gz: {}}, IOStreams.root(:frozen_test).stream(:gz).pipeline)
+          assert_equal "/tmp/frozen_test/a.csv", IOStreams.join("a.csv", root: :frozen_test).to_s
+        ensure
+          IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
+        end
       end
 
       describe ".roots" do
