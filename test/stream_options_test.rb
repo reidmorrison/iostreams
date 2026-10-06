@@ -89,15 +89,38 @@ class StreamOptionsTest < Minitest::Test
         assert_equal data, enc.read
       end
 
-      it "names the direction of an option that is not valid for reading" do
-        path("a.csv.pgp").option(:pgp, recipient: "receiver@example.org").write(data)
-
-        error = assert_raises(ArgumentError) do
-          path("a.csv.pgp").option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: "key").read
+      # Every built-in stream accepts the other direction's options, so use one that does not.
+      def with_direction_stream
+        reader = Class.new(IOStreams::Reader) do
+          def self.option_names = %i[size]
+          def self.stream(io, **) = yield(io)
         end
-        assert_equal ":import_and_trust_key only applies when writing a :pgp stream and cannot be used when reading. " \
-                     "Configure a separate path or stream without it for reading.",
-                     error.message
+        writer = Class.new(IOStreams::Writer) do
+          def self.option_names = %i[level]
+          def self.stream(io, **) = yield(io)
+        end
+        IOStreams.register_extension(:direction_test, reader, writer)
+        yield
+      ensure
+        IOStreams.deregister_extension(:direction_test)
+      end
+
+      it "names the direction of an option that is not valid for reading" do
+        with_direction_stream do
+          error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new(data)).stream(:direction_test, level: 1).read }
+          assert_equal ":level only applies when writing a :direction_test stream and cannot be used when reading. " \
+                       "Configure a separate path or stream without it for reading.",
+                       error.message
+        end
+      end
+
+      it "validates every stream in the pipeline" do
+        with_direction_stream do
+          stream = IOStreams.stream(StringIO.new(Zlib.gzip(data))).stream(:direction_test, level: 1).stream(:gz)
+
+          error = assert_raises(ArgumentError) { stream.read }
+          assert_match(/\A:level only applies when writing a :direction_test stream/, error.message)
+        end
       end
 
       it "reads PGP with the signer used to write" do
@@ -106,15 +129,6 @@ class StreamOptionsTest < Minitest::Test
         pgp.write(data)
 
         assert_equal data, pgp.read
-      end
-
-      it "validates every stream in the pipeline" do
-        path("a.csv.pgp.enc").option(:pgp, recipient: "receiver@example.org").write(data)
-
-        error = assert_raises(ArgumentError) do
-          path("a.csv.pgp.enc").option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: "key").read
-        end
-        assert_match(/\A:import_and_trust_key only applies when writing a :pgp stream/, error.message)
       end
     end
 

@@ -16,6 +16,17 @@ class PgpReaderTest < Minitest::Test
       temp_file.delete
     end
 
+    # A key that gpg does not trust, which only these tests use.
+    def untrusted_key
+      unless IOStreams::Pgp.key?(email: "untrusted@example.org")
+        IOStreams::Pgp.generate_key(name: "Untrusted", email: "untrusted@example.org", passphrase: "untrusted_passphrase",
+                                    key_type: "EDDSA", key_curve: "ed25519", key_usage: "sign",
+                                    subkey_type: "ECDH", subkey_curve: "cv25519")
+      end
+      IOStreams::Pgp.set_trust(email: "untrusted@example.org", level: 2)
+      IOStreams::Pgp.export(email: "untrusted@example.org")
+    end
+
     describe ".file" do
       it "reads encrypted file" do
         IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") do |io|
@@ -215,13 +226,7 @@ class PgpReaderTest < Minitest::Test
       end
 
       it "raises when gpg does not trust the signer's key" do
-        unless IOStreams::Pgp.key?(email: "untrusted@example.org")
-          IOStreams::Pgp.generate_key(name: "Untrusted", email: "untrusted@example.org", passphrase: "untrusted_passphrase",
-                                      key_type: "EDDSA", key_curve: "ed25519", key_usage: "sign",
-                                      subkey_type: "ECDH", subkey_curve: "cv25519")
-        end
-        # Never trust this key, which only this test uses.
-        IOStreams::Pgp.set_trust(email: "untrusted@example.org", level: 2)
+        untrusted_key
         file_name = write(signer: "untrusted@example.org", signer_passphrase: "untrusted_passphrase")
 
         error = assert_raises(IOStreams::Pgp::Failure) { read(file_name, signer: "untrusted@example.org") }
@@ -232,6 +237,72 @@ class PgpReaderTest < Minitest::Test
         path = IOStreams.path(signed_by_sender).stream(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org")
 
         assert_equal decrypted, path.read
+      end
+
+      describe "import_and_trust_key" do
+        let :signed_by_untrusted do
+          key = untrusted_key
+          write(signer: "untrusted@example.org", signer_passphrase: "untrusted_passphrase")
+          key
+        end
+
+        it "reads a file signed by the imported key, which gpg need not trust" do
+          key = signed_by_untrusted
+
+          assert_equal decrypted, read(temp_file.path, import_and_trust_key: key)
+          assert_equal decrypted, read(temp_file.path, import_and_trust_key: [key], verify_first: true)
+        end
+
+        it "raises for a file signed by another key" do
+          key   = untrusted_key
+          error = assert_raises(IOStreams::Pgp::Failure) { read(signed_by_sender, import_and_trust_key: key) }
+
+          assert_match(/\APGP file was not signed by the imported key: /, error.message)
+        end
+
+        it "raises for an unsigned file" do
+          key = untrusted_key
+          assert_raises(IOStreams::Pgp::Failure) { read(write, import_and_trust_key: key, verify_first: true) }
+        end
+
+        it "accepts a file signed by either the signer or the imported key" do
+          key = untrusted_key
+
+          assert_equal decrypted, read(signed_by_sender, signer: "sender@example.org", import_and_trust_key: key)
+        end
+
+        it "names both when signed by neither" do
+          key       = untrusted_key
+          file_name = write(signer: "receiver2@example.org", signer_passphrase: "receiver2_passphrase")
+          error     = assert_raises(IOStreams::Pgp::Failure) do
+            read(file_name, signer: "sender@example.org", import_and_trust_key: key)
+          end
+
+          assert_match(/\APGP file was not signed by sender@example.org or the imported key: /, error.message)
+        end
+
+        it "trusts the imported key fully by default" do
+          key         = untrusted_key
+          fingerprint = IOStreams::Pgp.primary_fingerprints("untrusted@example.org").first
+          levels      = []
+          import      = lambda do |key:, trust_level:|
+            levels << [key, trust_level]
+            fingerprint
+          end
+          IOStreams::Pgp.stub(:import_and_trust_recipient, import) do
+            assert_raises(IOStreams::Pgp::Failure) { read(signed_by_sender, import_and_trust_key: key) }
+            assert_raises(IOStreams::Pgp::Failure) { read(signed_by_sender, import_and_trust_key: key, import_and_trust_level: 3) }
+          end
+
+          assert_equal [[key, 4], [key, 3]], levels
+        end
+
+        it "is supported as a stream option" do
+          key  = signed_by_untrusted
+          path = IOStreams.path(temp_file.path).stream(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: key)
+
+          assert_equal decrypted, path.read
+        end
       end
     end
   end

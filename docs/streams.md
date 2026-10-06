@@ -251,19 +251,10 @@ or `compress` for `.enc`, whose header records whether the file was compressed. 
 the options that only say how to read the file, such as the PGP `passphrase`.
 
 Some options apply to both: `entry_file_name` names the file within a zip file when writing, and
-chooses the file to read, while the PGP `signer` signs the file when writing, and when reading
-requires that the file was signed by that key, see [PGP](pgp).
-
-The PGP `import_and_trust_key` raises an `ArgumentError` when reading instead, since the reader
-does not import keys:
-
-~~~ruby
-IOStreams.path("example.csv.pgp").
-  option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: public_pgp_key).
-  read
-# ArgumentError: :import_and_trust_key only applies when writing a :pgp stream and cannot be used when reading.
-#   Configure a separate path or stream without it for reading.
-~~~
+chooses the file to read. The PGP `signer` signs the file when writing, and when reading requires
+that the file was signed by that key, while `import_and_trust_key` imports the recipient's key to
+encrypt for when writing, and when reading imports the sender's key and requires that the file was
+signed by it, see [PGP](pgp).
 
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError` that lists
 the valid options as soon as it is set, even when the file name does not include that stream. So the same

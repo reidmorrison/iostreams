@@ -168,6 +168,21 @@ email address, ignoring case. Reading raises `IOStreams::Pgp::Failure` unless th
 one of the signer's keys, and gpg fully or ultimately trusts that key, for example after importing it with
 `IOStreams::Pgp.import_and_trust`, or setting its trust with `IOStreams::Pgp.set_trust`.
 
+Instead of importing the sender's public key on every server, supply it with `import_and_trust_key`, see
+[import_and_trust_key](#import_and_trust_key). When reading, the key is imported, and the file must be signed
+by it, or by the `signer` when both are supplied:
+~~~ruby
+sender_public_key = SecretConfig.fetch("suppliers/acxiom/pgp/public_key")
+
+path = IOStreams.path("sample/example.csv.pgp")
+path.option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: sender_public_key)
+path.read
+~~~
+
+Since the key itself is supplied, a signature by it is accepted whatever trust gpg places in it. When reading,
+`import_and_trust_level` defaults to `4` (Full), rather than `5` (Ultimate) as when writing, since the sender's
+key does not need to be able to make other keys valid.
+
 Like the integrity and signature checks, this check can only be made once the whole file has been read, so by
 default `IOStreams::Pgp::Failure` is raised after the contents have been processed. Supply `verify_first: true`
 to only process the contents once every check has passed, see
