@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "logger"
 
 class TabularTest < Minitest::Test
   describe IOStreams::Tabular do
@@ -545,6 +546,117 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "reading with column restrictions" do
+      # Returns the warnings logged by the block.
+      def warnings
+        output   = StringIO.new
+        original = IOStreams.logger
+        IOStreams.logger = Logger.new(output, level: :warn)
+        yield
+        output.string.lines.grep(/enforce_column_restrictions/)
+      ensure
+        IOStreams.logger = original
+      end
+
+      describe "#read_header" do
+        it "returns the header row as read, and cleanses the columns" do
+          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+
+          assert_equal ["Name", "Secret Code"], tabular.read_header("Name,Secret Code")
+          assert_equal ["name", "__rejected__Secret Code"], tabular.header.columns
+        end
+
+        it "applies the restrictions without renaming the columns when not cleansed" do
+          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["Name"])
+          tabular.read_header("Name,Secret", cleanse: false)
+
+          assert_equal %w[Name __rejected__Secret], tabular.header.columns
+        end
+
+        it "does not change columns that are not restricted when not cleansed" do
+          tabular = IOStreams::Tabular.new(format: :csv)
+          tabular.read_header("Name,Secret", cleanse: false)
+
+          assert_equal %w[Name Secret], tabular.header.columns
+        end
+
+        it "returns nil for a blank line, so that the header is still to be read" do
+          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+
+          assert_nil tabular.read_header("")
+          assert_predicate tabular, :header?
+        end
+      end
+
+      describe "#restrict_columns" do
+        it "applies the restrictions to supplied columns" do
+          tabular = IOStreams::Tabular.new(format: :csv, columns: %w[Name Secret], allowed_columns: ["name"])
+          tabular.restrict_columns
+
+          assert_equal %w[name __rejected__Secret], tabular.header.columns
+        end
+
+        it "does nothing while the header row is still to be read" do
+          tabular = IOStreams::Tabular.new(format: :csv, required_columns: ["missing"])
+          tabular.restrict_columns
+
+          assert_predicate tabular, :header?
+        end
+
+        describe "when enforce_column_restrictions is false" do
+          before { IOStreams.enforce_column_restrictions = false }
+          after { IOStreams.enforce_column_restrictions = true }
+
+          it "warns once instead of applying them" do
+            tabular = IOStreams::Tabular.new(format: :csv, columns: %w[name secret], allowed_columns: ["name"])
+            logged  = warnings do
+              tabular.restrict_columns
+              tabular.restrict_columns
+            end
+
+            assert_equal %w[name secret], tabular.header.columns
+            assert_equal 1, logged.size
+            assert_includes logged.first, "would change the header row read"
+          end
+        end
+      end
+
+      describe "#read_record" do
+        let(:json) { %({"Name":"x","admin":true}) }
+
+        it "applies the restrictions to the keys of a record without a header row" do
+          tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"])
+
+          assert_equal({"name" => "x"}, tabular.read_record(json))
+        end
+
+        it "compares the keys as-is without renaming them" do
+          tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"])
+
+          assert_equal({"Name" => "x"}, tabular.read_record(json, rename: false))
+        end
+
+        it "does not change a record when the columns are not restricted" do
+          assert_equal({"Name" => "x", "admin" => true}, IOStreams::Tabular.new(format: :json).read_record(json))
+        end
+
+        describe "when enforce_column_restrictions is false" do
+          before { IOStreams.enforce_column_restrictions = false }
+          after { IOStreams.enforce_column_restrictions = true }
+
+          it "warns once instead of applying them" do
+            tabular = IOStreams::Tabular.new(format: :json, required_columns: ["state"])
+            records = nil
+            logged  = warnings { records = [tabular.read_record(json), tabular.read_record(json)] }
+
+            assert_equal [{"Name" => "x", "admin" => true}] * 2, records
+            assert_equal 1, logged.size
+            assert_includes logged.first, "would change the records read"
+          end
+        end
+      end
+    end
+
     describe "#quote_character" do
       it "is the double quote for csv" do
         assert_equal '"', IOStreams::Tabular.new(format: :csv).quote_character
@@ -607,6 +719,41 @@ class TabularTest < Minitest::Test
         assert_nil IOStreams::Tabular.format_from_file_name("hash.txt")
         assert_nil IOStreams::Tabular.format_from_file_name("json")
         assert_nil IOStreams::Tabular.format_from_file_name("/data/files.csv/sample.txt")
+      end
+    end
+
+    describe IOStreams::Tabular::Header do
+      let(:header) { IOStreams::Tabular::Header.new(columns: %w[Name Secret], allowed_columns: ["name"]) }
+
+      describe "#cleanse_changes?" do
+        it "is true when cleansing would change the columns, without changing them" do
+          assert_predicate header, :cleanse_changes?
+          assert_equal %w[Name Secret], header.columns
+        end
+
+        it "is false when cleansing would not change the columns" do
+          refute_predicate IOStreams::Tabular::Header.new(columns: %w[name], allowed_columns: ["name"]), :cleanse_changes?
+        end
+
+        it "is true when cleansing would raise" do
+          assert_predicate IOStreams::Tabular::Header.new(columns: %w[name], required_columns: ["missing"]), :cleanse_changes?
+        end
+      end
+
+      describe "#restrict_hash_changes?" do
+        it "is true when restricting would change the hash" do
+          assert header.restrict_hash_changes?({"name" => "x", "secret" => "y"})
+        end
+
+        it "is false when restricting would not change the hash" do
+          refute header.restrict_hash_changes?({"name" => "x"})
+        end
+
+        it "is true when restricting would raise" do
+          header = IOStreams::Tabular::Header.new(required_columns: ["missing"])
+
+          assert header.restrict_hash_changes?({"name" => "x"})
+        end
       end
     end
 
