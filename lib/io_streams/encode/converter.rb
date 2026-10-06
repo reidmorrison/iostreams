@@ -9,14 +9,17 @@ module IOStreams
     # A multi-byte character can be split across two blocks, so an incomplete character at the end
     # of a block is held back and added to the start of the next block.
     class Converter
+      # Returns [Encoding] the encoding converted to, or nil when the data is returned unchanged.
+      attr_reader :encoding
+
       # Parameters
-      #   encoding: [Encoding|nil]
-      #     The encoding to convert to. When nil, or binary, the data is returned unchanged.
+      #   encoding: [String|Encoding|nil]
+      #     The encoding to convert to, such as "UTF-8". When nil, or binary, the data is returned unchanged.
       #
       #   replace: [String|nil]
       #     Replaces invalid or undefined characters. When nil they raise Encoding::UndefinedConversionError.
       def initialize(encoding:, replace:)
-        @encoding         = encoding
+        @encoding         = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
         @replace          = replace
         @encoding_options = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
         @pending          = nil

@@ -5,7 +5,7 @@ module IOStreams
         %i[encoding cleaner replace]
       end
 
-      attr_reader :encoding, :cleaner
+      attr_reader :cleaner
 
       # Write a line at a time to a file or stream
       def self.stream(input_stream, **args)
@@ -47,10 +47,13 @@ module IOStreams
       def initialize(output_stream, encoding: "UTF-8", cleaner: nil, replace: nil)
         super(output_stream)
 
-        @cleaner   = ::IOStreams::Encode::Reader.send(:extract_cleaner, cleaner)
-        @encoding  = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
-        @replace   = replace
-        @converter = Converter.new(encoding: @encoding, replace: replace)
+        @converter = Converter.new(encoding: encoding, replace: replace)
+        @cleaner   = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+      end
+
+      # Returns [Encoding] the encoding of the data written, or nil when it is written unchanged.
+      def encoding
+        @converter.encoding
       end
 
       # Write a line to the output stream
@@ -90,7 +93,7 @@ module IOStreams
       end
 
       def write_block(block)
-        block = @cleaner.call(block, @replace) if @cleaner
+        block = @cleaner.call(block) if @cleaner
         @output_stream.write(block)
       end
     end

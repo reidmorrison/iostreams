@@ -5,17 +5,7 @@ module IOStreams
         %i[encoding cleaner replace]
       end
 
-      attr_reader :encoding, :cleaner
-
-      NOT_PRINTABLE = /[^[:print:]\r\n]/
-      # Builtin strip options to apply after encoding the read data.
-      # They return a new string, since the writer can be supplied the caller's string.
-      CLEANSE_RULES = {
-        # Strips all non printable characters
-        printable:             ->(data, _) { data.gsub(NOT_PRINTABLE, "") },
-        # Replaces non printable characters with the value specified in the `replace` option.
-        replace_non_printable: ->(data, replace) { data.gsub(NOT_PRINTABLE, replace || "") }
-      }.freeze
+      attr_reader :cleaner
 
       # Read a line at a time from a file or stream
       def self.stream(input_stream, **args)
@@ -53,10 +43,8 @@ module IOStreams
       def initialize(input_stream, encoding: "UTF-8", cleaner: nil, replace: nil)
         super(input_stream)
 
-        @cleaner   = self.class.extract_cleaner(cleaner)
-        @encoding  = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
-        @replace   = replace
-        @converter = Converter.new(encoding: @encoding, replace: replace)
+        @converter = Converter.new(encoding: encoding, replace: replace)
+        @cleaner   = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         @read_cache_buffer = (+"" unless @input_stream.method(:read).arity.between?(0, 1))
@@ -86,22 +74,13 @@ module IOStreams
           return
         end
 
-        data = @cleaner.call(data, @replace) if @cleaner
+        data = @cleaner.call(data) if @cleaner
         outbuf ? outbuf.replace(data) : data
       end
 
-      def self.extract_cleaner(cleaner)
-        return if cleaner.nil?
-
-        case cleaner
-        when Symbol
-          proc = CLEANSE_RULES[cleaner]
-          raise(ArgumentError, "Invalid cleansing rule #{cleaner.inspect}") unless proc
-
-          proc
-        when Proc
-          cleaner
-        end
+      # Returns [Encoding] the encoding of the data returned, or nil when it is returned unchanged.
+      def encoding
+        @converter.encoding
       end
 
       private

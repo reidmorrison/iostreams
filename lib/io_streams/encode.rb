@@ -3,6 +3,7 @@ module IOStreams
   module Encode
     extend StreamFormat
 
+    autoload :Cleaner, "io_streams/encode/cleaner"
     autoload :Converter, "io_streams/encode/converter"
     autoload :Reader, "io_streams/encode/reader"
     autoload :Writer, "io_streams/encode/writer"

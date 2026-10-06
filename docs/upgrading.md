@@ -407,6 +407,14 @@ since file names do not name it. Previously the data of such a file was read and
 Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
 Apply it with `option(:encode, ...)` instead.
 
+### The encode `cleaner` option is strict
+
+A `cleaner` for the `:encode` stream that is neither the name of a built-in rule nor a Proc, such as the
+String `"printable"`, raises `ArgumentError`. Previously it was ignored, so the data was not cleansed.
+
+Fix: supply the name of a built-in rule as a Symbol, such as `cleaner: :printable`, for example with
+`.to_sym` when it comes from configuration.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

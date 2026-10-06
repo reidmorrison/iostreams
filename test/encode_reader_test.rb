@@ -163,6 +163,14 @@ class EncodeReaderTest < Minitest::Test
             IOStreams::Encode::Reader.stream(input, cleaner: :unknown_rule, &:read)
           end
         end
+
+        it "raises for a cleaner that is neither a Symbol nor a Proc, rather than ignoring it" do
+          error = assert_raises(ArgumentError) do
+            IOStreams::Encode::Reader.stream(StringIO.new("x"), cleaner: "printable", &:read)
+          end
+
+          assert_includes error.message, %(Invalid cleaner "printable")
+        end
       end
 
       describe "valid multi-byte characters" do
