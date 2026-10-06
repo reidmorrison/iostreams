@@ -27,3 +27,6 @@ Gemfile.lock
 
 /docs/_site
 .rakeTasks
+
+## Claude Code worktrees for concurrent sessions
+/.claude/worktrees/
