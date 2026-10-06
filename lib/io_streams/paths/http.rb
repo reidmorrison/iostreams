@@ -146,6 +146,8 @@ module IOStreams
         self
       end
 
+      protected
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
       # Characters that cannot appear in a url path, such as a space, `?` or `#`, are percent-encoded in the url.

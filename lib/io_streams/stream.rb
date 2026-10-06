@@ -4,7 +4,6 @@ module IOStreams
     UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is".freeze
 
     attr_reader :io_stream
-    attr_writer :builder
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
@@ -12,6 +11,12 @@ module IOStreams
 
       @io_stream = io_stream
       @builder   = nil
+    end
+
+    # A copy has its own streams and options, so that changing them does not change the original.
+    def initialize_copy(source)
+      super
+      @builder = @builder&.dup
     end
 
     # Ignore the filename and use only the supplied streams.
@@ -194,7 +199,7 @@ module IOStreams
     #   cannot be read, for example when it does not exist.
     def copy_from(source, convert: true, mode: nil, **args)
       if convert
-        stream = IOStreams.new(source)
+        stream = to_stream(source)
         if mode
           stream.reader(mode) do |rows|
             writer(mode, **args) do |target|
@@ -209,14 +214,14 @@ module IOStreams
         end
       else
         reject_copy_options!(UNCONVERTED_COPY, mode: mode, **args)
-        IOStreams.new(source).without_streams.reader do |src|
+        to_stream(source).without_streams.reader do |src|
           without_streams.writer { |target| IO.copy_stream(src, target) }
         end
       end
     end
 
     def copy_to(target, **args)
-      target = IOStreams.new(target)
+      target = to_stream(target)
       target.copy_from(self, **args)
     end
 
@@ -340,6 +345,10 @@ module IOStreams
 
     protected
 
+    # Replaces the streams and options, for example `#join` and `#directory` clear them on a copy of a path.
+    # Not public, since a builder is internal.
+    attr_writer :builder
+
     # Options are strict: raise rather than ignore options that a copy cannot use.
     def reject_copy_options!(reason, **options)
       names = options.compact.keys
@@ -357,6 +366,12 @@ module IOStreams
     end
 
     private
+
+    # Returns [IOStreams::Stream] the supplied stream or path itself, otherwise a new one for the
+    # file name or IO, so that a copy or move uses, and returns, the path the caller supplied.
+    def to_stream(file_name_or_io)
+      file_name_or_io.is_a?(Stream) ? file_name_or_io : IOStreams.new(file_name_or_io)
+    end
 
     # Options are strict: raise rather than ignore options that the :stream mode cannot use.
     def reject_stream_mode_options!(options)

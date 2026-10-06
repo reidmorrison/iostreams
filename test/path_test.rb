@@ -6,8 +6,15 @@ module IOStreams
       describe ".join" do
         let(:path) { IOStreams::Path.new("some_path") }
 
-        it "returns self when no elements" do
-          assert_same path, path.join
+        it "returns a copy when no elements" do
+          path.stream(:gz)
+          copy = path.join
+          copy.stream(:enc)
+
+          refute_same path, copy
+          assert_equal path, copy
+          assert_equal({gz: {}}, path.pipeline)
+          assert_equal({gz: {}, enc: {}}, copy.pipeline)
         end
 
         it "adds element to path" do
@@ -53,6 +60,34 @@ module IOStreams
 
         it "returns the element when the path is empty" do
           assert_equal "file.csv", IOStreams::Path.new("").join("file.csv").to_s
+        end
+      end
+
+      describe "#path=" do
+        it "is not public" do
+          %w[/data/a.csv s3://bucket/a.csv sftp://example.org/a.csv https://example.org/a.csv].each do |name|
+            path = IOStreams.path(name)
+
+            assert_raises(NoMethodError, name) { path.path = "b.csv" }
+            assert_equal name, path.to_s
+          end
+        end
+      end
+
+      describe "#builder=" do
+        it "is not public" do
+          path = IOStreams.path("a.csv.gz").stream(:none)
+
+          assert_raises(NoMethodError) { path.builder = nil }
+          assert_equal({}, path.pipeline)
+        end
+
+        it "is cleared by #join and #directory" do
+          path = IOStreams.path("/data/a.csv").stream(:gz)
+
+          assert_equal({gz: {}}, path.pipeline)
+          assert_equal({}, path.join("b.csv").pipeline)
+          assert_equal({}, path.directory.pipeline)
         end
       end
 
@@ -174,6 +209,17 @@ module IOStreams
 
           assert_equal 2, paths.uniq.size
           assert_equal 1, {IOStreams.path("a.csv") => 1}[IOStreams.path("a.csv")]
+        end
+
+        it "keeps its hash key when joined" do
+          %w[/data s3://bucket/data sftp://example.org/data https://example.org/data].each do |name|
+            path   = IOStreams.path(name)
+            hash   = {path => 1}
+            joined = path.join("a.csv")
+
+            assert_equal 1, hash[path], name
+            assert_equal "#{name}/a.csv", joined.to_s
+          end
         end
 
         it "sorts paths in different locations" do

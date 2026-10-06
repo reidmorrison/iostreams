@@ -147,6 +147,60 @@ compare equal to other objects.
 
 Fix: to compare only the file names or keys, compare `#path`, for example `a.path == b.path`.
 
+### `#path` is read-only
+
+`Path#path=` is no longer public, so changing the name of an existing path raises `NoMethodError`.
+A path is a `Hash` key for its location, so changing it in place meant it could no longer be found in
+a `Hash` or `Set` that held it.
+
+Fix: create a new path instead. `#join` and `#directory` return a new path that keeps the settings of
+the original, such as the S3 client or the SFTP credentials:
+
+```ruby
+root = IOStreams.path("s3://bucket/data", region: "us-east-1")
+
+# Before
+path      = root.join("in.csv")
+path.path = "data/out.csv"
+
+# After
+path = root.join("out.csv")
+```
+
+### `#builder=` is not public
+
+`#builder=` is no longer public on a path or a stream, so calling it raises `NoMethodError`. It takes
+an internal object, so the only use outside IOStreams was `path.builder = nil`, to remove the streams
+and options set with `#stream` or `#option`.
+
+Fix: create the path again with `IOStreams.path`, which has no streams or options, or use the path
+that `#join` or `#directory` returns, which does not keep them.
+
+### Paths and streams are copied, not shared
+
+`IOStreams.path(path)`, `IOStreams.stream(stream)` and `IOStreams.new(stream)` now return a copy of
+the path or stream supplied, instead of the same object. `IOStreams.join` without any elements,
+`IOStreams.root`, `IOStreams.roots`, and `Path#join` without any elements also return copies.
+The copy keeps the streams and options, and is equal to the original with `==`, but changing it, for
+example with `#stream` or `#option`, no longer changes the original, or a root path for the whole
+process.
+
+Fix: code that relied on changing the original through the returned object should keep and use the
+returned object instead:
+
+```ruby
+# Before: also changed `path`
+IOStreams.path(path).option(:pgp, passphrase: "secret")
+path.read
+
+# After
+path = IOStreams.path(path).option(:pgp, passphrase: "secret")
+path.read
+```
+
+To change the streams of a root, supply them each time the root is used, for example
+`IOStreams.join("a.csv").stream(:none)`. Code that compares with `equal?` should compare with `==`.
+
 ### Unknown S3 options raise `ArgumentError`
 
 An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now

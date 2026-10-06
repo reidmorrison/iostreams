@@ -32,6 +32,12 @@ module IOStreams
 
           assert_equal path, IOStreams.root(:downloads).to_s
         end
+
+        it "returns a copy that does not change the root" do
+          IOStreams.root.stream(:gz)
+
+          assert_equal({}, IOStreams.root.pipeline)
+        end
       end
 
       describe ".home" do
@@ -58,6 +64,13 @@ module IOStreams
       describe ".join" do
         it "returns path" do
           assert_equal IOStreams.root.to_s, IOStreams.join.to_s
+        end
+
+        it "returns a copy of the root without elements" do
+          IOStreams.join.stream(:gz)
+
+          assert_equal({}, IOStreams.root.pipeline)
+          assert_equal IOStreams.root, IOStreams.join
         end
 
         it "adds path to root" do
@@ -98,6 +111,23 @@ module IOStreams
           path = IOStreams.path("a.xyz")
 
           assert_kind_of IOStreams::Paths::File, path, path
+        end
+
+        it "returns a copy of a path, with its streams and options" do
+          original = IOStreams.path("a.csv.pgp").option(:pgp, passphrase: "secret")
+          path     = IOStreams.path(original)
+
+          refute_same original, path
+          assert_equal original, path
+          assert_equal({passphrase: "secret"}, path.setting(:pgp))
+        end
+
+        it "does not change the path supplied" do
+          original = IOStreams.path("a.csv.pgp").option(:pgp, passphrase: "secret")
+          IOStreams.path(original).option(:pgp, passphrase: "changed").option(:encode, encoding: "UTF-8")
+
+          assert_equal({passphrase: "secret"}, original.setting(:pgp))
+          assert_nil original.setting(:encode)
         end
 
         it "s3" do
@@ -182,6 +212,12 @@ module IOStreams
           assert_includes IOStreams.roots.keys, :default
           assert_includes IOStreams.roots.keys, :downloads
         end
+
+        it "returns copies that do not change the roots" do
+          IOStreams.roots[:default].stream(:gz)
+
+          assert_equal({}, IOStreams.root.pipeline)
+        end
       end
 
       describe ".stream" do
@@ -191,10 +227,20 @@ module IOStreams
           assert_kind_of IOStreams::Stream, stream
         end
 
-        it "returns the stream if already a stream" do
+        it "returns a copy if already a stream" do
           stream = IOStreams.stream(StringIO.new("Hello World"))
 
-          assert_same stream, IOStreams.stream(stream)
+          copy = IOStreams.stream(stream)
+
+          assert_kind_of IOStreams::Stream, copy
+          assert_same stream.io_stream, copy.io_stream
+        end
+
+        it "does not change the stream supplied" do
+          stream = IOStreams.stream(StringIO.new("Hello World")).stream(:gz)
+          IOStreams.stream(stream).stream(:gz, level: 1).stream(:enc)
+
+          assert_equal({gz: {}}, stream.pipeline)
         end
 
         it "rejects a string argument" do
@@ -216,10 +262,13 @@ module IOStreams
           refute_kind_of IOStreams::Path, stream
         end
 
-        it "returns the stream if already a stream" do
-          stream = IOStreams.stream(StringIO.new("Hello World"))
+        it "returns a copy of a stream" do
+          stream = IOStreams.stream(StringIO.new("Hello World")).stream(:gz)
+          copy   = IOStreams.new(stream)
+          copy.stream(:enc)
 
-          assert_same stream, IOStreams.new(stream)
+          assert_same stream.io_stream, copy.io_stream
+          assert_equal({gz: {}}, stream.pipeline)
         end
       end
 

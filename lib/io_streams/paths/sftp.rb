@@ -144,14 +144,6 @@ module IOStreams
         url
       end
 
-      # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
-      def path=(path)
-        # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.
-        super([".", ""].include?(path) ? "~" : path)
-        separator = self.path.start_with?("/") ? "" : "/"
-        @url      = "#{url[%r{\A[^:/]+://[^/?#]*}]}#{separator}#{self.path}"
-      end
-
       # Creates the directories of this path, when a file is next written to this path, or to a path
       # joined to it, since each write connects to the server separately.
       # Returns self
@@ -215,6 +207,14 @@ module IOStreams
       end
 
       protected
+
+      # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
+      def path=(path)
+        # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.
+        super([".", ""].include?(path) ? "~" : path)
+        separator = self.path.start_with?("/") ? "" : "/"
+        @url      = "#{url[%r{\A[^:/]+://[^/?#]*}]}#{separator}#{self.path}"
+      end
 
       # Returns [String] the name of this path on the server, where a path within the login
       # directory, which starts with `~`, is relative.

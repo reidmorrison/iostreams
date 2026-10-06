@@ -4,7 +4,7 @@ module IOStreams
     SENSITIVE_OPTION = /pass(phrase|word)|secret/i
     private_constant :SENSITIVE_OPTION
 
-    attr_accessor :path
+    attr_reader :path
 
     def initialize(path)
       raise(ArgumentError, "Path cannot be nil") if path.nil?
@@ -15,10 +15,13 @@ module IOStreams
       @builder   = nil
     end
 
+    # Returns [IOStreams::Path] a new path with the elements joined to this path.
+    # Without any elements it returns a copy of this path, keeping its streams and options.
+    #
     # If elements already contains the current path then it is used as is without
     # adding the current path for a second time
     def join(*elements)
-      return self if elements.empty?
+      return dup if elements.empty?
 
       elements = elements.collect(&:to_s)
       relative = ::File.join(*elements)
@@ -124,7 +127,7 @@ module IOStreams
     # Notes:
     # - Currently only supports moving individual files, not directories.
     def move_to(target_path)
-      target = IOStreams.new(target_path)
+      target = to_stream(target_path)
       target.mkpath
       target.copy_from(self, convert: false)
       delete
@@ -250,6 +253,10 @@ module IOStreams
     end
 
     protected
+
+    # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
+    # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
+    attr_writer :path
 
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
     # and this path is not within any of them.
