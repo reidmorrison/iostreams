@@ -5,11 +5,6 @@ module IOStreams
         []
       end
 
-      # Also the compression level, which only applies when writing.
-      def self.valid_option_names
-        option_names + %i[level]
-      end
-
       # Read from a gzip stream, decompressing the contents as it is read.
       #
       # A gzip file can contain several members one after the other, for example when gzip files

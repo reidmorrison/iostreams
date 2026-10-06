@@ -5,12 +5,6 @@ module IOStreams
         %i[buffer_size version]
       end
 
-      # Also the writer's options, which reading does not need, since the header of the file records
-      # how it was written, and the reader detects whether it has one.
-      def self.valid_option_names
-        option_names + %i[compress cipher_name header random_key random_iv]
-      end
-
       # read from a file/stream using Symmetric Encryption
       #
       # Like `SymmetricEncryption::Reader.open`, but does not close the input stream, which belongs to the caller.

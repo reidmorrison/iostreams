@@ -195,22 +195,21 @@ module IOStreams
     # Options are strict: an option that is not valid for the stream raises instead of being ignored.
     #
     # One option hash is shared by the reader and the writer for a stream, so that the same path
-    # can be written and then read. So the options that are valid in one direction can include those
-    # of the other direction that it does not need, such as `compress` when reading `.enc`, whose header
-    # records it, see `valid_option_names`. Any other option for the other direction raises, with a message
+    # can be written and then read. So by default the options of the other direction are also valid,
+    # such as `compress` when reading `.enc`, whose header records it, and are ignored. A class can exclude
+    # an option of the other direction by overriding `valid_option_names`, so that it raises, with a message
     # that names the direction it belongs to.
     #
     # Streams registered via `IOStreams.register_extension` need not inherit from `IOStreams::Reader`
     # or `IOStreams::Writer`, so a class that does not declare its options is not validated here.
     def validate_options(type, stream, klass, opts)
-      valid = valid_option_names(klass)
+      valid = valid_option_names(type, stream, klass)
       return if valid.nil?
 
       unknown = opts.keys - valid
       return if unknown.empty?
 
-      other_type  = type == :reader ? :writer : :reader
-      other_names = option_names(IOStreams.extensions[stream].send("#{other_type}_class")) || []
+      other_names = option_names(other_class(type, stream)) || []
       other_only  = unknown & other_names
       invalid     = unknown - other_names
       direction   = type == :reader ? "reading" : "writing"
@@ -237,15 +236,15 @@ module IOStreams
     # Not checked when the reader or the writer for the stream does not declare its options.
     def reject_unknown_options(stream, options)
       extension = IOStreams.extensions[stream]
-      classes   = [extension.reader_class, extension.writer_class].compact
-      names     = classes.map { |klass| valid_option_names(klass) }
+      classes   = {reader: extension.reader_class, writer: extension.writer_class}.compact
+      names     = classes.map { |type, klass| valid_option_names(type, stream, klass) }
       return if names.empty? || names.include?(nil)
 
       unknown = options.keys - names.flatten
       return if unknown.empty?
 
       # The reader's options and then the writer's, in the order that they declare them.
-      valid = (classes.flat_map { |klass| option_names(klass) || [] } + names.flatten).uniq
+      valid = (classes.values.flat_map { |klass| option_names(klass) || [] } + names.flatten).uniq
       raise(ArgumentError, "Unknown #{unknown.size == 1 ? 'option' : 'options'} #{list(unknown)} for a " \
                            "#{stream.inspect} stream. Valid options: #{list(valid)}.")
     end
@@ -254,10 +253,25 @@ module IOStreams
       klass.option_names if klass.respond_to?(:option_names)
     end
 
-    # A class that does not inherit from `IOStreams::Reader` or `IOStreams::Writer` need not declare
-    # `valid_option_names`, which defaults to `option_names`.
-    def valid_option_names(klass)
-      klass.respond_to?(:valid_option_names) ? klass.valid_option_names : option_names(klass)
+    # Returns [Array<Symbol>] the options that are valid for the stream in the direction of `type`,
+    # or [nil] when the class does not declare its options.
+    #
+    # Unless the class overrides `valid_option_names`, they are its own options and those of the class
+    # registered for the other direction. When that class does not declare its options, which a class
+    # registered via `IOStreams.register_extension` need not, only the class's own options are valid.
+    def valid_option_names(type, stream, klass)
+      declared = klass.valid_option_names if klass.respond_to?(:valid_option_names)
+      return declared if declared
+
+      own = option_names(klass)
+      return if own.nil?
+
+      own | (option_names(other_class(type, stream)) || [])
+    end
+
+    # Returns the class registered for the other direction of the stream, or nil when there is none.
+    def other_class(type, stream)
+      IOStreams.extensions[stream].send(type == :reader ? :writer_class : :reader_class)
     end
 
     def list(names)

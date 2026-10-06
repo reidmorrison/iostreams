@@ -5,11 +5,6 @@ module IOStreams
         %i[autoclose block_size work_factor]
       end
 
-      # Also the reader's options, which only apply when decompressing.
-      def self.valid_option_names
-        option_names + %i[first_only small]
-      end
-
       # Write to a stream, compressing with Bzip2
       #
       # Parameters are passed through to `Bzip2::FFI::Writer`:

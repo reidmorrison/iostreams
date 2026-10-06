@@ -89,10 +89,11 @@ class StreamOptionsTest < Minitest::Test
         assert_equal data, enc.read
       end
 
-      # Every built-in stream accepts the other direction's options, so use one that does not.
+      # Every built-in stream accepts the other direction's options, so use one whose reader does not.
       def with_direction_stream
         reader = Class.new(IOStreams::Reader) do
           def self.option_names = %i[size]
+          def self.valid_option_names = option_names
           def self.stream(io, **) = yield(io)
         end
         writer = Class.new(IOStreams::Writer) do
@@ -103,6 +104,15 @@ class StreamOptionsTest < Minitest::Test
         yield
       ensure
         IOStreams.deregister_extension(:direction_test)
+      end
+
+      it "accepts the options of the other direction unless the class overrides valid_option_names" do
+        with_direction_stream do
+          io = StringIO.new
+          IOStreams.stream(io).stream(:direction_test, size: 1).write(data)
+
+          assert_equal data, io.string
+        end
       end
 
       it "names the direction of an option that is not valid for reading" do
@@ -289,11 +299,15 @@ class StreamOptionsTest < Minitest::Test
     end
 
     describe ".valid_option_names" do
-      # A class is valid for the options it accepts, and can only add options of the other direction,
-      # which it ignores.
+      it "accepts the options of both directions unless a class overrides it" do
+        assert_nil IOStreams::Pgp::Reader.valid_option_names
+        assert_nil IOStreams::Pgp::Writer.valid_option_names
+      end
+
+      # A class that overrides it must accept its own options, and can only add those of the other direction.
       IOStreams.extensions.each_value.map { |ext| [ext.reader_class, ext.writer_class] }.uniq.each do |pair|
         [pair, pair.reverse].each do |klass, other|
-          next unless klass.respond_to?(:option_names) && klass.option_names
+          next unless klass.respond_to?(:valid_option_names) && klass.valid_option_names
 
           it "#{klass} includes its options, and only adds those of the other direction" do
             other_names = other.respond_to?(:option_names) ? other.option_names.to_a : []
