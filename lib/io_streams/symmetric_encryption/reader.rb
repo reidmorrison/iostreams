@@ -9,7 +9,7 @@ module IOStreams
       #
       # Like `SymmetricEncryption::Reader.open`, but does not close the input stream, which belongs to the caller.
       def self.stream(input_stream, buffer_size: 16_384, **args)
-        Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(SymmetricEncryption)
+        Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(::SymmetricEncryption)
 
         begin
           reader = ::SymmetricEncryption::Reader.new(input_stream, buffer_size: buffer_size, **args)

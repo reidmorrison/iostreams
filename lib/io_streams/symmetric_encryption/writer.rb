@@ -11,7 +11,7 @@ module IOStreams
       #
       # Like `SymmetricEncryption::Writer.open`, but does not close the output stream, which belongs to the caller.
       def self.stream(output_stream, compress: true, **args)
-        Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(SymmetricEncryption)
+        Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(::SymmetricEncryption)
 
         begin
           writer = ::SymmetricEncryption::Writer.new(output_stream, compress: compress, **args)
@@ -26,7 +26,7 @@ module IOStreams
       # Write to stream using Symmetric Encryption
       # By default the output stream is compressed unless the file_name extension indicates the file is already compressed.
       def self.file(file_name, compress: nil, **args, &)
-        Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(SymmetricEncryption)
+        Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(::SymmetricEncryption)
 
         ::SymmetricEncryption::Writer.open(file_name, compress: compress, **args, &)
       end
