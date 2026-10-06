@@ -355,8 +355,12 @@ module IOStreams
       end
     end
 
+    # Raises the `FrozenError` itself, since JRuby does not call `#inspect` for its message.
     def builder
-      @builder ||= IOStreams::Builder.new(path)
+      return @builder if @builder
+      raise FrozenError.new("can't modify frozen #{self.class}: #{inspect}", receiver: self) if frozen?
+
+      @builder = IOStreams::Builder.new(path)
     end
 
     # Returns [true|false] whether the supplied path is this path, or is within this path.
