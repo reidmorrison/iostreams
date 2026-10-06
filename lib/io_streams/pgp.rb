@@ -451,7 +451,9 @@ module IOStreams
     # Encrypting to the fingerprint ensures that the imported key is used, since gpg looks up an
     # email address in the keyring, where another key may have the same email address.
     #
-    # Used internally by the PGP writer.
+    # When `trust_level` is nil, the key is imported without changing its trust.
+    #
+    # Used internally by the PGP reader and writer.
     def self.import_and_trust_recipient(key:, trust_level: 5)
       info   = import_and_trust_key_info(key: key, trust_level: trust_level)
       key_id = info[:key_id].to_s
@@ -476,7 +478,8 @@ module IOStreams
       raise(ArgumentError, "Recipient email or key id cannot be extracted from supplied key") unless email || key_id
 
       import(key: key)
-      set_trust(email: email, key_id: key_id, level: trust_level)
+      # Without a trust level, the trust of the key is not changed.
+      set_trust(email: email, key_id: key_id, level: trust_level) if trust_level
       info
     end
     private_class_method :import_and_trust_key_info

@@ -109,7 +109,8 @@ module IOStreams
                     signer: default_signer,
                     signer_passphrase: default_signer_passphrase,
                     compress: :zip,
-                    compress_level: 6)
+                    compress_level: 6,
+                    &block)
         if encrypt
           raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
         elsif !signer
@@ -118,23 +119,25 @@ module IOStreams
 
         compress_level = 0 if compress == :none
 
-        recipients =
-          if encrypt
-            collect_recipients(recipient, import_and_trust_key, import_and_trust_level)
-          else
-            []
-          end
+        recipients, imported = encrypt ? collect_recipients(recipient, import_and_trust_key, import_and_trust_level) : [[], []]
+        with_recipient_files(recipients, imported) do |all_recipients, recipient_files|
+          # Write to stdin, with the encrypted and/or signed contents being written to the file
+          args = build_args(
+            file_name:         file_name,
+            encrypt:           encrypt,
+            signer:            signer,
+            signer_passphrase: signer_passphrase,
+            compress:          compress,
+            compress_level:    compress_level,
+            recipients:        all_recipients,
+            recipient_files:   recipient_files
+          )
+          run(file_name, args, signer_passphrase, &block)
+        end
+      end
 
-        # Write to stdin, with the encrypted and/or signed contents being written to the file
-        args = build_args(
-          file_name:         file_name,
-          encrypt:           encrypt,
-          signer:            signer,
-          signer_passphrase: signer_passphrase,
-          compress:          compress,
-          compress_level:    compress_level,
-          recipients:        recipients
-        )
+      # Runs gpg with the supplied arguments, yielding its stdin, and returns the result of the block.
+      def self.run(file_name, args, signer_passphrase)
         command = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Writer.open: #{command.shelljoin}" }
 
@@ -170,8 +173,10 @@ module IOStreams
       ensure
         passphrase_reader&.close
       end
+      private_class_method :run
 
-      def self.build_args(file_name:, encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:)
+      def self.build_args(file_name:, encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:,
+                          recipient_files:)
         args = ["--batch", "--no-tty", "--yes"]
         args << "--encrypt" if encrypt
         args += ["--sign", "--local-user", IOStreams::Pgp.user_id(signer)] if signer
@@ -183,22 +188,50 @@ module IOStreams
         args += ["-z", compress_level.to_s] if compress_level != 6
         args += ["--compress-algo", compress.to_s] unless compress == :none
         recipients.each { |address| args += ["--recipient", IOStreams::Pgp.user_id(address)] }
+        recipient_files.each { |recipient_file| args += ["--recipient-file", recipient_file] }
         args += ["-o", file_name.to_s]
         args
       end
       private_class_method :build_args
 
+      # Returns [Array<Array<String>>] the recipients, and the fingerprints of the keys imported via
+      # `import_and_trust_key`, or other recipients for them when gpg does not supply a fingerprint.
       def self.collect_recipients(recipient, import_and_trust_key, import_and_trust_level)
         recipients = Array(recipient)
         recipients << audit_recipient if audit_recipient
 
-        Array(import_and_trust_key).each do |key|
-          # Encrypt to the imported key's fingerprint, since its email address could match another key in the keyring.
-          recipients << IOStreams::Pgp.import_and_trust_recipient(key: key, trust_level: import_and_trust_level)
+        imported = Array(import_and_trust_key).map do |key|
+          IOStreams::Pgp.import_and_trust_recipient(key: key, trust_level: import_and_trust_level)
         end
-        recipients
+        [recipients, imported]
       end
       private_class_method :collect_recipients
+
+      # Yields the recipients, and the names of files that each hold one of the imported keys.
+      #
+      # gpg only encrypts to a key in the keyring that is valid, which on its own requires ultimate trust,
+      # so an imported key with a lower `import_and_trust_level` could not be encrypted to. gpg treats a key
+      # in a file supplied via `--recipient-file` as valid without changing its trust, so each imported key
+      # is exported by its fingerprint, which also ensures that the imported key is the one used, since
+      # another key in the keyring could have the same email address.
+      #
+      # gpg before v2.1.14 does not support `--recipient-file`, so the imported keys are recipients instead.
+      def self.with_recipient_files(recipients, imported, &)
+        files       = Gem::Version.new(IOStreams::Pgp.pgp_version) >= Gem::Version.new("2.1.14")
+        keys, other = imported.partition { |value| files && value.match?(/\A(\h{40}|\h{64})\z/) }
+        write_recipient_files(keys, [], recipients + other, &)
+      end
+      private_class_method :with_recipient_files
+
+      def self.write_recipient_files(fingerprints, recipient_files, recipients, &block)
+        return yield(recipients, recipient_files) if fingerprints.empty?
+
+        Utils.private_temp_file("iostreams_pgp_key") do |recipient_file|
+          ::File.binwrite(recipient_file, IOStreams::Pgp.export(key_id: fingerprints.first, ascii: false))
+          write_recipient_files(fingerprints.drop(1), recipient_files + [recipient_file], recipients, &block)
+        end
+      end
+      private_class_method :write_recipient_files
     end
   end
 end

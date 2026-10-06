@@ -179,9 +179,10 @@ path.option(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: sende
 path.read
 ~~~
 
-Since the key itself is supplied, a signature by it is accepted whatever trust gpg places in it. When reading,
-`import_and_trust_level` defaults to `4` (Full), rather than `5` (Ultimate) as when writing, since the sender's
-key does not need to be able to make other keys valid.
+Since the key itself is supplied, a signature by it is accepted whatever trust gpg places in it. So when reading,
+the trust of the key is only changed when `import_and_trust_level` is supplied, unlike when writing, where it
+defaults to `5` (Ultimate). A key that is already trusted, for example to encrypt files for that partner, keeps
+its trust.
 
 Like the integrity and signature checks, this check can only be made once the whole file has been read, so by
 default `IOStreams::Pgp::Failure` is raised after the contents have been processed. Supply `verify_first: true`
@@ -340,7 +341,8 @@ IOStreams.join("test/sample.pgp", root: :downloads).read
 
 #### Trust level
 
-The key is imported and then marked as trusted so that GPG will encrypt to it without prompting.
+The key is imported and then marked as trusted. The file is encrypted to the imported key itself, whatever
+its trust level, so that another key in the keyring with the same email address is never used instead.
 The trust level can be controlled with the `import_and_trust_level` option:
 
 ~~~ruby
@@ -373,7 +375,8 @@ The available levels are the same as those used by `IOStreams::Pgp.set_trust`:
 > if it were one of your own keys: it becomes implicitly valid and can in turn confer
 > validity on other keys that it has signed. Importing an attacker supplied key at this
 > level allows that attacker to impersonate other recipients. When a key cannot be fully
-> verified, supply a lower `trust_level`.
+> verified, supply a lower `trust_level`. The file is still encrypted to it, since IOStreams encrypts to the
+> imported key itself.
 
 #### Compression:
 

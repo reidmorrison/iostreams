@@ -238,6 +238,16 @@ class PgpWriterTest < Minitest::Test
         assert_equal decrypted, result
       end
 
+      it "encrypts to an imported key with less than ultimate trust" do
+        IOStreams::Pgp::Writer.file(file_name, import_and_trust_key: untrusted_pgp_key, import_and_trust_level: 4) do |io|
+          io.write(decrypted)
+        end
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "untrusted_passphrase", &:read)
+
+        assert_equal decrypted, result
+      end
+
       it "encrypts to the fingerprint returned for the imported key" do
         fingerprint = IOStreams::Pgp.list_keys(email: "receiver@example.org").first[:key_id]
 

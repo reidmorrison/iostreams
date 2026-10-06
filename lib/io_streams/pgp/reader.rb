@@ -61,10 +61,10 @@ module IOStreams
       #   signed by any key in the keyring.
       #
       # import_and_trust_key: [String|Array<String>]
-      #   One or more public keys to import and trust, and then require that the file was signed
+      #   One or more public keys to import, and then require that the file was signed
       #   by one of them, or by the `signer`.
       #   Since the key is supplied, a signature by it is accepted regardless of the trust that gpg
-      #   places in the key, which only needs `import_and_trust_level`.
+      #   places in the key.
       #   Note: Ascii Keys can contain multiple keys, only the last one in the file is used.
       #
       # import_and_trust_level: [Integer]
@@ -74,8 +74,9 @@ module IOStreams
       #     3 : Marginal
       #     4 : Full
       #     5 : Ultimate
-      #   Default: 4 : Full, so that the imported key cannot make other keys valid,
-      #   unlike the writer, which defaults to 5 : Ultimate.
+      #   Default: nil, which does not change the trust of the key, since reading does not need it.
+      #   Unlike the writer, which defaults to 5 : Ultimate, this leaves a key that is already
+      #   trusted as it was.
       #   See the SECURITY WARNING for `import_and_trust_key` in `IOStreams::Pgp::Writer`.
       #
       # ignore_mdc_error: [true|false]
@@ -97,7 +98,7 @@ module IOStreams
                     passphrase: nil,
                     signer: nil,
                     import_and_trust_key: nil,
-                    import_and_trust_level: 4,
+                    import_and_trust_level: nil,
                     ignore_mdc_error: false,
                     verify_first: false,
                     &)
