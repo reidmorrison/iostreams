@@ -1,6 +1,19 @@
 require_relative "test_helper"
 
 class LineReaderTest < Minitest::Test
+  # Returns blocks of the data tagged with an encoding, as when reading through an encode stream, but without
+  # keeping its characters whole.
+  class EncodedReader
+    def initialize(data, encoding)
+      @io       = StringIO.new(data.b)
+      @encoding = encoding
+    end
+
+    def read(size)
+      @io.read(size)&.force_encoding(@encoding)
+    end
+  end
+
   describe IOStreams::Line::Reader do
     let :file_name do
       File.join(File.dirname(__FILE__), "files", "text.txt")
@@ -91,19 +104,9 @@ class LineReaderTest < Minitest::Test
         end
 
         it "limits an unbalanced line by its size in bytes" do
-          # Returns UTF-8 strings, as when reading through an encode stream.
-          utf8_reader = Class.new do
-            def initialize(data)
-              @io = StringIO.new(data.b)
-            end
-
-            def read(size)
-              @io.read(size)&.force_encoding("UTF-8")
-            end
-          end
           # 200 lines of a two byte character are 400 characters, but 600 bytes, which exceeds
           # the limit of 10 times the 51 byte buffer before the closing quote is reached.
-          input = utf8_reader.new("\"#{"\u00e9\n" * 200}end\"\n")
+          input = EncodedReader.new("\"#{"\u00e9\n" * 200}end\"\n", Encoding::UTF_8)
           exc   = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.stream(input, embedded_within: '"', buffer_size: 51) do |io|
               io.each { |line| line }
@@ -182,6 +185,30 @@ class LineReaderTest < Minitest::Test
           assert_equal data, lines
           assert_equal data.size, count
         end
+      end
+
+      it "returns UTF-8 lines when characters and the delimiter are split across blocks" do
+        data  = "Jos\u00e9\r\nZ\u00fcrich\r\n\u{1F600}"
+        lines = []
+        IOStreams::Line::Reader.stream(EncodedReader.new(data, Encoding::UTF_8), buffer_size: 3) do |io|
+          assert_equal "\r\n", io.delimiter
+          assert_equal Encoding::UTF_8, io.delimiter.encoding
+          io.each { |line| lines << line }
+        end
+
+        assert_equal ["Jos\u00e9", "Z\u00fcrich", "\u{1F600}"], lines
+        lines.each { |line| assert_equal Encoding::UTF_8, line.encoding }
+      end
+
+      it "splits Shift_JIS lines between whole characters" do
+        # The second byte of the character "\x81\x7C" is the byte of "|".
+        data  = "\x81\x7C|x".dup.force_encoding(Encoding::Shift_JIS)
+        lines = []
+        IOStreams::Line::Reader.stream(EncodedReader.new(data, Encoding::Shift_JIS), delimiter: "|") do |io|
+          io.each { |line| lines << line }
+        end
+
+        assert_equal ["\x81\x7C", "x"].map { |line| line.dup.force_encoding(Encoding::Shift_JIS) }, lines
       end
 
       it "reads binary delimited" do
