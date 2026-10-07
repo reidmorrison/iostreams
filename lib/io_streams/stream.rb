@@ -30,6 +30,7 @@ module IOStreams
     #
     # IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
     def stream(stream, **)
+      raise_if_frozen!
       builder.stream(stream, **)
       self
     end
@@ -45,6 +46,7 @@ module IOStreams
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
     def option(stream, **)
+      raise_if_frozen!
       builder.option(stream, **)
       self
     end
@@ -52,6 +54,7 @@ module IOStreams
     # Adds the options for the specified stream as an option,
     # but if streams have already been added it is instead added as a stream.
     def option_or_stream(stream, **)
+      raise_if_frozen!
       builder.option_or_stream(stream, **)
       self
     end
@@ -71,6 +74,7 @@ module IOStreams
     # If the stream pipeline has not yet been built it will be built from the file_name if present.
     # Note: Any options must be set _before_ calling this method.
     def remove_from_pipeline(stream_name)
+      raise_if_frozen!
       builder.remove_from_pipeline(stream_name)
       self
     end
@@ -281,13 +285,14 @@ module IOStreams
       if file_name == :none
         builder.file_name
       else
-        builder.file_name = file_name
+        self.file_name = file_name
         self
       end
     end
 
     # Set the original file_name
     def file_name=(file_name)
+      raise_if_frozen!
       builder.file_name = file_name
     end
 
@@ -450,6 +455,13 @@ module IOStreams
 
     def builder
       @builder ||= IOStreams::Builder.new
+    end
+
+    # Raises [FrozenError] when this stream is frozen, since the methods that change its builder, such as
+    # #option and #file_name=, would otherwise change it even though this stream is frozen,
+    # see `IOStreams::Path#freeze`.
+    def raise_if_frozen!
+      raise(FrozenError.new("can't modify frozen #{self.class}: #{inspect}", receiver: self)) if frozen?
     end
 
     def stream_reader(&)

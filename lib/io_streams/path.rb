@@ -281,6 +281,14 @@ module IOStreams
       to_s
     end
 
+    # Freezes this path, so that `#option`, `#stream` and `#file_name=` can no longer change the streams,
+    # options or file name it already holds, see `IOStreams.add_root`. The builder is created first, if it
+    # was not already, so that this path can still be read, for example with `#reader` or `#pipeline`.
+    def freeze
+      builder
+      super
+    end
+
     protected
 
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
@@ -347,12 +355,8 @@ module IOStreams
       self
     end
 
-    # Raises the `FrozenError` itself, since JRuby does not call `#inspect` for its message.
     def builder
-      return @builder if @builder
-      raise FrozenError.new("can't modify frozen #{self.class}: #{inspect}", receiver: self) if frozen?
-
-      @builder = IOStreams::Builder.new(path)
+      @builder ||= IOStreams::Builder.new(path)
     end
 
     # Returns [true|false] whether the supplied path is this path, or is within this path.

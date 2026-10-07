@@ -217,6 +217,20 @@ module IOStreams
         ensure
           IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
         end
+
+        it "freezes a root that already has a builder, and can still read it" do
+          root = IOStreams.add_root(:frozen_test, IOStreams.path("exports.csv.gz").option(:gz, level: 1))
+
+          assert_predicate root, :frozen?
+          assert_equal({gz: {level: 1}}, root.pipeline)
+          assert_raises(FrozenError) { root.option(:gz, level: 9) }
+          assert_raises(FrozenError) { root.file_name = "b.csv" }
+          assert_raises(FrozenError) { root.file_name("b.csv") }
+          assert_equal "exports.csv.gz", root.file_name
+          assert_equal({gz: {level: 1}}, IOStreams.root(:frozen_test).pipeline)
+        ensure
+          IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
+        end
       end
 
       describe ".roots" do
