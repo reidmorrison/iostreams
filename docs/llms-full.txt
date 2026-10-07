@@ -2323,6 +2323,15 @@ In addition to `layout`, the `:fixed` format takes one more option:
   instead of being truncated. Numeric values are never truncated.
   Default: true
 
+Each `:size` counts the characters of the text as it is read, and when writing, string values are
+padded and truncated to `:size` characters. For UTF-8 text, such as when read through the encode
+stream with `option(:encode, encoding: "UTF-8")`, a column of size 5 holds `José` followed by a space,
+which is 6 bytes. Binary data has one character per byte, so the sizes count bytes when a file is read
+as binary, as it is by default, or with `option(:encode, encoding: "BINARY")`. Read a file as binary
+when the program that wrote it counted bytes; its values are then binary strings. A file in a
+single-byte encoding, such as ISO-8859-1, has one byte per character, so it can also be read in that
+encoding, with `option(:encode, encoding: "ISO-8859-1")`.
+
 ## Header options
 
 When reading or writing records (`:hash`), the following options control the header row:
@@ -3223,6 +3232,19 @@ was read through. Previously reading the whole of a `.gz` or `.enc` file convert
 example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-1252 `.gz` file.
 
 Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
+
+### Fixed width columns count characters through the encode stream with `replace:`
+
+Reading a fixed width file through the `:encode` stream with `replace:`, for example with
+`option(:encode, encoding: "UTF-8", replace: " ")`, now counts the `size` of each column in
+characters, since the encode stream keeps valid characters. Previously each byte of a non-ASCII
+character was replaced, so the sizes counted bytes, while `Zürich` was read as `Z  rich`. A file whose
+sizes count bytes now raises `IOStreams::Errors::InvalidLineLength` for a line with a multi-byte
+character. Without `replace:`, the sizes already counted characters.
+
+Fix: read a file whose sizes count bytes as binary, with `option(:encode, encoding: "BINARY")`, or in
+its single-byte encoding, such as `option(:encode, encoding: "ISO-8859-1")`. See
+[Fixed width files](formats#fixed-width-files).
 
 ### A `+` in an S3 or SFTP url is kept
 

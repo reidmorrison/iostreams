@@ -665,6 +665,33 @@ class StreamTest < Minitest::Test
 
         assert_equal [{"id" => "01", "name" => "Jack"}, {"id" => "02", "name" => "Jill"}], rows
       end
+
+      describe "fixed width columns" do
+        let(:layout) { [{size: 6, key: "name"}, {size: 7, key: "city"}] }
+
+        it "reads a file that it wrote with multi-byte characters as UTF-8 text" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+            path.writer(:hash) { |io| io << {"name" => "Jos\u00e9", "city" => "Z\u00fcrich"} }
+            rows = []
+            path.option(:encode, encoding: "UTF-8").each(:hash) { |row| rows << row }
+
+            assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+          end
+        end
+
+        it "counts bytes when read as binary" do
+          Dir.mktmpdir do |dir|
+            # "José " is 6 bytes and "Zürich" is 7 bytes.
+            IOStreams.path(dir, "people.txt").write("Jos\u00e9 Z\u00fcrich\n")
+            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+            rows = []
+            path.option(:encode, encoding: "BINARY").each(:hash) { |row| rows << row }
+
+            assert_equal [{"name" => "Jos\u00e9".b, "city" => "Z\u00fcrich".b}], rows
+          end
+        end
+      end
     end
 
     describe "embedded_within line handling" do
