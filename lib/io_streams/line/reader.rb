@@ -3,7 +3,7 @@ module IOStreams
     class Reader < IOStreams::Reader
       attr_reader :delimiter, :buffer_size, :line_number
 
-      # Prevent denial of service when a delimiter is not found before this number * `buffer_size` characters are read.
+      # Prevent denial of service when a delimiter is not found before this number * `buffer_size` bytes are read.
       MAX_BLOCKS_MULTIPLIER = 100
 
       LINEFEED_REGEXP = /\r\n|\n|\r/
@@ -58,6 +58,7 @@ module IOStreams
         @eof               = false
         @read_cache_buffer = nil
         @buffer            = nil
+        @encoding          = nil
         @delimiter         = delimiter
 
         read_block
@@ -67,8 +68,9 @@ module IOStreams
         return unless @buffer
 
         # Change the delimiters encoding to match that of the input stream
-        @delimiter      = @delimiter.encode(@buffer.encoding)
-        @delimiter_size = @delimiter.size
+        @delimiter = @delimiter.encode(@encoding)
+        # The delimiter as it is searched for within the buffer, see #buffer_encoding.
+        @separator = @delimiter.dup.force_encoding(@buffer.encoding)
       end
 
       # Iterate over every line in the file/stream passing each line to supplied block in turn.
@@ -132,13 +134,13 @@ module IOStreams
         return if eof?
 
         # Keep reading until it finds the delimiter
-        while (index = @buffer.index(@delimiter)).nil? && read_block
+        while (index = @buffer.byteindex(@separator)).nil? && read_block
         end
 
         # Delimiter found?
         if index
-          data         = @buffer.slice(0, index)
-          @buffer      = @buffer.slice(index + @delimiter_size, @buffer.size)
+          data         = @buffer.byteslice(0, index)
+          @buffer      = @buffer.byteslice(index + @separator.bytesize, @buffer.bytesize)
           @line_number += 1
         elsif @eof && @buffer.empty?
           data    = nil
@@ -150,7 +152,7 @@ module IOStreams
           @line_number += 1
         end
 
-        data
+        data&.force_encoding(@encoding)
       end
 
       # Returns whether more data is available to read
@@ -179,22 +181,33 @@ module IOStreams
         end
 
         if @buffer
-          @buffer << block
+          @buffer << (block.encoding == @buffer.encoding ? block : block.b)
         else
-          # Take on the encoding from the input stream
-          @buffer            = block.dup
           # Take on the encoding from the first block that was read.
+          @encoding          = block.encoding
+          @buffer            = block.dup.force_encoding(buffer_encoding)
           @read_cache_buffer = "".encode(block.encoding) if @use_read_cache_buffer
         end
 
-        if @buffer.size > MAX_BLOCKS_MULTIPLIER * @buffer_size
+        if @buffer.bytesize > MAX_BLOCKS_MULTIPLIER * @buffer_size
           raise(
             Errors::DelimiterNotFound,
-            "Delimiter: #{@delimiter.inspect} not found after reading #{@buffer.size} bytes."
+            "Delimiter: #{@delimiter.inspect} not found after reading #{@buffer.bytesize} bytes."
           )
         end
 
         true
+      end
+
+      # Returns [Encoding] the encoding of the buffer that holds the data read, in which the delimiter is searched for.
+      #
+      # UTF-8 is held as binary, since a UTF-8 delimiter can only match the bytes of whole characters.
+      # Searching it as UTF-8 is far slower: each line sliced off the front leaves a new string, which Ruby
+      # validates again from its start before the next search, so every line rescans the rest of the buffer.
+      # Other encodings are searched by character, since in some, such as Shift_JIS, the second byte of a
+      # character can match a delimiter such as `|`.
+      def buffer_encoding
+        @encoding == Encoding::UTF_8 ? Encoding::BINARY : @encoding
       end
 
       # Auto-detect windows/linux line endings: \n, \r or \r\n
