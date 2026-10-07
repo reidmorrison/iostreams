@@ -66,6 +66,46 @@ class StreamFormatTest < Minitest::Test
       end
     end
 
+    describe "#sensitive_option_names" do
+      it "combines those of the reader and the writer" do
+        assert_equal %i[passphrase signer_passphrase], IOStreams.extensions[:pgp].sensitive_option_names
+      end
+
+      it "is empty for a format without any" do
+        assert_empty gzip.sensitive_option_names
+      end
+
+      it "is empty for a class that does not declare them" do
+        assert_empty IOStreams::Extension.new(Class.new, nil).sensitive_option_names
+      end
+    end
+
+    describe "#redact_options" do
+      it "replaces the values of the options that the classes declare sensitive" do
+        reader = Class.new(IOStreams::Reader) do
+          def self.option_names = %i[api_key region]
+          def self.sensitive_option_names = %i[api_key]
+        end
+        format = IOStreams::Extension.new(reader, nil)
+
+        assert_equal({api_key: "[FILTERED]", region: "east"}, format.redact_options(api_key: "TOP-SECRET", region: "east"))
+      end
+
+      it "replaces the value of an option whose name looks secret, as a precaution" do
+        format = IOStreams::Extension.new(Class.new, nil)
+
+        assert_equal({db_password: "[FILTERED]", client_secret: "[FILTERED]", region: "east"},
+                     format.redact_options(db_password: "a", client_secret: "b", region: "east"))
+      end
+
+      it "does not change the options supplied" do
+        options = {passphrase: "TOP-SECRET"}
+        IOStreams.extensions[:pgp].redact_options(options)
+
+        assert_equal({passphrase: "TOP-SECRET"}, options)
+      end
+    end
+
     describe "#file_name_extension?" do
       it "is true by default" do
         assert_predicate gzip, :file_name_extension?

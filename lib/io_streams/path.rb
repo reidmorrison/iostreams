@@ -1,9 +1,5 @@
 module IOStreams
   class Path < IOStreams::Stream
-    # Stream option names whose values must not be displayed, such as `passphrase` or `signer_passphrase`.
-    SENSITIVE_OPTION = /pass(phrase|word)|secret/i
-    private_constant :SENSITIVE_OPTION
-
     attr_reader :path
 
     def initialize(path)
@@ -245,12 +241,13 @@ module IOStreams
     end
 
     # Does not create the builder, so that a frozen path can be inspected, for example in a `FrozenError` message.
+    # Does not display the values of sensitive options, such as a passphrase, see `IOStreams::Builder#redacted`.
     def inspect
-      builder = @builder || IOStreams::Builder.new(path)
+      builder = (@builder || IOStreams::Builder.new(path)).redacted
       str     = "#<#{self.class.name}:#{display_name}"
-      str << " @builder=#{redact(builder.streams).inspect}" if builder.streams
-      str << " @options=#{redact(builder.options).inspect}" if builder.options
-      str << " pipeline=#{redact(builder.pipeline).inspect}>"
+      str << " @builder=#{builder.streams.inspect}" if builder.streams
+      str << " @options=#{builder.options.inspect}" if builder.options
+      str << " pipeline=#{builder.pipeline.inspect}>"
     end
 
     protected
@@ -330,15 +327,6 @@ module IOStreams
     def permit!
       @permitted_path = path
       self
-    end
-
-    # Returns [Hash<Symbol:Hash>] the streams with the values of sensitive options replaced.
-    def redact(streams)
-      streams.transform_values do |options|
-        next options unless options.is_a?(Hash)
-
-        options.to_h { |name, value| [name, name.to_s.match?(SENSITIVE_OPTION) ? "[FILTERED]" : value] }
-      end
     end
 
     # Raises the `FrozenError` itself, since JRuby does not call `#inspect` for its message.

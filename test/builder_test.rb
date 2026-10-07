@@ -296,6 +296,41 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe "#redacted" do
+      it "replaces the values of sensitive options in a copy" do
+        streams.option(:pgp, passphrase: "TOP-SECRET", verify_first: true)
+        copy = streams.redacted
+
+        assert_equal({pgp: {passphrase: "[FILTERED]", verify_first: true}}, copy.options)
+        assert_equal({passphrase: "[FILTERED]", verify_first: true}, copy.pipeline[:pgp])
+        assert_equal({pgp: {passphrase: "TOP-SECRET", verify_first: true}}, streams.options)
+      end
+
+      it "replaces the values of the streams" do
+        streams.stream(:pgp, signer_passphrase: "TOP-SECRET", recipient: "a@b.org")
+
+        assert_equal({pgp: {signer_passphrase: "[FILTERED]", recipient: "a@b.org"}}, streams.redacted.streams)
+      end
+
+      it "replaces every value of a stream that is no longer registered" do
+        IOStreams.register_extension(:gone_test, nil, SimpleStream)
+        streams.stream(:gone_test, arg: "TOP-SECRET")
+        IOStreams.deregister_extension(:gone_test)
+
+        assert_equal({gone_test: {arg: "[FILTERED]"}}, streams.redacted.streams)
+      end
+    end
+
+    describe "#inspect" do
+      it "does not display the values of sensitive options" do
+        streams.option(:pgp, passphrase: "TOP-SECRET")
+        str = streams.inspect
+
+        refute_includes str, "TOP-SECRET"
+        assert_includes str, file_name
+      end
+    end
+
     describe "#remove_from_pipeline" do
       let(:file_name) { "my/path/abc.bz2.pgp" }
       it "removes a named stream from the pipeline" do
