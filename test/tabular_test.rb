@@ -291,6 +291,25 @@ class TabularTest < Minitest::Test
 
           assert_equal({name: "Jack", address: "over there"}, hash)
         end
+
+        describe "multi-byte characters" do
+          let :fixed_names do
+            IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 6, key: "name"}, {size: 7, key: "city"}]})
+          end
+
+          it "counts characters of UTF-8 text" do
+            hash = fixed_names.record_parse("Jos\u00e9  Z\u00fcrich ")
+
+            assert_equal({"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}, hash)
+          end
+
+          it "counts bytes of binary data" do
+            # "José " is 6 bytes and "Zürich" is 7 bytes.
+            hash = fixed_names.record_parse("Jos\u00e9 Z\u00fcrich".b)
+
+            assert_equal({"name" => "Jos\u00e9".b, "city" => "Z\u00fcrich".b}, hash)
+          end
+        end
       end
 
       it "skips columns not in the allowed list" do
@@ -438,6 +457,11 @@ class TabularTest < Minitest::Test
         it "truncates long strings" do
           assert string = fixed.render(name: "Jack ran up the beanstalk and when jack reached the top it was truncated", address: "over there", zip: 34_618)
           assert_equal "Jack ran up the beanstaover there                                34618000000000000000.00", string
+        end
+
+        it "pads and truncates multi-byte characters by character" do
+          assert string = fixed.render(name: "\u00e9" * 30, address: "Z\u00fcrich", zip: 34_618)
+          assert_equal "#{'é' * 23}#{'Zürich'.ljust(40)}  34618000000000000000.00", string
         end
 
         it "when integer is too large" do

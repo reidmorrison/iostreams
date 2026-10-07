@@ -94,6 +94,19 @@ example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-12
 
 Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
 
+### Fixed width columns count characters through the encode stream with `replace:`
+
+Reading a fixed width file through the `:encode` stream with `replace:`, for example with
+`option(:encode, encoding: "UTF-8", replace: " ")`, now counts the `size` of each column in
+characters, since the encode stream keeps valid characters. Previously each byte of a non-ASCII
+character was replaced, so the sizes counted bytes, while `Zürich` was read as `Z  rich`. A file whose
+sizes count bytes now raises `IOStreams::Errors::InvalidLineLength` for a line with a multi-byte
+character. Without `replace:`, the sizes already counted characters.
+
+Fix: read a file whose sizes count bytes as binary, with `option(:encode, encoding: "BINARY")`, or in
+its single-byte encoding, such as `option(:encode, encoding: "ISO-8859-1")`. See
+[Fixed width files](formats#fixed-width-files).
+
 ### A `+` in an S3 or SFTP url is kept
 
 A `+` in the path of an S3 or SFTP url is now kept, so `IOStreams.path("s3://bucket/a+b.csv")` reads
