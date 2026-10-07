@@ -92,7 +92,7 @@ Options:
   * `:replace_non_printable` replaces all non-printable characters except `\r` and `\n`
     with the `replace` value, or an empty string when `replace` is nil.
   A Proc can also be supplied to perform custom cleansing; it is called with the data
-  and the `replace` value after every read or write.
+  and the `replace` value after every read or write. Any other value raises `ArgumentError`.
   Default: nil
 
 ## Registering a custom extension

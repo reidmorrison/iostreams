@@ -156,6 +156,16 @@ class EncodeWriterTest < Minitest::Test
           assert_equal "abcdef", io.string
         end
       end
+
+      it "raises for an unknown cleaner symbol" do
+        assert_raises(ArgumentError) { IOStreams::Encode::Writer.stream(StringIO.new, cleaner: :unknown_rule) { |_io| flunk } }
+      end
+
+      it "raises for a cleaner that is neither a Symbol nor a Proc, rather than ignoring it" do
+        error = assert_raises(ArgumentError) { IOStreams::Encode::Writer.stream(StringIO.new, cleaner: "printable") { |_io| flunk } }
+
+        assert_includes error.message, %(Invalid cleaner "printable")
+      end
     end
   end
 end

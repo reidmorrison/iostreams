@@ -2098,7 +2098,7 @@ Options:
   * `:replace_non_printable` replaces all non-printable characters except `\r` and `\n`
     with the `replace` value, or an empty string when `replace` is nil.
   A Proc can also be supplied to perform custom cleansing; it is called with the data
-  and the `replace` value after every read or write.
+  and the `replace` value after every read or write. Any other value raises `ArgumentError`.
   Default: nil
 
 ## Registering a custom extension
@@ -3525,6 +3525,14 @@ since file names do not name it. Previously the data of such a file was read and
 
 Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
 Apply it with `option(:encode, ...)` instead.
+
+### The encode `cleaner` option is strict
+
+A `cleaner` for the `:encode` stream that is neither the name of a built-in rule nor a Proc, such as the
+String `"printable"`, raises `ArgumentError`. Previously it was ignored, so the data was not cleansed.
+
+Fix: supply the name of a built-in rule as a Symbol, such as `cleaner: :printable`, for example with
+`.to_sym` when it comes from configuration.
 
 ## Upgrading to v2.1
 
