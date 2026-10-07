@@ -698,6 +698,86 @@ module Paths
 
           refute_includes error.message, "sshpass"
         end
+
+        # The output of each version of OpenSSH when the remote file, or its directory, does not exist.
+        [
+          'File "/path/file.txt" not found.',
+          'remote open "/path/file.txt": No such file or directory',
+          'dest open "/path/file.txt": No such file or directory',
+          'remote open("/path/file.txt"): No such file or directory',
+          "Couldn't stat remote file: No such file or directory"
+        ].each do |output|
+          it "raises NotFound for: #{output}" do
+            path  = new_path("sftp://jack:secret@example.org/path/file.txt")
+            error = assert_raises IOStreams::Errors::NotFound do
+              path.send(:raise_failure, "Download", "sftp> get \"/path/file.txt\" \"/tmp/x\"\n#{output}")
+            end
+
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+            assert_equal "sftp://example.org/path/file.txt", error.display_name
+            assert error.message.start_with?("sftp://example.org/path/file.txt: Download failed calling sftp via sshpass")
+            refute_includes error.message, "secret"
+          end
+        end
+
+        [
+          "Host key verification failed.",
+          %(Couldn't open local file "/tmp/x" for writing: No such file or directory),
+          "Invalid command."
+        ].each do |output|
+          it "does not tag: #{output}" do
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              new_path(url, username: "jack").send(:raise_failure, "Download", output)
+            end
+
+            refute_kind_of IOStreams::Errors::StorageError, error
+          end
+        end
+      end
+
+      describe "net-sftp failures" do
+        let(:path) { new_path("sftp://example.org/data/a.csv", username: "jack") }
+
+        # Minimal stand-in for Net::SFTP, whose session raises the SFTP status code.
+        def with_failing_net_sftp(code, &)
+          session = Object.new
+          session.define_singleton_method(:stat!) { |_name| raise StubStatusException, code }
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |_hostname, _username, _options, &block| block.call(session) }
+
+          StubNetSFTP.replace(stub_sftp, &)
+        end
+
+        # Returns [Exception] the failure raised by a request of the session.
+        def session_failure(code)
+          with_failing_net_sftp(code) do
+            path.send(:with_net_sftp, "test") { |sftp| sftp.stat!("/data/a.csv") }
+          end
+        rescue StandardError => e
+          e
+        end
+
+        [2, 10].each do |code|
+          it "raises NotFound for a file that does not exist, with status #{code}" do
+            error = session_failure(code)
+
+            assert_kind_of IOStreams::Errors::NotFound, error
+            assert_instance_of StubStatusException, error
+            assert_equal "sftp://example.org/data/a.csv", error.display_name
+          end
+
+          it "#exist? is false for a file that does not exist, with status #{code}" do
+            with_failing_net_sftp(code) { refute_predicate path, :exist? }
+          end
+        end
+
+        it "does not tag any other failure" do
+          error = session_failure(4)
+
+          assert_instance_of StubStatusException, error
+          refute_kind_of IOStreams::Errors::StorageError, error
+        end
       end
 
       describe "writing" do

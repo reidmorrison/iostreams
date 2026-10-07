@@ -10,6 +10,13 @@ module IOStreams
       SAFE_REQUESTS = [Net::HTTP::Get, Net::HTTP::Head].freeze
       private_constant :SAFE_REQUESTS
 
+      # The kind of failure that each unsuccessful response means, see `IOStreams::Errors::StorageError`.
+      RESPONSE_FAILURES = {
+        Net::HTTPNotFound => Errors::NotFound,
+        Net::HTTPGone     => Errors::NotFound
+      }.freeze
+      private_constant :RESPONSE_FAILURES
+
       # Stream to/from a remote file over http(s).
       #
       # Reading uses an HTTP GET, and writing uses an HTTP PUT of the entire file.
@@ -322,13 +329,6 @@ module IOStreams
             http.request(request) do |response|
               return nil if allow_missing && (response.is_a?(Net::HTTPNotFound) || response.is_a?(Net::HTTPGone))
 
-              if response.is_a?(Net::HTTPNotFound)
-                raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{without_credentials(uri)}")
-              end
-              if response.is_a?(Net::HTTPUnauthorized)
-                raise(IOStreams::Errors::CommunicationsFailure, "Authorization Required: Invalid :username or :password.")
-              end
-
               if response.is_a?(Net::HTTPRedirection)
                 new_uri = redirect_uri(uri, response, http_redirect_count, request_class)
                 return send_request(
@@ -337,9 +337,7 @@ module IOStreams
                 )
               end
 
-              unless response.is_a?(Net::HTTPSuccess)
-                raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}")
-              end
+              raise_failure(response, uri) unless response.is_a?(Net::HTTPSuccess)
 
               result = block.call(response)
             end
@@ -348,6 +346,23 @@ module IOStreams
           end
         end
         result
+      end
+
+      # Raises [IOStreams::Errors::CommunicationsFailure] for the unsuccessful response, tagged with the kind of failure
+      # that it means, see `RESPONSE_FAILURES`.
+      def raise_failure(response, uri)
+        message =
+          case response
+          when Net::HTTPNotFound
+            "Invalid URL: #{without_credentials(uri)}"
+          when Net::HTTPUnauthorized
+            "Authorization Required: Invalid :username or :password."
+          else
+            "Invalid response code: #{response.code}"
+          end
+        error = Errors::CommunicationsFailure.new(message)
+        kind  = RESPONSE_FAILURES.find { |response_class, _kind| response.is_a?(response_class) }&.last
+        raise(kind ? kind.tag(error, display_name) : error)
       end
 
       # Returns [Net::HTTPRequest] the request, with the supplied headers and credentials

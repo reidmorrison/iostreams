@@ -315,6 +315,30 @@ module IOStreams
       raise(Errors::AccessDenied, "Access denied: #{self.class.name} does not support allowed paths")
     end
 
+    # Returns [Module] the kind of failure, such as `IOStreams::Errors::NotFound`, that an exception raised by the
+    # storage of this path means, or nil when it is none of them, see `IOStreams::Errors::StorageError`.
+    #
+    # Each path class returns the kinds of failure of its own storage, and makes each request of its storage within
+    # `#tag_failure`. A path class registered with `IOStreams.register_scheme` can do the same.
+    def failure_kind(_exception)
+      nil
+    end
+
+    # Calls the block, which makes a request of the storage of this path, and tags an exception that it raises with
+    # the kind of failure that it means, see `#failure_kind`, and the display name of the supplied path. That is this
+    # path, unless the failure is known to be another path's, such as the source of a copy.
+    #
+    # Only make the request within the block, never call a block that the caller supplied, since an exception raised
+    # by the caller's block, such as `Errno::ENOENT` for another file, is not a failure of this path.
+    def tag_failure(path = self)
+      yield
+    rescue StandardError => e
+      kind = failure_kind(e)
+      raise unless kind
+
+      raise(kind.tag(e, path.display_name))
+    end
+
     # Raises [IOStreams::Errors::AccessDenied] when the supplied location, see `#allowed_location`,
     # is not within any of the allowed paths.
     def authorize_location!(location)

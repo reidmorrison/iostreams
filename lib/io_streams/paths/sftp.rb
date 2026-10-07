@@ -12,7 +12,8 @@ module IOStreams
     #     end
     #
     # Note:
-    # - raises Net::SFTP::StatusException when the file could not be read.
+    # - raises IOStreams::Errors::CommunicationsFailure when the file could not be read, tagged with the kind of
+    #   failure when it is known, such as IOStreams::Errors::NotFound, see IOStreams::Errors::StorageError.
     #
     # Write to a file on a remote sftp server.
     #
@@ -32,6 +33,7 @@ module IOStreams
       @before_password_wait_seconds = 2
       @sshpass_wait_seconds         = 5
 
+      autoload :Failure, "io_streams/paths/sftp/failure"
       autoload :Listing, "io_streams/paths/sftp/listing"
       autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
 
@@ -179,7 +181,7 @@ module IOStreams
           attributes = sftp.lstat!(remote_path)
           attributes.directory? ? sftp.rmdir!(remote_path) : sftp.remove!(remote_path)
         rescue Net::SFTP::StatusException => e
-          raise unless e.code == Listing::NO_SUCH_FILE
+          raise unless Listing::NOT_FOUND.include?(e.code)
         end
         self
       end
@@ -298,10 +300,17 @@ module IOStreams
         Utils.load_soft_dependency("net-sftp", capability, "net/sftp") unless defined?(Net::SFTP)
 
         result = nil
-        NetSSH.options(ssh_options, port: port, password: password) do |options|
-          Net::SFTP.start(hostname, username, options) { |sftp| result = yield(sftp) }
+        tag_failure do
+          NetSSH.options(ssh_options, port: port, password: password) do |options|
+            Net::SFTP.start(hostname, username, options) { |sftp| result = yield(sftp) }
+          end
         end
         result
+      end
+
+      # Returns [Module] the kind of failure that an exception raised by net-sftp means, see `Failure.kind`.
+      def failure_kind(exception)
+        Failure.kind(exception)
       end
 
       # Returns the attributes of this path on the server, or nil when it does not exist.
@@ -421,14 +430,18 @@ module IOStreams
         directories
       end
 
+      # Raises [IOStreams::Errors::CommunicationsFailure] with the output of the sftp program, tagged with the kind of
+      # failure that the output means, see `Failure.output_kind`.
+      #
       # When the server does not prompt for a password, sftp reads the password line as a command
       # and echoes it in its output, so remove it before the output is included in the error.
       def raise_failure(action, out)
-        out = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
-        raise(
-          Errors::CommunicationsFailure,
+        out   = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
+        error = Errors::CommunicationsFailure.new(
           "#{action} failed calling #{self.class.sftp_bin}#{" via #{self.class.sshpass_bin}" if password}: #{out}"
         )
+        kind = Failure.output_kind(out)
+        raise(kind ? kind.tag(error, display_name) : error)
       end
 
       def with_sftp_args

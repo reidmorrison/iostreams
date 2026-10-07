@@ -32,6 +32,8 @@ To keep code independent of where its files are stored:
 * Use the methods on the path, such as `exist?`, `each_child`, `move_to`, `delete`, `reader` and `writer`,
   rather than passing `path.to_s` to `File` or `Dir`, which only work with local files.
 * Do not check the scheme of a path to decide what to do with it.
+* Rescue the kind of failure, such as `IOStreams::Errors::NotFound` for a file that does not exist, rather than the
+  exception that one storage raises, such as `Errno::ENOENT`, see [Errors](errors).
 * Keep credentials in configuration too, for example the AWS environment variables or credential files for S3,
   and the ssh config for SFTP.
 

@@ -83,6 +83,14 @@ module Paths
         it "reads" do
           assert_equal raw, existing_path.read
         end
+
+        it "raises NotFound for a file that does not exist" do
+          error = assert_raises(IOStreams::Errors::NotFound) { missing_path.read }
+
+          assert_instance_of Aws::S3::Errors::NoSuchKey, error
+          assert_equal missing_path.display_name, error.display_name
+          assert_includes error.message, missing_path.display_name
+        end
       end
 
       describe "#size" do
@@ -292,9 +300,11 @@ module Paths
           refute_predicate source, :exist?
           begin
             target = source.directory.join("move_test_target.txt")
-            assert_raises Aws::S3::Errors::NoSuchKey do
+            error  = assert_raises Aws::S3::Errors::NoSuchKey do
               source.move_to(target)
             end
+            assert_kind_of IOStreams::Errors::NotFound, error
+            assert_equal source.display_name, error.display_name
             refute_predicate target, :exist?
           ensure
             source&.delete
@@ -349,6 +359,17 @@ module Paths
           assert_equal 11, source.copy_to(target, convert: false)
 
           assert_equal "Hello World", target.read
+        end
+
+        it "raises NotFound for a source that does not exist, with its display name" do
+          missing = root_path.join("copy test missing.txt")
+
+          [-> { target.copy_from(missing, convert: false) }, -> { missing.copy_to(target, convert: false) }].each do |copy|
+            error = assert_raises(IOStreams::Errors::NotFound, &copy)
+
+            assert_equal missing.display_name, error.display_name
+          end
+          refute_predicate target, :exist?
         end
       end
 
@@ -592,6 +613,48 @@ module Paths
 
             assert_equal [{request_payer: "requester"}], children.map(&:options)
           end
+        end
+      end
+
+      describe "failures" do
+        def stub_client(responses)
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          Aws::S3::Client.new(stub_responses: responses, region: "us-east-1", credentials: Aws::Credentials.new("id", "secret"))
+        end
+
+        it "raises NotFound when listing a bucket that does not exist" do
+          path  = IOStreams::Paths::S3.new("s3://missing-bucket/reports", client: stub_client(list_objects_v2: "NoSuchBucket"))
+          error = assert_raises(IOStreams::Errors::NotFound) { path.children("*.csv") }
+
+          assert_instance_of Aws::S3::Errors::NoSuchBucket, error
+          assert_equal "s3://missing-bucket/reports", error.display_name
+        end
+
+        it "raises NotFound when an exact child is in a bucket that does not exist" do
+          client = stub_client(head_object: "NoSuchBucket")
+          path   = IOStreams::Paths::S3.new("s3://missing-bucket/reports", client: client)
+          error  = assert_raises(IOStreams::Errors::NotFound) { path.children("a.csv") }
+
+          assert_equal "s3://missing-bucket/reports/a.csv", error.display_name
+        end
+
+        it "raises NotFound for an upload in parts to a bucket that does not exist" do
+          client = stub_client(upload_part: "NoSuchBucket")
+          path   = IOStreams::Paths::S3.new("s3://missing-bucket/a.csv", client: client)
+          # The AWS SDK only sets the code of an error that it raised for a response.
+          part   = assert_raises(Aws::S3::Errors::NoSuchBucket) do
+            client.upload_part(bucket: "missing-bucket", key: "a.csv", upload_id: "1", part_number: 1, body: "data")
+          end
+          parts = Aws::S3::MultipartUploadError.new("multipart upload failed", [part])
+
+          assert_equal IOStreams::Errors::NotFound, path.send(:failure_kind, parts)
+        end
+
+        it "does not tag any other failure" do
+          path  = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: stub_client(get_object: "InvalidObjectState"))
+          error = assert_raises(Aws::S3::Errors::InvalidObjectState) { path.read }
+
+          refute_kind_of IOStreams::Errors::StorageError, error
         end
       end
 
