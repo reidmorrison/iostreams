@@ -398,31 +398,31 @@ module IOStreams
         end
 
         authorize!
-        matcher = Matcher.new(self, pattern, case_sensitive: case_sensitive, hidden: hidden)
+        matcher = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
+        # Use the key directly rather than parsing it as part of a URL.
+        prefix  = key_within(path, matcher.directory)
 
-        # When the pattern includes an exact file name without any pattern characters
-        if matcher.pattern.nil?
-          each_exact_child(matcher.path, directories, &)
+        # When the pattern is an exact file name without any pattern characters
+        if matcher.exact?
+          each_exact_child(child_path(bucket_name, key_within(prefix, matcher.pattern)), directories, &)
           return
         end
 
-        # Use the key directly rather than parsing it as part of a URL, and list within it as a directory,
-        # so that a key such as "reports" does not also list "reports_2024.csv".
-        prefix = matcher.path.path
+        # List within the key as a directory, so that a key such as "reports" does not also list "reports_2024.csv".
         prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
         listed = {}
         each_object(prefix) do |name, object|
           relative = object.key.delete_prefix(prefix)
           if directories
             each_directory(relative, listed) do |directory|
-              next unless ::File.fnmatch?(matcher.pattern, directory, matcher.flags)
+              next unless matcher.match?(directory)
 
               child = child_path(name, "#{prefix}#{directory}")
               yield(child, relative == "#{directory}/" ? object.to_h : {}) if allowed_child?(child)
             end
           end
           next if object.key.end_with?("/")
-          next unless ::File.fnmatch?(matcher.pattern, relative, matcher.flags)
+          next unless matcher.match?(relative)
 
           child = child_path(name, object.key)
           next unless allowed_child?(child)
@@ -554,6 +554,13 @@ module IOStreams
         end
 
         to_s.sub(%r{/+\z}, "")
+      end
+
+      # Returns [String] the key of the supplied name within the supplied key, or the key itself for an empty name.
+      def key_within(key, name)
+        return key if name.empty?
+
+        key.empty? ? name : ::File.join(key, name)
       end
 
       # Set the key directly rather than parsing it as part of a URL, since a key can contain

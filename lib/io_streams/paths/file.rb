@@ -5,14 +5,8 @@ module IOStreams
     class File < IOStreams::Path
       attr_accessor :create_path
 
-      # Characters that make a pattern element match names, rather than be a name.
-      PATTERN_CHARACTERS = /[*?\[{\\]/
-      # A brace whose alternatives contain a directory, such as `{a,b/c}`.
-      BRACE_WITH_SLASH   = /\{[^}]*\/[^}]*\}/
-      # A pattern element that names a hidden file, such as `.env`.
-      HIDDEN_ELEMENT     = /(?:\A|[\/{,])\./
       # A file name within the home directory, `~` or starting with `~/`, rather than `~user` or `~$Book1.xlsx`.
-      HOME_DIRECTORY     = %r{\A~(?:/|\z)}
+      HOME_DIRECTORY = %r{\A~(?:/|\z)}
 
       # Parameters:
       #   file_name [String]
@@ -151,18 +145,16 @@ module IOStreams
 
         authorize!
 
-        flags = ::File::FNM_PATHNAME | ::File::FNM_EXTGLOB
-        flags |= ::File::FNM_CASEFOLD unless case_sensitive
-        flags |= ::File::FNM_DOTMATCH if hidden
-
-        directory, pattern = split_pattern(pattern)
+        # A name without pattern characters is also matched within its directory, so that `case_sensitive` applies.
+        matcher   = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
+        directory = local_directory(matcher.directory)
         # `Dir.glob` ignores FNM_CASEFOLD on a case-sensitive file system, such as on Linux, so it lists every
-        # candidate and `File.fnmatch?` matches the pattern. The directory is supplied as `base`, so that
+        # candidate and the matcher matches the pattern. The directory is supplied as `base`, so that
         # characters such as `[` in its name are not pattern characters.
-        glob_flags = hidden || pattern.match?(HIDDEN_ELEMENT) ? ::File::FNM_DOTMATCH : 0
-        candidates = Dir.glob(candidate_pattern(pattern), glob_flags, base: directory)
+        glob_flags = matcher.hidden? ? ::File::FNM_DOTMATCH : 0
+        candidates = Dir.glob(candidate_pattern(matcher.depth), glob_flags, base: directory)
         results    = candidates.filter_map do |name|
-          next if ::File.basename(name).match?(/\A\.\.?\z/) || !::File.fnmatch?(pattern, name, flags)
+          next if ::File.basename(name).match?(/\A\.\.?\z/) || !matcher.match?(name)
 
           next ::File.join(directory, name) if directory
 
@@ -262,26 +254,18 @@ module IOStreams
 
       private
 
-      # Returns [String, String] the directory to search, and the pattern to match within it.
-      # Leading directories without pattern characters are searched directly, rather than matched.
-      # The directory is nil for the current directory.
-      def split_pattern(pattern)
-        elements = pattern.split("/")
-        index    = elements.find_index { |element| element.match?(PATTERN_CHARACTERS) } || [elements.size - 1, 0].max
-        index    = 0 if pattern.match?(BRACE_WITH_SLASH)
-        return [(path unless path.empty?), pattern] if index.zero?
+      # Returns [String] the supplied directory within this path, see `IOStreams::Paths::Matcher#directory`,
+      # or nil for the current directory.
+      def local_directory(directory)
+        return (path unless path.empty?) if directory.empty?
 
-        # An absolute pattern starts with an empty element.
-        prefix = elements[0...index].join("/")
-        prefix = "/" if prefix.empty?
-        [path.empty? ? prefix : ::File.join(path, prefix), elements[index..].join("/")]
+        path.empty? ? directory : ::File.join(path, directory)
       end
 
-      # Returns [String] a pattern that lists every file that the pattern could match.
-      def candidate_pattern(pattern)
-        return "**/*" if pattern.include?("**") || pattern.match?(BRACE_WITH_SLASH)
-
-        Array.new(pattern.count("/") + 1, "*").join("/")
+      # Returns [String] a pattern for `Dir.glob` that lists every file within the depth that a pattern can match,
+      # see `IOStreams::Paths::Matcher#depth`.
+      def candidate_pattern(depth)
+        depth.nil? ? "**/*" : Array.new(depth + 1, "*").join("/")
       end
 
       # Returns [String] the real path of this file, following any symbolic links, which is compared

@@ -187,6 +187,17 @@ module Paths
           assert_equal [path.to_s], root.children("readme.md").collect(&:to_s)
         end
 
+        it "matches a pattern within the path even when it starts with the name of the path" do
+          Dir.mktmpdir do |dir|
+            Dir.chdir(dir) do
+              IOStreams.path("data/a.csv").write("data")
+              IOStreams.path("data/data/inner.csv").write("data")
+
+              assert_equal ["data/data/inner.csv"], IOStreams.path("data").children("data/*.csv").collect(&:to_s)
+            end
+          end
+        end
+
         it "finds children of a directory with pattern characters in its name" do
           ["dir [1]", "dir {a,b}", "dir *?"].each do |name|
             path = root.join(name, "data.csv")

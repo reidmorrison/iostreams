@@ -225,23 +225,12 @@ module IOStreams
   # "**.rb"     "lib/song.rb"    true
   # "*"         "dave/.profile"  true
   def self.each_child(pattern, case_sensitive: false, directories: false, hidden: false, &)
-    matcher = Paths::Matcher.new(nil, pattern, case_sensitive: case_sensitive, hidden: hidden)
-
-    path, pattern = matcher.pattern.nil? ? split_name(pattern) : [matcher.path, matcher.pattern]
-    path.each_child(pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &)
+    # The directory before the first element with pattern characters is the path, such as `s3://bucket/data`
+    # for `s3://bucket/data/*.csv`, which lists the pattern within it.
+    matcher = Paths::Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
+    path(matcher.directory).
+      each_child(matcher.pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &)
   end
-
-  # Returns the directory, and the name within it, of a name without any pattern characters,
-  # so that it is returned the same way as by `#each_child`.
-  # For example `[IOStreams.path("s3://bucket/data"), "a.csv"]` for `"s3://bucket/data/a.csv"`.
-  def self.split_name(name)
-    index = name.rindex("/")
-    return [path(""), name] if index.nil?
-
-    [path(index.zero? ? "/" : name[0...index]), name[(index + 1)..]]
-  end
-
-  private_class_method :split_name
 
   # Returns [IOStreams::Path] a copy of the default root path, or the named root path,
   # so that changing it does not change the root.

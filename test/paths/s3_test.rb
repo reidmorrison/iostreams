@@ -552,6 +552,19 @@ module Paths
             assert_equal ["s3://bucket/reports/a.csv"], children
           end
 
+          it "matches a pattern within the path even when it starts with the name of the path" do
+            IOStreams.path("s3://bucket/reports/reports/inner.csv").write("data")
+            children = IOStreams.path("s3://bucket/reports").children("reports/*.csv").map(&:to_s)
+
+            assert_equal ["s3://bucket/reports/reports/inner.csv"], children
+          end
+
+          it "treats a backslash as escaping the next character, like local paths" do
+            children = IOStreams.path("s3://bucket/reports").children("\\a.csv").map(&:to_s)
+
+            assert_equal ["s3://bucket/reports/a.csv"], children
+          end
+
           it "only returns children within the path when the pattern is recursive" do
             children = IOStreams.path("s3://bucket/reports").children("**/*.csv").map(&:to_s)
 

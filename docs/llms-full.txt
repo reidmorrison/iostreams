@@ -3442,6 +3442,10 @@ or remove the trailing `/` that it expected.
   Previously it yielded only the path, and yielded a local directory regardless.
 * Local `#each_child` now returns `nil`, like S3 and SFTP paths. Previously it returned an internal array of the
   names that it found.
+* S3 and SFTP `#each_child` match a pattern the same way as local paths. A pattern is within the path even when
+  it starts with the path's own name, so `IOStreams.path("s3://bucket/data").each_child("data/*.csv")` lists
+  `s3://bucket/data/data/`, where it listed `s3://bucket/data/`. A backslash escapes the next character, so
+  `each_child("a\\b.csv")` returns `ab.csv`, where S3 and SFTP looked for a name containing the backslash.
 
 Fix: a block that takes a single argument is unaffected by the attributes. A lambda or method that takes
 exactly one argument must accept the attributes, as it already had to for patterns. Do not use the
