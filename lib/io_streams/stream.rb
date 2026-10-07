@@ -285,13 +285,14 @@ module IOStreams
       if file_name == :none
         builder.file_name
       else
-        builder.file_name = file_name
+        self.file_name = file_name
         self
       end
     end
 
     # Set the original file_name
     def file_name=(file_name)
+      raise_if_frozen!
       builder.file_name = file_name
     end
 
@@ -456,8 +457,8 @@ module IOStreams
       @builder ||= IOStreams::Builder.new
     end
 
-    # Raises [FrozenError] when this stream is frozen, so that #stream, #option, #option_or_stream and
-    # #remove_from_pipeline still raise even once the builder they would change already exists,
+    # Raises [FrozenError] when this stream is frozen, since the methods that change its builder, such as
+    # #option and #file_name=, would otherwise change it even though this stream is frozen,
     # see `IOStreams::Path#freeze`.
     def raise_if_frozen!
       raise(FrozenError.new("can't modify frozen #{self.class}: #{inspect}", receiver: self)) if frozen?

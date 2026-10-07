@@ -281,8 +281,8 @@ module IOStreams
       to_s
     end
 
-    # Freezes this path, including its builder, so that `#option` and `#stream` can no longer change the
-    # streams or options it already holds, see `IOStreams.add_root`. The builder is created first, if it
+    # Freezes this path, so that `#option`, `#stream` and `#file_name=` can no longer change the streams,
+    # options or file name it already holds, see `IOStreams.add_root`. The builder is created first, if it
     # was not already, so that this path can still be read, for example with `#reader` or `#pipeline`.
     def freeze
       builder
