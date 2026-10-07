@@ -111,7 +111,7 @@ class PgpWriterTest < Minitest::Test
       end
 
       it "fails with bad signer passphrase" do
-        skip "GnuPG v2.1 and above passes when it should not" if IOStreams::Pgp.pgp_version.to_f >= 2.1
+        skip "GnuPG v2.1 and above passes when it should not" if IOStreams::Pgp.version_at_least?("2.1")
         assert_raises IOStreams::Pgp::Failure do
           IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "BAD") do |io|
             io.write(decrypted)
