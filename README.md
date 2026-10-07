@@ -1,5 +1,5 @@
 # IOStreams
-[![Gem Version](https://img.shields.io/gem/v/iostreams.svg)](https://rubygems.org/gems/iostreams) [![Downloads](https://img.shields.io/gem/dt/iostreams.svg)](https://rubygems.org/gems/iostreams) [![License](https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](http://opensource.org/licenses/Apache-2.0) ![](https://img.shields.io/badge/status-Production%20Ready-blue.svg)
+[![Gem Version](https://img.shields.io/gem/v/iostreams.svg)](https://rubygems.org/gems/iostreams) [![Downloads](https://img.shields.io/gem/dt/iostreams.svg)](https://rubygems.org/gems/iostreams) [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/reidmorrison/iostreams/badges/coverage.json)](https://github.com/reidmorrison/iostreams/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](http://opensource.org/licenses/Apache-2.0) ![](https://img.shields.io/badge/status-Production%20Ready-blue.svg)
 
 IOStreams is a streaming library for Ruby that makes compression, encryption, file format, and storage
 location transparent to your code. Read and write files of any size, one block at a time, whether they
