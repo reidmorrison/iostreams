@@ -356,6 +356,39 @@ class EncodeReaderTest < Minitest::Test
           end
         end
       end
+
+      describe "byte order mark" do
+        let(:with_byte_order_mark) { "\xEF\xBB\xBFname,city".b }
+
+        it "is removed from the start of UTF-8 data" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new(with_byte_order_mark), encoding: "UTF-8", &:read)
+
+          assert_equal "name,city", data
+        end
+
+        it "is removed when it is split across reads" do
+          chunks = []
+          IOStreams::Encode::Reader.stream(StringIO.new(with_byte_order_mark), encoding: "UTF-8") do |io|
+            while (chunk = io.read(1))
+              chunks << chunk
+            end
+          end
+
+          assert_equal "name,city".chars, chunks
+        end
+
+        it "is kept when it is not at the start" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new("a\xEF\xBB\xBFb".b), encoding: "UTF-8", &:read)
+
+          assert_equal "a\uFEFFb", data
+        end
+
+        it "is kept with encoding: BINARY" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new(with_byte_order_mark), encoding: "BINARY", &:read)
+
+          assert_equal with_byte_order_mark, data
+        end
+      end
     end
   end
 end

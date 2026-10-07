@@ -82,7 +82,8 @@ Options:
   Data that is read, whether from a file or through another stream such as `:gz`, and binary data
   that is written, is treated as already being in this encoding, so its characters are kept and only
   invalid characters are replaced or raise an error. A Ruby string being written in another encoding
-  is converted.
+  is converted. When reading UTF-8, the byte order mark (U+FEFF) that programs such as Excel write at
+  the start of a file is removed.
   Default: `"UTF-8"`
 
 * `replace: [String]`

@@ -1,6 +1,9 @@
 module IOStreams
   module Encode
     class Reader < IOStreams::Reader
+      # The byte order mark that some programs, such as Excel, write at the start of UTF-8 text.
+      BYTE_ORDER_MARK = "\uFEFF".freeze
+
       def self.option_names
         %i[encoding cleaner replace]
       end
@@ -30,6 +33,8 @@ module IOStreams
       #     whatever encoding the input stream tags it with. So its characters are kept and only invalid characters
       #     are replaced, or raise an error.
       #
+      #     When reading UTF-8, a byte order mark at the start of the data is removed.
+      #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
       #     nil: Don't replace any invalid characters. Encoding::UndefinedConversionError is raised.
@@ -46,6 +51,8 @@ module IOStreams
 
         @converter = Converter.new(encoding: encoding, replace: replace)
         @cleaner   = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+        # Whether the start of the data, where UTF-8 text can begin with a byte order mark, is still to be read.
+        @at_start  = @converter.encoding == Encoding::UTF_8
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         # Binary, since `IO#read` keeps the encoding of the buffer that it reads into.
@@ -67,7 +74,8 @@ module IOStreams
           end
 
           data = @converter.convert(block, final: size.nil?)
-          # Read again when the whole block is the start of a multi-byte character.
+          data = remove_byte_order_mark(data) if @at_start && !data.empty?
+          # Read again when the whole block is the start of a multi-byte character, or a byte order mark.
           break unless data.empty? && !block.empty?
         end
 
@@ -89,6 +97,13 @@ module IOStreams
       end
 
       private
+
+      # Returns [String] the first characters of the data without a byte order mark. Since the converter returns whole
+      # characters, a byte order mark split across reads is in the first data that it returns.
+      def remove_byte_order_mark(data)
+        @at_start = false
+        data.start_with?(BYTE_ORDER_MARK) ? data.byteslice(BYTE_ORDER_MARK.bytesize..) : data
+      end
 
       # Returns [String] the next block of the input stream as binary data, or [nil] at the end of the stream.
       #

@@ -168,6 +168,26 @@ class StreamTest < Minitest::Test
           assert_equal binary, File.binread(File.join(dir, "b.jpg"))
         end
       end
+
+      it "removes the byte order mark that Excel writes at the start of a UTF-8 CSV file" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "excel.csv")
+          path.write("\xEF\xBB\xBF\"name\",\"city\"\n\"Jos\xC3\xA9\",\"Z\xC3\xBCrich\"\n".b)
+          records = []
+          path.each(:hash) { |record| records << record }
+
+          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], records
+        end
+      end
+
+      it "keeps the byte order mark when reading the whole file, like File.read" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "excel.csv")
+          path.write("\xEF\xBB\xBFname\n".b)
+
+          assert_equal "\uFEFFname\n", path.read
+        end
+      end
     end
 
     describe "#each(:line)" do

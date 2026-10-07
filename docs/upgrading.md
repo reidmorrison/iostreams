@@ -38,6 +38,11 @@ already did when writing, so a file whose sizes count bytes raises
 The `:stream` mode, `read` with a length, such as `read(1024)`, and writing are unchanged: they read
 and write bytes.
 
+The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is
+removed from the first line, so that a CSV file with a quoted header row no longer raises
+`CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
+`encoding: "UTF-8"`. `read` keeps it, like `File.read`.
+
 Fix: read a file in another encoding by setting it on the encode stream, for example
 `option(:encode, encoding: "Windows-1252")`, whose strings are then in that encoding, or supply
 `replace:` to replace invalid characters instead of raising. To read binary strings, as before, supply
