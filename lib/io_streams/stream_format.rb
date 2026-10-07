@@ -65,16 +65,6 @@ module IOStreams
       end
     end
 
-    # Returns [true|false] whether file names name this format by its extension, such as `.gz`, so that the
-    # extensions of a file name decide whether it is applied, and in which order.
-    #
-    # A format that file names do not name, such as `:encode`, is applied whenever its options are set with
-    # `#option`, ahead of the formats named by the file name, so that it is closest to the data that the
-    # application reads or writes.
-    def file_name_extension?
-      true
-    end
-
     # Raises [ArgumentError] unless every option is valid when reading (type: :reader) or writing (:writer)
     # this format, see #valid_option_names, or, when type is nil, valid for either, since it is not yet known
     # which will be used. Options are not checked when the class does not declare them.

@@ -9,7 +9,8 @@ class StreamCloseTest < Minitest::Test
     stream_options = {pgp: [{recipient: "receiver@example.org"}, {passphrase: "receiver_passphrase"}]}
     stream_options[:gpg] = stream_options[:pgp]
 
-    IOStreams.extensions.each_pair do |name, extension|
+    # Every stream registered for a file name extension, and the built-in encode stream.
+    IOStreams.extensions.merge(encode: IOStreams::Encode).each_pair do |name, extension|
       next unless extension.reader_class && extension.writer_class
 
       writer_options, reader_options = stream_options.fetch(name, [{}, {}])

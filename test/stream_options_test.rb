@@ -4,6 +4,9 @@ require_relative "test_helper"
 # raises instead of being silently ignored. An option for the other direction is only ignored
 # when it is in the `valid_option_names` of the reader or writer being used.
 class StreamOptionsTest < Minitest::Test
+  # The format of each stream, those registered for a file name extension and the built-in encode stream.
+  FORMATS = [*IOStreams.extensions.each_value, IOStreams::Encode].uniq.freeze
+
   describe "stream options" do
     let :dir do
       Dir.mktmpdir("iostreams")
@@ -280,7 +283,7 @@ class StreamOptionsTest < Minitest::Test
     describe ".option_names" do
       # Every class whose entry points take explicit keywords must declare exactly those keywords,
       # so the declaration cannot drift from the signature.
-      IOStreams.extensions.each_value.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
+      FORMATS.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
         methods = %i[stream file].select { |name| klass.singleton_class.method_defined?(name, false) }
         next if methods.empty?
 
@@ -300,7 +303,7 @@ class StreamOptionsTest < Minitest::Test
 
     describe ".sensitive_option_names" do
       # A class can only declare its own options sensitive.
-      IOStreams.extensions.each_value.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
+      FORMATS.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
         next unless klass.respond_to?(:sensitive_option_names) && klass.respond_to?(:option_names) && klass.option_names
 
         it "#{klass} declares only its own options sensitive" do
@@ -316,7 +319,7 @@ class StreamOptionsTest < Minitest::Test
       end
 
       # A class that overrides it must accept its own options, and can only add those of the other direction.
-      IOStreams.extensions.each_value.map { |ext| [ext.reader_class, ext.writer_class] }.uniq.each do |pair|
+      FORMATS.map { |ext| [ext.reader_class, ext.writer_class] }.uniq.each do |pair|
         [pair, pair.reverse].each do |klass, other|
           next unless klass.respond_to?(:valid_option_names) && klass.valid_option_names
 

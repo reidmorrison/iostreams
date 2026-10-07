@@ -402,12 +402,11 @@ module IOStreams
   #   compressed?:  [true|false] whether data in the format is compressed.
   #   encrypted?:   [true|false] whether data in the format is encrypted.
   #
-  # A format that file names do not name, such as `:encode`, also answers `file_name_extension?` with false,
-  # see `IOStreams::StreamFormat#file_name_extension?`.
-  #
   # Or supply just the reader and writer classes, for a format that is neither compressed nor encrypted.
   #
   # The reader and writer classes must implement `.open`, see `IOStreams::Reader` and `IOStreams::Writer`.
+  #
+  # Raises ArgumentError for a reserved keyword, such as `:encode` or `:none`.
   #
   # Example:
   #   register_extension(:xz, MyXz)
@@ -424,6 +423,9 @@ module IOStreams
         raise(ArgumentError, "wrong number of arguments (given #{format_or_classes.size + 1}, expected 2..3)")
       end
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
+    if Builder.reserved_keyword?(extension&.to_sym)
+      raise(ArgumentError, "Cannot register the extension #{extension.inspect}, which is a reserved keyword")
+    end
 
     missing = FORMAT_METHODS.reject { |name| format.respond_to?(name) }
     unless missing.empty?
@@ -473,7 +475,7 @@ module IOStreams
 
   # The methods that a format registered with `register_extension` must respond to.
   FORMAT_METHODS = %i[
-    reader_class writer_class compressed? encrypted? file_name_extension?
+    reader_class writer_class compressed? encrypted?
     option_names valid_option_names validate_options open_stream redact_options
   ].freeze
   private_constant :FORMAT_METHODS
@@ -513,7 +515,6 @@ module IOStreams
   register_extension(:gpg, IOStreams::Pgp)
   register_extension(:xlsx, IOStreams::Xlsx)
   register_extension(:xlsm, IOStreams::Xlsx)
-  register_extension(:encode, IOStreams::Encode)
 
   # Register Schemes
   #

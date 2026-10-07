@@ -362,7 +362,7 @@ module IOStreams
           end
 
           assert_includes error.message,
-                          "does not respond to reader_class, writer_class, compressed?, encrypted?, file_name_extension?, " \
+                          "does not respond to reader_class, writer_class, compressed?, encrypted?, " \
                           "option_names, valid_option_names, validate_options, open_stream, redact_options. " \
                           "See IOStreams.register_extension."
           refute IOStreams.extensions.key?(:abc123)
@@ -378,8 +378,8 @@ module IOStreams
           error = assert_raises(ArgumentError) { IOStreams.register_extension(:abc123, format) }
 
           assert_includes error.message,
-                          "does not respond to file_name_extension?, option_names, valid_option_names, validate_options, " \
-                          "open_stream, redact_options."
+                          "does not respond to option_names, valid_option_names, validate_options, open_stream, " \
+                          "redact_options."
           refute IOStreams.extensions.key?(:abc123)
         end
 
@@ -401,6 +401,24 @@ module IOStreams
             IOStreams.register_extension("invalid name", IOStreams::Gzip)
           end
         end
+
+        it "raises an exception for the reserved keyword encode" do
+          error = assert_raises(ArgumentError) { IOStreams.register_extension("encode", IOStreams::Gzip) }
+
+          assert_equal "Cannot register the extension \"encode\", which is a reserved keyword", error.message
+          refute IOStreams.extensions.key?(:encode)
+          lines = []
+          IOStreams.stream(StringIO.new("ok\n")).each(:line) { |line| lines << line }
+
+          assert_equal ["ok"], lines
+        end
+
+        it "raises an exception for the reserved keyword none" do
+          error = assert_raises(ArgumentError) { IOStreams.register_extension(:none, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer) }
+
+          assert_equal "Cannot register the extension :none, which is a reserved keyword", error.message
+          refute IOStreams.extensions.key?(:none)
+        end
       end
 
       describe ".deregister_extension" do
@@ -420,23 +438,26 @@ module IOStreams
 
       describe ".extensions" do
         it "includes the registered extensions" do
-          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm encode].each do |extension|
+          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm].each do |extension|
             assert_includes IOStreams.extensions.keys, extension
           end
         end
 
+        it "does not include the built-in encode stream, which file names do not name" do
+          refute IOStreams.extensions.key?(:encode)
+        end
+
         it "returns the format registered for each built-in extension" do
           {
-            bz2:    IOStreams::Bzip2,
-            enc:    IOStreams::SymmetricEncryption,
-            gz:     IOStreams::Gzip,
-            gzip:   IOStreams::Gzip,
-            zip:    IOStreams::Zip,
-            pgp:    IOStreams::Pgp,
-            gpg:    IOStreams::Pgp,
-            xlsx:   IOStreams::Xlsx,
-            xlsm:   IOStreams::Xlsx,
-            encode: IOStreams::Encode
+            bz2:  IOStreams::Bzip2,
+            enc:  IOStreams::SymmetricEncryption,
+            gz:   IOStreams::Gzip,
+            gzip: IOStreams::Gzip,
+            zip:  IOStreams::Zip,
+            pgp:  IOStreams::Pgp,
+            gpg:  IOStreams::Pgp,
+            xlsx: IOStreams::Xlsx,
+            xlsm: IOStreams::Xlsx
           }.each_pair do |extension, format|
             assert_equal format, IOStreams.extensions[extension], extension
           end
@@ -445,7 +466,7 @@ module IOStreams
         it "declares whether each built-in format is compressed or encrypted" do
           compressed = %i[bz2 gz gzip zip xlsx xlsm]
           encrypted  = %i[enc pgp gpg]
-          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm encode].each do |extension|
+          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm].each do |extension|
             format = IOStreams.extensions[extension]
 
             assert_equal compressed.include?(extension), format.compressed?, extension
