@@ -503,7 +503,7 @@ IOStreams.path("s3://my-bucket-name/uploads").join(untrusted_name)
 
 A username and password supplied in an HTTP or SFTP url remain part of it, so `#to_s` returns
 them, as does any log or error message that includes the path. Supply them with the `username:`
-and `password:` arguments instead:
+and `password:` arguments instead, and log `#display_name`, which never includes them:
 
 ~~~ruby
 # Returns the password from #to_s

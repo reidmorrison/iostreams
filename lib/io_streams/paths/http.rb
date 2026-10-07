@@ -28,7 +28,8 @@ module IOStreams
       #     SECURITY WARNING:
       #       A username and password supplied in the url remain part of it, so `#to_s` and `#url`
       #       return them, as does any log or error message that includes the path.
-      #       Supply them with the `username:` and `password:` arguments instead.
+      #       Supply them with the `username:` and `password:` arguments instead,
+      #       and log `#display_name`, which never includes them.
       #
       #   parameters: [Hash]
       #     Parameters to add to the query string of the url, for example `{q: "search term"}`.
@@ -171,12 +172,12 @@ module IOStreams
         self
       end
 
-      protected
-
       # Returns [String] the url without the user name, password, query or fragment, see #loggable.
       def display_name
         loggable(URI.parse(url))
       end
+
+      protected
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #

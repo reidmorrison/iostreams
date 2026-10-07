@@ -270,12 +270,18 @@ module IOStreams
       str << " pipeline=#{builder.pipeline.inspect}>"
     end
 
-    protected
-
-    # Returns [String] the full name of this path, see #to_s, without any credentials, for `#inspect` and logging.
+    # Returns [String] the full name of this path, see #to_s, without any credentials, so that it can be logged
+    # or displayed. A user name, password or query in an SFTP or HTTP url is removed, since it can hold
+    # credentials, so unlike #to_s it cannot be used to create the path again.
+    #
+    # Example:
+    #   IOStreams.path("sftp://jack:secret@example.org/data/a.csv").display_name
+    #   # => "sftp://example.org/data/a.csv"
     def display_name
       to_s
     end
+
+    protected
 
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
