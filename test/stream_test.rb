@@ -64,6 +64,132 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "text encoding" do
+      let(:text) { "name,city\nJos\u00e9,Z\u00fcrich\n" }
+      let(:binary) { "\xFF\xD8\xFF\xE0JFIF\x00".b }
+
+      %w[csv csv.gz csv.bz2 csv.zip csv.enc].each do |extension|
+        describe "a .#{extension} file" do
+          it "reads lines, rows and records as UTF-8" do
+            Dir.mktmpdir do |dir|
+              path = IOStreams.path(dir, "data.#{extension}")
+              path.write(text)
+              lines   = []
+              rows    = []
+              records = []
+              path.each(:line) { |line| lines << line }
+              path.each(:array) { |row| rows << row }
+              path.each(:hash) { |record| records << record }
+
+              assert_equal ["name,city", "Jos\u00e9,Z\u00fcrich"], lines
+              assert_equal [%w[name city], %w[José Zürich]], rows
+              assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], records
+              (lines + rows.flatten + records.first.to_a.flatten).each do |value|
+                assert_equal Encoding::UTF_8, value.encoding
+              end
+            end
+          end
+
+          it "reads the whole file as UTF-8" do
+            Dir.mktmpdir do |dir|
+              path = IOStreams.path(dir, "data.#{extension}")
+              path.write(text)
+              data = path.read
+
+              assert_equal Encoding::UTF_8, data.encoding
+              assert_equal text, data
+            end
+          end
+        end
+      end
+
+      it "reads the rows of a spreadsheet as UTF-8" do
+        rows = []
+        IOStreams.path(File.join(__dir__, "files", "spreadsheet.xlsx")).each(:array) { |row| rows << row }
+
+        assert_equal Encoding::UTF_8, rows.first.first.encoding
+      end
+
+      it "reads the whole of a binary file as UTF-8 without changing it" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "image.jpg")
+          path.write(binary)
+          data = path.read
+
+          assert_equal Encoding::UTF_8, data.encoding
+          assert_equal binary, data.b
+        end
+      end
+
+      it "reads a number of bytes as binary" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "data.csv")
+          path.write(text)
+          data = path.read(14)
+
+          assert_equal Encoding::BINARY, data.encoding
+          assert_equal "name,city\nJos\xC3".b, data
+        end
+      end
+
+      it "keeps the encoding that a supplied IO gives the whole of its data" do
+        data = IOStreams.stream(StringIO.new("Jos\xE9".dup.force_encoding(Encoding::ISO_8859_1))).read
+
+        assert_equal Encoding::ISO_8859_1, data.encoding
+      end
+
+      it "raises for lines that are not valid UTF-8" do
+        assert_raises(Encoding::UndefinedConversionError) do
+          IOStreams.stream(StringIO.new(bad_data)).each(:line) { |line| line }
+        end
+      end
+
+      it "reads lines in the encoding of an encode stream" do
+        lines = []
+        IOStreams.stream(StringIO.new(bad_data)).stream(:encode, encoding: "ISO-8859-1").each(:line) { |line| lines << line }
+
+        assert_equal Encoding::ISO_8859_1, lines.first.encoding
+        assert_equal "New M\u00e9xico,NE", lines.first.encode("UTF-8")
+      end
+
+      it "reads lines as UTF-8 without any other streams" do
+        lines = []
+        IOStreams.stream(StringIO.new(text)).stream(:none).each(:line) { |line| lines << line }
+
+        assert_equal Encoding::UTF_8, lines.last.encoding
+        assert_equal "Jos\u00e9,Z\u00fcrich", lines.last
+      end
+
+      it "copies a binary file unchanged" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "a.jpg").write(binary)
+          IOStreams.path(dir, "b.jpg").copy_from(IOStreams.path(dir, "a.jpg"))
+
+          assert_equal binary, File.binread(File.join(dir, "b.jpg"))
+        end
+      end
+
+      it "removes the byte order mark that Excel writes at the start of a UTF-8 CSV file" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "excel.csv")
+          path.write("\xEF\xBB\xBF\"name\",\"city\"\n\"Jos\xC3\xA9\",\"Z\xC3\xBCrich\"\n".b)
+          records = []
+          path.each(:hash) { |record| records << record }
+
+          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], records
+        end
+      end
+
+      it "keeps the byte order mark when reading the whole file, like File.read" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "excel.csv")
+          path.write("\xEF\xBB\xBFname\n".b)
+
+          assert_equal "\uFEFFname\n", path.read
+        end
+      end
+    end
+
     describe "#each(:line)" do
       it "returns a line at a time" do
         lines = []

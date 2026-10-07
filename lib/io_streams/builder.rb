@@ -85,6 +85,33 @@ module IOStreams
       execute(:writer, pipeline, io_stream, &)
     end
 
+    # Yields a stream that reads the supplied stream, which reads the data through this pipeline, as text,
+    # for reading lines, rows or records.
+    #
+    # Text is decoded by the encode stream, see `IOStreams::Encode`. So unless the pipeline already includes it,
+    # set with `#option` or `#stream`, the supplied stream is read through the encode stream with its default
+    # options, which read UTF-8.
+    def text_reader(io_stream, &)
+      return yield(io_stream) if pipeline.key?(:encode)
+
+      open_stream(:reader, :encode, io_stream, {}, &)
+    end
+
+    # Returns [String] the whole of the data that was read through this pipeline, as text.
+    #
+    # Like `File.read`, the data is tagged with the default encoding of the encode stream, UTF-8, without checking
+    # that it is valid, so that a binary file can be read too, since its bytes are unchanged. The data is returned
+    # as it is when the pipeline includes the encode stream, which gave it its encoding, or when the pipeline is
+    # empty and the data has an encoding other than binary, which the supplied stream gave it, such as an IO opened
+    # with an external encoding.
+    def text(data)
+      return data if data.nil? || pipeline.key?(:encode)
+      return data if pipeline.empty? && data.encoding != Encoding::BINARY
+
+      encoding = stream_format(:encode).default_encoding
+      data.frozen? ? data.dup.force_encoding(encoding) : data.force_encoding(encoding)
+    end
+
     # Returns [Hash<Symbol:Hash>] the pipeline of streams
     # with their options that will be applied when the reader or writer is invoked.
     def pipeline

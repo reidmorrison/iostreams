@@ -13,10 +13,41 @@ and the security issues to check. For every change in each release, see the
 
 ## Upgrading to v3.0
 
-v3.0 is a major release with the breaking changes that were postponed from v2.1. In v2.1 each one
-logged a warning via `IOStreams.logger` when it would change the result, so check your logs from
-v2.1 for them before upgrading. It also includes bug fixes that change behavior that existing code
-may depend on, described at the end of this section.
+v3.0 is a major release. It reads text as UTF-8 by default, described first, and makes the breaking
+changes that were postponed from v2.1. In v2.1 each of those logged a warning via `IOStreams.logger`
+when it would change the result, so check your logs from v2.1 for them before upgrading. It also
+includes bug fixes that change behavior that existing code may depend on, described at the end of
+this section.
+
+### Text is read as UTF-8
+
+Lines, rows and records, read with `each`, or with `reader` in the `:line`, `:array` or `:hash` mode,
+are now UTF-8 strings, and the data must be valid UTF-8. `read` without a length returns the whole
+file as UTF-8 without checking it, like `File.read`, so that it can still read a binary file, such as
+an image. Previously lines, rows and records were binary (`ASCII-8BIT`) strings, apart from values
+parsed from JSON, and `read` returned binary data for most files, but data in
+`Encoding.default_external` for `.gz` and `.enc` files, which depends on the locale. A binary string
+cannot be combined with UTF-8 text, so for example writing a CSV row that mixed a value read from a
+file with a non-ASCII UTF-8 value raised `Encoding::CompatibilityError`.
+
+Reading lines, rows or records of a file that is not valid UTF-8, such as a Windows-1252 export, now
+raises `Encoding::UndefinedConversionError`. Fixed width columns now count characters, as they
+already did when writing, so a file whose sizes count bytes raises
+`IOStreams::Errors::InvalidLineLength` for a line with a multi-byte character.
+
+The `:stream` mode, `read` with a length, such as `read(1024)`, and writing are unchanged: they read
+and write bytes.
+
+The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is
+removed from the first line, so that a CSV file with a quoted header row no longer raises
+`CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
+`encoding: "UTF-8"`. `read` keeps it, like `File.read`.
+
+Fix: read a file in another encoding by setting it on the encode stream, for example
+`option(:encode, encoding: "Windows-1252")`, whose strings are then in that encoding, or supply
+`replace:` to replace invalid characters instead of raising. To read binary strings, as before, supply
+`option(:encode, encoding: "BINARY")`, or `stream(:encode, encoding: "BINARY")` for a stream without
+a file name. See [Text and binary data](streams#text-and-binary-data).
 
 ### Column restrictions apply to every input
 

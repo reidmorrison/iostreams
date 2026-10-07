@@ -210,7 +210,7 @@ Notes:
 When dealing with large files it is important _not_ to load the entire file into memory.
 Efficiently read the files data in chunks / lines / records.
 
-Read 128 characters at a time from a file:
+Read 128 bytes at a time from a file:
 ~~~ruby
 path = IOStreams.path("sample.txt")
 path.reader do |io|
@@ -417,7 +417,7 @@ to a file. Several streaming implementations exist for languages such as `C++` a
 together several streams, `IOStreams` offers similar features for Ruby.
 
 ~~~ruby
-# Read the first 1024 characters from a compressed file:
+# Read the first 1024 bytes from a compressed file:
 path = IOStreams.path("hello.gz")
 path.reader do |io|
   data = io.read(1024)
@@ -1671,7 +1671,7 @@ matter how large the file is. Choose how each chunk is delivered by passing a mo
 streams raw data, `:line` yields one line at a time, `:array` yields each row as an array, and
 `:hash` yields each record as a hash keyed by the header row.
 
-Read 128 characters at a time from the file:
+Read 128 bytes at a time from the file:
 ~~~ruby
 IOStreams.path("example.csv").reader do |io|
   while (data = io.read(128))
@@ -1828,6 +1828,31 @@ Notes:
   `example.csv.zip` creates an entry named `example.csv`.
 * Gzip is still recommended over Zip for very large files, since Zip files can only
   be read via a local file.
+
+## Text and binary data
+
+Lines, rows and records are read as UTF-8 text, whichever streams the file is read through, such as
+gzip or PGP, and data that is not valid UTF-8 raises `Encoding::UndefinedConversionError`. The byte
+order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that
+the first column name of a CSV file is read as it appears. `read` returns the whole file as UTF-8
+without checking it or removing a byte order mark, like `File.read`, so that it can also read a
+binary file, such as an image, whose bytes are unchanged. The default `:stream` mode of `reader`
+reads bytes, so `io.read(128)` above returns up to 128 bytes of binary data.
+
+To read a file in another encoding, set it on the [encode stream](extensions#character-encoding),
+whose strings are then in that encoding:
+~~~ruby
+IOStreams.path("export.csv").option(:encode, encoding: "Windows-1252").each(:hash) do |hash|
+  p hash
+end
+~~~
+
+To read lines, rows or records as binary strings, as IOStreams did before v3.0, supply
+`option(:encode, encoding: "BINARY")`, and to replace invalid characters instead of raising, supply
+`replace:`, for example `option(:encode, encoding: "UTF-8", replace: "?")`.
+
+Writing does not change the data, unless an encode stream is set: the bytes of each string are
+written as they are.
 
 ## Pipeline
 
@@ -2079,6 +2104,8 @@ Notes:
 ## Character encoding
 
 The special `:encode` stream converts the character encoding of the data being read or written.
+Lines, rows and records are always read through it, with its default options unless it is set, so
+they are UTF-8 by default, see [Text and binary data](streams#text-and-binary-data).
 It is applied with `option` or `stream` rather than a file name extension:
 
 ~~~ruby
@@ -2096,7 +2123,8 @@ Options:
   Data that is read, whether from a file or through another stream such as `:gz`, and binary data
   that is written, is treated as already being in this encoding, so its characters are kept and only
   invalid characters are replaced or raise an error. A Ruby string being written in another encoding
-  is converted.
+  is converted. When reading UTF-8, the byte order mark (U+FEFF) that programs such as Excel write at
+  the start of a file is removed.
   Default: `"UTF-8"`
 
 * `replace: [String]`
@@ -2324,13 +2352,12 @@ In addition to `layout`, the `:fixed` format takes one more option:
   Default: true
 
 Each `:size` counts the characters of the text as it is read, and when writing, string values are
-padded and truncated to `:size` characters. For UTF-8 text, such as when read through the encode
-stream with `option(:encode, encoding: "UTF-8")`, a column of size 5 holds `José` followed by a space,
-which is 6 bytes. Binary data has one character per byte, so the sizes count bytes when a file is read
-as binary, as it is by default, or with `option(:encode, encoding: "BINARY")`. Read a file as binary
-when the program that wrote it counted bytes; its values are then binary strings. A file in a
-single-byte encoding, such as ISO-8859-1, has one byte per character, so it can also be read in that
-encoding, with `option(:encode, encoding: "ISO-8859-1")`.
+padded and truncated to `:size` characters. Text is read as UTF-8 by default, so a column of size 5
+holds `José` followed by a space, which is 6 bytes. Binary data has one character per byte, so the
+sizes count bytes when a file is read as binary, with `option(:encode, encoding: "BINARY")`. Read a
+file as binary when the program that wrote it counted bytes; its values are then binary strings. A
+file in a single-byte encoding, such as ISO-8859-1, has one byte per character, so it can also be
+read in that encoding, with `option(:encode, encoding: "ISO-8859-1")`.
 
 ## Header options
 
@@ -3152,10 +3179,41 @@ and the security issues to check. For every change in each release, see the
 
 ## Upgrading to v3.0
 
-v3.0 is a major release with the breaking changes that were postponed from v2.1. In v2.1 each one
-logged a warning via `IOStreams.logger` when it would change the result, so check your logs from
-v2.1 for them before upgrading. It also includes bug fixes that change behavior that existing code
-may depend on, described at the end of this section.
+v3.0 is a major release. It reads text as UTF-8 by default, described first, and makes the breaking
+changes that were postponed from v2.1. In v2.1 each of those logged a warning via `IOStreams.logger`
+when it would change the result, so check your logs from v2.1 for them before upgrading. It also
+includes bug fixes that change behavior that existing code may depend on, described at the end of
+this section.
+
+### Text is read as UTF-8
+
+Lines, rows and records, read with `each`, or with `reader` in the `:line`, `:array` or `:hash` mode,
+are now UTF-8 strings, and the data must be valid UTF-8. `read` without a length returns the whole
+file as UTF-8 without checking it, like `File.read`, so that it can still read a binary file, such as
+an image. Previously lines, rows and records were binary (`ASCII-8BIT`) strings, apart from values
+parsed from JSON, and `read` returned binary data for most files, but data in
+`Encoding.default_external` for `.gz` and `.enc` files, which depends on the locale. A binary string
+cannot be combined with UTF-8 text, so for example writing a CSV row that mixed a value read from a
+file with a non-ASCII UTF-8 value raised `Encoding::CompatibilityError`.
+
+Reading lines, rows or records of a file that is not valid UTF-8, such as a Windows-1252 export, now
+raises `Encoding::UndefinedConversionError`. Fixed width columns now count characters, as they
+already did when writing, so a file whose sizes count bytes raises
+`IOStreams::Errors::InvalidLineLength` for a line with a multi-byte character.
+
+The `:stream` mode, `read` with a length, such as `read(1024)`, and writing are unchanged: they read
+and write bytes.
+
+The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is
+removed from the first line, so that a CSV file with a quoted header row no longer raises
+`CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
+`encoding: "UTF-8"`. `read` keeps it, like `File.read`.
+
+Fix: read a file in another encoding by setting it on the encode stream, for example
+`option(:encode, encoding: "Windows-1252")`, whose strings are then in that encoding, or supply
+`replace:` to replace invalid characters instead of raising. To read binary strings, as before, supply
+`option(:encode, encoding: "BINARY")`, or `stream(:encode, encoding: "BINARY")` for a stream without
+a file name. See [Text and binary data](streams#text-and-binary-data).
 
 ### Column restrictions apply to every input
 

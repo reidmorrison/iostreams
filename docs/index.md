@@ -203,7 +203,7 @@ Notes:
 When dealing with large files it is important _not_ to load the entire file into memory.
 Efficiently read the files data in chunks / lines / records.
 
-Read 128 characters at a time from a file:
+Read 128 bytes at a time from a file:
 ~~~ruby
 path = IOStreams.path("sample.txt")
 path.reader do |io|

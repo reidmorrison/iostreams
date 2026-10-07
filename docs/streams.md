@@ -12,7 +12,7 @@ matter how large the file is. Choose how each chunk is delivered by passing a mo
 streams raw data, `:line` yields one line at a time, `:array` yields each row as an array, and
 `:hash` yields each record as a hash keyed by the header row.
 
-Read 128 characters at a time from the file:
+Read 128 bytes at a time from the file:
 ~~~ruby
 IOStreams.path("example.csv").reader do |io|
   while (data = io.read(128))
@@ -169,6 +169,31 @@ Notes:
   `example.csv.zip` creates an entry named `example.csv`.
 * Gzip is still recommended over Zip for very large files, since Zip files can only
   be read via a local file.
+
+## Text and binary data
+
+Lines, rows and records are read as UTF-8 text, whichever streams the file is read through, such as
+gzip or PGP, and data that is not valid UTF-8 raises `Encoding::UndefinedConversionError`. The byte
+order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that
+the first column name of a CSV file is read as it appears. `read` returns the whole file as UTF-8
+without checking it or removing a byte order mark, like `File.read`, so that it can also read a
+binary file, such as an image, whose bytes are unchanged. The default `:stream` mode of `reader`
+reads bytes, so `io.read(128)` above returns up to 128 bytes of binary data.
+
+To read a file in another encoding, set it on the [encode stream](extensions#character-encoding),
+whose strings are then in that encoding:
+~~~ruby
+IOStreams.path("export.csv").option(:encode, encoding: "Windows-1252").each(:hash) do |hash|
+  p hash
+end
+~~~
+
+To read lines, rows or records as binary strings, as IOStreams did before v3.0, supply
+`option(:encode, encoding: "BINARY")`, and to replace invalid characters instead of raising, supply
+`replace:`, for example `option(:encode, encoding: "UTF-8", replace: "?")`.
+
+Writing does not change the data, unless an encode stream is set: the bytes of each string are
+written as they are.
 
 ## Pipeline
 
