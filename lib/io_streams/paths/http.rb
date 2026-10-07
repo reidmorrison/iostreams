@@ -94,6 +94,9 @@ module IOStreams
         @http_redirect_count = http_redirect_count
         @allow_hosts         = allow_hosts.nil? ? nil : Array(allow_hosts)
         @maximum_file_size   = maximum_file_size
+        # Held in a Hash, like `IOStreams::Paths::S3#client_cache`, so that it is also created when this
+        # path is frozen, for example a root path, see `IOStreams::Path#freeze`.
+        @original_uri_cache  = {}
         @headers             = validate_headers(headers)
         url                  = Utils.root_url(url)
         @url                 = parameters ? add_parameters(url, parameters) : url
@@ -194,11 +197,18 @@ module IOStreams
         uri.path      = self.path.split("/", -1).each_with_index.map do |name, index|
           encoded[index] && URI.decode_uri_component(encoded[index]) == name ? encoded[index] : escape_path(name)
         end.join("/")
-        @url          = uri.to_s
-        @original_uri = nil
+        @url = uri.to_s
+        @original_uri_cache.clear
       end
 
       private
+
+      # A copy has its own cached `#original_uri`, since it can be changed to a different url, for example
+      # by `#join` or `#directory`.
+      def initialize_copy(source)
+        super
+        @original_uri_cache = {}
+      end
 
       # Returns [String] the url with the parameters added to its query string.
       #
@@ -452,7 +462,7 @@ module IOStreams
       end
 
       def original_uri
-        @original_uri ||= URI.parse(url)
+        @original_uri_cache[:uri] ||= URI.parse(url)
       end
 
       def download_to_file(response, file_name)

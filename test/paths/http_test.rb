@@ -435,6 +435,14 @@ module Paths
             assert_equal body, @server.requests.first[:body]
           end
 
+          it "answers allowed? on a frozen root within the allowed paths" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            IOStreams.add_allowed_path("#{@server.base_url}/files")
+            root = IOStreams.path("#{@server.base_url}/files").freeze
+
+            assert_predicate root, :allowed?
+          end
+
           it "denies an upload outside the allowed paths without contacting the server" do
             start_server { |_path| TestHTTPServer.response(201) }
             IOStreams.add_allowed_path("#{@server.base_url}/files")
