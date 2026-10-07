@@ -118,13 +118,12 @@ In addition to `layout`, the `:fixed` format takes one more option:
   Default: true
 
 Each `:size` counts the characters of the text as it is read, and when writing, string values are
-padded and truncated to `:size` characters. For UTF-8 text, such as when read through the encode
-stream with `option(:encode, encoding: "UTF-8")`, a column of size 5 holds `José` followed by a space,
-which is 6 bytes. Binary data has one character per byte, so the sizes count bytes when a file is read
-as binary, as it is by default, or with `option(:encode, encoding: "BINARY")`. Read a file as binary
-when the program that wrote it counted bytes; its values are then binary strings. A file in a
-single-byte encoding, such as ISO-8859-1, has one byte per character, so it can also be read in that
-encoding, with `option(:encode, encoding: "ISO-8859-1")`.
+padded and truncated to `:size` characters. Text is read as UTF-8 by default, so a column of size 5
+holds `José` followed by a space, which is 6 bytes. Binary data has one character per byte, so the
+sizes count bytes when a file is read as binary, with `option(:encode, encoding: "BINARY")`. Read a
+file as binary when the program that wrote it counted bytes; its values are then binary strings. A
+file in a single-byte encoding, such as ISO-8859-1, has one byte per character, so it can also be
+read in that encoding, with `option(:encode, encoding: "ISO-8859-1")`.
 
 ## Header options
 

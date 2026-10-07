@@ -18,6 +18,11 @@ module IOStreams
       Writer
     end
 
+    # Returns [Encoding] the encoding of text that is read or written without an `encoding` option.
+    def self.default_encoding
+      Encoding::UTF_8
+    end
+
     # Returns [true|false] whether data in this format is compressed.
     def self.compressed?
       false

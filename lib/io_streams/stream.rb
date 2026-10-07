@@ -133,6 +133,10 @@ module IOStreams
     #      applies, so this includes `:array` and `:hash` for a file name without a tabular extension.
     #   2. Or the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`)
     # - Pass `embedded_within: nil` to disable quote-aware line joining for a quoted format.
+    # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
+    #   `Encoding::UndefinedConversionError`. To read text in another encoding, set it with the encode stream,
+    #   for example `option(:encode, encoding: "ISO-8859-1")`, or `option(:encode, encoding: "BINARY")` to
+    #   read binary lines. See also `replace:` for the encode stream.
     def each(mode = :line, **args, &block)
       raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
 
@@ -146,6 +150,9 @@ module IOStreams
     end
 
     # Returns a Reader for reading a file / stream
+    #
+    # The `:stream` mode reads bytes, so for example `read(1024)` on the stream it yields returns binary data, unless
+    # an encode stream is set. The `:line`, `:array` and `:hash` modes read UTF-8 text, see #each.
     def reader(mode = :stream, **args, &)
       case mode
       when :stream
@@ -164,12 +171,21 @@ module IOStreams
 
     # Read an entire file into memory.
     #
+    # Returns [String] the whole file as UTF-8, like `File.read`, without checking that it is valid UTF-8, so that a
+    # binary file can be read too, since its bytes are unchanged. An encode stream set with #option or #stream returns
+    # the data in its encoding instead, and checks it, for example `option(:encode, encoding: "UTF-8")`. Reading an IO
+    # that you supplied, without any streams, keeps the encoding that the IO gives its data.
+    #
+    # With a length, such as `read(1024)`, returns up to that number of bytes, which are binary unless an encode
+    # stream is set.
+    #
     # Notes:
     # - Use with caution since large files can cause a denial of service since
     #   this method will load the entire file into memory.
     # - Recommend using instead `#reader` to read a block into memory at a time.
     def read(*args)
-      reader { |stream| stream.read(*args) }
+      data = reader { |stream| stream.read(*args) }
+      args.first.nil? ? builder.text(data) : data
     end
 
     # Returns a Writer for writing to a file / stream
@@ -447,11 +463,13 @@ module IOStreams
       embedded_within = IOStreams::Tabular.quote_character(format) if embedded_within == :auto
 
       stream_reader do |io|
-        yield IOStreams::Line::Reader.new(
-          io,
-          embedded_within: embedded_within,
-          **args
-        )
+        builder.text_reader(io) do |text|
+          yield IOStreams::Line::Reader.new(
+            text,
+            embedded_within: embedded_within,
+            **args
+          )
+        end
       end
     end
 

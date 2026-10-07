@@ -25,7 +25,7 @@ to a file. Several streaming implementations exist for languages such as `C++` a
 together several streams, `IOStreams` offers similar features for Ruby.
 
 ~~~ruby
-# Read the first 1024 characters from a compressed file:
+# Read the first 1024 bytes from a compressed file:
 path = IOStreams.path("hello.gz")
 path.reader do |io|
   data = io.read(1024)

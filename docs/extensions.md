@@ -63,6 +63,8 @@ Notes:
 ## Character encoding
 
 The special `:encode` stream converts the character encoding of the data being read or written.
+Lines, rows and records are always read through it, with its default options unless it is set, so
+they are UTF-8 by default, see [Text and binary data](streams#text-and-binary-data).
 It is applied with `option` or `stream` rather than a file name extension:
 
 ~~~ruby
