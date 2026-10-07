@@ -26,5 +26,12 @@ module IOStreams
     def self.encrypted?
       false
     end
+
+    # Returns [false] since file names do not name this stream: it converts the text that the application reads
+    # or writes, so it applies whenever its options are set with `#option`, ahead of the streams named by the
+    # file name. See `IOStreams::StreamFormat#file_name_extension?`.
+    def self.file_name_extension?
+      false
+    end
   end
 end

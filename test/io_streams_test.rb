@@ -362,8 +362,8 @@ module IOStreams
           end
 
           assert_includes error.message,
-                          "does not respond to reader_class, writer_class, compressed?, encrypted?, option_names, " \
-                          "valid_option_names. See IOStreams.register_extension."
+                          "does not respond to reader_class, writer_class, compressed?, encrypted?, file_name_extension?, " \
+                          "option_names, valid_option_names, validate_options, open_stream. See IOStreams.register_extension."
           refute IOStreams.extensions.key?(:abc123)
         end
 
@@ -376,7 +376,8 @@ module IOStreams
           end
           error = assert_raises(ArgumentError) { IOStreams.register_extension(:abc123, format) }
 
-          assert_includes error.message, "does not respond to option_names, valid_option_names."
+          assert_includes error.message,
+                          "does not respond to file_name_extension?, option_names, valid_option_names, validate_options, open_stream."
           refute IOStreams.extensions.key?(:abc123)
         end
 

@@ -394,6 +394,15 @@ Fix: use `reader_class` and `writer_class` instead of the methods of a struct, a
 extension whose data is compressed or encrypted, register a format that says so, see
 [Registering a custom extension](extensions#registering-a-custom-extension).
 
+### A `.encode` file name does not apply the encode stream
+
+The `:encode` stream converts the text that the application reads or writes, and is applied with
+`#option` or `#stream`. A file name ending in `.encode`, such as `notes.encode`, no longer applies it,
+since file names do not name it. Previously the data of such a file was read and written through it.
+
+Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
+Apply it with `option(:encode, ...)` instead.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

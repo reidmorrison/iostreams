@@ -1,6 +1,6 @@
 module IOStreams
-  # The options of a format registered with `IOStreams.register_extension`, such as `IOStreams::Gzip`,
-  # which come from its reader and writer classes.
+  # A format registered with `IOStreams.register_extension`, such as `IOStreams::Gzip`, which opens its reader
+  # and writer classes with the options that they use.
   #
   # A format extends this module, and answers `reader_class` and `writer_class`.
   #
@@ -33,7 +33,57 @@ module IOStreams
       own = option_names(type)
       return if own.nil?
 
-      own | (option_names(type == :reader ? :writer : :reader) || [])
+      own | (option_names(other_type(type)) || [])
+    end
+
+    # Returns [true|false] whether file names name this format by its extension, such as `.gz`, so that the
+    # extensions of a file name decide whether it is applied, and in which order.
+    #
+    # A format that file names do not name, such as `:encode`, is applied whenever its options are set with
+    # `#option`, ahead of the formats named by the file name, so that it is closest to the data that the
+    # application reads or writes.
+    def file_name_extension?
+      true
+    end
+
+    # Raises [ArgumentError] unless every option is valid when reading (type: :reader) or writing (:writer)
+    # this format, see #valid_option_names, or, when type is nil, valid for either, since it is not yet known
+    # which will be used. Options are not checked when the class does not declare them.
+    #
+    # The message names the stream as it was set, such as `:gz` or `:gzip`, which is supplied as `name`,
+    # and the direction that an option only applies to.
+    def validate_options(type, options, name:)
+      valid = valid_option_names(type)
+      return if valid.nil?
+
+      unknown = options.keys - valid
+      return if unknown.empty?
+
+      message = type.nil? ? unknown_options_message(unknown, valid, name) : invalid_options_message(type, unknown, valid, name)
+      raise(ArgumentError, message)
+    end
+
+    # Opens the class that reads (type: :reader) or writes (:writer) this format on the supplied io stream,
+    # yielding the stream that reads or writes the data. Returns the result of the block.
+    #
+    # The options are validated, see #validate_options, and only those that the class uses are supplied to it,
+    # leaving out those that are valid but that it does not need, such as `compress` when reading `.enc`.
+    # A class can default its options from the file name, such as the name of the file within a zip file,
+    # by answering `.file_name_options`.
+    #
+    # Parameters
+    #   name: [Symbol]
+    #     The name that the stream was set with, such as `:gz` or `:gzip`, for error messages.
+    #
+    #   file_name: [String]
+    #     The name of the file being read or written, when known.
+    def open_stream(type, io_stream, options, name:, file_name: nil, &)
+      klass = stream_class(type) || raise(ArgumentError, "No #{type} registered for Stream type: #{name.inspect}")
+      validate_options(type, options, name: name)
+      accepted = option_names(type)
+      options  = options.slice(*accepted) if accepted
+      options  = klass.file_name_options(file_name, **options) if file_name && klass.respond_to?(:file_name_options)
+      klass.open(io_stream, **options, &)
     end
 
     private
@@ -49,6 +99,42 @@ module IOStreams
       valid = names.flatten
       # The reader's options and then the writer's, in the order that they declare them.
       (types.flat_map { |type| option_names(type) || [] } + valid).uniq & valid
+    end
+
+    # Returns [String] the message for options that are not valid in either direction.
+    def unknown_options_message(unknown, valid, name)
+      "Unknown #{unknown.size == 1 ? 'option' : 'options'} #{list(unknown)} for a #{name.inspect} stream. " \
+        "Valid options: #{list(valid)}."
+    end
+
+    # Returns [String] the message for options that are not valid when reading or writing, naming the other
+    # direction for those that only apply to it.
+    def invalid_options_message(type, unknown, valid, name)
+      other_names = option_names(other_type(type)) || []
+      other_only  = unknown & other_names
+      invalid     = unknown - other_names
+      direction   = type == :reader ? "reading" : "writing"
+
+      messages = []
+      if other_only.any?
+        messages << "#{list(other_only)} only #{other_only.size == 1 ? 'applies' : 'apply'} when " \
+                    "#{type == :reader ? 'writing' : 'reading'} a #{name.inspect} stream and cannot be used when " \
+                    "#{direction}. Configure a separate path or stream without #{other_only.size == 1 ? 'it' : 'them'} " \
+                    "for #{direction}."
+      end
+      if invalid.any?
+        messages << "Unknown #{invalid.size == 1 ? 'option' : 'options'} #{list(invalid)} when #{direction} " \
+                    "a #{name.inspect} stream. Valid options: #{list(valid)}."
+      end
+      messages.join(" ")
+    end
+
+    def list(names)
+      names.empty? ? "none" : names.map(&:inspect).join(", ")
+    end
+
+    def other_type(type)
+      type == :reader ? :writer : :reader
     end
 
     def stream_class(type)

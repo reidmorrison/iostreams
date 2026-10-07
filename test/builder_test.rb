@@ -173,18 +173,18 @@ class BuilderTest < Minitest::Test
 
     # Internal methods
 
-    describe "#class_for_stream" do
+    describe "#stream_format" do
       it "xlsx" do
-        assert_equal IOStreams::Xlsx::Reader, streams.send(:class_for_stream, :reader, :xlsx)
+        assert_equal IOStreams::Xlsx, streams.send(:stream_format, :xlsx)
       end
 
       it "gzip" do
-        assert_equal IOStreams::Gzip::Writer, streams.send(:class_for_stream, :writer, :gzip)
+        assert_equal IOStreams::Gzip, streams.send(:stream_format, :gzip)
       end
 
       it "unknown" do
         assert_raises ArgumentError do
-          streams.send(:class_for_stream, :reader, :unknown)
+          streams.send(:stream_format, :unknown)
         end
       end
     end
@@ -219,6 +219,11 @@ class BuilderTest < Minitest::Test
           assert_equal %i[xlsx gzip], streams.send(:parse_extensions)
         end
       end
+
+      it "ignores a stream that file names do not name" do
+        assert_equal [], IOStreams::Builder.new("my/path/notes.encode").send(:parse_extensions)
+        assert_equal %i[gz], IOStreams::Builder.new("my/path/notes.encode.gz").send(:parse_extensions)
+      end
     end
 
     describe "#pipeline" do
@@ -247,6 +252,40 @@ class BuilderTest < Minitest::Test
         streams.option(:encode, encoding: "BINARY")
 
         assert_equal expected, streams.pipeline
+      end
+
+      it "applies the option for any stream that file names do not name, before the file name's streams" do
+        text_format = Module.new do
+          extend IOStreams::StreamFormat
+
+          def self.reader_class = nil
+          def self.writer_class = SimpleStream
+          def self.compressed? = false
+          def self.encrypted? = false
+          def self.file_name_extension? = false
+        end
+        IOStreams.register_extension(:text_test, text_format)
+        begin
+          streams.option(:pgp, passphrase: "unlock-me").option(:text_test, arg: "text")
+
+          assert_equal({text_test: {arg: "text"}, xlsx: {}, zip: {}, gz: {}, pgp: {passphrase: "unlock-me"}}, streams.pipeline)
+        ensure
+          IOStreams.deregister_extension(:text_test)
+        end
+      end
+
+      it "does not apply the option for a stream that the file name does not include" do
+        streams.option(:bz2, block_size: 9)
+
+        assert_equal({xlsx: {}, zip: {}, gz: {}, pgp: {}}, streams.pipeline)
+      end
+
+      it "ignores the option for a stream that is no longer registered" do
+        IOStreams.register_extension(:gone_test, nil, SimpleStream)
+        streams.option(:gone_test, arg: "gone")
+        IOStreams.deregister_extension(:gone_test)
+
+        assert_equal({xlsx: {}, zip: {}, gz: {}, pgp: {}}, streams.pipeline)
       end
 
       it "file name with option" do

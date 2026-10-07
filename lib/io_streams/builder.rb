@@ -21,14 +21,15 @@ module IOStreams
     # Note:
     # - Cannot set both `stream` and `option`
     # - Raises ArgumentError for an option that neither the reader nor the writer for the stream accepts,
-    #   even when the file name does not include the stream.
+    #   even when the file name does not include the stream. So a misspelled option raises wherever the code
+    #   runs, rather than only where the path, for example from configuration, includes the stream.
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
 
-      reject_unknown_options(stream, options)
+      stream_format(stream).validate_options(nil, options, name: stream)
       @options ||= {}
       if (opts = @options[stream])
         opts.merge!(options)
@@ -49,7 +50,7 @@ module IOStreams
       end
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
 
-      reject_unknown_options(stream, options)
+      stream_format(stream).validate_options(nil, options, name: stream)
       @streams ||= {}
       if (opts = @streams[stream])
         opts.merge!(options)
@@ -117,11 +118,14 @@ module IOStreams
     def build_pipeline
       return {} unless file_name
 
-      built_streams          = {}
-      # Encode stream is always first
-      built_streams[:encode] = options[:encode] if options&.key?(:encode)
-
       opts = options || {}
+      # A stream that file names do not name, such as `:encode`, applies whenever its options are set, and
+      # comes first, see `IOStreams::StreamFormat#file_name_extension?`. Like the options for any other stream
+      # that the file name does not include, those for a stream that is no longer registered are ignored.
+      built_streams = opts.select do |stream, _|
+        format = IOStreams.extensions[stream]
+        format && !format.file_name_extension?
+      end
       parse_extensions.each { |stream| built_streams[stream] = opts[stream] || {} }
       built_streams
     end
@@ -131,18 +135,14 @@ module IOStreams
       IOStreams.extensions[stream&.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
     end
 
-    def class_for_stream(type, stream)
-      stream_format(stream).send("#{type}_class") ||
-        raise(ArgumentError, "No #{type} registered for Stream type: #{stream.inspect}")
-    end
-
     # Returns the streams for the supplied file_name
     def parse_extensions
       parts      = Utils.file_name_extensions(file_name)
       extensions = []
       while (extension = parts.pop)
-        sym = extension.to_sym
-        break unless IOStreams.extensions[sym]
+        sym    = extension.to_sym
+        format = IOStreams.extensions[sym]
+        break unless format&.file_name_extension?
 
         extensions.unshift(sym)
       end
@@ -167,64 +167,9 @@ module IOStreams
       end
     end
 
+    # Asks the stream's format to open its reader or writer, see `IOStreams::StreamFormat#open_stream`.
     def open_stream(type, stream, io_stream, opts, &)
-      klass = class_for_stream(type, stream)
-      validate_options(type, stream, opts)
-      # Pass only the options that the stream uses, leaving out those that are valid but that it does not need,
-      # such as `compress` when reading `.enc`.
-      accepted = stream_format(stream).option_names(type)
-      opts     = opts.slice(*accepted) if accepted
-      # A stream can default its options from the file name, such as the name of the file within a zip file.
-      opts = klass.file_name_options(file_name, **opts) if file_name && klass.respond_to?(:file_name_options)
-      klass.open(io_stream, **opts, &)
-    end
-
-    # Options are strict: an option that is not valid for the stream raises instead of being ignored.
-    # The stream's format decides which options are valid, see `IOStreams::StreamFormat#valid_option_names`,
-    # and the message names the direction that an option is only valid for.
-    def validate_options(type, stream, opts)
-      valid = stream_format(stream).valid_option_names(type)
-      return if valid.nil?
-
-      unknown = opts.keys - valid
-      return if unknown.empty?
-
-      other_names = stream_format(stream).option_names(type == :reader ? :writer : :reader) || []
-      other_only  = unknown & other_names
-      invalid     = unknown - other_names
-      direction   = type == :reader ? "reading" : "writing"
-
-      messages = []
-      if other_only.any?
-        messages << "#{list(other_only)} only #{other_only.size == 1 ? 'applies' : 'apply'} when " \
-                    "#{type == :reader ? 'writing' : 'reading'} a #{stream.inspect} stream and cannot be used when " \
-                    "#{direction}. Configure a separate path or stream without #{other_only.size == 1 ? 'it' : 'them'} " \
-                    "for #{direction}."
-      end
-      if invalid.any?
-        messages << "Unknown #{invalid.size == 1 ? 'option' : 'options'} #{list(invalid)} when #{direction} " \
-                    "a #{stream.inspect} stream. Valid options: #{list(valid)}."
-      end
-      raise(ArgumentError, messages.join(" "))
-    end
-
-    # Options are checked when they are set, against the options that are valid when either reading or
-    # writing the stream, since it is not yet known which will be used. So a misspelled option raises wherever
-    # the code runs, even when the file name does not include the stream, rather than only where the path,
-    # for example from configuration, includes it.
-    def reject_unknown_options(stream, options)
-      valid = stream_format(stream).valid_option_names
-      return if valid.nil?
-
-      unknown = options.keys - valid
-      return if unknown.empty?
-
-      raise(ArgumentError, "Unknown #{unknown.size == 1 ? 'option' : 'options'} #{list(unknown)} for a " \
-                           "#{stream.inspect} stream. Valid options: #{list(valid)}.")
-    end
-
-    def list(names)
-      names.empty? ? "none" : names.map(&:inspect).join(", ")
+      stream_format(stream).open_stream(type, io_stream, opts, name: stream, file_name: file_name, &)
     end
   end
 end

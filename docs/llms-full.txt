@@ -2105,9 +2105,9 @@ Options:
 
 To add a new extension, register the format that reads and writes it, usually a module that answers
 `reader_class`, `writer_class`, `compressed?` and `encrypted?`, and extends `IOStreams::StreamFormat`,
-which checks the options supplied for the stream against those of its reader and writer. The reader and
-writer classes must implement `.open` that yields a stream implementing `#read` or `#write` respectively.
-See any of the streams under `lib/io_streams` for examples.
+which checks the options supplied for the stream against those of its reader and writer, and opens them
+with the options that each one uses. The reader and writer classes must implement `.open` that yields a
+stream implementing `#read` or `#write` respectively. See any of the streams under `lib/io_streams` for examples.
 
 ~~~ruby
 module MyXz
@@ -2133,6 +2133,23 @@ module MyXz
 end
 
 IOStreams.register_extension(:xz, MyXz)
+~~~
+
+A format that file names do not name, such as `:encode`, which converts the text that the application
+reads or writes, answers `file_name_extension?` with `false`. It is applied whenever its options are set
+with `option`, ahead of the streams that the file name's extensions apply, and a file name ending in its
+name does not apply it:
+
+~~~ruby
+module MyTrim
+  extend IOStreams::StreamFormat
+
+  # ... reader_class, writer_class, compressed? and encrypted?
+
+  def self.file_name_extension?
+    false
+  end
+end
 ~~~
 
 A format that is neither compressed nor encrypted can instead be registered with just its reader and
@@ -3476,6 +3493,15 @@ Fix: use `reader_class` and `writer_class` instead of the methods of a struct, a
 `IOStreams.register_extension` to change a registered extension. To replace the reader or writer of an
 extension whose data is compressed or encrypted, register a format that says so, see
 [Registering a custom extension](extensions#registering-a-custom-extension).
+
+### A `.encode` file name does not apply the encode stream
+
+The `:encode` stream converts the text that the application reads or writes, and is applied with
+`#option` or `#stream`. A file name ending in `.encode`, such as `notes.encode`, no longer applies it,
+since file names do not name it. Previously the data of such a file was read and written through it.
+
+Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
+Apply it with `option(:encode, ...)` instead.
 
 ## Upgrading to v2.1
 
