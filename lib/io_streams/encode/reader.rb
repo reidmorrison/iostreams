@@ -26,8 +26,9 @@ module IOStreams
       #     Etc.
       #     Default: 'UTF-8'
       #
-      #     Binary data, such as the contents of a file, is treated as already being in this encoding,
-      #     so its characters are kept and only invalid characters are replaced, or raise an error.
+      #     The data read is the contents of a file or stream, so it is treated as already being in this encoding,
+      #     whatever encoding the input stream tags it with. So its characters are kept and only invalid characters
+      #     are replaced, or raise an error.
       #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
@@ -47,14 +48,15 @@ module IOStreams
         @cleaner   = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
-        @read_cache_buffer = (+"" unless @input_stream.method(:read).arity.between?(0, 1))
+        # Binary, since `IO#read` keeps the encoding of the buffer that it reads into.
+        @read_cache_buffer = (String.new(encoding: Encoding::BINARY) unless @input_stream.method(:read).arity.between?(0, 1))
       end
 
       # Returns [String] data returned from the input stream, in the requested encoding.
       # Returns [nil] if end of file and no further data was read.
       #
       # A multi-byte character that is split by `size` is returned by the next read.
-      # When `outbuf` is supplied, it is replaced with the data and returned.
+      # When `outbuf` is supplied, it is replaced with the data and returned, otherwise each read returns a new string.
       def read(size = nil, outbuf = nil)
         data = nil
         loop do
@@ -74,6 +76,9 @@ module IOStreams
           return
         end
 
+        # Data that is not converted, such as with `encoding: "BINARY"`, is the block that was read, which can be
+        # the buffer that the next read reads into.
+        data = data.dup if data.equal?(@read_cache_buffer)
         data = @cleaner.call(data) if @cleaner
         outbuf ? outbuf.replace(data) : data
       end
@@ -85,7 +90,16 @@ module IOStreams
 
       private
 
+      # Returns [String] the next block of the input stream as binary data, or [nil] at the end of the stream.
+      #
+      # The data read is bytes, whatever encoding the input stream tags it with, such as `Encoding.default_external`
+      # when the whole of a gzip file is read, so that it is treated the same whichever streams it was read through.
       def read_block(size)
+        block = read_input(size)
+        block.nil? || block.encoding == Encoding::BINARY ? block : block.b
+      end
+
+      def read_input(size)
         return @input_stream.read(size) unless @read_cache_buffer
 
         @input_stream.read(size, @read_cache_buffer)

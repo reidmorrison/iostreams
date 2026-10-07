@@ -284,6 +284,77 @@ class EncodeReaderTest < Minitest::Test
 
           assert_equal "Jos\u00e9", output.string.force_encoding("UTF-8")
         end
+
+        it "returns a new string from each read with encoding: BINARY" do
+          IOStreams::Encode::Reader.stream(StringIO.new("hello"), encoding: "BINARY") do |io|
+            first = io.read(2)
+            io.read(2)
+
+            assert_equal "he", first
+          end
+        end
+      end
+
+      describe "data read as bytes" do
+        let(:latin1) { "Jos\xE9,M\xE1laga".b }
+
+        # Reads the supplied input with the encode reader in blocks of 4 bytes.
+        def read_in_blocks(input, **args)
+          chunks = []
+          IOStreams::Encode::Reader.stream(input, **args) do |io|
+            while (chunk = io.read(4))
+              chunks << chunk
+            end
+          end
+          chunks
+        end
+
+        it "returns binary data unchanged with encoding: BINARY" do
+          chunks = read_in_blocks(StringIO.new(latin1), encoding: "BINARY")
+
+          assert_equal latin1, chunks.join
+          chunks.each { |chunk| assert_equal Encoding::BINARY, chunk.encoding }
+        end
+
+        it "keeps the characters of another encoding when reading in blocks" do
+          data = read_in_blocks(StringIO.new(latin1), encoding: "ISO-8859-1").join
+
+          assert_equal Encoding::ISO_8859_1, data.encoding
+          assert_equal "Jos\u00e9,M\u00e1laga", data.encode("UTF-8")
+        end
+
+        it "treats data that the input stream tags with an encoding as bytes" do
+          # For example, reading the whole of a gzip file returns data tagged with Encoding.default_external.
+          input = StringIO.new(latin1.dup.force_encoding(Encoding::UTF_8))
+          data  = IOStreams::Encode::Reader.stream(input, encoding: "ISO-8859-1", &:read)
+
+          assert_equal "Jos\u00e9,M\u00e1laga", data.encode("UTF-8")
+        end
+
+        it "reads lines from a file unchanged with encoding: BINARY" do
+          Tempfile.create(%w[iostreams .csv]) do |file|
+            file.binmode
+            file.write("name\nJos\xE9\n".b)
+            file.close
+            lines = []
+            IOStreams.path(file.path).option(:encode, encoding: "BINARY").each(:line) { |line| lines << line }
+
+            assert_equal ["name", "Jos\xE9".b], lines
+            assert_equal Encoding::BINARY, lines.last.encoding
+          end
+        end
+
+        it "reads the whole of a gzip file the same as the same data in a plain file" do
+          Dir.mktmpdir do |dir|
+            IOStreams.path(dir, "data.txt").write(latin1)
+            IOStreams.path(dir, "data.txt.gz").write(latin1)
+            plain = IOStreams.path(dir, "data.txt").option(:encode, encoding: "Windows-1252").read
+            gzip  = IOStreams.path(dir, "data.txt.gz").option(:encode, encoding: "Windows-1252").read
+
+            assert_equal plain, gzip
+            assert_equal "Jos\u00e9,M\u00e1laga", gzip.encode("UTF-8")
+          end
+        end
       end
     end
   end

@@ -2093,9 +2093,10 @@ Options:
 
 * `encoding: [String|Encoding]`
   The target encoding, for example `"UTF-8"`, `"US-ASCII"`, or `"ASCII-8BIT"`.
-  Data read from a file, or other binary data, is treated as already being in this encoding,
-  so its characters are kept and only invalid characters are replaced or raise an error.
-  Data with another encoding, such as a Ruby string being written, is converted.
+  Data that is read, whether from a file or through another stream such as `:gz`, and binary data
+  that is written, is treated as already being in this encoding, so its characters are kept and only
+  invalid characters are replaced or raise an error. A Ruby string being written in another encoding
+  is converted.
   Default: `"UTF-8"`
 
 * `replace: [String]`
@@ -3215,6 +3216,13 @@ characters through without raising.
 
 Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
 invalid characters instead of raising.
+
+Data read through the encode stream is treated as bytes in the requested encoding whichever streams it
+was read through. Previously reading the whole of a `.gz` or `.enc` file converted it from
+`Encoding.default_external` into the requested encoding, unlike the same data in a plain file, so for
+example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-1252 `.gz` file.
+
+Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
 
 ### A `+` in an S3 or SFTP url is kept
 
