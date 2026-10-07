@@ -51,7 +51,8 @@ module IOStreams
       #   SECURITY WARNING:
       #     A username and password supplied in the url remain part of it, so `#to_s` and `#url`
       #     return them, as does any log or error message that includes the path.
-      #     Supply them with the `username:` and `password:` arguments instead.
+      #     Supply them with the `username:` and `password:` arguments instead,
+      #     and log `#display_name`, which never includes them.
       #
       # username: [String]
       #   Name of user to login with.
@@ -262,12 +263,12 @@ module IOStreams
         nil
       end
 
-      protected
-
       # Returns [String] the url without the user name, password, or query, which can hold ssh options such as a key.
       def display_name
         url.sub(%r{\A([^:/]+://)[^/?#]*@}, "\\1").sub(/[?#].*\z/m, "")
       end
+
+      protected
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       def path=(path)

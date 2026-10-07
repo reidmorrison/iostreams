@@ -288,6 +288,33 @@ module IOStreams
         end
       end
 
+      describe "#display_name" do
+        it "is the full name of the path" do
+          %w[/data/a.csv s3://bucket/data/a.csv sftp://example.org:2222/~/a.csv https://example.org:8443/a%20b.csv].each do |url|
+            assert_equal url, IOStreams.path(url).display_name
+          end
+        end
+
+        it "does not include credentials in the url" do
+          {
+            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "sftp://example.org/a.csv",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "https://example.org/a.csv"
+          }.each_pair do |url, name|
+            assert_equal name, IOStreams.path(url).display_name
+          end
+        end
+
+        it "does not include credentials supplied as arguments" do
+          path = IOStreams.path("sftp://example.org/a.csv", username: "jack", password: "TOP-SECRET")
+
+          assert_equal "sftp://example.org/a.csv", path.display_name
+        end
+
+        it "is the full name of a joined path" do
+          assert_equal "https://example.org/b.csv", IOStreams.path("https://jack:TOP-SECRET@example.org/a.csv").directory.join("b.csv").display_name
+        end
+      end
+
       describe "#inspect" do
         it "includes the class name and path" do
           assert_includes IOStreams::Path.new("a/b/file.csv").inspect, "a/b/file.csv"
