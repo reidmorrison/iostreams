@@ -77,9 +77,10 @@ Options:
 
 * `encoding: [String|Encoding]`
   The target encoding, for example `"UTF-8"`, `"US-ASCII"`, or `"ASCII-8BIT"`.
-  Data read from a file, or other binary data, is treated as already being in this encoding,
-  so its characters are kept and only invalid characters are replaced or raise an error.
-  Data with another encoding, such as a Ruby string being written, is converted.
+  Data that is read, whether from a file or through another stream such as `:gz`, and binary data
+  that is written, is treated as already being in this encoding, so its characters are kept and only
+  invalid characters are replaced or raise an error. A Ruby string being written in another encoding
+  is converted.
   Default: `"UTF-8"`
 
 * `replace: [String]`

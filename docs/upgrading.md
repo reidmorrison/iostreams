@@ -87,6 +87,13 @@ characters through without raising.
 Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
 invalid characters instead of raising.
 
+Data read through the encode stream is treated as bytes in the requested encoding whichever streams it
+was read through. Previously reading the whole of a `.gz` or `.enc` file converted it from
+`Encoding.default_external` into the requested encoding, unlike the same data in a plain file, so for
+example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-1252 `.gz` file.
+
+Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
+
 ### A `+` in an S3 or SFTP url is kept
 
 A `+` in the path of an S3 or SFTP url is now kept, so `IOStreams.path("s3://bucket/a+b.csv")` reads
