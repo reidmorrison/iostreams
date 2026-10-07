@@ -191,9 +191,11 @@ module IOStreams
         !remote_attributes("SFTP exist? capability").nil?
       end
 
-      # Returns [Integer] the size of the file, or nil when it does not exist.
+      # Returns [Integer] the size of the file.
+      #
+      # Raises [IOStreams::Errors::NotFound] when the file does not exist, see `#size?`.
       def size
-        remote_attributes("SFTP size capability")&.size
+        with_net_sftp("SFTP size capability") { |sftp| sftp.stat!(remote_path).size }
       end
 
       def file?

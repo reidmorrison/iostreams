@@ -161,11 +161,13 @@ module IOStreams
         send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true) { |_response| true } || false
       end
 
-      # Returns [Integer] the size of the file from the Content-Length of an HTTP HEAD, or nil when the file does
-      # not exist, or the server does not supply its size.
+      # Returns [Integer] the size of the file from the Content-Length of an HTTP HEAD, or nil when the server does not
+      # supply its size.
+      #
+      # Raises [IOStreams::Errors::NotFound] when the server responds with 404 Not Found or 410 Gone, see `#size?`.
       def size
         authorize!
-        send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true, &:content_length)
+        send_request(Net::HTTP::Head, url, http_redirect_count, &:content_length)
       end
 
       # Returns [true|false] whether the file exists, see `#exist?`. HTTP has no directories, so every url that
@@ -183,6 +185,8 @@ module IOStreams
       # Returns [true|false] whether the file exists and has a Content-Length of zero, using an HTTP HEAD.
       def empty?
         size&.zero? || false
+      rescue Errors::NotFound
+        false
       end
 
       # Deletes the file, using an HTTP DELETE.

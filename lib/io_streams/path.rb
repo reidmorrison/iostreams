@@ -99,7 +99,9 @@ module IOStreams
       raise NotImplementedError
     end
 
-    # Returns [Integer] size of the file
+    # Returns [Integer] the size of the file, like `File.size`.
+    #
+    # Raises [IOStreams::Errors::NotFound] when the file does not exist, see `#size?`.
     def size
       raise NotImplementedError
     end
@@ -108,6 +110,8 @@ module IOStreams
     def size?
       size = self.size
       size if size&.positive?
+    rescue Errors::NotFound
+      nil
     end
 
     # Returns [true|false] whether this path is a file that exists.

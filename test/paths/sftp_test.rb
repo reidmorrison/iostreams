@@ -165,7 +165,7 @@ module Paths
           assert_predicate dir, :exist?
           refute_predicate missing_file_path, :exist?
           assert_equal raw.size, existing_path.size
-          assert_nil missing_file_path.size
+          assert_raises(IOStreams::Errors::NotFound) { missing_file_path.size }
         end
 
         it "#file? and #directory?" do
@@ -1379,7 +1379,7 @@ module Paths
           with_stub_net_sftp do
             assert_equal 5, path("/data/a.csv").size
             assert_equal 3, path("/~/a.csv").size
-            assert_nil path("/data/missing.csv").size
+            assert_raises(IOStreams::Errors::NotFound) { path("/data/missing.csv").size }
           end
         end
 

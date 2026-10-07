@@ -444,9 +444,10 @@ Notes:
   is uploaded again to its location. Other redirects change the request into a GET, which would discard
   the upload, and a redirect to another server would send it the data being uploaded, so they raise
   `IOStreams::Errors::CommunicationsFailure`.
-* `exist?` returns `false`, `size` returns `nil`, and `delete` does nothing when the server responds
-  with `404 Not Found` or `410 Gone`. Any other unsuccessful response raises
-  `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or DELETE.
+* `exist?` returns `false`, `size?` returns `nil`, and `delete` does nothing when the server responds
+  with `404 Not Found` or `410 Gone`, while `size` raises `IOStreams::Errors::NotFound`. Any other unsuccessful
+  response raises `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or
+  DELETE.
 * Reading or writing raises `IOStreams::Errors::CommunicationsFailure` for an unsuccessful response, tagged with
   `IOStreams::Errors::NotFound` for `404 Not Found` or `410 Gone`, with `IOStreams::Errors::PermissionDenied`
   for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required`, and with
@@ -581,7 +582,7 @@ path = IOStreams.path("sample/example.csv")
 path.exist?
 # => true
 
-# Size of the file in bytes.
+# Size of the file in bytes, like `File.size`. Raises IOStreams::Errors::NotFound when it does not exist.
 path.size
 # => 64
 

@@ -842,8 +842,14 @@ module Paths
             assert_equal "identity", request[:headers]["accept-encoding"]
           end
 
-          it "returns nil when the file is not found" do
+          it "raises NotFound when the file is not found" do
             start_server { |_path| TestHTTPServer.response(404) }
+
+            assert_raises(IOStreams::Errors::NotFound) { IOStreams.path("#{@server.base_url}/file.txt").size }
+          end
+
+          it "returns nil when the server does not supply the size" do
+            start_server { |_path| "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" }
 
             assert_nil IOStreams.path("#{@server.base_url}/file.txt").size
           end

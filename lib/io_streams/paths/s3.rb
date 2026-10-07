@@ -255,7 +255,7 @@ module IOStreams
       def empty?
         authorize!
         if file_key?
-          size = self.size
+          size = object_size
           return size.zero? if size
         end
 
@@ -281,7 +281,7 @@ module IOStreams
       def copy_to(target_path, convert: true, **args)
         return super if convert
 
-        bytes = size.to_i
+        bytes = object_size.to_i
         return super if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
 
         target = to_stream(target_path)
@@ -303,7 +303,7 @@ module IOStreams
         source = to_stream(source_path)
         return super(source, convert: convert, **args) unless source.is_a?(self.class)
 
-        bytes = source.size.to_i
+        bytes = source.object_size.to_i
         return super(source, convert: convert, **args) if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
 
         reject_copy_options!(UNCONVERTED_COPY, **args)
@@ -325,8 +325,6 @@ module IOStreams
       def size
         authorize!
         request(:head_object, bucket: bucket_name, key: path).content_length
-      rescue Aws::S3::Errors::NotFound
-        nil
       end
 
       # TODO: delete_all
@@ -458,6 +456,14 @@ module IOStreams
       # and copying, and `request_payer` to every operation.
       def options_for(operation)
         options.slice(*self.class.operation_options(operation))
+      end
+
+      # Returns [Integer] the size of the object, or nil when it does not exist, see `#empty?`. A direct copy of an object
+      # that does not exist then raises `NoSuchKey` from S3, as it did before `#size` raised for it.
+      def object_size
+        size
+      rescue Errors::NotFound
+        nil
       end
 
       # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.

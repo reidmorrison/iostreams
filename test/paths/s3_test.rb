@@ -99,7 +99,9 @@ module Paths
         end
 
         it "missing file" do
-          assert_nil missing_path.size
+          error = assert_raises(IOStreams::Errors::NotFound) { missing_path.size }
+
+          assert_equal missing_path.display_name, error.display_name
         end
       end
 

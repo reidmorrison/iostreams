@@ -128,6 +128,14 @@ storage, instead of raising. It still raises `PermissionDenied` when the storage
 path.read if path.exist?
 ~~~
 
+Likewise `#size` raises `NotFound` for a file that does not exist, like `File.size`, while `#size?` returns `nil`,
+like `File.size?`:
+
+~~~ruby
+path.size  # raises IOStreams::Errors::NotFound when the file does not exist
+path.size? # => nil when the file does not exist, or is empty
+~~~
+
 Report a problem with the credentials or permissions, which retrying will not fix:
 
 ~~~ruby

@@ -196,6 +196,35 @@ class StorageErrorsTest < Minitest::Test
       end
     end
 
+    describe "the size of a file that does not exist" do
+      it "raises NotFound for a local file, while #size? is nil" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "missing.csv")
+
+          assert_not_found(Errno::ENOENT, path) { path.size }
+          assert_nil path.size?
+        end
+      end
+
+      it "raises NotFound for S3, while #size? is nil" do
+        with_s3 do
+          path = IOStreams.path("s3://iostreams-test/missing.csv")
+
+          assert_not_found(Aws::S3::Errors::NotFound, path) { path.size }
+          assert_nil path.size?
+        end
+      end
+
+      it "raises NotFound for HTTP, while #size? is nil" do
+        with_http(404) do |url|
+          path = IOStreams.path("#{url}/missing.csv")
+
+          assert_not_found(IOStreams::Errors::CommunicationsFailure, path) { path.size }
+          assert_nil path.size?
+        end
+      end
+    end
+
     describe "writing to a directory, or S3 bucket, that does not exist" do
       it "raises NotFound for a local file" do
         Dir.mktmpdir do |dir|
