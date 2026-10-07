@@ -223,6 +223,37 @@ module Paths
             IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
           end
           assert_includes error.message, "Invalid response code: 500"
+          assert_kind_of IOStreams::Errors::Unavailable, error
+        end
+
+        [429, 502, 503, 504].each do |status|
+          it "raises Unavailable when the server responds with #{status}" do
+            start_server { |_path| TestHTTPServer.response(status) }
+
+            error = assert_raises IOStreams::Errors::Unavailable do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
+            end
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          end
+        end
+
+        it "closes the connection before the block reads the file" do
+          start_server { |_path| TestHTTPServer.response(200, body: body) }
+          path     = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+          started  = Net::HTTP.method(:start)
+          open     = false
+          tracking = lambda do |*args, **options, &block|
+            started.call(*args, **options) do |http|
+              open = true
+              block.call(http)
+            ensure
+              open = false
+            end
+          end
+
+          was_open = Net::HTTP.stub(:start, tracking) { path.reader { |_io| open } }
+
+          refute was_open
         end
 
         it "appends supplied parameters to the url as a query string" do

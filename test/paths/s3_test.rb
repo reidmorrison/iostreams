@@ -664,6 +664,21 @@ module Paths
           assert_equal "s3://other-bucket/b.csv", error.display_name
         end
 
+        it "raises Unavailable when S3 cannot handle a HEAD request, whose code is only its status" do
+          path  = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: stub_client(head_object: {status_code: 503, headers: {}, body: ""}))
+          error = assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+
+          assert_instance_of Aws::S3::Errors::Http503Error, error
+        end
+
+        it "raises Unavailable for an internal error of S3" do
+          internal_error = {status_code: 500, headers: {}, body: "<Error><Code>InternalError</Code><Message>Retry</Message></Error>"}
+          path           = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: stub_client(put_object: internal_error))
+          error          = assert_raises(IOStreams::Errors::Unavailable) { path.write("data") }
+
+          assert_instance_of Aws::S3::Errors::InternalError, error
+        end
+
         it "raises NotFound for an upload in parts to a bucket that does not exist" do
           client = stub_client(upload_part: "NoSuchBucket")
           path   = IOStreams::Paths::S3.new("s3://missing-bucket/a.csv", client: client)

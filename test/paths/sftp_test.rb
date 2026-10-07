@@ -754,6 +754,24 @@ module Paths
           refute_kind_of IOStreams::Errors::StorageError, error
         end
 
+        # The output of OpenSSH when it cannot reach the server, or the connection to it fails.
+        [
+          "ssh: connect to host example.org port 22: Connection refused",
+          "ssh: connect to host example.org port 22: Operation timed out",
+          "ssh: Could not resolve hostname example.org: nodename nor servname provided, or not known",
+          "kex_exchange_identification: read: Connection reset by peer",
+          "Connection closed by 10.0.0.1 port 22",
+          "Timeout, server example.org not responding."
+        ].each do |output|
+          it "raises Unavailable for: #{output}" do
+            error = assert_raises IOStreams::Errors::Unavailable do
+              new_path(url, username: "jack").send(:raise_failure, "Download", "#{output}\nConnection closed")
+            end
+
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          end
+        end
+
         [
           "Host key verification failed.",
           %(Couldn't open local file "/tmp/x" for writing: No such file or directory),
@@ -824,6 +842,51 @@ module Paths
 
             assert_instance_of Net::SSH::AuthenticationFailed, error
             assert_equal "sftp://example.org/data/a.csv", error.display_name
+          end
+        end
+
+        it "raises Unavailable when the connection is lost" do
+          assert_kind_of IOStreams::Errors::Unavailable, session_failure(7)
+        end
+
+        it "raises Unavailable when the server disconnects" do
+          require "net/ssh"
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise Net::SSH::Disconnect, "connection closed by remote host" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+          end
+        end
+
+        it "raises Unavailable when the server cannot be reached" do
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise Errno::ECONNREFUSED, "connect(2)" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            error = assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+
+            assert_instance_of Errno::ECONNREFUSED, error
+            assert_equal "sftp://example.org/data/a.csv", error.display_name
+          end
+        end
+
+        it "does not tag a failure to connect that the block of #each_child raises" do
+          session = StubSFTPSession.new(["a.csv"], root: nil, missing: false, unreadable: [])
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*, &block| block.call(session) }
+          directory = new_path("sftp://example.org/data", username: "jack")
+
+          # The block cannot reach its own server, such as a database.
+          failing = ->(_child, _attributes) { raise Errno::ECONNREFUSED, "database" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            error = assert_raises(Errno::ECONNREFUSED) { directory.each_child(&failing) }
+
+            refute_kind_of IOStreams::Errors::StorageError, error
           end
         end
 

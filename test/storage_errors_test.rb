@@ -120,11 +120,23 @@ class StorageErrorsTest < Minitest::Test
       Aws::S3::Client.new(stub_responses: responses, region: "us-east-1", credentials: Aws::Credentials.new("id", "secret"))
     end
 
-    # Asserts that an exception raised by the block supplied to the reader is not tagged as a failure of the path.
-    def assert_block_failure_not_tagged(path)
-      error = assert_raises(Errno::ENOENT) { path.reader { |_io| raise(Errno::ENOENT, "config.yml") } }
+    # Asserts that the block raises Unavailable for the path, keeping the class of the exception that the storage
+    # raised.
+    def assert_unavailable(storage_class, path, &)
+      error = assert_raises(IOStreams::Errors::Unavailable, &)
 
-      refute_kind_of IOStreams::Errors::StorageError, error
+      assert_instance_of storage_class, error
+      assert_equal path.display_name, error.display_name
+    end
+
+    # Asserts that an exception raised by the block supplied to the reader is not tagged as a failure of the path,
+    # such as a file, or a server, that the block cannot reach.
+    def assert_block_failure_not_tagged(path)
+      [Errno::ENOENT, Errno::ECONNREFUSED].each do |error_class|
+        error = assert_raises(error_class) { path.reader { |_io| raise(error_class, "config") } }
+
+        refute_kind_of IOStreams::Errors::StorageError, error
+      end
     end
 
     def with_s3
@@ -274,6 +286,49 @@ class StorageErrorsTest < Minitest::Test
           path = IOStreams.path("#{url}/a.csv", username: "jack", password: "wrong")
 
           assert_permission_denied(IOStreams::Errors::CommunicationsFailure, path) { path.read }
+        end
+      end
+    end
+
+    describe "a storage that cannot be reached" do
+      it "raises Unavailable for S3" do
+        error = Seahorse::Client::NetworkingError.new(Errno::ECONNREFUSED.new("connect"))
+        path  = IOStreams.path("s3://my-bucket/a.csv", client: s3_client(get_object: error))
+
+        assert_unavailable(Seahorse::Client::NetworkingError, path) { path.read }
+      end
+
+      it "raises Unavailable for SFTP" do
+        path = IOStreams.path("sftp://example.org/data/a.csv", username: "jack")
+
+        with_sftp("ssh: connect to host example.org port 22: Connection refused\nConnection closed") do
+          assert_unavailable(IOStreams::Errors::CommunicationsFailure, path) { path.read }
+        end
+      end
+
+      it "raises Unavailable for HTTP" do
+        server = TCPServer.new("127.0.0.1", 0)
+        port   = server.addr[1]
+        server.close
+        path = IOStreams.path("http://127.0.0.1:#{port}/a.csv")
+
+        assert_unavailable(Errno::ECONNREFUSED, path) { path.read }
+      end
+    end
+
+    describe "a storage that cannot handle the request at the time" do
+      it "raises Unavailable for S3" do
+        slow_down = {status_code: 503, headers: {}, body: "<Error><Code>SlowDown</Code><Message>Reduce</Message></Error>"}
+        path      = IOStreams.path("s3://my-bucket/a.csv", client: s3_client(get_object: slow_down))
+
+        assert_unavailable(Aws::S3::Errors::SlowDown, path) { path.read }
+      end
+
+      it "raises Unavailable for HTTP" do
+        with_http(503) do |url|
+          path = IOStreams.path("#{url}/a.csv")
+
+          assert_unavailable(IOStreams::Errors::CommunicationsFailure, path) { path.read }
         end
       end
     end

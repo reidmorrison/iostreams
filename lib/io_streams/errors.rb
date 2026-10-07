@@ -110,5 +110,11 @@ module IOStreams
     module PermissionDenied
       include StorageError
     end
+
+    # The storage could not be reached, or could not handle the request at the time, so that the same request can
+    # succeed when it is made again later.
+    module Unavailable
+      include StorageError
+    end
   end
 end

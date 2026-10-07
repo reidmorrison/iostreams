@@ -2,14 +2,14 @@
 layout: default
 title: Errors
 description: >-
-  Rescue a missing file, or one that cannot be accessed, the same way wherever it
-  is stored, keeping the exception that the storage raised, and the other
-  exceptions that IOStreams raises.
+  Rescue a missing file, a file that cannot be accessed, or a server that cannot
+  be reached, the same way wherever the file is stored, keeping the exception that
+  the storage raised, and the other exceptions that IOStreams raises.
 ---
 
 When a path's storage fails, for example because the file does not exist, the path raises the exception that its
 storage raised, such as `Errno::ENOENT` for a local file or `Aws::S3::Errors::NoSuchKey` for S3. It tags that
-exception with the kind of failure, such as `IOStreams::Errors::NotFound`.
+exception with the kind of failure: `IOStreams::Errors::NotFound`, `PermissionDenied` or `Unavailable`.
 
 Rescue the kind of failure, rather than the exception from one storage, so that the same code keeps working when the
 path changes, for example from a local file in development to S3 in production. See
@@ -49,6 +49,8 @@ The kinds of failure are modules that tag the exception that the storage raised:
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
   * `IOStreams::Errors::PermissionDenied`: the storage does not permit the access, or the credentials for it are
     missing or not valid.
+  * `IOStreams::Errors::Unavailable`: the storage could not be reached, or could not handle the request at the time,
+    so that the same request can succeed when it is made again later.
 
 IOStreams raises these classes itself:
 
@@ -77,11 +79,13 @@ The exception that each storage raises, which is tagged with the kind of failure
 |-----------------|------------|----|------|------|
 | `NotFound` | `Errno::ENOENT`, or `Errno::ENOTDIR` below a file | `Aws::S3::Errors::NoSuchKey`, `NoSuchBucket`, `NoSuchVersion`, or `NotFound` from a HEAD request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, or `Net::SFTP::StatusException` | `IOStreams::Errors::CommunicationsFailure` for `404 Not Found` or `410 Gone` |
 | `PermissionDenied` | `Errno::EACCES` or `Errno::EPERM` | `Aws::S3::Errors::AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken` and the like, `Forbidden` from a HEAD request, or `Aws::Errors::MissingCredentialsError` | `IOStreams::Errors::CommunicationsFailure` when reading or writing, `Net::SFTP::StatusException`, or `Net::SSH::AuthenticationFailed` | `IOStreams::Errors::CommunicationsFailure` for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required` |
+| `Unavailable` | Never | `Seahorse::Client::NetworkingError` when S3 cannot be reached, or `Aws::S3::Errors::SlowDown`, `InternalError`, `ServiceUnavailable`, `RequestTimeout`, or a `429`, `500`, `502`, `503` or `504` response, once the AWS SDK has retried the request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, a connection error such as `Errno::ECONNREFUSED` or `SocketError`, or `Net::SSH::Disconnect` | A connection error such as `Errno::ECONNREFUSED`, `SocketError` or `Net::ReadTimeout`, or `IOStreams::Errors::CommunicationsFailure` for `408`, `429`, `500`, `502`, `503` or `504` |
 
 SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem for everything else, such as
 `#each_child`, `#exist?` and `#delete`.
 
-A failure that is not one of these kinds raises its exception without a tag.
+A failure that is none of these kinds raises its exception without a tag, such as an SFTP host key that does not
+match, or an HTTPS certificate that is not trusted.
 
 ## The exception is kept
 
@@ -136,6 +140,26 @@ end
 
 The exception from the storage is the `#cause` of the `ConfigurationError`, so it is still logged with it.
 
+Retry when the storage is unavailable, such as a server that is restarting:
+
+~~~ruby
+attempts = 0
+begin
+  IOStreams.path(ENV.fetch("EXPORT_PATH")).write(report)
+rescue IOStreams::Errors::Unavailable => e
+  attempts += 1
+  raise if attempts >= 3
+
+  logger.warn("Retrying in #{2**attempts} seconds: #{e.message}")
+  sleep(2**attempts)
+  retry
+end
+~~~
+
+Writing again is safe, since S3, SFTP and HTTP only store a file once it has been written completely, and a local
+file that fails part way is removed. Retry only on `Unavailable`, and not on `NotFound` or `PermissionDenied`,
+which retrying will not fix.
+
 Log any failure of the storage, with the path that failed:
 
 ~~~ruby
@@ -169,6 +193,10 @@ also rescue an attempt to access a path that the application does not allow, suc
 * When copying within S3 with `convert: false`, a source that does not exist is tagged with the display name of
   the source, and any other failure with that of the target. When a local file cannot be moved because the target
   directory cannot be written to, the failure is tagged with the display name of the target.
+* A local file is never `Unavailable`.
+* The AWS SDK retries a request that S3 could not handle, or that could not reach it, before it raises `Unavailable`.
+* Reading an HTTP path downloads the whole file before the block is called, so the connection is closed before the
+  block reads it.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
 
 ## Storage registered with `IOStreams.register_scheme`

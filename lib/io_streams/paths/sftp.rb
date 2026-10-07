@@ -299,11 +299,20 @@ module IOStreams
         authorize!
         Utils.load_soft_dependency("net-sftp", capability, "net/sftp") unless defined?(Net::SFTP)
 
-        result = nil
+        result    = nil
+        connected = false
         tag_failure do
           NetSSH.options(ssh_options, port: port, password: password) do |options|
-            Net::SFTP.start(hostname, username, options) { |sftp| result = yield(sftp) }
+            Net::SFTP.start(hostname, username, options) do |sftp|
+              connected = true
+              result    = yield(sftp)
+            end
           end
+        rescue *Failure::CONNECTION_ERRORS => e
+          # Once connected, the same exception can be raised by the block supplied by the caller, such as `#each_child`.
+          raise if connected
+
+          raise(Errors::Unavailable.tag(e, display_name))
         end
         result
       end

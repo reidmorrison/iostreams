@@ -14,7 +14,7 @@ configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#w
 - [Tutorial](https://iostreams.reidmorrison.com/tutorial): step-by-step introduction to reading and writing files with IOStreams.
 - [Path](https://iostreams.reidmorrison.com/path): what a `Path` is, how it identifies where a file is stored (local disk, S3, SFTP, HTTP) and how to reach it.
 - [Streams](https://iostreams.reidmorrison.com/streams): the `#reader`/`#writer`/`#each`/`#read`/`#write` API used once you have a path.
-- [Errors](https://iostreams.reidmorrison.com/errors): rescuing a missing file, or one that cannot be accessed, the same way wherever it is stored, with `IOStreams::Errors::NotFound` and `PermissionDenied`, and the other exceptions that IOStreams raises.
+- [Errors](https://iostreams.reidmorrison.com/errors): rescuing a missing file, a file that cannot be accessed, or a server that cannot be reached, the same way wherever the file is stored, with `IOStreams::Errors::NotFound`, `PermissionDenied` and `Unavailable`, and the other exceptions that IOStreams raises.
 - [File Extensions](https://iostreams.reidmorrison.com/extensions): how file-name extensions (e.g. `.csv.gz.enc`) determine which streams are auto-applied.
 - [File Formats](https://iostreams.reidmorrison.com/formats): how rows (`:array`) and records (`:hash`) are converted to/from lines (CSV, PSV, JSON, fixed-width).
 - [Copying Between Files](https://iostreams.reidmorrison.com/copy_files): using `IOStreams.copy` to compress, decompress, encrypt, decrypt, and move files between storage locations.
