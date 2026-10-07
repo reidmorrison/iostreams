@@ -545,6 +545,48 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "#quote_character" do
+      it "is the double quote for csv" do
+        assert_equal '"', IOStreams::Tabular.new(format: :csv).quote_character
+      end
+
+      it "is nil for a format without quoting" do
+        assert_nil IOStreams::Tabular.new(format: :psv).quote_character
+        assert_nil IOStreams::Tabular.new(format: :json).quote_character
+      end
+
+      it "is that of the format detected from the file name" do
+        assert_nil IOStreams::Tabular.new(file_name: "data.json").quote_character
+      end
+
+      it "is that of the default format when the file name has no format" do
+        assert_equal '"', IOStreams::Tabular.new(file_name: "data.txt").quote_character
+        assert_nil IOStreams::Tabular.new(file_name: "data.txt", default_format: :psv).quote_character
+      end
+
+      it "is that of an explicit format over the file name" do
+        assert_nil IOStreams::Tabular.new(file_name: "data.csv", format: :psv).quote_character
+      end
+    end
+
+    describe ".quote_character" do
+      it "is the double quote for csv" do
+        assert_equal '"', IOStreams::Tabular.quote_character(:csv)
+      end
+
+      it "is nil for a format without quoting" do
+        assert_nil IOStreams::Tabular.quote_character(:psv)
+      end
+
+      it "is nil without a format" do
+        assert_nil IOStreams::Tabular.quote_character(nil)
+      end
+
+      it "raises for an unknown format" do
+        assert_raises(ArgumentError) { IOStreams::Tabular.quote_character(:unknown) }
+      end
+    end
+
     describe ".format_from_file_name" do
       it "detects the format from the file name" do
         assert_equal :csv, IOStreams::Tabular.format_from_file_name("sample.csv.gz")

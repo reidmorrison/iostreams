@@ -9,14 +9,17 @@ module IOStreams
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
       raise(ArgumentError, "io_stream must not be a string: #{io_stream.inspect}") if io_stream.is_a?(String)
 
-      @io_stream = io_stream
-      @builder   = nil
+      @io_stream      = io_stream
+      @builder        = nil
+      @format         = nil
+      @format_options = nil
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
     def initialize_copy(source)
       super
-      @builder = @builder&.dup
+      @builder        = @builder&.dup
+      @format_options = @format_options&.dup
     end
 
     # Ignore the filename and use only the supplied streams.
@@ -125,8 +128,9 @@ module IOStreams
     #
     # Notes:
     # - Newlines embedded within quoted fields are kept within the same line when
-    #   1. The resolved tabular format quotes its fields (e.g. CSV, whether detected from a
-    #      `.csv` file name or set explicitly via `.format(:csv)`)
+    #   1. The tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)`,
+    #      or detected from a `.csv` file name. Rows and records are read as CSV unless another format
+    #      applies, so this includes `:array` and `:hash` for a file name without a tabular extension.
     #   2. Or the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`)
     # - Pass `embedded_within: nil` to disable quote-aware line joining for a quoted format.
     def each(mode = :line, **args, &block)
@@ -271,35 +275,40 @@ module IOStreams
       builder.file_name = file_name
     end
 
-    # Set/get the tabular format_options
+    # Set/get the tabular format.
+    #
+    # Returns [Symbol] the format that was set, otherwise the format detected from the file name,
+    # or [nil] when neither applies.
     def format(format = :none)
       if format == :none
-        builder.format
+        @format || IOStreams::Tabular.format_from_file_name(file_name)
       else
-        builder.format = format
+        self.format = format
         self
       end
     end
 
     # Set the tabular format
     def format=(format)
-      builder.format = format
+      unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
+        raise(ArgumentError, "Invalid format: #{format.inspect}")
+      end
+
+      @format = format
     end
 
     # Set/get the tabular format options
     def format_options(format_options = :none)
       if format_options == :none
-        builder.format_options
+        @format_options
       else
-        builder.format_options = format_options
+        self.format_options = format_options
         self
       end
     end
 
     # Set the tabular format_options
-    def format_options=(format_options)
-      builder.format_options = format_options
-    end
+    attr_writer :format_options
 
     # Returns [String] the last component of this path.
     # Returns `nil` if no `file_name` was set.
@@ -376,9 +385,16 @@ module IOStreams
 
     protected
 
-    # Replaces the streams and options, for example `#join` and `#directory` clear them on a copy of a path.
-    # Not public, since a builder is internal.
+    # Replaces the streams and options. Not public, since a builder is internal.
     attr_writer :builder
+
+    # Clears the streams, options, format and format options, for example `#join` and `#directory`
+    # clear them on a copy of a path, since they were set for the file of the original path.
+    def clear_configuration
+      self.builder    = nil
+      @format         = nil
+      @format_options = nil
+    end
 
     # Options are strict: raise rather than ignore options that a copy cannot use.
     def reject_copy_options!(reason, **options)
@@ -425,10 +441,10 @@ module IOStreams
     end
 
     def line_reader(embedded_within: :auto, **args)
-      # `:auto` defers the decision to the resolved tabular format (e.g. CSV quotes with `"`),
-      # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or
-      # `'"'` (force). Centralizing this in the builder keeps all format-based decisions there.
-      embedded_within = builder.quote_character if embedded_within == :auto
+      # `:auto` uses the quote character of the format, set with #format or detected from the file name,
+      # such as `"` for CSV, while distinguishing "not supplied" from an explicit value such as `nil`
+      # (disable) or `'"'` (force).
+      embedded_within = IOStreams::Tabular.quote_character(format) if embedded_within == :auto
 
       stream_reader do |io|
         yield IOStreams::Line::Reader.new(
@@ -440,29 +456,32 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
-    def row_reader(delimiter: nil, embedded_within: :auto, **args)
+    #
+    # The lines are split where the format that parses them expects, so that for example a newline within
+    # a quoted CSV value stays within its row, including when CSV is the default format.
+    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
+      tabular         = tabular(**args)
+      embedded_within = tabular.quote_character if embedded_within == :auto
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Row::Reader.new(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args
-        )
+        yield IOStreams::Row::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
-    def record_reader(delimiter: nil, embedded_within: :auto, **args)
+    #
+    # The lines are split where the format that parses them expects, see #row_reader.
+    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
+      tabular         = tabular(**args)
+      embedded_within = tabular.quote_character if embedded_within == :auto
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Record::Reader.new(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args
-        )
+        yield IOStreams::Record::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
+    end
+
+    # Returns [IOStreams::Tabular] that reads or writes the rows of this stream in the format set with #format,
+    # otherwise the one detected from the file name, otherwise CSV, see `IOStreams::Tabular.new`.
+    def tabular(**args)
+      IOStreams::Tabular.new(file_name: file_name, format: @format, format_options: @format_options, **args)
     end
 
     def stream_writer(&)
@@ -480,30 +499,18 @@ module IOStreams
     def row_writer(delimiter: $/, **args, &block)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
+      tabular = tabular(**args)
       line_writer(delimiter: delimiter) do |io|
-        IOStreams::Row::Writer.stream(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args,
-          &block
-        )
+        block.call(IOStreams::Row::Writer.new(io, tabular: tabular))
       end
     end
 
     def record_writer(delimiter: $/, **args, &block)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
+      tabular = tabular(**args)
       line_writer(delimiter: delimiter) do |io|
-        IOStreams::Record::Writer.stream(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args,
-          &block
-        )
+        block.call(IOStreams::Record::Writer.new(io, tabular: tabular))
       end
     end
   end

@@ -46,10 +46,12 @@ end
 ~~~
 
 Notes:
-* Newlines embedded within quoted fields are kept on the same line automatically when the resolved
-  tabular format quotes its fields, such as CSV (detected from a `.csv` file name or set explicitly via
-  `.format(:csv)`). `embedded_within` only needs to be supplied for quoted formats that are not
-  auto-detected, or to override the quote character.
+* Newlines embedded within quoted fields are kept on the same line automatically when the
+  tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)` or detected
+  from a `.csv` file name. Rows read with `each(:array)` and records read with `each(:hash)` are CSV
+  unless another format applies, so this also applies to them for a file name without a tabular
+  extension, such as `data.txt`, a spreadsheet, or a stream without a file name. `embedded_within` only
+  needs to be supplied for quoted formats that are not set or detected, or to override the quote character.
 * A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
   real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
 ~~~ruby
