@@ -84,83 +84,19 @@ module IOStreams
         @tabular        = tabular
         @line_reader    = line_reader
         @cleanse_header = cleanse_header
-        @warned         = false
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
-        restrict_columns if restricted? && !@tabular.header?
+        @tabular.restrict_columns(rename: cleanse_header)
       end
 
       def each
         @line_reader.each do |line|
           if @tabular.header?
-            @tabular.parse_header(line)
-            if @cleanse_header
-              cleanse_columns
-            elsif restricted?
-              restrict_columns
-            end
+            @tabular.read_header(line, cleanse: @cleanse_header)
           else
-            yield restrict(@tabular.record_parse(line))
+            yield @tabular.read_record(line, rename: @cleanse_header)
           end
         end
-      end
-
-      private
-
-      def restricted?
-        @tabular.header.restricted?
-      end
-
-      def cleanse_columns
-        @tabular.header.cleanse!(rename: @cleanse_header)
-      end
-
-      # Apply the allowed and required columns to supplied columns, or to a header row read with
-      # `cleanse_header: false`. Unless `IOStreams.enforce_column_restrictions?`, only warn when they would
-      # change the columns.
-      def restrict_columns
-        return cleanse_columns if IOStreams.enforce_column_restrictions?
-        return if @warned
-
-        header  = @tabular.header
-        columns = header.columns
-        changed = changed_by_restriction? do
-          copy = IOStreams::Tabular::Header.new(
-            columns:          columns,
-            allowed_columns:  header.allowed_columns,
-            required_columns: header.required_columns,
-            skip_unknown:     header.skip_unknown
-          )
-          copy.cleanse!(rename: @cleanse_header)
-          copy.columns != columns
-        end
-        warn_restriction if changed
-      end
-
-      # Formats such as JSON have no header row, so apply the allowed and required columns to each record's keys.
-      # Unless `IOStreams.enforce_column_restrictions?`, only warn when they would change the record.
-      def restrict(record)
-        return record unless record.is_a?(Hash) && restricted? && @tabular.header.columns.nil?
-        return @tabular.header.restrict_hash(record, rename: @cleanse_header) if IOStreams.enforce_column_restrictions?
-        return record if @warned
-
-        warn_restriction if changed_by_restriction? { @tabular.header.restrict_hash(record, rename: @cleanse_header) != record }
-        record
-      end
-
-      def changed_by_restriction?
-        yield
-      rescue IOStreams::Errors::InvalidHeader
-        true
-      end
-
-      # Warn once per reader, since the same columns usually apply to every record.
-      def warn_restriction
-        @warned = true
-        IOStreams.logger&.warn(
-          "allowed_columns and required_columns are not applied to this input since " \
-          "`IOStreams.enforce_column_restrictions` is false, but would change the records read."
-        )
       end
     end
   end

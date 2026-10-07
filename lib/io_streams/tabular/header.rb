@@ -123,6 +123,23 @@ module IOStreams
         !allowed_columns.nil? || !required_columns.nil?
       end
 
+      # Returns [true|false] whether #cleanse! would change the columns, or raise `IOStreams::Errors::InvalidHeader`,
+      # without changing them.
+      def cleanse_changes?(rename: true)
+        copy = dup
+        copy.cleanse!(rename: rename)
+        copy.columns != columns
+      rescue IOStreams::Errors::InvalidHeader
+        true
+      end
+
+      # Returns [true|false] whether #restrict_hash would change the hash, or raise `IOStreams::Errors::InvalidHeader`.
+      def restrict_hash_changes?(hash, rename: true)
+        restrict_hash(hash, rename: rename) != hash
+      rescue IOStreams::Errors::InvalidHeader
+        true
+      end
+
       # Returns [Hash] the supplied hash after applying `allowed_columns`, `required_columns` and `skip_unknown`
       # to its keys, as if its keys were the header row.
       #

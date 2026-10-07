@@ -90,6 +90,7 @@ module IOStreams
 
       klass   = self.class.parser_class(@format)
       @parser = format_options ? klass.new(**format_options) : klass.new
+      @warned = false
     end
 
     # Returns [true|false] whether a header is still required in order to parse or render the current format.
@@ -165,6 +166,45 @@ module IOStreams
       header.columns
     end
 
+    # Reading applies `allowed_columns`, `required_columns` and `skip_unknown` to every input: a header row, supplied
+    # columns, and the keys of each record of a format without a header row, such as JSON. Unless
+    # `IOStreams.enforce_column_restrictions?`, they are only applied to a header row that is cleansed, and otherwise
+    # a warning is logged, once, when applying them would change the result.
+
+    # Parses the header row, then cleanses its columns when `cleanse`, otherwise applies the column restrictions to
+    # them as they are, see #restrict_columns.
+    #
+    # Returns [Array] the header row as read, before it is cleansed.
+    # Returns nil when the line is blank, or the format does not have a header row.
+    def read_header(line, cleanse: true)
+      columns = parse_header(line)
+      cleanse ? header.cleanse! : restrict_columns(rename: false)
+      columns
+    end
+
+    # Applies the column restrictions to the header columns once they are known, such as the columns supplied in
+    # place of a header row, renaming them when `rename`, see `IOStreams::Tabular::Header#cleanse!`.
+    def restrict_columns(rename: true)
+      return if header? || !header.restricted?
+      return header.cleanse!(rename: rename) if IOStreams.enforce_column_restrictions?
+
+      warn_restriction("header row") if !@warned && header.cleanse_changes?(rename: rename)
+    end
+
+    # Returns [Hash<String,Object>] the line as a record, with the column restrictions applied to its keys for a
+    # format without a header row, such as JSON, whose records each supply their own keys, renaming them when
+    # `rename`, see `IOStreams::Tabular::Header#restrict_hash`.
+    # Returns nil if the line is blank.
+    def read_record(line, rename: true)
+      record = record_parse(line)
+      return record unless record.is_a?(Hash) && header.restricted? && header.columns.nil?
+      return header.restrict_hash(record, rename: rename) if IOStreams.enforce_column_restrictions?
+
+      # Once warned, the remaining records are not checked.
+      warn_restriction("records") if !@warned && header.restrict_hash_changes?(record, rename: rename)
+      record
+    end
+
     # Register a format and the parser class for it.
     #
     # Example:
@@ -219,5 +259,19 @@ module IOStreams
     register_format(:hash, IOStreams::Tabular::Parser::Hash)
     register_format(:json, IOStreams::Tabular::Parser::Json)
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
+
+    private
+
+    # Logs a warning that the column restrictions are not applied, once, since the same columns usually apply
+    # to every record.
+    def warn_restriction(input)
+      return if @warned
+
+      @warned = true
+      IOStreams.logger&.warn(
+        "allowed_columns and required_columns are not applied to this input since " \
+        "`IOStreams.enforce_column_restrictions` is false, but would change the #{input} read."
+      )
+    end
   end
 end
