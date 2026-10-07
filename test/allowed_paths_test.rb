@@ -147,6 +147,29 @@ class AllowedPathsTest < Minitest::Test
       end
     end
 
+    describe "#allowed?" do
+      it "is true within an allowed path" do
+        assert_predicate IOStreams.path(allowed_file), :allowed?
+      end
+
+      it "is false outside the allowed paths" do
+        refute_predicate IOStreams.path(outside_file), :allowed?
+      end
+
+      it "is always true when no allowed paths have been added" do
+        IOStreams.delete_allowed_path(allowed)
+
+        assert_predicate IOStreams.path(outside_file), :allowed?
+      end
+
+      it "is true for a temp file from IOStreams.temp_file, but not for another path to it" do
+        IOStreams.temp_file("allowed_test") do |path|
+          assert_predicate path, :allowed?
+          refute_predicate IOStreams.path(path.to_s), :allowed?
+        end
+      end
+    end
+
     describe "no allowed paths" do
       it "accesses any path" do
         IOStreams.delete_allowed_path(allowed)

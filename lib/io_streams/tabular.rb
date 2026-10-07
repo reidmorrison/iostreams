@@ -147,7 +147,11 @@ module IOStreams
 
     # Returns [String] the header rendered for the output format
     # Return nil if no header is required.
-    def render_header
+    #
+    # When columns are supplied they become the header columns first, such as the first row written
+    # when the columns were not supplied.
+    def render_header(columns = nil)
+      header.columns = columns if columns
       return unless requires_header?
 
       if IOStreams::Utils.blank?(header.columns)

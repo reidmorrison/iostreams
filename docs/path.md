@@ -755,6 +755,9 @@ IOStreams.path("/var/my_app/uploads/../secrets.yml").read
 # Check without raising:
 IOStreams.allowed_path?("/etc/passwd")
 # => false
+
+IOStreams.path("/etc/passwd").allowed?
+# => false
 ~~~
 
 Paths are normalized before they are compared:
