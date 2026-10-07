@@ -19,6 +19,9 @@ module IOStreams
     end
 
     # When a path is not within any of the allowed paths, see `IOStreams.add_allowed_path`.
+    #
+    # IOStreams raises it to enforce the access that the application allows, so it is not a `PermissionDenied`,
+    # which is a failure of the storage.
     class AccessDenied < Error
     end
 
@@ -100,6 +103,11 @@ module IOStreams
 
     # The file, a directory that it is in, or its S3 bucket, does not exist.
     module NotFound
+      include StorageError
+    end
+
+    # The storage does not permit the access, or the credentials for it are missing or not valid.
+    module PermissionDenied
       include StorageError
     end
   end

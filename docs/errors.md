@@ -2,8 +2,9 @@
 layout: default
 title: Errors
 description: >-
-  Rescue a missing file the same way wherever it is stored, keeping the exception
-  that the storage raised, and the other exceptions that IOStreams raises.
+  Rescue a missing file, or one that cannot be accessed, the same way wherever it
+  is stored, keeping the exception that the storage raised, and the other
+  exceptions that IOStreams raises.
 ---
 
 When a path's storage fails, for example because the file does not exist, the path raises the exception that its
@@ -46,12 +47,14 @@ The kinds of failure are modules that tag the exception that the storage raised:
 
 * `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
+  * `IOStreams::Errors::PermissionDenied`: the storage does not permit the access, or the credentials for it are
+    missing or not valid.
 
 IOStreams raises these classes itself:
 
 * `IOStreams::Errors::Error`, a `StandardError`:
   * `IOStreams::Errors::AccessDenied`: the path is not within the allowed paths, see
-    [allowed paths](path#restricting-access-with-allowed-paths).
+    [allowed paths](path#restricting-access-with-allowed-paths). It is not a `PermissionDenied`, see below.
   * `IOStreams::Errors::CommunicationsFailure`: an SFTP or HTTP request failed. It is also tagged with the kind
     of failure when the failure is known, such as a `404 Not Found` response.
   * `IOStreams::Errors::UnknownFormat`: the tabular format cannot be inferred from the file name.
@@ -73,6 +76,7 @@ The exception that each storage raises, which is tagged with the kind of failure
 | Kind of failure | Local file | S3 | SFTP | HTTP |
 |-----------------|------------|----|------|------|
 | `NotFound` | `Errno::ENOENT`, or `Errno::ENOTDIR` below a file | `Aws::S3::Errors::NoSuchKey`, `NoSuchBucket`, `NoSuchVersion`, or `NotFound` from a HEAD request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, or `Net::SFTP::StatusException` | `IOStreams::Errors::CommunicationsFailure` for `404 Not Found` or `410 Gone` |
+| `PermissionDenied` | `Errno::EACCES` or `Errno::EPERM` | `Aws::S3::Errors::AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken` and the like, `Forbidden` from a HEAD request, or `Aws::Errors::MissingCredentialsError` | `IOStreams::Errors::CommunicationsFailure` when reading or writing, `Net::SFTP::StatusException`, or `Net::SSH::AuthenticationFailed` | `IOStreams::Errors::CommunicationsFailure` for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required` |
 
 SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem for everything else, such as
 `#each_child`, `#exist?` and `#delete`.
@@ -114,11 +118,23 @@ end
 ~~~
 
 Check that a file exists before reading it. `#exist?` returns `false` for a file that does not exist on every
-storage, instead of raising:
+storage, instead of raising. It still raises `PermissionDenied` when the storage does not permit the check:
 
 ~~~ruby
 path.read if path.exist?
 ~~~
+
+Report a problem with the credentials or permissions, which retrying will not fix:
+
+~~~ruby
+begin
+  IOStreams.path(ENV.fetch("EXPORT_PATH")).write(report)
+rescue IOStreams::Errors::PermissionDenied => e
+  raise(ConfigurationError, "Check the credentials and permissions for #{e.display_name}")
+end
+~~~
+
+The exception from the storage is the `#cause` of the `ConfigurationError`, so it is still logged with it.
 
 Log any failure of the storage, with the path that failed:
 
@@ -131,6 +147,15 @@ rescue IOStreams::Errors::StorageError => e
 end
 ~~~
 
+## AccessDenied is not a PermissionDenied
+
+IOStreams raises `IOStreams::Errors::AccessDenied` itself, before it accesses the storage, when a path is not within
+the allowed paths of the application, see [allowed paths](path#restricting-access-with-allowed-paths).
+`IOStreams::Errors::PermissionDenied` is a failure of the storage, such as a file that the credentials cannot read.
+
+They are kept apart, so that rescuing `PermissionDenied`, for example to report a configuration problem, does not
+also rescue an attempt to access a path that the application does not allow, such as a file name supplied by a user.
+
 ## Notes
 
 * Only the failure of a path's own request of its storage is tagged. An exception raised by the block that you
@@ -138,8 +163,12 @@ end
   so it is not mistaken for a failure of the path.
 * An exception keeps the tag and display name of the path that failed first. For example, when the block reading one
   path reads another path that does not exist, the display name is that of the other path.
+* On S3, a key that does not exist raises `PermissionDenied`, rather than `NotFound`, when the credentials do not
+  have the `s3:ListBucket` permission for the bucket, since S3 then responds `403 Forbidden` instead of
+  `404 Not Found`. Grant `s3:ListBucket` to tell a missing file apart from one that cannot be read.
 * When copying within S3 with `convert: false`, a source that does not exist is tagged with the display name of
-  the source.
+  the source, and any other failure with that of the target. When a local file cannot be moved because the target
+  directory cannot be written to, the failure is tagged with the display name of the target.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
 
 ## Storage registered with `IOStreams.register_scheme`
@@ -157,7 +186,12 @@ class MyStoragePath < IOStreams::Path
   private
 
   def failure_kind(exception)
-    IOStreams::Errors::NotFound if exception.is_a?(MyStorage::NoSuchFile)
+    case exception
+    when MyStorage::NoSuchFile
+      IOStreams::Errors::NotFound
+    when MyStorage::Forbidden
+      IOStreams::Errors::PermissionDenied
+    end
   end
 end
 ~~~

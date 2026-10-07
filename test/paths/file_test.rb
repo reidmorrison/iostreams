@@ -413,6 +413,24 @@ module Paths
           end
         end
 
+        it "raises PermissionDenied with the display name of a target in a directory that cannot be written to" do
+          skip "Every directory can be written to as root" if Process.uid.zero?
+
+          Dir.mktmpdir do |dir|
+            source   = IOStreams.path(dir, "source.txt")
+            readonly = IOStreams.path(dir, "readonly").mkdir
+            target   = readonly.join("target.txt")
+            source.write("data")
+            File.chmod(0o555, readonly.to_s)
+
+            error = assert_raises(IOStreams::Errors::PermissionDenied) { source.move_to(target) }
+            assert_instance_of Errno::EACCES, error
+            assert_equal target.display_name, error.display_name
+          ensure
+            File.chmod(0o755, readonly.to_s) if readonly
+          end
+        end
+
         it "missing target directories" do
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             temp_file.write("Hello World")

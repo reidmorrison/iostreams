@@ -12,8 +12,11 @@ module IOStreams
 
       # The kind of failure that each unsuccessful response means, see `IOStreams::Errors::StorageError`.
       RESPONSE_FAILURES = {
-        Net::HTTPNotFound => Errors::NotFound,
-        Net::HTTPGone     => Errors::NotFound
+        Net::HTTPNotFound                    => Errors::NotFound,
+        Net::HTTPGone                        => Errors::NotFound,
+        Net::HTTPUnauthorized                => Errors::PermissionDenied,
+        Net::HTTPForbidden                   => Errors::PermissionDenied,
+        Net::HTTPProxyAuthenticationRequired => Errors::PermissionDenied
       }.freeze
       private_constant :RESPONSE_FAILURES
 

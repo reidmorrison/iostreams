@@ -638,6 +638,32 @@ module Paths
           assert_equal "s3://missing-bucket/reports/a.csv", error.display_name
         end
 
+        it "raises PermissionDenied for a HEAD request that is forbidden, such as for a key that does not exist " \
+           "without the s3:ListBucket permission" do
+          path  = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: stub_client(head_object: "Forbidden"))
+          error = assert_raises(IOStreams::Errors::PermissionDenied) { path.exist? }
+
+          assert_instance_of Aws::S3::Errors::Forbidden, error
+        end
+
+        it "raises PermissionDenied without credentials" do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          client = Aws::S3::Client.new(region: "us-east-1", credentials: Aws::Credentials.new(nil, nil))
+          path   = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: client)
+          error  = assert_raises(IOStreams::Errors::PermissionDenied) { path.read }
+
+          assert_instance_of Aws::Errors::MissingCredentialsError, error
+        end
+
+        it "raises PermissionDenied with the display name of the target, when a direct copy is denied" do
+          client = stub_client(head_object: {content_length: 4}, copy_object: "AccessDenied")
+          source = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: client)
+          target = IOStreams::Paths::S3.new("s3://other-bucket/b.csv", client: client)
+          error  = assert_raises(IOStreams::Errors::PermissionDenied) { source.copy_to(target, convert: false) }
+
+          assert_equal "s3://other-bucket/b.csv", error.display_name
+        end
+
         it "raises NotFound for an upload in parts to a bucket that does not exist" do
           client = stub_client(upload_part: "NoSuchBucket")
           path   = IOStreams::Paths::S3.new("s3://missing-bucket/a.csv", client: client)

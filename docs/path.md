@@ -322,7 +322,8 @@ IOStreams.path("sftp://example.org/path/file.txt",
 ~~~
 
 Raises `IOStreams::Errors::CommunicationsFailure` when the file could not be read or written, tagged with
-`IOStreams::Errors::NotFound` when the file, or its directory, does not exist, see [Errors](errors).
+`IOStreams::Errors::NotFound` when the file, or its directory, does not exist, and with
+`IOStreams::Errors::PermissionDenied` when it cannot be accessed, or the user cannot log in, see [Errors](errors).
 
 Write to a file on a remote sftp server.
 ~~~ruby
@@ -446,7 +447,8 @@ Notes:
   with `404 Not Found` or `410 Gone`. Any other unsuccessful response raises
   `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or DELETE.
 * Reading or writing raises `IOStreams::Errors::CommunicationsFailure` for an unsuccessful response, tagged with
-  `IOStreams::Errors::NotFound` for `404 Not Found` or `410 Gone`, see [Errors](errors).
+  `IOStreams::Errors::NotFound` for `404 Not Found` or `410 Gone`, and with `IOStreams::Errors::PermissionDenied`
+  for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required`, see [Errors](errors).
 * `delete` follows redirects the same way as writing. `exist?` and `size` follow redirects the same way as reading.
 * `move_to` from an HTTP path downloads the file and then deletes it with an HTTP DELETE.
   `move_to` an HTTP path uploads the file and then deletes the source.

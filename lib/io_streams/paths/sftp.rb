@@ -308,7 +308,8 @@ module IOStreams
         result
       end
 
-      # Returns [Module] the kind of failure that an exception raised by net-sftp means, see `Failure.kind`.
+      # Returns [Module] the kind of failure that an exception raised by net-sftp, or net-ssh, means,
+      # see `Failure.kind`.
       def failure_kind(exception)
         Failure.kind(exception)
       end
@@ -376,7 +377,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            raise_failure("Download", out) unless waith_thr.value.success?
+            raise_failure("Download", out, waith_thr.value) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -385,7 +386,7 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise_failure("Download", out)
+            raise_failure("Download", out, waith_thr.value)
           end
         end
       end
@@ -404,7 +405,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            raise_failure("Upload", out) unless waith_thr.value.success?
+            raise_failure("Upload", out, waith_thr.value) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -413,7 +414,7 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise_failure("Upload", out)
+            raise_failure("Upload", out, waith_thr.value)
           end
         end
       end
@@ -431,16 +432,16 @@ module IOStreams
       end
 
       # Raises [IOStreams::Errors::CommunicationsFailure] with the output of the sftp program, tagged with the kind of
-      # failure that the output means, see `Failure.output_kind`.
+      # failure that the output and the exit status mean, see `Failure.output_kind`.
       #
       # When the server does not prompt for a password, sftp reads the password line as a command
       # and echoes it in its output, so remove it before the output is included in the error.
-      def raise_failure(action, out)
+      def raise_failure(action, out, status = nil)
         out   = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
         error = Errors::CommunicationsFailure.new(
           "#{action} failed calling #{self.class.sftp_bin}#{" via #{self.class.sshpass_bin}" if password}: #{out}"
         )
-        kind = Failure.output_kind(out)
+        kind = Failure.output_kind(out, status, sshpass: !password.nil?)
         raise(kind ? kind.tag(error, display_name) : error)
       end
 

@@ -104,6 +104,22 @@ class StorageErrorsTest < Minitest::Test
       assert_includes error.message, path.display_name
     end
 
+    # Asserts that the block raises PermissionDenied for the path, keeping the class of the exception that the storage
+    # raised.
+    def assert_permission_denied(storage_class, path, &)
+      error = assert_raises(IOStreams::Errors::PermissionDenied, &)
+
+      assert_instance_of storage_class, error
+      assert_equal path.display_name, error.display_name
+      refute_kind_of IOStreams::Errors::NotFound, error
+    end
+
+    # Returns an S3 client whose requests respond with the supplied stubs.
+    def s3_client(responses)
+      IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+      Aws::S3::Client.new(stub_responses: responses, region: "us-east-1", credentials: Aws::Credentials.new("id", "secret"))
+    end
+
     # Asserts that an exception raised by the block supplied to the reader is not tagged as a failure of the path.
     def assert_block_failure_not_tagged(path)
       error = assert_raises(Errno::ENOENT) { path.reader { |_io| raise(Errno::ENOENT, "config.yml") } }
@@ -199,6 +215,77 @@ class StorageErrorsTest < Minitest::Test
 
           assert_not_found(IOStreams::Errors::CommunicationsFailure, path) { path.write("data") }
         end
+      end
+    end
+
+    describe "reading a file that the storage does not permit" do
+      it "raises PermissionDenied for a local file" do
+        skip "Every file can be read as root" if Process.uid.zero?
+
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "secret.csv")
+          path.write("data")
+          File.chmod(0o000, path.to_s)
+
+          assert_permission_denied(Errno::EACCES, path) { path.read }
+        end
+      end
+
+      it "raises PermissionDenied for S3" do
+        path = IOStreams.path("s3://my-bucket/secret.csv", client: s3_client(get_object: "AccessDenied"))
+
+        assert_permission_denied(Aws::S3::Errors::AccessDenied, path) { path.read }
+      end
+
+      it "raises PermissionDenied for SFTP" do
+        path = IOStreams.path("sftp://example.org/data/secret.csv", username: "jack")
+
+        with_sftp('remote open "/data/secret.csv": Permission denied') do
+          assert_permission_denied(IOStreams::Errors::CommunicationsFailure, path) { path.read }
+        end
+      end
+
+      it "raises PermissionDenied for HTTP" do
+        with_http(403) do |url|
+          path = IOStreams.path("#{url}/secret.csv")
+
+          assert_permission_denied(IOStreams::Errors::CommunicationsFailure, path) { path.read }
+        end
+      end
+    end
+
+    describe "credentials that are not valid" do
+      it "raise PermissionDenied for S3" do
+        path = IOStreams.path("s3://my-bucket/a.csv", client: s3_client(get_object: "InvalidAccessKeyId"))
+
+        assert_permission_denied(Aws::S3::Errors::InvalidAccessKeyId, path) { path.read }
+      end
+
+      it "raise PermissionDenied for SFTP" do
+        path = IOStreams.path("sftp://example.org/data/a.csv", username: "jack")
+
+        with_sftp("jack@example.org: Permission denied (publickey).\nConnection closed") do
+          assert_permission_denied(IOStreams::Errors::CommunicationsFailure, path) { path.read }
+        end
+      end
+
+      it "raise PermissionDenied for HTTP" do
+        with_http(401) do |url|
+          path = IOStreams.path("#{url}/a.csv", username: "jack", password: "wrong")
+
+          assert_permission_denied(IOStreams::Errors::CommunicationsFailure, path) { path.read }
+        end
+      end
+    end
+
+    it "raises AccessDenied, which is not a failure of the storage, for a path outside the allowed paths" do
+      Dir.mktmpdir do |dir|
+        IOStreams.add_allowed_path(dir)
+        error = assert_raises(IOStreams::Errors::AccessDenied) { IOStreams.path(__FILE__).read }
+
+        refute_kind_of IOStreams::Errors::StorageError, error
+      ensure
+        IOStreams.delete_allowed_path(dir)
       end
     end
 

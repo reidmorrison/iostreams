@@ -182,8 +182,10 @@ module IOStreams
         authorize!
         target.authorize!
         target.mkpath
+        # The target failed when its directory cannot be written to, otherwise this file did.
+        failed = ::File.writable?(::File.dirname(target.to_s)) ? self : target
         # In case the file is being moved across partitions
-        tag_failure { FileUtils.move(path, target.to_s) }
+        tag_failure(failed) { FileUtils.move(path, target.to_s) }
         target
       end
 
@@ -262,6 +264,8 @@ module IOStreams
         case exception
         when Errno::ENOENT, Errno::ENOTDIR
           Errors::NotFound
+        when Errno::EACCES, Errno::EPERM
+          Errors::PermissionDenied
         end
       end
 

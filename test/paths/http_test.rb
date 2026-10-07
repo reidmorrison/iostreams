@@ -202,6 +202,18 @@ module Paths
             IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
           end
           assert_includes error.message, "Authorization Required"
+          assert_kind_of IOStreams::Errors::PermissionDenied, error
+        end
+
+        it "raises PermissionDenied when the server returns 403 Forbidden" do
+          start_server { |_path| TestHTTPServer.response(403) }
+          path = IOStreams::Paths::HTTP.new("#{@server.base_url}/secret.csv")
+
+          [-> { path.read }, -> { path.exist? }].each do |request|
+            error = assert_raises(IOStreams::Errors::PermissionDenied, &request)
+
+            assert_equal "#{@server.base_url}/secret.csv: Invalid response code: 403", error.message
+          end
         end
 
         it "raises on an unsuccessful response code" do

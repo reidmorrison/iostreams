@@ -720,6 +720,40 @@ module Paths
           end
         end
 
+        # The output of OpenSSH when the remote file cannot be accessed, or the user cannot log in.
+        [
+          'remote open "/path/file.txt": Permission denied',
+          'dest open "/path/file.txt": Permission denied',
+          'remote open("/path/file.txt"): Permission denied',
+          "jack@example.org: Permission denied (publickey,password)."
+        ].each do |output|
+          it "raises PermissionDenied for: #{output}" do
+            error = assert_raises IOStreams::Errors::PermissionDenied do
+              new_path(url, username: "jack").send(:raise_failure, "Download", output)
+            end
+
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          end
+        end
+
+        it "raises PermissionDenied when sshpass reports that the password is not correct" do
+          status = Struct.new(:exitstatus).new(5)
+          error  = assert_raises IOStreams::Errors::PermissionDenied do
+            new_path(url, username: "jack", password: "wrong").send(:raise_failure, "Download", "", status)
+          end
+
+          refute_includes error.message, "wrong"
+        end
+
+        it "does not tag the same exit status of the sftp program without sshpass" do
+          status = Struct.new(:exitstatus).new(5)
+          error  = assert_raises IOStreams::Errors::CommunicationsFailure do
+            new_path(url, username: "jack").send(:raise_failure, "Download", "", status)
+          end
+
+          refute_kind_of IOStreams::Errors::StorageError, error
+        end
+
         [
           "Host key verification failed.",
           %(Couldn't open local file "/tmp/x" for writing: No such file or directory),
@@ -769,6 +803,27 @@ module Paths
 
           it "#exist? is false for a file that does not exist, with status #{code}" do
             with_failing_net_sftp(code) { refute_predicate path, :exist? }
+          end
+        end
+
+        it "raises PermissionDenied for a file that cannot be accessed" do
+          error = session_failure(3)
+
+          assert_kind_of IOStreams::Errors::PermissionDenied, error
+          assert_instance_of StubStatusException, error
+        end
+
+        it "raises PermissionDenied when the user cannot log in" do
+          require "net/ssh"
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise Net::SSH::AuthenticationFailed, "Authentication failed" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            error = assert_raises(IOStreams::Errors::PermissionDenied) { path.exist? }
+
+            assert_instance_of Net::SSH::AuthenticationFailed, error
+            assert_equal "sftp://example.org/data/a.csv", error.display_name
           end
         end
 
