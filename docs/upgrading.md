@@ -449,6 +449,28 @@ Fix: use `reader_class` and `writer_class` instead of the methods of a struct, a
 extension whose data is compressed or encrypted, register a format that says so, see
 [Registering a custom extension](extensions#registering-a-custom-extension).
 
+### The encode stream is not a registered extension
+
+The `:encode` stream is now built in, since it converts the text that the application reads or writes,
+rather than the data of a file format. It is still applied with `#option` or `#stream`, as before, but:
+
+* `IOStreams.extensions` no longer includes `:encode`.
+* `IOStreams.register_extension(:encode, ...)` raises `ArgumentError`, since `:encode` is a reserved
+  keyword. Previously it replaced the reader and writer of the encode stream for the whole process.
+* `IOStreams.deregister_extension(:encode)` returns `nil`, and leaves the encode stream in place.
+
+Fix: none is needed, unless code read `:encode` from `IOStreams.extensions`, or registered its own reader
+and writer as `:encode`. Register them under another name instead, and apply them with `#stream`, for
+example `stream(:my_text).stream(:gz)`.
+
+### `:none` cannot be registered as an extension
+
+`:none` is a reserved keyword, which `#stream` takes to apply no streams, so
+`IOStreams.register_extension(:none, ...)` raises `ArgumentError`. Previously it registered a stream
+that `stream(:none)` could not apply.
+
+Fix: register the stream under another name.
+
 ### A `.encode` file name does not apply the encode stream
 
 The `:encode` stream converts the text that the application reads or writes, and is applied with

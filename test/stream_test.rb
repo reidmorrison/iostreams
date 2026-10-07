@@ -152,6 +152,14 @@ class StreamTest < Minitest::Test
         assert_equal "New M\u00e9xico,NE", lines.first.encode("UTF-8")
       end
 
+      it "decodes the text after the other streams, whatever order the streams are set in" do
+        compressed = StringIO.new(+"")
+        IOStreams.stream(compressed).stream(:gz).write(text)
+        data = IOStreams.stream(StringIO.new(compressed.string)).stream(:gz).stream(:encode, encoding: "UTF-8").read
+
+        assert_equal text, data
+      end
+
       it "reads lines as UTF-8 without any other streams" do
         lines = []
         IOStreams.stream(StringIO.new(text)).stream(:none).each(:line) { |line| lines << line }

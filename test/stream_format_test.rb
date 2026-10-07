@@ -106,17 +106,6 @@ class StreamFormatTest < Minitest::Test
       end
     end
 
-    describe "#file_name_extension?" do
-      it "is true by default" do
-        assert_predicate gzip, :file_name_extension?
-        assert_predicate IOStreams::Extension.new(nil, nil), :file_name_extension?
-      end
-
-      it "is false for the encode stream, which file names do not name" do
-        refute_predicate IOStreams.extensions[:encode], :file_name_extension?
-      end
-    end
-
     describe "#validate_options" do
       # A format whose reader does not accept the writer's options.
       let(:format) do

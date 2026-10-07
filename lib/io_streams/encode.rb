@@ -1,5 +1,8 @@
 module IOStreams
   # Converts text to an encoding, and optionally cleanses it.
+  #
+  # The encode stream is built in rather than registered for a file name extension, since file names do not
+  # name it. It applies whenever its options are set with `#option`, see `IOStreams::Builder::RESERVED_KEYWORDS`.
   module Encode
     extend StreamFormat
 
@@ -30,13 +33,6 @@ module IOStreams
 
     # Returns [true|false] whether data in this format is encrypted.
     def self.encrypted?
-      false
-    end
-
-    # Returns [false] since file names do not name this stream: it converts the text that the application reads
-    # or writes, so it applies whenever its options are set with `#option`, ahead of the streams named by the
-    # file name. See `IOStreams::StreamFormat#file_name_extension?`.
-    def self.file_name_extension?
       false
     end
   end

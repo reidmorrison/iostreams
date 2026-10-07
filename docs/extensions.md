@@ -62,10 +62,12 @@ Notes:
 
 ## Character encoding
 
-The special `:encode` stream converts the character encoding of the data being read or written.
+The built-in `:encode` stream converts the character encoding of the data being read or written.
 Lines, rows and records are always read through it, with its default options unless it is set, so
 they are UTF-8 by default, see [Text and binary data](streams#text-and-binary-data).
-It is applied with `option` or `stream` rather than a file name extension:
+It is applied with `option` or `stream` rather than a file name extension, and it converts the text
+that the application reads or writes, so it comes before the other streams, whatever order they are
+set in:
 
 ~~~ruby
 IOStreams.path("sample.csv.gz").
@@ -152,23 +154,6 @@ end
 As a precaution, the value of any option whose name contains `passphrase`, `password` or `secret` is not
 displayed either.
 
-A format that file names do not name, such as `:encode`, which converts the text that the application
-reads or writes, answers `file_name_extension?` with `false`. It is applied whenever its options are set
-with `option`, ahead of the streams that the file name's extensions apply, and a file name ending in its
-name does not apply it:
-
-~~~ruby
-module MyTrim
-  extend IOStreams::StreamFormat
-
-  # ... reader_class, writer_class, compressed? and encrypted?
-
-  def self.file_name_extension?
-    false
-  end
-end
-~~~
-
 A format that is neither compressed nor encrypted can instead be registered with just its reader and
 writer classes:
 
@@ -181,6 +166,10 @@ To use a registered format for another extension, register the format that `IOSt
 ~~~ruby
 IOStreams.register_extension(:tgz, IOStreams.extensions[:gz])
 ~~~
+
+`:encode` and `:none` are reserved keywords, which cannot be registered as an extension. The `:encode`
+stream is built in rather than registered, so it is not in `IOStreams.extensions`, and `stream(:none)`
+applies no streams.
 
 Similarly, to support a new storage location, supply a Path class for its URI scheme.
 See [IOStreams::Paths::S3](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)

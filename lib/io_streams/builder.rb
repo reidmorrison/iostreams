@@ -4,6 +4,21 @@ module IOStreams
     attr_accessor :file_name
     attr_reader :streams, :options
 
+    # Keywords that `#option` and `#stream` give a meaning of their own, so that they cannot be registered as a
+    # file name extension with `IOStreams.register_extension`:
+    #   :encode
+    #     The built-in encode stream, see `IOStreams::Encode`. It converts the text that the application reads or
+    #     writes, so file names do not name it. It applies whenever its options are set with `#option`, and is
+    #     always closest to the application.
+    #   :none
+    #     Supplied to `#stream` to apply no streams.
+    RESERVED_KEYWORDS = %i[encode none].freeze
+
+    # Returns [true|false] whether the name is a reserved keyword, see `RESERVED_KEYWORDS`.
+    def self.reserved_keyword?(name)
+      RESERVED_KEYWORDS.include?(name)
+    end
+
     def initialize(file_name = nil)
       @file_name = file_name
       @streams   = nil
@@ -25,11 +40,11 @@ module IOStreams
     #   runs, rather than only where the path, for example from configuration, includes the stream.
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
-      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
+      format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
 
-      stream_format(stream).validate_options(nil, options, name: stream)
+      format.validate_options(nil, options, name: stream)
       @options ||= {}
       if (opts = @options[stream])
         opts.merge!(options)
@@ -48,9 +63,9 @@ module IOStreams
         @streams = {}
         return self
       end
-      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
+      format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
 
-      stream_format(stream).validate_options(nil, options, name: stream)
+      format.validate_options(nil, options, name: stream)
       @streams ||= {}
       if (opts = @streams[stream])
         opts.merge!(options)
@@ -88,9 +103,9 @@ module IOStreams
     # Yields a stream that reads the supplied stream, which reads the data through this pipeline, as text,
     # for reading lines, rows or records.
     #
-    # Text is decoded by the encode stream, see `IOStreams::Encode`. So unless the pipeline already includes it,
-    # set with `#option` or `#stream`, the supplied stream is read through the encode stream with its default
-    # options, which read UTF-8.
+    # Text is decoded by the built-in encode stream, see `IOStreams::Encode`. So unless the pipeline already
+    # includes it, set with `#option` or `#stream`, the supplied stream is read through the encode stream with its
+    # default options, which read UTF-8.
     def text_reader(io_stream, &)
       return yield(io_stream) if pipeline.key?(:encode)
 
@@ -108,16 +123,19 @@ module IOStreams
       return data if data.nil? || pipeline.key?(:encode)
       return data if pipeline.empty? && data.encoding != Encoding::BINARY
 
-      encoding = stream_format(:encode).default_encoding
+      encoding = Encode.default_encoding
       data.frozen? ? data.dup.force_encoding(encoding) : data.force_encoding(encoding)
     end
 
     # Returns [Hash<Symbol:Hash>] the pipeline of streams
     # with their options that will be applied when the reader or writer is invoked.
+    #
+    # The streams are in order from the one closest to the application to the one closest to the data. The encode
+    # stream, which converts the text that the application reads or writes, comes first, whatever order the streams
+    # were set in with `#stream`.
     def pipeline
-      return streams.dup.freeze if streams
-
-      build_pipeline.freeze
+      built = streams || build_pipeline
+      built.slice(:encode).merge(built.except(:encode)).freeze
     end
 
     # Removes the named stream from the current pipeline.
@@ -170,7 +188,7 @@ module IOStreams
     # or every value of a stream whose format is no longer registered, since it cannot say which are sensitive.
     def redact(streams)
       streams.to_h do |stream, opts|
-        format = IOStreams.extensions[stream]
+        format = find_format(stream)
         next [stream, opts] unless opts.is_a?(Hash)
         next [stream, opts.transform_values { "[FILTERED]" }] unless format
 
@@ -182,20 +200,22 @@ module IOStreams
       return {} unless file_name
 
       opts = options || {}
-      # A stream that file names do not name, such as `:encode`, applies whenever its options are set, and
-      # comes first, see `IOStreams::StreamFormat#file_name_extension?`. Like the options for any other stream
-      # that the file name does not include, those for a stream that is no longer registered are ignored.
-      built_streams = opts.select do |stream, _|
-        format = IOStreams.extensions[stream]
-        format && !format.file_name_extension?
-      end
+      # File names do not name the encode stream, so it applies whenever its options are set.
+      built_streams = opts.slice(:encode)
       parse_extensions.each { |stream| built_streams[stream] = opts[stream] || {} }
       built_streams
     end
 
-    # Returns the format registered for the stream, see `IOStreams.register_extension`.
+    # Returns the format of the stream: the built-in encode stream, see `IOStreams::Encode`, or the format
+    # registered for a file name extension, see `IOStreams.register_extension`. Returns nil when there is none.
+    def find_format(stream)
+      stream = stream&.to_sym
+      stream == :encode ? Encode : IOStreams.extensions[stream]
+    end
+
+    # Returns the format of the stream, see #find_format, or raises when there is none.
     def stream_format(stream)
-      IOStreams.extensions[stream&.to_sym] || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+      find_format(stream) || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
     end
 
     # Returns the streams for the supplied file_name
@@ -203,9 +223,8 @@ module IOStreams
       parts      = Utils.file_name_extensions(file_name)
       extensions = []
       while (extension = parts.pop)
-        sym    = extension.to_sym
-        format = IOStreams.extensions[sym]
-        break unless format&.file_name_extension?
+        sym = extension.to_sym
+        break unless IOStreams.extensions[sym]
 
         extensions.unshift(sym)
       end

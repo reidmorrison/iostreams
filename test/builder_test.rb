@@ -171,6 +171,18 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe ".reserved_keyword?" do
+      it "is true for the built-in encode stream and for none" do
+        assert IOStreams::Builder.reserved_keyword?(:encode)
+        assert IOStreams::Builder.reserved_keyword?(:none)
+      end
+
+      it "is false for a stream registered for a file name extension" do
+        refute IOStreams::Builder.reserved_keyword?(:gz)
+        refute IOStreams::Builder.reserved_keyword?(:simple)
+      end
+    end
+
     # Internal methods
 
     describe "#stream_format" do
@@ -180,6 +192,10 @@ class BuilderTest < Minitest::Test
 
       it "gzip" do
         assert_equal IOStreams::Gzip, streams.send(:stream_format, :gzip)
+      end
+
+      it "encode, which is built in" do
+        assert_equal IOStreams::Encode, streams.send(:stream_format, :encode)
       end
 
       it "unknown" do
@@ -254,24 +270,18 @@ class BuilderTest < Minitest::Test
         assert_equal expected, streams.pipeline
       end
 
-      it "applies the option for any stream that file names do not name, before the file name's streams" do
-        text_format = Module.new do
-          extend IOStreams::StreamFormat
+      it "applies the encode option before the file name's streams, whatever order the options are set in" do
+        streams.option(:pgp, passphrase: "unlock-me").option(:encode, encoding: "BINARY")
 
-          def self.reader_class = nil
-          def self.writer_class = SimpleStream
-          def self.compressed? = false
-          def self.encrypted? = false
-          def self.file_name_extension? = false
-        end
-        IOStreams.register_extension(:text_test, text_format)
-        begin
-          streams.option(:pgp, passphrase: "unlock-me").option(:text_test, arg: "text")
+        expected = [[:encode, {encoding: "BINARY"}], [:xlsx, {}], [:zip, {}], [:gz, {}], [:pgp, {passphrase: "unlock-me"}]]
 
-          assert_equal({text_test: {arg: "text"}, xlsx: {}, zip: {}, gz: {}, pgp: {passphrase: "unlock-me"}}, streams.pipeline)
-        ensure
-          IOStreams.deregister_extension(:text_test)
-        end
+        assert_equal expected, streams.pipeline.to_a
+      end
+
+      it "puts the encode stream first, whatever order the streams are set in" do
+        streams.stream(:gz).stream(:encode, encoding: "UTF-8").stream(:pgp)
+
+        assert_equal [[:encode, {encoding: "UTF-8"}], [:gz, {}], [:pgp, {}]], streams.pipeline.to_a
       end
 
       it "does not apply the option for a stream that the file name does not include" do
