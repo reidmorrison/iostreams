@@ -8,7 +8,9 @@ module IOStreams
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
-      # When an upload file exceeds this size, use a multipart file upload.
+      # When an upload file exceeds this size, it is uploaded with `Aws::S3::Object#upload_file`, which only uses a
+      # multipart upload once the file reaches the SDK's `multipart_threshold`, 100MB by default, and otherwise a
+      # single `put_object` request, like a smaller file.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
       autoload :Failure, "io_streams/paths/s3/failure"
@@ -371,7 +373,7 @@ module IOStreams
       def write_file(file_name)
         authorize!
         if ::File.size(file_name) > MULTIPART_UPLOAD_SIZE
-          # Use multipart file upload
+          # A multipart upload once the file reaches the SDK's multipart threshold, see `MULTIPART_UPLOAD_SIZE`.
           Sdk.load
           s3  = Aws::S3::Resource.new(client: client)
           obj = s3.bucket(bucket_name).object(path)
