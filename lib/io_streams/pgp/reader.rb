@@ -137,7 +137,7 @@ module IOStreams
 
       # Decrypts the file into a temporary file, and only yields it once gpg has succeeded.
       def self.decrypt_then_read(decrypt, &block)
-        Utils.private_temp_file("iostreams_pgp") do |temp_file_name|
+        Utils.private_temp_file("iostreams_pgp", purpose: "the decrypted data, until gpg has verified it") do |temp_file_name|
           decrypt.call { |stdout, _stderr| ::File.open(temp_file_name, "wb") { |io| ::IO.copy_stream(stdout, io) } }
 
           ::File.open(temp_file_name, "rb", &block)

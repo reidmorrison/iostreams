@@ -220,7 +220,7 @@ module IOStreams
       def self.write_recipient_files(fingerprints, recipient_files, recipients, &block)
         return yield(recipients, recipient_files) if fingerprints.empty?
 
-        Utils.private_temp_file("iostreams_pgp_key") do |recipient_file|
+        Utils.private_temp_file("iostreams_pgp_key", purpose: "an imported key, for gpg --recipient-file") do |recipient_file|
           ::File.binwrite(recipient_file, IOStreams::Pgp.export(key_id: fingerprints.first, ascii: false))
           write_recipient_files(fingerprints.drop(1), recipient_files + [recipient_file], recipients, &block)
         end

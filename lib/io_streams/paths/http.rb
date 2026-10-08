@@ -301,7 +301,7 @@ module IOStreams
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
       def stream_reader(&)
         # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-        Utils.private_temp_file("iostreams_http") do |file_name|
+        Utils.private_temp_file("iostreams_http", purpose: "the download of #{display_name}") do |file_name|
           send_request(Net::HTTP::Get, url, http_redirect_count) { |response| download_to_file(response, file_name) }
           # Read it once the request has completed, so that the connection is not held open while the block runs,
           # and a failure of the block is not mistaken for a failure of the request.
@@ -325,7 +325,7 @@ module IOStreams
           raise(ArgumentError, "maximum_file_size: only applies when reading from an HTTP path, not when writing")
         end
 
-        Utils.private_temp_file("iostreams_http") do |file_name|
+        Utils.private_temp_file("iostreams_http", purpose: "the upload to #{display_name}") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
           send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil }
           result

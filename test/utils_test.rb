@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "logger"
 
 class UtilsTest < Minitest::Test
   describe IOStreams::Utils do
@@ -59,14 +60,14 @@ class UtilsTest < Minitest::Test
 
     describe ".private_temp_file" do
       it "yields an empty file that only the current user can read" do
-        IOStreams::Utils.private_temp_file("base", ".ext") do |file_name|
+        IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") do |file_name|
           assert_equal 0, File.size(file_name)
           assert_equal 0o600, File.stat(file_name).mode & 0o777
         end
       end
 
       it "keeps the permissions when the file is written to" do
-        IOStreams::Utils.private_temp_file("base", ".ext") do |file_name|
+        IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") do |file_name|
           File.binwrite(file_name, "secret")
 
           assert_equal "secret", File.read(file_name)
@@ -75,11 +76,11 @@ class UtilsTest < Minitest::Test
       end
 
       it "returns the value from the block" do
-        assert_equal 257, IOStreams::Utils.private_temp_file("base", ".ext") { |_file_name| 257 }
+        assert_equal 257, IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") { |_file_name| 257 }
       end
 
       it "deletes the file afterwards" do
-        name = IOStreams::Utils.private_temp_file("base", ".ext") { |file_name| file_name }
+        name = IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") { |file_name| file_name }
 
         refute_path_exists name
       end
@@ -87,13 +88,28 @@ class UtilsTest < Minitest::Test
       it "deletes the file when the block raises" do
         name = nil
         assert_raises ArgumentError do
-          IOStreams::Utils.private_temp_file("base", ".ext") do |file_name|
+          IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") do |file_name|
             name = file_name
             raise(ArgumentError, "failed")
           end
         end
 
         refute_path_exists name
+      end
+
+      it "logs the file at debug level, with what it holds when it is created, and its size when it is deleted" do
+        output   = StringIO.new
+        original = IOStreams.logger
+        IOStreams.logger = Logger.new(output, level: :debug)
+        name = IOStreams::Utils.private_temp_file("base", ".ext", purpose: "the download of a.csv") do |file_name|
+          File.write(file_name, "a,b\n")
+          file_name
+        end
+
+        assert_includes output.string, "Created temp file #{name} for the download of a.csv"
+        assert_includes output.string, "Deleting temp file #{name}, which held 4 bytes"
+      ensure
+        IOStreams.logger = original
       end
 
       describe "when the file name already exists" do
@@ -108,7 +124,7 @@ class UtilsTest < Minitest::Test
         it "uses another name and leaves the existing file" do
           File.write(existing, "existing")
           name = Random.stub(:urandom, random_bytes) do
-            IOStreams::Utils.private_temp_file("base", ".ext") { |file_name| file_name }
+            IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") { |file_name| file_name }
           end
 
           refute_equal existing, name
@@ -116,10 +132,10 @@ class UtilsTest < Minitest::Test
         end
 
         it "does not follow a link planted at the file name" do
-          IOStreams::Utils.private_temp_file("target", ".ext") do |target|
+          IOStreams::Utils.private_temp_file("target", ".ext", purpose: "a test") do |target|
             File.symlink(target, existing)
             Random.stub(:urandom, random_bytes) do
-              IOStreams::Utils.private_temp_file("base", ".ext") { |file_name| File.write(file_name, "secret") }
+              IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") { |file_name| File.write(file_name, "secret") }
             end
 
             assert_equal "", File.read(target)
@@ -131,7 +147,7 @@ class UtilsTest < Minitest::Test
       it "does not run the block again when it raises Errno::EEXIST" do
         count = 0
         assert_raises Errno::EEXIST do
-          IOStreams::Utils.private_temp_file("base", ".ext") do |_file_name|
+          IOStreams::Utils.private_temp_file("base", ".ext", purpose: "a test") do |_file_name|
             count += 1
             raise(Errno::EEXIST, "from the block")
           end

@@ -42,7 +42,8 @@ module IOStreams
         return result
       end
 
-      Utils.private_temp_file("iostreams_reader") do |file_name|
+      purpose = "a copy of the input of #{self}, which only reads files"
+      Utils.private_temp_file("iostreams_reader", purpose: purpose) do |file_name|
         ::File.open(file_name, "wb") { |target| ::IO.copy_stream(input_stream, target) }
         file(file_name, **args, &block)
       end

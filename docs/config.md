@@ -195,6 +195,16 @@ For example:
 | `sftp://example.org/data.csv.zip.pgp` | 2: the download, and the decrypted zip file | 1: the upload |
 | `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | 1: the encrypted data | 1: the encrypted data |
 
+To see the temp files that IOStreams uses, set the [logger](#logger) to the debug level. Each temp file is logged
+when it is created, with what it holds, and when it is deleted, with its size:
+
+~~~
+Created temp file /tmp/iostreams_s320261008-41-1x5yq2 for the download of s3://bucket/data.csv.zip.pgp
+Created temp file /tmp/iostreams_reader20261008-41-9kq4ht for a copy of the input of IOStreams::Zip::Reader, which only reads files
+Deleting temp file /tmp/iostreams_reader20261008-41-9kq4ht, which held 5242880 bytes
+Deleting temp file /tmp/iostreams_s320261008-41-1x5yq2, which held 5251187 bytes
+~~~
+
 Notes:
 * `#copy_from` and `#copy_to` read the source while they write the target, so copying from one S3, SFTP or HTTP
   path to another holds two temp files at once, each holding the whole file. S3 copies an object to another S3
@@ -224,7 +234,8 @@ optional second argument is the file extension.
 
 ## logger
 
-IOStreams can log debug information, such as the external commands it runs for PGP and SFTP.
+IOStreams can log debug information, such as the external commands it runs for PGP and SFTP, and each temp
+file that it uses, see [When temp files are used](#when-temp-files-are-used).
 
 When [Semantic Logger](https://logger.reidmorrison.com) is loaded it is detected automatically, and IOStreams
 logs to it without any additional configuration.

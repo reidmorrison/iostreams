@@ -10,7 +10,7 @@ module IOStreams
       # Convert a xlsx, or xlsm file into CSV format.
       def self.file(file_name, &block)
         # Stream into a temp file as csv
-        Utils.private_temp_file("iostreams_csv") do |temp_file_name|
+        Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
           ::File.open(temp_file_name, "wb") { |io| new(file_name).each { |lines| io << lines.to_csv } }
           ::File.open(temp_file_name, "rb", &block)
         end

@@ -1,5 +1,6 @@
 require_relative "../test_helper"
 require_relative "../s3_stub"
+require "logger"
 
 module Paths
   class S3Test < Minitest::Test
@@ -214,6 +215,19 @@ module Paths
           assert_equal %w[iostreams_s3], written
           assert_equal %w[iostreams_s3], read
           assert_equal raw, result
+        end
+
+        it "logs each temp file at debug level, with what it holds" do
+          existing_path
+          output   = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :debug)
+          existing_path.read
+
+          assert_match(/Created temp file \S+ for the download of #{Regexp.escape(existing_path.display_name)}$/, output.string)
+          assert_match(/Deleting temp file \S+, which held #{raw.bytesize} bytes$/, output.string)
+        ensure
+          IOStreams.logger = original
         end
       end
 

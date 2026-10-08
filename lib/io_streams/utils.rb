@@ -87,16 +87,23 @@ module IOStreams
     # temp directory, is never written to. Only a name collision when creating the file is retried,
     # and the file is only deleted once it was created here, so that another process's file is never removed.
     #
+    # Parameters:
+    #   purpose: [String]
+    #     What the file holds, such as "the download of s3://bucket/a.csv", which is logged at debug level
+    #     via `IOStreams.logger` when the file is created. Its size is logged when it is deleted.
+    #
     # Returns the value from the block.
-    def self.private_temp_file(basename, extension = "")
+    def self.private_temp_file(basename, extension = "", purpose:)
       file_name = ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir,
                                         max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
         ::File.open(tmpname, ::File::WRONLY | ::File::CREAT | ::File::EXCL, 0o600, &:close)
       end
+      IOStreams.logger&.debug { "Created temp file #{file_name} for #{purpose}" }
 
       begin
         yield(file_name)
       ensure
+        IOStreams.logger&.debug { "Deleting temp file #{file_name}, which held #{::File.size?(file_name).to_i} bytes" }
         ::FileUtils.rm_f(file_name)
       end
     end

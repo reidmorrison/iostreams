@@ -70,9 +70,9 @@ end
 def temp_files_created(&)
   names    = []
   original = IOStreams::Utils.method(:private_temp_file)
-  record   = lambda do |basename, *args, &block|
+  record   = lambda do |basename, *args, **kwargs, &block|
     names << basename
-    original.call(basename, *args, &block)
+    original.call(basename, *args, **kwargs, &block)
   end
   IOStreams::Utils.stub(:private_temp_file, record, &)
   names

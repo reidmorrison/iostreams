@@ -42,7 +42,8 @@ module IOStreams
         return result
       end
 
-      Utils.private_temp_file("iostreams_writer") do |file_name|
+      purpose = "the output of #{self}, which only writes files"
+      Utils.private_temp_file("iostreams_writer", purpose: purpose) do |file_name|
         count = file(file_name, **args, &block)
         ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) }
         count
