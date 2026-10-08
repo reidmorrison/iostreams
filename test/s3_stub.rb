@@ -33,6 +33,7 @@ class S3Stub
       get_object:      ->(context) { get_object(context.params) },
       head_object:     ->(context) { head_object(context.params) },
       delete_object:   ->(context) { delete_object(context.params) },
+      delete_objects:  ->(context) { delete_objects(context.params) },
       copy_object:     ->(context) { copy_object(context.params) },
       list_objects_v2: ->(context) { list_objects_v2(context.params) }
     }
@@ -72,6 +73,11 @@ class S3Stub
   def delete_object(params)
     objects.delete([params[:bucket], params[:key]])
     {}
+  end
+
+  def delete_objects(params)
+    params[:delete][:objects].each { |object| objects.delete([params[:bucket], object[:key]]) }
+    {deleted: [], errors: []}
   end
 
   # `copy_source` is "<bucket>/<key>", with the key url-encoded.

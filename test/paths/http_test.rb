@@ -83,6 +83,24 @@ module Paths
         end
       end
 
+      describe "operations that HTTP does not support" do
+        let(:path) { IOStreams.path("https://example.com/files/a.csv") }
+
+        it "raises NotImplementedError naming the class, operation and path" do
+          error = assert_raises(NotImplementedError) { path.delete_all }
+
+          assert_equal "IOStreams::Paths::HTTP does not support #delete_all: https://example.com/files/a.csv", error.message
+          assert_raises(NotImplementedError) { path.each_child { |_child| flunk } }
+        end
+
+        it "does not respond to them, like a method Ruby does not implement on the platform" do
+          refute_respond_to path, :delete_all
+          refute_respond_to path, :each_child
+          assert_respond_to path, :exist?
+          assert_respond_to path, :read
+        end
+      end
+
       describe "#join" do
         it "keeps a percent-encoded character in a joined name" do
           path = IOStreams::Paths::HTTP.new("https://example.com/files").join("my%20file.csv")

@@ -9,9 +9,9 @@ module IOStreams
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
       # The S3 operations that a path calls, each of which is supplied the options that it accepts.
-      OPERATIONS = %i[get_object head_object put_object copy_object delete_object list_objects_v2].freeze
+      OPERATIONS = %i[get_object head_object put_object copy_object delete_object delete_objects list_objects_v2].freeze
       # Request parameters that the path sets itself, which cannot be supplied as options.
-      PATH_PARAMETERS = %i[bucket key body response_target copy_source prefix continuation_token].freeze
+      PATH_PARAMETERS = %i[bucket key body response_target copy_source prefix continuation_token delete].freeze
 
       # When an upload file exceeds this size, use a multipart file upload.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
@@ -227,6 +227,29 @@ module IOStreams
         self
       end
 
+      # Deletes this object, and every key within this path as a directory, such as `a/b.csv` and `a/c/d.csv`
+      # for the path `s3://bucket/a`. S3 has no directories, so these are all the keys that it holds within it.
+      #
+      # Returns self
+      #
+      # Notes:
+      # * No error is raised when there is nothing to delete.
+      # * A key that only starts with the same characters, such as `a.csv` for `s3://bucket/a`, is not deleted.
+      def delete_all
+        authorize!
+        delete if file_key?
+        keys = []
+        each_object(directory_prefix) do |_name, object|
+          keys << {key: object.key}
+          next if keys.size < 1_000
+
+          delete_keys(keys)
+          keys = []
+        end
+        delete_keys(keys) unless keys.empty?
+        self
+      end
+
       def exist?
         authorize!
         request(:head_object, bucket: bucket_name, key: path)
@@ -326,8 +349,6 @@ module IOStreams
         authorize!
         request(:head_object, bucket: bucket_name, key: path).content_length
       end
-
-      # TODO: delete_all
 
       # Read from AWS S3 file.
       def stream_reader(&block)
@@ -495,6 +516,16 @@ module IOStreams
         rescue Aws::S3::Errors::NoSuchKey => e
           raise(Errors::NotFound.tag(e, source.display_name))
         end
+      end
+
+      # Deletes upto 1,000 keys in one request, raising when S3 could not delete any of them.
+      def delete_keys(keys)
+        response = request(:delete_objects, bucket: bucket_name, delete: {objects: keys, quiet: true})
+        return if response.errors.empty?
+
+        error = response.errors.first
+        raise(Errors::CommunicationsFailure,
+              "Failed to delete #{response.errors.size} keys from #{display_name}, such as #{error.key}: #{error.message}")
       end
 
       # Returns [true|false] whether this path can be the key of a file, rather than the bucket or a folder object.

@@ -186,6 +186,24 @@ module IOStreams
         self
       end
 
+      # When path is a directory, deletes this directory and everything within it.
+      # When path is a file, deletes this file.
+      #
+      # Returns self
+      #
+      # Notes:
+      # * No error is raised if the file or directory is not present.
+      # * A symbolic link is deleted, not the file or directory that it refers to.
+      def delete_all
+        with_net_sftp("SFTP delete_all capability") do |sftp|
+          attributes = sftp.lstat!(remote_path)
+          attributes.directory? ? Listing.remove_tree(sftp, remote_path) : sftp.remove!(remote_path)
+        rescue Net::SFTP::StatusException => e
+          raise unless Listing::NOT_FOUND.include?(e.code)
+        end
+        self
+      end
+
       # Returns [true|false] whether the file or directory exists.
       def exist?
         !remote_attributes("SFTP exist? capability").nil?

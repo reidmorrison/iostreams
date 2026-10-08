@@ -143,6 +143,17 @@ module Paths
         end
       end
 
+      describe "#delete_all" do
+        it "deletes a directory and everything within it" do
+          directory = root_path.join("delete_all_test_dir")
+          directory.join("a.txt").mkpath.write(raw)
+          directory.join("sub/b.txt").mkpath.write(raw)
+
+          assert_same directory, directory.delete_all
+          refute_predicate directory, :exist?
+        end
+      end
+
       describe "file and directory predicates" do
         let(:dir) { root_path.join("predicates_test") }
         let(:empty_file) { dir.join("empty.txt") }
@@ -325,6 +336,9 @@ module Paths
       Attributes = Struct.new(:directory) do
         def directory? = directory
       end
+      Entry = Struct.new(:name, :directory) do
+        def directory? = directory
+      end
 
       # The [operation, remote name] of each file or directory that was deleted.
       attr_reader :deleted
@@ -353,6 +367,17 @@ module Paths
         raise StubStatusException, @error if @error
 
         deleted << [:rmdir, name]
+      end
+
+      def dir
+        self
+      end
+
+      # The entries within the directory, from the files and directories whose parent it is.
+      def entries(directory)
+        children = (@files + @directories).select { |name| ::File.dirname(name) == directory }
+        [Entry.new(".", true), Entry.new("..", true)] +
+          children.sort.map { |name| Entry.new(::File.basename(name), @directories.include?(name)) }
       end
     end
 
@@ -1346,6 +1371,46 @@ module Paths
             error = assert_raises(StubStatusException) { path.delete }
 
             assert_equal 3, error.code
+          end
+        end
+      end
+
+      describe "#delete_all" do
+        def with_stub_net_sftp(files: [], directories: [], error: nil)
+          session = StubDeleteSession.new(files, directories, error)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |_hostname, _username, _options, &block| block.call(session) }
+
+          StubNetSFTP.replace(stub_sftp) { yield(session) }
+        end
+
+        it "removes a directory and everything within it, deepest first" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(files: ["/data/a.csv", "/data/sub/b.csv"], directories: ["/data", "/data/sub"]) do |session|
+            assert_same path, path.delete_all
+            assert_equal [[:remove, "/data/a.csv"], [:remove, "/data/sub/b.csv"], [:rmdir, "/data/sub"], [:rmdir, "/data"]],
+                         session.deleted
+          end
+        end
+
+        it "removes a file" do
+          path = new_path("sftp://example.org/data/a.csv", username: "jack")
+
+          with_stub_net_sftp(files: ["/data/a.csv"]) do |session|
+            path.delete_all
+
+            assert_equal [[:remove, "/data/a.csv"]], session.deleted
+          end
+        end
+
+        it "does not raise when the path does not exist" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp do |session|
+            assert_same path, path.delete_all
+            assert_empty session.deleted
           end
         end
       end

@@ -1474,6 +1474,9 @@ path.empty?
 # Delete the file.
 path.delete
 
+# Delete a directory and everything within it, like `Pathname#rmtree`.
+IOStreams.path("sample/old").delete_all
+
 # Move the file to another path, returning the target path.
 path.move_to("sample/moved.csv")
 
@@ -1545,7 +1548,8 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 
 Notes:
 * These operations are supported by File, S3 and SFTP paths. HTTP paths support all of them except
-  `each_child`. HTTP has no directories, so `directory?` is always false and `mkpath` does nothing.
+  `each_child` and `delete_all`. An operation that a path does not support raises `NotImplementedError`,
+  and `respond_to?` returns false for it, so code can check, for example `path.respond_to?(:each_child)`. HTTP has no directories, so `directory?` is always false and `mkpath` does nothing.
 * S3 has no directories either, only keys that contain `/`. An S3 path is a directory when any key is
   within it, such as `a` and `a/b` for the key `a/b/c.csv`, or when a folder object exists for it, with
   a key ending in `/`, such as the folders created by the S3 console. An S3 directory is `empty?` when

@@ -175,6 +175,23 @@ module IOStreams
         end
       end
 
+      describe "#respond_to?" do
+        it "is false for an operation that the path class does not implement" do
+          path = IOStreams::Path.new("a/b/c")
+
+          refute_respond_to path, :exist?
+          refute_respond_to path, :delete_all
+          assert_respond_to path, :join
+          assert_raises(NotImplementedError) { path.exist? }
+        end
+
+        it "is true for every operation that local paths implement" do
+          path = IOStreams.path("a/b/c")
+
+          IOStreams::Path::OPERATIONS.each { |operation| assert_respond_to path, operation }
+        end
+      end
+
       describe "#realpath" do
         it "returns self by default" do
           path = IOStreams::Path.new("a/b/c")

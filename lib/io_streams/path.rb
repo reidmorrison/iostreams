@@ -2,6 +2,9 @@ module IOStreams
   class Path < IOStreams::Stream
     attr_reader :path
 
+    # The operations that each storage implements, when it supports them. See `#respond_to?`.
+    OPERATIONS = %i[each_child mkpath mkdir exist? size file? directory? empty? delete delete_all].freeze
+
     def initialize(path)
       raise(ArgumentError, "Path cannot be nil") if path.nil?
       raise(ArgumentError, "Path must be a string: #{path.inspect}, class: #{path.class}") unless path.is_a?(String)
@@ -46,8 +49,8 @@ module IOStreams
     # Runs the pattern from the current path, returning the complete path for located files.
     #
     # See IOStreams::Paths::File.each for arguments.
-    def each_child(pattern = "*", **args, &)
-      raise NotImplementedError
+    def each_child(*, **)
+      raise_not_implemented(__method__)
     end
 
     # Returns [Array] of child files based on the supplied pattern
@@ -83,7 +86,7 @@ module IOStreams
     # Removes the last element of the path, the file name, before creating the entire path.
     # Returns self
     def mkpath
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Assumes the current path does not include a file name, and creates all elements in the path.
@@ -91,19 +94,19 @@ module IOStreams
     #
     # Note: Do not call this method if the path contains a file name, see `#mkpath`
     def mkdir
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether the file exists
     def exist?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [Integer] the size of the file, like `File.size`.
     #
     # Raises [IOStreams::Errors::NotFound] when the file does not exist, see `#size?`.
     def size
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [Integer] the size of the file, or nil when it does not exist or is empty, like `File.size?`.
@@ -116,18 +119,18 @@ module IOStreams
 
     # Returns [true|false] whether this path is a file that exists.
     def file?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether this path is a directory that exists.
     def directory?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether this path is a directory without any children, or a file without any data.
     # Returns false when it does not exist.
     def empty?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether this path has an empty name, see `#to_s`.
@@ -180,7 +183,7 @@ module IOStreams
     # * No error is raised if the file or directory is not present.
     # * Only the file is removed, not any of the parent paths.
     def delete
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # When path is a directory ,deletes this directory and all its children.
@@ -193,7 +196,18 @@ module IOStreams
     # * Only the file is removed, not any of the parent paths.
     # * All children paths and files will be removed.
     def delete_all
-      raise NotImplementedError
+      raise_not_implemented(__method__)
+    end
+
+    # Returns [true|false] whether this path supports the method, like `Object#respond_to?`.
+    #
+    # An operation that a storage does not support, such as `#each_child` on an HTTP path, raises
+    # NotImplementedError, and `respond_to?` returns false for it, as Ruby does for a method that is not
+    # implemented on the platform, such as `Process.fork` on Windows.
+    def respond_to?(name, include_all = false) # rubocop:disable Style/OptionalBooleanParameter -- the signature of Object#respond_to?
+      return false if OPERATIONS.include?(name.to_sym) && method(name).owner == IOStreams::Path
+
+      super
     end
 
     # Returns [true|false] whether this path can be accessed: whether it is within the allowed paths,
@@ -298,6 +312,11 @@ module IOStreams
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
     attr_writer :path
+
+    # Raises NotImplementedError for an operation that this storage does not support.
+    def raise_not_implemented(operation)
+      raise(NotImplementedError, "#{self.class.name} does not support ##{operation}: #{display_name}")
+    end
 
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
     # and this path is not within any of them.
