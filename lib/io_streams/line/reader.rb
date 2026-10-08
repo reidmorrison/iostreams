@@ -160,19 +160,7 @@ module IOStreams
       def read_block
         return false if @eof
 
-        block =
-          if @read_cache_buffer
-            begin
-              @input_stream.read(@buffer_size, @read_cache_buffer)
-            rescue ArgumentError
-              # Handle arity of -1 when just 0..1
-              @read_cache_buffer     = nil
-              @use_read_cache_buffer = false
-              @input_stream.read(@buffer_size)
-            end
-          else
-            @input_stream.read(@buffer_size)
-          end
+        block = read_input
 
         # EOF reached?
         if block.nil?
@@ -197,6 +185,30 @@ module IOStreams
         end
 
         true
+      end
+
+      def read_input
+        return @input_stream.read(@buffer_size) unless @read_cache_buffer
+
+        begin
+          @input_stream.read(@buffer_size, @read_cache_buffer)
+        rescue ArgumentError
+          # Handle arity of -1 when just 0..1
+          @read_cache_buffer     = nil
+          @use_read_cache_buffer = false
+          @input_stream.read(@buffer_size)
+        end
+      rescue Errors::InvalidEncoding => e
+        e.line_number = next_line_number
+        raise
+      end
+
+      # Returns [Integer] the number of the line that the next data read is on: the line after those already read,
+      # and after those still in the buffer, which the encode stream returns before the invalid data that follows.
+      def next_line_number
+        return @line_number + 1 unless @buffer
+
+        @line_number + 1 + @buffer.scan(@separator || LINEFEED_REGEXP).size
       end
 
       # Returns [Encoding] the encoding of the buffer that holds the data read, in which the delimiter is searched for.

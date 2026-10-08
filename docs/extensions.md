@@ -90,7 +90,8 @@ Options:
 
 * `replace: [String]`
   The character to replace with when a character is invalid, or cannot be converted to the target encoding.
-  Default: nil (raise `Encoding::UndefinedConversionError` on invalid characters)
+  Default: nil (raise `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte
+  offset of the first invalid character)
 
 * `cleaner: [nil|Symbol|Proc]`
   Cleanse the data. Built-in rules:

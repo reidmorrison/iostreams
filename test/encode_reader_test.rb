@@ -230,6 +230,37 @@ class EncodeReaderTest < Minitest::Test
           end
         end
 
+        it "raises with the byte offset of an invalid character" do
+          exc = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            IOStreams::Encode::Reader.stream(StringIO.new(bad_data), encoding: "UTF-8", &:read)
+          end
+
+          assert_equal 5, exc.byte_offset
+          assert_nil exc.line_number
+          assert_equal "\"\\xE9\" is not valid UTF-8 at byte offset 5", exc.message
+        end
+
+        it "returns the data before an invalid character when reading in blocks, and raises on the next read" do
+          IOStreams::Encode::Reader.stream(StringIO.new("abc\ndef\xFFgh".b), encoding: "UTF-8") do |io|
+            assert_equal "abc\n", io.read(4)
+            assert_equal "def", io.read(4)
+            exc = assert_raises(IOStreams::Errors::InvalidEncoding) { io.read(4) }
+            assert_equal 7, exc.byte_offset
+            assert_raises(IOStreams::Errors::InvalidEncoding) { io.read(4) }
+          end
+        end
+
+        it "raises with the byte offset of an incomplete character at the end" do
+          exc = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            IOStreams::Encode::Reader.stream(StringIO.new("abc\xC3".b), encoding: "UTF-8") do |io|
+              while io.read(2)
+              end
+            end
+          end
+
+          assert_equal 3, exc.byte_offset
+        end
+
         it "replaces an incomplete character at the end" do
           data = IOStreams::Encode::Reader.stream(StringIO.new("abc\xC3".b), encoding: "UTF-8", replace: "?") do |io|
             chunks = []

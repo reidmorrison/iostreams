@@ -124,6 +124,28 @@ class EncodeWriterTest < Minitest::Test
         assert_equal "abc?", write(["abc\xC3".b], replace: "?")
       end
 
+      it "raises with the byte offset of an invalid character, when it is written" do
+        io  = StringIO.new("".b)
+        exc = assert_raises(IOStreams::Errors::InvalidEncoding) do
+          IOStreams::Encode::Writer.stream(io, encoding: "UTF-8") do |encoded|
+            encoded.write("ab")
+            encoded.write("c\xFFd".b)
+
+            flunk("Did not raise when writing the invalid character")
+          end
+        end
+
+        assert_equal 3, exc.byte_offset
+        assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 3", exc.message
+        assert_equal "ab", io.string
+      end
+
+      it "raises with the byte offset of an incomplete character at the end" do
+        exc = assert_raises(IOStreams::Errors::InvalidEncoding) { write(["ab", "c\xC3".b]) }
+
+        assert_equal 3, exc.byte_offset
+      end
+
       it "copies a UTF-8 file to a path with an encode stream" do
         Dir.mktmpdir do |dir|
           source = File.join(dir, "source.txt")

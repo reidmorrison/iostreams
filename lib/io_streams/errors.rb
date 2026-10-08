@@ -48,6 +48,39 @@ module IOStreams
     class InvalidLayout < Error
     end
 
+    # Data that is not valid in the encoding that it is read or written in, such as bytes that are not valid UTF-8.
+    #
+    # It is an `Encoding::UndefinedConversionError`, which was raised before it, so that it can still be rescued as one.
+    #
+    # Example:
+    #   IOStreams.path("data.csv").each(:hash) { |hash| p hash }
+    #   # => IOStreams::Errors::InvalidEncoding: "\xFF" is not valid UTF-8 at byte offset 1043 on line 12
+    class InvalidEncoding < ::Encoding::UndefinedConversionError
+      # Returns [Integer] the offset of the first invalid byte within the data read or written through the encode
+      # stream, which is the data after any decompression or decryption.
+      attr_reader :byte_offset
+
+      # Returns [Integer] the number of the line that the invalid data is on, counting from 1,
+      # or [nil] when the data is not read a line at a time.
+      attr_reader :line_number
+
+      def initialize(message, byte_offset:, line_number: nil)
+        @byte_offset = byte_offset
+        @line_number = line_number
+        super(message)
+      end
+
+      # Sets the number of the line that the invalid data is on, unless it is already set.
+      def line_number=(line_number)
+        @line_number ||= line_number
+      end
+
+      def to_s
+        text = "#{super} at byte offset #{byte_offset}"
+        line_number ? "#{text} on line #{line_number}" : text
+      end
+    end
+
     # Every kind of failure of the storage that a path is on, such as `NotFound`, includes StorageError. A path tags
     # the exception that its storage raised with the kind of failure, rather than replacing it, see `docs/errors.md`.
     #
