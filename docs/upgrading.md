@@ -502,6 +502,24 @@ String `"printable"`, raises `ArgumentError`. Previously it was ignored, so the 
 Fix: supply the name of a built-in rule as a Symbol, such as `cleaner: :printable`, for example with
 `.to_sym` when it comes from configuration.
 
+### `#absolute?` no longer ignores leading spaces
+
+`IOStreams.path(" /a").absolute?` is now false, like `Pathname`, since the name starts with a space.
+
+Fix: strip the file name before creating the path, for example when it comes from configuration.
+
+### `#each` without a block raises `ArgumentError`
+
+`#each` reads the file within the block, so that it is closed when the block returns, and does not return an
+`Enumerator`. Without a block it now raises `ArgumentError`, instead of `LocalJumpError`.
+
+Fix: supply a block, for example `path.each(:line) { |line| lines << line }`.
+
+### A pattern that is not a String raises `ArgumentError`
+
+`#each_child`, `#children` and `IOStreams.each_child` raise `ArgumentError` for a pattern that is not a String,
+such as `children(false)`, which `Pathname#children` accepts. Previously they raised `NoMethodError`.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

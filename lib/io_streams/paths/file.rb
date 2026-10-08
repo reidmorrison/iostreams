@@ -249,9 +249,13 @@ module IOStreams
       end
 
       # Returns the real path by stripping `.`, `..` and expands any symlinks.
+      # Returns [IOStreams::Paths::File] a copy of this path with `.`, `..` and symbolic links resolved.
+      # The copy keeps its streams, options and `create_path`, since it is the same file.
       def realpath
         authorize!
-        self.class.new(tag_failure { ::File.realpath(path) })
+        real      = dup
+        real.path = tag_failure { ::File.realpath(path) }
+        real
       end
 
       private

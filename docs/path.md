@@ -606,8 +606,12 @@ path.delete
 # Move the file to another path, returning the target path.
 path.move_to("sample/moved.csv")
 
-# Create the directory path, when it does not already exist.
-IOStreams.path("sample/data").mkpath
+# Create the directories of a file, when they do not already exist.
+# `mkpath` treats the last element as the file name, so this creates `sample/data`, not `example.csv`.
+IOStreams.path("sample/data/example.csv").mkpath
+
+# Create a directory, and any directories above it.
+IOStreams.path("sample/data").mkdir
 ~~~
 
 Inspect the components of a path's file name:

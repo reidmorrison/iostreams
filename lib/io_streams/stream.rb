@@ -151,6 +151,11 @@ module IOStreams
       # A Fiber-backed Enumerator (e.g. `to_enum(__method__, mode, **args)`) would leave that block
       # suspended; if the caller abandons a partially-consumed enumerator, none of the cleanup runs
       # until GC collects the Fiber, leaking file descriptors, gpg processes, and temp files.
+      unless block
+        raise(ArgumentError, "#each requires a block, so that the file is closed once it has been read. " \
+                             "To collect every #{mode}, call it with a block that adds each one to an Array.")
+      end
+
       reader(mode, **args) { |stream| stream.each(&block) }
     end
 

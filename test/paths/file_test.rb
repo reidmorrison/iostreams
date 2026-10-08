@@ -373,6 +373,16 @@ module Paths
           assert_equal realpath, IOStreams::Paths::File.new(path).realpath.to_s
         end
 
+        it "keeps the streams, options and create_path of the path, since it is the same file" do
+          path = IOStreams::Paths::File.new(::File.join(__dir__, "../files/test.csv"), create_path: false)
+          path.option(:encode, encoding: "BINARY")
+          realpath = path.realpath
+
+          refute realpath.create_path
+          assert_equal({encoding: "BINARY"}, realpath.setting(:encode))
+          refute_same path, realpath
+        end
+
         it "raises NotFound for a file that does not exist" do
           error = assert_raises(IOStreams::Errors::NotFound) { directory.join("missing.txt").realpath }
 

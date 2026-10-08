@@ -199,6 +199,12 @@ class StreamTest < Minitest::Test
     end
 
     describe "#each(:line)" do
+      it "raises ArgumentError without a block, since the file is only open within the block" do
+        error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new(data)).each(:line) }
+
+        assert_includes error.message, "#each requires a block"
+      end
+
       it "returns a line at a time" do
         lines = []
         stream.stream(:none)

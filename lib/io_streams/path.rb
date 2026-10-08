@@ -35,7 +35,7 @@ module IOStreams
     end
 
     def absolute?
-      !!(path.strip =~ %r{\A/})
+      path.start_with?("/")
     end
 
     # By default realpath just returns self.

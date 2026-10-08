@@ -158,6 +158,11 @@ module IOStreams
         it "false when not absolute" do
           assert_equal false, IOStreams::Path.new("a/b/c/d").absolute?
         end
+
+        it "false when the name starts with a space, like Pathname" do
+          assert_equal false, IOStreams::Path.new(" /a").absolute?
+          assert_equal true, IOStreams::Path.new(" /a").relative?
+        end
       end
 
       describe "#relatve?" do
