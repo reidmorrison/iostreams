@@ -127,6 +127,58 @@ class LineReaderTest < Minitest::Test
       end
     end
 
+    describe "invalid encoding" do
+      def read_lines(data, **args)
+        lines = []
+        exc   = assert_raises(IOStreams::Errors::InvalidEncoding) do
+          IOStreams::Encode::Reader.stream(StringIO.new(data.b)) do |text|
+            IOStreams::Line::Reader.stream(text, **args) { |io| io.each { |line| lines << line } }
+          end
+        end
+        [lines, exc]
+      end
+
+      it "returns the lines before an invalid character and raises with its line number" do
+        lines, exc = read_lines("first\nsecond\nthi\xFFrd\nfourth\n")
+
+        assert_equal %w[first second], lines
+        assert_equal 3, exc.line_number
+        assert_equal 16, exc.byte_offset
+        assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 16 on line 3", exc.message
+      end
+
+      it "counts the lines read in earlier blocks" do
+        lines, exc = read_lines("#{"line\n" * 100}bad\xFF\n", buffer_size: 7)
+
+        assert_equal 100, lines.size
+        assert_equal 101, exc.line_number
+        assert_equal 503, exc.byte_offset
+      end
+
+      it "counts the lines within an embedded field" do
+        lines, exc = read_lines("a,\"one\ntwo\"\nb,\"x\ny\xFF\"\n", embedded_within: '"')
+
+        assert_equal ["a,\"one\ntwo\""], lines
+        assert_equal 4, exc.line_number
+      end
+
+      it "finds the line on the first line" do
+        lines, exc = read_lines("\xFF\n")
+
+        assert_empty lines
+        assert_equal 1, exc.line_number
+        assert_equal 0, exc.byte_offset
+      end
+
+      it "names the line when reading a path" do
+        exc = assert_raises(Encoding::UndefinedConversionError) do
+          IOStreams.stream(StringIO.new("name,age\nJos\xE9,32\n".b)).each(:hash) { |hash| hash }
+        end
+
+        assert_equal "\"\\xE9\" is not valid UTF-8 at byte offset 12 on line 2", exc.message
+      end
+    end
+
     describe "#each" do
       it "each_line file" do
         lines = []

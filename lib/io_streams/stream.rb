@@ -138,9 +138,10 @@ module IOStreams
     #   2. Or the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`)
     # - Pass `embedded_within: nil` to disable quote-aware line joining for a quoted format.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
-    #   `Encoding::UndefinedConversionError`. To read text in another encoding, set it with the encode stream,
-    #   for example `option(:encode, encoding: "ISO-8859-1")`, or `option(:encode, encoding: "BINARY")` to
-    #   read binary lines. See also `replace:` for the encode stream.
+    #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
+    #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
+    #   set it with the encode stream, for example `option(:encode, encoding: "ISO-8859-1")`, or
+    #   `option(:encode, encoding: "BINARY")` to read binary lines. See also `replace:` for the encode stream.
     def each(mode = :line, **args, &block)
       raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
 

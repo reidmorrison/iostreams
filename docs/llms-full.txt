@@ -1845,7 +1845,8 @@ Notes:
 ## Text and binary data
 
 Lines, rows and records are read as UTF-8 text, whichever streams the file is read through, such as
-gzip or PGP, and data that is not valid UTF-8 raises `Encoding::UndefinedConversionError`. The byte
+gzip or PGP, and data that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, an
+`Encoding::UndefinedConversionError`, whose message gives the byte offset and line number of the invalid data. The byte
 order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that
 the first column name of a CSV file is read as it appears. `read` returns the whole file as UTF-8
 without checking it or removing a byte order mark, like `File.read`, so that it can also read a
@@ -2122,6 +2123,11 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width format is not valid.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
+* `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
+  encoding that it is read or written in, such as UTF-8. Its `#byte_offset` is the offset of the first invalid byte
+  within the data after any decompression or decryption, and its `#line_number` is the line that it is on, when it
+  is read a line at a time, such as with `each(:line)` or `each(:hash)`, where the lines before it are read first.
+  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`.
 * `IOStreams::Pgp::Failure`, a `StandardError`: gpg failed, for example to decrypt a file or to check its signature.
 
 ## What each storage raises
@@ -2377,7 +2383,8 @@ Options:
 
 * `replace: [String]`
   The character to replace with when a character is invalid, or cannot be converted to the target encoding.
-  Default: nil (raise `Encoding::UndefinedConversionError` on invalid characters)
+  Default: nil (raise `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte
+  offset of the first invalid character)
 
 * `cleaner: [nil|Symbol|Proc]`
   Cleanse the data. Built-in rules:

@@ -35,7 +35,8 @@ module IOStreams
       #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
-      #     nil: Don't replace any invalid characters. Encoding::UndefinedConversionError is raised.
+      #     nil: Don't replace any invalid characters. IOStreams::Errors::InvalidEncoding, an
+      #          Encoding::UndefinedConversionError, is raised with the byte offset of the invalid character.
       #     Default: nil
       #
       #   cleaner: [nil|symbol|Proc]
@@ -81,7 +82,9 @@ module IOStreams
       def write(data)
         return 0 if data.nil?
 
-        write_block(@converter.convert(data.to_s))
+        block = @converter.convert(data.to_s)
+        @converter.raise_invalid
+        write_block(block)
       end
 
       private

@@ -69,6 +69,11 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width format is not valid.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
+* `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
+  encoding that it is read or written in, such as UTF-8. Its `#byte_offset` is the offset of the first invalid byte
+  within the data after any decompression or decryption, and its `#line_number` is the line that it is on, when it
+  is read a line at a time, such as with `each(:line)` or `each(:hash)`, where the lines before it are read first.
+  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`.
 * `IOStreams::Pgp::Failure`, a `StandardError`: gpg failed, for example to decrypt a file or to check its signature.
 
 ## What each storage raises

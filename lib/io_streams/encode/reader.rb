@@ -37,7 +37,9 @@ module IOStreams
       #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
-      #     nil: Don't replace any invalid characters. Encoding::UndefinedConversionError is raised.
+      #     nil: Don't replace any invalid characters. IOStreams::Errors::InvalidEncoding, an
+      #          Encoding::UndefinedConversionError, is raised with the byte offset of the invalid character.
+      #          A read in blocks first returns the data before it, and the next read raises.
       #     Default: nil
       #
       #   cleaner: [nil|symbol|Proc]

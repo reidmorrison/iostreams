@@ -173,7 +173,8 @@ Notes:
 ## Text and binary data
 
 Lines, rows and records are read as UTF-8 text, whichever streams the file is read through, such as
-gzip or PGP, and data that is not valid UTF-8 raises `Encoding::UndefinedConversionError`. The byte
+gzip or PGP, and data that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, an
+`Encoding::UndefinedConversionError`, whose message gives the byte offset and line number of the invalid data. The byte
 order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that
 the first column name of a CSV file is read as it appears. `read` returns the whole file as UTF-8
 without checking it or removing a byte order mark, like `File.read`, so that it can also read a
