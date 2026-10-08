@@ -1506,6 +1506,12 @@ Inspect the components of a path's file name:
 IOStreams.path("sftp://jack:secret@sftp.example.org/data/ruby.rb").display_name
 # => "sftp://sftp.example.org/data/ruby.rb"
 
+# The options for creating a path, such as a password, with each secret replaced, for an application
+# that stores a url and its options, and displays them. The path class of the url decides which are
+# secret, see `sensitive_option_names`. `redact_stream_options` does the same for the options of streams.
+IOStreams.redact_path_options("sftp://sftp.example.org/data/ruby.rb", username: "jack", password: "secret")
+# => {username: "jack", password: "[FILTERED]"}
+
 # The last component of the path.
 IOStreams.path("/home/gumby/work/ruby.rb").basename
 # => "ruby.rb"

@@ -4,6 +4,26 @@ module IOStreams
   module Utils
     MAX_TEMP_FILE_NAME_ATTEMPTS = 5
 
+    # Replaces the value of a sensitive option for display, see .redact_options.
+    FILTERED = "[FILTERED]".freeze
+
+    # Option names whose values are hidden as a precaution, even when they are not declared sensitive.
+    # Matched against the name in lower case without `_` or `-`, see .redact_options.
+    SENSITIVE_NAME = /passphrase|password|secret|token|credential/
+    private_constant :SENSITIVE_NAME
+
+    # Returns [Hash] the options with the value of each sensitive option replaced with FILTERED, so that they can be
+    # displayed, for example by `#inspect`, or in a web interface.
+    #
+    # An option is sensitive when its name is one of the supplied `sensitive_names`, or, as a precaution, contains
+    # `passphrase`, `password`, `secret`, `token` or `credential`. Names are compared in lower case, ignoring `_` and
+    # `-`, so that `:identity_key` matches the ssh option "IdentityKey", and `:proxy_authorization` the header
+    # "Proxy-Authorization". The options in a Hash value, such as `ssh_options:` or `headers:`, are redacted the same
+    # way.
+    def self.redact_options(options, sensitive_names = [])
+      redact_hash(options, sensitive_names.map { |name| normalize_option_name(name) })
+    end
+
     # Returns [true|false] whether the exception is a failure to look up a host name that does not resolve, such as a
     # mistyped host, so that the same request cannot succeed later. A temporary failure of name resolution
     # (`Socket::EAI_AGAIN`), which is how a DNS outage, or a network without DNS, is reported on Linux, is not.
@@ -14,6 +34,25 @@ module IOStreams
 
       exception.error_code != ::Socket::EAI_AGAIN
     end
+
+    def self.redact_hash(options, sensitive)
+      options.to_h do |name, value|
+        key = normalize_option_name(name)
+        if sensitive.include?(key) || key.match?(SENSITIVE_NAME)
+          [name, FILTERED]
+        elsif value.is_a?(Hash)
+          [name, redact_hash(value, sensitive)]
+        else
+          [name, value]
+        end
+      end
+    end
+    private_class_method :redact_hash
+
+    def self.normalize_option_name(name)
+      name.to_s.downcase.delete("_-")
+    end
+    private_class_method :normalize_option_name
 
     # Lazy load dependent gem so that it remains a soft dependency.
     def self.load_soft_dependency(gem_name, stream_type, require_name = gem_name)

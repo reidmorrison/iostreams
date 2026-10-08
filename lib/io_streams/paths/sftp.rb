@@ -113,6 +113,9 @@ module IOStreams
       #                  ssh_options: {IdentityFile: "~/.ssh/private_key"}).reader do |io|
       #     puts io.read
       #   end
+      # The password, and the private key supplied as the ssh option `IdentityKey`, see IOStreams::Path.redact_options.
+      def self.sensitive_option_names = %i[password identity_key]
+
       def initialize(url, username: nil, password: nil, ssh_options: {})
         uri = Utils::URI.new(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == "sftp"

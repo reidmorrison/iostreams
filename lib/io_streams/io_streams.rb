@@ -50,12 +50,46 @@ module IOStreams
   def self.path(*elements, **args)
     return elements.first.dup if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
 
-    elements         = elements.collect(&:to_s)
-    path             = ::File.join(*elements)
-    extracted_scheme = path.include?("://") ? Utils::URI.new(path).scheme : nil
-    klass            = scheme(extracted_scheme)
+    elements = elements.collect(&:to_s)
+    path     = ::File.join(*elements)
+    klass    = path_class(path)
     args.empty? ? klass.new(path) : klass.new(path, **args)
   end
+
+  # Returns [Hash] the options for creating the path of the url with `IOStreams.path(url, **options)`, with the value
+  # of each sensitive option, such as a password, replaced with "[FILTERED]", so that they can be displayed, for
+  # example by an application that stores a url and its options to create the path later.
+  #
+  # The path class of the url's scheme decides which options are sensitive, see `IOStreams::Path.redact_options`.
+  # Every value is replaced when the url is not valid, since then that class is not known.
+  #
+  # Example:
+  #   IOStreams.redact_path_options("sftp://example.org/a.csv", username: "jack", password: "secret")
+  #   # => {username: "jack", password: "[FILTERED]"}
+  def self.redact_path_options(url, options)
+    path_class(url.to_s).redact_options(options)
+  rescue ArgumentError, ::URI::Error
+    options.to_h { |name, _value| [name, Utils::FILTERED] }
+  end
+
+  # Returns [Hash<Symbol:Hash>] the options of each stream, as supplied to `IOStreams::Path#stream`, with the value of
+  # each sensitive option, such as a PGP passphrase, replaced with "[FILTERED]", so that they can be displayed.
+  #
+  # Each stream's format decides which of its options are sensitive, see `IOStreams::StreamFormat#redact_options`.
+  # Every value of a stream whose format is not registered is replaced.
+  #
+  # Example:
+  #   IOStreams.redact_stream_options(pgp: {passphrase: "secret", recipient: "a@b.org"})
+  #   # => {pgp: {passphrase: "[FILTERED]", recipient: "a@b.org"}}
+  def self.redact_stream_options(streams)
+    Builder.redact_streams(streams)
+  end
+
+  # Returns [Class] the path class of the scheme of the supplied path or url, such as `IOStreams::Paths::SFTP`.
+  def self.path_class(path)
+    scheme(path.include?("://") ? Utils::URI.new(path).scheme : nil)
+  end
+  private_class_method :path_class
 
   # For an existing IO Stream
   # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').read

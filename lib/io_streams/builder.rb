@@ -19,6 +19,26 @@ module IOStreams
       RESERVED_KEYWORDS.include?(name)
     end
 
+    # Returns [Hash<Symbol:Hash>] the options of each stream, as supplied to `#stream`, with the value of each
+    # sensitive option replaced, see `IOStreams::StreamFormat#redact_options`, or every value of a stream whose format
+    # is not registered, since it cannot say which are sensitive.
+    def self.redact_streams(streams)
+      streams.to_h do |stream, opts|
+        next [stream, opts] unless opts.is_a?(Hash)
+
+        format = find_format(stream)
+        next [stream, opts.transform_values { Utils::FILTERED }] unless format
+
+        [stream, format.redact_options(opts)]
+      end
+    end
+
+    # Returns the format of the stream, such as `IOStreams::Gzip` for `:gz`, or nil when it is not registered.
+    def self.find_format(stream)
+      stream = stream&.to_sym
+      stream == :encode ? Encode : IOStreams.extensions[stream]
+    end
+
     def initialize(file_name = nil)
       @file_name = file_name
       @streams   = nil
@@ -235,15 +255,9 @@ module IOStreams
     private
 
     # Returns [Hash<Symbol:Hash>] the options of each stream with the value of each sensitive option replaced,
-    # or every value of a stream whose format is no longer registered, since it cannot say which are sensitive.
+    # see .redact_streams.
     def redact(streams)
-      streams.to_h do |stream, opts|
-        format = find_format(stream)
-        next [stream, opts] unless opts.is_a?(Hash)
-        next [stream, opts.transform_values { "[FILTERED]" }] unless format
-
-        [stream, format.redact_options(opts)]
-      end
+      self.class.redact_streams(streams)
     end
 
     def build_pipeline
@@ -263,8 +277,7 @@ module IOStreams
     # Returns the format of the stream: the built-in encode stream, see `IOStreams::Encode`, or the format
     # registered for a file name extension, see `IOStreams.register_extension`. Returns nil when there is none.
     def find_format(stream)
-      stream = stream&.to_sym
-      stream == :encode ? Encode : IOStreams.extensions[stream]
+      self.class.find_format(stream)
     end
 
     # Returns the format of the stream, see #find_format, or raises when there is none.

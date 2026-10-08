@@ -10,14 +10,6 @@ module IOStreams
   # overriding its `valid_option_names`, so that it raises, with a message that names the direction it
   # belongs to.
   module StreamFormat
-    # Option names whose values are hidden as a precaution, even when the class does not declare them sensitive.
-    SENSITIVE_NAME = /pass(phrase|word)|secret/i
-    private_constant :SENSITIVE_NAME
-
-    # Replaces the value of a sensitive option for display.
-    FILTERED = "[FILTERED]".freeze
-    private_constant :FILTERED
-
     # Returns [Array<Symbol>] the options that the class reading (type: :reader) or writing (:writer) this
     # format uses, which are the only options supplied to it, or [nil] when the class does not declare them.
     def option_names(type)
@@ -57,12 +49,10 @@ module IOStreams
     # they can be displayed, for example by `#inspect`.
     #
     # Sensitive options are those that the reader or the writer declares, see #sensitive_option_names, and,
-    # as a precaution, any option whose name contains `passphrase`, `password` or `secret`.
+    # as a precaution, any option whose name contains `passphrase`, `password`, `secret`, `token` or `credential`,
+    # see `IOStreams::Utils.redact_options`.
     def redact_options(options)
-      sensitive = sensitive_option_names
-      options.to_h do |name, value|
-        [name, sensitive.include?(name) || name.to_s.match?(SENSITIVE_NAME) ? FILTERED : value]
-      end
+      Utils.redact_options(options, sensitive_option_names)
     end
 
     # Raises [ArgumentError] unless every option is valid when reading (type: :reader) or writing (:writer)

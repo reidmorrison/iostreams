@@ -167,6 +167,10 @@ module IOStreams
       #
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
+      # The secret access key, also within `client:`, and the customer encryption keys, see
+      # IOStreams::Path.redact_options. A session token and credentials are always sensitive by name.
+      def self.sensitive_option_names = %i[secret_access_key sse_customer_key copy_source_sse_customer_key]
+
       def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, region: nil, **args)
         uri = Utils::URI.new(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"

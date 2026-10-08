@@ -336,6 +336,19 @@ module IOStreams
       [self.class, to_s].hash
     end
 
+    # Returns [Array<Symbol>] the options for creating a path of this class whose values must not be displayed,
+    # such as a password, see .redact_options. A path class with sensitive options overrides it.
+    def self.sensitive_option_names
+      []
+    end
+
+    # Returns [Hash] the supplied options for creating a path of this class, such as `password:`, with the value of
+    # each sensitive option replaced with "[FILTERED]", so that they can be displayed, for example by an application
+    # that stores them to create the path later. See .sensitive_option_names and `IOStreams::Utils.redact_options`.
+    def self.redact_options(options)
+      Utils.redact_options(options, sensitive_option_names)
+    end
+
     # Does not create the builder, so that a frozen path can be inspected, for example in a `FrozenError` message.
     # Does not display the values of sensitive options, such as a passphrase, see `IOStreams::Builder#redacted`.
     def inspect

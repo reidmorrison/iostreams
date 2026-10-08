@@ -102,6 +102,10 @@ module IOStreams
       # - When writing or deleting, a redirect is only followed to the same scheme, host, and port, so that a
       #   redirect cannot send the data being uploaded to another server, or delete a file on it.
       # - Each redirect that is followed is logged at info level via `IOStreams.logger`.
+      # The password, the query `parameters`, which can hold an access key, and the headers that authenticate, see
+      # IOStreams::Path.redact_options.
+      def self.sensitive_option_names = %i[password parameters authorization proxy_authorization cookie]
+
       def initialize(url, username: nil, password: nil, http_redirect_count: 10, parameters: nil,
                      allow_hosts: nil, maximum_file_size: nil, headers: nil)
         uri = URI.parse(url)

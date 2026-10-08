@@ -502,6 +502,53 @@ module IOStreams
         end
       end
 
+      describe ".redact_path_options" do
+        it "replaces the SFTP password and identity key" do
+          options = {"username" => "jack", "password" => "a", "ssh_options" => {"IdentityKey" => "b", "IdentityFile" => "~/.ssh/id"}}
+
+          assert_equal({"username" => "jack", "password" => "[FILTERED]",
+                        "ssh_options" => {"IdentityKey" => "[FILTERED]", "IdentityFile" => "~/.ssh/id"}},
+                       IOStreams.redact_path_options("sftp://example.org/a.csv", options))
+        end
+
+        it "replaces the S3 secrets, also within the client options" do
+          options = {client: {region: "east", secret_access_key: "a", session_token: "b"}, acl: "private", sse_customer_key: "c"}
+
+          assert_equal({client: {region: "east", secret_access_key: "[FILTERED]", session_token: "[FILTERED]"},
+                        acl: "private", sse_customer_key: "[FILTERED]"},
+                       IOStreams.redact_path_options("s3://bucket/a.csv", options))
+        end
+
+        it "replaces the HTTP password, parameters and authentication headers" do
+          options = {username: "jack", password: "a", parameters: {key: "b"}, headers: {"Authorization" => "c", "Accept" => "text/csv"}}
+
+          assert_equal({username: "jack", password: "[FILTERED]", parameters: "[FILTERED]",
+                        headers: {"Authorization" => "[FILTERED]", "Accept" => "text/csv"}},
+                       IOStreams.redact_path_options("https://example.org/a.csv", options))
+        end
+
+        it "keeps the options of a local path" do
+          assert_equal({create_path: false}, IOStreams.redact_path_options("/tmp/a.csv", create_path: false))
+        end
+
+        it "replaces every value when the url is not valid, since its path class is not known" do
+          assert_equal({password: "[FILTERED]", port: "[FILTERED]"}, IOStreams.redact_path_options("ftp://example.org/a", password: "a", port: 21))
+          assert_equal({port: "[FILTERED]"}, IOStreams.redact_path_options("sftp://u:p@ss@example.org/a", port: 22))
+        end
+      end
+
+      describe ".redact_stream_options" do
+        it "replaces the sensitive options of each stream" do
+          streams = {pgp: {passphrase: "a", recipient: "a@b.org"}, zip: nil}
+
+          assert_equal({pgp: {passphrase: "[FILTERED]", recipient: "a@b.org"}, zip: nil}, IOStreams.redact_stream_options(streams))
+        end
+
+        it "replaces every option of a stream that is not registered" do
+          assert_equal({gone: {region: "[FILTERED]"}}, IOStreams.redact_stream_options(gone: {region: "east"}))
+        end
+      end
+
       describe ".schemes" do
         it "includes the registered schemes" do
           %i[file http https sftp s3].each do |scheme|

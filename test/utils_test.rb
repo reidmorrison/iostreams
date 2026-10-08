@@ -2,6 +2,36 @@ require_relative "test_helper"
 
 class UtilsTest < Minitest::Test
   describe IOStreams::Utils do
+    describe ".redact_options" do
+      it "replaces the declared options, and those that are sensitive by name" do
+        options = {region: "east", api_key: "a", db_password: "b", session_token: "c", aws_credentials: "d"}
+
+        assert_equal({region: "east", api_key: "[FILTERED]", db_password: "[FILTERED]", session_token: "[FILTERED]",
+                      aws_credentials: "[FILTERED]"},
+                     IOStreams::Utils.redact_options(options, %i[api_key]))
+      end
+
+      it "matches names in any case, with or without _ and -" do
+        options = {"IdentityKey" => "a", "Proxy-Authorization" => "b", "Accept" => "text/csv"}
+
+        assert_equal({"IdentityKey" => "[FILTERED]", "Proxy-Authorization" => "[FILTERED]", "Accept" => "text/csv"},
+                     IOStreams::Utils.redact_options(options, %i[identity_key proxy_authorization]))
+      end
+
+      it "redacts the options within a Hash" do
+        options = {client: {region: "east", secret_access_key: "a"}}
+
+        assert_equal({client: {region: "east", secret_access_key: "[FILTERED]"}}, IOStreams::Utils.redact_options(options))
+      end
+
+      it "does not change the options" do
+        options = {password: "a"}
+        IOStreams::Utils.redact_options(options)
+
+        assert_equal({password: "a"}, options)
+      end
+    end
+
     describe ".temp_file_name" do
       it "returns value from block" do
         result = IOStreams::Utils.temp_file_name("base", ".ext") { |_name| 257 }
