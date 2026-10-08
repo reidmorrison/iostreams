@@ -297,6 +297,16 @@ module Paths
         end
       end
 
+      describe "#mtime" do
+        it "is when the file was last modified" do
+          assert_equal ::File.mtime(file_path.to_s), file_path.mtime
+        end
+
+        it "raises NotFound for a file that does not exist" do
+          assert_raises(IOStreams::Errors::NotFound) { directory.join("missing.txt").mtime }
+        end
+      end
+
       describe "#size?" do
         it "returns the size of a file" do
           assert_equal data.size, file_path.size?

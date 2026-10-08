@@ -873,6 +873,30 @@ module Paths
           end
         end
 
+        describe "#mtime" do
+          it "returns the Last-Modified time from a head request" do
+            modified = Time.utc(2026, 10, 8, 12, 30, 0)
+            start_server do |_path|
+              "HTTP/1.1 200 OK\r\nLast-Modified: #{modified.httpdate}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            end
+
+            assert_equal modified, IOStreams.path("#{@server.base_url}/file.txt").mtime
+            assert_equal "HEAD", @server.requests.first[:method]
+          end
+
+          it "returns nil when the server does not supply it" do
+            start_server { |_path| "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
+
+            assert_nil IOStreams.path("#{@server.base_url}/file.txt").mtime
+          end
+
+          it "raises NotFound when the file is not found" do
+            start_server { |_path| TestHTTPServer.response(404) }
+
+            assert_raises(IOStreams::Errors::NotFound) { IOStreams.path("#{@server.base_url}/file.txt").mtime }
+          end
+        end
+
         describe "#size?" do
           it "returns nil for an empty or missing file" do
             start_server { |path| TestHTTPServer.response(path == "/empty.txt" ? 200 : 404, body: "") }

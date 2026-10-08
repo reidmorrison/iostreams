@@ -123,6 +123,16 @@ module Paths
         end
       end
 
+      describe "#mtime" do
+        it "existing file" do
+          assert_kind_of Time, existing_path.mtime
+        end
+
+        it "missing file" do
+          assert_raises(IOStreams::Errors::NotFound) { missing_path.mtime }
+        end
+      end
+
       describe "#size" do
         it "existing file" do
           assert_equal raw.size, existing_path.size

@@ -388,6 +388,7 @@ module Paths
         def size = file_size
         def directory? = directory
         def file? = !directory
+        def mtime = 1_791_000_000
       end
       Entry = Struct.new(:name)
 
@@ -1437,6 +1438,12 @@ module Paths
             assert_predicate path("/data/a.csv"), :exist?
             assert_predicate path("/data"), :exist?
             refute_predicate path("/data/missing.csv"), :exist?
+          end
+        end
+
+        it "#mtime" do
+          with_stub_net_sftp do
+            assert_equal Time.at(1_791_000_000), path("/data/a.csv").mtime
           end
         end
 

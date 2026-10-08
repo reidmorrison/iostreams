@@ -170,6 +170,16 @@ module IOStreams
         send_request(Net::HTTP::Head, url, http_redirect_count, &:content_length)
       end
 
+      # Returns [Time] when the file was last modified, from the Last-Modified header of an HTTP HEAD,
+      # or nil when the server does not supply it.
+      def mtime
+        authorize!
+        send_request(Net::HTTP::Head, url, http_redirect_count) do |response|
+          modified = response["last-modified"]
+          modified && Time.httpdate(modified)
+        end
+      end
+
       # Returns [true|false] whether the file exists, see `#exist?`. HTTP has no directories, so every url that
       # exists is a file.
       def file?
@@ -208,6 +218,9 @@ module IOStreams
       end
 
       protected
+
+      # Urls with the same scheme, host and port are in the same store, see `IOStreams::Path#same_store?`.
+      def store = [original_uri.scheme, original_uri.hostname.to_s.downcase, original_uri.port]
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #

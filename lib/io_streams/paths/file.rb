@@ -212,6 +212,11 @@ module IOStreams
         tag_failure { ::File.size(path) }
       end
 
+      def mtime
+        authorize!
+        tag_failure { ::File.mtime(path) }
+      end
+
       def size?
         authorize!
         ::File.size?(path)

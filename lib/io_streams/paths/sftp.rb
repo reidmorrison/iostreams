@@ -177,13 +177,7 @@ module IOStreams
       # * No error is raised if the file or directory is not present.
       # * Only the file is removed, not any of the parent paths.
       def delete
-        with_net_sftp("SFTP delete capability") do |sftp|
-          attributes = sftp.lstat!(remote_path)
-          attributes.directory? ? sftp.rmdir!(remote_path) : sftp.remove!(remote_path)
-        rescue Net::SFTP::StatusException => e
-          raise unless Listing::NOT_FOUND.include?(e.code)
-        end
-        self
+        remove("SFTP delete capability") { |sftp| sftp.rmdir!(remote_path) }
       end
 
       # When path is a directory, deletes this directory and everything within it.
@@ -195,13 +189,7 @@ module IOStreams
       # * No error is raised if the file or directory is not present.
       # * A symbolic link is deleted, not the file or directory that it refers to.
       def delete_all
-        with_net_sftp("SFTP delete_all capability") do |sftp|
-          attributes = sftp.lstat!(remote_path)
-          attributes.directory? ? Listing.remove_tree(sftp, remote_path) : sftp.remove!(remote_path)
-        rescue Net::SFTP::StatusException => e
-          raise unless Listing::NOT_FOUND.include?(e.code)
-        end
-        self
+        remove("SFTP delete_all capability") { |sftp| Listing.remove_tree(sftp, remote_path) }
       end
 
       # Returns [true|false] whether the file or directory exists.
@@ -214,6 +202,10 @@ module IOStreams
       # Raises [IOStreams::Errors::NotFound] when the file does not exist, see `#size?`.
       def size
         with_net_sftp("SFTP size capability") { |sftp| sftp.stat!(remote_path).size }
+      end
+
+      def mtime
+        with_net_sftp("SFTP mtime capability") { |sftp| Time.at(sftp.stat!(remote_path).mtime) }
       end
 
       def file?
@@ -292,6 +284,9 @@ module IOStreams
 
       protected
 
+      # Paths on the same host and port are in the same store, see `IOStreams::Path#same_store?`.
+      def store = [hostname.to_s.downcase, port]
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       def path=(path)
         # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.
@@ -341,6 +336,17 @@ module IOStreams
       # see `Failure.kind`.
       def failure_kind(exception)
         Failure.kind(exception)
+      end
+
+      # Deletes this path when it is a file or a symbolic link, otherwise yields the session to delete the directory.
+      # Does nothing when it does not exist. Returns self.
+      def remove(capability)
+        with_net_sftp(capability) do |sftp|
+          sftp.lstat!(remote_path).directory? ? yield(sftp) : sftp.remove!(remote_path)
+        rescue Net::SFTP::StatusException => e
+          raise unless Listing::NOT_FOUND.include?(e.code)
+        end
+        self
       end
 
       # Returns the attributes of this path on the server, or nil when it does not exist.

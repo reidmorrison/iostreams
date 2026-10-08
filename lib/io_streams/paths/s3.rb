@@ -238,15 +238,7 @@ module IOStreams
       def delete_all
         authorize!
         delete if file_key?
-        keys = []
-        each_object(directory_prefix) do |_name, object|
-          keys << {key: object.key}
-          next if keys.size < 1_000
-
-          delete_keys(keys)
-          keys = []
-        end
-        delete_keys(keys) unless keys.empty?
+        each_page(directory_prefix) { |page| delete_keys(page.contents.map { |object| {key: object.key} }) }
         self
       end
 
@@ -348,6 +340,11 @@ module IOStreams
       def size
         authorize!
         request(:head_object, bucket: bucket_name, key: path).content_length
+      end
+
+      def mtime
+        authorize!
+        request(:head_object, bucket: bucket_name, key: path).last_modified
       end
 
       # Read from AWS S3 file.
@@ -487,6 +484,9 @@ module IOStreams
         nil
       end
 
+      # Paths in the same bucket are in the same store, see `IOStreams::Path#same_store?`.
+      def store = bucket_name
+
       # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.
       def copy_source
         "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
@@ -520,12 +520,11 @@ module IOStreams
 
       # Deletes upto 1,000 keys in one request, raising when S3 could not delete any of them.
       def delete_keys(keys)
-        response = request(:delete_objects, bucket: bucket_name, delete: {objects: keys, quiet: true})
-        return if response.errors.empty?
+        errors = keys.empty? ? [] : request(:delete_objects, bucket: bucket_name, delete: {objects: keys, quiet: true}).errors
+        return if errors.empty?
 
-        error = response.errors.first
         raise(Errors::CommunicationsFailure,
-              "Failed to delete #{response.errors.size} keys from #{display_name}, such as #{error.key}: #{error.message}")
+              "Failed to delete #{errors.size} keys from #{display_name}, such as #{errors.first.key}: #{errors.first.message}")
       end
 
       # Returns [true|false] whether this path can be the key of a file, rather than the bucket or a folder object.
@@ -595,13 +594,16 @@ module IOStreams
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
       def each_object(prefix)
+        each_page(prefix) { |page| page.contents.each { |object| yield(page.name, object) } }
+      end
+
+      # Yields each page of upto 1,000 objects in the bucket whose keys start with the supplied prefix.
+      def each_page(prefix)
         token = nil
         loop do
-          # Fetches upto 1,000 entries at a time
-          resp = request(:list_objects_v2, bucket: bucket_name, prefix: prefix, continuation_token: token)
-          resp.contents.each { |object| yield(resp.name, object) }
-          token = resp.next_continuation_token
-          break if token.nil?
+          page = request(:list_objects_v2, bucket: bucket_name, prefix: prefix, continuation_token: token)
+          yield(page)
+          break unless (token = page.next_continuation_token)
         end
       end
 

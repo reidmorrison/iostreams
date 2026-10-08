@@ -1457,6 +1457,10 @@ path.exist?
 path.size
 # => 64
 
+# When the file was last modified, as a Time.
+path.mtime
+# => 2026-10-08 12:30:00 UTC
+
 # Size of the file in bytes, or nil when it does not exist or is empty, like `File.size?`.
 path.size?
 # => 64
@@ -1521,6 +1525,36 @@ IOStreams.path("a/b/d/test.rb").extension
 # => "rb"
 ~~~
 
+Build and compare paths without accessing them:
+
+~~~ruby
+# Join, like `#join`. An absolute element is joined to the path rather than replacing it, unlike `Pathname#/`.
+IOStreams.path("s3://bucket/exports") / "2026" / "daily.csv"
+# => s3://bucket/exports/2026/daily.csv
+
+# Remove `.`, `..` and repeated `/`.
+IOStreams.path("exports/./2026/../daily.csv").cleanpath
+# => exports/daily.csv
+
+# Replace the last extension. The streams and options are cleared, since the file name changed.
+IOStreams.path("exports/daily.csv").sub_ext(".json")
+# => exports/daily.json
+
+# The name of a path relative to another path in the same store, as a String.
+IOStreams.path("s3://bucket/exports/2026/daily.csv").relative_path_from(IOStreams.path("s3://bucket/exports"))
+# => "2026/daily.csv"
+~~~
+
+For example, to copy every file within a directory to another store, keeping their names:
+
+~~~ruby
+source = IOStreams.path("s3://bucket/exports")
+target = IOStreams.path("/backup/exports")
+source.each_child("**/*") do |child|
+  target.join(child.relative_path_from(source)).copy_from(child, convert: false)
+end
+~~~
+
 Notes:
 * `basename`, `dirname`, `extname`, and `extension` return `nil` when no file name was set.
 * A leading period on a dotfile is not treated as an extension, so `.profile` has no extension,
@@ -1548,7 +1582,8 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 
 Notes:
 * These operations are supported by File, S3 and SFTP paths. HTTP paths support all of them except
-  `each_child` and `delete_all`. An operation that a path does not support raises `NotImplementedError`,
+  `each_child` and `delete_all`, and `mtime` is nil when the server does not supply a `Last-Modified`
+  header. An operation that a path does not support raises `NotImplementedError`,
   and `respond_to?` returns false for it, so code can check, for example `path.respond_to?(:each_child)`. HTTP has no directories, so `directory?` is always false and `mkpath` does nothing.
 * S3 has no directories either, only keys that contain `/`. An S3 path is a directory when any key is
   within it, such as `a` and `a/b` for the key `a/b/c.csv`, or when a folder object exists for it, with

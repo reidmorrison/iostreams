@@ -67,7 +67,7 @@ class S3Stub
     data = objects[[params[:bucket], params[:key]]]
     return "NotFound" unless data
 
-    {content_length: data.bytesize}
+    {content_length: data.bytesize, last_modified: Time.at(0).utc}
   end
 
   def delete_object(params)
