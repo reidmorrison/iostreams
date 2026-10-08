@@ -420,6 +420,53 @@ class EncodeReaderTest < Minitest::Test
           assert_equal with_byte_order_mark, data
         end
       end
+
+      describe "external:internal encoding" do
+        let(:windows1252) { "caf\xE9\nna\xEFve\n".b }
+
+        it "converts the data from the external encoding to the internal encoding, like File.read" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new(windows1252), encoding: "Windows-1252:UTF-8", &:read)
+
+          assert_equal "caf\u00e9\nna\u00efve\n", data
+          assert_equal Encoding::UTF_8, data.encoding
+        end
+
+        it "converts each block, keeping a character split across reads" do
+          utf16 = "caf\u00e9".encode("UTF-16LE").b
+          data  = +""
+          IOStreams::Encode::Reader.stream(StringIO.new(utf16), encoding: "UTF-16LE:UTF-8") do |io|
+            while (block = io.read(3))
+              data << block
+            end
+          end
+
+          assert_equal "caf\u00e9", data
+        end
+
+        it "reads lines in the internal encoding" do
+          lines = []
+          IOStreams.stream(StringIO.new(windows1252)).stream(:encode, encoding: "Windows-1252:UTF-8").each(:line) { |line| lines << line }
+
+          assert_equal %w[café naïve], lines
+          assert_equal [Encoding::UTF_8], lines.map(&:encoding).uniq
+        end
+
+        it "raises for a character that the internal encoding does not have" do
+          assert_raises(Encoding::UndefinedConversionError) do
+            IOStreams::Encode::Reader.stream(StringIO.new(windows1252), encoding: "Windows-1252:US-ASCII", &:read)
+          end
+        end
+
+        it "replaces a character that the internal encoding does not have when replace is supplied" do
+          data = IOStreams::Encode::Reader.stream(StringIO.new(windows1252), encoding: "Windows-1252:US-ASCII", replace: "?", &:read)
+
+          assert_equal "caf?\nna?ve\n", data
+        end
+
+        it "raises ArgumentError for an unknown encoding" do
+          assert_raises(ArgumentError) { IOStreams::Encode::Reader.stream(StringIO.new(windows1252), encoding: "Nope:UTF-8", &:read) }
+        end
+      end
     end
   end
 end

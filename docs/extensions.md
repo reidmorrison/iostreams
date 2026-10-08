@@ -86,6 +86,19 @@ Options:
   invalid characters are replaced or raise an error. A Ruby string being written in another encoding
   is converted. When reading UTF-8, the byte order mark (U+FEFF) that programs such as Excel write at
   the start of a file is removed.
+
+  Like Ruby's `File.read`, `"external:internal"` reads text stored in the external encoding and
+  converts it to the internal encoding, for example to read a Windows-1252 file as UTF-8 strings:
+
+  ~~~ruby
+  IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8").each(:hash) do |record|
+    record["name"] # => a UTF-8 String
+  end
+  ~~~
+
+  A character that the internal encoding does not have raises `Encoding::UndefinedConversionError`,
+  unless `replace` is supplied. When writing, the text is written in the external encoding, so the same
+  option reads the file back.
   Default: `"UTF-8"`
 
 * `replace: [String]`

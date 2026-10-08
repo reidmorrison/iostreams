@@ -26,6 +26,21 @@ module IOStreams
       Encoding::UTF_8
     end
 
+    # Returns [Array<String|Encoding, Encoding|nil>] the external encoding, which the data is stored in, and the
+    # internal encoding, which reading converts the text to, from an `encoding` option.
+    #
+    # Like Ruby's `File.read(name, encoding: "Windows-1252:UTF-8")`, an option of the form "external:internal"
+    # converts the text from the external encoding to the internal encoding. Without a `:` the internal
+    # encoding is nil, and the text is returned in the external encoding.
+    #
+    # Raises ArgumentError for an encoding that Ruby does not know.
+    def self.external_and_internal(encoding)
+      return [encoding, nil] unless encoding.is_a?(String) && encoding.include?(":")
+
+      external, internal = encoding.split(":", 2)
+      [Encoding.find(external), Encoding.find(internal)]
+    end
+
     # Returns [true|false] whether data in this format is compressed.
     def self.compressed?
       false
