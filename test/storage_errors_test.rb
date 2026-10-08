@@ -347,6 +347,47 @@ class StorageErrorsTest < Minitest::Test
       end
     end
 
+    describe "a host that does not resolve" do
+      before { skip_without_resolution_error }
+
+      # Asserts that the block raises the exception of the storage, without tagging it as a failure of the storage.
+      def assert_not_tagged(storage_class, &)
+        error = assert_raises(storage_class, &)
+
+        refute_kind_of IOStreams::Errors::StorageError, error
+      end
+
+      it "is not Unavailable for S3" do
+        error = Seahorse::Client::NetworkingError.new(resolution_error(Socket::EAI_NONAME))
+        path  = IOStreams.path("s3://my-bucket/a.csv", client: s3_client(get_object: error))
+
+        assert_not_tagged(Seahorse::Client::NetworkingError) { path.read }
+      end
+
+      it "is Unavailable for S3 when name resolution fails temporarily" do
+        error = Seahorse::Client::NetworkingError.new(resolution_error(Socket::EAI_AGAIN))
+        path  = IOStreams.path("s3://my-bucket/a.csv", client: s3_client(get_object: error))
+
+        assert_unavailable(Seahorse::Client::NetworkingError, path) { path.read }
+      end
+
+      it "is not Unavailable for HTTP" do
+        path = IOStreams.path("http://no-such-host.example/a.csv")
+
+        Net::HTTP.stub(:start, ->(*) { raise resolution_error(Socket::EAI_NONAME) }) do
+          assert_not_tagged(Socket::ResolutionError) { path.read }
+        end
+      end
+
+      it "is Unavailable for HTTP when name resolution fails temporarily" do
+        path = IOStreams.path("http://no-such-host.example/a.csv")
+
+        Net::HTTP.stub(:start, ->(*) { raise resolution_error(Socket::EAI_AGAIN) }) do
+          assert_unavailable(Socket::ResolutionError, path) { path.read }
+        end
+      end
+    end
+
     describe "a storage that cannot handle the request at the time" do
       it "raises Unavailable for S3" do
         slow_down = {status_code: 503, headers: {}, body: "<Error><Code>SlowDown</Code><Message>Reduce</Message></Error>"}

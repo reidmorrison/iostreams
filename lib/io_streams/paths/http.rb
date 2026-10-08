@@ -384,7 +384,11 @@ module IOStreams
       end
 
       # Returns [Module] the kind of failure that an exception raised by a request means, see `IOStreams::Path#failure_kind`.
+      #
+      # A host that does not resolve is not unavailable, since the same request cannot succeed later.
       def failure_kind(exception)
+        return if Utils.unknown_host?(exception)
+
         Errors::Unavailable if NETWORK_ERRORS.any? { |error_class| exception.is_a?(error_class) }
       end
 

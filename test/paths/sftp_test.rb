@@ -784,7 +784,9 @@ module Paths
         [
           "ssh: connect to host example.org port 22: Connection refused",
           "ssh: connect to host example.org port 22: Operation timed out",
-          "ssh: Could not resolve hostname example.org: nodename nor servname provided, or not known",
+          "ssh: Could not resolve hostname example.org: Temporary failure in name resolution",
+          "ssh: Could not resolve hostname example.org: temporary failure in name resolution",
+          "ssh: Could not resolve hostname example.org: Try again",
           "kex_exchange_identification: read: Connection reset by peer",
           "Connection closed by 10.0.0.1 port 22",
           "Timeout, server example.org not responding."
@@ -800,6 +802,10 @@ module Paths
 
         [
           "Host key verification failed.",
+          # A host that does not resolve, on macOS, Linux with glibc, and musl.
+          "ssh: Could not resolve hostname example.org: nodename nor servname provided, or not known",
+          "ssh: Could not resolve hostname example.org: Name or service not known",
+          "ssh: Could not resolve hostname example.org: Name does not resolve",
           %(Couldn't open local file "/tmp/x" for writing: No such file or directory),
           "Invalid command."
         ].each do |output|
@@ -880,6 +886,32 @@ module Paths
           stub_sftp = Module.new
           stub_sftp.const_set(:StatusException, StubStatusException)
           stub_sftp.define_singleton_method(:start) { |*| raise Net::SSH::Disconnect, "connection closed by remote host" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+          end
+        end
+
+        it "does not raise Unavailable when the host does not resolve" do
+          skip_without_resolution_error
+          error     = resolution_error(Socket::EAI_NONAME)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise error }
+
+          StubNetSFTP.replace(stub_sftp) do
+            raised = assert_raises(Socket::ResolutionError) { path.exist? }
+
+            refute_kind_of IOStreams::Errors::StorageError, raised
+          end
+        end
+
+        it "raises Unavailable when name resolution fails temporarily" do
+          skip_without_resolution_error
+          error     = resolution_error(Socket::EAI_AGAIN)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise error }
 
           StubNetSFTP.replace(stub_sftp) do
             assert_raises(IOStreams::Errors::Unavailable) { path.exist? }

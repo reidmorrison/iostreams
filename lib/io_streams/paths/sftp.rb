@@ -325,7 +325,8 @@ module IOStreams
           end
         rescue *Failure::CONNECTION_ERRORS => e
           # Once connected, the same exception can be raised by the block supplied by the caller, such as `#each_child`.
-          raise if connected
+          # A host that does not resolve is not unavailable, since the same request cannot succeed later.
+          raise if connected || Utils.unknown_host?(e)
 
           raise(Errors::Unavailable.tag(e, display_name))
         end

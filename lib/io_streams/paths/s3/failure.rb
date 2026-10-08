@@ -35,8 +35,9 @@ module IOStreams
           when Aws::Errors::MissingCredentialsError, Aws::Sigv4::Errors::MissingCredentialsError
             Errors::PermissionDenied
           when Seahorse::Client::NetworkingError
-            # S3 could not be reached, once the AWS SDK has retried the request.
-            Errors::Unavailable
+            # S3 could not be reached, once the AWS SDK has retried the request, unless its host, such as that of a
+            # custom endpoint, does not resolve.
+            Errors::Unavailable unless Utils.unknown_host?(exception.original_error)
           when Aws::S3::MultipartUploadError
             # Raised once the upload of a part fails, with the failure of each part.
             kind(exception.errors.first) if exception.errors.first
