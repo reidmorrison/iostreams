@@ -1606,6 +1606,26 @@ Notes:
   Code that runs against more than one store, for example where the path is configured, should only use
   the first argument, and use methods on the path, such as `size`, for anything else.
 
+### Coming from Pathname
+
+IOStreams paths are modeled on Ruby's `Pathname`, and most methods with the same name do the same thing. These are
+the differences, each of which keeps a path working the same way wherever the file is stored:
+
+| Pathname | IOStreams | Why |
+| --- | --- | --- |
+| `Pathname("/a").join("/b")` is `/b` | `IOStreams.path("/a").join("/b")` is `/a/b`, and so is `/` | A name from configuration or untrusted input stays within the path, such as a root |
+| `join("..")` returns the parent | `join("..")` keeps `..`; use `cleanpath` or `directory` | Joining never accesses or resolves anything |
+| `Pathname("a/b").join("a/b/c")` is `a/b/a/b/c` | `IOStreams.path("a/b").join("a/b/c")` is `a/b/c` | An element that is already within the path is used as-is, so a name that includes its root is not doubled |
+| `mkpath` creates the whole path | `mkpath` creates the directories of a file, and `mkdir` creates the whole path | A path usually names a file; writing to a path creates its directories anyway |
+| `children`, `each_child` list every entry | `children("*.csv")` and `each_child` take a pattern like `glob`, skip directories and hidden files, and ignore case by default | The same pattern lists local, S3 and SFTP paths |
+| `children` raises for a missing directory | Returns nothing for a missing path, or a file | S3 has no directories that could be missing |
+| `delete` raises for a missing file | Does nothing, and returns the path | The same on every store, where checking first would be a separate request |
+| `basename`, `dirname` return a `Pathname` | Return a String; `directory` returns the directory as a path | A name on its own has no store; `basename` uses `file_name` when it is set |
+| `read(length, offset)` | `read(length)` reads bytes from the start, after any decompression or decryption | A compressed or encrypted stream cannot seek |
+| `each_line` without a block returns an Enumerator | `each` requires a block | The file, any temp file and any gpg process are closed when the block returns |
+| Paths sort with `/` first | Paths sort by their full name, see `#to_s` | Names include the scheme, bucket or host |
+| `to_path`, so `File.exist?(pathname)` works | No `to_path`; use the path's own methods, such as `exist?` and `reader` | `File` and `Dir` only work with local files, so code passing a path to them breaks when the configured path moves to S3 or SFTP |
+
 ### Using root paths
 
 Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
