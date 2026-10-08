@@ -49,9 +49,21 @@ class S3DependencyTest < Minitest::Test
       assert_equal "IOStreams::Errors::AccessDenied loaded", run_s3(code)
     end
 
-    it "is loaded to check the options that are supplied" do
-      assert_equal "LoadError", run_s3('IOStreams.path("s3://bucket/a.csv", acl: "private")', without_gem: true)
+    it "is loaded to check the options that are supplied, when it is installed" do
       assert_equal "ArgumentError loaded", run_s3('IOStreams.path("s3://bucket/a.csv", acll: "private")')
+      assert_equal "ArgumentError loaded", run_s3('IOStreams.path("s3://bucket/a.csv?acll=private")')
+    end
+
+    it "is not needed to display a path with options" do
+      code = <<~RUBY
+        print IOStreams.path("s3://bucket/a.csv?acl=private", request_payer: "requester").display_name
+      RUBY
+
+      assert_equal "s3://bucket/a.csv", run_s3(code, without_gem: true)
+    end
+
+    it "raises LoadError when reading a path with options without the gem" do
+      assert_equal "LoadError", run_s3('IOStreams.path("s3://bucket/a.csv", acll: "private").read', without_gem: true)
     end
 
     it "is not loaded until it is needed" do

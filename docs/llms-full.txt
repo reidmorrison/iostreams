@@ -964,8 +964,9 @@ path = IOStreams.path("s3://bucket-name/path/example.csv")
 
 Accessing S3 requires the `aws-sdk-s3` gem, which is loaded when it is first needed. So a process
 without it, such as a web process that only records the path of a file for a job to process, can still
-create, join, compare and display an S3 path, such as with `#display_name`. Supplying S3 options, such
-as `acl:`, loads it to check them.
+create, join, compare and display an S3 path, such as with `#display_name`, including one with S3
+options, such as `acl:`. When the gem is installed, creating a path with options loads it to check them,
+otherwise the first request checks them.
 
 #### Required Arguments:
 

@@ -188,7 +188,9 @@ module IOStreams
 
         @options = args
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
-        validate_options!
+        # Without the AWS SDK the options are checked by the first request, see `#options_for`, so that the path
+        # can still be displayed, for example by a process that only enqueues work.
+        validate_options! if options.any? && Sdk.available?
 
         super(key)
       end
@@ -459,7 +461,10 @@ module IOStreams
       #
       # Options apply to the operations that accept them, so for example `acl` applies when writing
       # and copying, and `request_payer` to every operation.
+      #
+      # Checks the options first, since they are not checked when the path is created without the AWS SDK.
       def options_for(operation)
+        validate_options!
         options.slice(*Sdk.operation_options(operation))
       end
 
