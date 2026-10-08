@@ -117,13 +117,49 @@ In addition to `layout`, the `:fixed` format takes one more option:
   instead of being truncated. Numeric values are never truncated.
   Default: true
 
+### Character encoding
+
+Fixed width files are read and written as ASCII by default. The programs that write them, such as
+COBOL programs, and the formats that specify them, such as NACHA ACH and IRS FIRE, count each column's
+size in bytes, and their text is ASCII, or a single-byte code page such as ISO-8859-1. So a value read
+is a UTF-8 string, like the values of every other format, and any byte that is not ASCII raises
+`IOStreams::Errors::InvalidEncoding`, naming the byte and its offset, rather than shifting every
+column that follows it.
+
 Each `:size` counts the characters of the text as it is read, and when writing, string values are
-padded and truncated to `:size` characters. Text is read as UTF-8 by default, so a column of size 5
-holds `José` followed by a space, which is 6 bytes. Binary data has one character per byte, so the
-sizes count bytes when a file is read as binary, with `option(:encode, encoding: "BINARY")`. Read a
-file as binary when the program that wrote it counted bytes; its values are then binary strings. A
-file in a single-byte encoding, such as ISO-8859-1, has one byte per character, so it can also be
-read in that encoding, with `option(:encode, encoding: "ISO-8859-1")`.
+padded and truncated to `:size` characters. In ASCII, and in a single-byte code page, each character
+is one byte, so the sizes count bytes.
+
+Set the encoding of the file on the [encode stream](extensions#character-encoding) when it is not
+ASCII. An encoding set with `#option` or `#stream` always replaces the ASCII default:
+
+* A single-byte code page, such as ISO-8859-1 or Windows-1252, or EBCDIC from a mainframe: name it
+  with the encoding that the values are read as, for example
+  `option(:encode, encoding: "ISO-8859-1:UTF-8")`, `"Windows-1252:UTF-8"`, or `"IBM037:UTF-8"` for
+  EBCDIC. The sizes count bytes, and the values are UTF-8 strings.
+* To load a file anyway, replacing each byte that is not ASCII with a space, so that the columns stay
+  aligned: `option(:encode, replace: " ")`.
+* UTF-8 written by a program that counts characters: `option(:encode, encoding: "UTF-8")`.
+* UTF-8 written by a program that counts bytes, which is rare: read it as binary, with
+  `option(:encode, encoding: "BINARY")`, whose values are binary strings, or with `replace: " "`.
+
+An EBCDIC file is split into lines after it is converted, so its lines must end with the EBCDIC line
+feed (`0x25`), which converts to `\n`. The EBCDIC new line (`0x15`) converts to U+0085, so supply
+`delimiter: "\u0085"` to `#each` or `#reader` for a file whose lines end with it.
+
+The `:line` mode reads ASCII too when the format of the path is `:fixed`, set with `#format` or
+detected from a file name such as `data.fixed`.
+
+When writing, a value that is not ASCII raises `Encoding::UndefinedConversionError`, rather than
+writing a line that is longer than the layout in bytes. Set the encoding of the file, such as
+`option(:encode, encoding: "ISO-8859-1")`, whose lines are then the length of the layout in bytes, or
+`replace: " "` to write a space for each character that is not ASCII:
+
+~~~ruby
+path = IOStreams.path("people.txt").option(:encode, encoding: "ISO-8859-1")
+path.format(:fixed).format_options(layout: [{size: 10, key: "name"}, {size: 5, key: "zip"}])
+path.writer(:hash) { |io| io << {"name" => "José", "zip" => "12345"} }
+~~~
 
 ## Header options
 

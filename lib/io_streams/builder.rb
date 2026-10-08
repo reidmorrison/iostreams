@@ -85,6 +85,18 @@ module IOStreams
       end
     end
 
+    # Returns [IOStreams::Builder] a copy that reads and writes text through the encode stream in the supplied
+    # encoding, unless an encoding was already set with `#option` or `#stream`. The other encode options already set,
+    # such as `replace` and `cleaner`, are kept.
+    #
+    # So that a format whose text has an encoding of its own, such as fixed width files, see
+    # `IOStreams::Tabular#encoding`, uses it by default, while the caller can still set the encoding of the data.
+    def with_default_encoding(encoding)
+      copy = dup
+      copy.option_or_stream(:encode, encoding: encoding) unless setting(:encode)&.key?(:encoding)
+      copy
+    end
+
     # Return the options set for either a stream or option.
     def setting(stream)
       return streams[stream] if streams

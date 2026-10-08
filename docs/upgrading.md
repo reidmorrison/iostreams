@@ -31,9 +31,8 @@ cannot be combined with UTF-8 text, so for example writing a CSV row that mixed 
 file with a non-ASCII UTF-8 value raised `Encoding::CompatibilityError`.
 
 Reading lines, rows or records of a file that is not valid UTF-8, such as a Windows-1252 export, now
-raises `Encoding::UndefinedConversionError`. Fixed width columns now count characters, as they
-already did when writing, so a file whose sizes count bytes raises
-`IOStreams::Errors::InvalidLineLength` for a line with a multi-byte character.
+raises `Encoding::UndefinedConversionError`. Fixed width files are read and written as ASCII instead,
+see [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii).
 
 The `:stream` mode, `read` with a length, such as `read(1024)`, and writing are unchanged: they read
 and write bytes.
@@ -125,17 +124,30 @@ example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-12
 
 Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
 
-### Fixed width columns count characters through the encode stream with `replace:`
+### Fixed width files are read and written as ASCII
 
-Reading a fixed width file through the `:encode` stream with `replace:`, for example with
-`option(:encode, encoding: "UTF-8", replace: " ")`, now counts the `size` of each column in
-characters, since the encode stream keeps valid characters. Previously each byte of a non-ASCII
-character was replaced, so the sizes counted bytes, while `Zürich` was read as `Z  rich`. A file whose
-sizes count bytes now raises `IOStreams::Errors::InvalidLineLength` for a line with a multi-byte
-character. Without `replace:`, the sizes already counted characters.
+Fixed width files, read or written with `format: :fixed`, are now ASCII unless an encoding is set on
+the `:encode` stream, since their sizes count bytes, and their text is ASCII or a single-byte code page.
+The values read are UTF-8 strings, and a byte that is not ASCII raises
+`IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, naming the byte and its
+offset. Previously the values were binary (`ASCII-8BIT`) strings, and the sizes counted bytes. The
+`:line` mode also reads ASCII when the format of the path is `:fixed`.
 
-Fix: read a file whose sizes count bytes as binary, with `option(:encode, encoding: "BINARY")`, or in
-its single-byte encoding, such as `option(:encode, encoding: "ISO-8859-1")`. See
+Writing a value that is not ASCII now raises `Encoding::UndefinedConversionError`. Previously its
+UTF-8 bytes were written, so a line with a multi-byte character was longer than the layout in bytes,
+while the sizes counted characters.
+
+Encode options that do not include an encoding, such as `option(:encode, replace: " ")`, keep the ASCII
+default, so that each byte that is not ASCII is replaced with a space. Previously, through the encode
+stream with `replace:`, each byte of a non-ASCII character was replaced, so `Zürich` was read as
+`Z  rich`.
+
+Fix: set the encoding of the file on the encode stream, such as
+`option(:encode, encoding: "ISO-8859-1:UTF-8")` for a single-byte code page, whose values are then
+UTF-8 strings, `"IBM037:UTF-8"` for EBCDIC, or `encoding: "UTF-8"` for UTF-8 written by a program that
+counts characters. To read binary strings, as before, supply `option(:encode, encoding: "BINARY")`. To
+write a file with characters that are not ASCII, set its encoding, such as
+`option(:encode, encoding: "ISO-8859-1")`, or `replace: " "`. See
 [Fixed width files](formats#fixed-width-files).
 
 ### A `+` in an S3 or SFTP url is kept

@@ -99,7 +99,8 @@ Options:
   A character that the internal encoding does not have raises `Encoding::UndefinedConversionError`,
   unless `replace` is supplied. When writing, the text is written in the external encoding, so the same
   option reads the file back.
-  Default: `"UTF-8"`
+  Default: `"UTF-8"`, or `"US-ASCII:UTF-8"` for [fixed width files](formats#fixed-width-files), unless
+  another encoding is set
 
 * `replace: [String]`
   The character to replace with when a character is invalid, or cannot be converted to the target encoding.

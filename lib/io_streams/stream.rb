@@ -431,6 +431,18 @@ module IOStreams
       raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used #{reason}")
     end
 
+    # Yields a stream that reads the text read through the streams, decoded by the encode stream, see
+    # `IOStreams::Builder#text_reader`. Protected, so that it can be called on a copy that reads in another encoding,
+    # see #with_default_encoding.
+    def text_reader(&)
+      stream_reader { |io| builder.text_reader(io, &) }
+    end
+
+    # Yields a stream that writes text through the streams. Protected, see #text_reader.
+    def text_writer(&)
+      stream_writer(&)
+    end
+
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
     # changing the streams or options of this one.
     def without_streams
@@ -474,20 +486,21 @@ module IOStreams
       builder.reader(io_stream, &)
     end
 
-    def line_reader(embedded_within: :auto, **args)
+    # The lines are read in the encoding of the format, set with #format or detected from the file name, see
+    # `IOStreams::Tabular#encoding`, unless an encoding is set on the encode stream.
+    def line_reader(embedded_within: :auto, **, &)
       # `:auto` uses the quote character of the format, set with #format or detected from the file name,
       # such as `"` for CSV, while distinguishing "not supplied" from an explicit value such as `nil`
       # (disable) or `'"'` (force).
       embedded_within = IOStreams::Tabular.quote_character(format) if embedded_within == :auto
 
-      stream_reader do |io|
-        builder.text_reader(io) do |text|
-          yield IOStreams::Line::Reader.new(
-            text,
-            embedded_within: embedded_within,
-            **args
-          )
-        end
+      open_line_reader(IOStreams::Tabular.encoding(format), embedded_within: embedded_within, **, &)
+    end
+
+    # Yields a line reader of the text read in the supplied encoding, unless an encoding is set on the encode stream.
+    def open_line_reader(encoding, **args)
+      with_default_encoding(encoding).text_reader do |text|
+        yield IOStreams::Line::Reader.new(text, **args)
       end
     end
 
@@ -498,7 +511,7 @@ module IOStreams
     def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
-      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
+      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Row::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
@@ -509,7 +522,7 @@ module IOStreams
     def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
-      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
+      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
@@ -524,10 +537,19 @@ module IOStreams
       builder.writer(io_stream, &)
     end
 
-    def line_writer(**args, &block)
+    # The lines are written in the encoding of the format, see #line_reader.
+    def line_writer(**, &block)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
-      writer do |io|
+      open_line_writer(IOStreams::Tabular.encoding(format), **, &block)
+    end
+
+    # Yields a line writer of the text written in the supplied encoding, unless an encoding is set on the encode
+    # stream. When the encoding is nil the text is written as it is, unless the encode stream is set.
+    def open_line_writer(encoding, **args, &block)
+      return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
+
+      with_default_encoding(encoding).text_writer do |io|
         IOStreams::Line::Writer.stream(io, **args, &block)
       end
     end
@@ -536,7 +558,7 @@ module IOStreams
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
       tabular = tabular(**args)
-      line_writer(delimiter: delimiter) do |io|
+      open_line_writer(tabular.encoding, delimiter: delimiter) do |io|
         block.call(IOStreams::Row::Writer.new(io, tabular: tabular))
       end
     end
@@ -545,9 +567,19 @@ module IOStreams
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
       tabular = tabular(**args)
-      line_writer(delimiter: delimiter) do |io|
+      open_line_writer(tabular.encoding, delimiter: delimiter) do |io|
         block.call(IOStreams::Record::Writer.new(io, tabular: tabular))
       end
+    end
+
+    # Returns [IOStreams::Stream] this stream, when the encoding is nil, otherwise a copy that reads and writes text
+    # in the supplied encoding unless an encoding is set on the encode stream, see `IOStreams::Builder#with_default_encoding`.
+    def with_default_encoding(encoding)
+      return self if encoding.nil?
+
+      copy         = dup
+      copy.builder = builder.with_default_encoding(encoding)
+      copy
     end
   end
 end
