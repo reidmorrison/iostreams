@@ -141,6 +141,68 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".local_file_name" do
+      let(:dir) { Dir.mktmpdir("iostreams_local_file_name") }
+      let(:file_name) { File.join(dir, "data.csv") }
+
+      before do
+        File.write(file_name, "a,b\n")
+      end
+
+      after do
+        FileUtils.rm_rf(dir)
+      end
+
+      it "returns the name of a local file at its start" do
+        File.open(file_name, "rb") { |file| assert_equal file_name, IOStreams::Utils.local_file_name(file) }
+      end
+
+      it "returns nil for a local file that is not at its start" do
+        File.open(file_name, "rb") do |file|
+          file.read(1)
+
+          assert_nil IOStreams::Utils.local_file_name(file)
+        end
+      end
+
+      it "returns the absolute name of a file opened with a relative name, so that `-` is not stdin" do
+        Dir.chdir(dir) do
+          File.write("-", "a,b\n")
+          File.open("-", "rb") do |file|
+            assert_equal File.join(Dir.pwd, "-"), IOStreams::Utils.local_file_name(file)
+
+            Dir.chdir("/") { assert_nil IOStreams::Utils.local_file_name(file) }
+          end
+        end
+      end
+
+      it "returns nil when the name no longer refers to the file" do
+        File.open(file_name, "rb") do |file|
+          File.rename(file_name, "#{file_name}.moved")
+
+          assert_nil IOStreams::Utils.local_file_name(file)
+        end
+      end
+
+      it "returns nil for a closed file" do
+        file = File.open(file_name, "rb") { |io| io }
+
+        assert_nil IOStreams::Utils.local_file_name(file)
+      end
+
+      it "returns nil for a file that is not a regular file" do
+        File.open(File::NULL, "rb") { |file| assert_nil IOStreams::Utils.local_file_name(file) }
+      end
+
+      it "returns nil for a stream that is not a file" do
+        assert_nil IOStreams::Utils.local_file_name(StringIO.new("a,b\n"))
+
+        IO.pipe do |reader, _writer|
+          assert_nil IOStreams::Utils.local_file_name(reader)
+        end
+      end
+    end
+
     describe ".unknown_host?" do
       it "is true for a host name that does not resolve" do
         skip_without_resolution_error

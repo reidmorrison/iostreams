@@ -63,6 +63,24 @@ module IOStreams
       end
     end
 
+    # Returns [String] the absolute name of the local file that the IO reads or writes, so that a reader or writer
+    # that only works on files, such as zip, can open the file itself instead of a temp copy of it.
+    #
+    # Only when the IO is a regular file at its start, and its name still refers to it, which for example a
+    # relative name no longer does after the current directory changes.
+    # Returns nil for any other IO, such as a pipe, a socket or a StringIO.
+    #
+    # The name is absolute so that a program that is given it, such as gpg, cannot mistake a file named `-`
+    # for stdin or stdout, or a name starting with `-` for an option.
+    def self.local_file_name(io)
+      return unless io.is_a?(::File) && !io.closed? && io.path
+
+      name = ::File.absolute_path(io.path)
+      name if io.stat.file? && io.pos.zero? && ::File.identical?(io, name)
+    rescue SystemCallError
+      nil
+    end
+
     # Yields the name of a new, empty temporary file that only the current user can read or write.
     #
     # The file is created exclusively, so that an existing file, or a link planted in a shared

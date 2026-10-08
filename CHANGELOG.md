@@ -150,6 +150,7 @@ These bug fixes change behavior that existing code may depend on:
 - Reading or writing `.enc` loads the `symmetric-encryption` gem when the application has not required it. Previously it raised `NameError: uninitialized constant SymmetricEncryption`, since the check for whether the gem was loaded found `IOStreams::SymmetricEncryption` instead.
 - A local `#realpath` keeps the streams, options and `create_path:` of the path, since it is the same file. Previously it returned a new path without them, so for example `IOStreams.path("a.csv", create_path: false).realpath.write("x")` created the directories.
 - The docs said that `IOStreams.path("sample/data").mkpath` creates `sample/data`. `#mkpath` treats the last element as the file name, so it creates `sample`; `#mkdir` creates the whole path.
+- Reading a local `.zip`, `.xlsx` or PGP file, and writing a local PGP file, no longer copies the file into a temp file: the zip reader, the `creek` gem and `gpg` read or write the file itself. Reading or writing one on S3, SFTP or HTTP now uses only the temp file that the path downloads into or uploads from, where previously the format also copied it into a second temp file of the same size. The same applies to a `File` supplied to `IOStreams.stream`, read from its start, or written to when it is empty. The docs now list [when temp files are used](https://iostreams.reidmorrison.com/config#when-temp-files-are-used), and no longer say that GnuPG cannot stream.
 
 ## [2.1.0] - 2026-10-04
 

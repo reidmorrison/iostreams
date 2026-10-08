@@ -507,6 +507,39 @@ module Paths
           assert_equal data.size, new_file_path.size
         end
       end
+
+      describe "temp files" do
+        it "reads and writes a PGP file without a temp file" do
+          path    = directory.join("data.csv.pgp")
+          result  = nil
+          written = temp_files_created { path.option(:pgp, recipient: "receiver@example.org").write(data) }
+          read    = temp_files_created { result = path.option(:pgp, passphrase: "receiver_passphrase").read }
+
+          assert_empty written
+          assert_empty read
+          assert_equal data, result
+        end
+
+        it "reads a zip file without a temp file" do
+          path = directory.join("data.csv.zip")
+          path.write(data)
+          result = nil
+          read   = temp_files_created { result = path.read }
+
+          assert_empty read
+          assert_equal data, result
+        end
+
+        it "reads a zip file within a PGP file through a temp file, since zip needs the whole file" do
+          path = directory.join("data.csv.zip.pgp")
+          path.option(:pgp, recipient: "receiver@example.org").write(data)
+          result = nil
+          read   = temp_files_created { result = path.option(:pgp, passphrase: "receiver_passphrase").read }
+
+          assert_equal %w[iostreams_reader], read
+          assert_equal data, result
+        end
+      end
     end
   end
 end

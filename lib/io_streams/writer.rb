@@ -30,9 +30,18 @@ module IOStreams
       []
     end
 
-    # When a Writer does not support streams, we copy the stream to a local temp file
-    # and then pass that filename in for this reader.
+    # When a Writer does not support streams, it writes to the file of the stream when the stream is an
+    # empty local file, see `Utils.local_file_name`. Otherwise it writes to a local temp file, which is
+    # then copied to the stream.
     def self.stream(output_stream, **args, &block)
+      local_file_name = Utils.local_file_name(output_stream)
+      if local_file_name && output_stream.stat.zero?
+        result = file(local_file_name, **args, &block)
+        # So that anything written to the stream next follows the data, as if it had been copied to the stream.
+        output_stream.seek(0, ::IO::SEEK_END)
+        return result
+      end
+
       Utils.private_temp_file("iostreams_writer") do |file_name|
         count = file(file_name, **args, &block)
         ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) }

@@ -30,9 +30,18 @@ module IOStreams
       []
     end
 
-    # When a Reader does not support streams, we copy the stream to a local temp file
-    # and then pass that filename in for this reader.
+    # When a Reader does not support streams, it reads the file of the stream when the stream is already
+    # a local file, see `Utils.local_file_name`. Otherwise the stream is copied to a local temp file,
+    # and that file name is passed to this reader.
     def self.stream(input_stream, **args, &block)
+      local_file_name = Utils.local_file_name(input_stream)
+      if local_file_name
+        result = file(local_file_name, **args, &block)
+        # Leave the stream at its end, as if it had been copied.
+        input_stream.seek(0, ::IO::SEEK_END)
+        return result
+      end
+
       Utils.private_temp_file("iostreams_reader") do |file_name|
         ::File.open(file_name, "wb") { |target| ::IO.copy_stream(input_stream, target) }
         file(file_name, **args, &block)

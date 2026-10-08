@@ -65,6 +65,19 @@ def untrusted_pgp_key
   IOStreams::Pgp.export(email: "untrusted@example.org")
 end
 
+# Returns [Array<String>] the base name of each temp file that IOStreams created while the block ran,
+# such as "iostreams_s3", in the order that they were created.
+def temp_files_created(&)
+  names    = []
+  original = IOStreams::Utils.method(:private_temp_file)
+  record   = lambda do |basename, *args, &block|
+    names << basename
+    original.call(basename, *args, &block)
+  end
+  IOStreams::Utils.stub(:private_temp_file, record, &)
+  names
+end
+
 # Test paths
 root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))

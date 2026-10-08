@@ -481,4 +481,8 @@ Select highest level: 5
 ### PGP Limitations
 
 * Designed for processing larger files since a process is spawned for each file processed.
+* `gpg` reads and writes the file directly when it is a local file, or the temp file that an S3, SFTP or
+  HTTP path downloads into or uploads from. PGP data within another stream, such as `data.csv.pgp.gz`, or
+  in an IO that is not a `File`, such as a `StringIO`, is copied through a temp file, see
+  [When temp files are used](config#when-temp-files-are-used).
 * For lots of small, in memory files, use the [gpgme](https://github.com/ueno/ruby-gpgme) library. For example to attach pgp files to emails.

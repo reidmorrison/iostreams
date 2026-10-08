@@ -967,6 +967,10 @@ without it, such as a web process that only records the path of a file for a job
 create, join, compare and display an S3 path, such as with `#display_name`. Supplying S3 options, such
 as `acl:`, loads it to check them.
 
+Reading downloads the object into a local temp file before the block is called, and writing writes into a
+temp file, which is uploaded once the block completes, so the object is only replaced once the whole file has
+been written. See [When temp files are used](config#when-temp-files-are-used).
+
 #### Required Arguments:
 
 * url [String]
@@ -1297,7 +1301,7 @@ end
 
 Notes:
 * Since the `sftp` program operates on local files, reading from or writing to an SFTP path
-  streams through a local temp file behind the scenes.
+  streams through a local temp file behind the scenes, see [When temp files are used](config#when-temp-files-are-used).
 
 ### HTTP (http://, https://)
 
@@ -1311,7 +1315,8 @@ IOStreams.path('https://example.com/upload/report.csv', headers: {"Authorization
 ~~~
 
 Notes:
-* Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
+* Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first,
+  see [When temp files are used](config#when-temp-files-are-used).
 * Writing also streams into a tempfile first, which is uploaded in a single PUT request once the
   block completes, so that the server receives its size in the `Content-Length` header.
   The `Content-Type` is `application/octet-stream` unless supplied with `headers:`.
@@ -1901,8 +1906,10 @@ Notes:
 
 ## Notes
 
-* Reading a Zip file requires the entire file to be available locally, so reading from a
-  stream (for example S3 or HTTP) downloads it into a temp file first.
+* Reading a Zip file requires the entire file to be available locally. A local zip file is
+  read directly, as is the temp file that an S3, SFTP or HTTP path downloads it into. A zip file
+  within another stream, such as `data.csv.zip.pgp`, or in an IO that is not a `File`, is first
+  copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
   Writing Zip is fully streamed, no temp file is required.
 * When writing, `entry_file_name` sets the name of the file entry within the zip file.
   It defaults to the file name without the `.zip` extension, so writing to
@@ -2427,8 +2434,10 @@ end
 ~~~
 
 Notes:
-* Since the underlying `creek` gem operates on files, when reading from a stream (for example S3 or HTTP)
-  the contents are first downloaded into a temp file.
+* The underlying `creek` gem reads a spreadsheet file and returns its rows to a block, so the rows are
+  converted into CSV in a temp file for the application to read. A local spreadsheet is read directly,
+  as is the temp file that an S3, SFTP or HTTP path downloads it into, while one in an IO that is not a
+  `File` is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
 * Writing xlsx files is not supported.
 
 ## Character encoding
@@ -3384,6 +3393,10 @@ Select highest level: 5
 ### PGP Limitations
 
 * Designed for processing larger files since a process is spawned for each file processed.
+* `gpg` reads and writes the file directly when it is a local file, or the temp file that an S3, SFTP or
+  HTTP path downloads into or uploads from. PGP data within another stream, such as `data.csv.pgp.gz`, or
+  in an IO that is not a `File`, such as a `StringIO`, is copied through a temp file, see
+  [When temp files are used](config#when-temp-files-are-used).
 * For lots of small, in memory files, use the [gpgme](https://github.com/ueno/ruby-gpgme) library. For example to attach pgp files to emails.
 
 ---
@@ -3509,8 +3522,11 @@ IOStreams.root(:downloads).to_s
 
 ## temp_dir
 
-When working with large files the standard temp file system location can be too small to handle downloading large
-files. For example to decrypt a pgp file from S3, because GnuPG is not streaming capable and only operates on local files.
+IOStreams reads and writes files of any size a block at a time, and most streams never touch the disk.
+For some storage locations and formats IOStreams copies the data into a temp file under the covers, see
+[When temp files are used](#when-temp-files-are-used). Each temp file holds a whole file, so when working with
+large files the standard temp location can be too small, for example to download a large file from S3, or to
+copy one from S3 to SFTP, which holds two temp files at once.
 
 By default IOStreams looks up the location to store temp files in the following order:
 * `ENV['TMPDIR']`
@@ -3525,6 +3541,66 @@ To explicity set the temp file location the following config option can be used:
 ~~~ruby
 IOStreams.temp_dir = "/var/really_big_temp"
 ~~~
+
+### When temp files are used
+
+The application reads and writes a block at a time wherever the file is stored, but S3, SFTP and HTTP paths
+transfer the whole file through a temp file:
+
+| Path | Reading | Writing | Why |
+| --- | --- | --- | --- |
+| Local file | No temp file | No temp file | |
+| AWS S3 | Downloads the object into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The AWS SDK pushes the data that it downloads, and pulls the data that it uploads, the opposite of how the application reads and writes |
+| SFTP | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The `sftp` program transfers local files, and only uploads a regular file |
+| HTTP(S) | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded with a single PUT once the block completes | Net::HTTP pushes the data that it downloads, and downloading first closes the connection before the block runs. An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
+| An IO supplied to `IOStreams.stream` | No temp file | No temp file | |
+
+Most formats are read and written as the data passes through them. A format that only works on whole files
+reads or writes a local file directly when it has one: a local path, a `File` supplied to `IOStreams.stream`, or
+the temp file of an S3, SFTP or HTTP path. Otherwise its data is copied into a temp file first, for example when
+reading the zip file within `data.csv.zip.pgp`, which comes from `gpg` as it decrypts the file, or a zip file
+supplied in a `StringIO`.
+
+| Format | Reading | Writing | Why |
+| --- | --- | --- | --- |
+| `.gz`, `.gzip`, `.bz2`, `.enc` | No temp file | No temp file | Streamed |
+| `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
+| `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | Not supported | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read |
+| `.pgp`, `.gpg` | No temp file for a local file, otherwise a temp file holding the encrypted data. With `verify_first: true`, also a temp file holding the decrypted data | No temp file for a local file, otherwise a temp file holding the encrypted data, which is then copied to the stream | IOStreams runs `gpg` on files |
+
+So a zip, spreadsheet or PGP stream only has a local file when it is the stream closest to the stored data: the
+last extension in the file name, or the last stream set with `#stream`. `#pipeline` lists the streams in order
+from the application to the stored data:
+
+~~~ruby
+IOStreams.path("sftp://example.org/data.csv.zip.pgp").pipeline
+# => {zip: {}, pgp: {}}
+# Reading: gpg decrypts the SFTP download, and the zip file that it decrypts is copied into a temp file.
+~~~
+
+For example:
+
+| Path | Temp files when reading | Temp files when writing |
+| --- | --- | --- |
+| `data.csv`, `data.csv.gz`, `data.csv.zip`, `data.csv.pgp` | None | None |
+| `data.xlsx` | 1: the rows as CSV | Not supported |
+| `data.csv.pgp`, read with `verify_first: true` | 1: the decrypted data | None |
+| `data.csv.zip.pgp` | 1: the decrypted zip file | None |
+| `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | 1: the download | 1: the upload |
+| `s3://bucket/data.xlsx` | 2: the download, and the rows as CSV | Not supported |
+| `sftp://example.org/data.csv.zip.pgp` | 2: the download, and the decrypted zip file | 1: the upload |
+| `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | 1: the encrypted data | 1: the encrypted data |
+
+Notes:
+* `#copy_from` and `#copy_to` read the source while they write the target, so copying from one S3, SFTP or HTTP
+  path to another holds two temp files at once, each holding the whole file. S3 copies an object to another S3
+  path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
+  than 5GB.
+* An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp
+  files, since `sftp` and `gpg` read them from files.
+* Only the current user can read a temp file, and it is deleted when the block returns or raises. A temp file can
+  hold decrypted data, such as the zip file within a `.zip.pgp` file, or the contents of a PGP file read with
+  `verify_first: true`, so keep `temp_dir` on storage that is protected as well as the data.
 
 ### temp_file
 
