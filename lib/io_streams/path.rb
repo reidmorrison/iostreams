@@ -343,6 +343,7 @@ module IOStreams
       str     = "#<#{self.class.name}:#{display_name}"
       str << " @builder=#{builder.streams.inspect}" if builder.streams
       str << " @options=#{builder.options.inspect}" if builder.options
+      str << " @encoding=#{builder.setting(:encode).inspect}" if builder.setting(:encode)
       str << " pipeline=#{builder.pipeline.inspect}>"
     end
 

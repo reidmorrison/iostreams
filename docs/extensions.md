@@ -65,21 +65,39 @@ Notes:
 The built-in `:encode` stream converts the character encoding of the data being read or written.
 Lines, rows and records are always read through it, with its default options unless it is set, so
 they are UTF-8 by default, see [Text and binary data](streams#text-and-binary-data).
-It is applied with `option` or `stream` rather than a file name extension, and it converts the text
-that the application reads or writes, so it comes before the other streams, whatever order they are
-set in:
+Set it with `#encoding` rather than a file name extension. It converts the text that the application
+reads or writes, so it comes before the other streams, and it applies alongside the streams from the
+file name or those set with `#stream`. It also works for a stream without a file name:
 
 ~~~ruby
 IOStreams.path("sample.csv.gz").
-  option(:encode, encoding: "UTF-8", cleaner: :printable, replace: "").
+  encoding("UTF-8", cleaner: :printable, replace: "").
   each do |line|
     puts line
   end
 ~~~
 
+Each call merges its options with those already set, so `encoding("UTF-8").encoding(replace: "")` is
+the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams.
+
+**Deprecated:** setting the encode stream with `option(:encode, ...)` or `stream(:encode, ...)`.
+Both still work, and set the same options as `#encoding`, but use `#encoding` instead:
+
+| Deprecated                                         | Use instead                       |
+|----------------------------------------------------|-----------------------------------|
+| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
+| `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
+| `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
+| `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
+
+`stream(:encode, ...)` also stops the streams being taken from the file name, like any other stream
+set with `#stream`, so a `.gz` file read with `stream(:encode, encoding: "BINARY")` is not
+decompressed. `encoding("BINARY")` keeps them; add `stream(:none)` first to read the data as-is.
+
 Options:
 
 * `encoding: [String|Encoding]`
+  Supplied as the first argument, `encoding("UTF-8")`, or as `encoding: "UTF-8"`.
   The target encoding, for example `"UTF-8"`, `"US-ASCII"`, or `"ASCII-8BIT"`.
   Data that is read, whether from a file or through another stream such as `:gz`, and binary data
   that is written, is treated as already being in this encoding, so its characters are kept and only
@@ -91,7 +109,7 @@ Options:
   converts it to the internal encoding, for example to read a Windows-1252 file as UTF-8 strings:
 
   ~~~ruby
-  IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8").each(:hash) do |record|
+  IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8").each(:hash) do |record|
     record["name"] # => a UTF-8 String
   end
   ~~~

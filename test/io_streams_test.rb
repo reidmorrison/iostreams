@@ -224,6 +224,7 @@ module IOStreams
           assert_predicate root, :frozen?
           assert_equal({gz: {level: 1}}, root.pipeline)
           assert_raises(FrozenError) { root.option(:gz, level: 9) }
+          assert_raises(FrozenError) { root.encoding("BINARY") }
           assert_raises(FrozenError) { root.file_name = "b.csv" }
           assert_raises(FrozenError) { root.file_name("b.csv") }
           assert_equal "exports.csv.gz", root.file_name

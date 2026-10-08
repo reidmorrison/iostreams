@@ -64,7 +64,7 @@ module IOStreams
       # Write a line to the output stream
       #
       # Example:
-      #   IOStreams.path('a.txt').option(:encode, encoding: 'UTF-8').writer do |stream|
+      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
       #     stream << 'first line' << 'second line'
       #   end
       def <<(record)
@@ -76,7 +76,7 @@ module IOStreams
       # Returns [Integer] the number of bytes written.
       #
       # Example:
-      #   IOStreams.path('a.txt').option(:encode, encoding: 'UTF-8').writer do |stream|
+      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
       #     count = stream.write('first line')
       #     puts "Wrote #{count} bytes to the output file"
       #   end

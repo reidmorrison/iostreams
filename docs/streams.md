@@ -182,19 +182,19 @@ binary file, such as an image, whose bytes are unchanged. The default `:stream` 
 reads bytes from every stream, so `io.read(128)` above returns up to 128 bytes of binary data, and `io.read`
 returns the rest of the data as bytes, whether the file is plain, compressed or encrypted.
 
-To read a file in another encoding, set it on the [encode stream](extensions#character-encoding),
+To read a file in another encoding, set it with [`#encoding`](extensions#character-encoding),
 whose strings are then in that encoding:
 ~~~ruby
-IOStreams.path("export.csv").option(:encode, encoding: "Windows-1252").each(:hash) do |hash|
+IOStreams.path("export.csv").encoding("Windows-1252").each(:hash) do |hash|
   p hash
 end
 ~~~
 
 To read lines, rows or records as binary strings, as IOStreams did before v3.0, supply
-`option(:encode, encoding: "BINARY")`, and to replace invalid characters instead of raising, supply
-`replace:`, for example `option(:encode, encoding: "UTF-8", replace: "?")`.
+`encoding("BINARY")`, and to replace invalid characters instead of raising, supply
+`replace:`, for example `encoding("UTF-8", replace: "?")`.
 
-Writing does not change the data, unless an encode stream is set: the bytes of each string are
+Writing does not change the data, unless an encoding is set: the bytes of each string are
 written as they are. Fixed width files are the exception: they are written as ASCII.
 
 ## Pipeline

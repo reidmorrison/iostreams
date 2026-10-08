@@ -8,8 +8,8 @@ module IOStreams
     # file name extension with `IOStreams.register_extension`:
     #   :encode
     #     The built-in encode stream, see `IOStreams::Encode`. It converts the text that the application reads or
-    #     writes, so file names do not name it. It applies whenever its options are set with `#option`, and is
-    #     always closest to the application.
+    #     writes, so file names do not name it. It applies whenever its options are set with `#encoding`, and is
+    #     always closest to the application. Setting it with `#option` or `#stream` is deprecated, but still works.
     #   :none
     #     Supplied to `#stream` to apply no streams.
     RESERVED_KEYWORDS = %i[encode none].freeze
@@ -23,13 +23,15 @@ module IOStreams
       @file_name = file_name
       @streams   = nil
       @options   = nil
+      @encoding  = nil
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
     def initialize_copy(source)
       super
-      @streams = @streams&.transform_values(&:dup)
-      @options = @options&.transform_values(&:dup)
+      @streams  = @streams&.transform_values(&:dup)
+      @options  = @options&.transform_values(&:dup)
+      @encoding = @encoding&.dup
     end
 
     # Supply an option that is only applied once the file name extensions have been parsed.
@@ -38,8 +40,12 @@ module IOStreams
     # - Raises ArgumentError for an option that neither the reader nor the writer for the stream accepts,
     #   even when the file name does not include the stream. So a misspelled option raises wherever the code
     #   runs, rather than only where the path, for example from configuration, includes the stream.
+    #
+    # Setting the encode stream with `option(:encode, ...)` is deprecated, see #encoding, which it calls.
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
+      return merge_encoding(options) if stream == :encode
+
       format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
@@ -54,14 +60,21 @@ module IOStreams
       self
     end
 
+    # Setting the encode stream with `stream(:encode, ...)` is deprecated, see #encoding. Like any other stream
+    # set with `#stream`, it still stops the streams being taken from the file name.
     def stream(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @options
 
-      # To prevent any streams from being applied supply a stream named `:none`
+      # To prevent any streams from being applied, including the encode stream, supply a stream named `:none`
       if stream == :none
-        @streams = {}
+        @streams  = {}
+        @encoding = nil
         return self
+      end
+      if stream == :encode
+        @streams ||= {}
+        return merge_encoding(options)
       end
       format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
 
@@ -75,6 +88,25 @@ module IOStreams
       self
     end
 
+    # Sets the encoding of the text that the application reads or writes, and the other options of the built-in
+    # encode stream, see `IOStreams::Encode`, merging them with those already set.
+    #
+    # Unlike `#option`, it can be combined with `#stream`, and needs no file name. Unlike `#stream`, it does not
+    # stop the streams being taken from the file name.
+    #
+    # Raises ArgumentError when neither an encoding nor any options are supplied, when the encoding is supplied
+    # both as an argument and as the `encoding:` option, or for an option that the encode stream does not take.
+    def encoding(encoding = nil, **options)
+      if encoding
+        raise(ArgumentError, "Supply the encoding as an argument or as `encoding:`, not both") if options.key?(:encoding)
+
+        options = {encoding: encoding, **options}
+      end
+      raise(ArgumentError, "Supply the encoding, or options for the encode stream") if options.empty?
+
+      merge_encoding(options)
+    end
+
     def option_or_stream(stream, **)
       if streams
         stream(stream, **)
@@ -86,19 +118,20 @@ module IOStreams
     end
 
     # Returns [IOStreams::Builder] a copy that reads and writes text through the encode stream in the supplied
-    # encoding, unless an encoding was already set with `#option` or `#stream`. The other encode options already set,
+    # encoding, unless an encoding was already set, see #encoding. The other encode options already set,
     # such as `replace` and `cleaner`, are kept.
     #
     # So that a format whose text has an encoding of its own, such as fixed width files, see
     # `IOStreams::Tabular#encoding`, uses it by default, while the caller can still set the encoding of the data.
     def with_default_encoding(encoding)
       copy = dup
-      copy.option_or_stream(:encode, encoding: encoding) unless setting(:encode)&.key?(:encoding)
+      copy.encoding(encoding) unless setting(:encode)&.key?(:encoding)
       copy
     end
 
     # Return the options set for either a stream or option.
     def setting(stream)
+      return @encoding if stream.to_sym == :encode
       return streams[stream] if streams
 
       options[stream] if options
@@ -116,7 +149,7 @@ module IOStreams
     # for reading lines, rows or records.
     #
     # Text is decoded by the built-in encode stream, see `IOStreams::Encode`. So unless the pipeline already
-    # includes it, set with `#option` or `#stream`, the supplied stream is read through the encode stream with its
+    # includes it, see #encoding, the supplied stream is read through the encode stream with its
     # default options, which read UTF-8.
     def text_reader(io_stream, &)
       return yield(io_stream) if pipeline.key?(:encode)
@@ -143,11 +176,10 @@ module IOStreams
     # with their options that will be applied when the reader or writer is invoked.
     #
     # The streams are in order from the one closest to the application to the one closest to the data. The encode
-    # stream, which converts the text that the application reads or writes, comes first, whatever order the streams
-    # were set in with `#stream`.
+    # stream, which converts the text that the application reads or writes, comes first, see #encoding.
     def pipeline
-      built = streams || build_pipeline
-      built.slice(:encode).merge(built.except(:encode)).freeze
+      encode = @encoding ? {encode: @encoding} : {}
+      encode.merge(streams || build_pipeline).freeze
     end
 
     # Removes the named stream from the current pipeline.
@@ -155,7 +187,12 @@ module IOStreams
     # Note: Any options must be set _before_ calling this method.
     def remove_from_pipeline(stream_name)
       @streams ||= build_pipeline
-      @streams.delete(stream_name.to_sym)
+      stream_name = stream_name.to_sym
+      return @streams.delete(stream_name) unless stream_name == :encode
+
+      encoding  = @encoding
+      @encoding = nil
+      encoding
     end
 
     # Returns [IOStreams::Builder] a copy to display, for example by `#inspect`, with the value of each sensitive
@@ -171,7 +208,7 @@ module IOStreams
     def inspect
       copy = redacted
       "#<#{self.class.name} @file_name=#{file_name.inspect}, @streams=#{copy.streams.inspect}, " \
-        "@options=#{copy.options.inspect}>"
+        "@options=#{copy.options.inspect}, @encoding=#{copy.setting(:encode).inspect}>"
     end
 
     # Returns [true|false] whether a stream in the pipeline compresses the data.
@@ -190,8 +227,9 @@ module IOStreams
 
     # Replaces the value of each sensitive option of this copy, see #redacted.
     def redact!
-      @streams = redact(@streams) if @streams
-      @options = redact(@options) if @options
+      @streams  = redact(@streams) if @streams
+      @options  = redact(@options) if @options
+      @encoding = Encode.redact_options(@encoding) if @encoding
     end
 
     private
@@ -212,10 +250,14 @@ module IOStreams
       return {} unless file_name
 
       opts = options || {}
-      # File names do not name the encode stream, so it applies whenever its options are set.
-      built_streams = opts.slice(:encode)
-      parse_extensions.each { |stream| built_streams[stream] = opts[stream] || {} }
-      built_streams
+      parse_extensions.to_h { |stream| [stream, opts[stream] || {}] }
+    end
+
+    # Validates the options of the encode stream and merges them with those already set, see #encoding.
+    def merge_encoding(options)
+      Encode.validate_options(nil, options, name: :encode)
+      @encoding = (@encoding || {}).merge(options)
+      self
     end
 
     # Returns the format of the stream: the built-in encode stream, see `IOStreams::Encode`, or the format

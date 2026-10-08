@@ -35,14 +35,14 @@ module IOStreams
   #    # => "files/file.xls"
   #
   # For Files
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'BINARY').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:hash) { |hash| p hash }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').read
+  # IOStreams.path('blah.zip').encoding('BINARY').each(:line) { |line| puts line }
+  # IOStreams.path('blah.zip').encoding('UTF-8').each(:line) { |line| puts line }
+  # IOStreams.path('blah.zip').encoding('UTF-8').each(:hash) { |hash| p hash }
+  # IOStreams.path('blah.zip').encoding('UTF-8').read
   # IOStreams.path('blah.csv.zip').each(:line) { |line| puts line }
   # IOStreams.path('blah.zip').option(:pgp, passphrase: 'receiver_passphrase').read
   # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
-  # IOStreams.path('blah.zip').stream(:zip).stream(:encode, encoding: 'BINARY').read
+  # IOStreams.path('blah.zip').stream(:zip).encoding('BINARY').read
   #
   #
   # A path supplied on its own is copied, keeping its streams and options, so that changing the

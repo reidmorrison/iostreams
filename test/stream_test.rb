@@ -160,6 +160,25 @@ class StreamTest < Minitest::Test
         assert_equal text, data
       end
 
+      it "reads lines in the encoding set with #encoding" do
+        lines = []
+        IOStreams.stream(StringIO.new(bad_data)).encoding("ISO-8859-1:UTF-8").each(:line) { |line| lines << line }
+
+        assert_equal Encoding::UTF_8, lines.first.encoding
+        assert_equal "New M\u00e9xico,NE", lines.first
+      end
+
+      it "decodes the text read through the streams from the file name with #encoding" do
+        Tempfile.create(["encoding", ".csv.gz"]) do |file|
+          path = IOStreams.path(file.path)
+          path.encoding("ISO-8859-1").write("M\u00e9xico")
+
+          assert_equal({encode: {encoding: "ISO-8859-1"}, gz: {}}, path.pipeline)
+          assert_equal "M\xE9xico".b, IOStreams.path(file.path).encoding("BINARY").read
+          assert_equal "M\u00e9xico", IOStreams.path(file.path).encoding("ISO-8859-1:UTF-8").read
+        end
+      end
+
       it "reads lines as UTF-8 without any other streams" do
         lines = []
         IOStreams.stream(StringIO.new(text)).stream(:none).each(:line) { |line| lines << line }

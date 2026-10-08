@@ -2,7 +2,7 @@ module IOStreams
   # Converts text to an encoding, and optionally cleanses it.
   #
   # The encode stream is built in rather than registered for a file name extension, since file names do not
-  # name it. It applies whenever its options are set with `#option`, see `IOStreams::Builder::RESERVED_KEYWORDS`.
+  # name it. It applies whenever its options are set with `#encoding`, see `IOStreams::Builder::RESERVED_KEYWORDS`.
   module Encode
     extend StreamFormat
 

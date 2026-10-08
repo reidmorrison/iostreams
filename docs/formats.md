@@ -130,18 +130,18 @@ Each `:size` counts the characters of the text as it is read, and when writing, 
 padded and truncated to `:size` characters. In ASCII, and in a single-byte code page, each character
 is one byte, so the sizes count bytes.
 
-Set the encoding of the file on the [encode stream](extensions#character-encoding) when it is not
-ASCII. An encoding set with `#option` or `#stream` always replaces the ASCII default:
+Set the encoding of the file with [`#encoding`](extensions#character-encoding) when it is not
+ASCII. An encoding that is set always replaces the ASCII default:
 
 * A single-byte code page, such as ISO-8859-1 or Windows-1252, or EBCDIC from a mainframe: name it
   with the encoding that the values are read as, for example
-  `option(:encode, encoding: "ISO-8859-1:UTF-8")`, `"Windows-1252:UTF-8"`, or `"IBM037:UTF-8"` for
+  `encoding("ISO-8859-1:UTF-8")`, `"Windows-1252:UTF-8"`, or `"IBM037:UTF-8"` for
   EBCDIC. The sizes count bytes, and the values are UTF-8 strings.
 * To load a file anyway, replacing each byte that is not ASCII with a space, so that the columns stay
-  aligned: `option(:encode, replace: " ")`.
-* UTF-8 written by a program that counts characters: `option(:encode, encoding: "UTF-8")`.
+  aligned: `encoding(replace: " ")`.
+* UTF-8 written by a program that counts characters: `encoding("UTF-8")`.
 * UTF-8 written by a program that counts bytes, which is rare: read it as binary, with
-  `option(:encode, encoding: "BINARY")`, whose values are binary strings, or with `replace: " "`.
+  `encoding("BINARY")`, whose values are binary strings, or with `replace: " "`.
 
 An EBCDIC file is split into lines after it is converted, so its lines must end with the EBCDIC line
 feed (`0x25`), which converts to `\n`. The EBCDIC new line (`0x15`) converts to U+0085, so supply
@@ -152,11 +152,11 @@ detected from a file name such as `data.fixed`.
 
 When writing, a value that is not ASCII raises `Encoding::UndefinedConversionError`, rather than
 writing a line that is longer than the layout in bytes. Set the encoding of the file, such as
-`option(:encode, encoding: "ISO-8859-1")`, whose lines are then the length of the layout in bytes, or
+`encoding("ISO-8859-1")`, whose lines are then the length of the layout in bytes, or
 `replace: " "` to write a space for each character that is not ASCII:
 
 ~~~ruby
-path = IOStreams.path("people.txt").option(:encode, encoding: "ISO-8859-1")
+path = IOStreams.path("people.txt").encoding("ISO-8859-1")
 path.format(:fixed).format_options(layout: [{size: 10, key: "name"}, {size: 5, key: "zip"}])
 path.writer(:hash) { |io| io << {"name" => "José", "zip" => "12345"} }
 ~~~
@@ -167,7 +167,7 @@ To remove non-printable characters, such as NUL padding, from a fixed width file
 space, so that every column after them stays in place:
 
 ~~~ruby
-path.option(:encode, cleaner: :replace_non_printable, replace: " ")
+path.encoding(cleaner: :replace_non_printable, replace: " ")
 ~~~
 
 Since `replace:` also replaces invalid characters, each byte that is not ASCII is replaced with a space

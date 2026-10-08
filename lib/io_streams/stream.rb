@@ -45,9 +45,33 @@ module IOStreams
     # IOStreams.path("keep_safe.enc").option(:pgp, passphrase: "receiver_passphrase").read
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
+    #
+    # Setting the encode stream with `option(:encode, ...)` is deprecated, use #encoding instead.
     def option(stream, **)
       raise_if_frozen!
       builder.option(stream, **)
+      self
+    end
+
+    # Set the character encoding of the text that the application reads or writes, which the built-in encode
+    # stream converts, and its other options, `replace:` and `cleaner:`. Unlike the streams in the file name, the
+    # encoding stays with the path, whichever streams it has, and works for a stream without a file name too.
+    #
+    # Examples:
+    #
+    # # Read a Windows-1252 file as UTF-8 strings.
+    # IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8").each(:hash) { |hash| p hash }
+    #
+    # # Read binary lines from a compressed file, which is still decompressed.
+    # IOStreams.path("data.csv.gz").encoding("BINARY").each(:line) { |line| p line }
+    #
+    # # Replace invalid characters with "?" instead of raising.
+    # IOStreams.path("export.csv").encoding("UTF-8", replace: "?").read
+    #
+    # Replaces `option(:encode, ...)` and `stream(:encode, ...)`, which still work.
+    def encoding(encoding = nil, **)
+      raise_if_frozen!
+      builder.encoding(encoding, **)
       self
     end
 
@@ -140,8 +164,8 @@ module IOStreams
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
-    #   set it with the encode stream, for example `option(:encode, encoding: "ISO-8859-1")`, or
-    #   `option(:encode, encoding: "BINARY")` to read binary lines. See also `replace:` for the encode stream.
+    #   set it with #encoding, for example `encoding("ISO-8859-1")`, or `encoding("BINARY")` to read binary lines.
+    #   See also its `replace:` option.
     def each(mode = :line, **args, &block)
       raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
 
@@ -182,12 +206,12 @@ module IOStreams
     # Read an entire file into memory.
     #
     # Returns [String] the whole file as UTF-8, like `File.read`, without checking that it is valid UTF-8, so that a
-    # binary file can be read too, since its bytes are unchanged. An encode stream set with #option or #stream returns
-    # the data in its encoding instead, and checks it, for example `option(:encode, encoding: "UTF-8")`. Reading an IO
+    # binary file can be read too, since its bytes are unchanged. An encoding set with #encoding returns the data
+    # in that encoding instead, and checks it, for example `encoding("UTF-8")`. Reading an IO
     # that you supplied, without any streams, keeps the encoding that the IO gives its data.
     #
-    # With a length, such as `read(1024)`, returns up to that number of bytes, which are binary unless an encode
-    # stream is set.
+    # With a length, such as `read(1024)`, returns up to that number of bytes, which are binary unless an encoding
+    # is set.
     #
     # Notes:
     # - Use with caution since large files can cause a denial of service since
@@ -250,7 +274,7 @@ module IOStreams
     # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", convert: false)
     #
     # # Advanced copy with custom stream conversions on source and target.
-    # source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
+    # source = IOStreams.path("source_file").encoding("BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
     #
     # Returns [Integer] the number of bytes copied, when copying without a `mode:`.

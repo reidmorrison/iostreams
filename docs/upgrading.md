@@ -42,11 +42,12 @@ removed from the first line, so that a CSV file with a quoted header row no long
 `CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
 `encoding: "UTF-8"`. `read` keeps it, like `File.read`.
 
-Fix: read a file in another encoding by setting it on the encode stream, for example
-`option(:encode, encoding: "Windows-1252")`, whose strings are then in that encoding, or supply
+Fix: read a file in another encoding by setting it with `#encoding`, for example
+`encoding("Windows-1252")`, whose strings are then in that encoding, or supply
 `replace:` to replace invalid characters instead of raising. To read binary strings, as before, supply
-`option(:encode, encoding: "BINARY")`, or `stream(:encode, encoding: "BINARY")` for a stream without
-a file name. See [Text and binary data](streams#text-and-binary-data).
+`encoding("BINARY")`, which also works for a stream without a file name. See
+[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that
+v2 used. See [Text and binary data](streams#text-and-binary-data).
 
 ### Column restrictions apply to every input
 
@@ -114,7 +115,7 @@ so valid characters are kept instead of being replaced, and an invalid character
 `Encoding::UndefinedConversionError` unless `replace:` is supplied. Previously reading lines let invalid
 characters through without raising.
 
-Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
+Fix: supply `replace:`, for example `encoding("UTF-8", replace: "")`, to replace
 invalid characters instead of raising.
 
 Data read through the encode stream is treated as bytes in the requested encoding whichever streams it
@@ -137,17 +138,17 @@ Writing a value that is not ASCII now raises `Encoding::UndefinedConversionError
 UTF-8 bytes were written, so a line with a multi-byte character was longer than the layout in bytes,
 while the sizes counted characters.
 
-Encode options that do not include an encoding, such as `option(:encode, replace: " ")`, keep the ASCII
+Encode options that do not include an encoding, such as `encoding(replace: " ")`, keep the ASCII
 default, so that each byte that is not ASCII is replaced with a space. Previously, through the encode
 stream with `replace:`, each byte of a non-ASCII character was replaced, so `Zürich` was read as
 `Z  rich`.
 
-Fix: set the encoding of the file on the encode stream, such as
-`option(:encode, encoding: "ISO-8859-1:UTF-8")` for a single-byte code page, whose values are then
+Fix: set the encoding of the file with `#encoding`, such as
+`encoding("ISO-8859-1:UTF-8")` for a single-byte code page, whose values are then
 UTF-8 strings, `"IBM037:UTF-8"` for EBCDIC, or `encoding: "UTF-8"` for UTF-8 written by a program that
-counts characters. To read binary strings, as before, supply `option(:encode, encoding: "BINARY")`. To
+counts characters. To read binary strings, as before, supply `encoding("BINARY")`. To
 write a file with characters that are not ASCII, set its encoding, such as
-`option(:encode, encoding: "ISO-8859-1")`, or `replace: " "`. See
+`encoding("ISO-8859-1")`, or `replace: " "`. See
 [Fixed width files](formats#fixed-width-files).
 
 ### A `+` in an S3 or SFTP url is kept
@@ -504,7 +505,35 @@ The `:encode` stream converts the text that the application reads or writes, and
 since file names do not name it. Previously the data of such a file was read and written through it.
 
 Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
-Apply it with `option(:encode, ...)` instead.
+Apply it with `#encoding` instead.
+
+### `#encoding` replaces `option(:encode, ...)`
+
+The encoding of the text that the application reads or writes is now set with `#encoding`.
+Setting it with `option(:encode, ...)` or `stream(:encode, ...)` is deprecated. Both still work, so no
+change is needed, but `#encoding` avoids two surprises of the old forms:
+
+* `option(:encode, ...)` raised `ArgumentError` after `#stream`, and without a file name, so a stream
+  set with `#stream` could not be combined with an encoding through `#option`. It now sets the same
+  options as `#encoding`, so it no longer raises in either case.
+* `stream(:encode, ...)` stops the streams being taken from the file name, like any other stream set
+  with `#stream`, so `IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")` reads the
+  compressed bytes. It still does, so that existing code keeps its behavior. `#encoding` does not.
+
+~~~ruby
+# Before (deprecated)
+IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
+IOStreams.path("people.txt").option(:encode, replace: " ")
+IOStreams.stream(io).stream(:encode, encoding: "BINARY")
+
+# After
+IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8")
+IOStreams.path("people.txt").encoding(replace: " ")
+IOStreams.stream(io).encoding("BINARY")
+~~~
+
+To keep reading the data as-is, as `stream(:encode, ...)` does for a file name with extensions, add
+`stream(:none)` before `#encoding`.
 
 ### The encode `cleaner` option is strict
 
