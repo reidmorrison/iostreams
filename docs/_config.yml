@@ -50,6 +50,7 @@ nav:
       - { page: path.html,       label: Path }
       - { page: streams.html,    label: Streams }
       - { page: copy_files.html, label: Copy Files }
+      - { page: errors.html,     label: Errors }
 
   - group: Formats
     items:

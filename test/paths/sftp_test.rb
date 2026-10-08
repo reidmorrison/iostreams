@@ -165,7 +165,7 @@ module Paths
           assert_predicate dir, :exist?
           refute_predicate missing_file_path, :exist?
           assert_equal raw.size, existing_path.size
-          assert_nil missing_file_path.size
+          assert_raises(IOStreams::Errors::NotFound) { missing_file_path.size }
         end
 
         it "#file? and #directory?" do
@@ -698,6 +698,204 @@ module Paths
 
           refute_includes error.message, "sshpass"
         end
+
+        # The output of each version of OpenSSH when the remote file, or its directory, does not exist.
+        [
+          'File "/path/file.txt" not found.',
+          'remote open "/path/file.txt": No such file or directory',
+          'dest open "/path/file.txt": No such file or directory',
+          'remote open("/path/file.txt"): No such file or directory',
+          "Couldn't stat remote file: No such file or directory"
+        ].each do |output|
+          it "raises NotFound for: #{output}" do
+            path  = new_path("sftp://jack:secret@example.org/path/file.txt")
+            error = assert_raises IOStreams::Errors::NotFound do
+              path.send(:raise_failure, "Download", "sftp> get \"/path/file.txt\" \"/tmp/x\"\n#{output}")
+            end
+
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+            assert_equal "sftp://example.org/path/file.txt", error.display_name
+            assert error.message.start_with?("sftp://example.org/path/file.txt: Download failed calling sftp via sshpass")
+            refute_includes error.message, "secret"
+          end
+        end
+
+        # The output of OpenSSH when the remote file cannot be accessed, or the user cannot log in.
+        [
+          'remote open "/path/file.txt": Permission denied',
+          'dest open "/path/file.txt": Permission denied',
+          'remote open("/path/file.txt"): Permission denied',
+          "jack@example.org: Permission denied (publickey,password)."
+        ].each do |output|
+          it "raises PermissionDenied for: #{output}" do
+            error = assert_raises IOStreams::Errors::PermissionDenied do
+              new_path(url, username: "jack").send(:raise_failure, "Download", output)
+            end
+
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          end
+        end
+
+        it "raises PermissionDenied when sshpass reports that the password is not correct" do
+          status = Struct.new(:exitstatus).new(5)
+          error  = assert_raises IOStreams::Errors::PermissionDenied do
+            new_path(url, username: "jack", password: "wrong").send(:raise_failure, "Download", "", status)
+          end
+
+          refute_includes error.message, "wrong"
+        end
+
+        it "does not tag the same exit status of the sftp program without sshpass" do
+          status = Struct.new(:exitstatus).new(5)
+          error  = assert_raises IOStreams::Errors::CommunicationsFailure do
+            new_path(url, username: "jack").send(:raise_failure, "Download", "", status)
+          end
+
+          refute_kind_of IOStreams::Errors::StorageError, error
+        end
+
+        # The output of OpenSSH when it cannot reach the server, or the connection to it fails.
+        [
+          "ssh: connect to host example.org port 22: Connection refused",
+          "ssh: connect to host example.org port 22: Operation timed out",
+          "ssh: Could not resolve hostname example.org: nodename nor servname provided, or not known",
+          "kex_exchange_identification: read: Connection reset by peer",
+          "Connection closed by 10.0.0.1 port 22",
+          "Timeout, server example.org not responding."
+        ].each do |output|
+          it "raises Unavailable for: #{output}" do
+            error = assert_raises IOStreams::Errors::Unavailable do
+              new_path(url, username: "jack").send(:raise_failure, "Download", "#{output}\nConnection closed")
+            end
+
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          end
+        end
+
+        [
+          "Host key verification failed.",
+          %(Couldn't open local file "/tmp/x" for writing: No such file or directory),
+          "Invalid command."
+        ].each do |output|
+          it "does not tag: #{output}" do
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              new_path(url, username: "jack").send(:raise_failure, "Download", output)
+            end
+
+            refute_kind_of IOStreams::Errors::StorageError, error
+          end
+        end
+      end
+
+      describe "net-sftp failures" do
+        let(:path) { new_path("sftp://example.org/data/a.csv", username: "jack") }
+
+        # Minimal stand-in for Net::SFTP, whose session raises the SFTP status code.
+        def with_failing_net_sftp(code, &)
+          session = Object.new
+          session.define_singleton_method(:stat!) { |_name| raise StubStatusException, code }
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |_hostname, _username, _options, &block| block.call(session) }
+
+          StubNetSFTP.replace(stub_sftp, &)
+        end
+
+        # Returns [Exception] the failure raised by a request of the session.
+        def session_failure(code)
+          with_failing_net_sftp(code) do
+            path.send(:with_net_sftp, "test") { |sftp| sftp.stat!("/data/a.csv") }
+          end
+        rescue StandardError => e
+          e
+        end
+
+        [2, 10].each do |code|
+          it "raises NotFound for a file that does not exist, with status #{code}" do
+            error = session_failure(code)
+
+            assert_kind_of IOStreams::Errors::NotFound, error
+            assert_instance_of StubStatusException, error
+            assert_equal "sftp://example.org/data/a.csv", error.display_name
+          end
+
+          it "#exist? is false for a file that does not exist, with status #{code}" do
+            with_failing_net_sftp(code) { refute_predicate path, :exist? }
+          end
+        end
+
+        it "raises PermissionDenied for a file that cannot be accessed" do
+          error = session_failure(3)
+
+          assert_kind_of IOStreams::Errors::PermissionDenied, error
+          assert_instance_of StubStatusException, error
+        end
+
+        it "raises PermissionDenied when the user cannot log in" do
+          require "net/ssh"
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise Net::SSH::AuthenticationFailed, "Authentication failed" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            error = assert_raises(IOStreams::Errors::PermissionDenied) { path.exist? }
+
+            assert_instance_of Net::SSH::AuthenticationFailed, error
+            assert_equal "sftp://example.org/data/a.csv", error.display_name
+          end
+        end
+
+        it "raises Unavailable when the connection is lost" do
+          assert_kind_of IOStreams::Errors::Unavailable, session_failure(7)
+        end
+
+        it "raises Unavailable when the server disconnects" do
+          require "net/ssh"
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise Net::SSH::Disconnect, "connection closed by remote host" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+          end
+        end
+
+        it "raises Unavailable when the server cannot be reached" do
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise Errno::ECONNREFUSED, "connect(2)" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            error = assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+
+            assert_instance_of Errno::ECONNREFUSED, error
+            assert_equal "sftp://example.org/data/a.csv", error.display_name
+          end
+        end
+
+        it "does not tag a failure to connect that the block of #each_child raises" do
+          session = StubSFTPSession.new(["a.csv"], root: nil, missing: false, unreadable: [])
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*, &block| block.call(session) }
+          directory = new_path("sftp://example.org/data", username: "jack")
+
+          # The block cannot reach its own server, such as a database.
+          failing = ->(_child, _attributes) { raise Errno::ECONNREFUSED, "database" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            error = assert_raises(Errno::ECONNREFUSED) { directory.each_child(&failing) }
+
+            refute_kind_of IOStreams::Errors::StorageError, error
+          end
+        end
+
+        it "does not tag any other failure" do
+          error = session_failure(4)
+
+          assert_instance_of StubStatusException, error
+          refute_kind_of IOStreams::Errors::StorageError, error
+        end
       end
 
       describe "writing" do
@@ -1181,7 +1379,7 @@ module Paths
           with_stub_net_sftp do
             assert_equal 5, path("/data/a.csv").size
             assert_equal 3, path("/~/a.csv").size
-            assert_nil path("/data/missing.csv").size
+            assert_raises(IOStreams::Errors::NotFound) { path("/data/missing.csv").size }
           end
         end
 

@@ -9,6 +9,11 @@ module IOStreams
         # SFTP status codes.
         NO_SUCH_FILE      = 2
         PERMISSION_DENIED = 3
+        # Sent instead of NO_SUCH_FILE by some servers, from version 4 of the SFTP protocol.
+        NO_SUCH_PATH      = 10
+
+        # The SFTP status codes that mean the file or directory does not exist.
+        NOT_FOUND = [NO_SUCH_FILE, NO_SUCH_PATH].freeze
 
         # Yields [String, Hash] the name relative to the directory, and the attributes, of each file
         # within the remote directory whose name the matcher matches, and of each directory when `directories`.
@@ -51,7 +56,7 @@ module IOStreams
         def self.entries(sftp, directory, prefix)
           sftp.dir.entries(prefix ? ::File.join(directory, prefix) : directory)
         rescue Net::SFTP::StatusException => e
-          raise if prefix.nil? || ![NO_SUCH_FILE, PERMISSION_DENIED].include?(e.code)
+          raise if prefix.nil? || !(NOT_FOUND.include?(e.code) || e.code == PERMISSION_DENIED)
 
           nil
         end
@@ -61,7 +66,7 @@ module IOStreams
         def self.remote_attributes(sftp, remote_name)
           sftp.stat!(remote_name)
         rescue Net::SFTP::StatusException => e
-          raise unless e.code == NO_SUCH_FILE
+          raise unless NOT_FOUND.include?(e.code)
 
           nil
         end

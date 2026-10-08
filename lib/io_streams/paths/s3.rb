@@ -16,6 +16,8 @@ module IOStreams
       # When an upload file exceeds this size, use a multipart file upload.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
+      autoload :Failure, "io_streams/paths/s3/failure"
+
       # Arguments:
       #
       # url: [String]
@@ -219,7 +221,7 @@ module IOStreams
 
       def delete
         authorize!
-        client.delete_object(options_for(:delete_object).merge(bucket: bucket_name, key: path))
+        request(:delete_object, bucket: bucket_name, key: path)
         self
       rescue Aws::S3::Errors::NotFound
         self
@@ -227,7 +229,7 @@ module IOStreams
 
       def exist?
         authorize!
-        client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: path))
+        request(:head_object, bucket: bucket_name, key: path)
         true
       rescue Aws::S3::Errors::NotFound
         false
@@ -253,7 +255,7 @@ module IOStreams
       def empty?
         authorize!
         if file_key?
-          size = self.size
+          size = object_size
           return size.zero? if size
         end
 
@@ -279,7 +281,7 @@ module IOStreams
       def copy_to(target_path, convert: true, **args)
         return super if convert
 
-        bytes = size.to_i
+        bytes = object_size.to_i
         return super if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
 
         target = to_stream(target_path)
@@ -288,9 +290,7 @@ module IOStreams
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         target.authorize!
-        client.copy_object(
-          options_for(:copy_object).merge(bucket: target.bucket_name, key: target.path, copy_source: copy_source)
-        )
+        copy_object(self, target)
         bytes
       end
 
@@ -303,13 +303,13 @@ module IOStreams
         source = to_stream(source_path)
         return super(source, convert: convert, **args) unless source.is_a?(self.class)
 
-        bytes = source.size.to_i
+        bytes = source.object_size.to_i
         return super(source, convert: convert, **args) if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
 
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         source.authorize!
-        client.copy_object(options_for(:copy_object).merge(bucket: bucket_name, key: path, copy_source: source.copy_source))
+        copy_object(source, self)
         bytes
       end
 
@@ -324,9 +324,7 @@ module IOStreams
 
       def size
         authorize!
-        client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: path)).content_length
-      rescue Aws::S3::Errors::NotFound
-        nil
+        request(:head_object, bucket: bucket_name, key: path).content_length
       end
 
       # TODO: delete_all
@@ -345,7 +343,7 @@ module IOStreams
       def read_file(file_name)
         authorize!
         ::File.open(file_name, "wb") do |file|
-          client.get_object(options_for(:get_object).merge(response_target: file, bucket: bucket_name, key: path))
+          request(:get_object, response_target: file, bucket: bucket_name, key: path)
         end
       end
 
@@ -375,10 +373,10 @@ module IOStreams
           s3  = Aws::S3::Resource.new(client: client)
           obj = s3.bucket(bucket_name).object(path)
           # Supplies each part of a multipart upload with the options that it accepts.
-          obj.upload_file(file_name, options_for(:put_object))
+          tag_failure { obj.upload_file(file_name, options_for(:put_object)) }
         else
           ::File.open(file_name, "rb") do |file|
-            client.put_object(options_for(:put_object).merge(bucket: bucket_name, key: path, body: file))
+            request(:put_object, bucket: bucket_name, key: path, body: file)
           end
         end
       end
@@ -460,12 +458,44 @@ module IOStreams
         options.slice(*self.class.operation_options(operation))
       end
 
+      # Returns [Integer] the size of the object, or nil when it does not exist, see `#empty?`. A direct copy of an object
+      # that does not exist then raises `NoSuchKey` from S3, as it did before `#size` raised for it.
+      def object_size
+        size
+      rescue Errors::NotFound
+        nil
+      end
+
       # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.
       def copy_source
         "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
       end
 
       private
+
+      # Returns [Module] the kind of failure that an exception raised by S3 means, see `Failure.kind`.
+      def failure_kind(exception)
+        Failure.kind(exception)
+      end
+
+      # Makes the S3 request, with the options that the operation accepts, tagging a failure with the kind of
+      # failure that it means, see `#failure_kind`.
+      def request(operation, **params)
+        tag_failure { client.public_send(operation, options_for(operation).merge(params)) }
+      end
+
+      # Copies the source object to the target object within S3. A missing object is a failure of the source, and any
+      # other failure is one of the target, since the size of the source is read before the copy, which raises when
+      # the source cannot be read.
+      def copy_object(source, target)
+        tag_failure(target) do
+          client.copy_object(
+            options_for(:copy_object).merge(bucket: target.bucket_name, key: target.path, copy_source: source.copy_source)
+          )
+        rescue Aws::S3::Errors::NoSuchKey => e
+          raise(Errors::NotFound.tag(e, source.display_name))
+        end
+      end
 
       # Returns [true|false] whether this path can be the key of a file, rather than the bucket or a folder object.
       def file_key?
@@ -479,9 +509,7 @@ module IOStreams
 
       # Returns [Array<String>] upto `max_keys` of the keys within this path as a directory.
       def directory_keys(max_keys)
-        client.list_objects_v2(
-          options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: directory_prefix, max_keys: max_keys)
-        ).contents.map(&:key)
+        request(:list_objects_v2, bucket: bucket_name, prefix: directory_prefix, max_keys: max_keys).contents.map(&:key)
       end
 
       # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.
@@ -498,7 +526,9 @@ module IOStreams
       def each_exact_child(child, directories)
         return unless allowed_child?(child)
 
-        response = client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: child.path))
+        response = tag_failure(child) do
+          client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: child.path))
+        end
         yield(child,
               {key:           child.path,
                last_modified: response.last_modified,
@@ -508,9 +538,11 @@ module IOStreams
       rescue Aws::S3::Errors::NotFound
         return unless directories
 
-        resp = client.list_objects_v2(
-          options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: "#{child.path}/", max_keys: 1)
-        )
+        resp = tag_failure(child) do
+          client.list_objects_v2(
+            options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: "#{child.path}/", max_keys: 1)
+          )
+        end
         yield(child, {}) if resp.contents.any?
       end
 
@@ -535,9 +567,7 @@ module IOStreams
         token = nil
         loop do
           # Fetches upto 1,000 entries at a time
-          resp = client.list_objects_v2(
-            options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: prefix, continuation_token: token)
-          )
+          resp = request(:list_objects_v2, bucket: bucket_name, prefix: prefix, continuation_token: token)
           resp.contents.each { |object| yield(resp.name, object) }
           token = resp.next_continuation_token
           break if token.nil?

@@ -182,21 +182,23 @@ module IOStreams
         authorize!
         target.authorize!
         target.mkpath
+        # The target failed when its directory cannot be written to, otherwise this file did.
+        failed = ::File.writable?(::File.dirname(target.to_s)) ? self : target
         # In case the file is being moved across partitions
-        FileUtils.move(path, target.to_s)
+        tag_failure(failed) { FileUtils.move(path, target.to_s) }
         target
       end
 
       def mkpath
         authorize!
         dir = ::File.dirname(path)
-        FileUtils.mkdir_p(dir)
+        tag_failure { FileUtils.mkdir_p(dir) }
         self
       end
 
       def mkdir
         authorize!
-        FileUtils.mkdir_p(path)
+        tag_failure { FileUtils.mkdir_p(path) }
         self
       end
 
@@ -207,7 +209,7 @@ module IOStreams
 
       def size
         authorize!
-        ::File.size(path)
+        tag_failure { ::File.size(path) }
       end
 
       def size?
@@ -227,14 +229,14 @@ module IOStreams
 
       def empty?
         authorize!
-        ::File.directory?(path) ? Dir.empty?(path) : ::File.empty?(path)
+        tag_failure { ::File.directory?(path) ? Dir.empty?(path) : ::File.empty?(path) }
       end
 
       def delete
         authorize!
         return self unless exist?
 
-        ::File.directory?(path) ? Dir.delete(path) : ::File.unlink(path)
+        tag_failure { ::File.directory?(path) ? Dir.delete(path) : ::File.unlink(path) }
         self
       end
 
@@ -242,17 +244,30 @@ module IOStreams
         authorize!
         return self unless exist?
 
-        ::File.directory?(path) ? FileUtils.remove_dir(path) : ::File.unlink(path)
+        tag_failure { ::File.directory?(path) ? FileUtils.remove_dir(path) : ::File.unlink(path) }
         self
       end
 
       # Returns the real path by stripping `.`, `..` and expands any symlinks.
       def realpath
         authorize!
-        self.class.new(::File.realpath(path))
+        self.class.new(tag_failure { ::File.realpath(path) })
       end
 
       private
+
+      # Returns [Module] the kind of failure that an exception raised by the file system means,
+      # see `IOStreams::Path#failure_kind`.
+      #
+      # A file below another file, such as `a.csv/b.csv`, is not found, as on SFTP and S3.
+      def failure_kind(exception)
+        case exception
+        when Errno::ENOENT, Errno::ENOTDIR
+          Errors::NotFound
+        when Errno::EACCES, Errno::EPERM
+          Errors::PermissionDenied
+        end
+      end
 
       # Returns [String] the supplied directory within this path, see `IOStreams::Paths::Matcher#directory`,
       # or nil for the current directory.
@@ -303,8 +318,16 @@ module IOStreams
       end
 
       # Read from file
-      def stream_reader(&block)
-        ::File.open(path, "rb") { |io| builder.reader(io, &block) }
+      #
+      # The file is opened before the block is called, so that only a failure to open it is tagged as a failure of
+      # this path, see `IOStreams::Errors::StorageError`.
+      def stream_reader(&)
+        file = tag_failure { ::File.open(path, "rb") }
+        begin
+          builder.reader(file, &)
+        ensure
+          file.close
+        end
       end
 
       # Write to file
@@ -312,10 +335,15 @@ module IOStreams
       # Note:
       #   If an exception is raised whilst the file is being written to the file is removed to
       #   prevent incomplete / partial files from being created.
-      def stream_writer(&block)
+      def stream_writer(&)
         mkpath if create_path
         begin
-          ::File.open(path, "wb") { |io| builder.writer(io, &block) }
+          file = tag_failure { ::File.open(path, "wb") }
+          begin
+            builder.writer(file, &)
+          ensure
+            file.close
+          end
         rescue StandardError => e
           ::FileUtils.rm_f(path)
           raise(e)

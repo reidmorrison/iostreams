@@ -343,6 +343,20 @@ url ending with `/`.
 
 Fix: supply `case_sensitive: true` where a pattern must match the case of the file names.
 
+### `#size` raises for a file that does not exist
+
+`#size` on an S3, SFTP or HTTP path now raises `IOStreams::Errors::NotFound` when the file does not exist, as it
+already did for a local file, which raises `Errno::ENOENT`, like `File.size`. Previously it returned `nil`.
+`#size?` still returns `nil` when the file does not exist, like `File.size?`, and also when it is empty.
+
+Fix: where your code checks for a `nil` size to find a file that does not exist, call `#size?` when an empty file can
+be treated the same way, check `#exist?` first, or rescue `IOStreams::Errors::NotFound`, see [Errors](errors):
+
+~~~ruby
+# nil when the file does not exist, or is empty
+size = path.size?
+~~~
+
 ### SFTP `each_child` returns nothing for a missing directory
 
 `#each_child` on an SFTP path now returns nothing when the path does not exist, or is a file, like local and S3

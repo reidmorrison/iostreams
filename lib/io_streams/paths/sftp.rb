@@ -12,7 +12,8 @@ module IOStreams
     #     end
     #
     # Note:
-    # - raises Net::SFTP::StatusException when the file could not be read.
+    # - raises IOStreams::Errors::CommunicationsFailure when the file could not be read, tagged with the kind of
+    #   failure when it is known, such as IOStreams::Errors::NotFound, see IOStreams::Errors::StorageError.
     #
     # Write to a file on a remote sftp server.
     #
@@ -32,6 +33,7 @@ module IOStreams
       @before_password_wait_seconds = 2
       @sshpass_wait_seconds         = 5
 
+      autoload :Failure, "io_streams/paths/sftp/failure"
       autoload :Listing, "io_streams/paths/sftp/listing"
       autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
 
@@ -179,7 +181,7 @@ module IOStreams
           attributes = sftp.lstat!(remote_path)
           attributes.directory? ? sftp.rmdir!(remote_path) : sftp.remove!(remote_path)
         rescue Net::SFTP::StatusException => e
-          raise unless e.code == Listing::NO_SUCH_FILE
+          raise unless Listing::NOT_FOUND.include?(e.code)
         end
         self
       end
@@ -189,9 +191,11 @@ module IOStreams
         !remote_attributes("SFTP exist? capability").nil?
       end
 
-      # Returns [Integer] the size of the file, or nil when it does not exist.
+      # Returns [Integer] the size of the file.
+      #
+      # Raises [IOStreams::Errors::NotFound] when the file does not exist, see `#size?`.
       def size
-        remote_attributes("SFTP size capability")&.size
+        with_net_sftp("SFTP size capability") { |sftp| sftp.stat!(remote_path).size }
       end
 
       def file?
@@ -297,11 +301,28 @@ module IOStreams
         authorize!
         Utils.load_soft_dependency("net-sftp", capability, "net/sftp") unless defined?(Net::SFTP)
 
-        result = nil
-        NetSSH.options(ssh_options, port: port, password: password) do |options|
-          Net::SFTP.start(hostname, username, options) { |sftp| result = yield(sftp) }
+        result    = nil
+        connected = false
+        tag_failure do
+          NetSSH.options(ssh_options, port: port, password: password) do |options|
+            Net::SFTP.start(hostname, username, options) do |sftp|
+              connected = true
+              result    = yield(sftp)
+            end
+          end
+        rescue *Failure::CONNECTION_ERRORS => e
+          # Once connected, the same exception can be raised by the block supplied by the caller, such as `#each_child`.
+          raise if connected
+
+          raise(Errors::Unavailable.tag(e, display_name))
         end
         result
+      end
+
+      # Returns [Module] the kind of failure that an exception raised by net-sftp, or net-ssh, means,
+      # see `Failure.kind`.
+      def failure_kind(exception)
+        Failure.kind(exception)
       end
 
       # Returns the attributes of this path on the server, or nil when it does not exist.
@@ -367,7 +388,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            raise_failure("Download", out) unless waith_thr.value.success?
+            raise_failure("Download", out, waith_thr.value) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -376,7 +397,7 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise_failure("Download", out)
+            raise_failure("Download", out, waith_thr.value)
           end
         end
       end
@@ -395,7 +416,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            raise_failure("Upload", out) unless waith_thr.value.success?
+            raise_failure("Upload", out, waith_thr.value) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -404,7 +425,7 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise_failure("Upload", out)
+            raise_failure("Upload", out, waith_thr.value)
           end
         end
       end
@@ -421,14 +442,18 @@ module IOStreams
         directories
       end
 
+      # Raises [IOStreams::Errors::CommunicationsFailure] with the output of the sftp program, tagged with the kind of
+      # failure that the output and the exit status mean, see `Failure.output_kind`.
+      #
       # When the server does not prompt for a password, sftp reads the password line as a command
       # and echoes it in its output, so remove it before the output is included in the error.
-      def raise_failure(action, out)
-        out = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
-        raise(
-          Errors::CommunicationsFailure,
+      def raise_failure(action, out, status = nil)
+        out   = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
+        error = Errors::CommunicationsFailure.new(
           "#{action} failed calling #{self.class.sftp_bin}#{" via #{self.class.sshpass_bin}" if password}: #{out}"
         )
+        kind = Failure.output_kind(out, status, sshpass: !password.nil?)
+        raise(kind ? kind.tag(error, display_name) : error)
       end
 
       def with_sftp_args

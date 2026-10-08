@@ -1,4 +1,5 @@
 require_relative "../test_helper"
+require_relative "../http_server"
 require "socket"
 require "base64"
 require "logger"
@@ -6,130 +7,6 @@ require "openssl"
 
 module Paths
   class HTTPTest < Minitest::Test
-    # Minimal HTTP server used to exercise redirect, credential, allow-list,
-    # download-size and upload handling without depending on an external service.
-    #
-    # With `tls: true` it serves HTTPS with a self-signed certificate, see `.certificate`.
-    class TestHTTPServer
-      attr_reader :port, :requests
-
-      def initialize(tls: false, &handler)
-        @handler  = handler
-        @requests = []
-        @tls      = tls
-        tcp       = TCPServer.new("127.0.0.1", 0)
-        @port     = tcp.addr[1]
-        @server   = tls ? OpenSSL::SSL::SSLServer.new(tcp, ssl_context) : tcp
-        @thread   = Thread.new { serve }
-      end
-
-      def base_url
-        "#{@tls ? 'https' : 'http'}://127.0.0.1:#{port}"
-      end
-
-      # Returns [Array(OpenSSL::X509::Certificate, OpenSSL::PKey::RSA)] the self-signed certificate
-      # for 127.0.0.1 that the server uses with `tls: true`, and its key.
-      def self.certificate
-        @certificate ||= begin
-          key                    = OpenSSL::PKey::RSA.new(2048)
-          cert                   = OpenSSL::X509::Certificate.new
-          cert.version           = 2
-          cert.serial            = 1
-          cert.subject           = OpenSSL::X509::Name.parse("/CN=127.0.0.1")
-          cert.issuer            = cert.subject
-          cert.public_key        = key.public_key
-          cert.not_before        = Time.now - 60
-          cert.not_after         = Time.now + 3600
-          extensions             = OpenSSL::X509::ExtensionFactory.new
-          extensions.subject_certificate = cert
-          extensions.issuer_certificate  = cert
-          cert.add_extension(extensions.create_extension("basicConstraints", "CA:TRUE", true))
-          cert.add_extension(extensions.create_extension("subjectAltName", "IP:127.0.0.1"))
-          cert.sign(key, OpenSSL::Digest.new("SHA256"))
-          [cert, key]
-        end
-      end
-
-      # Trusts only the certificate of `.certificate` for HTTPS requests made within the block.
-      def self.trust_certificate
-        store = OpenSSL::X509::Store.new
-        store.add_cert(certificate.first)
-        previous = OpenSSL::SSL::SSLContext::DEFAULT_CERT_STORE
-        replace_default_cert_store(store)
-        yield
-      ensure
-        replace_default_cert_store(previous) if previous
-      end
-
-      def self.replace_default_cert_store(store)
-        OpenSSL::SSL::SSLContext.send(:remove_const, :DEFAULT_CERT_STORE)
-        OpenSSL::SSL::SSLContext.const_set(:DEFAULT_CERT_STORE, store)
-      end
-
-      def shutdown
-        @thread&.kill
-        @server&.close
-      rescue StandardError
-        nil
-      end
-
-      # Build a raw HTTP response string.
-      def self.response(status, body: "", headers: {})
-        reason = {200 => "OK", 201 => "Created", 204 => "No Content", 301 => "Moved Permanently", 302 => "Found",
-                  307 => "Temporary Redirect", 308 => "Permanent Redirect", 401 => "Unauthorized",
-                  404 => "Not Found", 405 => "Method Not Allowed", 410 => "Gone", 500 => "Internal Server Error"}[status]
-        all    = {"Content-Length" => body.bytesize.to_s, "Connection" => "close"}.merge(headers)
-        lines  = ["HTTP/1.1 #{status} #{reason}"]
-        all.each { |key, value| lines << "#{key}: #{value}" }
-        lines << ""
-        lines << body
-        lines.join("\r\n")
-      end
-
-      private
-
-      def ssl_context
-        context      = OpenSSL::SSL::SSLContext.new
-        context.cert = self.class.certificate.first
-        context.key  = self.class.certificate.last
-        context
-      end
-
-      def serve
-        loop do
-          client = accept
-          handle_client(client) if client
-        end
-      rescue IOError, Errno::EBADF
-        # Server was shut down.
-      end
-
-      # Returns the next connection, or nil when the client rejected the TLS handshake.
-      def accept
-        @server.accept
-      rescue OpenSSL::SSL::SSLError
-        nil
-      end
-
-      def handle_client(client)
-        request_line = client.gets
-        return if request_line.nil?
-
-        method, path, = request_line.split
-        headers = {}
-        while (line = client.gets) && line != "\r\n"
-          key, value                  = line.split(":", 2)
-          headers[key.strip.downcase] = value.to_s.strip
-        end
-        body    = headers["content-length"] ? client.read(headers["content-length"].to_i) : nil
-        request = {method: method, path: path, headers: headers, body: body}
-        @requests << request
-        client.write(@handler.call(path, request))
-      ensure
-        client&.close
-      end
-    end
-
     describe IOStreams::Paths::HTTP do
       describe ".new" do
         it "rejects a non-http(s) scheme" do
@@ -275,6 +152,35 @@ module Paths
             IOStreams::Paths::HTTP.new("#{@server.base_url}/missing").read
           end
           assert_includes error.message, "Invalid URL"
+          assert_kind_of IOStreams::Errors::NotFound, error
+        end
+
+        it "raises NotFound when the server returns 410 Gone" do
+          start_server { |_path| TestHTTPServer.response(410) }
+
+          error = assert_raises IOStreams::Errors::NotFound do
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/gone.csv").read
+          end
+          assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          assert_equal "#{@server.base_url}/gone.csv: Invalid response code: 410", error.message
+        end
+
+        it "raises NotFound with the display name of the path, without its credentials or query" do
+          start_server { |_path| TestHTTPServer.response(404) }
+          url = "http://jack:TOP-SECRET@127.0.0.1:#{@server.port}/missing.csv?token=SECRET"
+
+          error = assert_raises(IOStreams::Errors::NotFound) { IOStreams::Paths::HTTP.new(url).read }
+          assert_equal "http://127.0.0.1:#{@server.port}/missing.csv", error.display_name
+          refute_includes error.message, "TOP-SECRET"
+        end
+
+        it "does not tag any other unsuccessful response" do
+          start_server { |_path| TestHTTPServer.response(405) }
+
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
+          end
+          refute_kind_of IOStreams::Errors::StorageError, error
         end
 
         it "does not include credentials in error messages" do
@@ -296,6 +202,18 @@ module Paths
             IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
           end
           assert_includes error.message, "Authorization Required"
+          assert_kind_of IOStreams::Errors::PermissionDenied, error
+        end
+
+        it "raises PermissionDenied when the server returns 403 Forbidden" do
+          start_server { |_path| TestHTTPServer.response(403) }
+          path = IOStreams::Paths::HTTP.new("#{@server.base_url}/secret.csv")
+
+          [-> { path.read }, -> { path.exist? }].each do |request|
+            error = assert_raises(IOStreams::Errors::PermissionDenied, &request)
+
+            assert_equal "#{@server.base_url}/secret.csv: Invalid response code: 403", error.message
+          end
         end
 
         it "raises on an unsuccessful response code" do
@@ -305,6 +223,37 @@ module Paths
             IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
           end
           assert_includes error.message, "Invalid response code: 500"
+          assert_kind_of IOStreams::Errors::Unavailable, error
+        end
+
+        [429, 502, 503, 504].each do |status|
+          it "raises Unavailable when the server responds with #{status}" do
+            start_server { |_path| TestHTTPServer.response(status) }
+
+            error = assert_raises IOStreams::Errors::Unavailable do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
+            end
+            assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          end
+        end
+
+        it "closes the connection before the block reads the file" do
+          start_server { |_path| TestHTTPServer.response(200, body: body) }
+          path     = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+          started  = Net::HTTP.method(:start)
+          open     = false
+          tracking = lambda do |*args, **options, &block|
+            started.call(*args, **options) do |http|
+              open = true
+              block.call(http)
+            ensure
+              open = false
+            end
+          end
+
+          was_open = Net::HTTP.stub(:start, tracking) { path.reader { |_io| open } }
+
+          refute was_open
         end
 
         it "appends supplied parameters to the url as a query string" do
@@ -893,8 +842,14 @@ module Paths
             assert_equal "identity", request[:headers]["accept-encoding"]
           end
 
-          it "returns nil when the file is not found" do
+          it "raises NotFound when the file is not found" do
             start_server { |_path| TestHTTPServer.response(404) }
+
+            assert_raises(IOStreams::Errors::NotFound) { IOStreams.path("#{@server.base_url}/file.txt").size }
+          end
+
+          it "returns nil when the server does not supply the size" do
+            start_server { |_path| "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" }
 
             assert_nil IOStreams.path("#{@server.base_url}/file.txt").size
           end

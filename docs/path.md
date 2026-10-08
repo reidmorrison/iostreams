@@ -12,7 +12,8 @@ where to read the data from or write it to.
 Create a path with `IOStreams.path`, passing the file name, which may also be a URI, followed by any
 arguments specific to that storage location. IOStreams infers the storage mechanism from the URI
 scheme, so the same call returns a local file path, an S3 path, an SFTP path, and so on, all sharing
-the identical interface.
+the identical interface. They also raise the same kind of failure, such as `IOStreams::Errors::NotFound` for a
+file that does not exist, see [Errors](errors).
 
 IOStreams supports accessing files in the following places:
 
@@ -320,7 +321,10 @@ IOStreams.path("sftp://example.org/path/file.txt",
   end
 ~~~
 
-Raises `IOStreams::Errors::CommunicationsFailure` when the file could not be read or written.
+Raises `IOStreams::Errors::CommunicationsFailure` when the file could not be read or written, tagged with
+`IOStreams::Errors::NotFound` when the file, or its directory, does not exist, with
+`IOStreams::Errors::PermissionDenied` when it cannot be accessed, or the user cannot log in, and with
+`IOStreams::Errors::Unavailable` when the server cannot be reached, see [Errors](errors).
 
 Write to a file on a remote sftp server.
 ~~~ruby
@@ -440,9 +444,18 @@ Notes:
   is uploaded again to its location. Other redirects change the request into a GET, which would discard
   the upload, and a redirect to another server would send it the data being uploaded, so they raise
   `IOStreams::Errors::CommunicationsFailure`.
-* `exist?` returns `false`, `size` returns `nil`, and `delete` does nothing when the server responds
-  with `404 Not Found` or `410 Gone`. Any other unsuccessful response raises
-  `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or DELETE.
+* `exist?` returns `false`, `size?` returns `nil`, and `delete` does nothing when the server responds
+  with `404 Not Found` or `410 Gone`, while `size` raises `IOStreams::Errors::NotFound`. Any other unsuccessful
+  response raises `IOStreams::Errors::CommunicationsFailure`, for example when the server does not support HEAD or
+  DELETE.
+* Reading or writing raises `IOStreams::Errors::CommunicationsFailure` for an unsuccessful response, tagged with
+  `IOStreams::Errors::NotFound` for `404 Not Found` or `410 Gone`, with `IOStreams::Errors::PermissionDenied`
+  for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required`, and with
+  `IOStreams::Errors::Unavailable` for `408`, `429`, `500`, `502`, `503` or `504`. A server that cannot be reached
+  raises its connection error, such as `Errno::ECONNREFUSED`, tagged with `IOStreams::Errors::Unavailable`.
+  See [Errors](errors).
+* Reading downloads the whole file into a tempfile before the block is called, so the connection is closed while the
+  block reads it.
 * `delete` follows redirects the same way as writing. `exist?` and `size` follow redirects the same way as reading.
 * `move_to` from an HTTP path downloads the file and then deletes it with an HTTP DELETE.
   `move_to` an HTTP path uploads the file and then deletes the source.
@@ -569,7 +582,7 @@ path = IOStreams.path("sample/example.csv")
 path.exist?
 # => true
 
-# Size of the file in bytes.
+# Size of the file in bytes, like `File.size`. Raises IOStreams::Errors::NotFound when it does not exist.
 path.size
 # => 64
 

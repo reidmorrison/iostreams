@@ -10,6 +10,29 @@ module IOStreams
       SAFE_REQUESTS = [Net::HTTP::Get, Net::HTTP::Head].freeze
       private_constant :SAFE_REQUESTS
 
+      # The kind of failure that each unsuccessful response means, see `IOStreams::Errors::StorageError`.
+      RESPONSE_FAILURES = {
+        Net::HTTPNotFound                    => Errors::NotFound,
+        Net::HTTPGone                        => Errors::NotFound,
+        Net::HTTPUnauthorized                => Errors::PermissionDenied,
+        Net::HTTPForbidden                   => Errors::PermissionDenied,
+        Net::HTTPProxyAuthenticationRequired => Errors::PermissionDenied,
+        Net::HTTPRequestTimeout              => Errors::Unavailable,
+        Net::HTTPTooManyRequests             => Errors::Unavailable,
+        Net::HTTPInternalServerError         => Errors::Unavailable,
+        Net::HTTPBadGateway                  => Errors::Unavailable,
+        Net::HTTPServiceUnavailable          => Errors::Unavailable,
+        Net::HTTPGatewayTimeout              => Errors::Unavailable
+      }.freeze
+      private_constant :RESPONSE_FAILURES
+
+      # The exceptions that a request raises when the server cannot be reached, or the connection to it fails.
+      NETWORK_ERRORS = [
+        EOFError, SocketError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, Errno::ECONNABORTED,
+        Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::EPIPE, Errno::ETIMEDOUT
+      ].freeze
+      private_constant :NETWORK_ERRORS
+
       # Stream to/from a remote file over http(s).
       #
       # Reading uses an HTTP GET, and writing uses an HTTP PUT of the entire file.
@@ -138,11 +161,13 @@ module IOStreams
         send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true) { |_response| true } || false
       end
 
-      # Returns [Integer] the size of the file from the Content-Length of an HTTP HEAD, or nil when the file does
-      # not exist, or the server does not supply its size.
+      # Returns [Integer] the size of the file from the Content-Length of an HTTP HEAD, or nil when the server does not
+      # supply its size.
+      #
+      # Raises [IOStreams::Errors::NotFound] when the server responds with 404 Not Found or 410 Gone, see `#size?`.
       def size
         authorize!
-        send_request(Net::HTTP::Head, url, http_redirect_count, allow_missing: true, &:content_length)
+        send_request(Net::HTTP::Head, url, http_redirect_count, &:content_length)
       end
 
       # Returns [true|false] whether the file exists, see `#exist?`. HTTP has no directories, so every url that
@@ -160,6 +185,8 @@ module IOStreams
       # Returns [true|false] whether the file exists and has a Content-Length of zero, using an HTTP HEAD.
       def empty?
         size&.zero? || false
+      rescue Errors::NotFound
+        false
       end
 
       # Deletes the file, using an HTTP DELETE.
@@ -259,17 +286,14 @@ module IOStreams
       #
       # Notes:
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
-      def stream_reader(&block)
-        result = nil
-        send_request(Net::HTTP::Get, url, http_redirect_count) do |response|
-          # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-          Utils.private_temp_file("iostreams_http") do |file_name|
-            download_to_file(response, file_name)
-            # Return a read stream
-            result = ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
-          end
+      def stream_reader(&)
+        # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
+        Utils.private_temp_file("iostreams_http") do |file_name|
+          send_request(Net::HTTP::Get, url, http_redirect_count) { |response| download_to_file(response, file_name) }
+          # Read it once the request has completed, so that the connection is not held open while the block runs,
+          # and a failure of the block is not mistaken for a failure of the request.
+          ::File.open(file_name, "rb") { |io| builder.reader(io, &) }
         end
-        result
       end
 
       # Write a file using an http put.
@@ -301,53 +325,71 @@ module IOStreams
       # When a body_file_name is supplied its contents are sent as the body of the request.
       # When allow_missing is true, returns nil without calling the block when the server responds with
       # 404 Not Found or 410 Gone.
+      #
+      # The block is part of the request, such as downloading the response, so a failure of the connection within it is
+      # tagged as a failure of the request, see `#failure_kind`.
       def send_request(request_class, uri, http_redirect_count, body_file_name: nil, allow_missing: false, &block)
         uri    = URI.parse(uri) unless uri.is_a?(URI)
         result = nil
 
         validate_uri!(uri)
 
-        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https") do |http|
-          request = build_request(request_class, uri)
-          # So that the Content-Length is the size of the file, not of a compressed response.
-          request["Accept-Encoding"] = "identity" if request_class == Net::HTTP::Head
-          body = body_file_name ? ::File.open(body_file_name, "rb") : nil
-          if body
-            request.body_stream    = body
-            request.content_length = body.size
-            request.content_type   = "application/octet-stream" unless request["content-type"]
-          end
-
-          begin
-            http.request(request) do |response|
-              return nil if allow_missing && (response.is_a?(Net::HTTPNotFound) || response.is_a?(Net::HTTPGone))
-
-              if response.is_a?(Net::HTTPNotFound)
-                raise(IOStreams::Errors::CommunicationsFailure, "Invalid URL: #{without_credentials(uri)}")
-              end
-              if response.is_a?(Net::HTTPUnauthorized)
-                raise(IOStreams::Errors::CommunicationsFailure, "Authorization Required: Invalid :username or :password.")
-              end
-
-              if response.is_a?(Net::HTTPRedirection)
-                new_uri = redirect_uri(uri, response, http_redirect_count, request_class)
-                return send_request(
-                  request_class, new_uri, http_redirect_count - 1,
-                  body_file_name: body_file_name, allow_missing: allow_missing, &block
-                )
-              end
-
-              unless response.is_a?(Net::HTTPSuccess)
-                raise(IOStreams::Errors::CommunicationsFailure, "Invalid response code: #{response.code}")
-              end
-
-              result = block.call(response)
+        tag_failure do
+          Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https") do |http|
+            request = build_request(request_class, uri)
+            # So that the Content-Length is the size of the file, not of a compressed response.
+            request["Accept-Encoding"] = "identity" if request_class == Net::HTTP::Head
+            body = body_file_name ? ::File.open(body_file_name, "rb") : nil
+            if body
+              request.body_stream    = body
+              request.content_length = body.size
+              request.content_type   = "application/octet-stream" unless request["content-type"]
             end
-          ensure
-            body&.close
+
+            begin
+              http.request(request) do |response|
+                return nil if allow_missing && (response.is_a?(Net::HTTPNotFound) || response.is_a?(Net::HTTPGone))
+
+                if response.is_a?(Net::HTTPRedirection)
+                  new_uri = redirect_uri(uri, response, http_redirect_count, request_class)
+                  return send_request(
+                    request_class, new_uri, http_redirect_count - 1,
+                    body_file_name: body_file_name, allow_missing: allow_missing, &block
+                  )
+                end
+
+                raise_failure(response, uri) unless response.is_a?(Net::HTTPSuccess)
+
+                result = block.call(response)
+              end
+            ensure
+              body&.close
+            end
           end
         end
         result
+      end
+
+      # Returns [Module] the kind of failure that an exception raised by a request means, see `IOStreams::Path#failure_kind`.
+      def failure_kind(exception)
+        Errors::Unavailable if NETWORK_ERRORS.any? { |error_class| exception.is_a?(error_class) }
+      end
+
+      # Raises [IOStreams::Errors::CommunicationsFailure] for the unsuccessful response, tagged with the kind of failure
+      # that it means, see `RESPONSE_FAILURES`.
+      def raise_failure(response, uri)
+        message =
+          case response
+          when Net::HTTPNotFound
+            "Invalid URL: #{without_credentials(uri)}"
+          when Net::HTTPUnauthorized
+            "Authorization Required: Invalid :username or :password."
+          else
+            "Invalid response code: #{response.code}"
+          end
+        error = Errors::CommunicationsFailure.new(message)
+        kind  = RESPONSE_FAILURES.find { |response_class, _kind| response.is_a?(response_class) }&.last
+        raise(kind ? kind.tag(error, display_name) : error)
       end
 
       # Returns [Net::HTTPRequest] the request, with the supplied headers and credentials
