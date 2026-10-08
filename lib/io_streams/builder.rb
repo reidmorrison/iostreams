@@ -66,7 +66,7 @@ module IOStreams
       stream = stream.to_sym unless stream.is_a?(Symbol)
       return merge_encoding(options) if stream == :encode
 
-      format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
+      format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
 
@@ -96,7 +96,7 @@ module IOStreams
         @streams ||= {}
         return merge_encoding(options)
       end
-      format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
+      format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
 
       format.validate_options(nil, options, name: stream)
       @streams ||= {}
@@ -247,18 +247,12 @@ module IOStreams
 
     # Replaces the value of each sensitive option of this copy, see #redacted.
     def redact!
-      @streams  = redact(@streams) if @streams
-      @options  = redact(@options) if @options
+      @streams  = self.class.redact_streams(@streams) if @streams
+      @options  = self.class.redact_streams(@options) if @options
       @encoding = Encode.redact_options(@encoding) if @encoding
     end
 
     private
-
-    # Returns [Hash<Symbol:Hash>] the options of each stream with the value of each sensitive option replaced,
-    # see .redact_streams.
-    def redact(streams)
-      self.class.redact_streams(streams)
-    end
 
     def build_pipeline
       return {} unless file_name
@@ -274,15 +268,9 @@ module IOStreams
       self
     end
 
-    # Returns the format of the stream: the built-in encode stream, see `IOStreams::Encode`, or the format
-    # registered for a file name extension, see `IOStreams.register_extension`. Returns nil when there is none.
-    def find_format(stream)
-      self.class.find_format(stream)
-    end
-
-    # Returns the format of the stream, see #find_format, or raises when there is none.
+    # Returns the format of the stream, see .find_format, or raises when there is none.
     def stream_format(stream)
-      find_format(stream) || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+      self.class.find_format(stream) || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
     end
 
     # Returns the streams for the supplied file_name

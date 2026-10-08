@@ -5,12 +5,14 @@ require "rbconfig"
 class S3DependencyTest < Minitest::Test
   describe "the aws-sdk-s3 gem" do
     # The test helper loads the AWS SDK, so each check runs in a new process that has not.
-    # With `without_gem`, loading it raises LoadError, as it does when the gem is not installed.
+    # With `without_gem`, the gem is removed from the load path, so that loading it raises LoadError, as it does when
+    # the gem is not installed. With `broken_gem`, a gem that it requires is removed instead.
     # Returns [String] the output of the process, followed by "loaded" when the AWS SDK was loaded.
-    def run_s3(code, without_gem: false)
+    def run_s3(code, without_gem: false, broken_gem: false)
+      hidden = ("/aws-sdk-s3-" if without_gem) || ("/aws-sigv4-" if broken_gem)
       script = <<~RUBY
+        #{"$LOAD_PATH.reject! { |dir| dir.include?(#{hidden.inspect}) }" if hidden}
         require "iostreams"
-        #{'IOStreams::Utils.define_singleton_method(:load_soft_dependency) { |*| raise(LoadError, "not installed") }' if without_gem}
         begin
           #{code}
         rescue Exception => e
@@ -64,6 +66,18 @@ class S3DependencyTest < Minitest::Test
 
     it "raises LoadError when reading a path with options without the gem" do
       assert_equal "LoadError", run_s3('IOStreams.path("s3://bucket/a.csv", acll: "private").read', without_gem: true)
+    end
+
+    it "raises LoadError when writing without the gem, before the block writes any data" do
+      code = <<~RUBY
+        IOStreams.path("s3://bucket/a.csv").writer { |_io| print "written " }
+      RUBY
+
+      assert_equal "LoadError", run_s3(code, without_gem: true)
+    end
+
+    it "raises LoadError when a path has options and the gem is installed but cannot be loaded" do
+      assert_equal "LoadError", run_s3('IOStreams.path("s3://bucket/a.csv", acl: "private")', broken_gem: true)
     end
 
     it "is not loaded until it is needed" do

@@ -14,6 +14,10 @@ module IOStreams
       autoload :Failure, "io_streams/paths/s3/failure"
       autoload :Sdk, "io_streams/paths/s3/sdk"
 
+      # The secret access key, also within `client:`, and the customer encryption keys, see
+      # IOStreams::Path.redact_options. A session token and credentials are always sensitive by name.
+      def self.sensitive_option_names = %i[secret_access_key sse_customer_key copy_source_sse_customer_key]
+
       # Arguments:
       #
       # url: [String]
@@ -167,10 +171,6 @@ module IOStreams
       #
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
-      # The secret access key, also within `client:`, and the customer encryption keys, see
-      # IOStreams::Path.redact_options. A session token and credentials are always sensitive by name.
-      def self.sensitive_option_names = %i[secret_access_key sse_customer_key copy_source_sse_customer_key]
-
       def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, region: nil, **args)
         uri = Utils::URI.new(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"
@@ -192,9 +192,7 @@ module IOStreams
 
         @options = args
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
-        # Without the AWS SDK the options are checked by the first request, see `#options_for`, so that the path
-        # can still be displayed, for example by a process that only enqueues work.
-        validate_options! if options.any? && Sdk.available?
+        validate_options!
 
         super(key)
       end
@@ -363,6 +361,8 @@ module IOStreams
       #   method that returns the failures that caused the upload to be
       #   aborted.
       def stream_writer(&block)
+        # Raises LoadError without the AWS SDK before the block writes any data, rather than once it has all been written.
+        Sdk.load
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
         Utils.private_temp_file("iostreams_s3") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
@@ -465,10 +465,7 @@ module IOStreams
       #
       # Options apply to the operations that accept them, so for example `acl` applies when writing
       # and copying, and `request_payer` to every operation.
-      #
-      # Checks the options first, since they are not checked when the path is created without the AWS SDK.
       def options_for(operation)
-        validate_options!
         options.slice(*Sdk.operation_options(operation))
       end
 
@@ -549,8 +546,11 @@ module IOStreams
 
       # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.
       # The options that S3 accepts come from the AWS SDK, so it is only loaded when options are supplied.
+      #
+      # Without the AWS SDK the options cannot be checked, but the path can still be displayed, for example by a
+      # process that only enqueues work. Every request needs the SDK, so the options are never used unchecked.
       def validate_options!
-        return if options.empty?
+        return if options.empty? || !Sdk.available?
 
         unknown = Sdk.unknown_options(options.keys)
         return if unknown.empty?

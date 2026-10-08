@@ -520,10 +520,12 @@ module IOStreams
         end
 
         it "replaces the HTTP password, parameters and authentication headers" do
-          options = {username: "jack", password: "a", parameters: {key: "b"}, headers: {"Authorization" => "c", "Accept" => "text/csv"}}
+          options = {username: "jack", password: "a", parameters: {key: "b"},
+                     headers: {"Authorization" => "c", "X-Api-Key" => "d", "Cookie" => "e", "Accept" => "text/csv"}}
 
           assert_equal({username: "jack", password: "[FILTERED]", parameters: "[FILTERED]",
-                        headers: {"Authorization" => "[FILTERED]", "Accept" => "text/csv"}},
+                        headers: {"Authorization" => "[FILTERED]", "X-Api-Key" => "[FILTERED]", "Cookie" => "[FILTERED]",
+                                  "Accept" => "text/csv"}},
                        IOStreams.redact_path_options("https://example.org/a.csv", options))
         end
 
@@ -534,6 +536,14 @@ module IOStreams
         it "replaces every value when the url is not valid, since its path class is not known" do
           assert_equal({password: "[FILTERED]", port: "[FILTERED]"}, IOStreams.redact_path_options("ftp://example.org/a", password: "a", port: 21))
           assert_equal({port: "[FILTERED]"}, IOStreams.redact_path_options("sftp://u:p@ss@example.org/a", port: 22))
+        end
+
+        it "replaces every value when the class registered for the scheme cannot say which are sensitive" do
+          IOStreams.register_scheme(:other, Class.new)
+
+          assert_equal({region: "[FILTERED]"}, IOStreams.redact_path_options("other://bucket/a.csv", region: "east"))
+        ensure
+          IOStreams.instance_variable_get(:@schemes).delete(:other)
         end
       end
 

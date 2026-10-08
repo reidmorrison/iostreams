@@ -9,17 +9,17 @@ module IOStreams
 
     # Option names whose values are hidden as a precaution, even when they are not declared sensitive.
     # Matched against the name in lower case without `_` or `-`, see .redact_options.
-    SENSITIVE_NAME = /passphrase|password|secret|token|credential/
+    SENSITIVE_NAME = /passphrase|password|secret|token|credential|auth|apikey|privatekey/
     private_constant :SENSITIVE_NAME
 
     # Returns [Hash] the options with the value of each sensitive option replaced with FILTERED, so that they can be
     # displayed, for example by `#inspect`, or in a web interface.
     #
     # An option is sensitive when its name is one of the supplied `sensitive_names`, or, as a precaution, contains
-    # `passphrase`, `password`, `secret`, `token` or `credential`. Names are compared in lower case, ignoring `_` and
-    # `-`, so that `:identity_key` matches the ssh option "IdentityKey", and `:proxy_authorization` the header
-    # "Proxy-Authorization". The options in a Hash value, such as `ssh_options:` or `headers:`, are redacted the same
-    # way.
+    # `passphrase`, `password`, `secret`, `token`, `credential`, `auth`, `apikey` or `privatekey`. Names are compared in
+    # lower case, ignoring `_` and `-`, so that `:identity_key` matches the ssh option "IdentityKey", and the header
+    # "X-Api-Key" contains `apikey`. The options in a Hash value, such as `ssh_options:` or `headers:`, are redacted the
+    # same way, as are those in an Array value, whether its elements are Hashes or `[name, value]` pairs.
     def self.redact_options(options, sensitive_names = [])
       redact_hash(options, sensitive_names.map { |name| normalize_option_name(name) })
     end
@@ -36,18 +36,37 @@ module IOStreams
     end
 
     def self.redact_hash(options, sensitive)
-      options.to_h do |name, value|
-        key = normalize_option_name(name)
-        if sensitive.include?(key) || key.match?(SENSITIVE_NAME)
-          [name, FILTERED]
-        elsif value.is_a?(Hash)
-          [name, redact_hash(value, sensitive)]
-        else
-          [name, value]
-        end
-      end
+      options.to_h { |name, value| [name, redact_option(name, value, sensitive)] }
     end
     private_class_method :redact_hash
+
+    # Returns the value of the named option for display, see .redact_options.
+    def self.redact_option(name, value, sensitive)
+      key = normalize_option_name(name)
+      return FILTERED if sensitive.include?(key) || key.match?(SENSITIVE_NAME)
+
+      redact_value(value, sensitive)
+    end
+    private_class_method :redact_option
+
+    # Returns the value with the options within it redacted, when it is a Hash or an Array, see .redact_options.
+    def self.redact_value(value, sensitive)
+      case value
+      when Hash
+        redact_hash(value, sensitive)
+      when Array
+        value.map do |element|
+          if element.is_a?(Array) && element.size == 2 && (element.first.is_a?(String) || element.first.is_a?(Symbol))
+            [element.first, redact_option(element.first, element.last, sensitive)]
+          else
+            redact_value(element, sensitive)
+          end
+        end
+      else
+        value
+      end
+    end
+    private_class_method :redact_value
 
     def self.normalize_option_name(name)
       name.to_s.downcase.delete("_-")
@@ -59,6 +78,19 @@ module IOStreams
       require require_name
     rescue LoadError => e
       raise(LoadError, "Please install the gem '#{gem_name}' to support #{stream_type}. #{e.message}")
+    end
+
+    # Returns [true|false] whether the soft dependency is installed, loading it when it is, see .load_soft_dependency.
+    #
+    # Raises LoadError when the gem is installed but cannot be loaded, such as when a gem that it requires is missing,
+    # so that a broken installation is reported, rather than treated as a gem that is not installed.
+    def self.soft_dependency_installed?(gem_name, stream_type, require_name = gem_name)
+      load_soft_dependency(gem_name, stream_type, require_name)
+      true
+    rescue LoadError => e
+      raise unless e.cause.is_a?(LoadError) && e.cause.path == require_name
+
+      false
     end
 
     # Returns [String] the url with the path `/` when it has no path, such as `sftp://host` or `https://host?a=1`,

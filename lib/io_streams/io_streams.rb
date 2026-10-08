@@ -61,13 +61,17 @@ module IOStreams
   # example by an application that stores a url and its options to create the path later.
   #
   # The path class of the url's scheme decides which options are sensitive, see `IOStreams::Path.redact_options`.
-  # Every value is replaced when the url is not valid, since then that class is not known.
+  # Every value is replaced when the url is not valid, since then that class is not known, or when the class
+  # registered for the scheme, see `IOStreams.register_scheme`, cannot say which are sensitive.
   #
   # Example:
   #   IOStreams.redact_path_options("sftp://example.org/a.csv", username: "jack", password: "secret")
   #   # => {username: "jack", password: "[FILTERED]"}
   def self.redact_path_options(url, options)
-    path_class(url.to_s).redact_options(options)
+    klass = path_class(url.to_s)
+    return klass.redact_options(options) if klass.respond_to?(:redact_options)
+
+    options.to_h { |name, _value| [name, Utils::FILTERED] }
   rescue ArgumentError, ::URI::Error
     options.to_h { |name, _value| [name, Utils::FILTERED] }
   end
