@@ -93,8 +93,9 @@ path = IOStreams.path("s3://bucket-name/path/example.csv")
 
 Accessing S3 requires the `aws-sdk-s3` gem, which is loaded when it is first needed. So a process
 without it, such as a web process that only records the path of a file for a job to process, can still
-create, join, compare and display an S3 path, such as with `#display_name`. Supplying S3 options, such
-as `acl:`, loads it to check them.
+create, join, compare and display an S3 path, such as with `#display_name`, including one with S3
+options, such as `acl:`. When the gem is installed, creating a path with options loads it to check them.
+Without it, reading, writing or any other request raises `LoadError` before any data is read or written.
 
 #### Required Arguments:
 
@@ -633,6 +634,12 @@ Inspect the components of a path's file name:
 # for logging. Unlike #to_s it cannot be used to create the path again.
 IOStreams.path("sftp://jack:secret@sftp.example.org/data/ruby.rb").display_name
 # => "sftp://sftp.example.org/data/ruby.rb"
+
+# The options for creating a path, such as a password, with each secret replaced, for an application
+# that stores a url and its options, and displays them. The path class of the url decides which are
+# secret, see `sensitive_option_names`. `redact_stream_options` does the same for the options of streams.
+IOStreams.redact_path_options("sftp://sftp.example.org/data/ruby.rb", username: "jack", password: "secret")
+# => {username: "jack", password: "[FILTERED]"}
 
 # The last component of the path.
 IOStreams.path("/home/gumby/work/ruby.rb").basename

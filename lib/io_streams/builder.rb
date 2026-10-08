@@ -19,6 +19,26 @@ module IOStreams
       RESERVED_KEYWORDS.include?(name)
     end
 
+    # Returns [Hash<Symbol:Hash>] the options of each stream, as supplied to `#stream`, with the value of each
+    # sensitive option replaced, see `IOStreams::StreamFormat#redact_options`, or every value of a stream whose format
+    # is not registered, since it cannot say which are sensitive.
+    def self.redact_streams(streams)
+      streams.to_h do |stream, opts|
+        next [stream, opts] unless opts.is_a?(Hash)
+
+        format = find_format(stream)
+        next [stream, opts.transform_values { Utils::FILTERED }] unless format
+
+        [stream, format.redact_options(opts)]
+      end
+    end
+
+    # Returns the format of the stream, such as `IOStreams::Gzip` for `:gz`, or nil when it is not registered.
+    def self.find_format(stream)
+      stream = stream&.to_sym
+      stream == :encode ? Encode : IOStreams.extensions[stream]
+    end
+
     def initialize(file_name = nil)
       @file_name = file_name
       @streams   = nil
@@ -46,7 +66,7 @@ module IOStreams
       stream = stream.to_sym unless stream.is_a?(Symbol)
       return merge_encoding(options) if stream == :encode
 
-      format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
+      format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
 
@@ -76,7 +96,7 @@ module IOStreams
         @streams ||= {}
         return merge_encoding(options)
       end
-      format = find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
+      format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
 
       format.validate_options(nil, options, name: stream)
       @streams ||= {}
@@ -227,24 +247,12 @@ module IOStreams
 
     # Replaces the value of each sensitive option of this copy, see #redacted.
     def redact!
-      @streams  = redact(@streams) if @streams
-      @options  = redact(@options) if @options
+      @streams  = self.class.redact_streams(@streams) if @streams
+      @options  = self.class.redact_streams(@options) if @options
       @encoding = Encode.redact_options(@encoding) if @encoding
     end
 
     private
-
-    # Returns [Hash<Symbol:Hash>] the options of each stream with the value of each sensitive option replaced,
-    # or every value of a stream whose format is no longer registered, since it cannot say which are sensitive.
-    def redact(streams)
-      streams.to_h do |stream, opts|
-        format = find_format(stream)
-        next [stream, opts] unless opts.is_a?(Hash)
-        next [stream, opts.transform_values { "[FILTERED]" }] unless format
-
-        [stream, format.redact_options(opts)]
-      end
-    end
 
     def build_pipeline
       return {} unless file_name
@@ -260,16 +268,9 @@ module IOStreams
       self
     end
 
-    # Returns the format of the stream: the built-in encode stream, see `IOStreams::Encode`, or the format
-    # registered for a file name extension, see `IOStreams.register_extension`. Returns nil when there is none.
-    def find_format(stream)
-      stream = stream&.to_sym
-      stream == :encode ? Encode : IOStreams.extensions[stream]
-    end
-
-    # Returns the format of the stream, see #find_format, or raises when there is none.
+    # Returns the format of the stream, see .find_format, or raises when there is none.
     def stream_format(stream)
-      find_format(stream) || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
+      self.class.find_format(stream) || raise(ArgumentError, "Unknown Stream type: #{stream.inspect}")
     end
 
     # Returns the streams for the supplied file_name

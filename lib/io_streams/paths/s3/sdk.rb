@@ -19,6 +19,19 @@ module IOStreams
           Utils.load_soft_dependency("aws-sdk-s3", "AWS S3") unless defined?(::Aws::S3::Client)
         end
 
+        # Returns [true|false] whether the AWS SDK is loaded, or can be, since the `aws-sdk-s3` gem is installed.
+        # Raises LoadError when the gem is installed but cannot be loaded, see `Utils.soft_dependency_installed?`.
+        #
+        # Remembers that the gem is not installed, so that it is not searched for again each time.
+        def self.available?
+          return true if defined?(::Aws::S3::Client)
+          return false if @not_installed
+
+          installed = Utils.soft_dependency_installed?("aws-sdk-s3", "AWS S3")
+          @not_installed = true unless installed
+          installed
+        end
+
         # Returns [Array<Symbol>] the options that the S3 operation accepts.
         def self.operation_options(operation)
           load
@@ -29,7 +42,8 @@ module IOStreams
 
         # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts.
         def self.unknown_options(names)
-          names - OPERATIONS.flat_map { |operation| operation_options(operation) }
+          @known_options ||= OPERATIONS.flat_map { |operation| operation_options(operation) }.uniq.freeze
+          names - @known_options
         end
       end
     end

@@ -33,6 +33,11 @@ module IOStreams
       ].freeze
       private_constant :NETWORK_ERRORS
 
+      # The password, the query `parameters`, which can hold an access key, and the cookie headers, see
+      # IOStreams::Path.redact_options. The authentication headers, such as "Authorization", "Proxy-Authorization",
+      # "X-Auth-Token" and "X-Api-Key", are sensitive by name.
+      def self.sensitive_option_names = %i[password parameters cookie set_cookie]
+
       # Stream to/from a remote file over http(s).
       #
       # Reading uses an HTTP GET, and writing uses an HTTP PUT of the entire file.

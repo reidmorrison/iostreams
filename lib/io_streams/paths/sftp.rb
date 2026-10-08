@@ -39,6 +39,9 @@ module IOStreams
 
       attr_reader :hostname, :username, :ssh_options, :url, :port
 
+      # The password, and the private key supplied as the ssh option `IdentityKey`, see IOStreams::Path.redact_options.
+      def self.sensitive_option_names = %i[password identity_key]
+
       # Stream to a remote file over sftp.
       #
       # url: [String]
