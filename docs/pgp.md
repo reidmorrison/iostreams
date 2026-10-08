@@ -15,7 +15,11 @@ written (see [Installation](#installation) below). As with every other stream, a
 GnuPG is required because there is no standard, maintained pure-Ruby PGP library. Calling the `gpg`
 executable directly is the deliberate approach: it is the reference PGP implementation, is widely
 installed, and is kept current with the OpenPGP standard. It is also well suited to the large files
-IOStreams targets, since `gpg` streams the data rather than holding it in memory.
+IOStreams targets, since `gpg` streams the data rather than holding it in memory. `gpg` reads and writes
+a local file itself, such as the temp file that an S3, SFTP or HTTP path downloads into, and any other
+stream, such as PGP data within another stream, or a `StringIO`, through its stdin and stdout, so PGP data
+is never copied into a temp file, unless it is read with `verify_first: true`, see
+[When temp files are used](config#when-temp-files-are-used).
 
 IOStreams has been tested against GnuPG v1.4, v2.0.30, v2.2.1, and v2.4.7.
 Because GnuPG is a command line program, IOStreams parses its output to extract information, so each
@@ -481,8 +485,4 @@ Select highest level: 5
 ### PGP Limitations
 
 * Designed for processing larger files since a process is spawned for each file processed.
-* `gpg` reads and writes the file directly when it is a local file, or the temp file that an S3, SFTP or
-  HTTP path downloads into or uploads from. PGP data within another stream, such as `data.csv.pgp.gz`, or
-  in an IO that is not a `File`, such as a `StringIO`, is copied through a temp file, see
-  [When temp files are used](config#when-temp-files-are-used).
 * For lots of small, in memory files, use the [gpgme](https://github.com/ueno/ruby-gpgme) library. For example to attach pgp files to emails.

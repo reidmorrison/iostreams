@@ -520,6 +520,17 @@ module Paths
           assert_equal data, result
         end
 
+        it "reads and writes PGP data within another stream without a temp file" do
+          path    = directory.join("data.csv.pgp.gz")
+          result  = nil
+          written = temp_files_created { path.option(:pgp, recipient: "receiver@example.org").write(data) }
+          read    = temp_files_created { result = path.option(:pgp, passphrase: "receiver_passphrase").read }
+
+          assert_empty written
+          assert_empty read
+          assert_equal data, result
+        end
+
         it "reads a zip file without a temp file" do
           path = directory.join("data.csv.zip")
           path.write(data)

@@ -2,6 +2,21 @@ require_relative "test_helper"
 require "timeout"
 
 class PgpReaderTest < Minitest::Test
+  # A stream that returns the start of the data, and then raises, like compressed data that is corrupt.
+  class CorruptInput
+    def initialize(data)
+      @data = data
+    end
+
+    def read(length = nil, outbuf = nil)
+      raise(Zlib::DataError, "invalid compressed data") if @read
+
+      @read = true
+      data  = @data.byteslice(0, [length || 100, 100].min)
+      outbuf ? outbuf.replace(data) : data
+    end
+  end
+
   describe IOStreams::Pgp::Reader do
     let :temp_file do
       Tempfile.new("iostreams")
@@ -80,6 +95,89 @@ class PgpReaderTest < Minitest::Test
 
         io     = StringIO.new(io_string.string)
         result = IOStreams::Pgp::Reader.stream(io, passphrase: "receiver_passphrase", &:read)
+
+        assert_equal decrypted, result
+      end
+    end
+
+    describe ".stream" do
+      let :large_data do
+        # Random bytes, which gpg cannot compress, so that the encrypted data fills the pipes to and from gpg.
+        Random.new(42).bytes(2_000_000)
+      end
+
+      def encrypt(data)
+        IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org", signer: "sender@example.org",
+                                                    signer_passphrase: "sender_passphrase") { |io| io.write(data) }
+        File.binread(temp_file.path)
+      end
+
+      it "decrypts a stream that is not a local file through gpg's stdin, without a temp file" do
+        input  = StringIO.new(encrypt(decrypted))
+        result = nil
+        temps  = temp_files_created do
+          result = IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase", &:read)
+        end
+
+        assert_equal decrypted, result
+        assert_empty temps
+        refute_predicate input, :closed?
+      end
+
+      it "returns the result of the block when it does not read the whole stream" do
+        input  = StringIO.new(encrypt(large_data))
+        result = Timeout.timeout(30) do
+          IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase") { |io| io.read(10) }
+        end
+
+        assert_equal large_data.byteslice(0, 10), result
+      end
+
+      it "stops reading the stream when the block raises" do
+        input = StringIO.new(encrypt(large_data))
+        error = Timeout.timeout(30) do
+          assert_raises(ArgumentError) do
+            IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase") do |io|
+              io.read(10)
+              raise(ArgumentError, "from the block")
+            end
+          end
+        end
+
+        assert_equal "from the block", error.message
+        refute_predicate input, :closed?
+      end
+
+      it "raises the failure to read the stream, rather than the failure of gpg that it causes" do
+        input = CorruptInput.new(encrypt(decrypted))
+        error = Timeout.timeout(30) do
+          assert_raises(Zlib::DataError) { IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase", &:read) }
+        end
+
+        assert_equal "invalid compressed data", error.message
+      end
+
+      it "raises when gpg cannot decrypt the stream" do
+        error = assert_raises(IOStreams::Pgp::Failure) do
+          IOStreams::Pgp::Reader.stream(StringIO.new("Not a PGP file"), passphrase: "receiver_passphrase", &:read)
+        end
+
+        assert_match(/\AGPG Failed to decrypt stream: /, error.message)
+      end
+
+      it "checks who signed the stream" do
+        input = StringIO.new(encrypt(decrypted))
+        error = assert_raises(IOStreams::Pgp::Failure) do
+          IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase", signer: "receiver2@example.org", &:read)
+        end
+
+        assert_equal "PGP stream was not signed by receiver2@example.org", error.message
+      end
+
+      it "verifies the stream before passing it to the block with verify_first" do
+        input  = StringIO.new(encrypt(decrypted))
+        result = IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase", signer: "sender@example.org",
+                                                      verify_first: true, &:read)
 
         assert_equal decrypted, result
       end

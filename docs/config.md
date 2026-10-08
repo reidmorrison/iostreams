@@ -170,9 +170,9 @@ supplied in a `StringIO`.
 | `.gz`, `.gzip`, `.bz2`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
 | `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | Not supported | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read |
-| `.pgp`, `.gpg` | No temp file for a local file, otherwise a temp file holding the encrypted data. With `verify_first: true`, also a temp file holding the decrypted data | No temp file for a local file, otherwise a temp file holding the encrypted data, which is then copied to the stream | IOStreams runs `gpg` on files |
+| `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads and writes a local file itself, and any other stream through its stdin and stdout |
 
-So a zip, spreadsheet or PGP stream only has a local file when it is the stream closest to the stored data: the
+So a zip or spreadsheet stream only has a local file when it is the stream closest to the stored data: the
 last extension in the file name, or the last stream set with `#stream`. `#pipeline` lists the streams in order
 from the application to the stored data:
 
@@ -186,14 +186,15 @@ For example:
 
 | Path | Temp files when reading | Temp files when writing |
 | --- | --- | --- |
-| `data.csv`, `data.csv.gz`, `data.csv.zip`, `data.csv.pgp` | None | None |
+| `data.csv`, `data.csv.gz`, `data.csv.zip`, `data.csv.pgp`, `data.csv.pgp.gz` | None | None |
 | `data.xlsx` | 1: the rows as CSV | Not supported |
 | `data.csv.pgp`, read with `verify_first: true` | 1: the decrypted data | None |
 | `data.csv.zip.pgp` | 1: the decrypted zip file | None |
 | `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | 1: the download | 1: the upload |
 | `s3://bucket/data.xlsx` | 2: the download, and the rows as CSV | Not supported |
 | `sftp://example.org/data.csv.zip.pgp` | 2: the download, and the decrypted zip file | 1: the upload |
-| `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | 1: the encrypted data | 1: the encrypted data |
+| `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | None | None |
+| `IOStreams.stream(StringIO.new(data)).stream(:zip)` | 1: the zip file | None |
 
 To see the temp files that IOStreams uses, set the [logger](#logger) to the debug level. Each temp file is logged
 when it is created, with what it holds, and when it is deleted, with its size:

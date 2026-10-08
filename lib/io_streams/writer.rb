@@ -31,11 +31,11 @@ module IOStreams
     end
 
     # When a Writer does not support streams, it writes to the file of the stream when the stream is an
-    # empty local file, see `Utils.local_file_name`. Otherwise it writes to a local temp file, which is
+    # empty local file, see `.output_file_name`. Otherwise it writes to a local temp file, which is
     # then copied to the stream.
     def self.stream(output_stream, **args, &block)
-      local_file_name = Utils.local_file_name(output_stream)
-      if local_file_name && output_stream.stat.zero?
+      local_file_name = output_file_name(output_stream)
+      if local_file_name
         result = file(local_file_name, **args, &block)
         # So that anything written to the stream next follows the data, as if it had been copied to the stream.
         output_stream.seek(0, ::IO::SEEK_END)
@@ -49,6 +49,15 @@ module IOStreams
         count
       end
     end
+
+    # Returns [String] the name of the local file that the output stream writes, when it is empty, which a writer can
+    # write to by its name, such as a writer that only writes files, instead of a temp file, see
+    # `Utils.local_file_name`. Returns nil for any other stream.
+    def self.output_file_name(output_stream)
+      file_name = Utils.local_file_name(output_stream)
+      file_name if file_name && output_stream.stat.zero?
+    end
+    private_class_method :output_file_name
 
     # When a Writer supports streams, also allow it to simply support a file
     def self.file(file_name, **args, &block)

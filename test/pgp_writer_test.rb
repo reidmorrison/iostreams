@@ -1,6 +1,14 @@
 require_relative "test_helper"
+require "timeout"
 
 class PgpWriterTest < Minitest::Test
+  # An output stream that raises when it is written to, like a full disk.
+  class FullOutput
+    def write(*)
+      raise(Errno::ENOSPC, "writing the output")
+    end
+  end
+
   describe IOStreams::Pgp::Writer do
     let :temp_file do
       Tempfile.new("iostreams")
@@ -152,6 +160,72 @@ class PgpWriterTest < Minitest::Test
         result = IOStreams::Pgp::Reader.stream(io, passphrase: "receiver_passphrase", &:read)
 
         assert_equal decrypted, result
+      end
+    end
+
+    describe ".stream" do
+      let :large_data do
+        # Random bytes, which gpg cannot compress, so that the encrypted data fills the pipes to and from gpg.
+        Random.new(42).bytes(2_000_000)
+      end
+
+      def decrypt(data)
+        IOStreams::Pgp::Reader.stream(StringIO.new(data), passphrase: "receiver_passphrase", &:read)
+      end
+
+      it "encrypts to a stream that is not a local file through gpg's stdout, without a temp file" do
+        output = StringIO.new("".b)
+        result = nil
+        temps  = temp_files_created do
+          result = IOStreams::Pgp::Writer.stream(output, recipient: "receiver@example.org") do |io|
+            io.write(large_data)
+            53_534
+          end
+        end
+
+        assert_equal 53_534, result
+        assert_empty temps
+        refute_predicate output, :closed?
+        assert_equal large_data, decrypt(output.string)
+      end
+
+      it "raises the failure to write to the stream, rather than the failure of gpg that it causes" do
+        error = Timeout.timeout(30) do
+          assert_raises(Errno::ENOSPC) do
+            IOStreams::Pgp::Writer.stream(FullOutput.new, recipient: "receiver@example.org") { |io| io.write(large_data) }
+          end
+        end
+
+        assert_match(/writing the output/, error.message)
+      end
+
+      it "raises when gpg fails, naming the stream" do
+        error = assert_raises(IOStreams::Pgp::Failure) do
+          IOStreams::Pgp::Writer.stream(StringIO.new("".b), recipient: "BAD@example.org") do |io|
+            io.write(decrypted)
+            # Allow process to terminate
+            sleep 1
+            io.write(decrypted)
+          end
+        end
+
+        assert_match(/encrypted stream: /, error.message)
+      end
+
+      it "encrypts the data that the block wrote before it raised" do
+        output = StringIO.new("".b)
+        error  = Timeout.timeout(30) do
+          assert_raises(ArgumentError) do
+            IOStreams::Pgp::Writer.stream(output, recipient: "receiver@example.org") do |io|
+              io.write("written before the block raised")
+              raise(ArgumentError, "from the block")
+            end
+          end
+        end
+
+        assert_equal "from the block", error.message
+        refute_predicate output, :closed?
+        assert_equal "written before the block raised", decrypt(output.string)
       end
     end
 

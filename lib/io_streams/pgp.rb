@@ -665,6 +665,18 @@ module IOStreams
       args
     end
 
+    # Returns [IO] the read end of a pipe that holds the passphrase, for gpg to read on the file descriptor
+    # supplied with `--passphrase-fd`, so that the passphrase is not visible in the process list, and stdin
+    # can carry the data. The passphrase is written before gpg starts, so that gpg never waits for it.
+    #
+    # Used internally by the PGP reader and writer.
+    def self.passphrase_reader(passphrase)
+      reader, writer = IO.pipe
+      writer.puts(passphrase.to_s)
+      writer.close
+      reader
+    end
+
     # Returns [true|false] whether gpg can encrypt to a key in a file supplied with `--recipient-file`, which is
     # available from GnuPG 2.1.14.
     #

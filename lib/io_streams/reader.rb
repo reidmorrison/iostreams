@@ -31,10 +31,10 @@ module IOStreams
     end
 
     # When a Reader does not support streams, it reads the file of the stream when the stream is already
-    # a local file, see `Utils.local_file_name`. Otherwise the stream is copied to a local temp file,
+    # a local file, see `.input_file_name`. Otherwise the stream is copied to a local temp file,
     # and that file name is passed to this reader.
     def self.stream(input_stream, **args, &block)
-      local_file_name = Utils.local_file_name(input_stream)
+      local_file_name = input_file_name(input_stream)
       if local_file_name
         result = file(local_file_name, **args, &block)
         # Leave the stream at its end, as if it had been copied.
@@ -48,6 +48,14 @@ module IOStreams
         file(file_name, **args, &block)
       end
     end
+
+    # Returns [String] the name of the local file that the input stream reads, which a reader can read by its name,
+    # such as a reader that only reads files, instead of a copy of the stream, see `Utils.local_file_name`.
+    # Returns nil for any other stream.
+    def self.input_file_name(input_stream)
+      Utils.local_file_name(input_stream)
+    end
+    private_class_method :input_file_name
 
     # When a Writer supports streams, also allow it to simply support a file
     def self.file(file_name, **args, &block)
