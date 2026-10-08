@@ -520,6 +520,14 @@ Fix: supply a block, for example `path.each(:line) { |line| lines << line }`.
 `#each_child`, `#children` and `IOStreams.each_child` raise `ArgumentError` for a pattern that is not a String,
 such as `children(false)`, which `Pathname#children` accepts. Previously they raised `NoMethodError`.
 
+### The `:stream` mode reads bytes from every stream
+
+Reading the whole of a `.gz` or compressed `.enc` stream, for example with `reader { |io| io.read }`, now returns
+bytes tagged `ASCII-8BIT`, like a plain, `.bz2` or `.zip` file. Previously it was tagged with
+`Encoding.default_external`, usually UTF-8.
+
+Fix: use `#read`, or `each(:line)`, which return UTF-8 text, or call `force_encoding(Encoding::UTF_8)` on the data.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

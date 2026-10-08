@@ -179,7 +179,8 @@ order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 fi
 the first column name of a CSV file is read as it appears. `read` returns the whole file as UTF-8
 without checking it or removing a byte order mark, like `File.read`, so that it can also read a
 binary file, such as an image, whose bytes are unchanged. The default `:stream` mode of `reader`
-reads bytes, so `io.read(128)` above returns up to 128 bytes of binary data.
+reads bytes from every stream, so `io.read(128)` above returns up to 128 bytes of binary data, and `io.read`
+returns the rest of the data as bytes, whether the file is plain, compressed or encrypted.
 
 To read a file in another encoding, set it on the [encode stream](extensions#character-encoding),
 whose strings are then in that encoding:

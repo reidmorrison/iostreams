@@ -13,7 +13,12 @@ module IOStreams
 
         begin
           reader = ::SymmetricEncryption::Reader.new(input_stream, buffer_size: buffer_size, **args)
-          io     = !reader.eof? && reader.compressed? ? ::Zlib::GzipReader.new(reader) : reader
+          # Bytes, like every other stream, rather than the external encoding that `Zlib::GzipReader#read` returns.
+          io     = if !reader.eof? && reader.compressed?
+                     ::Zlib::GzipReader.new(reader, external_encoding: Encoding::BINARY)
+                   else
+                     reader
+                   end
           yield io
         ensure
           io.finish if io.is_a?(::Zlib::GzipReader) && !io.closed?

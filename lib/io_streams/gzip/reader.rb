@@ -26,8 +26,6 @@ module IOStreams
         def initialize(input_stream)
           @input_stream = input_stream
           @gzip         = ::Zlib::GzipReader.new(input_stream)
-          # JRuby's Zlib::GzipReader does not implement #external_encoding.
-          @encoding     = @gzip.respond_to?(:external_encoding) ? @gzip.external_encoding : Encoding.default_external
         end
 
         # Returns [String] up to `length` bytes, or the rest of the stream when `length` is nil.
@@ -58,13 +56,14 @@ module IOStreams
 
         private
 
-        # Like `Zlib::GzipReader#read`, returns the data in the external encoding when no length is supplied.
+        # Returns [String] the rest of the stream as bytes, like every other stream in the `:stream` mode,
+        # rather than in the external encoding as `Zlib::GzipReader#read` does.
         def read_all
           data = String.new(encoding: Encoding::BINARY)
           while (block = read_upto(65_536))
             data << block
           end
-          data.force_encoding(@encoding)
+          data
         end
 
         def read_upto(length)
