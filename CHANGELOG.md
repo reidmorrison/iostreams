@@ -101,6 +101,7 @@ These bug fixes change behavior that existing code may depend on:
 
 ### Fixed
 
+- An S3 path loads the `aws-sdk-s3` gem when it is first needed, so that a process without the gem can create, join, compare and display an S3 path, such as with `#display_name`. Previously creating one raised `LoadError`. Supplying S3 options still loads it, to check them.
 - SFTP `#exist?`, `#file?`, `#directory?`, `#empty?`, `#each_child` and `#delete` treat SFTP status 10, "no such path", which some servers send from version 4 of the SFTP protocol, as a file that does not exist, like status 2. Previously they raised `Net::SFTP::StatusException`.
 - `#inspect` shows the full name of a path, such as `#<IOStreams::Paths::S3:s3://bucket/a.csv pipeline={}>`, without any user name, password or query of an SFTP or HTTP url. Previously it showed only `#path`, such as `a.csv`, so paths in different buckets or on different hosts looked the same. The warning logged when `#each_child` skips a child outside the allowed paths also no longer includes the password of an SFTP or HTTP url.
 - `#directory` of an S3 key without a directory, such as `s3://bucket/a.csv`, is the bucket `s3://bucket/`. Previously it was the key `.`, shown as `s3://bucket/.`, so a path joined to it, such as `path.directory.join("b.csv")`, used the key `./b.csv`, a different object from `b.csv`.

@@ -26,6 +26,9 @@ module IOStreams
         # Returns [Module] the kind of failure that an exception raised by the AWS SDK means, or nil when it is none of
         # them.
         def self.kind(exception)
+          # The AWS SDK is loaded when it is first needed, so before then no exception is one of its errors.
+          return unless defined?(::Aws::S3::Errors)
+
           case exception
           when Aws::S3::Errors::ServiceError
             service_kind(exception)
