@@ -1,5 +1,7 @@
 require_relative "test_helper"
 require_relative "s3_stub"
+# The tests build AWS errors, such as Seahorse::Client::NetworkingError, before any S3 path loads the SDK.
+require "aws-sdk-s3"
 require_relative "http_server"
 require "open3"
 require "tmpdir"
