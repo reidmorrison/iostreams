@@ -161,6 +161,22 @@ path.format(:fixed).format_options(layout: [{size: 10, key: "name"}, {size: 5, k
 path.writer(:hash) { |io| io << {"name" => "José", "zip" => "12345"} }
 ~~~
 
+### Cleaning fixed width files
+
+To remove non-printable characters, such as NUL padding, from a fixed width file, replace them with a
+space, so that every column after them stays in place:
+
+~~~ruby
+path.option(:encode, cleaner: :replace_non_printable, replace: " ")
+~~~
+
+Since `replace:` also replaces invalid characters, each byte that is not ASCII is replaced with a space
+too, unless the encoding of the file is set.
+
+The `:printable` cleaner removes non-printable characters rather than replacing them, even with
+`replace:`, which only replaces invalid characters. So each one it removes moves every column that
+follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
+
 ## Header options
 
 When reading or writing records (`:hash`), the following options control the header row:

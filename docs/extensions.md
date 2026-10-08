@@ -109,9 +109,13 @@ Options:
 
 * `cleaner: [nil|Symbol|Proc]`
   Cleanse the data. Built-in rules:
-  * `:printable` removes all non-printable characters except `\r` and `\n`.
+  * `:printable` removes all non-printable characters except `\r` and `\n`. It does not use
+    `replace`, which still replaces invalid characters.
   * `:replace_non_printable` replaces all non-printable characters except `\r` and `\n`
     with the `replace` value, or an empty string when `replace` is nil.
+
+  Use `:replace_non_printable` with `replace: " "` for [fixed width files](formats#fixed-width-files),
+  since `:printable` removes characters, which moves every column after them.
   A Proc can also be supplied to perform custom cleansing; it is called with the data
   and the `replace` value after every read or write. Any other value raises `ArgumentError`.
   Default: nil

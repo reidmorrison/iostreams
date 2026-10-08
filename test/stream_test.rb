@@ -871,6 +871,18 @@ class StreamTest < Minitest::Test
           end
         end
 
+        it "keeps the columns aligned when replacing non-printable characters" do
+          rows = read_fixed("Jack\0\0London\0\n", cleaner: :replace_non_printable, replace: " ")
+
+          assert_equal [{"name" => "Jack", "city" => "London"}], rows
+        end
+
+        it "moves the columns when removing non-printable characters" do
+          assert_raises(IOStreams::Errors::InvalidLineLength) do
+            read_fixed("Jack\0\0London\0\n", cleaner: :printable, replace: " ")
+          end
+        end
+
         it "reads UTF-8 whose sizes count characters with the UTF-8 encoding" do
           rows = read_fixed("Jos\u00e9  Z\u00fcrich \n", encoding: "UTF-8")
 
