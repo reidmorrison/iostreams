@@ -83,6 +83,24 @@ module Paths
         end
       end
 
+      describe "operations that HTTP does not support" do
+        let(:path) { IOStreams.path("https://example.com/files/a.csv") }
+
+        it "raises NotImplementedError naming the class, operation and path" do
+          error = assert_raises(NotImplementedError) { path.delete_all }
+
+          assert_equal "IOStreams::Paths::HTTP does not support #delete_all: https://example.com/files/a.csv", error.message
+          assert_raises(NotImplementedError) { path.each_child { |_child| flunk } }
+        end
+
+        it "does not respond to them, like a method Ruby does not implement on the platform" do
+          refute_respond_to path, :delete_all
+          refute_respond_to path, :each_child
+          assert_respond_to path, :exist?
+          assert_respond_to path, :read
+        end
+      end
+
       describe "#join" do
         it "keeps a percent-encoded character in a joined name" do
           path = IOStreams::Paths::HTTP.new("https://example.com/files").join("my%20file.csv")
@@ -852,6 +870,30 @@ module Paths
             start_server { |_path| "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" }
 
             assert_nil IOStreams.path("#{@server.base_url}/file.txt").size
+          end
+        end
+
+        describe "#mtime" do
+          it "returns the Last-Modified time from a head request" do
+            modified = Time.utc(2026, 10, 8, 12, 30, 0)
+            start_server do |_path|
+              "HTTP/1.1 200 OK\r\nLast-Modified: #{modified.httpdate}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            end
+
+            assert_equal modified, IOStreams.path("#{@server.base_url}/file.txt").mtime
+            assert_equal "HEAD", @server.requests.first[:method]
+          end
+
+          it "returns nil when the server does not supply it" do
+            start_server { |_path| "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
+
+            assert_nil IOStreams.path("#{@server.base_url}/file.txt").mtime
+          end
+
+          it "raises NotFound when the file is not found" do
+            start_server { |_path| TestHTTPServer.response(404) }
+
+            assert_raises(IOStreams::Errors::NotFound) { IOStreams.path("#{@server.base_url}/file.txt").mtime }
           end
         end
 

@@ -33,6 +33,10 @@ module IOStreams
       #     whatever encoding the input stream tags it with. So its characters are kept and only invalid characters
       #     are replaced, or raise an error.
       #
+      #     Like Ruby's `File.read`, "external:internal", such as "Windows-1252:UTF-8", reads the data in the external
+      #     encoding and converts it to the internal encoding. A character that the internal encoding does not have
+      #     raises Encoding::UndefinedConversionError, unless `replace` is supplied.
+      #
       #     When reading UTF-8, a byte order mark at the start of the data is removed.
       #
       #   replace: [String]
@@ -51,10 +55,13 @@ module IOStreams
       def initialize(input_stream, encoding: Encode.default_encoding, cleaner: nil, replace: nil)
         super(input_stream)
 
-        @converter = Converter.new(encoding: encoding, replace: replace)
-        @cleaner   = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+        external, @internal = Encode.external_and_internal(encoding)
+        @converter          = Converter.new(encoding: external, replace: replace)
+        @internal           = nil if @internal == @converter.encoding
+        @transcode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
+        @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
         # Whether the start of the data, where UTF-8 text can begin with a byte order mark, is still to be read.
-        @at_start  = @converter.encoding == Encoding::UTF_8
+        @at_start           = @converter.encoding == Encoding::UTF_8
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         # Binary, since `IO#read` keeps the encoding of the buffer that it reads into.
@@ -89,13 +96,15 @@ module IOStreams
         # Data that is not converted, such as with `encoding: "BINARY"`, is the block that was read, which can be
         # the buffer that the next read reads into.
         data = data.dup if data.equal?(@read_cache_buffer)
+        # The converter returns whole characters, so each block can be converted to the internal encoding on its own.
+        data = data.encode(@internal, **@transcode_options) if @internal
         data = @cleaner.call(data) if @cleaner
         outbuf ? outbuf.replace(data) : data
       end
 
       # Returns [Encoding] the encoding of the data returned, or nil when it is returned unchanged.
       def encoding
-        @converter.encoding
+        @internal || @converter.encoding
       end
 
       private

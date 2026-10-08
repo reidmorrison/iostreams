@@ -1,6 +1,11 @@
+require "pathname"
+
 module IOStreams
   class Path < IOStreams::Stream
     attr_reader :path
+
+    # The operations that each storage implements, when it supports them. See `#respond_to?`.
+    OPERATIONS = %i[each_child mkpath mkdir exist? size mtime file? directory? empty? delete delete_all].freeze
 
     def initialize(path)
       raise(ArgumentError, "Path cannot be nil") if path.nil?
@@ -30,12 +35,61 @@ module IOStreams
       new_path
     end
 
+    # Returns [IOStreams::Path] a new path with the element joined to this path, see #join.
+    #
+    # Like #join, and unlike `Pathname#/`, an absolute element is joined to this path rather than replacing it,
+    # so that a name from untrusted input, or from configuration, stays within this path:
+    #   IOStreams.path("/data") / "/b.csv"   # => /data/b.csv
+    def /(other)
+      join(other)
+    end
+
+    # Returns [IOStreams::Path] a copy of this path with `.`, `..` and repeated `/` removed, without accessing
+    # the file, like `Pathname#cleanpath`. The copy keeps the streams and options, since it is the same file.
+    #
+    # Note: S3 treats `.` and `..` in a key as ordinary characters, but they are resolved here like any other path.
+    def cleanpath
+      clean      = dup
+      clean.path = Pathname.new(path).cleanpath.to_s
+      clean
+    end
+
+    # Returns [IOStreams::Path] a new path with the last extension of the file name replaced, like `Pathname#sub_ext`.
+    # The streams and options are cleared, since a new extension can mean other streams or another format.
+    #   IOStreams.path("data.csv.gz").sub_ext(".bz2")   # => data.csv.bz2
+    #   IOStreams.path("data.csv").sub_ext("")          # => data
+    def sub_ext(extension)
+      new_path = dup
+      new_path.clear_configuration
+      new_path.path = path.delete_suffix(::File.extname(path)) + extension.to_s
+      new_path
+    end
+
+    # Returns [String] the name of this path relative to the supplied base path, like `Pathname#relative_path_from`,
+    # without accessing either of them. Like #basename, the name has no storage of its own, so it is a String that
+    # can be joined to another path, for example to copy every file within a directory to another store:
+    #
+    #   source = IOStreams.path("s3://bucket/exports")
+    #   source.each_child("**/*") { |child| IOStreams.path("/backup").join(child.relative_path_from(source)).copy_from(child) }
+    #
+    # Parameters:
+    #   base [IOStreams::Path|String]
+    #
+    # Raises ArgumentError when the base is in another store, such as another S3 bucket or SFTP host,
+    # or when one path is absolute and the other is relative.
+    def relative_path_from(base)
+      base = IOStreams.path(base) unless base.is_a?(Path)
+      raise(ArgumentError, "#{base.display_name} is not in the same store as #{display_name}") unless same_store?(base)
+
+      Pathname.new(path.empty? ? "." : path).relative_path_from(Pathname.new(base.path.empty? ? "." : base.path)).to_s
+    end
+
     def relative?
       !absolute?
     end
 
     def absolute?
-      !!(path.strip =~ %r{\A/})
+      path.start_with?("/")
     end
 
     # By default realpath just returns self.
@@ -46,8 +100,8 @@ module IOStreams
     # Runs the pattern from the current path, returning the complete path for located files.
     #
     # See IOStreams::Paths::File.each for arguments.
-    def each_child(pattern = "*", **args, &)
-      raise NotImplementedError
+    def each_child(*, **)
+      raise_not_implemented(__method__)
     end
 
     # Returns [Array] of child files based on the supplied pattern
@@ -83,7 +137,7 @@ module IOStreams
     # Removes the last element of the path, the file name, before creating the entire path.
     # Returns self
     def mkpath
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Assumes the current path does not include a file name, and creates all elements in the path.
@@ -91,19 +145,26 @@ module IOStreams
     #
     # Note: Do not call this method if the path contains a file name, see `#mkpath`
     def mkdir
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether the file exists
     def exist?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [Integer] the size of the file, like `File.size`.
     #
     # Raises [IOStreams::Errors::NotFound] when the file does not exist, see `#size?`.
     def size
-      raise NotImplementedError
+      raise_not_implemented(__method__)
+    end
+
+    # Returns [Time] when the file was last modified, like `File.mtime`.
+    #
+    # Raises [IOStreams::Errors::NotFound] when the file does not exist.
+    def mtime
+      raise_not_implemented(__method__)
     end
 
     # Returns [Integer] the size of the file, or nil when it does not exist or is empty, like `File.size?`.
@@ -116,18 +177,18 @@ module IOStreams
 
     # Returns [true|false] whether this path is a file that exists.
     def file?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether this path is a directory that exists.
     def directory?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether this path is a directory without any children, or a file without any data.
     # Returns false when it does not exist.
     def empty?
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # Returns [true|false] whether this path has an empty name, see `#to_s`.
@@ -180,7 +241,7 @@ module IOStreams
     # * No error is raised if the file or directory is not present.
     # * Only the file is removed, not any of the parent paths.
     def delete
-      raise NotImplementedError
+      raise_not_implemented(__method__)
     end
 
     # When path is a directory ,deletes this directory and all its children.
@@ -193,7 +254,18 @@ module IOStreams
     # * Only the file is removed, not any of the parent paths.
     # * All children paths and files will be removed.
     def delete_all
-      raise NotImplementedError
+      raise_not_implemented(__method__)
+    end
+
+    # Returns [true|false] whether this path supports the method, like `Object#respond_to?`.
+    #
+    # An operation that a storage does not support, such as `#each_child` on an HTTP path, raises
+    # NotImplementedError, and `respond_to?` returns false for it, as Ruby does for a method that is not
+    # implemented on the platform, such as `Process.fork` on Windows.
+    def respond_to?(name, include_all = false) # rubocop:disable Style/OptionalBooleanParameter -- the signature of Object#respond_to?
+      return false if OPERATIONS.include?(name.to_sym) && method(name).owner == IOStreams::Path
+
+      super
     end
 
     # Returns [true|false] whether this path can be accessed: whether it is within the allowed paths,
@@ -271,6 +343,7 @@ module IOStreams
       str     = "#<#{self.class.name}:#{display_name}"
       str << " @builder=#{builder.streams.inspect}" if builder.streams
       str << " @options=#{builder.options.inspect}" if builder.options
+      str << " @encoding=#{builder.setting(:encode).inspect}" if builder.setting(:encode)
       str << " pipeline=#{builder.pipeline.inspect}>"
     end
 
@@ -298,6 +371,21 @@ module IOStreams
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
     attr_writer :path
+
+    # Returns [true|false] whether the other path is in the same store as this one, so that their names can be
+    # compared, see #relative_path_from.
+    def same_store?(other)
+      other.instance_of?(self.class) && other.store == store
+    end
+
+    # Returns the identity of the store that this path is in, such as the bucket of an S3 path, or the host and
+    # port of an SFTP path. Every local file is in the same store.
+    def store = nil
+
+    # Raises NotImplementedError for an operation that this storage does not support.
+    def raise_not_implemented(operation)
+      raise(NotImplementedError, "#{self.class.name} does not support ##{operation}: #{display_name}")
+    end
 
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
     # and this path is not within any of them.

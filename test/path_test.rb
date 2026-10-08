@@ -158,6 +158,11 @@ module IOStreams
         it "false when not absolute" do
           assert_equal false, IOStreams::Path.new("a/b/c/d").absolute?
         end
+
+        it "false when the name starts with a space, like Pathname" do
+          assert_equal false, IOStreams::Path.new(" /a").absolute?
+          assert_equal true, IOStreams::Path.new(" /a").relative?
+        end
       end
 
       describe "#relatve?" do
@@ -167,6 +172,81 @@ module IOStreams
 
         it "false on absolute" do
           assert_equal false, IOStreams::Path.new("/a/b/c/d").relative?
+        end
+      end
+
+      describe "#/" do
+        it "joins like #join, appending an absolute element rather than replacing the path" do
+          assert_equal "/data/a/b.csv", (IOStreams.path("/data") / "a" / "b.csv").to_s
+          assert_equal "/data/b.csv", (IOStreams.path("/data") / "/b.csv").to_s
+        end
+      end
+
+      describe "#cleanpath" do
+        it "removes . and .. and repeated slashes without accessing the file, keeping the options" do
+          path  = IOStreams.path("a/./b/../c//d.csv").option(:encode, encoding: "BINARY")
+          clean = path.cleanpath
+
+          assert_equal "a/c/d.csv", clean.to_s
+          assert_equal({encoding: "BINARY"}, clean.setting(:encode))
+          assert_equal "a/./b/../c//d.csv", path.to_s
+        end
+
+        it "keeps the bucket of an S3 path" do
+          assert_equal "s3://bucket/a/c.csv", IOStreams.path("s3://bucket/a/b/../c.csv").cleanpath.to_s
+        end
+
+        it "keeps the host of an SFTP path within the login directory" do
+          assert_equal "sftp://host/~/b.csv", IOStreams.path("sftp://host/~/a/../b.csv").cleanpath.to_s
+        end
+      end
+
+      describe "#sub_ext" do
+        it "replaces the last extension, like Pathname#sub_ext" do
+          assert_equal "data.csv.bz2", IOStreams.path("data.csv.gz").sub_ext(".bz2").to_s
+          assert_equal "dir.d/data", IOStreams.path("dir.d/data.csv").sub_ext("").to_s
+          assert_equal "s3://bucket/a.json", IOStreams.path("s3://bucket/a.csv").sub_ext(".json").to_s
+        end
+
+        it "clears the streams and options, which were for the old file name" do
+          path = IOStreams.path("data.csv").option(:encode, encoding: "BINARY").sub_ext(".csv.gz")
+
+          assert_nil path.setting(:encode)
+          assert_equal({gz: {}}, path.pipeline)
+        end
+      end
+
+      describe "#relative_path_from" do
+        it "returns the name relative to the base, like Pathname#relative_path_from" do
+          assert_equal "b/c.csv", IOStreams.path("/data/b/c.csv").relative_path_from(IOStreams.path("/data"))
+          assert_equal "../x.csv", IOStreams.path("/data/x.csv").relative_path_from("/data/b")
+        end
+
+        it "works within an S3 bucket, including from the bucket itself" do
+          assert_equal "a/b.csv", IOStreams.path("s3://bucket/a/b.csv").relative_path_from(IOStreams.path("s3://bucket"))
+        end
+
+        it "raises ArgumentError for a base in another store" do
+          assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.csv").relative_path_from("s3://other/") }
+          assert_raises(ArgumentError) { IOStreams.path("sftp://h1/a.csv").relative_path_from("sftp://h2/") }
+          assert_raises(ArgumentError) { IOStreams.path("/data/a.csv").relative_path_from("s3://bucket/data") }
+        end
+      end
+
+      describe "#respond_to?" do
+        it "is false for an operation that the path class does not implement" do
+          path = IOStreams::Path.new("a/b/c")
+
+          refute_respond_to path, :exist?
+          refute_respond_to path, :delete_all
+          assert_respond_to path, :join
+          assert_raises(NotImplementedError) { path.exist? }
+        end
+
+        it "is true for every operation that local paths implement" do
+          path = IOStreams.path("a/b/c")
+
+          IOStreams::Path::OPERATIONS.each { |operation| assert_respond_to path, operation }
         end
       end
 

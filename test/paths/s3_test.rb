@@ -49,6 +49,36 @@ module Paths
         end
       end
 
+      describe "#delete_all" do
+        it "deletes every key within the path, but not keys that only start with the same characters" do
+          directory = root_path.join("delete_all_test")
+          directory.join("a.txt").write(raw)
+          directory.join("sub/b.txt").write(raw)
+          sibling = root_path.join("delete_all_test.txt")
+          sibling.write(raw)
+
+          assert_same directory, directory.delete_all
+          refute_predicate directory.join("a.txt"), :exist?
+          refute_predicate directory.join("sub/b.txt"), :exist?
+          assert_predicate sibling, :exist?
+        ensure
+          sibling&.delete
+        end
+
+        it "deletes a file" do
+          path = root_path.join("delete_all_file.txt")
+          path.write(raw)
+
+          path.delete_all
+
+          refute_predicate path, :exist?
+        end
+
+        it "does nothing when there is nothing to delete" do
+          assert_same missing_path, missing_path.delete_all
+        end
+      end
+
       describe "#exist?" do
         it "existing file" do
           assert_predicate existing_path, :exist?
@@ -90,6 +120,16 @@ module Paths
           assert_instance_of Aws::S3::Errors::NoSuchKey, error
           assert_equal missing_path.display_name, error.display_name
           assert_includes error.message, missing_path.display_name
+        end
+      end
+
+      describe "#mtime" do
+        it "existing file" do
+          assert_kind_of Time, existing_path.mtime
+        end
+
+        it "missing file" do
+          assert_raises(IOStreams::Errors::NotFound) { missing_path.mtime }
         end
       end
 

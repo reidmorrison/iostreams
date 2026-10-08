@@ -143,6 +143,17 @@ module Paths
         end
       end
 
+      describe "#delete_all" do
+        it "deletes a directory and everything within it" do
+          directory = root_path.join("delete_all_test_dir")
+          directory.join("a.txt").mkpath.write(raw)
+          directory.join("sub/b.txt").mkpath.write(raw)
+
+          assert_same directory, directory.delete_all
+          refute_predicate directory, :exist?
+        end
+      end
+
       describe "file and directory predicates" do
         let(:dir) { root_path.join("predicates_test") }
         let(:empty_file) { dir.join("empty.txt") }
@@ -325,6 +336,9 @@ module Paths
       Attributes = Struct.new(:directory) do
         def directory? = directory
       end
+      Entry = Struct.new(:name, :directory) do
+        def directory? = directory
+      end
 
       # The [operation, remote name] of each file or directory that was deleted.
       attr_reader :deleted
@@ -354,6 +368,17 @@ module Paths
 
         deleted << [:rmdir, name]
       end
+
+      def dir
+        self
+      end
+
+      # The entries within the directory, from the files and directories whose parent it is.
+      def entries(directory)
+        children = (@files + @directories).select { |name| ::File.dirname(name) == directory }
+        [Entry.new(".", true), Entry.new("..", true)] +
+          children.sort.map { |name| Entry.new(::File.basename(name), @directories.include?(name)) }
+      end
     end
 
     # Minimal stand-in for a Net::SFTP session, with the supplied remote files, as a Hash of name to size,
@@ -363,6 +388,7 @@ module Paths
         def size = file_size
         def directory? = directory
         def file? = !directory
+        def mtime = 1_791_000_000
       end
       Entry = Struct.new(:name)
 
@@ -758,7 +784,9 @@ module Paths
         [
           "ssh: connect to host example.org port 22: Connection refused",
           "ssh: connect to host example.org port 22: Operation timed out",
-          "ssh: Could not resolve hostname example.org: nodename nor servname provided, or not known",
+          "ssh: Could not resolve hostname example.org: Temporary failure in name resolution",
+          "ssh: Could not resolve hostname example.org: temporary failure in name resolution",
+          "ssh: Could not resolve hostname example.org: Try again",
           "kex_exchange_identification: read: Connection reset by peer",
           "Connection closed by 10.0.0.1 port 22",
           "Timeout, server example.org not responding."
@@ -774,6 +802,10 @@ module Paths
 
         [
           "Host key verification failed.",
+          # A host that does not resolve, on macOS, Linux with glibc, and musl.
+          "ssh: Could not resolve hostname example.org: nodename nor servname provided, or not known",
+          "ssh: Could not resolve hostname example.org: Name or service not known",
+          "ssh: Could not resolve hostname example.org: Name does not resolve",
           %(Couldn't open local file "/tmp/x" for writing: No such file or directory),
           "Invalid command."
         ].each do |output|
@@ -854,6 +886,32 @@ module Paths
           stub_sftp = Module.new
           stub_sftp.const_set(:StatusException, StubStatusException)
           stub_sftp.define_singleton_method(:start) { |*| raise Net::SSH::Disconnect, "connection closed by remote host" }
+
+          StubNetSFTP.replace(stub_sftp) do
+            assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+          end
+        end
+
+        it "does not raise Unavailable when the host does not resolve" do
+          skip_without_resolution_error
+          error     = resolution_error(Socket::EAI_NONAME)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise error }
+
+          StubNetSFTP.replace(stub_sftp) do
+            raised = assert_raises(Socket::ResolutionError) { path.exist? }
+
+            refute_kind_of IOStreams::Errors::StorageError, raised
+          end
+        end
+
+        it "raises Unavailable when name resolution fails temporarily" do
+          skip_without_resolution_error
+          error     = resolution_error(Socket::EAI_AGAIN)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*| raise error }
 
           StubNetSFTP.replace(stub_sftp) do
             assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
@@ -1350,6 +1408,46 @@ module Paths
         end
       end
 
+      describe "#delete_all" do
+        def with_stub_net_sftp(files: [], directories: [], error: nil)
+          session = StubDeleteSession.new(files, directories, error)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |_hostname, _username, _options, &block| block.call(session) }
+
+          StubNetSFTP.replace(stub_sftp) { yield(session) }
+        end
+
+        it "removes a directory and everything within it, deepest first" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(files: ["/data/a.csv", "/data/sub/b.csv"], directories: ["/data", "/data/sub"]) do |session|
+            assert_same path, path.delete_all
+            assert_equal [[:remove, "/data/a.csv"], [:remove, "/data/sub/b.csv"], [:rmdir, "/data/sub"], [:rmdir, "/data"]],
+                         session.deleted
+          end
+        end
+
+        it "removes a file" do
+          path = new_path("sftp://example.org/data/a.csv", username: "jack")
+
+          with_stub_net_sftp(files: ["/data/a.csv"]) do |session|
+            path.delete_all
+
+            assert_equal [[:remove, "/data/a.csv"]], session.deleted
+          end
+        end
+
+        it "does not raise when the path does not exist" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp do |session|
+            assert_same path, path.delete_all
+            assert_empty session.deleted
+          end
+        end
+      end
+
       describe "file and directory predicates" do
         def with_stub_net_sftp(&)
           session = StubStatSession.new(
@@ -1372,6 +1470,12 @@ module Paths
             assert_predicate path("/data/a.csv"), :exist?
             assert_predicate path("/data"), :exist?
             refute_predicate path("/data/missing.csv"), :exist?
+          end
+        end
+
+        it "#mtime" do
+          with_stub_net_sftp do
+            assert_equal Time.at(1_791_000_000), path("/data/a.csv").mtime
           end
         end
 

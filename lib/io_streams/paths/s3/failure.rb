@@ -26,14 +26,18 @@ module IOStreams
         # Returns [Module] the kind of failure that an exception raised by the AWS SDK means, or nil when it is none of
         # them.
         def self.kind(exception)
+          # The AWS SDK is loaded when it is first needed, so before then no exception is one of its errors.
+          return unless defined?(::Aws::S3::Errors)
+
           case exception
           when Aws::S3::Errors::ServiceError
             service_kind(exception)
           when Aws::Errors::MissingCredentialsError, Aws::Sigv4::Errors::MissingCredentialsError
             Errors::PermissionDenied
           when Seahorse::Client::NetworkingError
-            # S3 could not be reached, once the AWS SDK has retried the request.
-            Errors::Unavailable
+            # S3 could not be reached, once the AWS SDK has retried the request, unless its host, such as that of a
+            # custom endpoint, does not resolve.
+            Errors::Unavailable unless Utils.unknown_host?(exception.original_error)
           when Aws::S3::MultipartUploadError
             # Raised once the upload of a part fails, with the failure of each part.
             kind(exception.errors.first) if exception.errors.first

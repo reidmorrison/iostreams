@@ -111,6 +111,13 @@ module IOStreams
       parser.class.quote_character
     end
 
+    # Returns [String] the encoding that the format reads and writes text in when the caller does not set one on
+    # the encode stream, such as "US-ASCII:UTF-8" for fixed width files, or [nil] for the default encoding of the
+    # encode stream, UTF-8.
+    def encoding
+      parser.class.encoding
+    end
+
     # Returns [Array] the header row/line after parsing and cleansing.
     # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
     #
@@ -255,6 +262,12 @@ module IOStreams
     # or [nil] when the format has no such quoting, or when the format is nil.
     def self.quote_character(format)
       parser_class(format).quote_character unless format.nil?
+    end
+
+    # Returns [String] the encoding of the registered format, see #encoding,
+    # or [nil] for the default encoding of the encode stream, or when the format is nil.
+    def self.encoding(format)
+      parser_class(format).encoding unless format.nil?
     end
 
     register_format(:array, IOStreams::Tabular::Parser::Array)

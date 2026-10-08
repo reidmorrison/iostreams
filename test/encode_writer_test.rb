@@ -189,5 +189,16 @@ class EncodeWriterTest < Minitest::Test
         assert_includes error.message, %(Invalid cleaner "printable")
       end
     end
+
+    describe "external:internal encoding" do
+      it "writes in the external encoding, like File.write, so the same option reads it back" do
+        # Binary, since a StringIO converts the data written to it to the encoding of its String.
+        output = StringIO.new(String.new(encoding: Encoding::BINARY))
+        IOStreams::Encode::Writer.stream(output, encoding: "Windows-1252:UTF-8") { |io| io.write("caf\u00e9\n") }
+
+        assert_equal "caf\xE9\n".b, output.string.b
+        assert_equal "caf\u00e9\n", IOStreams::Encode::Reader.stream(StringIO.new(output.string), encoding: "Windows-1252:UTF-8", &:read)
+      end
+    end
   end
 end

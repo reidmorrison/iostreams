@@ -69,3 +69,17 @@ end
 root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))
 IOStreams.add_root(:downloads, File.join(root, "downloads"))
+
+# Returns [Socket::ResolutionError] a failure to look up a host name with the supplied error code, such as
+# `Socket::EAI_NONAME`. Ruby sets the error code of a real failure itself, so this one answers it directly.
+# Ruby 3.2 does not have `Socket::ResolutionError`, so call `skip_without_resolution_error` first.
+def resolution_error(error_code)
+  error = Socket::ResolutionError.new("getaddrinfo: no-such-host.example")
+  error.define_singleton_method(:error_code) { error_code }
+  error
+end
+
+# Skips the test on Ruby 3.2, which does not have `Socket::ResolutionError`.
+def skip_without_resolution_error
+  skip("Socket::ResolutionError requires Ruby 3.3 or later") unless defined?(Socket::ResolutionError)
+end

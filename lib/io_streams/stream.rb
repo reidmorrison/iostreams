@@ -45,9 +45,33 @@ module IOStreams
     # IOStreams.path("keep_safe.enc").option(:pgp, passphrase: "receiver_passphrase").read
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
+    #
+    # Setting the encode stream with `option(:encode, ...)` is deprecated, use #encoding instead.
     def option(stream, **)
       raise_if_frozen!
       builder.option(stream, **)
+      self
+    end
+
+    # Set the character encoding of the text that the application reads or writes, which the built-in encode
+    # stream converts, and its other options, `replace:` and `cleaner:`. Unlike the streams in the file name, the
+    # encoding stays with the path, whichever streams it has, and works for a stream without a file name too.
+    #
+    # Examples:
+    #
+    # # Read a Windows-1252 file as UTF-8 strings.
+    # IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8").each(:hash) { |hash| p hash }
+    #
+    # # Read binary lines from a compressed file, which is still decompressed.
+    # IOStreams.path("data.csv.gz").encoding("BINARY").each(:line) { |line| p line }
+    #
+    # # Replace invalid characters with "?" instead of raising.
+    # IOStreams.path("export.csv").encoding("UTF-8", replace: "?").read
+    #
+    # Replaces `option(:encode, ...)` and `stream(:encode, ...)`, which still work.
+    def encoding(encoding = nil, **)
+      raise_if_frozen!
+      builder.encoding(encoding, **)
       self
     end
 
@@ -140,8 +164,8 @@ module IOStreams
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
-    #   set it with the encode stream, for example `option(:encode, encoding: "ISO-8859-1")`, or
-    #   `option(:encode, encoding: "BINARY")` to read binary lines. See also `replace:` for the encode stream.
+    #   set it with #encoding, for example `encoding("ISO-8859-1")`, or `encoding("BINARY")` to read binary lines.
+    #   See also its `replace:` option.
     def each(mode = :line, **args, &block)
       raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
 
@@ -151,6 +175,11 @@ module IOStreams
       # A Fiber-backed Enumerator (e.g. `to_enum(__method__, mode, **args)`) would leave that block
       # suspended; if the caller abandons a partially-consumed enumerator, none of the cleanup runs
       # until GC collects the Fiber, leaking file descriptors, gpg processes, and temp files.
+      unless block
+        raise(ArgumentError, "#each requires a block, so that the file is closed once it has been read. " \
+                             "To collect every #{mode}, call it with a block that adds each one to an Array.")
+      end
+
       reader(mode, **args) { |stream| stream.each(&block) }
     end
 
@@ -177,12 +206,12 @@ module IOStreams
     # Read an entire file into memory.
     #
     # Returns [String] the whole file as UTF-8, like `File.read`, without checking that it is valid UTF-8, so that a
-    # binary file can be read too, since its bytes are unchanged. An encode stream set with #option or #stream returns
-    # the data in its encoding instead, and checks it, for example `option(:encode, encoding: "UTF-8")`. Reading an IO
+    # binary file can be read too, since its bytes are unchanged. An encoding set with #encoding returns the data
+    # in that encoding instead, and checks it, for example `encoding("UTF-8")`. Reading an IO
     # that you supplied, without any streams, keeps the encoding that the IO gives its data.
     #
-    # With a length, such as `read(1024)`, returns up to that number of bytes, which are binary unless an encode
-    # stream is set.
+    # With a length, such as `read(1024)`, returns up to that number of bytes, which are binary unless an encoding
+    # is set.
     #
     # Notes:
     # - Use with caution since large files can cause a denial of service since
@@ -245,7 +274,7 @@ module IOStreams
     # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", convert: false)
     #
     # # Advanced copy with custom stream conversions on source and target.
-    # source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
+    # source = IOStreams.path("source_file").encoding("BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
     #
     # Returns [Integer] the number of bytes copied, when copying without a `mode:`.
@@ -426,6 +455,18 @@ module IOStreams
       raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used #{reason}")
     end
 
+    # Yields a stream that reads the text read through the streams, decoded by the encode stream, see
+    # `IOStreams::Builder#text_reader`. Protected, so that it can be called on a copy that reads in another encoding,
+    # see #with_default_encoding.
+    def text_reader(&)
+      stream_reader { |io| builder.text_reader(io, &) }
+    end
+
+    # Yields a stream that writes text through the streams. Protected, see #text_reader.
+    def text_writer(&)
+      stream_writer(&)
+    end
+
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
     # changing the streams or options of this one.
     def without_streams
@@ -469,20 +510,21 @@ module IOStreams
       builder.reader(io_stream, &)
     end
 
-    def line_reader(embedded_within: :auto, **args)
+    # The lines are read in the encoding of the format, set with #format or detected from the file name, see
+    # `IOStreams::Tabular#encoding`, unless an encoding is set on the encode stream.
+    def line_reader(embedded_within: :auto, **, &)
       # `:auto` uses the quote character of the format, set with #format or detected from the file name,
       # such as `"` for CSV, while distinguishing "not supplied" from an explicit value such as `nil`
       # (disable) or `'"'` (force).
       embedded_within = IOStreams::Tabular.quote_character(format) if embedded_within == :auto
 
-      stream_reader do |io|
-        builder.text_reader(io) do |text|
-          yield IOStreams::Line::Reader.new(
-            text,
-            embedded_within: embedded_within,
-            **args
-          )
-        end
+      open_line_reader(IOStreams::Tabular.encoding(format), embedded_within: embedded_within, **, &)
+    end
+
+    # Yields a line reader of the text read in the supplied encoding, unless an encoding is set on the encode stream.
+    def open_line_reader(encoding, **args)
+      with_default_encoding(encoding).text_reader do |text|
+        yield IOStreams::Line::Reader.new(text, **args)
       end
     end
 
@@ -493,7 +535,7 @@ module IOStreams
     def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
-      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
+      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Row::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
@@ -504,7 +546,7 @@ module IOStreams
     def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
-      line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
+      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
@@ -519,10 +561,19 @@ module IOStreams
       builder.writer(io_stream, &)
     end
 
-    def line_writer(**args, &block)
+    # The lines are written in the encoding of the format, see #line_reader.
+    def line_writer(**, &block)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
-      writer do |io|
+      open_line_writer(IOStreams::Tabular.encoding(format), **, &block)
+    end
+
+    # Yields a line writer of the text written in the supplied encoding, unless an encoding is set on the encode
+    # stream. When the encoding is nil the text is written as it is, unless the encode stream is set.
+    def open_line_writer(encoding, **args, &block)
+      return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
+
+      with_default_encoding(encoding).text_writer do |io|
         IOStreams::Line::Writer.stream(io, **args, &block)
       end
     end
@@ -531,7 +582,7 @@ module IOStreams
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
       tabular = tabular(**args)
-      line_writer(delimiter: delimiter) do |io|
+      open_line_writer(tabular.encoding, delimiter: delimiter) do |io|
         block.call(IOStreams::Row::Writer.new(io, tabular: tabular))
       end
     end
@@ -540,9 +591,19 @@ module IOStreams
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
       tabular = tabular(**args)
-      line_writer(delimiter: delimiter) do |io|
+      open_line_writer(tabular.encoding, delimiter: delimiter) do |io|
         block.call(IOStreams::Record::Writer.new(io, tabular: tabular))
       end
+    end
+
+    # Returns [IOStreams::Stream] this stream, when the encoding is nil, otherwise a copy that reads and writes text
+    # in the supplied encoding unless an encoding is set on the encode stream, see `IOStreams::Builder#with_default_encoding`.
+    def with_default_encoding(encoding)
+      return self if encoding.nil?
+
+      copy         = dup
+      copy.builder = builder.with_default_encoding(encoding)
+      copy
     end
   end
 end

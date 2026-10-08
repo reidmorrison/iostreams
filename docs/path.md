@@ -91,6 +91,11 @@ If the supplied file name string includes a URI. For example if AWS is configure
 path = IOStreams.path("s3://bucket-name/path/example.csv")
 ~~~
 
+Accessing S3 requires the `aws-sdk-s3` gem, which is loaded when it is first needed. So a process
+without it, such as a web process that only records the path of a file for a job to process, can still
+create, join, compare and display an S3 path, such as with `#display_name`. Supplying S3 options, such
+as `acl:`, loads it to check them.
+
 #### Required Arguments:
 
 * url [String]
@@ -586,6 +591,10 @@ path.exist?
 path.size
 # => 64
 
+# When the file was last modified, as a Time.
+path.mtime
+# => 2026-10-08 12:30:00 UTC
+
 # Size of the file in bytes, or nil when it does not exist or is empty, like `File.size?`.
 path.size?
 # => 64
@@ -603,11 +612,18 @@ path.empty?
 # Delete the file.
 path.delete
 
+# Delete a directory and everything within it, like `Pathname#rmtree`.
+IOStreams.path("sample/old").delete_all
+
 # Move the file to another path, returning the target path.
 path.move_to("sample/moved.csv")
 
-# Create the directory path, when it does not already exist.
-IOStreams.path("sample/data").mkpath
+# Create the directories of a file, when they do not already exist.
+# `mkpath` treats the last element as the file name, so this creates `sample/data`, not `example.csv`.
+IOStreams.path("sample/data/example.csv").mkpath
+
+# Create a directory, and any directories above it.
+IOStreams.path("sample/data").mkdir
 ~~~
 
 Inspect the components of a path's file name:
@@ -643,6 +659,36 @@ IOStreams.path("a/b/d/test.rb").extension
 # => "rb"
 ~~~
 
+Build and compare paths without accessing them:
+
+~~~ruby
+# Join, like `#join`. An absolute element is joined to the path rather than replacing it, unlike `Pathname#/`.
+IOStreams.path("s3://bucket/exports") / "2026" / "daily.csv"
+# => s3://bucket/exports/2026/daily.csv
+
+# Remove `.`, `..` and repeated `/`.
+IOStreams.path("exports/./2026/../daily.csv").cleanpath
+# => exports/daily.csv
+
+# Replace the last extension. The streams and options are cleared, since the file name changed.
+IOStreams.path("exports/daily.csv").sub_ext(".json")
+# => exports/daily.json
+
+# The name of a path relative to another path in the same store, as a String.
+IOStreams.path("s3://bucket/exports/2026/daily.csv").relative_path_from(IOStreams.path("s3://bucket/exports"))
+# => "2026/daily.csv"
+~~~
+
+For example, to copy every file within a directory to another store, keeping their names:
+
+~~~ruby
+source = IOStreams.path("s3://bucket/exports")
+target = IOStreams.path("/backup/exports")
+source.each_child("**/*") do |child|
+  target.join(child.relative_path_from(source)).copy_from(child, convert: false)
+end
+~~~
+
 Notes:
 * `basename`, `dirname`, `extname`, and `extension` return `nil` when no file name was set.
 * A leading period on a dotfile is not treated as an extension, so `.profile` has no extension,
@@ -670,7 +716,9 @@ IOStreams.each_child("sample/**/*.csv") { |child| puts child }
 
 Notes:
 * These operations are supported by File, S3 and SFTP paths. HTTP paths support all of them except
-  `each_child`. HTTP has no directories, so `directory?` is always false and `mkpath` does nothing.
+  `each_child` and `delete_all`, and `mtime` is nil when the server does not supply a `Last-Modified`
+  header. An operation that a path does not support raises `NotImplementedError`,
+  and `respond_to?` returns false for it, so code can check, for example `path.respond_to?(:each_child)`. HTTP has no directories, so `directory?` is always false and `mkpath` does nothing.
 * S3 has no directories either, only keys that contain `/`. An S3 path is a directory when any key is
   within it, such as `a` and `a/b` for the key `a/b/c.csv`, or when a folder object exists for it, with
   a key ending in `/`, such as the folders created by the S3 console. An S3 directory is `empty?` when
@@ -691,6 +739,26 @@ Notes:
 
   Code that runs against more than one store, for example where the path is configured, should only use
   the first argument, and use methods on the path, such as `size`, for anything else.
+
+### Coming from Pathname
+
+IOStreams paths are modeled on Ruby's `Pathname`, and most methods with the same name do the same thing. These are
+the differences, each of which keeps a path working the same way wherever the file is stored:
+
+| Pathname | IOStreams | Why |
+| --- | --- | --- |
+| `Pathname("/a").join("/b")` is `/b` | `IOStreams.path("/a").join("/b")` is `/a/b`, and so is `/` | A name from configuration or untrusted input stays within the path, such as a root |
+| `join("..")` returns the parent | `join("..")` keeps `..`; use `cleanpath` or `directory` | Joining never accesses or resolves anything |
+| `Pathname("a/b").join("a/b/c")` is `a/b/a/b/c` | `IOStreams.path("a/b").join("a/b/c")` is `a/b/c` | An element that is already within the path is used as-is, so a name that includes its root is not doubled |
+| `mkpath` creates the whole path | `mkpath` creates the directories of a file, and `mkdir` creates the whole path | A path usually names a file; writing to a path creates its directories anyway |
+| `children`, `each_child` list every entry | `children("*.csv")` and `each_child` take a pattern like `glob`, skip directories and hidden files, and ignore case by default | The same pattern lists local, S3 and SFTP paths |
+| `children` raises for a missing directory | Returns nothing for a missing path, or a file | S3 has no directories that could be missing |
+| `delete` raises for a missing file | Does nothing, and returns the path | The same on every store, where checking first would be a separate request |
+| `basename`, `dirname` return a `Pathname` | Return a String; `directory` returns the directory as a path | A name on its own has no store; `basename` uses `file_name` when it is set |
+| `read(length, offset)` | `read(length)` reads bytes from the start, after any decompression or decryption | A compressed or encrypted stream cannot seek |
+| `each_line` without a block returns an Enumerator | `each` requires a block | The file, any temp file and any gpg process are closed when the block returns |
+| Paths sort with `/` first | Paths sort by their full name, see `#to_s` | Names include the scheme, bucket or host |
+| `to_path`, so `File.exist?(pathname)` works | No `to_path`; use the path's own methods, such as `exist?` and `reader` | `File` and `Dir` only work with local files, so code passing a path to them breaks when the configured path moves to S3 or SFTP |
 
 ### Using root paths
 

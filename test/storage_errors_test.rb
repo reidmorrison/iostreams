@@ -1,5 +1,7 @@
 require_relative "test_helper"
 require_relative "s3_stub"
+# The tests build AWS errors, such as Seahorse::Client::NetworkingError, before any S3 path loads the SDK.
+require "aws-sdk-s3"
 require_relative "http_server"
 require "open3"
 require "tmpdir"
@@ -342,6 +344,47 @@ class StorageErrorsTest < Minitest::Test
         path = IOStreams.path("http://127.0.0.1:#{port}/a.csv")
 
         assert_unavailable(Errno::ECONNREFUSED, path) { path.read }
+      end
+    end
+
+    describe "a host that does not resolve" do
+      before { skip_without_resolution_error }
+
+      # Asserts that the block raises the exception of the storage, without tagging it as a failure of the storage.
+      def assert_not_tagged(storage_class, &)
+        error = assert_raises(storage_class, &)
+
+        refute_kind_of IOStreams::Errors::StorageError, error
+      end
+
+      it "is not Unavailable for S3" do
+        error = Seahorse::Client::NetworkingError.new(resolution_error(Socket::EAI_NONAME))
+        path  = IOStreams.path("s3://my-bucket/a.csv", client: s3_client(get_object: error))
+
+        assert_not_tagged(Seahorse::Client::NetworkingError) { path.read }
+      end
+
+      it "is Unavailable for S3 when name resolution fails temporarily" do
+        error = Seahorse::Client::NetworkingError.new(resolution_error(Socket::EAI_AGAIN))
+        path  = IOStreams.path("s3://my-bucket/a.csv", client: s3_client(get_object: error))
+
+        assert_unavailable(Seahorse::Client::NetworkingError, path) { path.read }
+      end
+
+      it "is not Unavailable for HTTP" do
+        path = IOStreams.path("http://no-such-host.example/a.csv")
+
+        Net::HTTP.stub(:start, ->(*) { raise resolution_error(Socket::EAI_NONAME) }) do
+          assert_not_tagged(Socket::ResolutionError) { path.read }
+        end
+      end
+
+      it "is Unavailable for HTTP when name resolution fails temporarily" do
+        path = IOStreams.path("http://no-such-host.example/a.csv")
+
+        Net::HTTP.stub(:start, ->(*) { raise resolution_error(Socket::EAI_AGAIN) }) do
+          assert_unavailable(Socket::ResolutionError, path) { path.read }
+        end
       end
     end
 

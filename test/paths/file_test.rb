@@ -297,6 +297,16 @@ module Paths
         end
       end
 
+      describe "#mtime" do
+        it "is when the file was last modified" do
+          assert_equal ::File.mtime(file_path.to_s), file_path.mtime
+        end
+
+        it "raises NotFound for a file that does not exist" do
+          assert_raises(IOStreams::Errors::NotFound) { directory.join("missing.txt").mtime }
+        end
+      end
+
       describe "#size?" do
         it "returns the size of a file" do
           assert_equal data.size, file_path.size?
@@ -371,6 +381,16 @@ module Paths
           realpath = ::File.realpath(path)
 
           assert_equal realpath, IOStreams::Paths::File.new(path).realpath.to_s
+        end
+
+        it "keeps the streams, options and create_path of the path, since it is the same file" do
+          path = IOStreams::Paths::File.new(::File.join(__dir__, "../files/test.csv"), create_path: false)
+          path.option(:encode, encoding: "BINARY")
+          realpath = path.realpath
+
+          refute realpath.create_path
+          assert_equal({encoding: "BINARY"}, realpath.setting(:encode))
+          refute_same path, realpath
         end
 
         it "raises NotFound for a file that does not exist" do

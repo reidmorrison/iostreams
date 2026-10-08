@@ -210,7 +210,7 @@ Let IOStreams perform the above stream chaining automatically under the covers:
 ~~~ruby
   apple_count = 0
   IOStreams.path("hello.csv.gz").
-    option(:encode, encoding: "US-ASCII", replace: "", cleaner: :printable).
+    encoding("US-ASCII", replace: "", cleaner: :printable).
     each do |line|
       apple_count += line.scan("apple").count
     end

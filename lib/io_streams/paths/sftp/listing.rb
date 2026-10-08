@@ -61,6 +61,18 @@ module IOStreams
           nil
         end
 
+        # Deletes the remote directory and everything within it, deepest first, without following symbolic links.
+        # Used by `SFTP#delete_all`.
+        def self.remove_tree(sftp, directory)
+          sftp.dir.entries(directory).each do |entry|
+            next if %w[. ..].include?(entry.name)
+
+            name = ::File.join(directory, entry.name)
+            entry.directory? ? remove_tree(sftp, name) : sftp.remove!(name)
+          end
+          sftp.rmdir!(directory)
+        end
+
         # Returns the attributes of the remote file or directory, or nil when it does not exist.
         # Also used by `SFTP#exist?`, `#size`, `#file?`, `#directory?`, `#empty?`, and `#each_child` for an exact name.
         def self.remote_attributes(sftp, remote_name)

@@ -5,6 +5,19 @@ module IOStreams
       class Fixed < Base
         attr_reader :layout, :truncate
 
+        # Returns [String] the encoding of fixed width files, ASCII, read as UTF-8 strings.
+        #
+        # The sizes of the columns in a fixed width file count bytes, since the programs that write them, such as
+        # COBOL programs, and the formats that specify them, such as NACHA, count bytes. Their text is ASCII, or a
+        # single-byte code page that the caller names on the encode stream, such as "ISO-8859-1:UTF-8". So any other
+        # byte raises `IOStreams::Errors::InvalidEncoding` instead of misaligning the columns that follow it.
+        #
+        # When writing, only the external encoding, ASCII, applies, so a value that is not ASCII raises
+        # `Encoding::UndefinedConversionError` instead of writing a line that is longer than the layout in bytes.
+        def self.encoding
+          "US-ASCII:UTF-8"
+        end
+
         # Returns [IOStreams::Tabular::Parser]
         #
         # Parameters:

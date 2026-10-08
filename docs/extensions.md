@@ -65,28 +65,60 @@ Notes:
 The built-in `:encode` stream converts the character encoding of the data being read or written.
 Lines, rows and records are always read through it, with its default options unless it is set, so
 they are UTF-8 by default, see [Text and binary data](streams#text-and-binary-data).
-It is applied with `option` or `stream` rather than a file name extension, and it converts the text
-that the application reads or writes, so it comes before the other streams, whatever order they are
-set in:
+Set it with `#encoding` rather than a file name extension. It converts the text that the application
+reads or writes, so it comes before the other streams, and it applies alongside the streams from the
+file name or those set with `#stream`. It also works for a stream without a file name:
 
 ~~~ruby
 IOStreams.path("sample.csv.gz").
-  option(:encode, encoding: "UTF-8", cleaner: :printable, replace: "").
+  encoding("UTF-8", cleaner: :printable, replace: "").
   each do |line|
     puts line
   end
 ~~~
 
+Each call merges its options with those already set, so `encoding("UTF-8").encoding(replace: "")` is
+the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams.
+
+**Deprecated:** setting the encode stream with `option(:encode, ...)` or `stream(:encode, ...)`.
+Both still work, and set the same options as `#encoding`, but use `#encoding` instead:
+
+| Deprecated                                         | Use instead                       |
+|----------------------------------------------------|-----------------------------------|
+| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
+| `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
+| `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
+| `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
+
+`stream(:encode, ...)` also stops the streams being taken from the file name, like any other stream
+set with `#stream`, so a `.gz` file read with `stream(:encode, encoding: "BINARY")` is not
+decompressed. `encoding("BINARY")` keeps them; add `stream(:none)` first to read the data as-is.
+
 Options:
 
 * `encoding: [String|Encoding]`
+  Supplied as the first argument, `encoding("UTF-8")`, or as `encoding: "UTF-8"`.
   The target encoding, for example `"UTF-8"`, `"US-ASCII"`, or `"ASCII-8BIT"`.
   Data that is read, whether from a file or through another stream such as `:gz`, and binary data
   that is written, is treated as already being in this encoding, so its characters are kept and only
   invalid characters are replaced or raise an error. A Ruby string being written in another encoding
   is converted. When reading UTF-8, the byte order mark (U+FEFF) that programs such as Excel write at
   the start of a file is removed.
-  Default: `"UTF-8"`
+
+  Like Ruby's `File.read`, `"external:internal"` reads text stored in the external encoding and
+  converts it to the internal encoding, for example to read a Windows-1252 file as UTF-8 strings:
+
+  ~~~ruby
+  IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8").each(:hash) do |record|
+    record["name"] # => a UTF-8 String
+  end
+  ~~~
+
+  A character that the internal encoding does not have raises `Encoding::UndefinedConversionError`,
+  unless `replace` is supplied. When writing, the text is written in the external encoding, so the same
+  option reads the file back.
+  Default: `"UTF-8"`, or `"US-ASCII:UTF-8"` for [fixed width files](formats#fixed-width-files), unless
+  another encoding is set
 
 * `replace: [String]`
   The character to replace with when a character is invalid, or cannot be converted to the target encoding.
@@ -95,9 +127,13 @@ Options:
 
 * `cleaner: [nil|Symbol|Proc]`
   Cleanse the data. Built-in rules:
-  * `:printable` removes all non-printable characters except `\r` and `\n`.
+  * `:printable` removes all non-printable characters except `\r` and `\n`. It does not use
+    `replace`, which still replaces invalid characters.
   * `:replace_non_printable` replaces all non-printable characters except `\r` and `\n`
     with the `replace` value, or an empty string when `replace` is nil.
+
+  Use `:replace_non_printable` with `replace: " "` for [fixed width files](formats#fixed-width-files),
+  since `:printable` removes characters, which moves every column after them.
   A Proc can also be supplied to perform custom cleansing; it is called with the data
   and the `replace` value after every read or write. Any other value raises `ArgumentError`.
   Default: nil

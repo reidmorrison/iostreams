@@ -33,6 +33,9 @@ module IOStreams
       #     Binary data, such as the contents of a file, is treated as already being in this encoding,
       #     so its characters are kept and only invalid characters are replaced, or raise an error.
       #
+      #     Like Ruby's `File.write`, with "external:internal", such as "Windows-1252:UTF-8", the data is written in
+      #     the external encoding, so that the same option can be used to read and to write a file.
+      #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
       #     nil: Don't replace any invalid characters. IOStreams::Errors::InvalidEncoding, an
@@ -48,8 +51,9 @@ module IOStreams
       def initialize(output_stream, encoding: Encode.default_encoding, cleaner: nil, replace: nil)
         super(output_stream)
 
-        @converter = Converter.new(encoding: encoding, replace: replace)
-        @cleaner   = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+        external, _internal = Encode.external_and_internal(encoding)
+        @converter          = Converter.new(encoding: external, replace: replace)
+        @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
       end
 
       # Returns [Encoding] the encoding of the data written, or nil when it is written unchanged.
@@ -60,7 +64,7 @@ module IOStreams
       # Write a line to the output stream
       #
       # Example:
-      #   IOStreams.path('a.txt').option(:encode, encoding: 'UTF-8').writer do |stream|
+      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
       #     stream << 'first line' << 'second line'
       #   end
       def <<(record)
@@ -72,7 +76,7 @@ module IOStreams
       # Returns [Integer] the number of bytes written.
       #
       # Example:
-      #   IOStreams.path('a.txt').option(:encode, encoding: 'UTF-8').writer do |stream|
+      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
       #     count = stream.write('first line')
       #     puts "Wrote #{count} bytes to the output file"
       #   end

@@ -12,6 +12,14 @@ module IOStreams
           nil
         end
 
+        # Returns [String] the encoding that text in this format is read and written in, when the caller does not set
+        # one on the encode stream, or [nil] for the default encoding of the encode stream, UTF-8.
+        #
+        # Defined at the class level since it is a static property of the format, see `.quote_character`.
+        def self.encoding
+          nil
+        end
+
         # Returns [true|false] whether a header row is required for this format.
         def requires_header?
           true

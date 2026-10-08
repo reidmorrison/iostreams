@@ -306,6 +306,96 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe "#encoding" do
+      it "applies the encode stream before the streams from the file name" do
+        streams.encoding("Windows-1252:UTF-8")
+
+        expected = [[:encode, {encoding: "Windows-1252:UTF-8"}], [:xlsx, {}], [:zip, {}], [:gz, {}], [:pgp, {}]]
+
+        assert_equal expected, streams.pipeline.to_a
+      end
+
+      it "merges the encoding with the other options and with those already set" do
+        streams.encoding("UTF-8").encoding(replace: "?").encoding(cleaner: :printable)
+
+        assert_equal({encoding: "UTF-8", replace: "?", cleaner: :printable}, streams.setting(:encode))
+      end
+
+      it "can be combined with streams" do
+        streams.stream(:gz).encoding("BINARY")
+
+        assert_equal({encode: {encoding: "BINARY"}, gz: {}}, streams.pipeline)
+      end
+
+      it "can be combined with options" do
+        streams.option(:pgp, passphrase: "unlock-me").encoding("BINARY")
+
+        assert_equal({encoding: "BINARY"}, streams.pipeline[:encode])
+        assert_equal({passphrase: "unlock-me"}, streams.pipeline[:pgp])
+      end
+
+      it "needs no file name" do
+        assert_equal({encode: {encoding: "BINARY"}}, IOStreams::Builder.new.encoding("BINARY").pipeline)
+      end
+
+      it "is set by the deprecated option(:encode)" do
+        streams.option(:encode, encoding: "BINARY").encoding(replace: "")
+
+        assert_equal({encoding: "BINARY", replace: ""}, streams.setting(:encode))
+      end
+
+      it "is set by the deprecated option(:encode) after #stream" do
+        streams.stream(:gz).option(:encode, encoding: "BINARY")
+
+        assert_equal({encode: {encoding: "BINARY"}, gz: {}}, streams.pipeline)
+      end
+
+      it "is set by the deprecated stream(:encode), which still stops the streams from the file name" do
+        streams.stream(:encode, encoding: "BINARY")
+
+        assert_equal({encode: {encoding: "BINARY"}}, streams.pipeline)
+      end
+
+      it "is cleared by stream(:none)" do
+        streams.encoding("BINARY").stream(:none)
+
+        assert_empty(streams.pipeline)
+        assert_nil streams.setting(:encode)
+      end
+
+      it "is removed from the pipeline" do
+        streams.encoding("BINARY")
+
+        assert_equal({encoding: "BINARY"}, streams.remove_from_pipeline(:encode))
+        assert_equal({xlsx: {}, zip: {}, gz: {}, pgp: {}}, streams.pipeline)
+      end
+
+      it "is not shared with a copy" do
+        streams.encoding("BINARY")
+        copy = streams.dup
+        copy.encoding(replace: "")
+
+        assert_equal({encoding: "BINARY"}, streams.setting(:encode))
+      end
+
+      it "raises without an encoding or options" do
+        error = assert_raises(ArgumentError) { streams.encoding }
+
+        assert_equal "Supply the encoding, or options for the encode stream", error.message
+      end
+
+      it "raises when the encoding is supplied twice" do
+        error = assert_raises(ArgumentError) { streams.encoding("UTF-8", encoding: "BINARY") }
+
+        assert_equal "Supply the encoding as an argument or as `encoding:`, not both", error.message
+      end
+
+      it "raises for an option that the encode stream does not take" do
+        assert_raises(ArgumentError) { streams.encoding("UTF-8", replacement: "?") }
+        assert_nil streams.setting(:encode)
+      end
+    end
+
     describe "#redacted" do
       it "replaces the values of sensitive options in a copy" do
         streams.option(:pgp, passphrase: "TOP-SECRET", verify_first: true)

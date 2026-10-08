@@ -173,28 +173,29 @@ Notes:
 ## Text and binary data
 
 Lines, rows and records are read as UTF-8 text, whichever streams the file is read through, such as
-gzip or PGP, and data that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, an
+gzip or PGP, apart from [fixed width files](formats#fixed-width-files), which are ASCII. Data that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, an
 `Encoding::UndefinedConversionError`, whose message gives the byte offset and line number of the invalid data. The byte
 order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that
 the first column name of a CSV file is read as it appears. `read` returns the whole file as UTF-8
 without checking it or removing a byte order mark, like `File.read`, so that it can also read a
 binary file, such as an image, whose bytes are unchanged. The default `:stream` mode of `reader`
-reads bytes, so `io.read(128)` above returns up to 128 bytes of binary data.
+reads bytes from every stream, so `io.read(128)` above returns up to 128 bytes of binary data, and `io.read`
+returns the rest of the data as bytes, whether the file is plain, compressed or encrypted.
 
-To read a file in another encoding, set it on the [encode stream](extensions#character-encoding),
+To read a file in another encoding, set it with [`#encoding`](extensions#character-encoding),
 whose strings are then in that encoding:
 ~~~ruby
-IOStreams.path("export.csv").option(:encode, encoding: "Windows-1252").each(:hash) do |hash|
+IOStreams.path("export.csv").encoding("Windows-1252").each(:hash) do |hash|
   p hash
 end
 ~~~
 
 To read lines, rows or records as binary strings, as IOStreams did before v3.0, supply
-`option(:encode, encoding: "BINARY")`, and to replace invalid characters instead of raising, supply
-`replace:`, for example `option(:encode, encoding: "UTF-8", replace: "?")`.
+`encoding("BINARY")`, and to replace invalid characters instead of raising, supply
+`replace:`, for example `encoding("UTF-8", replace: "?")`.
 
-Writing does not change the data, unless an encode stream is set: the bytes of each string are
-written as they are.
+Writing does not change the data, unless an encoding is set: the bytes of each string are
+written as they are. Fixed width files are the exception: they are written as ASCII.
 
 ## Pipeline
 

@@ -160,6 +160,25 @@ class StreamTest < Minitest::Test
         assert_equal text, data
       end
 
+      it "reads lines in the encoding set with #encoding" do
+        lines = []
+        IOStreams.stream(StringIO.new(bad_data)).encoding("ISO-8859-1:UTF-8").each(:line) { |line| lines << line }
+
+        assert_equal Encoding::UTF_8, lines.first.encoding
+        assert_equal "New M\u00e9xico,NE", lines.first
+      end
+
+      it "decodes the text read through the streams from the file name with #encoding" do
+        Tempfile.create(["encoding", ".csv.gz"]) do |file|
+          path = IOStreams.path(file.path)
+          path.encoding("ISO-8859-1").write("M\u00e9xico")
+
+          assert_equal({encode: {encoding: "ISO-8859-1"}, gz: {}}, path.pipeline)
+          assert_equal "M\xE9xico".b, IOStreams.path(file.path).encoding("BINARY").read
+          assert_equal "M\u00e9xico", IOStreams.path(file.path).encoding("ISO-8859-1:UTF-8").read
+        end
+      end
+
       it "reads lines as UTF-8 without any other streams" do
         lines = []
         IOStreams.stream(StringIO.new(text)).stream(:none).each(:line) { |line| lines << line }
@@ -199,6 +218,12 @@ class StreamTest < Minitest::Test
     end
 
     describe "#each(:line)" do
+      it "raises ArgumentError without a block, since the file is only open within the block" do
+        error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new(data)).each(:line) }
+
+        assert_includes error.message, "#each requires a block"
+      end
+
       it "returns a line at a time" do
         lines = []
         stream.stream(:none)
@@ -803,12 +828,161 @@ class StreamTest < Minitest::Test
       describe "fixed width columns" do
         let(:layout) { [{size: 6, key: "name"}, {size: 7, key: "city"}] }
 
+        # Returns [Array<Hash>] the records read from the data, which is written as bytes, as a fixed width file.
+        def read_fixed(data, layout: self.layout, **encode)
+          Dir.mktmpdir do |dir|
+            ::File.binwrite(::File.join(dir, "people.txt"), data.b)
+            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+            path.option(:encode, **encode) unless encode.empty?
+            rows = []
+            path.each(:hash) { |row| rows << row }
+            rows
+          end
+        end
+
+        # Returns [String] the bytes written as a fixed width file.
+        def write_fixed(record, **encode)
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+            path.option(:encode, **encode) unless encode.empty?
+            path.writer(:hash) { |io| io << record }
+            ::File.binread(path.to_s)
+          end
+        end
+
+        it "reads an ASCII file as UTF-8 strings without any options" do
+          rows = read_fixed("Jack  London \n")
+
+          assert_equal [{"name" => "Jack", "city" => "London"}], rows
+          assert_equal Encoding::UTF_8, rows.first["name"].encoding
+        end
+
+        it "raises for a byte that is not ASCII, naming the byte and its offset" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) { read_fixed("Jos\xE9  Paris  \n") }
+
+          assert_includes error.message, '"\\xE9" is not valid US-ASCII'
+          assert_equal 3, error.byte_offset
+        end
+
+        it "reads a single-byte code page as UTF-8, with sizes that count bytes" do
+          rows = read_fixed("Jos\xE9  Z\xFCrich \n", encoding: "ISO-8859-1:UTF-8")
+
+          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+          assert_equal Encoding::UTF_8, rows.first["name"].encoding
+        end
+
+        it "reads an EBCDIC file as UTF-8" do
+          rows = read_fixed("Jos\u00e9  Z\u00fcrich ".encode("IBM037").b + "\x25".b, encoding: "IBM037:UTF-8")
+
+          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+        end
+
+        it "replaces bytes that are not ASCII, keeping the columns aligned" do
+          rows = read_fixed("Jos\xE9  Paris  \n", replace: " ")
+
+          assert_equal [{"name" => "Jos", "city" => "Paris"}], rows
+        end
+
+        it "keeps the ASCII default when other encode options are set" do
+          assert_equal [{"name" => "Jos", "city" => "Paris"}], read_fixed("Jos\xE9  Paris  \n", replace: " ")
+          assert_raises(IOStreams::Errors::InvalidEncoding) do
+            read_fixed("Jos\xE9  Paris  \n", cleaner: :replace_non_printable)
+          end
+        end
+
+        it "keeps the columns aligned when replacing non-printable characters" do
+          rows = read_fixed("Jack\0\0London\0\n", cleaner: :replace_non_printable, replace: " ")
+
+          assert_equal [{"name" => "Jack", "city" => "London"}], rows
+        end
+
+        it "moves the columns when removing non-printable characters" do
+          assert_raises(IOStreams::Errors::InvalidLineLength) do
+            read_fixed("Jack\0\0London\0\n", cleaner: :printable, replace: " ")
+          end
+        end
+
+        it "reads UTF-8 whose sizes count characters with the UTF-8 encoding" do
+          rows = read_fixed("Jos\u00e9  Z\u00fcrich \n", encoding: "UTF-8")
+
+          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+        end
+
+        it "reads lines as ASCII in the fixed format" do
+          Dir.mktmpdir do |dir|
+            ::File.binwrite(::File.join(dir, "people.txt"), "Jos\xE9\n".b)
+            path = IOStreams.path(dir, "people.txt").format(:fixed)
+
+            assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:line) { |_line| nil } }
+          end
+        end
+
+        it "does not change the encode options of the path" do
+          Dir.mktmpdir do |dir|
+            ::File.binwrite(::File.join(dir, "people.txt"), "Jack  London \n")
+            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+            path.option(:encode, replace: " ")
+            path.each(:hash) { |_row| nil }
+
+            assert_equal({replace: " "}, path.setting(:encode))
+          end
+        end
+
+        it "reads a stream without a file name as ASCII" do
+          io = StringIO.new("Jos\xE9  Paris  \n".b)
+
+          assert_raises(IOStreams::Errors::InvalidEncoding) do
+            IOStreams.stream(io).format(:fixed).format_options(layout: layout).each(:hash) { |_row| nil }
+          end
+        end
+
+        it "raises when writing a value that is not ASCII" do
+          assert_raises(Encoding::UndefinedConversionError) do
+            write_fixed({"name" => "Jos\u00e9", "city" => "Paris"})
+          end
+        end
+
+        it "writes each line as the length of the layout in bytes in a single-byte code page" do
+          data = write_fixed({"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}, encoding: "ISO-8859-1")
+
+          assert_equal "Jos\xE9  Z\xFCrich \n".b, data
+          assert_equal 14, data.bytesize
+        end
+
+        it "writes UTF-8 whose sizes count characters with the UTF-8 encoding" do
+          data = write_fixed({"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}, encoding: "UTF-8")
+
+          assert_equal "Jos\u00e9  Z\u00fcrich \n".b, data
+        end
+
+        it "replaces characters that are not ASCII when writing" do
+          assert_equal "Jos   Paris  \n", write_fixed({"name" => "Jos\u00e9", "city" => "Paris"}, replace: " ")
+        end
+
+        it "raises an error that is rescued as an Encoding::UndefinedConversionError" do
+          assert_raises(Encoding::UndefinedConversionError) { read_fixed("Jos\xE9  Paris  \n") }
+        end
+
+        it "leaves the other formats as UTF-8" do
+          Dir.mktmpdir do |dir|
+            %i[csv psv json].each do |format|
+              path = IOStreams.path(dir, "people.#{format}")
+              path.writer(:hash) { |io| io << {"name" => "Jos\u00e9"} }
+              rows = []
+              path.each(:hash) { |row| rows << row }
+
+              assert_equal [{"name" => "Jos\u00e9"}], rows, format
+            end
+          end
+        end
+
         it "reads a file that it wrote with multi-byte characters as UTF-8 text" do
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+            path.option(:encode, encoding: "UTF-8")
             path.writer(:hash) { |io| io << {"name" => "Jos\u00e9", "city" => "Z\u00fcrich"} }
             rows = []
-            path.option(:encode, encoding: "UTF-8").each(:hash) { |row| rows << row }
+            path.each(:hash) { |row| rows << row }
 
             assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
           end

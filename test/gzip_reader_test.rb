@@ -110,10 +110,10 @@ class GzipReaderTest < Minitest::Test
         end
       end
 
-      it "returns the same encodings as Zlib::GzipReader" do
+      it "returns bytes, with or without a length, unlike Zlib::GzipReader#read without a length" do
         IOStreams::Gzip::Reader.stream(StringIO.new(members)) do |io|
           assert_equal Encoding::BINARY, io.read(5).encoding
-          assert_equal Encoding.default_external, io.read.encoding
+          assert_equal Encoding::BINARY, io.read.encoding
         end
       end
     end

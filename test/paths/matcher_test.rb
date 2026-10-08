@@ -73,6 +73,12 @@ module Paths
         ]
       end
 
+      it "raises ArgumentError for a pattern that is not a String, such as Pathname#children(false)" do
+        error = assert_raises(ArgumentError) { IOStreams::Paths::Matcher.new(false) }
+
+        assert_includes error.message, "must be a String"
+      end
+
       it "splits the directory from the pattern" do
         cases.each do |test_case|
           matcher = IOStreams::Paths::Matcher.new(test_case[:pattern])

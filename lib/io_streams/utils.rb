@@ -4,6 +4,17 @@ module IOStreams
   module Utils
     MAX_TEMP_FILE_NAME_ATTEMPTS = 5
 
+    # Returns [true|false] whether the exception is a failure to look up a host name that does not resolve, such as a
+    # mistyped host, so that the same request cannot succeed later. A temporary failure of name resolution
+    # (`Socket::EAI_AGAIN`), which is how a DNS outage, or a network without DNS, is reported on Linux, is not.
+    #
+    # Ruby 3.2 does not have `Socket::ResolutionError`, so its `SocketError` is never an unknown host.
+    def self.unknown_host?(exception)
+      return false unless defined?(::Socket::ResolutionError) && exception.is_a?(::Socket::ResolutionError)
+
+      exception.error_code != ::Socket::EAI_AGAIN
+    end
+
     # Lazy load dependent gem so that it remains a soft dependency.
     def self.load_soft_dependency(gem_name, stream_type, require_name = gem_name)
       require require_name

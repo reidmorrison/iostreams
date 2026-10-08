@@ -8,15 +8,11 @@ module IOStreams
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
-      # The S3 operations that a path calls, each of which is supplied the options that it accepts.
-      OPERATIONS = %i[get_object head_object put_object copy_object delete_object list_objects_v2].freeze
-      # Request parameters that the path sets itself, which cannot be supplied as options.
-      PATH_PARAMETERS = %i[bucket key body response_target copy_source prefix continuation_token].freeze
-
       # When an upload file exceeds this size, use a multipart file upload.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
       autoload :Failure, "io_streams/paths/s3/failure"
+      autoload :Sdk, "io_streams/paths/s3/sdk"
 
       # Arguments:
       #
@@ -172,8 +168,6 @@ module IOStreams
       # @option params [String] :object_lock_legal_hold_status
       #   The Legal Hold status that you want to apply to the specified object.
       def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, region: nil, **args)
-        Utils.load_soft_dependency("aws-sdk-s3", "AWS S3") unless defined?(::Aws::S3::Client)
-
         uri = Utils::URI.new(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"
 
@@ -199,13 +193,6 @@ module IOStreams
         super(key)
       end
 
-      # Returns [Array<Symbol>] the options that the S3 operation accepts.
-      def self.operation_options(operation)
-        @operation_options ||= {}
-        @operation_options[operation] ||=
-          (::Aws::S3::Client.api.operation(operation).input.shape.member_names - PATH_PARAMETERS).freeze
-      end
-
       def to_s
         ::File.join("s3://", bucket_name, path)
       end
@@ -220,19 +207,31 @@ module IOStreams
       end
 
       def delete
+        Sdk.load
         authorize!
-        request(:delete_object, bucket: bucket_name, key: path)
+        unless_not_found(nil) { request(:delete_object, bucket: bucket_name, key: path) }
         self
-      rescue Aws::S3::Errors::NotFound
+      end
+
+      # Deletes this object, and every key within this path as a directory, such as `a/b.csv` and `a/c/d.csv`
+      # for the path `s3://bucket/a`. S3 has no directories, so these are all the keys that it holds within it.
+      #
+      # Returns self
+      #
+      # Notes:
+      # * No error is raised when there is nothing to delete.
+      # * A key that only starts with the same characters, such as `a.csv` for `s3://bucket/a`, is not deleted.
+      def delete_all
+        authorize!
+        delete if file_key?
+        each_page(directory_prefix) { |page| delete_keys(page.contents.map { |object| {key: object.key} }) }
         self
       end
 
       def exist?
+        Sdk.load
         authorize!
-        request(:head_object, bucket: bucket_name, key: path)
-        true
-      rescue Aws::S3::Errors::NotFound
-        false
+        unless_not_found(false) { request(:head_object, bucket: bucket_name, key: path) && true }
       end
 
       # Returns [true|false] whether an object exists with this key.
@@ -327,7 +326,10 @@ module IOStreams
         request(:head_object, bucket: bucket_name, key: path).content_length
       end
 
-      # TODO: delete_all
+      def mtime
+        authorize!
+        request(:head_object, bucket: bucket_name, key: path).last_modified
+      end
 
       # Read from AWS S3 file.
       def stream_reader(&block)
@@ -370,6 +372,7 @@ module IOStreams
         authorize!
         if ::File.size(file_name) > MULTIPART_UPLOAD_SIZE
           # Use multipart file upload
+          Sdk.load
           s3  = Aws::S3::Resource.new(client: client)
           obj = s3.bucket(bucket_name).object(path)
           # Supplies each part of a multipart upload with the options that it accepts.
@@ -402,6 +405,7 @@ module IOStreams
 
         # When the pattern is an exact file name without any pattern characters
         if matcher.exact?
+          Sdk.load
           each_exact_child(child_path(bucket_name, key_within(prefix, matcher.pattern)), directories, &)
           return
         end
@@ -438,6 +442,7 @@ module IOStreams
       # Returns [Aws::S3::Client] the client, created when first used since resolving the credentials can be slow,
       # for example from the EC2 instance metadata service.
       def client
+        Sdk.load
         @client_cache[:client] ||= ::Aws::S3::Client.new(@client_options)
       end
 
@@ -455,7 +460,7 @@ module IOStreams
       # Options apply to the operations that accept them, so for example `acl` applies when writing
       # and copying, and `request_payer` to every operation.
       def options_for(operation)
-        options.slice(*self.class.operation_options(operation))
+        options.slice(*Sdk.operation_options(operation))
       end
 
       # Returns [Integer] the size of the object, or nil when it does not exist, see `#empty?`. A direct copy of an object
@@ -465,6 +470,9 @@ module IOStreams
       rescue Errors::NotFound
         nil
       end
+
+      # Paths in the same bucket are in the same store, see `IOStreams::Path#same_store?`.
+      def store = bucket_name
 
       # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.
       def copy_source
@@ -488,6 +496,7 @@ module IOStreams
       # other failure is one of the target, since the size of the source is read before the copy, which raises when
       # the source cannot be read.
       def copy_object(source, target)
+        Sdk.load
         tag_failure(target) do
           client.copy_object(
             options_for(:copy_object).merge(bucket: target.bucket_name, key: target.path, copy_source: source.copy_source)
@@ -495,6 +504,15 @@ module IOStreams
         rescue Aws::S3::Errors::NoSuchKey => e
           raise(Errors::NotFound.tag(e, source.display_name))
         end
+      end
+
+      # Deletes upto 1,000 keys in one request, raising when S3 could not delete any of them.
+      def delete_keys(keys)
+        errors = keys.empty? ? [] : request(:delete_objects, bucket: bucket_name, delete: {objects: keys, quiet: true}).errors
+        return if errors.empty?
+
+        raise(Errors::CommunicationsFailure,
+              "Failed to delete #{errors.size} keys from #{display_name}, such as #{errors.first.key}: #{errors.first.message}")
       end
 
       # Returns [true|false] whether this path can be the key of a file, rather than the bucket or a folder object.
@@ -507,22 +525,32 @@ module IOStreams
         path.empty? ? "" : "#{path.chomp('/')}/"
       end
 
+      # Returns the result of the block, or the supplied value when the object does not exist.
+      # Load the AWS SDK first, see `Sdk.load`.
+      def unless_not_found(value)
+        yield
+      rescue Aws::S3::Errors::NotFound
+        value
+      end
+
       # Returns [Array<String>] upto `max_keys` of the keys within this path as a directory.
       def directory_keys(max_keys)
         request(:list_objects_v2, bucket: bucket_name, prefix: directory_prefix, max_keys: max_keys).contents.map(&:key)
       end
 
       # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.
+      # The options that S3 accepts come from the AWS SDK, so it is only loaded when options are supplied.
       def validate_options!
-        accepted = OPERATIONS.flat_map { |operation| self.class.operation_options(operation) }
-        unknown  = options.keys - accepted
+        return if options.empty?
+
+        unknown = Sdk.unknown_options(options.keys)
         return if unknown.empty?
 
         raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
       end
 
       # Yields the child, when it is an object, or a directory and `directories`, with its attributes,
-      # in the same form as those of a listed object.
+      # in the same form as those of a listed object. Load the AWS SDK first, see `Sdk.load`.
       def each_exact_child(child, directories)
         return unless allowed_child?(child)
 
@@ -564,13 +592,16 @@ module IOStreams
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
       def each_object(prefix)
+        each_page(prefix) { |page| page.contents.each { |object| yield(page.name, object) } }
+      end
+
+      # Yields each page of upto 1,000 objects in the bucket whose keys start with the supplied prefix.
+      def each_page(prefix)
         token = nil
         loop do
-          # Fetches upto 1,000 entries at a time
-          resp = request(:list_objects_v2, bucket: bucket_name, prefix: prefix, continuation_token: token)
-          resp.contents.each { |object| yield(resp.name, object) }
-          token = resp.next_continuation_token
-          break if token.nil?
+          page = request(:list_objects_v2, bucket: bucket_name, prefix: prefix, continuation_token: token)
+          yield(page)
+          break unless (token = page.next_continuation_token)
         end
       end
 

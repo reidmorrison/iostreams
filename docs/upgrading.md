@@ -31,9 +31,8 @@ cannot be combined with UTF-8 text, so for example writing a CSV row that mixed 
 file with a non-ASCII UTF-8 value raised `Encoding::CompatibilityError`.
 
 Reading lines, rows or records of a file that is not valid UTF-8, such as a Windows-1252 export, now
-raises `Encoding::UndefinedConversionError`. Fixed width columns now count characters, as they
-already did when writing, so a file whose sizes count bytes raises
-`IOStreams::Errors::InvalidLineLength` for a line with a multi-byte character.
+raises `Encoding::UndefinedConversionError`. Fixed width files are read and written as ASCII instead,
+see [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii).
 
 The `:stream` mode, `read` with a length, such as `read(1024)`, and writing are unchanged: they read
 and write bytes.
@@ -43,11 +42,12 @@ removed from the first line, so that a CSV file with a quoted header row no long
 `CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
 `encoding: "UTF-8"`. `read` keeps it, like `File.read`.
 
-Fix: read a file in another encoding by setting it on the encode stream, for example
-`option(:encode, encoding: "Windows-1252")`, whose strings are then in that encoding, or supply
+Fix: read a file in another encoding by setting it with `#encoding`, for example
+`encoding("Windows-1252")`, whose strings are then in that encoding, or supply
 `replace:` to replace invalid characters instead of raising. To read binary strings, as before, supply
-`option(:encode, encoding: "BINARY")`, or `stream(:encode, encoding: "BINARY")` for a stream without
-a file name. See [Text and binary data](streams#text-and-binary-data).
+`encoding("BINARY")`, which also works for a stream without a file name. See
+[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that
+v2 used. See [Text and binary data](streams#text-and-binary-data).
 
 ### Column restrictions apply to every input
 
@@ -115,7 +115,7 @@ so valid characters are kept instead of being replaced, and an invalid character
 `Encoding::UndefinedConversionError` unless `replace:` is supplied. Previously reading lines let invalid
 characters through without raising.
 
-Fix: supply `replace:`, for example `option(:encode, encoding: "UTF-8", replace: "")`, to replace
+Fix: supply `replace:`, for example `encoding("UTF-8", replace: "")`, to replace
 invalid characters instead of raising.
 
 Data read through the encode stream is treated as bytes in the requested encoding whichever streams it
@@ -125,17 +125,30 @@ example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-12
 
 Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
 
-### Fixed width columns count characters through the encode stream with `replace:`
+### Fixed width files are read and written as ASCII
 
-Reading a fixed width file through the `:encode` stream with `replace:`, for example with
-`option(:encode, encoding: "UTF-8", replace: " ")`, now counts the `size` of each column in
-characters, since the encode stream keeps valid characters. Previously each byte of a non-ASCII
-character was replaced, so the sizes counted bytes, while `Zürich` was read as `Z  rich`. A file whose
-sizes count bytes now raises `IOStreams::Errors::InvalidLineLength` for a line with a multi-byte
-character. Without `replace:`, the sizes already counted characters.
+Fixed width files, read or written with `format: :fixed`, are now ASCII unless an encoding is set on
+the `:encode` stream, since their sizes count bytes, and their text is ASCII or a single-byte code page.
+The values read are UTF-8 strings, and a byte that is not ASCII raises
+`IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, naming the byte and its
+offset. Previously the values were binary (`ASCII-8BIT`) strings, and the sizes counted bytes. The
+`:line` mode also reads ASCII when the format of the path is `:fixed`.
 
-Fix: read a file whose sizes count bytes as binary, with `option(:encode, encoding: "BINARY")`, or in
-its single-byte encoding, such as `option(:encode, encoding: "ISO-8859-1")`. See
+Writing a value that is not ASCII now raises `Encoding::UndefinedConversionError`. Previously its
+UTF-8 bytes were written, so a line with a multi-byte character was longer than the layout in bytes,
+while the sizes counted characters.
+
+Encode options that do not include an encoding, such as `encoding(replace: " ")`, keep the ASCII
+default, so that each byte that is not ASCII is replaced with a space. Previously, through the encode
+stream with `replace:`, each byte of a non-ASCII character was replaced, so `Zürich` was read as
+`Z  rich`.
+
+Fix: set the encoding of the file with `#encoding`, such as
+`encoding("ISO-8859-1:UTF-8")` for a single-byte code page, whose values are then
+UTF-8 strings, `"IBM037:UTF-8"` for EBCDIC, or `encoding: "UTF-8"` for UTF-8 written by a program that
+counts characters. To read binary strings, as before, supply `encoding("BINARY")`. To
+write a file with characters that are not ASCII, set its encoding, such as
+`encoding("ISO-8859-1")`, or `replace: " "`. See
 [Fixed width files](formats#fixed-width-files).
 
 ### A `+` in an S3 or SFTP url is kept
@@ -492,7 +505,35 @@ The `:encode` stream converts the text that the application reads or writes, and
 since file names do not name it. Previously the data of such a file was read and written through it.
 
 Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
-Apply it with `option(:encode, ...)` instead.
+Apply it with `#encoding` instead.
+
+### `#encoding` replaces `option(:encode, ...)`
+
+The encoding of the text that the application reads or writes is now set with `#encoding`.
+Setting it with `option(:encode, ...)` or `stream(:encode, ...)` is deprecated. Both still work, so no
+change is needed, but `#encoding` avoids two surprises of the old forms:
+
+* `option(:encode, ...)` raised `ArgumentError` after `#stream`, and without a file name, so a stream
+  set with `#stream` could not be combined with an encoding through `#option`. It now sets the same
+  options as `#encoding`, so it no longer raises in either case.
+* `stream(:encode, ...)` stops the streams being taken from the file name, like any other stream set
+  with `#stream`, so `IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")` reads the
+  compressed bytes. It still does, so that existing code keeps its behavior. `#encoding` does not.
+
+~~~ruby
+# Before (deprecated)
+IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
+IOStreams.path("people.txt").option(:encode, replace: " ")
+IOStreams.stream(io).stream(:encode, encoding: "BINARY")
+
+# After
+IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8")
+IOStreams.path("people.txt").encoding(replace: " ")
+IOStreams.stream(io).encoding("BINARY")
+~~~
+
+To keep reading the data as-is, as `stream(:encode, ...)` does for a file name with extensions, add
+`stream(:none)` before `#encoding`.
 
 ### The encode `cleaner` option is strict
 
@@ -501,6 +542,32 @@ String `"printable"`, raises `ArgumentError`. Previously it was ignored, so the 
 
 Fix: supply the name of a built-in rule as a Symbol, such as `cleaner: :printable`, for example with
 `.to_sym` when it comes from configuration.
+
+### `#absolute?` no longer ignores leading spaces
+
+`IOStreams.path(" /a").absolute?` is now false, like `Pathname`, since the name starts with a space.
+
+Fix: strip the file name before creating the path, for example when it comes from configuration.
+
+### `#each` without a block raises `ArgumentError`
+
+`#each` reads the file within the block, so that it is closed when the block returns, and does not return an
+`Enumerator`. Without a block it now raises `ArgumentError`, instead of `LocalJumpError`.
+
+Fix: supply a block, for example `path.each(:line) { |line| lines << line }`.
+
+### A pattern that is not a String raises `ArgumentError`
+
+`#each_child`, `#children` and `IOStreams.each_child` raise `ArgumentError` for a pattern that is not a String,
+such as `children(false)`, which `Pathname#children` accepts. Previously they raised `NoMethodError`.
+
+### The `:stream` mode reads bytes from every stream
+
+Reading the whole of a `.gz` or compressed `.enc` stream, for example with `reader { |io| io.read }`, now returns
+bytes tagged `ASCII-8BIT`, like a plain, `.bz2` or `.zip` file. Previously it was tagged with
+`Encoding.default_external`, usually UTF-8.
+
+Fix: use `#read`, or `each(:line)`, which return UTF-8 text, or call `force_encoding(Encoding::UTF_8)` on the data.
 
 ## Upgrading to v2.1
 

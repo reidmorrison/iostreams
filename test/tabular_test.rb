@@ -713,6 +713,29 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "#encoding" do
+      it "is ASCII, read as UTF-8, for fixed width files" do
+        assert_equal "US-ASCII:UTF-8", IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 1}]}).encoding
+      end
+
+      it "is nil, the default encoding of the encode stream, for the other formats" do
+        assert_nil IOStreams::Tabular.new(format: :csv).encoding
+        assert_nil IOStreams::Tabular.new(format: :psv).encoding
+        assert_nil IOStreams::Tabular.new(format: :json).encoding
+      end
+    end
+
+    describe ".encoding" do
+      it "is ASCII, read as UTF-8, for fixed width files" do
+        assert_equal "US-ASCII:UTF-8", IOStreams::Tabular.encoding(:fixed)
+      end
+
+      it "is nil for the other formats, and without a format" do
+        assert_nil IOStreams::Tabular.encoding(:csv)
+        assert_nil IOStreams::Tabular.encoding(nil)
+      end
+    end
+
     describe ".quote_character" do
       it "is the double quote for csv" do
         assert_equal '"', IOStreams::Tabular.quote_character(:csv)

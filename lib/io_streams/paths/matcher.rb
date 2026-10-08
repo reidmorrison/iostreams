@@ -29,6 +29,8 @@ module IOStreams
       #   hidden: [true|false]
       #     Whether a wildcard matches hidden names, which start with `.`.
       def initialize(pattern, case_sensitive: false, hidden: false)
+        raise(ArgumentError, "The pattern must be a String, not #{pattern.inspect}") unless pattern.is_a?(String)
+
         @hidden              = hidden
         @directory, @pattern = split(pattern)
         @flags               = ::File::FNM_EXTGLOB | ::File::FNM_PATHNAME

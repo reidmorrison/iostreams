@@ -141,6 +141,29 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".unknown_host?" do
+      it "is true for a host name that does not resolve" do
+        skip_without_resolution_error
+
+        assert IOStreams::Utils.unknown_host?(resolution_error(Socket::EAI_NONAME))
+      end
+
+      it "is false for a temporary failure of name resolution, such as a DNS outage" do
+        skip_without_resolution_error
+
+        refute IOStreams::Utils.unknown_host?(resolution_error(Socket::EAI_AGAIN))
+      end
+
+      it "is false for a SocketError that is not a failure of name resolution, as on Ruby 3.2" do
+        refute IOStreams::Utils.unknown_host?(SocketError.new("getaddrinfo: nodename nor servname provided"))
+      end
+
+      it "is false for any other exception, or nil" do
+        refute IOStreams::Utils.unknown_host?(Errno::ECONNREFUSED.new)
+        refute IOStreams::Utils.unknown_host?(nil)
+      end
+    end
+
     describe ".load_soft_dependency" do
       it "raises a helpful error when the gem cannot be loaded" do
         error = assert_raises LoadError do
