@@ -30,7 +30,8 @@ module IOStreams
           get_entry(zin, entry_file_name) ||
             raise(Java::JavaUtilZip::ZipException, "File #{entry_file_name} not found within zip file.")
 
-          yield(zin.to_io)
+          # Bytes, like every other stream, rather than the external encoding of the IO.
+          yield(zin.to_io.binmode)
         ensure
           zin&.close
           fin&.close
