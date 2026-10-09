@@ -143,6 +143,12 @@ module Paths
         let(:latin1_name) { "caf\xE9.csv.gz".dup.force_encoding(Encoding::UTF_8) }
         let(:latin1_path) { IOStreams.path("/data/in", latin1_name) }
 
+        # JRuby converts file names to Java strings, which replace each byte that is not valid UTF-8 with U+FFFD,
+        # so it cannot hold such a name, for example in `File.join`.
+        def skip_on_jruby
+          skip "JRuby replaces each byte of a file name that is not valid UTF-8 with U+FFFD" if defined?(JRuby)
+        end
+
         # Creates a file with the supplied name in a temp directory, and yields the directory.
         # Skips the test when the file system cannot hold the name, such as on macOS, which only holds UTF-8 names.
         def with_file(name, data = "data")
@@ -157,11 +163,15 @@ module Paths
         end
 
         it "creates the path from the name as it is" do
+          skip_on_jruby
+
           assert_instance_of IOStreams::Paths::File, latin1_path
           assert_equal "/data/in/#{latin1_name}".b, latin1_path.to_s.b
         end
 
         it "displays each byte that is not valid UTF-8 as \\xHH" do
+          skip_on_jruby
+
           assert_equal "/data/in/caf\\xE9.csv.gz", latin1_path.display_name
           assert_includes latin1_path.inspect, "/data/in/caf\\xE9.csv.gz"
         end
@@ -173,6 +183,8 @@ module Paths
         end
 
         it "joins, cleans and compares names" do
+          skip_on_jruby
+
           assert_equal "/data/in/archive/x_caf\\xE9.csv.gz", latin1_path.directory.join("archive", "x_#{latin1_path.basename}").display_name
           assert_equal latin1_path, IOStreams.path("/data/./in/../in", latin1_name).cleanpath
           assert_equal "in/#{latin1_name}".b, latin1_path.relative_path_from(IOStreams.path("/data")).b
@@ -184,6 +196,8 @@ module Paths
         end
 
         it "lists, reads and moves the file" do
+          skip_on_jruby
+
           with_file("caf\xE9.csv".b) do |dir|
             child = dir.children("*.csv").first
 
