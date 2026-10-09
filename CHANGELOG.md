@@ -111,7 +111,7 @@ These bug fixes change behavior that existing code may depend on:
 
 ### Changed
 
-- **Reading CSV is faster.** `CSV.parse_line` creates a parser for each line, which costs several times more than parsing the line, so each line is now parsed directly. Reading rows, such as with `each(:array)`, is 4 to 6 times faster, and reading records, such as with `each(:hash)`, 2.5 to 3 times faster, on MRI, YJIT and JRuby. A line with a line break, or with invalid quoting, is still parsed by `CSV.parse_line`, so the values, their encodings, and the errors raised are the same as before.
+- **Reading CSV is faster.** `CSV.parse_line` creates a parser for each line, which costs several times more than parsing the line, so each line is now parsed directly. Converting a row into a record also no longer checks every column of every row for a blank or rejected column name, which made it slower than parsing the line, so reading PSV records is faster too. Reading rows, such as with `each(:array)`, is 4 to 6 times faster, and reading records, such as with `each(:hash)`, 3.5 to 5 times faster, on MRI, YJIT and JRuby. A line with a line break, or with invalid quoting, is still parsed by `CSV.parse_line`, so the values, their encodings, and the errors raised are the same as before.
 
 ### Fixed
 
