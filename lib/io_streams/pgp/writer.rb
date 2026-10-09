@@ -38,14 +38,15 @@ module IOStreams
 
       # Write to a PGP / GPG stream, encrypting and/or signing the contents as it is written.
       #
-      # gpg writes a local file through its file descriptor, such as a local path, or the temp file of an S3, SFTP or HTTP
-      # path, see `IOStreams::Writer.output_file_name`. For any other stream, such as PGP data within another
-      # stream, or a StringIO, a thread copies what gpg writes to its stdout to the stream, so that it is never
-      # written to a temp file. The output stream is not closed, since it belongs to the caller.
+      # The block writes to an IO-like stream, which responds to `write`, `<<`, `print`, `puts` and `printf`. What gpg
+      # writes to its stdout is written to the output stream as the block writes, in the caller's thread, so that it
+      # is never written to a temp file, see `IOStreams::Pgp::GpgProcess`. The output stream is not closed, since it
+      # belongs to the caller.
       #
-      # Since the data is streamed, the output stream holds what gpg wrote before any failure, which is not a valid
-      # PGP message: when gpg fails part way, or when the block raises, in which case gpg is stopped, so that it never
-      # completes a valid PGP message from partial data. As with any other stream, the caller discards the output.
+      # Since the data is streamed, when gpg fails part way, or when the block raises, the output stream holds what
+      # gpg wrote until then, which is not a valid PGP message: when the block raises, gpg is stopped, so that it never
+      # completes a PGP message from partial data, and `IOStreams::Pgp::Reader` raises for the start of a message.
+      # As with any other stream, discard the output after a failure; a local path does so already.
       #
       # output_stream: [IO]
       #   The stream to write the PGP data to.
@@ -140,86 +141,23 @@ module IOStreams
         end
       end
 
-      # Runs gpg with the supplied arguments, yielding its stdin, and returns the result of the block.
-      #
-      # gpg writes a local file through its file descriptor, see `IOStreams::Writer.output_file_name`, which leaves
-      # the file at the end of the data, and never by its name, so that gpg cannot remove the file when it fails,
-      # since it belongs to the caller. Otherwise a thread copies what gpg writes to its stdout to the output stream.
+      # Runs gpg with the supplied arguments, yielding the stream that it encrypts, and returns the result of the block.
+      # Raises Pgp::Failure once gpg finishes when it fails.
       def self.run(output_stream, args, signer_passphrase)
-        file_name = output_file_name(output_stream)
-        command   = IOStreams::Pgp.gpg_command(*args)
+        command = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Writer.open: #{command.shelljoin}" }
 
         # Since stdin carries the data, supply the signer passphrase on file descriptor 3
         # so that it is not visible in the process list.
-        fds = signer_passphrase ? {PASSPHRASE_FD => IOStreams::Pgp.passphrase_reader(signer_passphrase)} : {}
-
-        IOStreams::Pgp.spawn_gpg(command, output: (output_stream if file_name), fds: fds) do |stdin, stdout, errors, gpg|
-          begin
-            result = with_output(stdout, output_stream, gpg) do
-              value = yield(stdin)
-              stdin.close
-              value
-            end
-          rescue Errno::EPIPE
-            # Ignore broken pipe because gpg terminates early due to an error
-            raise(Pgp::Failure, "GPG Failed writing to encrypted #{IOStreams::Pgp.subject(file_name)}: #{errors.value.chomp}")
-          end
-          unless gpg.value.success?
-            raise(Pgp::Failure, "GPG Failed to create encrypted #{IOStreams::Pgp.subject(file_name)}: #{errors.value.chomp}")
-          end
-
+        passphrases = signer_passphrase ? {PASSPHRASE_FD => signer_passphrase} : {}
+        IOStreams::Pgp::GpgProcess.run(command, failure: "GPG Failed to create encrypted", output: output_stream,
+                                                passphrases: passphrases) do |gpg|
+          result = yield(gpg.writer)
+          gpg.finish
           result
         end
       end
       private_class_method :run
-
-      # Returns the result of the block, which writes to gpg's stdin, while a thread copies what gpg writes to its
-      # stdout to the output stream. Without stdout, gpg writes the file itself.
-      #
-      # Raises the failure to write to the output stream, rather than the failure of gpg that it causes. When the
-      # block raises, gpg is killed, so that it never completes a valid PGP message from partial data, and the thread
-      # then finishes, so that it no longer writes to the output stream, which belongs to the caller.
-      def self.with_output(stdout, output_stream, gpg)
-        return yield unless stdout
-
-        output    = copy_output(stdout, output_stream)
-        completed = false
-        begin
-          result    = yield
-          completed = true
-        rescue Errno::EPIPE
-          # gpg stopped reading, since copying its output failed, or since it failed.
-          error = output.value
-          raise(error) if error
-
-          raise
-        ensure
-          unless completed
-            IOStreams::Pgp.kill_gpg(gpg)
-            output.join
-          end
-        end
-        error = output.value
-        raise(error) if error
-
-        result
-      end
-      private_class_method :with_output
-
-      # Returns [Thread] that copies what gpg writes to its stdout to the output stream. Its value is the exception
-      # raised when writing to the output stream, if any, after which stdout is closed, so that gpg stops, rather
-      # than waiting for its output to be read.
-      def self.copy_output(stdout, output_stream)
-        Thread.new do
-          ::IO.copy_stream(stdout, output_stream)
-          nil
-        rescue StandardError => e
-          stdout.close
-          e
-        end
-      end
-      private_class_method :copy_output
 
       def self.build_args(encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:, recipient_files:)
         args = ["--batch", "--no-tty", "--yes"]

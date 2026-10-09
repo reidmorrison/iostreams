@@ -9,6 +9,19 @@ class PgpWriterTest < Minitest::Test
     end
   end
 
+  # An output stream that writes each block to an Enumerator::Yielder, such as the body of a streamed response that
+  # is read with `Enumerator#next`, so that it can only be written by the thread that reads the Enumerator.
+  class YielderOutput
+    def initialize(yielder)
+      @yielder = yielder
+    end
+
+    def write(data)
+      @yielder << data.dup
+      data.bytesize
+    end
+  end
+
   describe IOStreams::Pgp::Writer do
     let :temp_file do
       Tempfile.new("iostreams")
@@ -294,6 +307,123 @@ class PgpWriterTest < Minitest::Test
         end
 
         assert_equal decrypted, output.string
+      end
+
+      it "writes with the methods of IO that write" do
+        output = StringIO.new("".b)
+        IOStreams::Pgp::Writer.stream(output, recipient: "receiver@example.org") do |io|
+          io << "a" << "b"
+          io.print("c", "d")
+          io.puts("e", %w[f g])
+          io.printf("%03d", 7)
+          io.write("h", "i")
+        end
+
+        assert_equal "abcde\nf\ng\n007hi", decrypt(output.string)
+      end
+
+      it "raises a broken pipe when writing to the stream, rather than a failure of gpg" do
+        reader, writer = IO.pipe
+        reader.close
+
+        Timeout.timeout(30) do
+          assert_raises(Errno::EPIPE) do
+            IOStreams.stream(writer).stream(:pgp, recipient: "receiver@example.org").writer { |io| io.write(large_data) }
+          end
+        end
+      ensure
+        writer&.close
+      end
+
+      it "raises a broken pipe from the block that gpg did not cause" do
+        output = StringIO.new("".b)
+
+        Timeout.timeout(30) do
+          assert_raises(Errno::EPIPE) do
+            IOStreams::Pgp::Writer.stream(output, recipient: "receiver@example.org") do |io|
+              io.write(decrypted)
+              IO.pipe do |reader, writer|
+                reader.close
+                writer.write("other")
+              end
+            end
+          end
+        end
+      end
+
+      it "can be interrupted by Timeout while the stream stalls" do
+        reader, writer = IO.pipe
+
+        Timeout.timeout(30) do
+          assert_raises(Timeout::Error) do
+            Timeout.timeout(1) do
+              IOStreams::Pgp::Writer.stream(writer, recipient: "receiver@example.org") { |io| io.write(large_data) }
+            end
+          end
+        end
+      ensure
+        reader&.close
+        writer&.close
+      end
+
+      it "writes to a stream that can only be written by the thread that reads it" do
+        body = Enumerator.new do |yielder|
+          IOStreams::Pgp::Writer.stream(YielderOutput.new(yielder), recipient: "receiver@example.org") do |io|
+            io.write(large_data)
+          end
+        end
+        output = "".b
+        Timeout.timeout(30) { loop { output << body.next } }
+
+        assert_equal large_data, decrypt(output)
+      end
+
+      it "does not leave the start of a PGP message that reads as empty when the block raises" do
+        output = StringIO.new("".b)
+        assert_raises(ArgumentError) do
+          IOStreams::Pgp::Writer.stream(output, recipient: "receiver@example.org") do |io|
+            io.write("written before the block raised")
+            # Long enough for gpg to have written the start of the message.
+            sleep(0.2)
+            raise(ArgumentError, "from the block")
+          end
+        end
+
+        assert_raises(IOStreams::Pgp::Failure) { decrypt(output.string) }
+      end
+
+      it "stops gpg when it is run by a wrapper executable and the block raises" do
+        File.open(file_name, "wb") do |file|
+          Timeout.timeout(30) do
+            with_gpg_stub(WRAPPER_GPG) do
+              assert_raises(ArgumentError) do
+                IOStreams::Pgp::Writer.stream(file, recipient: "receiver@example.org") do |io|
+                  io.write(large_data)
+                  raise(ArgumentError, "from the block")
+                end
+              end
+            end
+          end
+        end
+        # A gpg that was not stopped would complete the message once its stdin closed.
+        sleep(0.5)
+
+        assert_raises(IOStreams::Pgp::Failure) { decrypt(File.binread(file_name)) }
+      end
+
+      it "lets gpg remove its lock files when the block raises" do
+        before = gpg_lock_files
+
+        3.times do
+          assert_raises(ArgumentError) do
+            IOStreams::Pgp::Writer.stream(StringIO.new("".b), recipient: "receiver@example.org") do |io|
+              io.write(large_data)
+              raise(ArgumentError, "from the block")
+            end
+          end
+        end
+
+        assert_empty gpg_lock_files - before
       end
     end
 

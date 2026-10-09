@@ -53,14 +53,18 @@ module IOStreams
     # such as a reader that only reads files, instead of a copy of the stream, see `Utils.local_file_name`.
     # Returns nil for any other stream, including a file that was not opened for reading, so that reading it raises,
     # rather than opening the file again to read it.
+    #
+    # Since the reader opens the file again by its name, also returns nil unless the name can be opened, and still
+    # refers to the same file, for example after the file's permissions changed, or the process gave up the
+    # privileges it opened the file with, so that the stream is copied instead.
     def self.input_file_name(input_stream)
       file_name = Utils.local_file_name(input_stream)
       return unless file_name
 
       # Raises IOError when the file was not opened for reading, without reading from it.
       input_stream.read(0)
-      file_name
-    rescue IOError
+      ::File.open(file_name, "rb") { |file| file_name if ::File.identical?(file, input_stream) }
+    rescue IOError, SystemCallError
       nil
     end
     private_class_method :input_file_name

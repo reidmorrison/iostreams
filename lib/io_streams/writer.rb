@@ -30,18 +30,9 @@ module IOStreams
       []
     end
 
-    # When a Writer does not support streams, it writes to the file of the stream when the stream is an
-    # empty local file, see `.output_file_name`. Otherwise it writes to a local temp file, which is
-    # then copied to the stream.
+    # When a Writer does not support streams, it writes to a local temp file, which is then copied to the stream
+    # once the writer has completed, so that the stream never holds partial output when the writer fails.
     def self.stream(output_stream, **args, &block)
-      local_file_name = output_file_name(output_stream)
-      if local_file_name
-        result = file(local_file_name, **args, &block)
-        # So that anything written to the stream next follows the data, as if it had been copied to the stream.
-        output_stream.seek(0, ::IO::SEEK_END)
-        return result
-      end
-
       purpose = "the output of #{self}, which only writes files"
       Utils.private_temp_file("iostreams_writer", purpose: purpose) do |file_name|
         count = file(file_name, **args, &block)
@@ -49,22 +40,6 @@ module IOStreams
         count
       end
     end
-
-    # Returns [String] the name of the local file that the output stream writes, when it is empty, which a writer can
-    # write to by its name, such as a writer that only writes files, instead of a temp file, see
-    # `Utils.local_file_name`. Returns nil for any other stream, including a file that was not opened for writing,
-    # so that writing to it raises, rather than opening the file again to write it.
-    def self.output_file_name(output_stream)
-      file_name = Utils.local_file_name(output_stream)
-      return unless file_name && output_stream.stat.zero?
-
-      # Raises IOError when the file was not opened for writing, without writing to it.
-      output_stream.syswrite("")
-      file_name
-    rescue IOError
-      nil
-    end
-    private_class_method :output_file_name
 
     # When a Writer supports streams, also allow it to simply support a file
     def self.file(file_name, **args, &block)

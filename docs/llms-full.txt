@@ -2927,10 +2927,10 @@ written (see [Installation](#installation) below). As with every other stream, a
 GnuPG is required because there is no standard, maintained pure-Ruby PGP library. Calling the `gpg`
 executable directly is the deliberate approach: it is the reference PGP implementation, is widely
 installed, and is kept current with the OpenPGP standard. It is also well suited to the large files
-IOStreams targets, since `gpg` streams the data rather than holding it in memory. `gpg` reads and writes
-a local file itself, such as the temp file that an S3, SFTP or HTTP path downloads into, and any other
-stream, such as PGP data within another stream, or a `StringIO`, through its stdin and stdout, so PGP data
-is never copied into a temp file, unless it is read with `verify_first: true`, see
+IOStreams targets, since `gpg` streams the data rather than holding it in memory. `gpg` reads a local
+file itself, such as the temp file that an S3, SFTP or HTTP path downloads into, and any other stream,
+such as PGP data within another stream, or a `StringIO`, through its stdin, and writes through its stdout,
+so PGP data is never copied into a temp file, unless it is read with `verify_first: true`, see
 [When temp files are used](config#when-temp-files-are-used).
 
 IOStreams has been tested against GnuPG v1.4, v2.0.30, v2.2.1, and v2.4.7.
@@ -3398,9 +3398,10 @@ Select highest level: 5
 
 * Designed for processing larger files since a process is spawned for each file processed.
 * Since the encrypted data is streamed, when writing fails part way, such as when `gpg` fails or the block
-  raises, the output holds what `gpg` wrote until then, which is not a valid PGP message. When the block raises,
-  `gpg` is stopped, so that it never completes a valid PGP message from partial data. As with any other
-  stream, discard the output after a failure; a local path does so already.
+  raises, the output holds what `gpg` wrote until then, which is not a valid PGP message, and reading it
+  raises `IOStreams::Pgp::Failure`. When the block raises, `gpg` is stopped, so that it never completes a PGP
+  message from partial data. As with any other stream, discard the output after a failure; a local path
+  does so already, for any exception.
 * For lots of small, in memory files, use the [gpgme](https://github.com/ueno/ruby-gpgme) library. For example to attach pgp files to emails.
 
 ---
@@ -3570,7 +3571,7 @@ supplied in a `StringIO`.
 | `.gz`, `.gzip`, `.bz2`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
 | `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | Not supported | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read |
-| `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads and writes a local file itself, and any other stream through its stdin and stdout |
+| `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads a local file itself, and any other stream through its stdin, and writes through its stdout |
 
 So a zip or spreadsheet stream only has a local file when it is the stream closest to the stored data: the
 last extension in the file name, or the last stream set with `#stream`. `#pipeline` lists the streams in order
@@ -3904,6 +3905,23 @@ since IOStreams opens and closes their files itself.
 
 Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
 reads until it is closed.
+
+### PGP output is streamed into your IO
+
+Writing PGP to an IO that you supply with `IOStreams.stream(io)`, such as a `StringIO`, a socket, an HTTP
+response body or a `File`, now writes the encrypted data to `io` as it is written. Previously it was written
+to a temp file, which was only copied to `io` once the block completed, so a block that raised, or a failure
+of `gpg`, left `io` untouched. Now `io` holds the start of a PGP message, which is not valid: reading it raises
+`IOStreams::Pgp::Failure`. Paths are not affected, since a local path removes its partial file, and S3, SFTP
+and HTTP paths only upload a file once it is complete.
+
+The stream supplied to the block when writing PGP, or when reading PGP from an IO that is not a local file,
+is no longer an `IO`. It responds to `#write`, `#<<`, `#print`, `#puts` and `#printf` when writing, and to
+`#read`, `#readpartial`, `#gets`, `#each_line` and `#eof?` when reading.
+
+Fix: discard the output after a failure, for example by not sending a response body, or by writing to a
+local path, or to a temp file that you only copy once the block completes. Use only the methods above on the
+stream supplied to the block.
 
 ### Paths compare by their full name
 

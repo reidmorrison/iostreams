@@ -181,7 +181,7 @@ class UtilsTest < Minitest::Test
         end
       end
 
-      it "returns the absolute name of a file opened with a relative name, so that `-` is not stdin" do
+      it "returns the absolute name of a file opened with a relative name, while it still refers to the file" do
         Dir.chdir(dir) do
           File.write("-", "a,b\n")
           File.open("-", "rb") do |file|

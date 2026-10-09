@@ -1,7 +1,7 @@
 module IOStreams
   module Pgp
     class Reader < IOStreams::Reader
-      # File descriptor in the gpg process that its status is written to, when checking the signer.
+      # File descriptor in the gpg process that its status is written to.
       STATUS_FD = 3
 
       # File descriptor in the gpg process that the passphrase is read from, since stdin can carry the data.
@@ -32,9 +32,11 @@ module IOStreams
       # Read from a PGP / GPG stream, decrypting the contents as it is read.
       #
       # gpg reads a local file through its file descriptor, such as a local path, or the temp file of an S3, SFTP or HTTP
-      # path, see `IOStreams::Reader.input_file_name`. A thread copies any other stream, such as PGP data within
-      # another stream, or a StringIO, to gpg's stdin as the block reads the decrypted contents, so that it is never
-      # copied into a temp file. The input stream is not closed, since it belongs to the caller.
+      # path, and the block reads gpg's stdout. Any other stream, such as PGP data within another stream, or a
+      # StringIO, is fed to gpg's stdin as the block reads the decrypted contents, in the caller's thread, so that it
+      # is never copied into a temp file, see `IOStreams::Pgp::GpgProcess`. The block then reads from an IO-like
+      # stream, which responds to `read`, `readpartial`, `gets`, `each_line` and `eof?`. The input stream is not
+      # closed, since it belongs to the caller.
       #
       # SECURITY WARNING:
       #   By default the decrypted contents are passed to the block as gpg decrypts them,
@@ -111,29 +113,27 @@ module IOStreams
         # Find the signer's keys, and import the supplied keys, before decrypting,
         # so that a missing or invalid key fails before any data is read.
         signers = expected_signers(signer, import_and_trust_key, import_and_trust_level)
-        check   = signers.empty? ? nil : ->(status, file_name) { verify_signers(file_name, signers, status) }
 
         args = IOStreams::Pgp.passphrase_args
         args << "--ignore-mdc-error" if ignore_mdc_error
-        args += ["--status-fd", STATUS_FD.to_s] if check
-        args += ["--batch", "--no-tty", "--yes", "--decrypt"]
+        args += ["--status-fd", STATUS_FD.to_s, "--batch", "--no-tty", "--yes", "--decrypt"]
         # Only feed a passphrase when one is supplied; sign-only files need none.
         args += ["--passphrase-fd", PASSPHRASE_FD.to_s] if passphrase
 
         command = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
 
-        decrypt = ->(&block) { run(command, input_stream, passphrase, check, &block) }
+        decrypt = ->(&block) { run(command, input_stream, passphrase, signers, &block) }
         verify_first ? decrypt_then_read(decrypt, &) : read_decrypted(decrypt, &)
       end
 
-      # Yields gpg's stdout, which holds the decrypted contents, and returns the result of the block.
+      # Yields the decrypted contents, and returns the result of the block.
       def self.read_decrypted(decrypt)
-        decrypt.call do |stdout|
-          value = yield(stdout)
+        decrypt.call do |decrypted|
+          value = yield(decrypted)
           # When the block does not read to the end, gpg waits to write the rest, so it would never finish.
           # Read the rest so that gpg finishes, and checks the integrity and signature of the whole file.
-          ::IO.copy_stream(stdout, ::File::NULL)
+          ::IO.copy_stream(decrypted, ::File::NULL)
           value
         end
       end
@@ -142,87 +142,42 @@ module IOStreams
       # Decrypts the file into a temporary file, and only yields it once gpg has succeeded.
       def self.decrypt_then_read(decrypt, &block)
         Utils.private_temp_file("iostreams_pgp", purpose: "the decrypted data, until gpg has verified it") do |temp_file_name|
-          decrypt.call { |stdout| ::File.open(temp_file_name, "wb") { |io| ::IO.copy_stream(stdout, io) } }
+          decrypt.call { |decrypted| ::File.open(temp_file_name, "wb") { |io| ::IO.copy_stream(decrypted, io) } }
 
           ::File.open(temp_file_name, "rb", &block)
         end
       end
       private_class_method :decrypt_then_read
 
-      # Runs gpg, yielding its stdout, and returns the result of the block.
-      # Raises Pgp::Failure once gpg finishes when it fails, or when `check` raises for gpg's status output.
-      #
-      # gpg reads a local file through its file descriptor, see `IOStreams::Reader.input_file_name`, which leaves
-      # the file at its end once gpg has read it. Otherwise a thread copies the input stream to gpg's stdin while
-      # the block reads gpg's stdout.
-      def self.run(command, input_stream, passphrase, check)
-        file_name                    = input_file_name(input_stream)
-        status_reader, status_writer = IO.pipe if check
-        passphrase_reader            = IOStreams::Pgp.passphrase_reader(passphrase) if passphrase
-        fds                          = {STATUS_FD => status_writer, PASSPHRASE_FD => passphrase_reader}.compact
-
-        IOStreams::Pgp.spawn_gpg(command, input: (input_stream if file_name), fds: fds) do |stdin, stdout, errors, gpg|
-          # Read the status while gpg runs, so that gpg never waits for it to be read.
-          status = Thread.new { status_reader.read } if check
-          status&.report_on_exception = false
-
-          result = with_input(stdin, input_stream, gpg) { yield(stdout) }
-          unless gpg.value.success?
-            raise(Pgp::Failure, "GPG Failed to decrypt #{IOStreams::Pgp.subject(file_name)}: #{errors.value.chomp}")
-          end
-
-          check&.call(status.value, file_name)
+      # Runs gpg, yielding the decrypted contents, and returns the result of the block.
+      # Raises Pgp::Failure once gpg finishes when it fails, when it found no PGP data, or when the data was not
+      # signed by one of the signers.
+      def self.run(command, input_stream, passphrase, signers)
+        passphrases = passphrase ? {PASSPHRASE_FD => passphrase} : {}
+        IOStreams::Pgp::GpgProcess.run(command, failure: "GPG Failed to decrypt", input: input_stream,
+                                                passphrases: passphrases, captures: [STATUS_FD]) do |gpg|
+          result = yield(gpg.reader)
+          gpg.finish
+          status = gpg.captured(STATUS_FD)
+          verify_plaintext(gpg, status)
+          verify_signers(gpg, signers, status) unless signers.empty?
           result
         end
-      ensure
-        status_reader&.close
       end
       private_class_method :run
 
-      # Returns the result of the block, which reads gpg's stdout, while a thread copies the input stream to gpg's
-      # stdin. Without stdin, gpg reads the file itself.
+      # Raises Pgp::Failure unless gpg found the data, which it reports with `PLAINTEXT`, whether or not the data
+      # is encrypted or signed.
       #
-      # Raises the failure to read the input stream, such as corrupt compressed data, rather than the failure of gpg
-      # that it causes. When the block raises, gpg is killed, so that the thread's next write to gpg's stdin fails,
-      # and the thread finishes, so that it no longer reads the input stream, which belongs to the caller. The thread
-      # is never stopped part way through reading the input stream, which would leave it in an unknown state.
-      def self.with_input(stdin, input_stream, gpg)
-        return yield unless stdin
+      # gpg exits successfully without any output for PGP data that ends within its first packet, such as a file
+      # that is still being uploaded, or the start of a PGP message whose writer failed, which must not be read as
+      # an empty file.
+      def self.verify_plaintext(gpg, status)
+        return if status.each_line.any? { |line| line.start_with?("[GNUPG:] PLAINTEXT") }
 
-        input     = copy_input(input_stream, stdin)
-        completed = false
-        begin
-          result    = yield
-          completed = true
-        ensure
-          unless completed
-            IOStreams::Pgp.kill_gpg(gpg)
-            input.join
-          end
-        end
-        error = input.value
-        raise(error) if error
-
-        result
+        raise(Pgp::Failure, "GPG Failed to decrypt #{gpg.subject}: no data was found, the PGP data is incomplete")
       end
-      private_class_method :with_input
-
-      # Returns [Thread] that copies the input stream to gpg's stdin, and then closes stdin, so that gpg decrypts
-      # the data as it is read. Its value is the exception raised when reading the input stream, if any.
-      def self.copy_input(input_stream, stdin)
-        Thread.new do
-          ::IO.copy_stream(input_stream, stdin)
-          nil
-        rescue Errno::EPIPE
-          # gpg stopped reading, since it failed, which is raised once it finishes.
-          nil
-        rescue StandardError => e
-          e
-        ensure
-          stdin.close
-        end
-      end
-      private_class_method :copy_input
+      private_class_method :verify_plaintext
 
       # Who must have signed the file: the fingerprints of the primary keys, and whether gpg must also trust them.
       Signers = Struct.new(:name, :fingerprints, :trusted)
@@ -265,7 +220,7 @@ module IOStreams
       #
       # A key found from the `signer` must be trusted by gpg, since another key in the keyring could have the same
       # email address. A key supplied via `import_and_trust_key` is identified by its fingerprint, so it need not be.
-      def self.verify_signers(file_name, signers, status)
+      def self.verify_signers(gpg, signers, status)
         signatures = good_signatures(status)
         matches    = signers.flat_map do |signer|
           signatures.select { |signature| signer.fingerprints.include?(signature[:fingerprint]) }.
@@ -274,13 +229,11 @@ module IOStreams
         return if matches.any? { |signer, signature| !signer.trusted || TRUSTED.include?(signature[:trust]) }
 
         names = signers.map(&:name).join(" or ")
-        data  = file_name ? "file" : "stream"
-        where = file_name ? ": #{file_name}" : ""
-        raise(Pgp::Failure, "PGP #{data} was not signed by #{names}#{where}") if matches.empty?
+        raise(Pgp::Failure, gpg.describe("was not signed by #{names}")) if matches.empty?
 
         raise(Pgp::Failure,
-              "PGP #{data} was signed by #{matches.first.first.name}, but gpg does not trust the key, " \
-              "see IOStreams::Pgp.set_trust#{where}")
+              gpg.describe("was signed by #{matches.first.first.name}, but gpg does not trust the key, " \
+                           "see IOStreams::Pgp.set_trust"))
       end
       private_class_method :verify_signers
 

@@ -97,9 +97,22 @@ def with_gpg_stub(script)
   end
 end
 
+# Shell script for a wrapper executable that runs gpg as its child, rather than replacing itself with gpg,
+# such as `sudo -u pgp gpg` or `/usr/bin/time gpg`.
+WRAPPER_GPG = <<~SCRIPT.freeze
+  gpg "$@"
+SCRIPT
+
+# Returns [Array<String>] the lock files in the gpg home directory, which gpg removes when it exits cleanly.
+def gpg_lock_files
+  Dir.children(ENV.fetch("GNUPGHOME")).grep(/\A\.#lk/)
+end
+
 # Shell script for a stub gpg that writes more to its stderr than a pipe holds, and then copies its stdin to its stdout.
+# When decrypting, it reports the plaintext on the status file descriptor, as gpg does.
 NOISY_GPG = <<~SCRIPT.freeze
   head -c 200000 /dev/zero | tr '\\000' w >&2
+  case " $* " in *" --decrypt "*) echo "[GNUPG:] PLAINTEXT 62 0" >&3 ;; esac
   cat
 SCRIPT
 

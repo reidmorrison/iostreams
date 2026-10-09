@@ -170,7 +170,7 @@ supplied in a `StringIO`.
 | `.gz`, `.gzip`, `.bz2`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
 | `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | Not supported | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read |
-| `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads and writes a local file itself, and any other stream through its stdin and stdout |
+| `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads a local file itself, and any other stream through its stdin, and writes through its stdout |
 
 So a zip or spreadsheet stream only has a local file when it is the stream closest to the stored data: the
 last extension in the file name, or the last stream set with `#stream`. `#pipeline` lists the streams in order

@@ -343,7 +343,10 @@ module IOStreams
       #
       # Note:
       #   If an exception is raised whilst the file is being written to the file is removed to
-      #   prevent incomplete / partial files from being created.
+      #   prevent incomplete / partial files from being created. This includes an exception that is
+      #   not a StandardError, such as `Interrupt`, or the one that `Timeout` raises within its block
+      #   from timeout v0.4, the default from Ruby 3.3. A block that exits with `return`, `break` or
+      #   `throw` completes the file.
       def stream_writer(&)
         mkpath if create_path
         begin
@@ -353,7 +356,7 @@ module IOStreams
           ensure
             file.close
           end
-        rescue StandardError => e
+        rescue Exception => e # rubocop:disable Lint/RescueException
           ::FileUtils.rm_f(path)
           raise(e)
         end

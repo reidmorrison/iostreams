@@ -37,6 +37,57 @@ class PgpReaderTest < Minitest::Test
     end
   end
 
+  # A stream that returns the first half of the data, and then raises, like compressed data that is corrupt part way.
+  class TruncatedInput
+    def initialize(data)
+      @io = StringIO.new(data.byteslice(0, data.bytesize / 2))
+    end
+
+    def read(length = nil, outbuf = nil)
+      @io.read(length, outbuf) || raise(Zlib::DataError, "invalid compressed data")
+    end
+  end
+
+  # A stream that returns the start of the data, and then raises Errno::EPIPE, like a stream that reads from a
+  # program that exited.
+  class BrokenPipeInput < CorruptInput
+    def read(length = nil, outbuf = nil)
+      raise(Errno::EPIPE, "reading the input") if @read
+
+      super
+    end
+  end
+
+  # A stream over an Enumerator of blocks, read with `Enumerator#next`, such as a streamed HTTP download.
+  # It reads its first block when it is created, so it can only be read by the thread that created it.
+  class ChunkedInput
+    def initialize(data)
+      @blocks = data.b.scan(/.{1,4096}/m).each
+      @buffer = @blocks.next.dup
+    end
+
+    def read(length = nil, outbuf = nil)
+      data = +""
+      while @buffer && (length.nil? || data.bytesize < length)
+        take    = length ? length - data.bytesize : @buffer.bytesize
+        data   << @buffer.byteslice(0, take)
+        @buffer = @buffer.byteslice(take..) || +""
+        @buffer = next_block if @buffer.empty?
+      end
+      return if data.empty? && length&.positive?
+
+      outbuf ? outbuf.replace(data) : data
+    end
+
+    private
+
+    def next_block
+      @blocks.next.dup
+    rescue StopIteration
+      nil
+    end
+  end
+
   describe IOStreams::Pgp::Reader do
     let :temp_file do
       Tempfile.new("iostreams")
@@ -245,6 +296,110 @@ class PgpReaderTest < Minitest::Test
                                                       verify_first: true, &:read)
 
         assert_equal decrypted, result
+      end
+
+      it "reads a stream that can only be read by the thread that created it" do
+        result = Timeout.timeout(30) do
+          IOStreams::Pgp::Reader.stream(ChunkedInput.new(encrypt(large_data)), passphrase: "receiver_passphrase", &:read)
+        end
+
+        assert_equal large_data, result
+      end
+
+      it "reads lines with gets and each_line" do
+        lines = "first\nsecond\nthird"
+        input = StringIO.new(encrypt(lines))
+        IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase") do |io|
+          assert_equal "first\n", io.gets
+          assert_equal %W[second\n third], io.each_line.to_a
+          assert_nil io.gets
+          assert_predicate io, :eof?
+        end
+      end
+
+      it "raises the failure to read the stream, rather than the block's failure on the data cut short by it" do
+        # Random values, which gpg cannot compress, so that the data is cut part way through.
+        rows  = (1..50_000).map { |i| "#{i.to_s.rjust(6, '0')},#{Random.new(i).bytes(10).unpack1('H*')}" }
+        input = TruncatedInput.new(encrypt(rows.join("\n")))
+        error = Timeout.timeout(30) do
+          assert_raises(Zlib::DataError) do
+            IOStreams.stream(input).stream(:pgp, passphrase: "receiver_passphrase").each(:line) do |line|
+              raise(ArgumentError, "Truncated row: #{line}") unless line.size == 27
+            end
+          end
+        end
+
+        assert_equal "invalid compressed data", error.message
+      end
+
+      it "raises a broken pipe when reading the stream, rather than ignoring the rest of the stream" do
+        input = BrokenPipeInput.new(encrypt(decrypted))
+
+        Timeout.timeout(30) do
+          assert_raises(Errno::EPIPE) { IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase", &:read) }
+        end
+      end
+
+      it "raises for the start of a PGP message, rather than reading it as empty" do
+        encrypted = encrypt(decrypted)
+        [4, 100, 250].each do |size|
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.stream(StringIO.new(encrypted.byteslice(0, size)), passphrase: "receiver_passphrase",
+                                          &:read)
+          end
+
+          assert_match(/\AGPG Failed to decrypt stream: /, error.message)
+        end
+      end
+
+      it "can be interrupted by Timeout while the stream stalls" do
+        encrypted      = encrypt(large_data)
+        reader, writer = IO.pipe
+        sender         = Thread.new do
+          writer.write(encrypted.byteslice(0, encrypted.bytesize / 2))
+        rescue IOError, Errno::EPIPE
+          nil
+        end
+
+        Timeout.timeout(30) do
+          assert_raises(Timeout::Error) do
+            Timeout.timeout(1) { IOStreams::Pgp::Reader.stream(reader, passphrase: "receiver_passphrase", &:read) }
+          end
+        end
+      ensure
+        reader&.close
+        writer&.close
+        sender&.join
+      end
+
+      it "stops gpg when it is run by a wrapper executable and the block raises" do
+        input = StringIO.new(encrypt(large_data))
+        Timeout.timeout(30) do
+          with_gpg_stub(WRAPPER_GPG) do
+            assert_raises(ArgumentError) do
+              IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase") do |io|
+                io.read(10)
+                raise(ArgumentError, "from the block")
+              end
+            end
+          end
+        end
+      end
+
+      it "lets gpg remove its lock files when the block raises" do
+        input  = encrypt(large_data)
+        before = gpg_lock_files
+
+        3.times do
+          assert_raises(ArgumentError) do
+            IOStreams::Pgp::Reader.stream(StringIO.new(input), passphrase: "receiver_passphrase") do |io|
+              io.read(10)
+              raise(ArgumentError, "from the block")
+            end
+          end
+        end
+
+        assert_empty gpg_lock_files - before
       end
     end
 

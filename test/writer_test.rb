@@ -27,18 +27,29 @@ class WriterTest < Minitest::Test
     end
 
     describe ".stream" do
-      it "writes to an empty local file by its name, without a temp file, leaving the stream after the data" do
-        IOStreams::Utils.stub(:private_temp_file, ->(*) { flunk("Wrote to a temp file") }) do
-          File.open(file_name, "wb") do |file|
-            FileOnlyWriter.stream(file) { |io| io.write(data) }
+      it "writes to a temp file, rather than an empty local file by its name, copying it once the writer completes" do
+        File.open(file_name, "wb") do |file|
+          FileOnlyWriter.stream(file) { |io| io.write(data) }
 
-            assert_equal data.size, file.pos
-            file.write("jill,20\n")
-          end
+          assert_equal data.size, file.pos
+          file.write("jill,20\n")
         end
 
         assert_equal "#{data}jill,20\n", File.read(file_name)
-        assert_equal [file_name], FileOnlyWriter.file_names
+        refute_includes FileOnlyWriter.file_names, file_name
+      end
+
+      it "leaves a local file untouched when the block raises" do
+        File.open(file_name, "wb") do |file|
+          assert_raises(ArgumentError) do
+            FileOnlyWriter.stream(file) do |io|
+              io.write(data)
+              raise(ArgumentError, "from the block")
+            end
+          end
+        end
+
+        assert_equal "", File.read(file_name)
       end
 
       it "returns the result of the block" do

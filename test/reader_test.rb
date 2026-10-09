@@ -60,6 +60,20 @@ class ReaderTest < Minitest::Test
         refute_equal file_name, FileOnlyReader.file_names.first
       end
 
+      it "copies a local file that can no longer be opened by its name" do
+        skip("root can open any file") if Process.uid.zero?
+
+        result = File.open(file_name, "rb") do |file|
+          File.chmod(0o000, file_name)
+          FileOnlyReader.stream(file, &:read)
+        ensure
+          File.chmod(0o600, file_name)
+        end
+
+        assert_equal data, result
+        refute_equal file_name, FileOnlyReader.file_names.first
+      end
+
       it "raises for a local file that was not opened for reading, rather than reading it by its name" do
         assert_raises(IOError) do
           File.open(file_name, "ab") { |file| FileOnlyReader.stream(file, &:read) }
