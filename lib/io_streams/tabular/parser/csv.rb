@@ -4,13 +4,16 @@ module IOStreams
     module Parser
       class Csv < Base
         # Frozen, so that using one does not create a string each time, as a string literal does in this file.
-        QUOTE      = '"'.freeze
-        COMMA      = ",".freeze
-        CR         = "\r".freeze
-        LF         = "\n".freeze
-        EMPTY      = "".freeze
-        QUOTE_BYTE = QUOTE.ord
-        COMMA_BYTE = COMMA.ord
+        QUOTE         = '"'.freeze
+        ESCAPED_QUOTE = '""'.freeze
+        COMMA         = ",".freeze
+        CR            = "\r".freeze
+        LF            = "\n".freeze
+        EMPTY         = "".freeze
+        QUOTE_BYTE    = QUOTE.ord
+        COMMA_BYTE    = COMMA.ord
+        # The characters that a value is quoted for when it is written.
+        QUOTABLE      = /[\r\n,"]/
 
         # CSV fields may contain embedded delimiters and newlines when wrapped in double quotes.
         def self.quote_character
@@ -97,8 +100,38 @@ module IOStreams
           values
         end
 
+        # Returns [String] the values as a line, the same as `CSV.generate_line`.
+        #
+        # Like `CSV.parse_line`, `CSV.generate_line` creates a CSV object for each line, so the line is written here,
+        # unless a value is text that is neither valid UTF-8 nor ASCII, which `CSV.generate_line` still writes, so
+        # that the line and any error are the same.
         def render_array(array)
-          CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
+          render_line(array) || CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
+        end
+
+        # Returns [String] the values as a UTF-8 line, or nil when a value is text that is neither valid UTF-8 nor ASCII.
+        #
+        # Like CSV, a nil value is written as nothing, and any other value is converted with `String()`, and quoted when
+        # it is empty, or contains a quote, a comma or a line break.
+        def render_line(values)
+          line  = +""
+          index = 0
+          while index < values.size
+            value = values[index]
+            line << COMMA if index.positive?
+            index += 1
+            next if value.nil?
+
+            value = String(value)
+            return unless (value.encoding == Encoding::UTF_8 || value.ascii_only?) && value.valid_encoding?
+
+            if value.empty? || QUOTABLE.match?(value)
+              line << QUOTE << value.gsub(QUOTE, ESCAPED_QUOTE) << QUOTE
+            else
+              line << value
+            end
+          end
+          line
         end
       end
     end
