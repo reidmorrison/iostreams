@@ -348,6 +348,40 @@ class UtilsTest < Minitest::Test
 
         assert_equal "/a+b/c+d.csv", uri.path
       end
+
+      it "keeps characters that are not ASCII in the path" do
+        uri = IOStreams::Utils::URI.new("s3://bucket/données/café.csv")
+
+        assert_equal "bucket", uri.hostname
+        assert_equal "/données/café.csv", uri.path
+        assert_equal Encoding::UTF_8, uri.path.encoding
+      end
+
+      it "keeps the bytes of a name that is not valid UTF-8" do
+        uri = IOStreams::Utils::URI.new("sftp://example.org/in/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+
+        assert_equal "/in/caf\xE9.csv".b, uri.path.b
+      end
+
+      it "decodes characters that are not ASCII in the query" do
+        uri = IOStreams::Utils::URI.new("s3://bucket/key?prefix=café")
+
+        assert_equal({"prefix" => "café"}, uri.query)
+      end
+
+      it "keeps characters in the path that a url cannot hold, such as brackets" do
+        name = %(/report [1] {a|b} "x" <y> c^d`e\\f.csv)
+
+        assert_equal name, IOStreams::Utils::URI.new("s3://bucket#{name}").path
+      end
+
+      it "parses a host that is an IPv6 address" do
+        uri = IOStreams::Utils::URI.new("sftp://[::1]:2222/data/[1].csv")
+
+        assert_equal "::1", uri.hostname
+        assert_equal 2222, uri.port
+        assert_equal "/data/[1].csv", uri.path
+      end
     end
   end
 end

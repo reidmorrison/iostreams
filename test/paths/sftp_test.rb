@@ -451,6 +451,13 @@ module Paths
           assert_equal "/path/a+b.txt", path.path
         end
 
+        it "keeps characters that are not ASCII in the path, so that it can be created again from its url" do
+          path = new_path("sftp://example.org/données/café.csv")
+
+          assert_equal "/données/café.csv", path.path
+          assert_equal path, IOStreams.path(path.to_s)
+        end
+
         it "reads the username and password from arguments" do
           path = new_path(url, username: "jack", password: "secret")
 

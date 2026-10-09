@@ -475,6 +475,13 @@ module Paths
 
           assert_equal "reports/a+b.csv", path.path
         end
+
+        it "keeps characters that are not ASCII in the key, so that it can be created again from its url" do
+          path = IOStreams::Paths::S3.new("s3://bucket/données/café.csv", client: client)
+
+          assert_equal "données/café.csv", path.path
+          assert_equal path, IOStreams::Paths::S3.new(path.to_s, client: client)
+        end
       end
 
       describe "options" do

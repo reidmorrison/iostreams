@@ -963,6 +963,10 @@ If the supplied file name string includes a URI. For example if AWS is configure
 path = IOStreams.path("s3://bucket-name/path/example.csv")
 ~~~
 
+The key in the url is the name of the object as it is, including characters that are not ASCII, or that
+a url cannot hold, such as `s3://bucket-name/données/café [1].csv`. Only a `%`, `?` or `#` in the key must be percent-encoded,
+as `%25`, `%3F` or `%23`, since they otherwise start an escape, the query or a fragment.
+
 Accessing S3 requires the `aws-sdk-s3` gem, which is loaded when it is first needed. So a process
 without it, such as a web process that only records the path of a file for a job to process, can still
 create, join, compare and display an S3 path, such as with `#display_name`, including one with S3
@@ -1192,6 +1196,10 @@ directory:
 # The file data/example.csv within the login directory
 path = IOStreams.path("sftp://hostname/~/data/example.csv")
 ~~~
+
+The path in the url is the name of the file as it is, including characters that are not ASCII, or that
+a url cannot hold, such as `sftp://hostname/données/café [1].csv`. Only a `%`, `?` or `#` in it must be percent-encoded,
+as `%25`, `%3F` or `%23`.
 
 Read a file from a remote sftp server.
 ~~~ruby

@@ -182,9 +182,16 @@ module IOStreams
     class URI
       attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
 
+      # A space, a control character, or a byte of a character that is not ASCII, none of which `::URI` parses.
+      UNPARSEABLE_BYTE           = /[^\x21-\x7E]/n
+      # The characters that `::URI` does not parse in a path, but that a file name can hold, such as `report [1].csv`.
+      UNPARSEABLE_PATH_CHARACTER = /["<>\[\\\]^`{|}]/n
+      # The scheme and host of a url, which can hold `[` and `]` around an IPv6 address.
+      SCHEME_AND_HOST            = %r{\A[^:/?#]+://[^/?#]*}n
+      private_constant :UNPARSEABLE_BYTE, :UNPARSEABLE_PATH_CHARACTER, :SCHEME_AND_HOST
+
       def initialize(url)
-        url       = url.gsub(" ", "%20")
-        uri       = ::URI.parse(url)
+        uri       = ::URI.parse(self.class.escape(url))
         @scheme   = uri.scheme
         @hostname = uri.hostname
         # Unlike a query string, `+` in a path is not a space.
@@ -196,6 +203,16 @@ module IOStreams
 
         @query = {}
         ::URI.decode_www_form(uri.query).each { |key, value| @query[key] = value }
+      end
+
+      # Returns [String] the url with each byte that `::URI` cannot parse percent-encoded, to be decoded again with
+      # its path, since the path of an S3 or SFTP url is the name of the object or file as it is, such as
+      # `s3://bucket/café [1].csv`. A `%`, `?` or `#` is not encoded, since it starts an escape, the query or a fragment.
+      def self.escape(url)
+        bytes     = url.b.gsub(UNPARSEABLE_BYTE) { |byte| format("%%%02X", byte.ord) }
+        authority = bytes[SCHEME_AND_HOST].to_s
+        path      = bytes.delete_prefix(authority).gsub(UNPARSEABLE_PATH_CHARACTER) { |char| format("%%%02X", char.ord) }
+        "#{authority}#{path}".force_encoding(Encoding::UTF_8)
       end
     end
   end
