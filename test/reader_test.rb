@@ -59,6 +59,14 @@ class ReaderTest < Minitest::Test
         assert_equal "jack,21\n", result
         refute_equal file_name, FileOnlyReader.file_names.first
       end
+
+      it "raises for a local file that was not opened for reading, rather than reading it by its name" do
+        assert_raises(IOError) do
+          File.open(file_name, "ab") { |file| FileOnlyReader.stream(file, &:read) }
+        end
+
+        refute_includes FileOnlyReader.file_names, file_name
+      end
     end
   end
 end

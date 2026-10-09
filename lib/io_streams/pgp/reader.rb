@@ -1,5 +1,3 @@
-require "open3"
-
 module IOStreams
   module Pgp
     class Reader < IOStreams::Reader
@@ -33,7 +31,7 @@ module IOStreams
 
       # Read from a PGP / GPG stream, decrypting the contents as it is read.
       #
-      # gpg reads a local file itself, by its name, such as a local path, or the temp file of an S3, SFTP or HTTP
+      # gpg reads a local file through its file descriptor, such as a local path, or the temp file of an S3, SFTP or HTTP
       # path, see `IOStreams::Reader.input_file_name`. A thread copies any other stream, such as PGP data within
       # another stream, or a StringIO, to gpg's stdin as the block reads the decrypted contents, so that it is never
       # copied into a temp file. The input stream is not closed, since it belongs to the caller.
@@ -109,12 +107,11 @@ module IOStreams
                       &)
         # Cannot use `passphrase: self.default_passphrase` since it is considered private
         passphrase ||= default_passphrase
-        file_name    = input_file_name(input_stream)
 
         # Find the signer's keys, and import the supplied keys, before decrypting,
         # so that a missing or invalid key fails before any data is read.
         signers = expected_signers(signer, import_and_trust_key, import_and_trust_level)
-        check   = signers.empty? ? nil : ->(status) { verify_signers(file_name, signers, status) }
+        check   = signers.empty? ? nil : ->(status, file_name) { verify_signers(file_name, signers, status) }
 
         args = IOStreams::Pgp.passphrase_args
         args << "--ignore-mdc-error" if ignore_mdc_error
@@ -122,31 +119,22 @@ module IOStreams
         args += ["--batch", "--no-tty", "--yes", "--decrypt"]
         # Only feed a passphrase when one is supplied; sign-only files need none.
         args += ["--passphrase-fd", PASSPHRASE_FD.to_s] if passphrase
-        # Without a file name, gpg decrypts its stdin.
-        args += ["--", file_name] if file_name
 
         command = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
 
-        decrypt = ->(&block) { run(command, file_name, file_name ? nil : input_stream, passphrase, check, &block) }
-        result  = verify_first ? decrypt_then_read(decrypt, &) : read_decrypted(decrypt, file_name, &)
-        # Like `IOStreams::Reader.stream`, leave a local file at its end, as if it had been read through the stream.
-        input_stream.seek(0, ::IO::SEEK_END) if file_name
-        result
+        decrypt = ->(&block) { run(command, input_stream, passphrase, check, &block) }
+        verify_first ? decrypt_then_read(decrypt, &) : read_decrypted(decrypt, &)
       end
 
       # Yields gpg's stdout, which holds the decrypted contents, and returns the result of the block.
-      def self.read_decrypted(decrypt, file_name)
-        decrypt.call do |stdout, stderr|
-          stdout.binmode
+      def self.read_decrypted(decrypt)
+        decrypt.call do |stdout|
           value = yield(stdout)
           # When the block does not read to the end, gpg waits to write the rest, so it would never finish.
           # Read the rest so that gpg finishes, and checks the integrity and signature of the whole file.
           ::IO.copy_stream(stdout, ::File::NULL)
           value
-        rescue Errno::EPIPE
-          # Ignore broken pipe because gpg terminates early due to an error
-          raise(Pgp::Failure, "GPG Failed reading from encrypted #{subject(file_name)}: #{stderr.read.chomp}")
         end
       end
       private_class_method :read_decrypted
@@ -154,55 +142,52 @@ module IOStreams
       # Decrypts the file into a temporary file, and only yields it once gpg has succeeded.
       def self.decrypt_then_read(decrypt, &block)
         Utils.private_temp_file("iostreams_pgp", purpose: "the decrypted data, until gpg has verified it") do |temp_file_name|
-          decrypt.call { |stdout, _stderr| ::File.open(temp_file_name, "wb") { |io| ::IO.copy_stream(stdout, io) } }
+          decrypt.call { |stdout| ::File.open(temp_file_name, "wb") { |io| ::IO.copy_stream(stdout, io) } }
 
           ::File.open(temp_file_name, "rb", &block)
         end
       end
       private_class_method :decrypt_then_read
 
-      # Runs gpg, yielding its stdout and stderr, and returns the result of the block.
-      # When an input stream is supplied, a thread copies it to gpg's stdin while the block reads gpg's stdout.
+      # Runs gpg, yielding its stdout, and returns the result of the block.
       # Raises Pgp::Failure once gpg finishes when it fails, or when `check` raises for gpg's status output.
-      def self.run(command, file_name, input_stream, passphrase, check)
+      #
+      # gpg reads a local file through its file descriptor, see `IOStreams::Reader.input_file_name`, which leaves
+      # the file at its end once gpg has read it. Otherwise a thread copies the input stream to gpg's stdin while
+      # the block reads gpg's stdout.
+      def self.run(command, input_stream, passphrase, check)
+        file_name                    = input_file_name(input_stream)
         status_reader, status_writer = IO.pipe if check
         passphrase_reader            = IOStreams::Pgp.passphrase_reader(passphrase) if passphrase
-        spawn_options                = {STATUS_FD => status_writer, PASSPHRASE_FD => passphrase_reader}.compact
+        fds                          = {STATUS_FD => status_writer, PASSPHRASE_FD => passphrase_reader}.compact
 
-        Open3.popen3(*command, spawn_options) do |stdin, stdout, stderr, waith_thr|
-          # Only the gpg process writes its status, and reads the passphrase.
-          status_writer&.close
-          passphrase_reader&.close
+        IOStreams::Pgp.spawn_gpg(command, input: (input_stream if file_name), fds: fds) do |stdin, stdout, errors, gpg|
           # Read the status while gpg runs, so that gpg never waits for it to be read.
           status = Thread.new { status_reader.read } if check
           status&.report_on_exception = false
 
-          result = with_input(input_stream, stdin, stdout) { yield(stdout, stderr) }
-          unless waith_thr.value.success?
-            raise(Pgp::Failure, "GPG Failed to decrypt #{subject(file_name)}: #{stderr.read.chomp}")
+          result = with_input(stdin, input_stream, gpg) { yield(stdout) }
+          unless gpg.value.success?
+            raise(Pgp::Failure, "GPG Failed to decrypt #{IOStreams::Pgp.subject(file_name)}: #{errors.value.chomp}")
           end
 
-          check&.call(status.value)
+          check&.call(status.value, file_name)
           result
         end
       ensure
-        status_writer&.close
         status_reader&.close
-        passphrase_reader&.close
       end
       private_class_method :run
 
-      # Returns the result of the block, which reads gpg's stdout, while a thread copies the input stream, when
-      # supplied, to gpg's stdin. Without an input stream, gpg reads the file, so its stdin is closed.
+      # Returns the result of the block, which reads gpg's stdout, while a thread copies the input stream to gpg's
+      # stdin. Without stdin, gpg reads the file itself.
       #
       # Raises the failure to read the input stream, such as corrupt compressed data, rather than the failure of gpg
-      # that it causes. When the block raises, gpg's stdout is closed, so that gpg cannot wait for it to be read, and
-      # the thread is stopped, so that it no longer reads the input stream, which belongs to the caller.
-      def self.with_input(input_stream, stdin, stdout)
-        unless input_stream
-          stdin.close
-          return yield
-        end
+      # that it causes. When the block raises, gpg is killed, so that the thread's next write to gpg's stdin fails,
+      # and the thread finishes, so that it no longer reads the input stream, which belongs to the caller. The thread
+      # is never stopped part way through reading the input stream, which would leave it in an unknown state.
+      def self.with_input(stdin, input_stream, gpg)
+        return yield unless stdin
 
         input     = copy_input(input_stream, stdin)
         completed = false
@@ -211,8 +196,7 @@ module IOStreams
           completed = true
         ensure
           unless completed
-            stdout.close
-            input.kill
+            IOStreams::Pgp.kill_gpg(gpg)
             input.join
           end
         end
@@ -239,12 +223,6 @@ module IOStreams
         end
       end
       private_class_method :copy_input
-
-      # Returns [String] what is being decrypted, for an error message: the named file, or the stream.
-      def self.subject(file_name)
-        file_name ? "file: #{file_name}" : "stream"
-      end
-      private_class_method :subject
 
       # Who must have signed the file: the fingerprints of the primary keys, and whether gpg must also trust them.
       Signers = Struct.new(:name, :fingerprints, :trusted)

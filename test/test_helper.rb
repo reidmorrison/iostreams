@@ -78,6 +78,31 @@ def temp_files_created(&)
   names
 end
 
+# Runs the block with a stub gpg executable that runs the supplied shell script instead of the real gpg.
+def with_gpg_stub(script)
+  Dir.mktmpdir do |dir|
+    executable = File.join(dir, "gpg")
+    File.write(executable, "#!/bin/sh\n#{script}\n")
+    File.chmod(0o700, executable)
+
+    # Resolve the version using the real gpg before swapping in the stub.
+    IOStreams::Pgp.pgp_version
+    original                  = IOStreams::Pgp.executable
+    IOStreams::Pgp.executable = executable
+    begin
+      yield
+    ensure
+      IOStreams::Pgp.executable = original
+    end
+  end
+end
+
+# Shell script for a stub gpg that writes more to its stderr than a pipe holds, and then copies its stdin to its stdout.
+NOISY_GPG = <<~SCRIPT.freeze
+  head -c 200000 /dev/zero | tr '\\000' w >&2
+  cat
+SCRIPT
+
 # Test paths
 root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))

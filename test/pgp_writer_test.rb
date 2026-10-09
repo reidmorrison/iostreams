@@ -212,7 +212,7 @@ class PgpWriterTest < Minitest::Test
         assert_match(/encrypted stream: /, error.message)
       end
 
-      it "encrypts the data that the block wrote before it raised" do
+      it "does not complete a PGP message from the data that the block wrote before it raised" do
         output = StringIO.new("".b)
         error  = Timeout.timeout(30) do
           assert_raises(ArgumentError) do
@@ -225,7 +225,75 @@ class PgpWriterTest < Minitest::Test
 
         assert_equal "from the block", error.message
         refute_predicate output, :closed?
-        assert_equal "written before the block raised", decrypt(output.string)
+        assert_raises(IOStreams::Pgp::Failure) { decrypt(output.string) }
+      end
+
+      it "does not complete a PGP message in a local file when the block raises" do
+        File.open(file_name, "wb") do |file|
+          Timeout.timeout(30) do
+            assert_raises(ArgumentError) do
+              IOStreams::Pgp::Writer.stream(file, recipient: "receiver@example.org") do |io|
+                io.write(large_data)
+                raise(ArgumentError, "from the block")
+              end
+            end
+          end
+
+          refute_predicate file, :closed?
+        end
+
+        assert_raises(IOStreams::Pgp::Failure) { decrypt(File.binread(file_name)) }
+      end
+
+      it "writes a local file through its file descriptor, leaving the file after the data" do
+        File.open(file_name, "wb") do |file|
+          IOStreams::Pgp::Writer.stream(file, recipient: "receiver@example.org") { |io| io.write(decrypted) }
+
+          assert_equal File.size(file_name), file.pos
+          refute_predicate file, :closed?
+        end
+
+        assert_equal decrypted, decrypt(File.binread(file_name))
+      end
+
+      it "leaves a local file that belongs to the caller in place when gpg fails" do
+        File.open(file_name, "wb") do |file|
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Writer.stream(file, recipient: "BAD@example.org") do |io|
+              io.write(decrypted)
+              # Allow process to terminate
+              sleep 1
+              io.write(decrypted)
+            end
+          end
+
+          assert_match(/encrypted file: #{Regexp.escape(File.absolute_path(file_name))}: /, error.message)
+          assert_path_exists file_name
+          assert File.identical?(file, file_name)
+        end
+      end
+
+      it "raises for a local file that was not opened for writing" do
+        File.open(file_name, "rb") do |file|
+          Timeout.timeout(30) do
+            assert_raises(IOError) do
+              IOStreams::Pgp::Writer.stream(file, recipient: "receiver@example.org") { |io| io.write(decrypted) }
+            end
+          end
+        end
+
+        assert_equal 0, File.size(file_name)
+      end
+
+      it "does not wait for gpg's stderr to be read" do
+        output = StringIO.new("".b)
+        Timeout.timeout(30) do
+          with_gpg_stub(NOISY_GPG) do
+            IOStreams::Pgp::Writer.stream(output, recipient: "receiver@example.org") { |io| io.write(decrypted) }
+          end
+        end
+
+        assert_equal decrypted, output.string
       end
     end
 

@@ -52,10 +52,17 @@ module IOStreams
 
     # Returns [String] the name of the local file that the output stream writes, when it is empty, which a writer can
     # write to by its name, such as a writer that only writes files, instead of a temp file, see
-    # `Utils.local_file_name`. Returns nil for any other stream.
+    # `Utils.local_file_name`. Returns nil for any other stream, including a file that was not opened for writing,
+    # so that writing to it raises, rather than opening the file again to write it.
     def self.output_file_name(output_stream)
       file_name = Utils.local_file_name(output_stream)
-      file_name if file_name && output_stream.stat.zero?
+      return unless file_name && output_stream.stat.zero?
+
+      # Raises IOError when the file was not opened for writing, without writing to it.
+      output_stream.syswrite("")
+      file_name
+    rescue IOError
+      nil
     end
     private_class_method :output_file_name
 

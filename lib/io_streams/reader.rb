@@ -51,9 +51,17 @@ module IOStreams
 
     # Returns [String] the name of the local file that the input stream reads, which a reader can read by its name,
     # such as a reader that only reads files, instead of a copy of the stream, see `Utils.local_file_name`.
-    # Returns nil for any other stream.
+    # Returns nil for any other stream, including a file that was not opened for reading, so that reading it raises,
+    # rather than opening the file again to read it.
     def self.input_file_name(input_stream)
-      Utils.local_file_name(input_stream)
+      file_name = Utils.local_file_name(input_stream)
+      return unless file_name
+
+      # Raises IOError when the file was not opened for reading, without reading from it.
+      input_stream.read(0)
+      file_name
+    rescue IOError
+      nil
     end
     private_class_method :input_file_name
 

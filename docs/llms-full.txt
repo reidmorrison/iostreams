@@ -3397,6 +3397,10 @@ Select highest level: 5
 ### PGP Limitations
 
 * Designed for processing larger files since a process is spawned for each file processed.
+* Since the encrypted data is streamed, when writing fails part way, such as when `gpg` fails or the block
+  raises, the output holds what `gpg` wrote until then, which is not a valid PGP message. When the block raises,
+  `gpg` is stopped, so that it never completes a valid PGP message from partial data. As with any other
+  stream, discard the output after a failure; a local path does so already.
 * For lots of small, in memory files, use the [gpgme](https://github.com/ueno/ruby-gpgme) library. For example to attach pgp files to emails.
 
 ---

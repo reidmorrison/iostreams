@@ -1,5 +1,3 @@
-require "open3"
-
 module IOStreams
   module Pgp
     class Writer < IOStreams::Writer
@@ -40,10 +38,14 @@ module IOStreams
 
       # Write to a PGP / GPG stream, encrypting and/or signing the contents as it is written.
       #
-      # gpg writes a local file itself, by its name, such as a local path, or the temp file of an S3, SFTP or HTTP
+      # gpg writes a local file through its file descriptor, such as a local path, or the temp file of an S3, SFTP or HTTP
       # path, see `IOStreams::Writer.output_file_name`. For any other stream, such as PGP data within another
       # stream, or a StringIO, a thread copies what gpg writes to its stdout to the stream, so that it is never
       # written to a temp file. The output stream is not closed, since it belongs to the caller.
+      #
+      # Since the data is streamed, the output stream holds what gpg wrote before any failure, which is not a valid
+      # PGP message: when gpg fails part way, or when the block raises, in which case gpg is stopped, so that it never
+      # completes a valid PGP message from partial data. As with any other stream, the caller discards the output.
       #
       # output_stream: [IO]
       #   The stream to write the PGP data to.
@@ -121,13 +123,11 @@ module IOStreams
         end
 
         compress_level = 0 if compress == :none
-        file_name      = output_file_name(output_stream)
 
         recipients, imported = encrypt ? collect_recipients(recipient, import_and_trust_key, import_and_trust_level) : [[], []]
-        result = with_recipient_files(recipients, imported) do |all_recipients, recipient_files|
-          # Write to stdin, with the encrypted and/or signed contents being written to the file, or stdout
+        with_recipient_files(recipients, imported) do |all_recipients, recipient_files|
+          # Write to stdin, with the encrypted and/or signed contents being written to stdout
           args = build_args(
-            file_name:         file_name,
             encrypt:           encrypt,
             signer:            signer,
             signer_passphrase: signer_passphrase,
@@ -136,58 +136,52 @@ module IOStreams
             recipients:        all_recipients,
             recipient_files:   recipient_files
           )
-          run(file_name, file_name ? nil : output_stream, args, signer_passphrase, &block)
+          run(output_stream, args, signer_passphrase, &block)
         end
-        # Like `IOStreams::Writer.stream`, so that anything written to the stream next follows the data.
-        output_stream.seek(0, ::IO::SEEK_END) if file_name
-        result
       end
 
       # Runs gpg with the supplied arguments, yielding its stdin, and returns the result of the block.
-      # When an output stream is supplied, a thread copies what gpg writes to its stdout to the output stream.
-      def self.run(file_name, output_stream, args, signer_passphrase)
-        command = IOStreams::Pgp.gpg_command(*args)
+      #
+      # gpg writes a local file through its file descriptor, see `IOStreams::Writer.output_file_name`, which leaves
+      # the file at the end of the data, and never by its name, so that gpg cannot remove the file when it fails,
+      # since it belongs to the caller. Otherwise a thread copies what gpg writes to its stdout to the output stream.
+      def self.run(output_stream, args, signer_passphrase)
+        file_name = output_file_name(output_stream)
+        command   = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Writer.open: #{command.shelljoin}" }
 
         # Since stdin carries the data, supply the signer passphrase on file descriptor 3
         # so that it is not visible in the process list.
-        passphrase_reader = IOStreams::Pgp.passphrase_reader(signer_passphrase) if signer_passphrase
-        spawn_options     = passphrase_reader ? {PASSPHRASE_FD => passphrase_reader} : {}
+        fds = signer_passphrase ? {PASSPHRASE_FD => IOStreams::Pgp.passphrase_reader(signer_passphrase)} : {}
 
-        Open3.popen3(*command, spawn_options) do |stdin, stdout, stderr, waith_thr|
-          # Only the gpg process needs the passphrase.
-          passphrase_reader&.close
+        IOStreams::Pgp.spawn_gpg(command, output: (output_stream if file_name), fds: fds) do |stdin, stdout, errors, gpg|
           begin
-            result = with_output(output_stream, stdout, stdin) do
-              stdin.binmode
+            result = with_output(stdout, output_stream, gpg) do
               value = yield(stdin)
               stdin.close
               value
             end
           rescue Errno::EPIPE
             # Ignore broken pipe because gpg terminates early due to an error
-            ::FileUtils.rm_f(file_name) if file_name
-            raise(Pgp::Failure, "GPG Failed writing to encrypted #{subject(file_name)}: #{stderr.read.chomp}")
+            raise(Pgp::Failure, "GPG Failed writing to encrypted #{IOStreams::Pgp.subject(file_name)}: #{errors.value.chomp}")
           end
-          unless waith_thr.value.success?
-            ::FileUtils.rm_f(file_name) if file_name
-            raise(Pgp::Failure, "GPG Failed to create encrypted #{subject(file_name)}: #{stderr.read.chomp}")
+          unless gpg.value.success?
+            raise(Pgp::Failure, "GPG Failed to create encrypted #{IOStreams::Pgp.subject(file_name)}: #{errors.value.chomp}")
           end
+
           result
         end
-      ensure
-        passphrase_reader&.close
       end
       private_class_method :run
 
       # Returns the result of the block, which writes to gpg's stdin, while a thread copies what gpg writes to its
-      # stdout to the output stream, when supplied. Without an output stream, gpg writes the file.
+      # stdout to the output stream. Without stdout, gpg writes the file itself.
       #
       # Raises the failure to write to the output stream, rather than the failure of gpg that it causes. When the
-      # block raises, gpg's stdin is closed, so that gpg finishes with the data it was given, and its output is
-      # copied, so that the thread no longer writes to the output stream, which belongs to the caller.
-      def self.with_output(output_stream, stdout, stdin)
-        return yield unless output_stream
+      # block raises, gpg is killed, so that it never completes a valid PGP message from partial data, and the thread
+      # then finishes, so that it no longer writes to the output stream, which belongs to the caller.
+      def self.with_output(stdout, output_stream, gpg)
+        return yield unless stdout
 
         output    = copy_output(stdout, output_stream)
         completed = false
@@ -202,7 +196,7 @@ module IOStreams
           raise
         ensure
           unless completed
-            stdin.close
+            IOStreams::Pgp.kill_gpg(gpg)
             output.join
           end
         end
@@ -218,7 +212,6 @@ module IOStreams
       # than waiting for its output to be read.
       def self.copy_output(stdout, output_stream)
         Thread.new do
-          stdout.binmode
           ::IO.copy_stream(stdout, output_stream)
           nil
         rescue StandardError => e
@@ -228,14 +221,7 @@ module IOStreams
       end
       private_class_method :copy_output
 
-      # Returns [String] what is being written, for an error message: the named file, or the stream.
-      def self.subject(file_name)
-        file_name ? "file: #{file_name}" : "stream"
-      end
-      private_class_method :subject
-
-      def self.build_args(file_name:, encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:,
-                          recipient_files:)
+      def self.build_args(encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:, recipient_files:)
         args = ["--batch", "--no-tty", "--yes"]
         args << "--encrypt" if encrypt
         args += ["--sign", "--local-user", IOStreams::Pgp.user_id(signer)] if signer
@@ -244,8 +230,6 @@ module IOStreams
         args += ["--compress-algo", compress.to_s] unless compress == :none
         recipients.each { |address| args += ["--recipient", IOStreams::Pgp.user_id(address)] }
         recipient_files.each { |recipient_file| args += ["--recipient-file", recipient_file] }
-        # Without a file name, gpg writes to its stdout.
-        args += ["-o", file_name.to_s] if file_name
         args
       end
       private_class_method :build_args

@@ -62,6 +62,16 @@ class WriterTest < Minitest::Test
         assert_equal "header\n#{data}", File.read(file_name)
         refute_equal file_name, FileOnlyWriter.file_names.first
       end
+
+      it "raises for a local file that was not opened for writing, rather than writing it by its name" do
+        File.write(file_name, "")
+        assert_raises(IOError) do
+          File.open(file_name, "rb") { |file| FileOnlyWriter.stream(file) { |io| io.write(data) } }
+        end
+
+        assert_equal "", File.read(file_name)
+        refute_includes FileOnlyWriter.file_names, file_name
+      end
     end
   end
 end

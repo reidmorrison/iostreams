@@ -17,6 +17,26 @@ class PgpReaderTest < Minitest::Test
     end
   end
 
+  # A stream that records whether a read was stopped part way through, which slows each read
+  # so that the block can raise while one is in progress.
+  class SlowInput
+    attr_reader :interrupted
+
+    def initialize(data)
+      @io          = StringIO.new(data)
+      @interrupted = false
+    end
+
+    def read(length = nil, outbuf = nil)
+      # Not reset in an ensure, since Thread#kill runs it.
+      @interrupted = true
+      sleep(0.01)
+      data         = @io.read(length, outbuf)
+      @interrupted = false
+      data
+    end
+  end
+
   describe IOStreams::Pgp::Reader do
     let :temp_file do
       Tempfile.new("iostreams")
@@ -146,6 +166,51 @@ class PgpReaderTest < Minitest::Test
 
         assert_equal "from the block", error.message
         refute_predicate input, :closed?
+      end
+
+      it "does not stop part way through reading the stream when the block raises" do
+        input = SlowInput.new(encrypt(large_data))
+
+        Timeout.timeout(30) do
+          assert_raises(ArgumentError) do
+            IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase") do |io|
+              io.read(10)
+              raise(ArgumentError, "from the block")
+            end
+          end
+        end
+
+        refute input.interrupted
+      end
+
+      it "reads a local file through its file descriptor, leaving the file at its end" do
+        File.binwrite(temp_file.path, encrypt(decrypted))
+        File.open(temp_file.path, "rb") do |file|
+          result = temp_files_created do
+            assert_equal decrypted, IOStreams::Pgp::Reader.stream(file, passphrase: "receiver_passphrase", &:read)
+          end
+
+          assert_empty result
+          assert_predicate file, :eof?
+          refute_predicate file, :closed?
+        end
+      end
+
+      it "raises for a local file that was not opened for reading" do
+        File.binwrite(temp_file.path, encrypt(decrypted))
+        File.open(temp_file.path, "ab") do |file|
+          Timeout.timeout(30) do
+            assert_raises(IOError) { IOStreams::Pgp::Reader.stream(file, passphrase: "receiver_passphrase", &:read) }
+          end
+        end
+      end
+
+      it "does not wait for gpg's stderr to be read" do
+        result = Timeout.timeout(30) do
+          with_gpg_stub(NOISY_GPG) { IOStreams::Pgp::Reader.stream(StringIO.new(decrypted), &:read) }
+        end
+
+        assert_equal decrypted, result
       end
 
       it "raises the failure to read the stream, rather than the failure of gpg that it causes" do

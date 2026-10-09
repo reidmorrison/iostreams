@@ -677,6 +677,62 @@ module IOStreams
       reader
     end
 
+    # Runs gpg, yielding its stdin, its stdout, a thread whose value is what gpg writes to its stderr, and a thread
+    # whose value is its exit status, and returns the result of the block.
+    #
+    # gpg reads `input`, or writes `output`, through its file descriptor when it is supplied, such as a local File,
+    # in which case the yielded stdin, or stdout, is nil. Otherwise it is a pipe to gpg. The supplied input and
+    # output are not closed, since they belong to the caller. `fds` maps other file descriptors in gpg to the IO
+    # that gpg uses for them, such as the passphrase, which are closed here once gpg has started, since only gpg
+    # uses them.
+    #
+    # Its stderr is read while gpg runs, so that gpg never waits for it to be read. When gpg is still running once
+    # the block returns, such as when the block raises, gpg is killed, so that it never completes its output from
+    # partial data, and never waits for more input.
+    #
+    # Used internally by the PGP reader and writer.
+    def self.spawn_gpg(command, input: nil, output: nil, fds: {})
+      # The IOs that only gpg uses: its ends of the pipes, and the other file descriptors.
+      child_ios            = fds.values
+      child_stdin, stdin   = input ? [input, nil] : IO.pipe.tap { |reader, _| child_ios << reader }
+      stdout, child_stdout = output ? [nil, output] : IO.pipe.tap { |_, writer| child_ios << writer }
+      stderr, child_stderr = IO.pipe
+      child_ios << child_stderr
+
+      gpg = Process.detach(Process.spawn(*command, fds.merge(in: child_stdin, out: child_stdout, err: child_stderr)))
+      # So that each pipe ends once gpg exits.
+      child_ios.each(&:close)
+      errors                     = Thread.new { stderr.read }
+      errors.report_on_exception = false
+      stdin&.binmode
+      stdout&.binmode
+      yield(stdin, stdout, errors, gpg)
+    ensure
+      kill_gpg(gpg)
+      [stdin, stdout, stderr, *child_ios].each { |io| io&.close }
+    end
+
+    # Kills gpg when it is still running, and waits for it to exit.
+    #
+    # Used internally by the PGP reader and writer.
+    def self.kill_gpg(gpg)
+      return unless gpg&.alive?
+
+      begin
+        Process.kill(:KILL, gpg.pid)
+      rescue Errno::ESRCH
+        # Already exited.
+      end
+      gpg.join
+    end
+
+    # Returns [String] what gpg is processing, for an error message: the named file, or the stream.
+    #
+    # Used internally by the PGP reader and writer.
+    def self.subject(file_name)
+      file_name ? "file: #{file_name}" : "stream"
+    end
+
     # Returns [true|false] whether gpg can encrypt to a key in a file supplied with `--recipient-file`, which is
     # available from GnuPG 2.1.14.
     #
