@@ -109,6 +109,10 @@ These bug fixes change behavior that existing code may depend on:
 - **Each temp file that IOStreams uses is logged** at debug level via `IOStreams.logger`, when it is created, with what it holds, such as `Created temp file /tmp/iostreams_s320261008-41-1x5yq2 for the download of s3://bucket/data.csv`, and when it is deleted, with its size, so that it can be seen when, and why, a file was copied to local disk. See [When temp files are used](https://iostreams.reidmorrison.com/config#when-temp-files-are-used).
 - **`#/`, `#cleanpath` and `#sub_ext`**, like `Pathname`. `#/` joins like `#join`, so an absolute element is joined to the path rather than replacing it. `#cleanpath` removes `.`, `..` and repeated `/` without accessing the file, and keeps the streams and options. `#sub_ext` replaces the last extension, and clears the streams and options, since they were for the old file name.
 
+### Changed
+
+- **Reading CSV is faster.** `CSV.parse_line` creates a parser for each line, which costs several times more than parsing the line, so each line is now parsed directly. Reading rows, such as with `each(:array)`, is 4 to 6 times faster, and reading records, such as with `each(:hash)`, 2.5 to 3 times faster, on MRI, YJIT and JRuby. A line with a line break, or with invalid quoting, is still parsed by `CSV.parse_line`, so the values, their encodings, and the errors raised are the same as before.
+
 ### Fixed
 
 - An S3 path loads the `aws-sdk-s3` gem when it is first needed, so that a process without the gem can create, join, compare and display an S3 path, such as with `#display_name`. Previously creating one raised `LoadError`. Supplying S3 options loads it to check them when it is installed. Without it, every request raises `LoadError`, and writing raises it before the block writes any data, instead of once the data has all been written to a temp file.
