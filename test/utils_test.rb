@@ -53,6 +53,45 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".matchable" do
+      it "returns a string that is valid in its encoding" do
+        name = "café.csv"
+
+        assert_same name, IOStreams::Utils.matchable(name)
+      end
+
+      it "returns the bytes of a string that is not valid in its encoding" do
+        name = "caf\xE9.csv".dup.force_encoding(Encoding::UTF_8)
+
+        assert_equal "caf\xE9.csv".b, IOStreams::Utils.matchable(name)
+        assert_equal Encoding::BINARY, IOStreams::Utils.matchable(name).encoding
+      end
+    end
+
+    describe ".display_text" do
+      it "returns valid UTF-8 as it is" do
+        assert_equal "/data/café.csv", IOStreams::Utils.display_text("/data/café.csv")
+      end
+
+      it "reads a binary string as UTF-8" do
+        text = IOStreams::Utils.display_text("/data/café.csv".b)
+
+        assert_equal "/data/café.csv", text
+        assert_equal Encoding::UTF_8, text.encoding
+      end
+
+      it "shows each byte that is not valid UTF-8 as \\xHH" do
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".b)
+      end
+    end
+
+    describe ".file_name_extensions" do
+      it "returns the extensions of a name that is not valid UTF-8" do
+        assert_equal %w[csv gz], IOStreams::Utils.file_name_extensions("caf\xE9.CSV.gz".dup.force_encoding(Encoding::UTF_8))
+      end
+    end
+
     describe ".temp_file_name" do
       it "returns value from block" do
         result = IOStreams::Utils.temp_file_name("base", ".ext") { |_name| 257 }

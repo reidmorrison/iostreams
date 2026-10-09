@@ -648,6 +648,12 @@ Inspect the components of a path's file name:
 IOStreams.path("sftp://jack:secret@sftp.example.org/data/ruby.rb").display_name
 # => "sftp://sftp.example.org/data/ruby.rb"
 
+# The display name is always valid UTF-8, so that it can be logged. Each byte of a name that is not
+# valid UTF-8, such as one that a program wrote in Latin-1, is shown as \xHH. The path itself keeps
+# the name as it is, so that the file can still be read, moved or deleted.
+IOStreams.path("/data/caf\xE9.csv").display_name
+# => "/data/caf\\xE9.csv"
+
 # The options for creating a path, such as a password, with each secret replaced, for an application
 # that stores a url and its options, and displays them. The path class of the url decides which are
 # secret, see `sensitive_option_names`. `redact_stream_options` does the same for the options of streams.

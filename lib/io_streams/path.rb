@@ -50,7 +50,7 @@ module IOStreams
     # Note: S3 treats `.` and `..` in a key as ordinary characters, but they are resolved here like any other path.
     def cleanpath
       clean      = dup
-      clean.path = Pathname.new(path).cleanpath.to_s
+      clean.path = Pathname.new(Utils.matchable(path)).cleanpath.to_s.force_encoding(path.encoding)
       clean
     end
 
@@ -81,7 +81,10 @@ module IOStreams
       base = IOStreams.path(base) unless base.is_a?(Path)
       raise(ArgumentError, "#{base.display_name} is not in the same store as #{display_name}") unless same_store?(base)
 
-      Pathname.new(path.empty? ? "." : path).relative_path_from(Pathname.new(base.path.empty? ? "." : base.path)).to_s
+      # The names are compared by their bytes when either is not valid in its encoding, see IOStreams::Utils.matchable.
+      names = [path.empty? ? "." : path, base.path.empty? ? "." : base.path]
+      names = names.map(&:b) unless names.all?(&:valid_encoding?)
+      Pathname.new(names.first).relative_path_from(Pathname.new(names.last)).to_s.force_encoding(path.encoding)
     end
 
     def relative?
@@ -364,11 +367,14 @@ module IOStreams
     # or displayed. A user name, password or query in an SFTP or HTTP url is removed, since it can hold
     # credentials, so unlike #to_s it cannot be used to create the path again.
     #
+    # The name is valid UTF-8: each byte of a name that is not valid UTF-8, such as one written in Latin-1, is shown
+    # as `\xHH`, see `IOStreams::Utils.display_text`.
+    #
     # Example:
     #   IOStreams.path("sftp://jack:secret@example.org/data/a.csv").display_name
     #   # => "sftp://example.org/data/a.csv"
     def display_name
-      to_s
+      Utils.display_text(to_s)
     end
 
     # Freezes this path, so that `#option`, `#stream` and `#file_name=` can no longer change the streams,

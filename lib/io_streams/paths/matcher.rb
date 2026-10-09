@@ -39,8 +39,14 @@ module IOStreams
       end
 
       # Returns [true|false] whether the name, relative to the #directory, matches the pattern.
+      #
+      # A name that is not valid in its encoding, such as a Latin-1 name on a file system of UTF-8 names, is matched
+      # by its bytes, since `File.fnmatch?` raises ArgumentError for it when ignoring case. Letters in the pattern
+      # that are not ASCII then only match the same bytes, in the same case.
       def match?(name)
-        ::File.fnmatch?(pattern, name, flags)
+        return ::File.fnmatch?(pattern, name, flags) if name.valid_encoding?
+
+        ::File.fnmatch?(pattern.b, name.b, flags)
       end
 
       # Returns [true|false] whether the pattern has no pattern characters, so that it is the name of a child

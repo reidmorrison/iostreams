@@ -143,6 +143,17 @@ module Paths
           refute IOStreams::Paths::Matcher.new("*").match?(".profile") # rubocop:disable Minitest/RefuteMatch
           assert IOStreams::Paths::Matcher.new("*", hidden: true).match?(".profile") # rubocop:disable Minitest/AssertMatch
         end
+
+        it "matches a name that is not valid UTF-8 by its bytes" do
+          name = "caf\xE9.CSV".dup.force_encoding(Encoding::UTF_8)
+
+          [true, false].each do |case_sensitive|
+            assert IOStreams::Paths::Matcher.new("caf*", case_sensitive: case_sensitive).match?(name) # rubocop:disable Minitest/AssertMatch
+            refute IOStreams::Paths::Matcher.new("*.txt", case_sensitive: case_sensitive).match?(name) # rubocop:disable Minitest/RefuteMatch
+          end
+          assert IOStreams::Paths::Matcher.new("*.csv").match?(name) # rubocop:disable Minitest/AssertMatch
+          refute IOStreams::Paths::Matcher.new("*.csv", case_sensitive: true).match?(name) # rubocop:disable Minitest/RefuteMatch
+        end
       end
 
       describe "#hidden?" do

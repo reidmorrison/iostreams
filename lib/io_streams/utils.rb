@@ -110,9 +110,30 @@ module IOStreams
     # Returns [Array<String>] the extensions of the file name, in lower case, for example `["csv", "gz"]` for `"Data.CSV.gz"`.
     # The name of the file before the first `.` is not an extension, so a file named `gz` has no extensions.
     def self.file_name_extensions(file_name)
-      parts = ::File.basename(file_name.to_s).sub(/\A\.+/, "").split(".")
+      parts = matchable(::File.basename(file_name.to_s)).sub(/\A\.+/, "").split(".")
       parts.shift
       parts.map(&:downcase)
+    end
+
+    # Returns [String] the supplied string, or its bytes when it is not valid in its encoding, so that a Regexp,
+    # `split` or `File.fnmatch?` can be applied to it, since Ruby raises ArgumentError for those otherwise.
+    #
+    # For example the name of a file that a program wrote in Latin-1 to a file system of UTF-8 names, such as
+    # `caf\xE9.csv` on Linux, is not valid UTF-8. Its bytes are used as they are, so that the file can still be
+    # found, matched and opened by its name.
+    def self.matchable(string)
+      string.valid_encoding? ? string : string.b
+    end
+
+    # Returns [String] the supplied string as valid UTF-8, to display or log it: a binary string is read as UTF-8,
+    # and each byte that is still not valid UTF-8 is shown as `\xHH`, as `String#inspect` shows it.
+    #
+    # For example the name of a file in Latin-1, `caf\xE9.csv`, is displayed as "caf\\xE9.csv".
+    def self.display_text(string)
+      text = string.encoding == Encoding::BINARY ? string.dup.force_encoding(Encoding::UTF_8) : string
+      return text if text.valid_encoding?
+
+      text.scrub { |bytes| bytes.unpack("C*").map { |byte| format("\\x%02X", byte) }.join }
     end
 
     # Yields the path to a temporary file_name.
