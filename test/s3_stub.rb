@@ -1,3 +1,5 @@
+require "digest"
+
 # In-memory S3, built on the AWS SDK's response stubbing, so that the S3 path tests
 # run without credentials or network calls.
 #
@@ -56,11 +58,27 @@ class S3Stub
     {}
   end
 
+  # Returns the requested range of the object, such as "bytes=0-99", as S3 does, which cannot return a range of an
+  # empty object.
   def get_object(params)
     data = objects[[params[:bucket], params[:key]]]
     return "NoSuchKey" unless data
 
-    {body: data, content_length: data.bytesize}
+    etag = etag(data)
+    if params[:if_match] && params[:if_match] != etag
+      return {status_code: 412, headers: {}, body: "<Error><Code>PreconditionFailed</Code></Error>"}
+    end
+    return {body: data, content_length: data.bytesize, etag: etag} unless params[:range]
+
+    first, last = params[:range].delete_prefix("bytes=").split("-").map(&:to_i)
+    return {status_code: 416, headers: {}, body: "<Error><Code>InvalidRange</Code></Error>"} if first >= data.bytesize
+
+    part = data.byteslice(first..last)
+    {body: part, content_length: part.bytesize, etag: etag, content_range: "bytes #{first}-#{first + part.bytesize - 1}/#{data.bytesize}"}
+  end
+
+  def etag(data)
+    %("#{Digest::MD5.hexdigest(data)}")
   end
 
   def head_object(params)

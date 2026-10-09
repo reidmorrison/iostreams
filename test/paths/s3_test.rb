@@ -207,25 +207,36 @@ module Paths
           pgp_path.delete
         end
 
-        it "reads and writes a PGP file through only the temp file that is uploaded or downloaded" do
+        it "reads a PGP file without a temp file, and writes it through only the temp file that is uploaded" do
           result  = nil
           written = temp_files_created { pgp_path.option(:pgp, recipient: "receiver@example.org").write(raw) }
           read    = temp_files_created { result = pgp_path.option(:pgp, passphrase: "receiver_passphrase").read }
 
           assert_equal %w[iostreams_s3], written
-          assert_equal %w[iostreams_s3], read
+          assert_empty read
           assert_equal raw, result
+        end
+
+        it "downloads into a temp file when the range option chooses the bytes to read" do
+          existing_path
+          path   = IOStreams::Paths::S3.new(existing_path.to_s, range: "bytes=0-3")
+          result = nil
+          read   = temp_files_created { result = path.read }
+
+          assert_equal %w[iostreams_s3], read
+          assert_equal raw[0, 4], result
         end
 
         it "logs each temp file at debug level, with what it holds" do
           existing_path
+          path     = IOStreams::Paths::S3.new(existing_path.to_s, range: "bytes=0-3")
           output   = StringIO.new
           original = IOStreams.logger
           IOStreams.logger = Logger.new(output, level: :debug)
-          existing_path.read
+          path.read
 
           assert_match(/Created temp file \S+ for the download of #{Regexp.escape(existing_path.display_name)}$/, output.string)
-          assert_match(/Deleting temp file \S+, which held #{raw.bytesize} bytes$/, output.string)
+          assert_match(/Deleting temp file \S+, which held 4 bytes$/, output.string)
         ensure
           IOStreams.logger = original
         end

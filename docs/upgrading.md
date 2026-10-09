@@ -449,6 +449,30 @@ Fix: none is needed in most cases. When the copy raises, the object is either un
 replaced. Code that relied on a failed copy always removing the object should call `#delete` after
 the error.
 
+### S3 objects are read without a temp file
+
+Reading an S3 path now requests the object 8MB at a time, as the application reads it, instead of
+downloading the whole object into a temp file before the block is called. So the application starts on the
+data straight away, and the object no longer has to fit on the local disk. This changes when a failure can
+occur:
+
+* A failure to read the object part way through, such as a network failure once the AWS SDK has retried it,
+  now raises from within the block, once some of the data has been processed, as it can for any other stream.
+* Every range after the first is read from the same object as the first: in a versioned bucket from the same
+  version, and otherwise only while the object has the same ETag. So an object that is replaced while it is
+  read raises `Aws::S3::Errors::PreconditionFailed`, rather than returning parts of both. Previously the
+  download returned the object as it was when the download started.
+* S3 returns no checksum for a range of an object, so the AWS SDK no longer checks one when reading. The data
+  is still protected in transit by TLS.
+
+With the `range` or `part_number` option, which choose the bytes of the object to read, the object is still
+downloaded into a temp file first.
+
+Fix: none is needed in most cases. Where an object can be replaced while it is read, enable versioning on the
+bucket, or retry the read on `Aws::S3::Errors::PreconditionFailed`. Where processing must not start until the
+whole object has been read, read it into a local file first, for example with
+`IOStreams.path("s3://bucket/a.csv").copy_to(local_path, convert: false)`.
+
 ### HTTPS downloads are not redirected to HTTP
 
 Reading an `https://` path no longer follows a redirect to an `http://` url, and raises
