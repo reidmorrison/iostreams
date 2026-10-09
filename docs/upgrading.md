@@ -237,6 +237,23 @@ since IOStreams opens and closes their files itself.
 Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
 reads until it is closed.
 
+### PGP output is streamed into your IO
+
+Writing PGP to an IO that you supply with `IOStreams.stream(io)`, such as a `StringIO`, a socket, an HTTP
+response body or a `File`, now writes the encrypted data to `io` as it is written. Previously it was written
+to a temp file, which was only copied to `io` once the block completed, so a block that raised, or a failure
+of `gpg`, left `io` untouched. Now `io` holds the start of a PGP message, which is not valid: reading it raises
+`IOStreams::Pgp::Failure`. Paths are not affected, since a local path removes its partial file, and S3, SFTP
+and HTTP paths only upload a file once it is complete.
+
+The stream supplied to the block when writing PGP, or when reading PGP from an IO that is not a local file,
+is no longer an `IO`. It responds to `#write`, `#<<`, `#print`, `#puts` and `#printf` when writing, and to
+`#read`, `#readpartial`, `#gets`, `#each_line` and `#eof?` when reading.
+
+Fix: discard the output after a failure, for example by not sending a response body, or by writing to a
+local path, or to a temp file that you only copy once the block completes. Use only the methods above on the
+stream supplied to the block.
+
 ### Paths compare by their full name
 
 `==` and `<=>` now compare the full name of a path, as returned by `#to_s`, instead of only `#path`, so

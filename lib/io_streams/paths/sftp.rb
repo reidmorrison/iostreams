@@ -384,14 +384,14 @@ module IOStreams
       end
 
       def stream_reader(&block)
-        Utils.private_temp_file("iostreams-sftp-reader") do |file_name|
+        Utils.private_temp_file("iostreams-sftp-reader", purpose: "the download of #{display_name}") do |file_name|
           sftp_download(remote_path, file_name)
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
         end
       end
 
       def stream_writer(&block)
-        Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
+        Utils.private_temp_file("iostreams-sftp-writer", purpose: "the upload to #{display_name}") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
           sftp_upload(file_name, remote_path)
           result
@@ -508,7 +508,7 @@ module IOStreams
 
       def with_temp_file(options, option, value)
         # sftp requires that private key is only readable by the current user
-        Utils.private_temp_file("iostreams-sftp-args", "key") do |file_name|
+        Utils.private_temp_file("iostreams-sftp-args", "key", purpose: "the ssh #{option}") do |file_name|
           ::File.binwrite(file_name, value)
 
           options[option] = file_name

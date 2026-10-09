@@ -1,5 +1,6 @@
 require_relative "../test_helper"
 require_relative "../s3_stub"
+require "logger"
 
 module Paths
   class S3Test < Minitest::Test
@@ -196,6 +197,37 @@ module Paths
           assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
           assert_predicate write_path, :exist?
           assert_equal raw, write_path.read
+        end
+      end
+
+      describe "temp files" do
+        let(:pgp_path) { root_path.join("temp_files_test.csv.pgp") }
+
+        after do
+          pgp_path.delete
+        end
+
+        it "reads and writes a PGP file through only the temp file that is uploaded or downloaded" do
+          result  = nil
+          written = temp_files_created { pgp_path.option(:pgp, recipient: "receiver@example.org").write(raw) }
+          read    = temp_files_created { result = pgp_path.option(:pgp, passphrase: "receiver_passphrase").read }
+
+          assert_equal %w[iostreams_s3], written
+          assert_equal %w[iostreams_s3], read
+          assert_equal raw, result
+        end
+
+        it "logs each temp file at debug level, with what it holds" do
+          existing_path
+          output   = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :debug)
+          existing_path.read
+
+          assert_match(/Created temp file \S+ for the download of #{Regexp.escape(existing_path.display_name)}$/, output.string)
+          assert_match(/Deleting temp file \S+, which held #{raw.bytesize} bytes$/, output.string)
+        ensure
+          IOStreams.logger = original
         end
       end
 

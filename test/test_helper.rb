@@ -65,6 +65,57 @@ def untrusted_pgp_key
   IOStreams::Pgp.export(email: "untrusted@example.org")
 end
 
+# Returns [Array<String>] the base name of each temp file that IOStreams created while the block ran,
+# such as "iostreams_s3", in the order that they were created.
+def temp_files_created(&)
+  names    = []
+  original = IOStreams::Utils.method(:private_temp_file)
+  record   = lambda do |basename, *args, **kwargs, &block|
+    names << basename
+    original.call(basename, *args, **kwargs, &block)
+  end
+  IOStreams::Utils.stub(:private_temp_file, record, &)
+  names
+end
+
+# Runs the block with a stub gpg executable that runs the supplied shell script instead of the real gpg.
+def with_gpg_stub(script)
+  Dir.mktmpdir do |dir|
+    executable = File.join(dir, "gpg")
+    File.write(executable, "#!/bin/sh\n#{script}\n")
+    File.chmod(0o700, executable)
+
+    # Resolve the version using the real gpg before swapping in the stub.
+    IOStreams::Pgp.pgp_version
+    original                  = IOStreams::Pgp.executable
+    IOStreams::Pgp.executable = executable
+    begin
+      yield
+    ensure
+      IOStreams::Pgp.executable = original
+    end
+  end
+end
+
+# Shell script for a wrapper executable that runs gpg as its child, rather than replacing itself with gpg,
+# such as `sudo -u pgp gpg` or `/usr/bin/time gpg`.
+WRAPPER_GPG = <<~SCRIPT.freeze
+  gpg "$@"
+SCRIPT
+
+# Returns [Array<String>] the lock files in the gpg home directory, which gpg removes when it exits cleanly.
+def gpg_lock_files
+  Dir.children(ENV.fetch("GNUPGHOME")).grep(/\A\.#lk/)
+end
+
+# Shell script for a stub gpg that writes more to its stderr than a pipe holds, and then copies its stdin to its stdout.
+# When decrypting, it reports the plaintext on the status file descriptor, as gpg does.
+NOISY_GPG = <<~SCRIPT.freeze
+  head -c 200000 /dev/zero | tr '\\000' w >&2
+  case " $* " in *" --decrypt "*) echo "[GNUPG:] PLAINTEXT 62 0" >&3 ;; esac
+  cat
+SCRIPT
+
 # Test paths
 root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))

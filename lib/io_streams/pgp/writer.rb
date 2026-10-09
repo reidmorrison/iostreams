@@ -1,5 +1,3 @@
-require "open3"
-
 module IOStreams
   module Pgp
     class Writer < IOStreams::Writer
@@ -38,10 +36,20 @@ module IOStreams
         @audit_recipient           = nil
       end
 
-      # Write to a PGP / GPG file, encrypting and/or signing the contents as it is written.
+      # Write to a PGP / GPG stream, encrypting and/or signing the contents as it is written.
       #
-      # file_name: [String]
-      #   Name of file to write to.
+      # The block writes to an IO-like stream, which responds to `write`, `<<`, `print`, `puts` and `printf`. What gpg
+      # writes to its stdout is written to the output stream as the block writes, in the caller's thread, so that it
+      # is never written to a temp file, see `IOStreams::Pgp::GpgProcess`. The output stream is not closed, since it
+      # belongs to the caller.
+      #
+      # Since the data is streamed, when gpg fails part way, or when the block raises, the output stream holds what
+      # gpg wrote until then, which is not a valid PGP message: when the block raises, gpg is stopped, so that it never
+      # completes a PGP message from partial data, and `IOStreams::Pgp::Reader` raises for the start of a message.
+      # As with any other stream, discard the output after a failure; a local path does so already.
+      #
+      # output_stream: [IO]
+      #   The stream to write the PGP data to.
       #
       # encrypt: [true|false]
       #   Whether to encrypt the file for the supplied recipient(s).
@@ -99,16 +107,16 @@ module IOStreams
       # against tampering, and modern GnuPG mandates it for current ciphers anyway
       # (`--disable-mdc` is a no-op unless an obsolete cipher is forced). Omitting MDC on
       # output would only weaken files we create, with no upside for this library.
-      def self.file(file_name,
-                    encrypt: true,
-                    recipient: nil,
-                    import_and_trust_key: nil,
-                    import_and_trust_level: 5,
-                    signer: default_signer,
-                    signer_passphrase: default_signer_passphrase,
-                    compress: :zip,
-                    compress_level: 6,
-                    &block)
+      def self.stream(output_stream,
+                      encrypt: true,
+                      recipient: nil,
+                      import_and_trust_key: nil,
+                      import_and_trust_level: 5,
+                      signer: default_signer,
+                      signer_passphrase: default_signer_passphrase,
+                      compress: :zip,
+                      compress_level: 6,
+                      &block)
         if encrypt
           raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
         elsif !signer
@@ -119,9 +127,8 @@ module IOStreams
 
         recipients, imported = encrypt ? collect_recipients(recipient, import_and_trust_key, import_and_trust_level) : [[], []]
         with_recipient_files(recipients, imported) do |all_recipients, recipient_files|
-          # Write to stdin, with the encrypted and/or signed contents being written to the file
+          # Write to stdin, with the encrypted and/or signed contents being written to stdout
           args = build_args(
-            file_name:         file_name,
             encrypt:           encrypt,
             signer:            signer,
             signer_passphrase: signer_passphrase,
@@ -130,51 +137,29 @@ module IOStreams
             recipients:        all_recipients,
             recipient_files:   recipient_files
           )
-          run(file_name, args, signer_passphrase, &block)
+          run(output_stream, args, signer_passphrase, &block)
         end
       end
 
-      # Runs gpg with the supplied arguments, yielding its stdin, and returns the result of the block.
-      def self.run(file_name, args, signer_passphrase)
+      # Runs gpg with the supplied arguments, yielding the stream that it encrypts, and returns the result of the block.
+      # Raises Pgp::Failure once gpg finishes when it fails.
+      def self.run(output_stream, args, signer_passphrase)
         command = IOStreams::Pgp.gpg_command(*args)
         IOStreams.logger&.debug { "IOStreams::Pgp::Writer.open: #{command.shelljoin}" }
 
         # Since stdin carries the data, supply the signer passphrase on file descriptor 3
         # so that it is not visible in the process list.
-        spawn_options = {}
-        if signer_passphrase
-          passphrase_reader, passphrase_writer = IO.pipe
-          passphrase_writer.puts(signer_passphrase.to_s)
-          passphrase_writer.close
-          spawn_options[PASSPHRASE_FD] = passphrase_reader
+        passphrases = signer_passphrase ? {PASSPHRASE_FD => signer_passphrase} : {}
+        IOStreams::Pgp::GpgProcess.run(command, failure: "GPG Failed to create encrypted", output: output_stream,
+                                                passphrases: passphrases) do |gpg|
+          result = yield(gpg.writer)
+          gpg.finish
+          result
         end
-
-        result = nil
-        Open3.popen2e(*command, spawn_options) do |stdin, out, waith_thr|
-          # Only the gpg process needs the passphrase.
-          passphrase_reader&.close
-          begin
-            stdin.binmode
-            result = yield(stdin)
-            stdin.close
-          rescue Errno::EPIPE
-            # Ignore broken pipe because gpg terminates early due to an error
-            ::FileUtils.rm_f(file_name)
-            raise(Pgp::Failure, "GPG Failed writing to encrypted file: #{file_name}: #{out.read.chomp}")
-          end
-          unless waith_thr.value.success?
-            ::FileUtils.rm_f(file_name)
-            raise(Pgp::Failure, "GPG Failed to create encrypted file: #{file_name}: #{out.read.chomp}")
-          end
-        end
-        result
-      ensure
-        passphrase_reader&.close
       end
       private_class_method :run
 
-      def self.build_args(file_name:, encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:,
-                          recipient_files:)
+      def self.build_args(encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:, recipient_files:)
         args = ["--batch", "--no-tty", "--yes"]
         args << "--encrypt" if encrypt
         args += ["--sign", "--local-user", IOStreams::Pgp.user_id(signer)] if signer
@@ -183,7 +168,6 @@ module IOStreams
         args += ["--compress-algo", compress.to_s] unless compress == :none
         recipients.each { |address| args += ["--recipient", IOStreams::Pgp.user_id(address)] }
         recipient_files.each { |recipient_file| args += ["--recipient-file", recipient_file] }
-        args += ["-o", file_name.to_s]
         args
       end
       private_class_method :build_args
@@ -220,7 +204,7 @@ module IOStreams
       def self.write_recipient_files(fingerprints, recipient_files, recipients, &block)
         return yield(recipients, recipient_files) if fingerprints.empty?
 
-        Utils.private_temp_file("iostreams_pgp_key") do |recipient_file|
+        Utils.private_temp_file("iostreams_pgp_key", purpose: "an imported key, for gpg --recipient-file") do |recipient_file|
           ::File.binwrite(recipient_file, IOStreams::Pgp.export(key_id: fingerprints.first, ascii: false))
           write_recipient_files(fingerprints.drop(1), recipient_files + [recipient_file], recipients, &block)
         end

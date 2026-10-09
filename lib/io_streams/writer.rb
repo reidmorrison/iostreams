@@ -30,10 +30,11 @@ module IOStreams
       []
     end
 
-    # When a Writer does not support streams, we copy the stream to a local temp file
-    # and then pass that filename in for this reader.
+    # When a Writer does not support streams, it writes to a local temp file, which is then copied to the stream
+    # once the writer has completed, so that the stream never holds partial output when the writer fails.
     def self.stream(output_stream, **args, &block)
-      Utils.private_temp_file("iostreams_writer") do |file_name|
+      purpose = "the output of #{self}, which only writes files"
+      Utils.private_temp_file("iostreams_writer", purpose: purpose) do |file_name|
         count = file(file_name, **args, &block)
         ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) }
         count

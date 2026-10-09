@@ -134,22 +134,47 @@ module IOStreams
       end
     end
 
+    # Returns [String] the absolute name of the local file that the IO reads, so that a reader that only works on
+    # files, such as zip, can open the file itself instead of a temp copy of it.
+    #
+    # Only when the IO is a regular file at its start, and its name still refers to it, which for example a
+    # relative name no longer does after the current directory changes.
+    # Returns nil for any other IO, such as a pipe, a socket or a StringIO.
+    #
+    # The name is absolute so that it still refers to the file when the current directory changes before the
+    # reader opens it.
+    def self.local_file_name(io)
+      return unless io.is_a?(::File) && !io.closed? && io.path
+
+      name = ::File.absolute_path(io.path)
+      name if io.stat.file? && io.pos.zero? && ::File.identical?(io, name)
+    rescue SystemCallError
+      nil
+    end
+
     # Yields the name of a new, empty temporary file that only the current user can read or write.
     #
     # The file is created exclusively, so that an existing file, or a link planted in a shared
     # temp directory, is never written to. Only a name collision when creating the file is retried,
     # and the file is only deleted once it was created here, so that another process's file is never removed.
     #
+    # Parameters:
+    #   purpose: [String]
+    #     What the file holds, such as "the download of s3://bucket/a.csv", which is logged at debug level
+    #     via `IOStreams.logger` when the file is created. Its size is logged when it is deleted.
+    #
     # Returns the value from the block.
-    def self.private_temp_file(basename, extension = "")
+    def self.private_temp_file(basename, extension = "", purpose:)
       file_name = ::Dir::Tmpname.create([basename, extension], IOStreams.temp_dir,
                                         max_try: MAX_TEMP_FILE_NAME_ATTEMPTS) do |tmpname|
         ::File.open(tmpname, ::File::WRONLY | ::File::CREAT | ::File::EXCL, 0o600, &:close)
       end
+      IOStreams.logger&.debug { "Created temp file #{file_name} for #{purpose}" }
 
       begin
         yield(file_name)
       ensure
+        IOStreams.logger&.debug { "Deleting temp file #{file_name}, which held #{::File.size?(file_name).to_i} bytes" }
         ::FileUtils.rm_f(file_name)
       end
     end

@@ -56,8 +56,10 @@ end
 ~~~
 
 Notes:
-* Since the underlying `creek` gem operates on files, when reading from a stream (for example S3 or HTTP)
-  the contents are first downloaded into a temp file.
+* The underlying `creek` gem reads a spreadsheet file and returns its rows to a block, so the rows are
+  converted into CSV in a temp file for the application to read. A local spreadsheet is read directly,
+  as is the temp file that an S3, SFTP or HTTP path downloads it into, while one in an IO that is not a
+  `File` is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
 * Writing xlsx files is not supported.
 
 ## Character encoding

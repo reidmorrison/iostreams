@@ -8,7 +8,9 @@ module IOStreams
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
-      # When an upload file exceeds this size, use a multipart file upload.
+      # When an upload file exceeds this size, it is uploaded with `Aws::S3::Object#upload_file`, which only uses a
+      # multipart upload once the file reaches the SDK's `multipart_threshold`, 100MB by default, and otherwise a
+      # single `put_object` request, like a smaller file.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
       autoload :Failure, "io_streams/paths/s3/failure"
@@ -338,7 +340,7 @@ module IOStreams
       # Read from AWS S3 file.
       def stream_reader(&block)
         # Since S3 download only supports a push stream, write it to a tempfile first.
-        Utils.private_temp_file("iostreams_s3") do |file_name|
+        Utils.private_temp_file("iostreams_s3", purpose: "the download of #{display_name}") do |file_name|
           read_file(file_name)
 
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
@@ -364,7 +366,7 @@ module IOStreams
         # Raises LoadError without the AWS SDK before the block writes any data, rather than once it has all been written.
         Sdk.load
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
-        Utils.private_temp_file("iostreams_s3") do |file_name|
+        Utils.private_temp_file("iostreams_s3", purpose: "the upload to #{display_name}") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
 
           # Upload file only once all data has been written to it
@@ -377,7 +379,7 @@ module IOStreams
       def write_file(file_name)
         authorize!
         if ::File.size(file_name) > MULTIPART_UPLOAD_SIZE
-          # Use multipart file upload
+          # A multipart upload once the file reaches the SDK's multipart threshold, see `MULTIPART_UPLOAD_SIZE`.
           Sdk.load
           s3  = Aws::S3::Resource.new(client: client)
           obj = s3.bucket(bucket_name).object(path)

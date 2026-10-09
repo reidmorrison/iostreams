@@ -33,7 +33,7 @@ module IOStreams
           return yield(options) unless ssh_options.key?("HostKey")
 
           # Like the sftp executable, the host key replaces the user's known_hosts file.
-          Utils.private_temp_file("iostreams-sftp-known-hosts") do |file_name|
+          Utils.private_temp_file("iostreams-sftp-known-hosts", purpose: "the ssh UserKnownHostsFile") do |file_name|
             ::File.binwrite(file_name, ssh_options["HostKey"])
             options[:user_known_hosts_file] = [file_name]
             yield(options)

@@ -1,9 +1,14 @@
 require_relative "../test_helper"
 require "logger"
 require "tmpdir"
+require "timeout"
 
 module Paths
   class FileTest < Minitest::Test
+    # An exception that is not a StandardError, like `Interrupt`.
+    class Abort < Exception # rubocop:disable Lint/InheritException
+    end
+
     describe IOStreams::Paths::File do
       let(:root) { IOStreams::Paths::File.new("/tmp/iostreams").delete_all }
       let(:directory) { root.join("/some_test_dir") }
@@ -505,6 +510,105 @@ module Paths
 
           assert_path_exists new_file_path.to_s
           assert_equal data.size, new_file_path.size
+        end
+
+        it "removes the partial file when the block raises" do
+          new_file_path = directory.join("new.txt")
+          assert_raises(ArgumentError) do
+            new_file_path.writer do |io|
+              io << data
+              raise(ArgumentError, "from the block")
+            end
+          end
+
+          refute_path_exists new_file_path.to_s
+        end
+
+        it "removes the partial file when the block raises an exception that is not a StandardError" do
+          new_file_path = directory.join("new.txt.pgp").option(:pgp, recipient: "receiver@example.org")
+          assert_raises(Abort) do
+            new_file_path.writer do |io|
+              io << ("x" * 500_000)
+              raise(Abort)
+            end
+          end
+
+          refute_path_exists new_file_path.to_s
+        end
+
+        it "removes the partial file when Timeout interrupts the block" do
+          if Gem::Version.new(Timeout::VERSION) < Gem::Version.new("0.4")
+            skip("Timeout before v0.4 ends the block with throw, like break")
+          end
+
+          new_file_path = directory.join("new.txt.pgp").option(:pgp, recipient: "receiver@example.org")
+          assert_raises(Timeout::Error) do
+            Timeout.timeout(1) do
+              new_file_path.writer do |io|
+                io << ("x" * 500_000)
+                sleep(5)
+              end
+            end
+          end
+
+          refute_path_exists new_file_path.to_s
+        end
+
+        it "keeps the file when the block returns early" do
+          new_file_path = directory.join("new.txt.gz")
+          write = lambda do
+            new_file_path.writer do |io|
+              io << data
+              return :early
+            end
+          end
+
+          assert_equal :early, write.call
+          assert_equal data, new_file_path.read
+        end
+      end
+
+      describe "temp files" do
+        it "reads and writes a PGP file without a temp file" do
+          path    = directory.join("data.csv.pgp")
+          result  = nil
+          written = temp_files_created { path.option(:pgp, recipient: "receiver@example.org").write(data) }
+          read    = temp_files_created { result = path.option(:pgp, passphrase: "receiver_passphrase").read }
+
+          assert_empty written
+          assert_empty read
+          assert_equal data, result
+        end
+
+        it "reads and writes PGP data within another stream without a temp file" do
+          path    = directory.join("data.csv.pgp.gz")
+          result  = nil
+          written = temp_files_created { path.option(:pgp, recipient: "receiver@example.org").write(data) }
+          read    = temp_files_created { result = path.option(:pgp, passphrase: "receiver_passphrase").read }
+
+          assert_empty written
+          assert_empty read
+          assert_equal data, result
+        end
+
+        it "reads a zip file without a temp file" do
+          path = directory.join("data.csv.zip")
+          path.write(data)
+          result = nil
+          read   = temp_files_created { result = path.read }
+
+          assert_empty read
+          assert_equal data, result
+        end
+
+        it "reads a zip file within a PGP file through a temp file, since zip needs the whole file" do
+          path = directory.join("data.csv.zip.pgp")
+          path.option(:pgp, recipient: "receiver@example.org").write(data)
+          result = nil
+          read   = temp_files_created { result = path.option(:pgp, passphrase: "receiver_passphrase").read }
+
+          assert_equal %w[iostreams_reader], read
+          assert_equal data, result
         end
       end
     end

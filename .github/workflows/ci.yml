@@ -8,6 +8,8 @@ jobs:
   test:
     name: "Test: Ruby ${{ matrix.ruby }}"
     runs-on: ubuntu-latest
+    # Tests take about 7 minutes; without a limit a hang runs for six hours.
+    timeout-minutes: 30
     permissions:
       # To push the coverage badge to the badges branch.
       contents: write
@@ -22,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Ruby
+        timeout-minutes: 10
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
@@ -30,6 +33,7 @@ jobs:
       - name: Ruby Version
         run: ruby --version
       - name: Bundle Install with Retry (fallback)
+        timeout-minutes: 10
         if: failure()
         run: |
           echo "Bundler cache failed, retrying bundle install..."
@@ -41,6 +45,7 @@ jobs:
             sleep 10
           done
       - name: Start SFTP Server
+        timeout-minutes: 10
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q sshpass
           ssh-keygen -q -t ed25519 -N "" -f "$RUNNER_TEMP/sftp_identity"

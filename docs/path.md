@@ -97,6 +97,10 @@ create, join, compare and display an S3 path, such as with `#display_name`, incl
 options, such as `acl:`. When the gem is installed, creating a path with options loads it to check them.
 Without it, reading, writing or any other request raises `LoadError` before any data is read or written.
 
+Reading downloads the object into a local temp file before the block is called, and writing writes into a
+temp file, which is uploaded once the block completes, so the object is only replaced once the whole file has
+been written. See [When temp files are used](config#when-temp-files-are-used).
+
 #### Required Arguments:
 
 * url [String]
@@ -427,7 +431,7 @@ end
 
 Notes:
 * Since the `sftp` program operates on local files, reading from or writing to an SFTP path
-  streams through a local temp file behind the scenes.
+  streams through a local temp file behind the scenes, see [When temp files are used](config#when-temp-files-are-used).
 
 ### HTTP (http://, https://)
 
@@ -441,7 +445,8 @@ IOStreams.path('https://example.com/upload/report.csv', headers: {"Authorization
 ~~~
 
 Notes:
-* Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
+* Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first,
+  see [When temp files are used](config#when-temp-files-are-used).
 * Writing also streams into a tempfile first, which is uploaded in a single PUT request once the
   block completes, so that the server receives its size in the `Content-Length` header.
   The `Content-Type` is `application/octet-stream` unless supplied with `headers:`.

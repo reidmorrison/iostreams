@@ -30,14 +30,44 @@ module IOStreams
       []
     end
 
-    # When a Reader does not support streams, we copy the stream to a local temp file
-    # and then pass that filename in for this reader.
+    # When a Reader does not support streams, it reads the file of the stream when the stream is already
+    # a local file, see `.input_file_name`. Otherwise the stream is copied to a local temp file,
+    # and that file name is passed to this reader.
     def self.stream(input_stream, **args, &block)
-      Utils.private_temp_file("iostreams_reader") do |file_name|
+      local_file_name = input_file_name(input_stream)
+      if local_file_name
+        result = file(local_file_name, **args, &block)
+        # Leave the stream at its end, as if it had been copied.
+        input_stream.seek(0, ::IO::SEEK_END)
+        return result
+      end
+
+      purpose = "a copy of the input of #{self}, which only reads files"
+      Utils.private_temp_file("iostreams_reader", purpose: purpose) do |file_name|
         ::File.open(file_name, "wb") { |target| ::IO.copy_stream(input_stream, target) }
         file(file_name, **args, &block)
       end
     end
+
+    # Returns [String] the name of the local file that the input stream reads, which a reader can read by its name,
+    # such as a reader that only reads files, instead of a copy of the stream, see `Utils.local_file_name`.
+    # Returns nil for any other stream, including a file that was not opened for reading, so that reading it raises,
+    # rather than opening the file again to read it.
+    #
+    # Since the reader opens the file again by its name, also returns nil unless the name can be opened, and still
+    # refers to the same file, for example after the file's permissions changed, or the process gave up the
+    # privileges it opened the file with, so that the stream is copied instead.
+    def self.input_file_name(input_stream)
+      file_name = Utils.local_file_name(input_stream)
+      return unless file_name
+
+      # Raises IOError when the file was not opened for reading, without reading from it.
+      input_stream.read(0)
+      ::File.open(file_name, "rb") { |file| file_name if ::File.identical?(file, input_stream) }
+    rescue IOError, SystemCallError
+      nil
+    end
+    private_class_method :input_file_name
 
     # When a Writer supports streams, also allow it to simply support a file
     def self.file(file_name, **args, &block)

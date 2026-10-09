@@ -9,6 +9,7 @@ module IOStreams
   module Pgp
     extend StreamFormat
 
+    autoload :GpgProcess, "io_streams/pgp/gpg_process"
     autoload :Reader, "io_streams/pgp/reader"
     autoload :Writer, "io_streams/pgp/writer"
 

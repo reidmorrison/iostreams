@@ -161,8 +161,10 @@ Notes:
 
 ## Notes
 
-* Reading a Zip file requires the entire file to be available locally, so reading from a
-  stream (for example S3 or HTTP) downloads it into a temp file first.
+* Reading a Zip file requires the entire file to be available locally. A local zip file is
+  read directly, as is the temp file that an S3, SFTP or HTTP path downloads it into. A zip file
+  within another stream, such as `data.csv.zip.pgp`, or in an IO that is not a `File`, is first
+  copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
   Writing Zip is fully streamed, no temp file is required.
 * When writing, `entry_file_name` sets the name of the file entry within the zip file.
   It defaults to the file name without the `.zip` extension, so writing to
