@@ -123,6 +123,17 @@ module Paths
           assert_equal "#{text}#{text}end".b, path.read.b
         end
 
+        it "writes a spreadsheet larger than a part without a temp file" do
+          rows  = Array.new(300_000) { |index| [index.to_s, Random.new(index).bytes(16).unpack1("H*")] }
+          xlsx  = IOStreams.path("s3://bucket/a.xlsx")
+          temps = temp_files_created { xlsx.writer(:array) { |io| rows.each { |row| io << row } } }
+
+          assert_empty temps
+          assert_includes operations(xlsx), :complete_multipart_upload
+          # A zip file, which the spreadsheet reader tests read.
+          assert_equal "PK", IOStreams.path("s3://bucket/a.xlsx").stream(:none).read(2)
+        end
+
         it "writes a zip file" do
           zip_path = IOStreams.path("s3://bucket/a.csv.zip")
           zip_path.write(data.unpack1("H*"))

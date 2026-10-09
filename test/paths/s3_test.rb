@@ -498,14 +498,16 @@ module Paths
       end
 
       describe "options" do
-        # Returns the parameters of each request the client received, including requests from several threads, such
-        # as the parts of a multipart upload.
+        # Returns the parameters of each request the client received.
+        #
+        # A multipart upload sends its parts from several threads at once, which run in parallel on JRuby,
+        # so each request is recorded under a lock.
         def capture_requests(client)
           requests = Hash.new { |hash, key| hash[key] = [] }
-          mutex    = Mutex.new
+          lock     = Mutex.new
           client.handlers.add(Class.new(Seahorse::Client::Handler) do
             define_method(:call) do |context|
-              mutex.synchronize { requests[context.operation_name] << context.params }
+              lock.synchronize { requests[context.operation_name] << context.params }
               @handler.call(context)
             end
           end, step: :initialize)
