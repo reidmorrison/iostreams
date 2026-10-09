@@ -95,6 +95,12 @@ class TabularTest < Minitest::Test
           assert_equal %w[prénom strasse straße 日付 coût größe_2], tabular.cleanse_header!
         end
 
+        it "converts whitespace that is not ASCII to underscores, and strips it" do
+          tabular = IOStreams::Tabular.new(columns: ["Prénom\u3000Nom", "First\u00A0Name", "\u2003Total\u00A0", "Name \0"])
+
+          assert_equal %w[prénom_nom first_name total name], tabular.cleanse_header!
+        end
+
         it "allowed list snake cased alphanumeric columns" do
           tabular = IOStreams::Tabular.new(
             columns:         ["Ard Vark", "Password", "robot version", "$$$"],

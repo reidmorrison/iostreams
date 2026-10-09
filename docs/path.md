@@ -93,7 +93,9 @@ path = IOStreams.path("s3://bucket-name/path/example.csv")
 
 The key in the url is the name of the object as it is, including characters that are not ASCII, or that
 a url cannot hold, such as `s3://bucket-name/données/café [1].csv`. Only a `%`, `?` or `#` in the key must be percent-encoded,
-as `%25`, `%3F` or `%23`, since they otherwise start an escape, the query or a fragment.
+as `%25`, `%3F` or `%23`, since they otherwise start an escape, the query or a fragment. `#to_s` encodes them, so that
+a path can be created again from its url, for example the key `100%.csv` is `s3://bucket-name/100%25.csv`.
+A key must be valid UTF-8, as every S3 key is, so a name that is not, such as one written in Latin-1, raises `ArgumentError`.
 
 Accessing S3 requires the `aws-sdk-s3` gem, which is loaded when it is first needed. So a process
 without it, such as a web process that only records the path of a file for a job to process, can still
@@ -327,7 +329,9 @@ path = IOStreams.path("sftp://hostname/~/data/example.csv")
 
 The path in the url is the name of the file as it is, including characters that are not ASCII, or that
 a url cannot hold, such as `sftp://hostname/données/café [1].csv`. Only a `%`, `?` or `#` in it must be percent-encoded,
-as `%25`, `%3F` or `%23`.
+as `%25`, `%3F` or `%23`, which `#to_s` does, so that a path can be created again from its url. The host can be an
+IPv6 address, such as `sftp://[::1]:2222/data`, but not a name with characters that are not ASCII: supply an
+international domain name in its ASCII form, which starts with `xn--`.
 
 Read a file from a remote sftp server.
 ~~~ruby
@@ -393,6 +397,10 @@ end
   Format:
     "sftp://<host_name>/<file_name>"
     "sftp://username:password@hostname:22/path/file_name"
+
+  The username and password in the url are taken as they are, including characters that are not
+  ASCII, and `@`, since the password ends at the last `@`. They are not percent-decoded, so the
+  password in `sftp://jack:p%41ss@hostname/` is `p%41ss`.
 
   A username and password supplied in the url remain part of it, so `#to_s` returns them,
   as does any log or error message that includes the path. To keep them out of logs, supply them

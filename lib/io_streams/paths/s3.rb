@@ -178,7 +178,7 @@ module IOStreams
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"
 
         @bucket_name = uri.hostname
-        key          = uri.path.sub(%r{\A/}, "")
+        key          = utf8_key(uri.path.delete_prefix("/"))
 
         # The client is created when first used, and is shared by copies of this path, such as from `#join`.
         # It is held in a Hash so that it is also created when this path is frozen, for example a root path.
@@ -199,18 +199,16 @@ module IOStreams
         super(key)
       end
 
+      # Returns [String] the url of this path, with each `%`, `?` and `#` in the key percent-encoded, so that the
+      # path can be created again from its url, see `IOStreams::Utils::URI.encode_path`.
       def to_s
-        ::File.join("s3://", bucket_name, path)
+        ::File.join("s3://", bucket_name, Utils::URI.encode_path(path))
       end
 
       # Does not support relative file names since there is no concept of current working directory
-      def relative?
-        false
-      end
+      def relative? = false
 
-      def absolute?
-        true
-      end
+      def absolute? = true
 
       def delete
         Sdk.load
@@ -457,7 +455,7 @@ module IOStreams
       #
       # The directory of a key without a directory, such as `a.csv`, is the bucket itself, not the key `.`.
       def path=(path)
-        super(path == "." ? "" : path)
+        super(path == "." ? "" : utf8_key(path))
       end
 
       # Returns [Hash] the options that the S3 operation accepts.
@@ -541,6 +539,16 @@ module IOStreams
       # Returns [Array<String>] upto `max_keys` of the keys within this path as a directory.
       def directory_keys(max_keys)
         request(:list_objects_v2, bucket: bucket_name, prefix: directory_prefix, max_keys: max_keys).contents.map(&:key)
+      end
+
+      # Returns [String] the key.
+      #
+      # Raises ArgumentError for a key that is not valid UTF-8, such as a name written in Latin-1, since every S3 key
+      # is UTF-8, rather than the error of the AWS SDK when it is first used.
+      def utf8_key(key)
+        return key if key.dup.force_encoding(Encoding::UTF_8).valid_encoding?
+
+        raise(ArgumentError, "An S3 key must be valid UTF-8: s3://#{bucket_name}/#{Utils.display_text(key)}")
       end
 
       # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.

@@ -124,7 +124,7 @@ module IOStreams
         @hostname = uri.hostname
         @mkdir    = false
         @username = username || uri.user
-        @url      = Utils.root_url(url)
+        @url      = Utils::URI.root(url)
         @password = password || uri.password
         @port     = uri.port || 22
         # Not Ruby 2.5 yet: transform_keys(&:to_s)
@@ -285,7 +285,7 @@ module IOStreams
       # Returns [String] the url without the user name, password, or query, which can hold ssh options such as a key.
       # Each byte of a name that is not valid UTF-8 is shown as `\xHH`, see `IOStreams::Path#display_name`.
       def display_name
-        Utils.display_text(Utils.matchable(url).sub(%r{\A([^:/]+://)[^/?#]*@}, "\\1").sub(/[?#].*\z/m, ""))
+        Utils.display_text(Utils::URI.without_userinfo_or_query(url))
       end
 
       protected
@@ -294,11 +294,14 @@ module IOStreams
       def store = [hostname.to_s.downcase, port]
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
+      #
+      # Each `%`, `?` and `#` in the path is percent-encoded in the url, so that the path can be created again from
+      # its url, see `IOStreams::Utils::URI.encode_path`.
       def path=(path)
         # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.
         super([".", ""].include?(path) ? "~" : path)
         separator = self.path.start_with?("/") ? "" : "/"
-        @url      = "#{Utils.matchable(url)[%r{\A[^:/]+://[^/?#]*}]}#{separator}#{self.path}"
+        @url      = "#{Utils::URI.authority(url)}#{separator}#{Utils::URI.encode_path(self.path)}"
       end
 
       # Returns [String] the name of this path on the server, where a path within the login
@@ -379,8 +382,11 @@ module IOStreams
       # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
       #
       # The supplied name is relative to the supplied directory, which defaults to this path.
+      #
+      # The url of the child has the host and port of this url, as they are written, such as an IPv6 address within
+      # `[` and `]`, without its user name or password, which are supplied as arguments instead.
       def child_path(name, directory = path)
-        server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
+        server     = Utils::URI.without_userinfo_or_query(url)
         child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
         child.path = ::File.join(directory, name).freeze
         child

@@ -93,12 +93,6 @@ module IOStreams
       false
     end
 
-    # Returns [String] the url with the path `/` when it has no path, such as `sftp://host` or `https://host?a=1`,
-    # so that the root of a host is always written the same way, like the root of an S3 bucket, `s3://bucket/`.
-    def self.root_url(url)
-      url.sub(%r{\A([^:/]+://[^/?#]*)(?=[?#]|\z)}, "\\1/")
-    end
-
     # Helper method: Returns [true|false] if a value is blank?
     def self.blank?(value)
       return true if value.nil?
@@ -200,6 +194,10 @@ module IOStreams
       end
     end
 
+    # Parses an S3, SFTP or other url whose path is the name of an object or file as it is, see `.escape`.
+    #
+    # Also answers the parts of such a url, by its bytes, so that a url with a name that is not valid UTF-8 can be
+    # taken apart and put together again, see `.authority`, `.root`, `.without_userinfo_or_query` and `.encode_path`.
     class URI
       attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
 
@@ -207,18 +205,29 @@ module IOStreams
       UNPARSEABLE_BYTE           = /[^\x21-\x7E]/n
       # The characters that `::URI` does not parse in a path, but that a file name can hold, such as `report [1].csv`.
       UNPARSEABLE_PATH_CHARACTER = /["<>\[\\\]^`{|}]/n
-      # The scheme and host of a url, which can hold `[` and `]` around an IPv6 address.
-      SCHEME_AND_HOST            = %r{\A[^:/?#]+://[^/?#]*}n
-      private_constant :UNPARSEABLE_BYTE, :UNPARSEABLE_PATH_CHARACTER, :SCHEME_AND_HOST
+      # Each byte that `::URI` does not parse in a user name or password: any but a letter, a digit, `-._~!$&'()*+,;=`,
+      # and `:` between them. Includes `%`, so that a user name or password is taken as it is, see `#user`.
+      UNPARSEABLE_USERINFO_BYTE  = /[^A-Za-z0-9\-._~!$&'()*+,;=:]/n
+      # The scheme, the user name and password, which end at the last `@`, and the host and port of a url.
+      # The host can be an IPv6 address within `[` and `]`.
+      AUTHORITY                  = %r{\A(?<scheme>[^:/?#]+://)(?:(?<userinfo>[^/?#]*)@)?(?<host>[^/?#]*)}n
+      # The characters that `.new` reads in a path as an escape, the query or a fragment, see `.encode_path`.
+      PATH_DELIMITER             = /[%?#]/n
+      private_constant :UNPARSEABLE_BYTE, :UNPARSEABLE_PATH_CHARACTER, :UNPARSEABLE_USERINFO_BYTE, :AUTHORITY,
+                       :PATH_DELIMITER
 
+      # The user name and password are as they are in the url, including any character that is not ASCII, or `@`,
+      # rather than percent-decoded, as they always have been, so that a password such as `p%41ss` is unchanged.
+      #
+      # Raises ArgumentError when the host has a space, or a character that is not ASCII.
       def initialize(url)
         uri       = ::URI.parse(self.class.escape(url))
         @scheme   = uri.scheme
         @hostname = uri.hostname
         # Unlike a query string, `+` in a path is not a space.
         @path     = ::URI.decode_uri_component(uri.path)
-        @user     = uri.user
-        @password = uri.password
+        @user     = uri.user && ::URI.decode_uri_component(uri.user)
+        @password = uri.password && ::URI.decode_uri_component(uri.password)
         @port     = uri.port
         return unless uri.query
 
@@ -228,13 +237,73 @@ module IOStreams
 
       # Returns [String] the url with each byte that `::URI` cannot parse percent-encoded, to be decoded again with
       # its path, since the path of an S3 or SFTP url is the name of the object or file as it is, such as
-      # `s3://bucket/café [1].csv`. A `%`, `?` or `#` is not encoded, since it starts an escape, the query or a fragment.
+      # `s3://bucket/café [1].csv`. A `%`, `?` or `#` in the path is not encoded, since it starts an escape, the query
+      # or a fragment. Each byte of the user name and password that `::URI` cannot parse, including `%`, is encoded, to
+      # be decoded again, see `#user`.
+      #
+      # Raises ArgumentError when the host has a space, or a character that is not ASCII, which no store accepts.
       def self.escape(url)
-        bytes     = url.b.gsub(UNPARSEABLE_BYTE) { |byte| format("%%%02X", byte.ord) }
-        authority = bytes[SCHEME_AND_HOST].to_s
-        path      = bytes.delete_prefix(authority).gsub(UNPARSEABLE_PATH_CHARACTER) { |char| format("%%%02X", char.ord) }
-        "#{authority}#{path}".force_encoding(Encoding::UTF_8)
+        bytes     = url.b
+        authority = AUTHORITY.match(bytes)
+        path      = percent_encode(percent_encode(authority ? authority.post_match : bytes, UNPARSEABLE_BYTE),
+                                   UNPARSEABLE_PATH_CHARACTER)
+        "#{escape_authority(authority)}#{path}".force_encoding(Encoding::UTF_8)
       end
+
+      # Returns [String] the scheme, user name, password, host and port of the url, such as
+      # `sftp://jack:secret@example.org:2222`, as they are in the url, or an empty string when it has no scheme.
+      def self.authority(url)
+        AUTHORITY.match(url.b).to_s.dup.force_encoding(url.encoding)
+      end
+
+      # Returns [String] the url with the path `/` when it has no path, such as `sftp://host` or `https://host?a=1`,
+      # so that the root of a host is always written the same way, like the root of an S3 bucket, `s3://bucket/`.
+      def self.root(url)
+        authority = AUTHORITY.match(url.b)
+        return url unless authority&.post_match&.match?(/\A(?:[?#]|\z)/n)
+
+        "#{authority}/#{authority.post_match}".force_encoding(url.encoding)
+      end
+
+      # Returns [String] the url without its user name, password, query or fragment, which can hold credentials or
+      # ssh options such as a key, so that it can be displayed, such as `sftp://example.org/data/a.csv`.
+      def self.without_userinfo_or_query(url)
+        bytes     = url.b
+        authority = AUTHORITY.match(bytes)
+        origin    = authority ? "#{authority[:scheme]}#{authority[:host]}" : ""
+        path      = (authority ? authority.post_match : bytes).sub(/[?#].*\z/mn, "")
+        "#{origin}#{path}".force_encoding(url.encoding)
+      end
+
+      # Returns [String] the name as the path of a url, with each `%`, `?` and `#` percent-encoded, so that `.new`
+      # parses the path of the url as the name again, such as `a%23b.csv` for the file `a#b.csv`.
+      # Every other character is as it is, see `.escape`.
+      def self.encode_path(name)
+        percent_encode(name.b, PATH_DELIMITER).force_encoding(name.encoding)
+      end
+
+      # Returns [String] the scheme, user name, password, host and port of the url that `::URI` can parse.
+      def self.escape_authority(authority)
+        return "" unless authority
+
+        host = authority[:host]
+        if host.match?(UNPARSEABLE_BYTE)
+          # Without the url, which can hold a password.
+          raise(ArgumentError,
+                "The host of a url cannot have a space or a character that is not ASCII: " \
+                "#{Utils.display_text(host).inspect}. Supply an international domain name in its ASCII form, " \
+                "which starts with 'xn--'.")
+        end
+
+        userinfo = authority[:userinfo] && "#{percent_encode(authority[:userinfo], UNPARSEABLE_USERINFO_BYTE)}@"
+        "#{authority[:scheme]}#{userinfo}#{host}"
+      end
+
+      def self.percent_encode(bytes, pattern)
+        bytes.gsub(pattern) { |byte| format("%%%02X", byte.ord) }
+      end
+
+      private_class_method :escape_authority, :percent_encode
     end
   end
 end

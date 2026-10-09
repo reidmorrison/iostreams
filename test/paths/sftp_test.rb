@@ -490,6 +490,58 @@ module Paths
           assert_equal path, IOStreams.path(path.to_s)
         end
 
+        it "keeps the bytes of a name that is not valid UTF-8, so that it can be created again from its url" do
+          path = new_path("sftp://example.org/in/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+
+          assert_equal "/in/caf\xE9.csv".b, path.path.b
+          assert_equal "sftp://example.org/in/caf\\xE9.csv", path.display_name
+          assert_equal path, new_path(path.to_s)
+          # JRuby's `File.join`, used by `#join`, replaces each byte that is not valid UTF-8 with U+FFFD.
+          assert_equal path, new_path(new_path("sftp://example.org/in").join(path.basename).to_s) unless defined?(JRuby)
+        end
+
+        it "percent-encodes each %, ? and # in a name in its url, so that it can be created again from its url" do
+          directory = new_path("sftp://example.org/in")
+          {"a#b.csv" => "a%23b.csv", "q?.csv" => "q%3F.csv", "caf%E9.csv" => "caf%25E9.csv"}.each_pair do |name, encoded|
+            [directory.join(name), directory.send(:child_path, name)].each do |path|
+              assert_equal "sftp://example.org/in/#{encoded}", path.to_s
+              assert_equal "sftp://example.org/in/#{encoded}", path.display_name
+              assert_equal "/in/#{name}", new_path(path.to_s).path
+            end
+          end
+        end
+
+        it "takes the user name and password as they are, including characters that a url cannot hold" do
+          {
+            "sftp://jäck:päss@example.org/a.csv"   => %w[jäck päss],
+            "sftp://jack:p%41ss@example.org/a.csv" => %w[jack p%41ss],
+            "sftp://jack:p@[s]s@example.org/a.csv" => %w[jack p@[s]s]
+          }.each_pair do |url, (username, password)|
+            path = new_path(url)
+
+            assert_equal "example.org", path.hostname, url
+            assert_equal username, path.username, url
+            assert_equal password, path.send(:password), url
+            assert_equal "sftp://example.org/a.csv", path.display_name, url
+          end
+        end
+
+        it "raises for a host that is not ASCII, without the password" do
+          error = assert_raises(ArgumentError) { new_path("sftp://jack:secret@bücher.example/a.csv") }
+
+          assert_includes error.message, "bücher.example"
+          assert_includes error.message, "xn--"
+          refute_includes error.message, "secret"
+        end
+
+        it "lists the children of a host that is an IPv6 address" do
+          path = new_path("sftp://[::1]:2222/data")
+
+          assert_equal "::1", path.hostname
+          assert_equal "sftp://[::1]:2222/data/a.csv", path.send(:child_path, "a.csv").to_s
+          assert_equal "sftp://[::1]:2222/data/a.csv", path.join("a.csv").to_s
+        end
+
         it "reads the username and password from arguments" do
           path = new_path(url, username: "jack", password: "secret")
 
@@ -1150,7 +1202,9 @@ module Paths
           end
 
           assert_equal ["/data/inbox/a+b.csv?acl=public-read", "/data/inbox/c%41#d.csv"], children.map(&:path)
-          assert_equal "sftp://example.org/data/inbox/a+b.csv?acl=public-read", children.first.to_s
+          assert_equal "sftp://example.org/data/inbox/a+b.csv%3Facl=public-read", children.first.to_s
+          assert_equal "sftp://example.org/data/inbox/c%2541%23d.csv", children.last.to_s
+          assert_equal(children.map(&:path), children.map { |child| IOStreams.path(child.to_s).path })
           children.each do |child|
             assert_instance_of IOStreams::Paths::SFTP, child
             assert_equal "jack", child.username

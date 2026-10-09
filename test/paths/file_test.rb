@@ -173,6 +173,15 @@ module Paths
           skip_on_jruby
 
           assert_equal "/data/in/caf\\xE9.csv.gz", latin1_path.display_name
+        end
+
+        it "creates the path from a file url" do
+          skip_on_jruby
+
+          url = "file:///data/in/#{latin1_name}".force_encoding(Encoding::UTF_8)
+
+          assert_equal latin1_path.to_s.b, IOStreams.path(url).to_s.b
+          assert_equal latin1_path.to_s.b, IOStreams.path("file:///data/in/caf%E9.csv.gz").to_s.b
           assert_includes latin1_path.inspect, "/data/in/caf\\xE9.csv.gz"
         end
 

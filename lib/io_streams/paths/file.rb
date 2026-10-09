@@ -39,11 +39,14 @@ module IOStreams
                 "or within the home directory, such as 'file://~/a.txt'. " \
                 "Supply a relative path without 'file://', such as 'a.txt'.")
         end
-        if path.match?(/[?#]/)
+        # A name that is not valid UTF-8 is matched and decoded by its bytes, see `IOStreams::Utils.matchable`.
+        bytes = Utils.matchable(path)
+        if bytes.match?(/[?#]/)
           raise(ArgumentError, "Invalid file url #{url.inspect}: percent-encode '?' as '%3F' and '#' as '%23'.")
         end
 
-        path.match?(HOME_DIRECTORY) ? home_path(::URI.decode_uri_component(path)) : "/#{::URI.decode_uri_component(path)}"
+        name = ::URI.decode_uri_component(bytes).force_encoding(url.encoding)
+        bytes.match?(HOME_DIRECTORY) ? home_path(name) : "/#{name}"
       end
 
       # Returns [String] the file name with a leading `~` replaced by the home directory, or the file name unchanged.

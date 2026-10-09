@@ -421,6 +421,69 @@ class UtilsTest < Minitest::Test
         assert_equal 2222, uri.port
         assert_equal "/data/[1].csv", uri.path
       end
+
+      it "takes the user name and password as they are, ending at the last @" do
+        uri = IOStreams::Utils::URI.new("sftp://jäck:p%41@s[s]@example.org/a.csv")
+
+        assert_equal "jäck", uri.user
+        assert_equal "p%41@s[s]", uri.password
+        assert_equal "example.org", uri.hostname
+      end
+
+      it "raises for a host that is not ASCII, or has a space" do
+        ["s3://bücher/a.csv", "sftp://jack:secret@a b.example/a.csv"].each do |url|
+          error = assert_raises(ArgumentError) { IOStreams::Utils::URI.new(url) }
+
+          assert_includes error.message, "The host of a url cannot have a space or a character that is not ASCII"
+          refute_includes error.message, "secret"
+        end
+      end
+
+      describe ".encode_path" do
+        it "encodes each %, ? and #, so that the path is parsed as the name again" do
+          ["a#b.csv", "q?.csv", "100%.csv", "caf%E9.csv", "café [1].csv", "caf\xE9.csv".dup.force_encoding(Encoding::UTF_8)].each do |name|
+            encoded = IOStreams::Utils::URI.encode_path("/#{name}")
+
+            assert_equal "/#{name}".b, IOStreams::Utils::URI.new("s3://bucket#{encoded}").path.b
+          end
+          assert_equal "/a%23b%3F%25.csv", IOStreams::Utils::URI.encode_path("/a#b?%.csv")
+        end
+      end
+
+      describe ".authority" do
+        it "returns the scheme, user name, password, host and port" do
+          assert_equal "sftp://jack:secret@[::1]:2222", IOStreams::Utils::URI.authority("sftp://jack:secret@[::1]:2222/a?b#c")
+          assert_equal "sftp://example.org", IOStreams::Utils::URI.authority("sftp://example.org/caf\xE9".dup.force_encoding(Encoding::UTF_8))
+          assert_equal "", IOStreams::Utils::URI.authority("/a/b")
+        end
+      end
+
+      describe ".root" do
+        it "adds the path / to a url without a path" do
+          assert_equal "sftp://host/", IOStreams::Utils::URI.root("sftp://host")
+          assert_equal "https://host/?a=1", IOStreams::Utils::URI.root("https://host?a=1")
+          assert_equal "sftp://host/a", IOStreams::Utils::URI.root("sftp://host/a")
+        end
+
+        it "keeps the bytes of a url that is not valid UTF-8" do
+          url = "sftp://host/caf\xE9".dup.force_encoding(Encoding::UTF_8)
+
+          assert_equal url.b, IOStreams::Utils::URI.root(url).b
+        end
+      end
+
+      describe ".without_userinfo_or_query" do
+        it "removes the user name, password, query and fragment" do
+          assert_equal "sftp://[::1]:2222/a.csv",
+                       IOStreams::Utils::URI.without_userinfo_or_query("sftp://jack:p@ss@[::1]:2222/a.csv?IdentityFile=x#y")
+        end
+
+        it "keeps the bytes of a url that is not valid UTF-8" do
+          url = "sftp://jack@host/caf\xE9".dup.force_encoding(Encoding::UTF_8)
+
+          assert_equal "sftp://host/caf\xE9".b, IOStreams::Utils::URI.without_userinfo_or_query(url).b
+        end
+      end
     end
   end
 end

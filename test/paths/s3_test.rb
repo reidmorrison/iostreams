@@ -482,6 +482,31 @@ module Paths
           assert_equal "données/café.csv", path.path
           assert_equal path, IOStreams::Paths::S3.new(path.to_s, client: client)
         end
+
+        it "percent-encodes each %, ? and # in the key in its url, so that it can be created again from its url" do
+          directory = IOStreams::Paths::S3.new("s3://bucket/in", client: client)
+          {"a#b.csv" => "a%23b.csv", "q?.csv" => "q%3F.csv", "100%.csv" => "100%25.csv"}.each_pair do |name, encoded|
+            path = directory.join(name)
+
+            assert_equal "s3://bucket/in/#{encoded}", path.to_s
+            assert_equal "in/#{name}", IOStreams::Paths::S3.new(path.to_s, client: client).path
+          end
+        end
+
+        it "raises for a key that is not valid UTF-8, which S3 cannot hold" do
+          latin1  = "caf\xE9.csv".dup.force_encoding(Encoding::UTF_8)
+          creates = [
+            -> { IOStreams::Paths::S3.new("s3://bucket/in/caf%E9.csv", client: client) },
+            -> { IOStreams::Paths::S3.new("s3://bucket/in/#{latin1}", client: client) }
+          ]
+          # JRuby's `File.join`, used by `#join`, replaces each byte that is not valid UTF-8 with U+FFFD.
+          creates << -> { IOStreams::Paths::S3.new("s3://bucket/in", client: client).join(latin1) } unless defined?(JRuby)
+          creates.each do |create|
+            error = assert_raises(ArgumentError) { create.call }
+
+            assert_equal "An S3 key must be valid UTF-8: s3://bucket/in/caf\\xE9.csv", error.message
+          end
+        end
       end
 
       describe "options" do

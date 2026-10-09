@@ -965,7 +965,9 @@ path = IOStreams.path("s3://bucket-name/path/example.csv")
 
 The key in the url is the name of the object as it is, including characters that are not ASCII, or that
 a url cannot hold, such as `s3://bucket-name/données/café [1].csv`. Only a `%`, `?` or `#` in the key must be percent-encoded,
-as `%25`, `%3F` or `%23`, since they otherwise start an escape, the query or a fragment.
+as `%25`, `%3F` or `%23`, since they otherwise start an escape, the query or a fragment. `#to_s` encodes them, so that
+a path can be created again from its url, for example the key `100%.csv` is `s3://bucket-name/100%25.csv`.
+A key must be valid UTF-8, as every S3 key is, so a name that is not, such as one written in Latin-1, raises `ArgumentError`.
 
 Accessing S3 requires the `aws-sdk-s3` gem, which is loaded when it is first needed. So a process
 without it, such as a web process that only records the path of a file for a job to process, can still
@@ -1199,7 +1201,9 @@ path = IOStreams.path("sftp://hostname/~/data/example.csv")
 
 The path in the url is the name of the file as it is, including characters that are not ASCII, or that
 a url cannot hold, such as `sftp://hostname/données/café [1].csv`. Only a `%`, `?` or `#` in it must be percent-encoded,
-as `%25`, `%3F` or `%23`.
+as `%25`, `%3F` or `%23`, which `#to_s` does, so that a path can be created again from its url. The host can be an
+IPv6 address, such as `sftp://[::1]:2222/data`, but not a name with characters that are not ASCII: supply an
+international domain name in its ASCII form, which starts with `xn--`.
 
 Read a file from a remote sftp server.
 ~~~ruby
@@ -1265,6 +1269,10 @@ end
   Format:
     "sftp://<host_name>/<file_name>"
     "sftp://username:password@hostname:22/path/file_name"
+
+  The username and password in the url are taken as they are, including characters that are not
+  ASCII, and `@`, since the password ends at the last `@`. They are not percent-decoded, so the
+  password in `sftp://jack:p%41ss@hostname/` is `p%41ss`.
 
   A username and password supplied in the url remain part of it, so `#to_s` returns them,
   as does any log or error message that includes the path. To keep them out of logs, supply them
@@ -3906,12 +3914,42 @@ write a file with characters that are not ASCII, set its encoding, such as
 `encoding("ISO-8859-1")`, or `replace: " "`. See
 [Fixed width files](formats#fixed-width-files).
 
+### Cleansing a header row keeps letters that are not ASCII
+
+Now that a header row is read as UTF-8, cleansing it keeps the letters and digits of every language,
+so the column `Prénom` is `prénom`, and `日付` is `日付`. Previously they were `prnom`, and an empty
+name, so columns such as `日付` and `金額` had the same empty name. Whitespace that is not ASCII, such
+as a no-break space, is now converted to `_` and stripped like a space, so `First Name` with a
+no-break space is `first_name`, where it was `firstname`. JSON keys are cleansed the same way when they
+are matched to columns.
+
+`IOStreams.enforce_column_restrictions` now defaults to true, so an `allowed_columns` or
+`required_columns` written to match the previous names no longer matches: its columns are skipped, or
+raise `IOStreams::Errors::InvalidHeader`.
+
+Fix: rename any `allowed_columns`, `required_columns` or `columns` written to match the previous
+names, such as `prnom` to `prénom`, and `firstname` to `first_name`.
+
 ### A `+` in an S3 or SFTP url is kept
 
 A `+` in the path of an S3 or SFTP url is now kept, so `IOStreams.path("s3://bucket/a+b.csv")` reads
 the key `a+b.csv`. Previously it was decoded as a space, and read the key `a b.csv`.
 
 Fix: use a space, or `%20`, in the url for a space.
+
+### A `%`, `?` or `#` in an S3 or SFTP name is percent-encoded in its url
+
+`#to_s` of an S3 or SFTP path now percent-encodes each `%`, `?` and `#` in the key or file name, as
+`%25`, `%3F` and `%23`, so that the path can be created again from its url. For example the file
+`a#b.csv`, found by `#each_child` or joined to a path, is `sftp://host/data/a%23b.csv`, and the key
+`100%.csv` is `s3://bucket/100%25.csv`. Previously `#to_s` returned `sftp://host/data/a#b.csv`, which
+is the file `/data/a` when it is created again, so that an application that stored the url and read it
+later read or wrote another file, or raised `URI::InvalidURIError`. `#path` and `#basename` are
+unchanged, and `#display_name` shows the encoded name.
+
+Fix: use `#path` or `#basename` for the name of the file, rather than taking it from `#to_s`. A url
+stored by a previous version that holds one of these characters names another file, as it always did,
+so store its path again from `#each_child`.
 
 ### The path of an HTTP url is decoded
 
