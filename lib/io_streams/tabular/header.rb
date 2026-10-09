@@ -50,7 +50,8 @@ module IOStreams
       # - Leading and trailing whitespace is stripped.
       # - All characters converted to lower case.
       # - Spaces and '-' are converted to '_'.
-      # - All characters except for letters, digits, and '_' are stripped.
+      # - All characters except for letters, digits, and '_' are stripped. Letters and digits that are not ASCII,
+      #   such as in `Prénom` or `日付`, are kept.
       #
       # Parameters:
       #   rename [true|false]
@@ -203,7 +204,8 @@ module IOStreams
         cleansed = name.to_s.strip.downcase
         cleansed.gsub!(/\s+/, "_")
         cleansed.gsub!(/-+/, "_")
-        cleansed.gsub!(/\W+/, "")
+        # Unlike `\W`, which is only ASCII, keeps the letters and digits of every language.
+        cleansed.gsub!(/[^[:word:]]+/, "")
         cleansed
       end
 

@@ -89,6 +89,12 @@ class TabularTest < Minitest::Test
           assert_equal header, tabular.header.columns
         end
 
+        it "keeps letters and digits that are not ASCII" do
+          tabular = IOStreams::Tabular.new(columns: ["Prénom", "STRASSE", "Straße", "日付", "Coût€", "Größe-2"])
+
+          assert_equal %w[prénom strasse straße 日付 coût größe_2], tabular.cleanse_header!
+        end
+
         it "allowed list snake cased alphanumeric columns" do
           tabular = IOStreams::Tabular.new(
             columns:         ["Ard Vark", "Password", "robot version", "$$$"],
