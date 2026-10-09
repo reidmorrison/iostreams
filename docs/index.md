@@ -89,6 +89,7 @@ environment variable or a configuration system. See [Paths are configuration](co
 * Zip
 * Gzip
 * BZip2
+* Zstandard
 * PGP (Requires GnuPG)
 * Xlsx (Reading)
 * Encryption using [Symmetric Encryption](https://encryption.reidmorrison.com/)

@@ -68,7 +68,7 @@ class StreamTest < Minitest::Test
       let(:text) { "name,city\nJos\u00e9,Z\u00fcrich\n" }
       let(:binary) { "\xFF\xD8\xFF\xE0JFIF\x00".b }
 
-      %w[csv csv.gz csv.bz2 csv.zip csv.enc].each do |extension|
+      %w[csv csv.gz csv.bz2 csv.zst csv.zip csv.enc].each do |extension|
         describe "a .#{extension} file" do
           it "reads lines, rows and records as UTF-8" do
             Dir.mktmpdir do |dir|

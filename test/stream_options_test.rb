@@ -228,6 +228,31 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
+    describe "zstd" do
+      it "writes with a compression level" do
+        path("a.zst").option(:zst, level: 19).write(data)
+
+        assert_equal data, path("a.zst").read
+      end
+
+      it "ignores the level when reading" do
+        zst = path("a.zst").option(:zst, level: 19)
+        zst.write(data)
+
+        assert_equal data, zst.read
+      end
+
+      it "rejects an unknown option" do
+        error = assert_raises(ArgumentError) { path("a.zst").option(:zst, bogus: 1) }
+        assert_equal "Unknown option :bogus for a :zst stream. Valid options: :level.", error.message
+      end
+
+      it "rejects an unknown option when called directly" do
+        assert_raises(ArgumentError) { IOStreams::Zstd::Writer.stream(StringIO.new, bogus: 1) { |io| io.write(data) } }
+        assert_raises(ArgumentError) { IOStreams::Zstd::Reader.stream(StringIO.new, bogus: 1, &:read) }
+      end
+    end
+
     describe "a registered stream that does not declare its options" do
       it "is not validated by the base classes" do
         assert_nil IOStreams::Reader.option_names

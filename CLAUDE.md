@@ -18,6 +18,7 @@ bundle exec rake console  # IRB with the gem loaded
 Test notes:
 - `test/test_helper.rb` generates PGP test keys on first run, so a working `gpg` binary is required.
 - S3 and SFTP path tests skip unless env vars are set (`S3_BUCKET_NAME`; `SFTP_HOSTNAME`, `SFTP_USERNAME`, `SFTP_PASSWORD`).
+- On JRuby, `bundle exec rake` first downloads the zstd-jni jar for `.zst` into `~/.m2/repository` (`bundle exec rake zstd_jni`, see `test/zstd_jni.rb`), since JRuby cannot load the zstd-ruby C extension.
 - The gem itself has zero runtime dependencies; format-specific gems (rubyzip, aws-sdk-s3, nokogiri, etc.) are dev-only and loaded lazily.
 
 ## Architecture

@@ -13,8 +13,9 @@ Gem::Specification.new do |s|
   s.homepage              = "https://iostreams.reidmorrison.com"
   s.summary               = "Streaming I/O for Ruby: compression, encryption, file format, and storage location " \
                             "transparent to your code."
-  s.description           = "IOStreams makes file formats, compression (gzip, zip, bzip2), encryption (PGP, symmetric), " \
-                            "and storage location (local file, S3, SFTP, HTTP) transparent to your application code. " \
+  s.description           = "IOStreams makes file formats, compression (gzip, zip, bzip2, zstd), " \
+                            "encryption (PGP, symmetric), and storage location (local file, S3, SFTP, HTTP) " \
+                            "transparent to your application code. " \
                             "Files of any size are read and written one block at a time, without loading the entire " \
                             "file into memory."
   s.files                 = Dir["lib/**/*", "bin/*", "docs/*.md", "LICENSE", "Rakefile", "README.md"]

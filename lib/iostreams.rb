@@ -19,6 +19,7 @@ module IOStreams
   autoload :SymmetricEncryption, "io_streams/symmetric_encryption"
   autoload :Xlsx,                "io_streams/xlsx"
   autoload :Zip,                 "io_streams/zip"
+  autoload :Zstd,                "io_streams/zstd"
 
   module Paths
     autoload :File,    "io_streams/paths/file"

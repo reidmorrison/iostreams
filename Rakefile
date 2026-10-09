@@ -64,10 +64,19 @@ task :llms_full do
   puts "Wrote #{out_path}"
 end
 
+desc "Download the zstd-jni jar that the tests use on JRuby"
+task :zstd_jni do
+  require_relative "test/zstd_jni"
+  ZstdJni.download
+end
+
 Rake::TestTask.new(:test) do |t|
   t.pattern = "test/**/*_test.rb"
   t.verbose = true
   t.warning = true
 end
+
+# JRuby cannot load the zstd-ruby C extension, so the tests use the zstd-jni jar.
+task test: :zstd_jni if RUBY_ENGINE == "jruby"
 
 task default: :test

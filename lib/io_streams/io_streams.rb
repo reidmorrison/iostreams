@@ -553,6 +553,7 @@ module IOStreams
   register_extension(:gpg, IOStreams::Pgp)
   register_extension(:xlsx, IOStreams::Xlsx)
   register_extension(:xlsm, IOStreams::Xlsx)
+  register_extension(:zst, IOStreams::Zstd)
 
   # Register Schemes
   #

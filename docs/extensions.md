@@ -20,6 +20,7 @@ Supported extensions:
 | `.zip`           | Zip                  | Yes  | Yes   | `rubyzip` (read), `zip_kit` (write). On JRuby the built-in Java zip support is used for reading. |
 | `.pgp`, `.gpg`   | PGP                  | Yes  | Yes   | GnuPG command line program (`gpg`) |
 | `.xlsx`, `.xlsm` | Excel Spreadsheet    | Yes  | No    | `creek`                            |
+| `.zst`           | Zstandard            | Yes  | Yes   | `zstd-ruby`. On JRuby the `zstd-jni` jar instead. |
 
 The gems above are soft dependencies: IOStreams does not require them for installation,
 they only need to be added to the `Gemfile` when the corresponding extension is used.
@@ -39,6 +40,29 @@ when writing, and `small` and `first_only` when reading:
 IOStreams.path("sample.csv.bz2").option(:bz2, block_size: 9).write(data)
 IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
 ~~~
+
+Zstandard accepts a compression `level` when writing, from `1` (fastest) to `22` (best compression), or a negative
+level for even faster compression. The default is `3`, like the `zstd` command line program:
+
+~~~ruby
+IOStreams.path("sample.csv.zst").option(:zst, level: 19).write(data)
+~~~
+
+A `.zst` file that holds several frames, such as zstd files joined with `cat`, is read as one file, like `zstd -d`.
+IOStreams streams zstd with `Zstd::StreamingCompress` and `Zstd::StreamingDecompress` from `zstd-ruby`, rather than its
+`Zstd::StreamWriter` and `Zstd::StreamReader` classes, which the
+[zstd-ruby README marks as experimental](https://github.com/SpringMT/zstd-ruby#stream-writer-and-reader-wrapper).
+
+JRuby cannot load `zstd-ruby`, which is a C extension, so on JRuby IOStreams uses the
+[zstd-jni](https://github.com/luben/zstd-jni) jar instead, which the application adds to the classpath,
+for example with jar-dependencies, which is part of JRuby:
+
+~~~ruby
+require_jar "com.github.luben", "zstd-jni", "1.5.7-3"
+~~~
+
+zstd-jni also detects a `.zst` file that was cut short, such as by an interrupted download, and raises a
+`RuntimeError`, while `zstd-ruby` returns the data up to where the file ends.
 
 Reading ignores the options for writing, and writing ignores the options for reading, so the same path
 can be written and then read. An option that neither accepts, such as a misspelled one, raises an `ArgumentError`.
