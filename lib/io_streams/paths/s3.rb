@@ -16,6 +16,7 @@ module IOStreams
       autoload :Failure, "io_streams/paths/s3/failure"
       autoload :RangeReader, "io_streams/paths/s3/range_reader"
       autoload :Sdk, "io_streams/paths/s3/sdk"
+      autoload :Uploader, "io_streams/paths/s3/uploader"
 
       # The secret access key, also within `client:`, and the customer encryption keys, see
       # IOStreams::Path.redact_options. A session token and credentials are always sensitive by name.
@@ -359,14 +360,21 @@ module IOStreams
 
       # Write to AWS S3
       #
-      # Raises [MultipartUploadError] If an object is being uploaded in
-      #   parts, and the upload can not be completed, then the upload is
-      #   aborted and this error is raised.  The raised error has a `#errors`
-      #   method that returns the failures that caused the upload to be
-      #   aborted.
+      # Uploads the data as it is written, see `Uploader`. Unless an option describes the whole object, such as
+      # `content_md5`, when the data is written into a temp file, which is uploaded once the block completes.
+      #
+      # Raises [MultipartUploadError] when the temp file is uploaded in parts, and the upload can not be completed,
+      #   then the upload is aborted and this error is raised. The raised error has a `#errors` method that returns the
+      #   failures that caused the upload to be aborted.
       def stream_writer(&block)
         # Raises LoadError without the AWS SDK before the block writes any data, rather than once it has all been written.
         Sdk.load
+        if Uploader.supports?(options_for(:put_object).keys)
+          authorize!
+          request = ->(operation, **params) { request(operation, bucket: bucket_name, key: path, **params) }
+          return Uploader.upload(request) { |io| builder.writer(io, &block) }
+        end
+
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
         Utils.private_temp_file("iostreams_s3", purpose: "the upload to #{display_name}") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }

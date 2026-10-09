@@ -99,9 +99,12 @@ Without it, reading, writing or any other request raises `LoadError` before any 
 
 Reading requests the object 8MB at a time, as the application reads it, without a temp file. Every range
 after the first is read from the same version of the object, so an object replaced while it is read raises
-`Aws::S3::Errors::PreconditionFailed`, rather than returning parts of both. Writing writes into a temp file,
-which is uploaded once the block completes, so the object is only replaced once the whole file has been
-written. See [When temp files are used](config#when-temp-files-are-used).
+`Aws::S3::Errors::PreconditionFailed`, rather than returning parts of both. Writing uploads the data as it is
+written, without a temp file: upto 8MB with a single request once the block completes, and more in parts, while
+the block writes the next part. The object is only replaced once the whole file has been written, and when the
+block raises the upload is aborted. Add a lifecycle rule to the bucket that aborts incomplete multipart uploads,
+so that S3 removes the parts of an upload from a process that was killed while it wrote. See
+[When temp files are used](config#when-temp-files-are-used).
 
 #### Required Arguments:
 

@@ -1,4 +1,5 @@
 require "digest"
+require "securerandom"
 
 # In-memory S3, built on the AWS SDK's response stubbing, so that the S3 path tests
 # run without credentials or network calls.
@@ -13,7 +14,8 @@ require "digest"
 class S3Stub
   def self.install
     @previous = ::Aws.config[:s3]
-    ::Aws.config[:s3] = (@previous || {}).merge(stub_responses: new.stub_responses)
+    @instance = new
+    ::Aws.config[:s3] = (@previous || {}).merge(stub_responses: @instance.stub_responses)
   end
 
   def self.uninstall
@@ -27,34 +29,87 @@ class S3Stub
   def initialize
     # Object data keyed by [bucket, key].
     @objects = {}
+    # The parts of each multipart upload that has not completed, by part number, keyed by its upload id.
+    @uploads = {}
+    @mutex   = Mutex.new
+  end
+
+  # Returns [Array<String>] the ids of the multipart uploads that have not completed or been aborted.
+  def self.pending_uploads
+    @instance.pending_uploads
+  end
+
+  def pending_uploads
+    @mutex.synchronize { uploads.keys }
   end
 
   def stub_responses
     {
-      put_object:      ->(context) { put_object(context.params) },
-      get_object:      ->(context) { get_object(context.params) },
-      head_object:     ->(context) { head_object(context.params) },
-      delete_object:   ->(context) { delete_object(context.params) },
-      delete_objects:  ->(context) { delete_objects(context.params) },
-      copy_object:     ->(context) { copy_object(context.params) },
-      list_objects_v2: ->(context) { list_objects_v2(context.params) }
+      put_object:                ->(context) { put_object(context.params) },
+      get_object:                ->(context) { get_object(context.params) },
+      head_object:               ->(context) { head_object(context.params) },
+      delete_object:             ->(context) { delete_object(context.params) },
+      delete_objects:            ->(context) { delete_objects(context.params) },
+      copy_object:               ->(context) { copy_object(context.params) },
+      list_objects_v2:           ->(context) { list_objects_v2(context.params) },
+      create_multipart_upload:   ->(context) { create_multipart_upload(context.params) },
+      upload_part:               ->(context) { upload_part(context.params) },
+      complete_multipart_upload: ->(context) { complete_multipart_upload(context.params) },
+      abort_multipart_upload:    ->(context) { abort_multipart_upload(context.params) }
     }
   end
 
   private
 
-  attr_reader :objects
+  attr_reader :objects, :uploads
+
+  def create_multipart_upload(params)
+    id = SecureRandom.hex(8)
+    @mutex.synchronize { uploads[id] = {} }
+    {upload_id: id, checksum_algorithm: params[:checksum_algorithm]}.compact
+  end
+
+  # Parts are uploaded from several threads.
+  def upload_part(params)
+    data = read_body(params[:body])
+    @mutex.synchronize do
+      return "NoSuchUpload" unless uploads.key?(params[:upload_id])
+
+      uploads[params[:upload_id]][params[:part_number]] = data
+    end
+    response = {etag: etag(data)}
+    # The checksum of the part, in the algorithm of the upload.
+    response[:"checksum_#{params[:checksum_algorithm].downcase}"] = "checksum" if params[:checksum_algorithm]
+    response
+  end
+
+  def complete_multipart_upload(params)
+    parts = @mutex.synchronize { uploads.delete(params[:upload_id]) }
+    return "NoSuchUpload" unless parts
+
+    numbers = params[:multipart_upload][:parts].map { |part| part[:part_number] }
+    return "InvalidPart" unless numbers == (1..parts.size).to_a && numbers.all? { |number| parts.key?(number) }
+
+    objects[[params[:bucket], params[:key]]] = numbers.map { |number| parts[number] }.join
+    {}
+  end
+
+  def abort_multipart_upload(params)
+    @mutex.synchronize { uploads.delete(params[:upload_id]) }
+    {}
+  end
+
+  def read_body(body)
+    if body.respond_to?(:read)
+      body.rewind if body.respond_to?(:rewind)
+      body.read.b
+    else
+      body.to_s.b
+    end
+  end
 
   def put_object(params)
-    body = params[:body]
-    data =
-      if body.respond_to?(:read)
-        body.rewind if body.respond_to?(:rewind)
-        body.read
-      else
-        body.to_s
-      end
-    objects[[params[:bucket], params[:key]]] = data.b
+    objects[[params[:bucket], params[:key]]] = read_body(params[:body])
     {}
   end
 

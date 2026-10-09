@@ -154,14 +154,14 @@ transfers go through a temp file that holds the whole file:
 | Path | Reading | Writing | Why |
 | --- | --- | --- | --- |
 | Local file | No temp file | No temp file | |
-| AWS S3 | No temp file: requests the object 8MB at a time, as the application reads it. With the `range` or `part_number` option, downloads the object into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The AWS SDK pulls the data that it uploads, the opposite of how the application writes. A single download is pushed by the AWS SDK, so the bytes chosen by `range` or `part_number` are downloaded first |
+| AWS S3 | No temp file: requests the object 8MB at a time, as the application reads it. With the `range` or `part_number` option, downloads the object into a temp file before the block is called | No temp file: uploads the data as it is written, in parts of 8MB or more. With an option that describes the whole object, such as `content_md5` or `checksum_crc32`, writes into a temp file, which is uploaded once the block completes | A single download is pushed by the AWS SDK, so the bytes chosen by `range` or `part_number` are downloaded first. An option that describes the whole object cannot be supplied to each part |
 | SFTP | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The `sftp` program transfers local files, and only uploads a regular file |
 | HTTP(S) | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded with a single PUT once the block completes | Net::HTTP pushes the data that it downloads, and downloading first closes the connection before the block runs. An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
 | An IO supplied to `IOStreams.stream` | No temp file | No temp file | |
 
 Most formats are read and written as the data passes through them. A format that only works on whole files
 reads or writes a local file directly when it has one: a local path, a `File` supplied to `IOStreams.stream`, or
-the temp file of an SFTP or HTTP path, or of an S3 upload. Otherwise its data is copied into a temp file first, for example when
+the temp file of an SFTP or HTTP path. Otherwise its data is copied into a temp file first, for example when
 reading the zip file within `data.csv.zip.pgp`, which comes from `gpg` as it decrypts the file, or a zip file
 supplied in a `StringIO`.
 
@@ -190,8 +190,8 @@ For example:
 | `data.xlsx` | 1: the rows as CSV | Not supported |
 | `data.csv.pgp`, read with `verify_first: true` | 1: the decrypted data | None |
 | `data.csv.zip.pgp` | 1: the decrypted zip file | None |
-| `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | None | 1: the upload |
-| `s3://bucket/data.csv.zip` | 1: the zip file | 1: the upload |
+| `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | None | None |
+| `s3://bucket/data.csv.zip` | 1: the zip file | None |
 | `s3://bucket/data.xlsx` | 2: the spreadsheet, and the rows as CSV | Not supported |
 | `sftp://example.org/data.csv.zip.pgp` | 2: the download, and the decrypted zip file | 1: the upload |
 | `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | None | None |

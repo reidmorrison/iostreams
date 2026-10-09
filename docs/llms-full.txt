@@ -971,9 +971,12 @@ Without it, reading, writing or any other request raises `LoadError` before any 
 
 Reading requests the object 8MB at a time, as the application reads it, without a temp file. Every range
 after the first is read from the same version of the object, so an object replaced while it is read raises
-`Aws::S3::Errors::PreconditionFailed`, rather than returning parts of both. Writing writes into a temp file,
-which is uploaded once the block completes, so the object is only replaced once the whole file has been
-written. See [When temp files are used](config#when-temp-files-are-used).
+`Aws::S3::Errors::PreconditionFailed`, rather than returning parts of both. Writing uploads the data as it is
+written, without a temp file: upto 8MB with a single request once the block completes, and more in parts, while
+the block writes the next part. The object is only replaced once the whole file has been written, and when the
+block raises the upload is aborted. Add a lifecycle rule to the bucket that aborts incomplete multipart uploads,
+so that S3 removes the parts of an upload from a process that was killed while it wrote. See
+[When temp files are used](config#when-temp-files-are-used).
 
 #### Required Arguments:
 
@@ -3589,14 +3592,14 @@ transfers go through a temp file that holds the whole file:
 | Path | Reading | Writing | Why |
 | --- | --- | --- | --- |
 | Local file | No temp file | No temp file | |
-| AWS S3 | No temp file: requests the object 8MB at a time, as the application reads it. With the `range` or `part_number` option, downloads the object into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The AWS SDK pulls the data that it uploads, the opposite of how the application writes. A single download is pushed by the AWS SDK, so the bytes chosen by `range` or `part_number` are downloaded first |
+| AWS S3 | No temp file: requests the object 8MB at a time, as the application reads it. With the `range` or `part_number` option, downloads the object into a temp file before the block is called | No temp file: uploads the data as it is written, in parts of 8MB or more. With an option that describes the whole object, such as `content_md5` or `checksum_crc32`, writes into a temp file, which is uploaded once the block completes | A single download is pushed by the AWS SDK, so the bytes chosen by `range` or `part_number` are downloaded first. An option that describes the whole object cannot be supplied to each part |
 | SFTP | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The `sftp` program transfers local files, and only uploads a regular file |
 | HTTP(S) | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded with a single PUT once the block completes | Net::HTTP pushes the data that it downloads, and downloading first closes the connection before the block runs. An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
 | An IO supplied to `IOStreams.stream` | No temp file | No temp file | |
 
 Most formats are read and written as the data passes through them. A format that only works on whole files
 reads or writes a local file directly when it has one: a local path, a `File` supplied to `IOStreams.stream`, or
-the temp file of an SFTP or HTTP path, or of an S3 upload. Otherwise its data is copied into a temp file first, for example when
+the temp file of an SFTP or HTTP path. Otherwise its data is copied into a temp file first, for example when
 reading the zip file within `data.csv.zip.pgp`, which comes from `gpg` as it decrypts the file, or a zip file
 supplied in a `StringIO`.
 
@@ -3625,8 +3628,8 @@ For example:
 | `data.xlsx` | 1: the rows as CSV | Not supported |
 | `data.csv.pgp`, read with `verify_first: true` | 1: the decrypted data | None |
 | `data.csv.zip.pgp` | 1: the decrypted zip file | None |
-| `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | None | 1: the upload |
-| `s3://bucket/data.csv.zip` | 1: the zip file | 1: the upload |
+| `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | None | None |
+| `s3://bucket/data.csv.zip` | 1: the zip file | None |
 | `s3://bucket/data.xlsx` | 2: the spreadsheet, and the rows as CSV | Not supported |
 | `sftp://example.org/data.csv.zip.pgp` | 2: the download, and the decrypted zip file | 1: the upload |
 | `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | None | None |
@@ -4176,6 +4179,32 @@ Fix: none is needed in most cases. Where an object can be replaced while it is r
 bucket, or retry the read on `Aws::S3::Errors::PreconditionFailed`. Where processing must not start until the
 whole object has been read, read it into a local file first, for example with
 `IOStreams.path("s3://bucket/a.csv").copy_to(local_path, convert: false)`.
+
+### S3 objects are written without a temp file
+
+Writing to an S3 path now uploads the data as it is written, instead of writing it into a temp file that was
+uploaded once the block completed. So the file no longer has to fit on the local disk, and the upload overlaps
+with writing it. S3 still only stores the object once the block completes. Upto 8MB is stored with a single
+request, as before. More is uploaded in parts:
+
+* Writing holds about 40MB in memory: the part being written, and upto four parts being uploaded at the same
+  time in other threads.
+* An object larger than 8MB has the ETag of a multipart upload, such as `"...-3"`, rather than the MD5 digest of
+  its data, which it had upto 100MB.
+* A failed upload raises the error of the request that failed, such as `Aws::S3::Errors::AccessDenied`, tagged
+  with the kind of failure, see [Errors](errors), rather than `Aws::S3::MultipartUploadError`.
+* When the block raises, or an upload fails, the upload is aborted, so that S3 discards the parts already
+  uploaded. A process that is killed while it writes cannot abort its upload, so S3 keeps its parts, and charges
+  for them, until they are removed. Previously it left a temp file on the local disk instead.
+
+With an option that describes the whole object, `content_md5`, `content_length`, `write_offset_bytes`, or the
+checksum of its data, such as `checksum_crc32`, the data is still written into a temp file first.
+
+Fix: none is needed in most cases. Add a lifecycle rule to the bucket that aborts incomplete multipart uploads,
+for example after a day, so that S3 removes the parts of an upload that was never completed. Rescue the error of
+the request, or the kind of failure, instead of `Aws::S3::MultipartUploadError`. Code that compares the ETag of an
+object with the MD5 digest of its data can no longer do so for an object larger than 8MB, so compare a digest
+that the application records itself instead.
 
 ### HTTPS downloads are not redirected to HTTP
 

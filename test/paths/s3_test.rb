@@ -207,14 +207,23 @@ module Paths
           pgp_path.delete
         end
 
-        it "reads a PGP file without a temp file, and writes it through only the temp file that is uploaded" do
+        it "reads and writes a PGP file without a temp file" do
           result  = nil
           written = temp_files_created { pgp_path.option(:pgp, recipient: "receiver@example.org").write(raw) }
           read    = temp_files_created { result = pgp_path.option(:pgp, passphrase: "receiver_passphrase").read }
 
-          assert_equal %w[iostreams_s3], written
+          assert_empty written
           assert_empty read
           assert_equal raw, result
+        end
+
+        it "uploads through a temp file when an option describes the whole object" do
+          md5    = Digest::MD5.base64digest(raw)
+          path   = IOStreams::Paths::S3.new(write_path.to_s, content_md5: md5)
+          writes = temp_files_created { path.write(raw) }
+
+          assert_equal %w[iostreams_s3], writes
+          assert_equal raw, path.read
         end
 
         it "downloads into a temp file when the range option chooses the bytes to read" do
@@ -489,12 +498,14 @@ module Paths
       end
 
       describe "options" do
-        # Returns the parameters of each request the client received.
+        # Returns the parameters of each request the client received, including requests from several threads, such
+        # as the parts of a multipart upload.
         def capture_requests(client)
           requests = Hash.new { |hash, key| hash[key] = [] }
+          mutex    = Mutex.new
           client.handlers.add(Class.new(Seahorse::Client::Handler) do
             define_method(:call) do |context|
-              requests[context.operation_name] << context.params
+              mutex.synchronize { requests[context.operation_name] << context.params }
               @handler.call(context)
             end
           end, step: :initialize)
