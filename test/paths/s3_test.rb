@@ -512,11 +512,21 @@ module Paths
         end
 
         describe "a file larger than MULTIPART_UPLOAD_SIZE" do
-          let :file_name do
+          # Holds the temp file for the whole test, since garbage collecting it deletes the file, which JRuby can do
+          # while the parts of a multipart upload are still being read from it.
+          let :temp_file do
             file = Tempfile.new("iostreams_s3_test")
             file.write("x" * (IOStreams::Paths::S3::MULTIPART_UPLOAD_SIZE + 1))
             file.close
-            file.path
+            file
+          end
+
+          let :file_name do
+            temp_file.path
+          end
+
+          after do
+            temp_file.delete
           end
 
           it "uploads it with its options, without the upload method that the AWS SDK deprecated" do
