@@ -507,6 +507,56 @@ module Paths
           assert_equal "bucket-owner-full-control", requests[:put_object].first[:acl]
         end
 
+        describe "a file larger than MULTIPART_UPLOAD_SIZE" do
+          let :file_name do
+            file = Tempfile.new("iostreams_s3_test")
+            file.write("x" * (IOStreams::Paths::S3::MULTIPART_UPLOAD_SIZE + 1))
+            file.close
+            file.path
+          end
+
+          it "uploads it with its options, without the upload method that the AWS SDK deprecated" do
+            path     = IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, acl: "bucket-owner-full-control")
+            requests = capture_requests(client)
+
+            # The deprecated `Aws::S3::Object#upload_file` is reached through `Aws::S3::Resource`.
+            _out, err = Aws::S3::Resource.stub(:new, ->(*) { flunk "Uses the deprecated upload" }) do
+              capture_io { path.write_file(file_name) }
+            end
+
+            refute_match(/DEPRECATION/, err)
+            assert_equal(["bucket-owner-full-control"], requests[:put_object].map { |params| params[:acl] })
+          end
+
+          it "uploads it in parts once it reaches the SDK's multipart threshold, with the options of each request" do
+            client.stub_responses(:create_multipart_upload, {upload_id: "1"})
+            requests = capture_requests(client)
+
+            IOStreams::Paths::S3::Sdk.upload_file(
+              client, file_name,
+              bucket: "bucket", key: "a.txt", acl: "bucket-owner-full-control", request_payer: "requester",
+              multipart_threshold: IOStreams::Paths::S3::MULTIPART_UPLOAD_SIZE
+            )
+
+            assert_equal(["bucket-owner-full-control"], requests[:create_multipart_upload].map { |params| params[:acl] })
+            assert_equal([1, 2], requests[:upload_part].map { |params| params[:part_number] }.sort)
+            assert_equal(%w[requester requester], requests[:upload_part].map { |params| params[:request_payer] })
+            assert_equal 1, requests[:complete_multipart_upload].size
+            assert_empty requests[:put_object]
+          end
+
+          it "uploads it with an AWS SDK that does not have the TransferManager" do
+            path     = IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, acl: "bucket-owner-full-control")
+            requests = capture_requests(client)
+
+            IOStreams::Paths::S3::Sdk.stub(:transfer_manager?, false) do
+              capture_io { path.write_file(file_name) }
+            end
+
+            assert_equal(["bucket-owner-full-control"], requests[:put_object].map { |params| params[:acl] })
+          end
+        end
+
         it "supplies an option to every request that accepts it" do
           client.stub_responses(:head_object, {content_length: 4})
           client.stub_responses(:get_object, {body: "data"})

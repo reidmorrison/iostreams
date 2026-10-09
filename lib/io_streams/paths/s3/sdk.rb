@@ -32,6 +32,25 @@ module IOStreams
           installed
         end
 
+        # Uploads the file, in parts once it reaches the SDK's `multipart_threshold`, supplying each request with the
+        # options that it accepts.
+        #
+        # Uses `Aws::S3::TransferManager`, which `aws-sdk-s3` added in v1.197.0 when it deprecated
+        # `Aws::S3::Object#upload_file`, and that deprecated method with an earlier version of the gem.
+        def self.upload_file(client, file_name, bucket:, key:, **options)
+          load
+          if transfer_manager?
+            ::Aws::S3::TransferManager.new(client: client).upload_file(file_name, bucket: bucket, key: key, **options)
+          else
+            ::Aws::S3::Resource.new(client: client).bucket(bucket).object(key).upload_file(file_name, options)
+          end
+        end
+
+        # Returns [true|false] whether the loaded AWS SDK has `Aws::S3::TransferManager`.
+        def self.transfer_manager?
+          !defined?(::Aws::S3::TransferManager).nil?
+        end
+
         # Returns [Array<Symbol>] the options that the S3 operation accepts.
         def self.operation_options(operation)
           load
