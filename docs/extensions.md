@@ -19,7 +19,7 @@ Supported extensions:
 | `.gz`, `.gzip`   | GZip                 | Yes  | Yes   | None (Ruby standard library)       |
 | `.zip`           | Zip                  | Yes  | Yes   | `rubyzip` (read), `zip_kit` (write). On JRuby the built-in Java zip support is used for reading. |
 | `.pgp`, `.gpg`   | PGP                  | Yes  | Yes   | GnuPG command line program (`gpg`) |
-| `.xlsx`, `.xlsm` | Excel Spreadsheet    | Yes  | No    | `creek`                            |
+| `.xlsx`, `.xlsm` | Excel Spreadsheet    | Yes  | Yes   | `creek` (read), `xlsxtream` (write) |
 | `.zst`           | Zstandard            | Yes  | Yes   | `zstd-ruby`. On JRuby the `zstd-jni` jar instead. |
 
 The gems above are soft dependencies: IOStreams does not require them for installation,
@@ -84,7 +84,45 @@ Notes:
   converted into CSV in a temp file for the application to read. A local spreadsheet is read directly,
   as is the temp file that an S3, SFTP or HTTP path downloads it into, while one in an IO that is not a
   `File` is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
-* Writing xlsx files is not supported.
+
+## Writing an Excel Spreadsheet
+
+The CSV lines written become the rows of a workbook with one worksheet, so the regular `:line`, `:array`,
+and `:hash` modes apply:
+
+~~~ruby
+IOStreams.path("report.xlsx").writer(:hash) do |io|
+  io << {"name" => "Jack", "zip" => "01234"}
+  io << {"name" => "Jill", "zip" => "98101"}
+end
+~~~
+
+The `xlsxtream` gem writes the workbook with `zip_kit`, which streams it to an output that cannot seek, so it is
+written without a temp file of its own, even within another stream such as `report.xlsx.pgp`, see
+[When temp files are used](config#when-temp-files-are-used).
+
+Every cell is written as text by default, so reading the spreadsheet returns exactly the CSV that was written,
+such as the leading zero in `"01234"`. The writer accepts these options:
+
+| Option               | Default    | Description |
+|:---------------------|:-----------|:------------|
+| `sheet_name`         | `"Sheet1"` | Name of the worksheet. |
+| `auto_format`        | `false`    | Write values that look like numbers, dates, times or booleans, such as `"1.5"`, `"2026-10-09"` or `"true"`, as Excel numbers, dates and booleans. Such values may then read back differently, such as `"01234"` as `"1234.0"`. |
+| `use_shared_strings` | `false`    | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
+
+~~~ruby
+IOStreams.path("report.xlsx").option(:xlsx, sheet_name: "Totals", auto_format: true).writer(:array) do |io|
+  io << ["region", "total"]
+  io << ["West", 1250.75]
+end
+~~~
+
+Notes:
+* Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them. It raises for
+  `sheet_name`, since it always reads the first worksheet.
+* A workbook with an empty worksheet is written when nothing is written to it.
+* On JRuby, the `creek` gem reads a value that contains a newline only up to the newline, unless the
+  workbook was written with `use_shared_strings: true`, as Excel does.
 
 ## Character encoding
 
