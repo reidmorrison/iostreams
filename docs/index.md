@@ -91,7 +91,7 @@ environment variable or a configuration system. See [Paths are configuration](co
 * BZip2
 * Zstandard
 * PGP (Requires GnuPG)
-* Xlsx (Reading)
+* Xlsx
 * Encryption using [Symmetric Encryption](https://encryption.reidmorrison.com/)
 
 #### File Storage

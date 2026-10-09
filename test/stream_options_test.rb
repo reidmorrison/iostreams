@@ -174,8 +174,8 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "says when a stream accepts no options" do
-        error = assert_raises(ArgumentError) { path("a.xlsx").option(:xlsx, sheet: 1) }
-        assert_equal "Unknown option :sheet for a :xlsx stream. Valid options: none.", error.message
+        error = assert_raises(ArgumentError) { path("a.csv.gz").option(:gz, levl: 1) }
+        assert_equal "Unknown option :levl for a :gz stream. Valid options: :level.", error.message
       end
 
       it "does not change the options already set" do
