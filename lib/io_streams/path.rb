@@ -462,7 +462,8 @@ module IOStreams
     # resolves them, without accessing it. The path always starts with `/`, and `..` cannot go above it.
     def normalize_path(name)
       segments = []
-      name.split("/").each do |segment|
+      # A name that is not valid in its encoding is split by its bytes, see Utils.matchable.
+      Utils.matchable(name).split("/").each do |segment|
         case segment
         when "", "."
           next
@@ -472,7 +473,7 @@ module IOStreams
           segments << segment
         end
       end
-      "/#{segments.join('/')}"
+      "/#{segments.join('/')}".force_encoding(name.encoding)
     end
 
     # Returns [true|false] whether a child found by `#each_child` is within the allowed paths, logging it when it is not.
