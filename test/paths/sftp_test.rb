@@ -140,6 +140,8 @@ module Paths
         end
 
         it "writes, lists and reads a file whose name is not valid UTF-8" do
+          skip "JRuby replaces each byte of a file name that is not valid UTF-8 with U+FFFD" if defined?(JRuby)
+
           path = names_root.join("caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
           path.mkpath.write(raw)
 
@@ -1157,14 +1159,26 @@ module Paths
           end
         end
 
-        it "labels the names of remote files UTF-8, keeping the bytes of a name that is not valid UTF-8" do
+        it "labels the names of remote files UTF-8" do
           path = new_path("sftp://example.org/data", username: "jack")
 
-          with_stub_net_sftp(["café.csv".b, "caf\xE9.txt".b]) do
-            utf8, latin1 = path.each_child.to_a.map(&:first)
+          with_stub_net_sftp(["café.csv".b]) do
+            child = path.each_child.to_a.map(&:first).first
 
-            assert_equal "/data/café.csv", utf8.path
-            assert_equal "sftp://example.org/data/café.csv", utf8.display_name
+            assert_equal "/data/café.csv", child.path
+            assert_equal Encoding::UTF_8, child.path.encoding
+            assert_equal "sftp://example.org/data/café.csv", child.display_name
+          end
+        end
+
+        it "keeps the bytes of a remote name that is not valid UTF-8" do
+          skip "JRuby replaces each byte of a file name that is not valid UTF-8 with U+FFFD" if defined?(JRuby)
+
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(["caf\xE9.txt".b]) do
+            latin1 = path.each_child.to_a.map(&:first).first
+
             assert_equal Encoding::UTF_8, latin1.path.encoding
             assert_equal "/data/caf\xE9.txt".b, latin1.path.b
             assert_equal "sftp://example.org/data/caf\\xE9.txt", latin1.display_name
