@@ -20,6 +20,7 @@ gem "ed25519"
 gem "nokogiri"
 gem "rubyzip"
 gem "symmetric-encryption"
+gem "xlsxtream"
 gem "zip_kit"
 gem "zstd-ruby", platform: :ruby # A C extension, so JRuby uses the zstd-jni jar instead, see test/zstd_jni.rb.
 

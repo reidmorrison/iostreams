@@ -3,6 +3,7 @@ require_relative "test_helper"
 class StreamFormatTest < Minitest::Test
   describe IOStreams::StreamFormat do
     let(:gzip) { IOStreams.extensions[:gz] }
+    let(:read_only) { IOStreams::Extension.new(IOStreams::Gzip::Reader, nil) }
 
     describe "#option_names" do
       it "returns the options that the reader or the writer uses" do
@@ -11,7 +12,7 @@ class StreamFormatTest < Minitest::Test
       end
 
       it "is nil when there is no class for the direction" do
-        assert_nil IOStreams.extensions[:xlsx].option_names(:writer)
+        assert_nil read_only.option_names(:writer)
       end
 
       it "raises for an invalid type" do
@@ -174,10 +175,10 @@ class StreamFormatTest < Minitest::Test
 
       it "raises when the format cannot be read or written in the direction" do
         error = assert_raises(ArgumentError) do
-          IOStreams.extensions[:xlsx].open_stream(:writer, StringIO.new, {}, name: :xlsx) { |_stream| flunk }
+          read_only.open_stream(:writer, StringIO.new, {}, name: :abc) { |_stream| flunk }
         end
 
-        assert_equal "No writer registered for Stream type: :xlsx", error.message
+        assert_equal "No writer registered for Stream type: :abc", error.message
       end
     end
   end
