@@ -453,7 +453,7 @@ module IOStreams
 
       describe ".extensions" do
         it "includes the registered extensions" do
-          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm].each do |extension|
+          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm zst].each do |extension|
             assert_includes IOStreams.extensions.keys, extension
           end
         end
@@ -472,16 +472,17 @@ module IOStreams
             pgp:  IOStreams::Pgp,
             gpg:  IOStreams::Pgp,
             xlsx: IOStreams::Xlsx,
-            xlsm: IOStreams::Xlsx
+            xlsm: IOStreams::Xlsx,
+            zst:  IOStreams::Zstd
           }.each_pair do |extension, format|
             assert_equal format, IOStreams.extensions[extension], extension
           end
         end
 
         it "declares whether each built-in format is compressed or encrypted" do
-          compressed = %i[bz2 gz gzip zip xlsx xlsm]
+          compressed = %i[bz2 gz gzip zip xlsx xlsm zst]
           encrypted  = %i[enc pgp gpg]
-          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm].each do |extension|
+          %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm zst].each do |extension|
             format = IOStreams.extensions[extension]
 
             assert_equal compressed.include?(extension), format.compressed?, extension

@@ -21,6 +21,7 @@ gem "nokogiri"
 gem "rubyzip"
 gem "symmetric-encryption"
 gem "zip_kit"
+gem "zstd-ruby"
 
 # Dev Tools
 gem "rubocop"
