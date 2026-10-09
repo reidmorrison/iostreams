@@ -14,42 +14,31 @@ module IOStreams
       #     Default: 3
       #
       # The output stream is not closed, since it belongs to the caller.
-      #
-      # `Zstd::StreamWriter` is not used, since the zstd-ruby README marks it as experimental:
-      # https://github.com/SpringMT/zstd-ruby#stream-writer-and-reader-wrapper
-      # It also flushes a block on every write, which compresses small writes, such as lines, poorly.
       def self.stream(output_stream, level: nil)
-        Utils.load_soft_dependency("zstd-ruby", "Zstandard") unless defined?(::Zstd::StreamingCompress)
-
-        io     = Compressor.new(output_stream, level: level)
-        result = yield io
-        io.finish
+        encoder = Zstd.library.encoder(output_stream, level: level)
+        result  = yield Compressor.new(encoder)
+        encoder.finish
         result
+      ensure
+        encoder&.close
       end
 
-      # Compresses the data written to it, writing the compressed data to the output stream.
+      # Writes data to an encoder of the zstd library, as an IO.
       class Compressor
-        def initialize(output_stream, level: nil)
-          @output_stream = output_stream
-          @zstd          = level.nil? ? ::Zstd::StreamingCompress.new : ::Zstd::StreamingCompress.new(level: level)
+        def initialize(encoder)
+          @encoder = encoder
         end
 
         # Returns [Integer] the number of bytes written, before compression.
         def write(data)
-          data       = data.to_s
-          compressed = @zstd.compress(data)
-          @output_stream.write(compressed) unless compressed.empty?
+          data = data.to_s
+          @encoder.write(data) unless data.empty?
           data.bytesize
         end
 
         def <<(data)
           write(data)
           self
-        end
-
-        # Writes the end of the zstd frame, without closing the output stream, which belongs to the caller.
-        def finish
-          @output_stream.write(@zstd.finish)
         end
       end
     end

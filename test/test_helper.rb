@@ -19,6 +19,36 @@ require "iostreams"
 require "amazing_print"
 require "symmetric-encryption"
 
+# Zstandard on JRuby uses the zstd-jni jar, which the application adds to the classpath.
+if defined?(JRuby)
+  require_relative "zstd_jni"
+  ZstdJni.load
+end
+
+# Compresses and decompresses with the zstd library itself, so that tests check IOStreams against it.
+module ZstdLibrary
+  def self.compress(data)
+    return String.from_java_bytes(Java::ComGithubLubenZstd::Zstd.compress(data.b.to_java_bytes)) if defined?(JRuby)
+
+    require "zstd-ruby"
+    ::Zstd.compress(data)
+  end
+
+  def self.decompress(data)
+    if defined?(JRuby)
+      input = Java::ComGithubLubenZstd::ZstdInputStream.new(java.io.ByteArrayInputStream.new(data.to_java_bytes))
+      begin
+        return String.from_java_bytes(input.read_all_bytes)
+      ensure
+        input.close
+      end
+    end
+
+    require "zstd-ruby"
+    ::Zstd.decompress(data)
+  end
+end
+
 # Since PGP libraries use UTC for Dates
 ENV["TZ"] = "UTC"
 

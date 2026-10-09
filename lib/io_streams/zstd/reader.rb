@@ -11,25 +11,20 @@ module IOStreams
       # are concatenated, and like `zstd -d` the contents of every frame are returned.
       #
       # The stream supplied to the block responds to #read, #readpartial and #eof?.
-      #
-      # `Zstd::StreamReader` is not used, since the zstd-ruby README marks it as experimental:
-      # https://github.com/SpringMT/zstd-ruby#stream-writer-and-reader-wrapper
-      # It also requires a length to #read, and raises at the end of the stream instead of returning nil.
       def self.stream(input_stream)
-        Utils.load_soft_dependency("zstd-ruby", "Zstandard") unless defined?(::Zstd::StreamingDecompress)
-
-        yield Decompressor.new(input_stream)
+        decoder = Zstd.library.decoder(input_stream)
+        yield Decompressor.new(decoder)
+      ensure
+        decoder&.close
       end
 
-      # Decompresses the input stream as it is read, holding the data decompressed but not yet returned.
+      # Returns the data from a decoder of the zstd library as an IO, holding the data decompressed
+      # but not yet returned.
       class Decompressor
-        BLOCK_SIZE = 65_536
-
-        def initialize(input_stream)
-          @input_stream = input_stream
-          @zstd         = ::Zstd::StreamingDecompress.new
-          @buffer       = String.new(encoding: Encoding::BINARY)
-          @input_eof    = false
+        def initialize(decoder)
+          @decoder = decoder
+          @buffer  = String.new(encoding: Encoding::BINARY)
+          @eof     = false
         end
 
         # Returns [String] up to `length` bytes, or the rest of the stream when `length` is nil.
@@ -68,14 +63,14 @@ module IOStreams
           @buffer.empty? ? nil : @buffer.slice!(0, length)
         end
 
-        # Decompresses input until the buffer holds `length` bytes, or the whole stream when `length` is nil.
+        # Decompresses until the buffer holds `length` bytes, or the whole stream when `length` is nil.
         def fill(length)
-          until @input_eof || (length && @buffer.bytesize >= length)
-            block = @input_stream.read(BLOCK_SIZE)
+          until @eof || (length && @buffer.bytesize >= length)
+            block = @decoder.read_block
             if block.nil?
-              @input_eof = true
+              @eof = true
             else
-              @buffer << @zstd.decompress(block)
+              @buffer << block
             end
           end
         end
