@@ -131,7 +131,7 @@ padded and truncated to `:size` characters. In ASCII, and in a single-byte code 
 is one byte, so the sizes count bytes.
 
 Set the encoding of the file with [`#encoding`](extensions#character-encoding) when it is not
-ASCII. An encoding that is set always replaces the ASCII default:
+ASCII. An encoding that is set always replaces the ASCII default, which `stream(:none)` keeps:
 
 * A single-byte code page, such as ISO-8859-1 or Windows-1252, or EBCDIC from a mainframe: name it
   with the encoding that the values are read as, for example

@@ -142,7 +142,9 @@ IOStreams.path("sample.csv.gz").
 ~~~
 
 Each call merges its options with those already set, so `encoding("UTF-8").encoding(replace: "")` is
-the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams.
+the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams. Text is still read in its default encoding,
+UTF-8, or ASCII for [fixed width files](formats#fixed-width-files), so call `#encoding` after
+`stream(:none)` to read it in another, such as `encoding("BINARY")` for bytes.
 
 **Deprecated:** setting the encode stream with `option(:encode, ...)` or `stream(:encode, ...)`.
 Both still work, and set the same options as `#encoding`, but use `#encoding` instead:

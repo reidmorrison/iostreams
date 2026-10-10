@@ -381,8 +381,10 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-To ensure no streams are inferred or applied use stream `:none` 
-~~~ruby 
+To ensure no streams are inferred or applied use stream `:none`. It removes the streams that the file
+name implies, and any encoding set with `#encoding`, but lines, rows and records are still read as
+text, see [Text and binary data](#text-and-binary-data). Add `encoding("BINARY")` after it to read bytes:
+~~~ruby
 path = IOStreams.path("file.zip")
 path.stream(:none)
 path.read

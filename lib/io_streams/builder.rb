@@ -11,7 +11,9 @@ module IOStreams
     #     writes, so file names do not name it. It applies whenever its options are set with `#encoding`, and is
     #     always closest to the application. Setting it with `#option` or `#stream` is deprecated, but still works.
     #   :none
-    #     Supplied to `#stream` to apply no streams.
+    #     Supplied to `#stream` to apply no streams, including an encode stream set with `#encoding`. Text is still
+    #     read and written in its default encoding, see #text_reader and #with_default_encoding, since that belongs
+    #     to the text, not to a stream. Set an encoding with `#encoding` afterwards, such as "BINARY", to change it.
     RESERVED_KEYWORDS = %i[encode none].freeze
 
     # Returns [true|false] whether the name is a reserved keyword, see `RESERVED_KEYWORDS`.
