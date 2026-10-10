@@ -60,6 +60,9 @@ module IOStreams
 
     # Supply an option that is only applied once the file name extensions have been parsed.
     # Note:
+    # - An option for a format applies to each of its extensions, such as `option(:pgp, ...)` to a `.gpg` file,
+    #   `option(:gz, ...)` to a `.gzip` file, and `option(:xlsx, ...)` to a `.xlsm` file. When options are set for
+    #   more than one extension of a format, those for the extension in the file name take precedence.
     # - Cannot set both `stream` and `option`
     # - Raises ArgumentError for an option that neither the reader nor the writer for the stream accepts,
     #   even when the file name does not include the stream. So a misspelled option raises wherever the code
@@ -286,8 +289,23 @@ module IOStreams
     def build_pipeline
       return {} unless file_name
 
-      opts = options || {}
-      parse_extensions.to_h { |stream| [stream, opts[stream] || {}] }
+      parse_extensions.to_h { |stream| [stream, extension_options(stream)] }
+    end
+
+    # Returns [Hash] the options of the stream for an extension in the file name: those set for every extension of
+    # its format, such as `option(:pgp, ...)` for a `.gpg` file, and then those set for the extension itself, which
+    # take precedence. So a file name held in configuration can change between the extensions of a format, such as
+    # from `.pgp` to `.gpg`, without the code that sets the options changing.
+    def extension_options(stream)
+      return {} unless options
+
+      format = self.class.find_format(stream)
+      merged = {}
+      options.each_pair do |name, opts|
+        merged.merge!(opts) if name != stream && self.class.find_format(name) == format
+      end
+      merged.merge!(options[stream]) if options.key?(stream)
+      merged
     end
 
     # Validates the options of the encode stream and merges them with those already set, see #encoding.

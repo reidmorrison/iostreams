@@ -85,6 +85,13 @@ class StreamOptionsTest < Minitest::Test
         assert_equal data, pgp.read
       end
 
+      it "reads and writes a .gpg file with the PGP options, since it is a PGP file too" do
+        gpg = path("a.csv.gpg").option(:pgp, recipient: "receiver@example.org", passphrase: "receiver_passphrase")
+        gpg.write(data)
+
+        assert_equal data, gpg.read
+      end
+
       it "applies to #stream as well as #option" do
         enc = path("a.csv.enc").stream(:enc, compress: false)
         enc.write(data)
@@ -195,6 +202,13 @@ class StreamOptionsTest < Minitest::Test
           assert_equal extra_flags, File.binread(path("a.gz").to_s).getbyte(8), "level #{level}"
           assert_equal data, path("a.gz").read
         end
+      end
+
+      it "writes a .gzip file with the gz options" do
+        path("a.gzip").option(:gz, level: Zlib::BEST_COMPRESSION).write(data)
+
+        assert_equal 2, File.binread(path("a.gzip").to_s).getbyte(8)
+        assert_equal data, path("a.gzip").read
       end
 
       it "ignores the level when reading" do

@@ -41,8 +41,12 @@ module IOStreams
     # Set the options for an element within the stream for this file.
     # If the relevant stream is not found for this file it is ignored.
     # For example, if the file does not have a pgp extension then the pgp option is not relevant.
+    # An option for a format applies to each of its extensions, such as the pgp option to a `.gpg` file.
     #
     # IOStreams.path("keep_safe.pgp").option(:pgp, passphrase: "receiver_passphrase").read
+    #
+    # # The same option applies to a `.gpg` file, since it is a PGP file too.
+    # IOStreams.path("keep_safe.gpg").option(:pgp, passphrase: "receiver_passphrase").read
     #
     # # In this case the file is not pgp so the `passphrase` option is ignored.
     # IOStreams.path("keep_safe.enc").option(:pgp, passphrase: "receiver_passphrase").read

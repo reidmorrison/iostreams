@@ -268,6 +268,17 @@ IOStreams.path("example.csv.enc").
   read
 ~~~
 
+An option for a format applies to each of its file name extensions, so `option(:pgp, ...)` also applies to
+a `.gpg` file, `option(:gz, ...)` to a `.gzip` file, and `option(:xlsx, ...)` to a `.xlsm` file. So a file
+name held in configuration can change from one extension to the other without changing the code. When
+options are set for more than one extension of a format, those for the extension in the file name take
+precedence.
+~~~ruby
+IOStreams.path("example.csv.gpg").
+  option(:pgp, passphrase: "receiver_passphrase").
+  read
+~~~
+
 To see the what value was previously set for a particular option:
 ~~~ruby 
 path = IOStreams.path("example.pgp")
