@@ -1221,6 +1221,72 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#raw" do
+      it "reads the data as it is stored, without the streams that the file name implies" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "data.csv.gz")
+          path.write("name\nJos\u00e9\n")
+          stored = ::File.binread(path.to_s)
+
+          assert_equal stored, path.dup.raw.read
+          assert_equal Encoding::BINARY, path.dup.raw.read.encoding
+          refute_equal "name\nJos\u00e9\n".b, stored
+        end
+      end
+
+      it "writes the data as it is supplied" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "data.csv.gz")
+          data = Zlib.gzip("Hello")
+          path.dup.raw.write(data)
+
+          assert_equal data.b, ::File.binread(path.to_s)
+          assert_equal "Hello", path.read
+        end
+      end
+
+      it "reads lines as bytes" do
+        lines = []
+        IOStreams.stream(StringIO.new("Jos\xE9\n".b)).raw.each(:line) { |line| lines << line }
+
+        assert_equal ["Jos\xE9".b], lines
+        assert_equal Encoding::BINARY, lines.first.encoding
+      end
+
+      it "reads a fixed width file as bytes, rather than ASCII" do
+        rows = []
+        IOStreams.stream(StringIO.new("Jos\xE9  Paris  \n".b)).raw.
+          format(:fixed).format_options(layout: [{size: 6, key: "name"}, {size: 7, key: "city"}]).
+          each(:hash) { |row| rows << row }
+
+        assert_equal [{"name" => "Jos\xE9".b, "city" => "Paris".b}], rows
+      end
+
+      it "writes text as bytes, rather than in the default encoding of the format" do
+        Dir.mktmpdir do |dir|
+          layout = [{size: 6, key: "name"}, {size: 7, key: "city"}]
+          path   = IOStreams.path(dir, "people.txt").raw.format(:fixed).format_options(layout: layout)
+          path.writer(:hash) { |io| io << {"name" => "Jos\u00e9", "city" => "Paris"} }
+
+          assert_equal "Jos\u00e9  Paris  \n".b, ::File.binread(path.to_s)
+        end
+      end
+
+      it "raises when a stream, option or encoding is set afterwards" do
+        path = IOStreams.path("data.csv.gz").raw
+
+        assert_raises(ArgumentError) { path.stream(:gz) }
+        assert_raises(ArgumentError) { path.option(:gz) }
+        error = assert_raises(ArgumentError) { path.encoding("UTF-8") }
+
+        assert_equal "Cannot call #encoding after #raw, which reads and writes the data as it is stored", error.message
+      end
+
+      it "raises for a frozen path" do
+        assert_raises(FrozenError) { IOStreams.path("data.csv.gz").freeze.raw }
+      end
+    end
+
     describe "#compressed?" do
       it "is true when a stream inferred from the file name compresses the data" do
         assert_predicate IOStreams.path("data.csv.gz"), :compressed?
@@ -1236,7 +1302,7 @@ class StreamTest < Minitest::Test
       end
 
       it "is false when the streams are disabled" do
-        refute_predicate IOStreams.path("data.csv.gz").stream(:none), :compressed?
+        refute_predicate IOStreams.path("data.csv.gz").raw, :compressed?
       end
 
       it "is false for an encrypted stream, which records any compression within the encrypted data" do
@@ -1267,7 +1333,7 @@ class StreamTest < Minitest::Test
       end
 
       it "is false when the streams are disabled" do
-        refute_predicate IOStreams.path("data.csv.pgp").stream(:none), :encrypted?
+        refute_predicate IOStreams.path("data.csv.pgp").raw, :encrypted?
       end
 
       it "is false for a compressed stream" do
@@ -1297,7 +1363,7 @@ class StreamTest < Minitest::Test
       it "converts between streams based on the file names" do
         source_path.write("Hello World")
 
-        refute_equal "Hello World", IOStreams.path(source_path.to_s).stream(:none).read
+        refute_equal "Hello World", IOStreams.path(source_path.to_s).raw.read
 
         target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"))
 
@@ -1330,7 +1396,7 @@ class StreamTest < Minitest::Test
         assert_equal "Hello World", target.read
         target.write("Changed")
 
-        refute_equal "Changed", target.stream(:none).read.b
+        refute_equal "Changed", target.raw.read
       ensure
         target&.delete
       end

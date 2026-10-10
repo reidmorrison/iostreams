@@ -232,7 +232,9 @@ end
 ~~~
 
 The first argument is a base file name to include in the generated temp file name, and the
-optional second argument is the file extension.
+optional second argument is the file extension. Like any other path, the streams that the extension
+implies are applied, so writing to a temp file with the extension `.csv.gz` compresses the data. Call
+`#raw` on the path to read or write the data as it is stored.
 
 ## logger
 

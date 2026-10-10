@@ -131,7 +131,7 @@ module Paths
           assert_empty temps
           assert_includes operations(xlsx), :complete_multipart_upload
           # A zip file, which the spreadsheet reader tests read.
-          assert_equal "PK", IOStreams.path("s3://bucket/a.xlsx").stream(:none).read(2)
+          assert_equal "PK", IOStreams.path("s3://bucket/a.xlsx").raw.read(2)
         end
 
         it "writes a zip file" do

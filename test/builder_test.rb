@@ -185,6 +185,62 @@ class BuilderTest < Minitest::Test
 
     # Internal methods
 
+    describe "#raw" do
+      it "applies no streams, although the file name implies them" do
+        streams.raw
+
+        assert_empty(streams.pipeline)
+        assert_predicate streams, :raw?
+      end
+
+      it "clears the streams, options and encoding already set" do
+        streams.option(:pgp, passphrase: "unlock-me").encoding("BINARY").raw
+
+        assert_empty(streams.pipeline)
+        assert_nil streams.setting(:pgp)
+        assert_nil streams.setting(:encode)
+      end
+
+      it "clears the streams set with #stream" do
+        streams.stream(:gz).raw
+
+        assert_empty(streams.pipeline)
+      end
+
+      it "is not raw by default" do
+        refute_predicate streams, :raw?
+      end
+
+      it "raises when a stream, option or encoding is set afterwards" do
+        streams.raw
+
+        [
+          -> { streams.stream(:gz) },
+          -> { streams.stream(:none) },
+          -> { streams.option(:gz) },
+          -> { streams.encoding("UTF-8") },
+          -> { streams.option(:encode, encoding: "UTF-8") }
+        ].each do |call|
+          error = assert_raises(ArgumentError) { call.call }
+
+          assert_includes error.message, "after #raw, which reads and writes the data as it is stored"
+        end
+      end
+
+      it "is kept by a copy" do
+        assert_predicate streams.raw.dup, :raw?
+      end
+
+      it "reads text as it is stored, without a default encoding" do
+        streams.raw
+        copy = streams.with_default_encoding("US-ASCII:UTF-8")
+
+        assert_empty(copy.pipeline)
+        assert_equal "caf\xE9".b, copy.text("caf\xE9".b)
+        copy.text_reader(StringIO.new("caf\xE9".b)) { |io| assert_equal "caf\xE9".b, io.read }
+      end
+    end
+
     describe "#stream_format" do
       it "xlsx" do
         assert_equal IOStreams::Xlsx, streams.send(:stream_format, :xlsx)

@@ -11,7 +11,10 @@ module IOStreams
     #     writes, so file names do not name it. It applies whenever its options are set with `#encoding`, and is
     #     always closest to the application. Setting it with `#option` or `#stream` is deprecated, but still works.
     #   :none
-    #     Supplied to `#stream` to apply no streams.
+    #     Supplied to `#stream` to apply no streams, including an encode stream set with `#encoding`. Text is still
+    #     read and written in its default encoding, see #text_reader and #with_default_encoding, since that belongs
+    #     to the text, not to a stream. Set an encoding with `#encoding` afterwards, such as "BINARY", to change it.
+    #     Deprecated, see #raw, which reads and writes the data as stored, without any encoding.
     RESERVED_KEYWORDS = %i[encode none].freeze
 
     # Returns [true|false] whether the name is a reserved keyword, see `RESERVED_KEYWORDS`.
@@ -44,6 +47,7 @@ module IOStreams
       @streams   = nil
       @options   = nil
       @encoding  = nil
+      @raw       = false
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
@@ -63,6 +67,7 @@ module IOStreams
     #
     # Setting the encode stream with `option(:encode, ...)` is deprecated, see #encoding, which it calls.
     def option(stream, **options)
+      raise_if_raw!("#option")
       stream = stream.to_sym unless stream.is_a?(Symbol)
       return merge_encoding(options) if stream == :encode
 
@@ -82,7 +87,10 @@ module IOStreams
 
     # Setting the encode stream with `stream(:encode, ...)` is deprecated, see #encoding. Like any other stream
     # set with `#stream`, it still stops the streams being taken from the file name.
+    #
+    # Supplying `:none` is deprecated, see #raw.
     def stream(stream, **options)
+      raise_if_raw!("#stream")
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @options
 
@@ -127,6 +135,25 @@ module IOStreams
       merge_encoding(options)
     end
 
+    # Reads and writes the data as it is stored: applies no streams, neither those that the file name implies nor
+    # any already set with #stream or #option, and no encoding, so text is read and written as bytes. For example,
+    # to download a zip file without unzipping it, or to write data that is already compressed.
+    #
+    # Since the data is as stored, setting a stream, option or encoding afterwards raises ArgumentError. To read a
+    # file whose name implies the wrong streams, set the file name that names its format instead.
+    def raw
+      @streams  = {}
+      @options  = nil
+      @encoding = nil
+      @raw      = true
+      self
+    end
+
+    # Returns [true|false] whether the data is read and written as it is stored, see #raw.
+    def raw?
+      @raw
+    end
+
     def option_or_stream(stream, **)
       if streams
         stream(stream, **)
@@ -143,9 +170,11 @@ module IOStreams
     #
     # So that a format whose text has an encoding of its own, such as fixed width files, see
     # `IOStreams::Tabular#encoding`, uses it by default, while the caller can still set the encoding of the data.
+    #
+    # After #raw the copy reads and writes the data as stored, without an encoding.
     def with_default_encoding(encoding)
       copy = dup
-      copy.encoding(encoding) unless setting(:encode)&.key?(:encoding)
+      copy.encoding(encoding) unless raw? || setting(:encode)&.key?(:encoding)
       copy
     end
 
@@ -170,9 +199,9 @@ module IOStreams
     #
     # Text is decoded by the built-in encode stream, see `IOStreams::Encode`. So unless the pipeline already
     # includes it, see #encoding, the supplied stream is read through the encode stream with its
-    # default options, which read UTF-8.
+    # default options, which read UTF-8. After #raw the supplied stream is read as bytes.
     def text_reader(io_stream, &)
-      return yield(io_stream) if pipeline.key?(:encode)
+      return yield(io_stream) if raw? || pipeline.key?(:encode)
 
       open_stream(:reader, :encode, io_stream, {}, &)
     end
@@ -183,9 +212,9 @@ module IOStreams
     # that it is valid, so that a binary file can be read too, since its bytes are unchanged. The data is returned
     # as it is when the pipeline includes the encode stream, which gave it its encoding, or when the pipeline is
     # empty and the data has an encoding other than binary, which the supplied stream gave it, such as an IO opened
-    # with an external encoding.
+    # with an external encoding. After #raw the data is returned as it was read.
     def text(data)
-      return data if data.nil? || pipeline.key?(:encode)
+      return data if data.nil? || raw? || pipeline.key?(:encode)
       return data if pipeline.empty? && data.encoding != Encoding::BINARY
 
       encoding = Encode.default_encoding
@@ -263,9 +292,17 @@ module IOStreams
 
     # Validates the options of the encode stream and merges them with those already set, see #encoding.
     def merge_encoding(options)
+      raise_if_raw!("#encoding")
       Encode.validate_options(nil, options, name: :encode)
       @encoding = (@encoding || {}).merge(options)
       self
+    end
+
+    # Options are strict: raise rather than ignore a setting that #raw would not apply.
+    def raise_if_raw!(method)
+      return unless raw?
+
+      raise(ArgumentError, "Cannot call #{method} after #raw, which reads and writes the data as it is stored")
     end
 
     # Returns the format of the stream, see .find_format, or raises when there is none.

@@ -142,7 +142,9 @@ IOStreams.path("sample.csv.gz").
 ~~~
 
 Each call merges its options with those already set, so `encoding("UTF-8").encoding(replace: "")` is
-the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams.
+the same as `encoding("UTF-8", replace: "")`. `#raw` removes it, along with every other stream, to read and write the data as it is stored, as
+bytes. The deprecated `stream(:none)` removes it too, but text is still read in its default encoding,
+UTF-8, or ASCII for [fixed width files](formats#fixed-width-files).
 
 **Deprecated:** setting the encode stream with `option(:encode, ...)` or `stream(:encode, ...)`.
 Both still work, and set the same options as `#encoding`, but use `#encoding` instead:
@@ -156,7 +158,7 @@ Both still work, and set the same options as `#encoding`, but use `#encoding` in
 
 `stream(:encode, ...)` also stops the streams being taken from the file name, like any other stream
 set with `#stream`, so a `.gz` file read with `stream(:encode, encoding: "BINARY")` is not
-decompressed. `encoding("BINARY")` keeps them; add `stream(:none)` first to read the data as-is.
+decompressed. `encoding("BINARY")` keeps them; use `#raw` instead to read the data as it is stored.
 
 Options:
 
@@ -269,8 +271,8 @@ IOStreams.register_extension(:tgz, IOStreams.extensions[:gz])
 ~~~
 
 `:encode` and `:none` are reserved keywords, which cannot be registered as an extension. The `:encode`
-stream is built in rather than registered, so it is not in `IOStreams.extensions`, and `stream(:none)`
-applies no streams.
+stream is built in rather than registered, so it is not in `IOStreams.extensions`, and `stream(:none)`,
+deprecated in favor of `#raw`, applies no streams.
 
 Similarly, to support a new storage location, supply a Path class for its URI scheme.
 See [IOStreams::Paths::S3](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)

@@ -300,7 +300,7 @@ module IOStreams
       #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').reader {|file| puts file.read}
       #
       # Read the file without unzipping and streaming the first file in the zip:
-      #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').stream(:none).reader {|file| puts file.read}
+      #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').raw.reader {|file| puts file.read}
       #
       # Notes:
       # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
