@@ -26,6 +26,9 @@ module IOStreams
     #
     # See #option to set an option for one of the streams included based on the file name extensions.
     #
+    # Supplying `:none` to apply no streams is deprecated. Use #raw to read or write the data as it is stored,
+    # or set the file name with #file_name when the file is not named for its format.
+    #
     # Example:
     #
     # IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
@@ -50,6 +53,30 @@ module IOStreams
     def option(stream, **)
       raise_if_frozen!
       builder.option(stream, **)
+      self
+    end
+
+    # Read and write the data as it is stored: no streams are applied, neither those that the file name implies
+    # nor any set with #stream or #option, and no encoding, so text is read and written as bytes.
+    # Setting a stream, option or encoding afterwards raises ArgumentError.
+    #
+    # Examples:
+    #
+    # # Checksum a compressed file as it is stored.
+    # Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+    #
+    # # Write data that is already compressed.
+    # IOStreams.path("data.csv.gz").raw.write(gzipped_data)
+    #
+    # To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+    # `copy_to(target, convert: false)`, since the target applies its own streams. To read a file that is not named
+    # for its format, such as a CSV file called `data.txt`, set the file name that names its format instead, for
+    # example `file_name("data.csv")`.
+    #
+    # Replaces `stream(:none)`, which still works, but keeps the default encoding of the text, see #encoding.
+    def raw
+      raise_if_frozen!
+      builder.raw
       self
     end
 
@@ -116,7 +143,7 @@ module IOStreams
     #   IOStreams.path("tempfile2527").stream(:gz).compressed?
     #   # => true
     #
-    #   IOStreams.path("data.csv.gz").stream(:none).compressed?
+    #   IOStreams.path("data.csv.gz").raw.compressed?
     #   # => false
     def compressed?
       builder.compressed?
@@ -471,7 +498,7 @@ module IOStreams
     # changing the streams or options of this one.
     def without_streams
       copy         = dup
-      copy.builder = IOStreams::Builder.new(file_name).stream(:none)
+      copy.builder = IOStreams::Builder.new(file_name).raw
       copy
     end
 

@@ -629,8 +629,46 @@ IOStreams.path("people.txt").encoding(replace: " ")
 IOStreams.stream(io).encoding("BINARY")
 ~~~
 
-To keep reading the data as-is, as `stream(:encode, ...)` does for a file name with extensions, add
-`stream(:none)` before `#encoding`.
+To keep reading the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for a file name
+with extensions, use `#raw`. For another encoding, such as a plain file whose name ends in `.gz`, set
+the file name that names its format with `#file_name`, then `#encoding`.
+
+### `#raw` replaces `stream(:none)`
+
+`stream(:none)` is deprecated. It still works as before, so no change is needed. Use whichever of
+these matches why it was used:
+
+* To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no streams and no encoding, so text, including lines, rows and records, is read
+  and written as bytes, where `stream(:none)` reads it as UTF-8, or ASCII for fixed width files.
+  Setting a stream, option or encoding after `#raw` raises `ArgumentError`.
+* To read a file that is not named for its format, set the file name that names it with `#file_name`.
+* To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+  `copy_to(target, convert: false)`, since the target applies the streams of its own file name.
+
+~~~ruby
+# Before (deprecated)
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
+IOStreams.path("data.txt.gz").stream(:none).each(:hash) { |row| p row }
+
+# After
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) { |row| p row }
+~~~
+
+### `IOStreams.temp_file` applies the streams of its extension
+
+The path that `IOStreams.temp_file` yields applies the streams that its extension implies, like any
+other path. Previously it had `stream(:none)`, so its data was read and written as stored, whatever
+its extension. For example, writing to a temp file with the extension `.csv.gz` now compresses the
+data. A temp file whose extension implies no streams, such as `.csv`, is unchanged.
+
+Fix: to read or write the data as stored, as before, call `#raw` on the path:
+
+~~~ruby
+IOStreams.temp_file("export", ".csv.gz") do |path|
+  path.raw.write(gzipped_data)
+end
+~~~
 
 ### The encode `cleaner` option is strict
 

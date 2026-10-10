@@ -381,11 +381,25 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-To ensure no streams are inferred or applied use stream `:none`. It removes the streams that the file
-name implies, and any encoding set with `#encoding`, but lines, rows and records are still read as
-text, see [Text and binary data](#text-and-binary-data). Add `encoding("BINARY")` after it to read bytes:
+To read or write the data as it is stored, use `#raw`. It applies no streams, neither those that the
+file name implies nor any set with `#stream` or `#option`, and no encoding, so the data, including
+lines, rows and records, is read and written as bytes. For example, to checksum a compressed file as
+it is stored, or to write data that is already compressed:
 ~~~ruby
-path = IOStreams.path("file.zip")
-path.stream(:none)
-path.read
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+
+IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
+
+To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+`copy_to(target, convert: false)`, since the target applies the streams of its own file name.
+
+Setting a stream, option or encoding after `#raw` raises `ArgumentError`. To read a file that is not
+named for its format, such as a CSV file named `data.txt`, set the file name that names its format
+instead:
+~~~ruby
+IOStreams.path("data.txt").file_name("data.csv").each(:hash) { |row| p row }
+~~~
+
+`stream(:none)` is deprecated. It still applies no streams, but reads and writes text in its default
+encoding, see [Text and binary data](#text-and-binary-data).

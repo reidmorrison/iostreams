@@ -159,7 +159,9 @@ module IOStreams
   #     Base file name to include in the temp file name.
   #
   #   extension: [String]
-  #     Optional extension to add to the tempfile.
+  #     Optional extension to add to the tempfile. Like any other path, the streams that it implies are
+  #     applied, so writing to a temp file with the extension ".csv.gz" compresses the data. Call #raw on the
+  #     path to read or write the data as it is stored.
   #
   # Example:
   #   IOStreams.temp_file("export", ".csv") { |path| path.write("Hello World") }
@@ -168,7 +170,7 @@ module IOStreams
   def self.temp_file(basename, extension = "")
     Utils.temp_file_name(basename, extension) do |file_name|
       # `Path#permit!` is not public, since it would let any caller access a path outside the allowed paths.
-      yield(Paths::File.new(file_name).send(:permit!).stream(:none))
+      yield(Paths::File.new(file_name).send(:permit!))
     end
   end
 

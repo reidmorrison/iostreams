@@ -2161,14 +2161,28 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-To ensure no streams are inferred or applied use stream `:none`. It removes the streams that the file
-name implies, and any encoding set with `#encoding`, but lines, rows and records are still read as
-text, see [Text and binary data](#text-and-binary-data). Add `encoding("BINARY")` after it to read bytes:
+To read or write the data as it is stored, use `#raw`. It applies no streams, neither those that the
+file name implies nor any set with `#stream` or `#option`, and no encoding, so the data, including
+lines, rows and records, is read and written as bytes. For example, to checksum a compressed file as
+it is stored, or to write data that is already compressed:
 ~~~ruby
-path = IOStreams.path("file.zip")
-path.stream(:none)
-path.read
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+
+IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
+
+To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+`copy_to(target, convert: false)`, since the target applies the streams of its own file name.
+
+Setting a stream, option or encoding after `#raw` raises `ArgumentError`. To read a file that is not
+named for its format, such as a CSV file named `data.txt`, set the file name that names its format
+instead:
+~~~ruby
+IOStreams.path("data.txt").file_name("data.csv").each(:hash) { |row| p row }
+~~~
+
+`stream(:none)` is deprecated. It still applies no streams, but reads and writes text in its default
+encoding, see [Text and binary data](#text-and-binary-data).
 
 ---
 
@@ -2557,9 +2571,9 @@ IOStreams.path("sample.csv.gz").
 ~~~
 
 Each call merges its options with those already set, so `encoding("UTF-8").encoding(replace: "")` is
-the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams. Text is still read in its default encoding,
-UTF-8, or ASCII for [fixed width files](formats#fixed-width-files), so call `#encoding` after
-`stream(:none)` to read it in another, such as `encoding("BINARY")` for bytes.
+the same as `encoding("UTF-8", replace: "")`. `#raw` removes it, along with every other stream, to read and write the data as it is stored, as
+bytes. The deprecated `stream(:none)` removes it too, but text is still read in its default encoding,
+UTF-8, or ASCII for [fixed width files](formats#fixed-width-files).
 
 **Deprecated:** setting the encode stream with `option(:encode, ...)` or `stream(:encode, ...)`.
 Both still work, and set the same options as `#encoding`, but use `#encoding` instead:
@@ -2573,7 +2587,7 @@ Both still work, and set the same options as `#encoding`, but use `#encoding` in
 
 `stream(:encode, ...)` also stops the streams being taken from the file name, like any other stream
 set with `#stream`, so a `.gz` file read with `stream(:encode, encoding: "BINARY")` is not
-decompressed. `encoding("BINARY")` keeps them; add `stream(:none)` first to read the data as-is.
+decompressed. `encoding("BINARY")` keeps them; use `#raw` instead to read the data as it is stored.
 
 Options:
 
@@ -2686,8 +2700,8 @@ IOStreams.register_extension(:tgz, IOStreams.extensions[:gz])
 ~~~
 
 `:encode` and `:none` are reserved keywords, which cannot be registered as an extension. The `:encode`
-stream is built in rather than registered, so it is not in `IOStreams.extensions`, and `stream(:none)`
-applies no streams.
+stream is built in rather than registered, so it is not in `IOStreams.extensions`, and `stream(:none)`,
+deprecated in favor of `#raw`, applies no streams.
 
 Similarly, to support a new storage location, supply a Path class for its URI scheme.
 See [IOStreams::Paths::S3](https://github.com/reidmorrison/iostreams/blob/main/lib/io_streams/paths/s3.rb)
@@ -2831,7 +2845,8 @@ padded and truncated to `:size` characters. In ASCII, and in a single-byte code 
 is one byte, so the sizes count bytes.
 
 Set the encoding of the file with [`#encoding`](extensions#character-encoding) when it is not
-ASCII. An encoding that is set always replaces the ASCII default, which `stream(:none)` keeps:
+ASCII. An encoding that is set always replaces the ASCII default, and `#raw` reads and writes the bytes as
+they are stored:
 
 * A single-byte code page, such as ISO-8859-1 or Windows-1252, or EBCDIC from a mainframe: name it
   with the encoding that the values are read as, for example
@@ -3736,7 +3751,9 @@ end
 ~~~
 
 The first argument is a base file name to include in the generated temp file name, and the
-optional second argument is the file extension.
+optional second argument is the file extension. Like any other path, the streams that the extension
+implies are applied, so writing to a temp file with the extension `.csv.gz` compresses the data. Call
+`#raw` on the path to read or write the data as it is stored.
 
 ## logger
 
@@ -4402,8 +4419,46 @@ IOStreams.path("people.txt").encoding(replace: " ")
 IOStreams.stream(io).encoding("BINARY")
 ~~~
 
-To keep reading the data as-is, as `stream(:encode, ...)` does for a file name with extensions, add
-`stream(:none)` before `#encoding`.
+To keep reading the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for a file name
+with extensions, use `#raw`. For another encoding, such as a plain file whose name ends in `.gz`, set
+the file name that names its format with `#file_name`, then `#encoding`.
+
+### `#raw` replaces `stream(:none)`
+
+`stream(:none)` is deprecated. It still works as before, so no change is needed. Use whichever of
+these matches why it was used:
+
+* To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no streams and no encoding, so text, including lines, rows and records, is read
+  and written as bytes, where `stream(:none)` reads it as UTF-8, or ASCII for fixed width files.
+  Setting a stream, option or encoding after `#raw` raises `ArgumentError`.
+* To read a file that is not named for its format, set the file name that names it with `#file_name`.
+* To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+  `copy_to(target, convert: false)`, since the target applies the streams of its own file name.
+
+~~~ruby
+# Before (deprecated)
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
+IOStreams.path("data.txt.gz").stream(:none).each(:hash) { |row| p row }
+
+# After
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) { |row| p row }
+~~~
+
+### `IOStreams.temp_file` applies the streams of its extension
+
+The path that `IOStreams.temp_file` yields applies the streams that its extension implies, like any
+other path. Previously it had `stream(:none)`, so its data was read and written as stored, whatever
+its extension. For example, writing to a temp file with the extension `.csv.gz` now compresses the
+data. A temp file whose extension implies no streams, such as `.csv`, is unchanged.
+
+Fix: to read or write the data as stored, as before, call `#raw` on the path:
+
+~~~ruby
+IOStreams.temp_file("export", ".csv.gz") do |path|
+  path.raw.write(gzipped_data)
+end
+~~~
 
 ### The encode `cleaner` option is strict
 

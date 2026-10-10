@@ -191,6 +191,24 @@ module IOStreams
           assert_kind_of IOStreams::Paths::File, path1, path1
           assert_kind_of IOStreams::Paths::File, path2, path2
         end
+
+        it "applies the streams that the extension implies, like any other path" do
+          IOStreams.temp_file("base", ".csv.gz") do |path|
+            path.write("name\nJos\u00e9\n")
+
+            assert_predicate path, :compressed?
+            assert_equal "name\nJos\u00e9\n", Zlib::GzipReader.open(path.to_s, &:read).force_encoding("UTF-8")
+            assert_equal "name\nJos\u00e9\n", path.read
+          end
+        end
+
+        it "reads and writes the data as stored with #raw" do
+          IOStreams.temp_file("base", ".csv.gz") do |path|
+            path.raw.write("not compressed")
+
+            assert_equal "not compressed".b, ::File.binread(path.to_s)
+          end
+        end
       end
 
       describe ".temp_dir" do
