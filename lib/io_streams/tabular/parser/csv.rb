@@ -3,6 +3,18 @@ module IOStreams
   class Tabular
     module Parser
       class Csv < Base
+        # Frozen, so that using one does not create a string each time, as a string literal does in this file.
+        QUOTE         = '"'.freeze
+        ESCAPED_QUOTE = '""'.freeze
+        COMMA         = ",".freeze
+        CR            = "\r".freeze
+        LF            = "\n".freeze
+        EMPTY         = "".freeze
+        QUOTE_BYTE    = QUOTE.ord
+        COMMA_BYTE    = COMMA.ord
+        # The characters that a value is quoted for when it is written.
+        QUOTABLE      = /[\r\n,"]/
+
         # CSV fields may contain embedded delimiters and newlines when wrapped in double quotes.
         def self.quote_character
           '"'
@@ -25,14 +37,101 @@ module IOStreams
 
         private
 
+        # Returns [Array] the values of the line, the same as `CSV.parse_line`.
+        #
+        # `CSV.parse_line` creates a parser for each line, which costs several times more than parsing the line,
+        # so the line is parsed here, except for a line that `CSV.parse_line` still parses:
+        # * A line with a line break, which CSV takes as the end of the row unless it is quoted.
+        # * A line with invalid quoting, so that CSV raises its own error for it.
         def parse_line(line)
           return if IOStreams::Utils.blank?(line)
+          return CSV.parse_line(line) if line.include?(CR) || line.include?(LF)
+          return split_line(line) unless line.include?(QUOTE)
 
-          CSV.parse_line(line)
+          scan_line(line) || CSV.parse_line(line)
         end
 
+        # Returns [Array] the values of a line without quotes, where an empty value is nil.
+        def split_line(line)
+          values = line.split(COMMA, -1)
+          return values unless values.include?(EMPTY)
+
+          values.map! { |value| value.empty? ? nil : value }
+        end
+
+        # Returns [Array] the values of a line with quotes, where an empty value is nil unless it is quoted.
+        # Returns nil when the quoting is invalid.
+        #
+        # Reads one value at a time, starting at the byte at `position`. Uses `while` loops rather than blocks,
+        # since JRuby leaves a block for `break` or `return` by raising an exception.
+        def scan_line(line)
+          values   = []
+          size     = line.bytesize
+          position = 0
+          while position <= size
+            if line.getbyte(position) == QUOTE_BYTE
+              start = position + 1
+              close = line.byteindex(QUOTE, start)
+              value = close && line.byteslice(start, close - start)
+              # The value ends at the first quote that is not doubled. A doubled quote is one quote in the value.
+              while close && line.getbyte(close + 1) == QUOTE_BYTE
+                start = close + 2
+                close = line.byteindex(QUOTE, start)
+                value << QUOTE << line.byteslice(start, close - start) if close
+              end
+              return unless close
+
+              position = close + 1
+              # Only a comma, or the end of the line, can follow the closing quote.
+              return if position < size && line.getbyte(position) != COMMA_BYTE
+            else
+              comma = line.byteindex(COMMA, position) || size
+              value = line.byteslice(position, comma - position)
+              # A quote must enclose the whole value.
+              return if value.include?(QUOTE)
+
+              value    = nil if value.empty?
+              position = comma
+            end
+            values << value
+            # Skip the comma, or move past the end of the line after the last value.
+            position += 1
+          end
+          values
+        end
+
+        # Returns [String] the values as a line, the same as `CSV.generate_line`.
+        #
+        # Like `CSV.parse_line`, `CSV.generate_line` creates a CSV object for each line, so the line is written here,
+        # unless a value is text that is neither valid UTF-8 nor ASCII, which `CSV.generate_line` still writes, so
+        # that the line and any error are the same.
         def render_array(array)
-          CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
+          render_line(array) || CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
+        end
+
+        # Returns [String] the values as a UTF-8 line, or nil when a value is text that is neither valid UTF-8 nor ASCII.
+        #
+        # Like CSV, a nil value is written as nothing, and any other value is converted with `String()`, and quoted when
+        # it is empty, or contains a quote, a comma or a line break.
+        def render_line(values)
+          line  = +""
+          index = 0
+          while index < values.size
+            value = values[index]
+            line << COMMA if index.positive?
+            index += 1
+            next if value.nil?
+
+            value = String(value)
+            return unless (value.encoding == Encoding::UTF_8 || value.ascii_only?) && value.valid_encoding?
+
+            if value.empty? || QUOTABLE.match?(value)
+              line << QUOTE << value.gsub(QUOTE, ESCAPED_QUOTE) << QUOTE
+            else
+              line << value
+            end
+          end
+          line
         end
       end
     end

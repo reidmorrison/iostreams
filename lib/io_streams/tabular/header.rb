@@ -40,8 +40,12 @@ module IOStreams
       end
 
       # Set the columns in this header, converting the column names to strings.
+      #
+      # Change the columns with this method, rather than by changing the array that #columns returns, since the
+      # header works out from them which columns #to_hash returns.
       def columns=(columns)
-        @columns = stringify(columns)
+        @columns      = stringify(columns)
+        @hash_columns = nil
       end
 
       # Returns [Array<String>] list columns that were ignored during cleansing.
@@ -175,11 +179,19 @@ module IOStreams
       private
 
       def array_to_hash(row)
-        h = {}
-        columns.each_with_index do |col, i|
-          h[col] = row[i] unless IOStreams::Utils.blank?(col) || col.start_with?(IGNORE_PREFIX)
+        hash = {}
+        hash_columns.each { |column, index| hash[column] = row[index] }
+        hash
+      end
+
+      # Returns [Array<Array(String, Integer)>] each column that #to_hash returns, with its position in a row:
+      # every column except a blank one, or one that #cleanse! rejected.
+      #
+      # Worked out once for the columns, rather than for every row, and again when #columns= changes them.
+      def hash_columns
+        @hash_columns ||= columns.each_with_index.reject do |column, _index|
+          IOStreams::Utils.blank?(column) || column.start_with?(IGNORE_PREFIX)
         end
-        h
       end
 
       # Returns [Hash] the values of the hash for each column.

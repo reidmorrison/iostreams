@@ -336,6 +336,35 @@ class TabularTest < Minitest::Test
         assert hash = tabular.record_parse("1,2")
         assert_equal({"first_field" => "1", "second" => "2", "third" => nil}, hash)
       end
+
+      it "skips blank columns" do
+        tabular.header.columns = ["first", nil, " ", "fourth"]
+
+        assert_equal({"first" => "1", "fourth" => "4"}, tabular.record_parse("1,2,3,4"))
+      end
+
+      it "returns the value of the last column when two have the same name" do
+        tabular.header.columns = %w[a b a]
+
+        assert_equal({"a" => "3", "b" => "2"}, tabular.record_parse("1,2,3"))
+      end
+
+      it "uses the columns set after a row is parsed" do
+        assert_equal({"first_field" => "1", "second" => "2", "third" => "3"}, tabular.record_parse("1,2,3"))
+
+        tabular.header.columns = %w[a b]
+
+        assert_equal({"a" => "1", "b" => "2"}, tabular.record_parse("1,2,3"))
+      end
+
+      it "skips the columns rejected by cleansing after a row is parsed" do
+        assert_equal({"first_field" => "1", "second" => "2", "third" => "3"}, tabular.record_parse("1,2,3"))
+
+        tabular.header.allowed_columns = %w[second]
+        tabular.cleanse_header!
+
+        assert_equal({"second" => "2"}, tabular.record_parse("1,2,3"))
+      end
     end
 
     describe "#render" do
