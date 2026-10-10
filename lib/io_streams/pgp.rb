@@ -1,3 +1,4 @@
+require "date"
 require "open3"
 require "shellwords"
 module IOStreams
@@ -252,7 +253,7 @@ module IOStreams
     #     key_length: [Integer]
     #     key_type:   [String]
     #     key_id:     [String]
-    #     date:       [String]
+    #     date:       [Date]
     #     name:       [String]
     #     email:      [String]
     #     private:    [true|false]
@@ -286,7 +287,7 @@ module IOStreams
     #     key_length: [Integer]
     #     key_type:   [String]
     #     key_id:     [String]
-    #     date:       [String]
+    #     date:       [Date]
     #     name:       [String]
     #     email:      [String]
     #     private:    [true|false]

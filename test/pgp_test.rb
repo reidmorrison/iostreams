@@ -1142,5 +1142,18 @@ class PgpTest < Minitest::Test
       assert_equal "ultimate", key[:trust]
       refute key.key?(:email)
     end
+
+    it "returns the date as a Date when the application has not loaded the date library" do
+      # In another process, since this one has loaded it, for example by requiring yaml.
+      script = <<~'SCRIPT'
+        require "iostreams"
+        key = IOStreams::Pgp.parse_list_output("pub   rsa1024 2017-10-24 [SCEA]\nuid           [ultimate] Jack <jack@example.org>\n").first
+        print "#{key[:date].class} #{key[:date]}"
+      SCRIPT
+      output, status = Open3.capture2e(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-e", script)
+
+      assert_predicate status, :success?, output
+      assert_equal "Date 2017-10-24", output
+    end
   end
 end

@@ -715,6 +715,14 @@ and the `signer` that reading checks, were dropped for a `.gpg` file, which then
 When options are set for more than one extension of a format, such as with both `option(:pgp, ...)` and
 `option(:gpg, ...)`, they are combined, and those for the extension in the file name take precedence.
 
+### PGP key dates are a `Date`
+
+`IOStreams::Pgp.list_keys` and `IOStreams::Pgp.key_info` return the `date:` of each key as a `Date`. They
+already did in an application that had loaded the `date` library, as `yaml` and Rails do. Previously it was a
+`String`, such as `"2017-10-24"`, in an application that had not.
+
+Fix: compare the date with a `Date`, such as `Date.new(2017, 10, 24)`, or call `to_s` on it for the `String`.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
