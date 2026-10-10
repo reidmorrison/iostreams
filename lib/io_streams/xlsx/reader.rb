@@ -22,6 +22,11 @@ module IOStreams
         end
       end
 
+      # Reads with creek rather than xsv, for now. xsv (checked at 1.4.1) loses data when converting cells: it rounds
+      # datetimes to the minute, returns a time of day as "HH:MM", misreads a lowercase exponent (1e+20 as 1), leaves
+      # _xHHHH_ escapes such as _x000D_ undecoded, ignores date1904, turns errors such as #N/A into nil, strips
+      # formula results, returns gap rows as rows of nil, and pads every row to the sheet's width. It has no option to
+      # return raw values. Revisit once xsv resolves these type conversion issues.
       def initialize(file_name)
         begin
           require "creek" unless defined?(Creek::Book)
