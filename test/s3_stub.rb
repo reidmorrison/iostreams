@@ -1,4 +1,4 @@
-require "digest"
+require "digest/md5"
 require "securerandom"
 
 # In-memory S3, built on the AWS SDK's response stubbing, so that the S3 path tests
