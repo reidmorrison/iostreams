@@ -11,6 +11,9 @@ AllCops:
     - "gemfiles/*"
     - "test/files/*"
     - "docs/stylesheets/*"
+    # RuboCop excludes these by default, but this list replaces its defaults. Worktrees go under tmp/.
+    - "tmp/**/*"
+    - "vendor/**/*"
   NewCops: enable
   TargetRubyVersion: 3.2
 

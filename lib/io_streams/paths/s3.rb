@@ -13,6 +13,7 @@ module IOStreams
       # otherwise a single `put_object` request, like a smaller file.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
+      autoload :Directories, "io_streams/paths/s3/directories"
       autoload :Failure, "io_streams/paths/s3/failure"
       autoload :RangeReader, "io_streams/paths/s3/range_reader"
       autoload :Sdk, "io_streams/paths/s3/sdk"
@@ -429,11 +430,11 @@ module IOStreams
 
         # List within the key as a directory, so that a key such as "reports" does not also list "reports_2024.csv".
         prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
-        listed = {}
+        listed = Directories.new
         each_object(prefix) do |name, object|
           relative = object.key.delete_prefix(prefix)
           if directories
-            each_directory(relative, listed) do |directory|
+            listed.each_new(relative) do |directory|
               next unless matcher.match?(directory)
 
               child = child_path(name, "#{prefix}#{directory}")
@@ -600,22 +601,6 @@ module IOStreams
           )
         end
         yield(child, {}) if resp.contents.any?
-      end
-
-      # Yields the name of each directory within the relative key that has not already been listed,
-      # such as `a` and `a/b` for `a/b/c.csv`, or for the empty folder `a/b/`.
-      def each_directory(relative, listed)
-        elements = relative.split("/")
-        elements.pop unless relative.end_with?("/")
-        elements.each_index do |index|
-          break if elements[index].empty?
-
-          directory = elements[0..index].join("/")
-          next if listed.key?(directory)
-
-          listed[directory] = true
-          yield(directory)
-        end
       end
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
