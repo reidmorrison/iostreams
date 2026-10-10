@@ -83,6 +83,20 @@ class RecordWriterTest < Minitest::Test
         assert_equal raw_csv_data, io_string.string
       end
 
+      it "yields a record writer that it is given as it is" do
+        io_string = StringIO.new
+        IOStreams::Line::Writer.stream(io_string) do |io|
+          IOStreams::Record::Writer.stream(io) do |records|
+            IOStreams::Record::Writer.stream(records) do |inner|
+              assert_same records, inner
+              inner << {"name" => "Jack"}
+            end
+          end
+        end
+
+        assert_equal "name\nJack\n", io_string.string
+      end
+
       it "returns the record writer so that calls can be chained" do
         io_string = StringIO.new
         IOStreams::Line::Writer.stream(io_string) do |io|

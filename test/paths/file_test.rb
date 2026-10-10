@@ -574,7 +574,9 @@ module Paths
 
         it "ignores missing file" do
           file_path.delete
-          file_path.delete
+
+          assert_same file_path, file_path.delete
+          refute_path_exists file_path.to_s
         end
       end
 

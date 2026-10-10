@@ -188,9 +188,13 @@ class StreamOptionsTest < Minitest::Test
 
     describe "gzip" do
       it "writes with a compression level" do
-        path("a.gz").option(:gz, level: Zlib::BEST_COMPRESSION).write(data)
+        # The gzip header records the slowest level as 2, and the fastest as 4, in its extra flags.
+        {Zlib::BEST_COMPRESSION => 2, Zlib::BEST_SPEED => 4}.each_pair do |level, extra_flags|
+          path("a.gz").option(:gz, level: level).write(data)
 
-        assert_equal data, path("a.gz").read
+          assert_equal extra_flags, File.binread(path("a.gz").to_s).getbyte(8), "level #{level}"
+          assert_equal data, path("a.gz").read
+        end
       end
 
       it "ignores the level when reading" do
@@ -205,6 +209,8 @@ class StreamOptionsTest < Minitest::Test
       it "writes with a block size and reads with small" do
         path("a.bz2").option(:bz2, block_size: 1, work_factor: 30).write(data)
 
+        # The bzip2 header records the block size, in units of 100k.
+        assert_equal "BZh1", File.binread(path("a.bz2").to_s, 4)
         assert_equal data, path("a.bz2").option(:bz2, small: true).read
       end
 

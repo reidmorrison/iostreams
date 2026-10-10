@@ -34,6 +34,20 @@ class RowReaderTest < Minitest::Test
         assert_equal expected.size, count
       end
 
+      it "yields a row reader that it is given as it is" do
+        rows = []
+        IOStreams::Line::Reader.stream(StringIO.new("name,zip\nJack,12345\n")) do |file|
+          IOStreams::Row::Reader.stream(file) do |io|
+            IOStreams::Row::Reader.stream(io) do |inner|
+              assert_same io, inner
+              inner.each { |row| rows << row }
+            end
+          end
+        end
+
+        assert_equal [%w[name zip], %w[Jack 12345]], rows
+      end
+
       it "keeps newlines within quoted values when reading a file" do
         embedded_file_name = File.join(File.dirname(__FILE__), "files", "embedded_lines_test.csv")
         rows               = []

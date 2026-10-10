@@ -293,7 +293,11 @@ module IOStreams
     #     trust:      [String]
     def self.key_info(key:)
       version_check
-      command = gpg_command("--batch", "--no-tty")
+      args = ["--batch", "--no-tty"]
+      # Without a command, gpg shows the keys that it reads, but from gpg 2.1 it cannot show a secret key.
+      # `--show-keys`, from gpg 2.2.8, shows both in the same format.
+      args << "--show-keys" if version_at_least?("2.2.8")
+      command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true, stdin_data: key)
       IOStreams.logger&.debug { "IOStreams::Pgp.key_info: #{command.shelljoin}\n#{err}#{out}" }
@@ -348,10 +352,10 @@ module IOStreams
     #
     # Returns [Array<Hash>] keys that were successfully imported.
     #   Each Hash consists of:
-    #     key_id: [String]
-    #     type:   [String]
-    #     name:   [String]
-    #     email:  [String]
+    #     key_id:  [String]
+    #     private: [true|false] whether its secret key was imported
+    #     name:    [String]
+    #     email:   [String]
     # Returns [] if the same key was previously imported.
     #
     # Raises Pgp::Failure if there was an issue importing any of the keys.
@@ -402,17 +406,16 @@ module IOStreams
         # Check for unchanged message specifically
         return [] if output =~ /unchanged: 1/i || output =~ /not changed/i
 
-        results = []
-        secret  = false
-
+        # gpg reports the import of a secret key on a line of its own, before the line of its public key in versions
+        # before 2.4, and after it from 2.4, so it is matched by its key id.
+        secret_key_ids = output.scan(/key\s+([0-9A-F]+):\s+secret key imported/i).flatten
+        results        = []
         output.each_line do |line|
-          if line =~ /secret key imported/
-            secret = true
-          elsif (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]*)"/i))
-            name, email_addr = parse_user_id(match[2])
-            results << {key_id: match[1].to_s.strip, private: secret, name: name, email: email_addr}
-            secret = false
-          end
+          next unless (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]*)"/i))
+
+          key_id           = match[1].to_s.strip
+          name, email_addr = parse_user_id(match[2])
+          results << {key_id: key_id, private: secret_key_ids.include?(key_id), name: name, email: email_addr}
         end
 
         # Return results if we found any

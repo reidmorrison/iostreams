@@ -50,6 +50,9 @@ module IOStreams
         end
 
         # Like IO#gets: returns the next line, ending with the separator, or nil at the end.
+        #
+        # With the separator "", each line is a paragraph, which ends at a blank line. Like IO#gets, the line endings
+        # before a paragraph are skipped, and so are those after the blank line that ends it.
         def gets(separator = $/, limit = nil, chomp: false)
           if separator.is_a?(Integer)
             limit     = separator
@@ -57,17 +60,17 @@ module IOStreams
           end
           return read_rest if separator.nil? && limit.nil?
 
-          # Paragraph mode: lines end at a blank line.
-          separator = separator == "" ? "\n\n".b : separator&.b
-          loop do
-            index = separator && @buffer.index(separator)
-            size  = index && (index + separator.bytesize)
-            size  = limit if limit && @buffer.bytesize >= limit && (size.nil? || size > limit)
-            return chomp_line(take(size), separator, chomp) if size
+          paragraph = separator == ""
+          separator = paragraph ? "\n\n".b : separator&.b
+          skip_line_endings if paragraph
+          until (size = line_size(separator, limit))
             return read_rest if @eof
 
             fill
           end
+          line = take(size)
+          skip_line_endings if paragraph && line.end_with?(separator)
+          chomp_line(line, separator, chomp)
         end
 
         # Like IO#each_line: yields each line.
@@ -110,10 +113,29 @@ module IOStreams
           take(@buffer.bytesize)
         end
 
+        # Returns [Integer] the size of the next line, which ends with the separator or at the limit,
+        # or nil when the buffer does not hold all of it yet.
+        def line_size(separator, limit)
+          index = separator && @buffer.index(separator)
+          size  = index && (index + separator.bytesize)
+          limit && @buffer.bytesize >= limit && (size.nil? || size > limit) ? limit : size
+        end
+
         def chomp_line(line, separator, chomp)
           return line unless chomp && separator && line.end_with?(separator)
 
           line.byteslice(0, line.bytesize - separator.bytesize)
+        end
+
+        # Skips the line endings at the start of the data, such as the blank lines between paragraphs.
+        def skip_line_endings
+          until @buffer.empty? && @eof
+            fill if @buffer.empty?
+            start = @buffer.index(/[^\n]/n)
+            return take(start) if start
+
+            @buffer.clear
+          end
         end
 
         # Reads the next block that gpg has written to its stdout into the buffer, feeding gpg the caller's input

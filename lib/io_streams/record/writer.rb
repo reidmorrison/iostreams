@@ -44,7 +44,7 @@ module IOStreams
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
       def self.stream(line_writer, original_file_name: nil, **args)
         # Pass-through if already a record writer
-        return yield(line_writer) if line_writer.is_a?(self.class)
+        return yield(line_writer) if line_writer.is_a?(self)
 
         yield new(line_writer, tabular: IOStreams::Tabular.new(file_name: original_file_name, **args))
       end

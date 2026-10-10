@@ -46,13 +46,12 @@ class EncodeReaderTest < Minitest::Test
     describe "#read" do
       describe "replacement" do
         it "does not strip invalid characters" do
-          skip "Does not raise on JRuby" if defined?(JRuby)
           input = StringIO.new(bad_data)
 
           IOStreams::Encode::Reader.stream(input, encoding: "UTF-8") do |io|
-            assert_raises ::Encoding::UndefinedConversionError do
-              io.read.encoding
-            end
+            error = assert_raises(IOStreams::Errors::InvalidEncoding) { io.read }
+
+            assert_equal 5, error.byte_offset
           end
         end
 
@@ -62,6 +61,7 @@ class EncodeReaderTest < Minitest::Test
             IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", replace: "", &:read)
 
           assert_equal cleansed_data, data
+          assert_equal Encoding::UTF_8, data.encoding
         end
       end
 
@@ -72,6 +72,7 @@ class EncodeReaderTest < Minitest::Test
             IOStreams::Encode::Reader.stream(input, encoding: "UTF-8", cleaner: :printable, replace: "", &:read)
 
           assert_equal stripped_data, data
+          assert_equal Encoding::UTF_8, data.encoding
         end
       end
 
@@ -159,9 +160,11 @@ class EncodeReaderTest < Minitest::Test
 
         it "raises for an unknown cleaner symbol" do
           input = StringIO.new("x")
-          assert_raises ArgumentError do
+          error = assert_raises(ArgumentError) do
             IOStreams::Encode::Reader.stream(input, cleaner: :unknown_rule, &:read)
           end
+
+          assert_equal "Invalid cleansing rule :unknown_rule", error.message
         end
 
         it "raises for a cleaner that is neither a Symbol nor a Proc, rather than ignoring it" do
@@ -238,6 +241,14 @@ class EncodeReaderTest < Minitest::Test
           assert_equal 5, exc.byte_offset
           assert_nil exc.line_number
           assert_equal "\"\\xE9\" is not valid UTF-8 at byte offset 5", exc.message
+        end
+
+        it "names the first of several invalid characters" do
+          exc = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            IOStreams::Encode::Reader.stream(StringIO.new("ab\xFFcd\xFE".b), encoding: "UTF-8", &:read)
+          end
+
+          assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 2", exc.message
         end
 
         it "returns the data before an invalid character when reading in blocks, and raises on the next read" do
@@ -441,6 +452,22 @@ class EncodeReaderTest < Minitest::Test
           end
 
           assert_equal "caf\u00e9", data
+        end
+
+        it "converts a character longer than two bytes that is split across reads" do
+          # The emoji is a surrogate pair, four bytes in UTF-16LE, so that a read can end after one, two or three of them.
+          text  = "a\u{1F600}\u00e9"
+          utf16 = text.encode("UTF-16LE").b
+          [1, 2, 3].each do |size|
+            data = +""
+            IOStreams::Encode::Reader.stream(StringIO.new(utf16), encoding: "UTF-16LE:UTF-8") do |io|
+              while (block = io.read(size))
+                data << block
+              end
+            end
+
+            assert_equal text, data, "Reading #{size} bytes at a time"
+          end
         end
 
         it "reads lines in the internal encoding" do

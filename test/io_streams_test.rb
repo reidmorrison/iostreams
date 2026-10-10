@@ -130,11 +130,17 @@ module IOStreams
           assert_nil original.setting(:encode)
         end
 
-        it "s3" do
-          skip "TODO"
-          IOStreams.path("s3://a.xyz")
-
-          assert_equal :s3, path
+        it "returns the path class registered for the scheme of a url" do
+          {
+            "/tmp/a.xyz"            => IOStreams::Paths::File,
+            "file:///tmp/a.xyz"     => IOStreams::Paths::File,
+            "http://example.org/a"  => IOStreams::Paths::HTTP,
+            "https://example.org/a" => IOStreams::Paths::HTTP,
+            "sftp://example.org/a"  => IOStreams::Paths::SFTP,
+            "s3://bucket/a.xyz"     => IOStreams::Paths::S3
+          }.each_pair do |url, path_class|
+            assert_instance_of path_class, IOStreams.path(url), url
+          end
         end
 
         it "hash writer detects json format from file name" do
@@ -212,8 +218,23 @@ module IOStreams
       end
 
       describe ".temp_dir" do
-        it "returns the temp directory" do
-          assert IOStreams.temp_dir
+        before { @temp_dir = IOStreams.instance_variable_get(:@temp_dir) }
+
+        after { IOStreams.instance_variable_set(:@temp_dir, @temp_dir) }
+
+        it "is the system's temp directory by default" do
+          IOStreams.instance_variable_set(:@temp_dir, nil)
+
+          assert_equal Dir.tmpdir, IOStreams.temp_dir
+        end
+
+        it "is the directory that is set, which is created" do
+          Dir.mktmpdir do |dir|
+            IOStreams.temp_dir = File.join(dir, "a", "b")
+
+            assert_equal File.join(dir, "a", "b"), IOStreams.temp_dir
+            assert File.directory?(IOStreams.temp_dir)
+          end
         end
       end
 
@@ -638,7 +659,7 @@ module IOStreams
           children = []
           IOStreams.each_child(IOStreams.join("each_child_test", "*.csv").to_s) { |path| children << path.to_s }
 
-          assert_equal 2, children.size, children
+          assert_equal(%w[abc.csv def.csv].map { |name| IOStreams.join("each_child_test", name).to_s }, children.sort)
         end
 
         it "searches the current directory when the pattern has no directory" do

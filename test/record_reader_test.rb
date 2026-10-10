@@ -51,6 +51,20 @@ class RecordReaderTest < Minitest::Test
         assert_equal expected, rows
       end
 
+      it "yields a record reader that it is given as it is" do
+        records = []
+        IOStreams::Line::Reader.stream(StringIO.new("name\nJack\n")) do |file|
+          IOStreams::Record::Reader.stream(file) do |io|
+            IOStreams::Record::Reader.stream(io) do |inner|
+              assert_same io, inner
+              inner.each { |record| records << record }
+            end
+          end
+        end
+
+        assert_equal [{"name" => "Jack"}], records
+      end
+
       it "keeps newlines within quoted values when reading a file" do
         embedded_file_name = File.join(File.dirname(__FILE__), "files", "embedded_lines_test.csv")
         records            = []

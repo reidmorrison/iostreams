@@ -107,7 +107,8 @@ class StreamTest < Minitest::Test
         rows = []
         IOStreams.path(File.join(__dir__, "files", "spreadsheet.xlsx")).each(:array) { |row| rows << row }
 
-        assert_equal Encoding::UTF_8, rows.first.first.encoding
+        assert_equal [["first column", "second column", "third column"], ["data 1", "data 2", "more data"]], rows
+        assert_equal [Encoding::UTF_8], rows.flatten.map(&:encoding).uniq
       end
 
       it "reads the whole of a binary file as UTF-8 without changing it" do
@@ -138,10 +139,25 @@ class StreamTest < Minitest::Test
         assert_equal Encoding::ISO_8859_1, data.encoding
       end
 
-      it "raises for lines that are not valid UTF-8" do
-        assert_raises(Encoding::UndefinedConversionError) do
-          IOStreams.stream(StringIO.new(bad_data)).each(:line) { |line| line }
+      it "reads the whole of a supplied IO that returns frozen binary data as UTF-8" do
+        io = Object.new
+        def io.read(*)
+          "Jos\u00e9".b.freeze
         end
+        data = IOStreams.stream(io).read
+
+        assert_equal "Jos\u00e9", data
+        assert_equal Encoding::UTF_8, data.encoding
+      end
+
+      it "raises for lines that are not valid UTF-8, once the lines before them have been read" do
+        lines = []
+        error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+          IOStreams.stream(StringIO.new("good line\nNew M\xE9xico\n".b)).each(:line) { |line| lines << line }
+        end
+
+        assert_equal ["good line"], lines
+        assert_equal "\"\\xE9\" is not valid UTF-8 at byte offset 15 on line 2", error.message
       end
 
       it "reads lines in the encoding of an encode stream" do
@@ -908,12 +924,54 @@ class StreamTest < Minitest::Test
           assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
         end
 
+        # UTF-8 that is not ASCII, so that only reading it as ASCII raises.
+        let(:utf8_line) { "Jos\u00e9 Paris  \n" }
+
         it "reads lines as ASCII in the fixed format" do
           Dir.mktmpdir do |dir|
-            ::File.binwrite(::File.join(dir, "people.txt"), "Jos\xE9\n".b)
-            path = IOStreams.path(dir, "people.txt").format(:fixed)
+            ::File.binwrite(::File.join(dir, "people.txt"), utf8_line.b)
+            path  = IOStreams.path(dir, "people.txt").format(:fixed)
+            error = assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:line) { |_line| nil } }
+
+            assert_equal "\"\\xC3\" is not valid US-ASCII at byte offset 3 on line 1", error.message
+          end
+        end
+
+        it "reads lines as ASCII in a file named for the fixed format" do
+          Dir.mktmpdir do |dir|
+            ::File.binwrite(::File.join(dir, "people.fixed"), utf8_line.b)
+            path = IOStreams.path(dir, "people.fixed")
 
             assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:line) { |_line| nil } }
+          end
+        end
+
+        it "reads rows as ASCII in the fixed format" do
+          Dir.mktmpdir do |dir|
+            ::File.binwrite(::File.join(dir, "people.txt"), utf8_line.b)
+            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+
+            assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:array) { |_row| nil } }
+          end
+        end
+
+        it "writes lines as ASCII in the fixed format" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.txt").format(:fixed)
+
+            assert_raises(Encoding::UndefinedConversionError) { path.writer(:line) { |io| io << "Jos\u00e9" } }
+          end
+        end
+
+        it "writes rows as ASCII in the fixed format" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
+            path.writer(:array, columns: %w[name city]) { |io| io << %w[Jack Paris] }
+
+            assert_equal "Jack  Paris  \n", ::File.binread(path.to_s)
+            assert_raises(Encoding::UndefinedConversionError) do
+              path.writer(:array, columns: %w[name city]) { |io| io << %W[Jos\u00e9 Paris] }
+            end
           end
         end
 
@@ -1061,30 +1119,31 @@ class StreamTest < Minitest::Test
         lines = []
         IOStreams::Stream.new(io).file_name("abc.csv").each(:line) { |line| lines << line }
 
-        assert_equal 2, lines.size
-        assert_equal %("Jack\nJohnson",hello), lines[1]
+        assert_equal ["name,description", %("Jack\nJohnson",hello)], lines
       end
 
       it "does not set embedded_within for a pipe-delimited file labeled .csv when format is :psv" do
         lines = []
         IOStreams.path(pipe_delimited_csv_file).format(:psv).each(:line) { |line| lines << line }
 
-        assert_equal 4, lines.size
-        assert_equal "O\"neil|Firstname is O\"neil|234568", lines[2]
+        assert_equal ["name|description|zip", "Jack|Firstname is Jack|234567", %(O"neil|Firstname is O"neil|234568),
+                      %(Smith|Description with "quote|234569)], lines
       end
 
       it "allows embedded_within: nil to disable quote-aware line joining on a .csv file" do
         lines = []
         IOStreams.path(pipe_delimited_csv_file).each(:line, embedded_within: nil) { |line| lines << line }
 
-        assert_equal 4, lines.size
-        assert_equal "O\"neil|Firstname is O\"neil|234568", lines[2]
+        assert_equal ["name|description|zip", "Jack|Firstname is Jack|234567", %(O"neil|Firstname is O"neil|234568),
+                      %(Smith|Description with "quote|234569)], lines
       end
 
       it "raises when a pipe-delimited file labeled .csv is read as csv" do
-        assert_raises(IOStreams::Errors::MalformedDataError) do
+        error = assert_raises(IOStreams::Errors::MalformedDataError) do
           IOStreams.path(pipe_delimited_csv_file).each(:line) { |line| line }
         end
+
+        assert_equal 4, error.line_number
       end
 
       it "sets embedded_within from an explicit csv format with no file_name" do
@@ -1092,8 +1151,7 @@ class StreamTest < Minitest::Test
         lines = []
         IOStreams::Stream.new(io).format(:csv).each(:line) { |line| lines << line }
 
-        assert_equal 1, lines.size
-        assert_equal %("Jack\nJohnson",hello), lines[0]
+        assert_equal [%("Jack\nJohnson",hello)], lines
       end
     end
 
