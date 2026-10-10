@@ -449,6 +449,56 @@ Fix: none is needed in most cases. When the copy raises, the object is either un
 replaced. Code that relied on a failed copy always removing the object should call `#delete` after
 the error.
 
+### S3 objects are read without a temp file
+
+Reading an S3 path now requests the object 8MB at a time, as the application reads it, instead of
+downloading the whole object into a temp file before the block is called. So the application starts on the
+data straight away, and the object no longer has to fit on the local disk. This changes when a failure can
+occur:
+
+* A failure to read the object part way through, such as a network failure once the AWS SDK has retried it,
+  now raises from within the block, once some of the data has been processed, as it can for any other stream.
+* Every range after the first is read from the same object as the first: in a versioned bucket from the same
+  version, and otherwise only while the object has the same ETag. So an object that is replaced while it is
+  read raises `Aws::S3::Errors::PreconditionFailed`, rather than returning parts of both. Previously the
+  download returned the object as it was when the download started.
+* S3 returns no checksum for a range of an object, so the AWS SDK no longer checks one when reading. The data
+  is still protected in transit by TLS.
+
+With the `range` or `part_number` option, which choose the bytes of the object to read, the object is still
+downloaded into a temp file first.
+
+Fix: none is needed in most cases. Where an object can be replaced while it is read, enable versioning on the
+bucket, or retry the read on `Aws::S3::Errors::PreconditionFailed`. Where processing must not start until the
+whole object has been read, read it into a local file first, for example with
+`IOStreams.path("s3://bucket/a.csv").copy_to(local_path, convert: false)`.
+
+### S3 objects are written without a temp file
+
+Writing to an S3 path now uploads the data as it is written, instead of writing it into a temp file that was
+uploaded once the block completed. So the file no longer has to fit on the local disk, and the upload overlaps
+with writing it. S3 still only stores the object once the block completes. Upto 8MB is stored with a single
+request, as before. More is uploaded in parts:
+
+* Writing holds about 40MB in memory: the part being written, and upto four parts being uploaded at the same
+  time in other threads.
+* An object larger than 8MB has the ETag of a multipart upload, such as `"...-3"`, rather than the MD5 digest of
+  its data, which it had upto 100MB.
+* A failed upload raises the error of the request that failed, such as `Aws::S3::Errors::AccessDenied`, tagged
+  with the kind of failure, see [Errors](errors), rather than `Aws::S3::MultipartUploadError`.
+* When the block raises, or an upload fails, the upload is aborted, so that S3 discards the parts already
+  uploaded. A process that is killed while it writes cannot abort its upload, so S3 keeps its parts, and charges
+  for them, until they are removed. Previously it left a temp file on the local disk instead.
+
+With an option that describes the whole object, `content_md5`, `content_length`, `write_offset_bytes`, or the
+checksum of its data, such as `checksum_crc32`, the data is still written into a temp file first.
+
+Fix: none is needed in most cases. Add a lifecycle rule to the bucket that aborts incomplete multipart uploads,
+for example after a day, so that S3 removes the parts of an upload that was never completed. Rescue the error of
+the request, or the kind of failure, instead of `Aws::S3::MultipartUploadError`. Code that compares the ETag of an
+object with the MD5 digest of its data can no longer do so for an object larger than 8MB, so compare a digest
+that the application records itself instead.
+
 ### HTTPS downloads are not redirected to HTTP
 
 Reading an `https://` path no longer follows a redirect to an `http://` url, and raises

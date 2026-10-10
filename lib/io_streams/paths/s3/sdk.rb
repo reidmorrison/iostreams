@@ -54,9 +54,13 @@ module IOStreams
         # Returns [Array<Symbol>] the options that the S3 operation accepts.
         def self.operation_options(operation)
           load
-          @operation_options ||= {}
-          @operation_options[operation] ||=
-            (::Aws::S3::Client.api.operation(operation).input.shape.member_names - PATH_PARAMETERS).freeze
+          cached = @operation_options&.[](operation)
+          return cached if cached
+
+          names = (::Aws::S3::Client.api.operation(operation).input.shape.member_names - PATH_PARAMETERS).freeze
+          # Replaces the cache rather than changing it, since the parts of an upload are requested in several threads.
+          @operation_options = (@operation_options || {}).merge(operation => names).freeze
+          names
         end
 
         # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts.

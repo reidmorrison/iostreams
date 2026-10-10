@@ -14,7 +14,9 @@ module IOStreams
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
       autoload :Failure, "io_streams/paths/s3/failure"
+      autoload :RangeReader, "io_streams/paths/s3/range_reader"
       autoload :Sdk, "io_streams/paths/s3/sdk"
+      autoload :Uploader, "io_streams/paths/s3/uploader"
 
       # The secret access key, also within `client:`, and the customer encryption keys, see
       # IOStreams::Path.redact_options. A session token and credentials are always sensitive by name.
@@ -204,13 +206,9 @@ module IOStreams
       end
 
       # Does not support relative file names since there is no concept of current working directory
-      def relative?
-        false
-      end
+      def relative? = false
 
-      def absolute?
-        true
-      end
+      def absolute? = true
 
       def delete
         Sdk.load
@@ -319,13 +317,9 @@ module IOStreams
       end
 
       # S3 logically creates paths when a key is set.
-      def mkpath
-        self
-      end
+      def mkpath = self
 
-      def mkdir
-        self
-      end
+      def mkdir = self
 
       def size
         authorize!
@@ -338,8 +332,17 @@ module IOStreams
       end
 
       # Read from AWS S3 file.
+      #
+      # Reads the object one range at a time, as the block reads it, see `RangeReader`. Unless the `range` or
+      # `part_number` option chooses the bytes to read, which are downloaded into a temp file first.
       def stream_reader(&block)
-        # Since S3 download only supports a push stream, write it to a tempfile first.
+        if RangeReader.supports?(options_for(:get_object).keys)
+          authorize!
+          input = RangeReader.new(->(**params) { request(:get_object, bucket: bucket_name, key: path, **params) })
+          return builder.reader(input, &block)
+        end
+
+        # Since a single S3 download only supports a push stream, write it to a tempfile first.
         Utils.private_temp_file("iostreams_s3", purpose: "the download of #{display_name}") do |file_name|
           read_file(file_name)
 
@@ -357,14 +360,21 @@ module IOStreams
 
       # Write to AWS S3
       #
-      # Raises [MultipartUploadError] If an object is being uploaded in
-      #   parts, and the upload can not be completed, then the upload is
-      #   aborted and this error is raised.  The raised error has a `#errors`
-      #   method that returns the failures that caused the upload to be
-      #   aborted.
+      # Uploads the data as it is written, see `Uploader`. Unless an option describes the whole object, such as
+      # `content_md5`, when the data is written into a temp file, which is uploaded once the block completes.
+      #
+      # Raises [MultipartUploadError] when the temp file is uploaded in parts, and the upload can not be completed,
+      #   then the upload is aborted and this error is raised. The raised error has a `#errors` method that returns the
+      #   failures that caused the upload to be aborted.
       def stream_writer(&block)
         # Raises LoadError without the AWS SDK before the block writes any data, rather than once it has all been written.
         Sdk.load
+        if Uploader.supports?(options_for(:put_object).keys)
+          authorize!
+          request = ->(operation, **params) { request(operation, bucket: bucket_name, key: path, **params) }
+          return Uploader.upload(request) { |io| builder.writer(io, &block) }
+        end
+
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
         Utils.private_temp_file("iostreams_s3", purpose: "the upload to #{display_name}") do |file_name|
           result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
@@ -440,9 +450,7 @@ module IOStreams
       end
 
       # On S3 only files that are completely saved are visible.
-      def partial_files_visible?
-        false
-      end
+      def partial_files_visible? = false
 
       # Returns [Aws::S3::Client] the client, created when first used since resolving the credentials can be slow,
       # for example from the EC2 instance metadata service.
