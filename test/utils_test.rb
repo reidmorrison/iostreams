@@ -53,6 +53,45 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".matchable" do
+      it "returns a string that is valid in its encoding" do
+        name = "café.csv"
+
+        assert_same name, IOStreams::Utils.matchable(name)
+      end
+
+      it "returns the bytes of a string that is not valid in its encoding" do
+        name = "caf\xE9.csv".dup.force_encoding(Encoding::UTF_8)
+
+        assert_equal "caf\xE9.csv".b, IOStreams::Utils.matchable(name)
+        assert_equal Encoding::BINARY, IOStreams::Utils.matchable(name).encoding
+      end
+    end
+
+    describe ".display_text" do
+      it "returns valid UTF-8 as it is" do
+        assert_equal "/data/café.csv", IOStreams::Utils.display_text("/data/café.csv")
+      end
+
+      it "reads a binary string as UTF-8" do
+        text = IOStreams::Utils.display_text("/data/café.csv".b)
+
+        assert_equal "/data/café.csv", text
+        assert_equal Encoding::UTF_8, text.encoding
+      end
+
+      it "shows each byte that is not valid UTF-8 as \\xHH" do
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".b)
+      end
+    end
+
+    describe ".file_name_extensions" do
+      it "returns the extensions of a name that is not valid UTF-8" do
+        assert_equal %w[csv gz], IOStreams::Utils.file_name_extensions("caf\xE9.CSV.gz".dup.force_encoding(Encoding::UTF_8))
+      end
+    end
+
     describe ".temp_file_name" do
       it "returns value from block" do
         result = IOStreams::Utils.temp_file_name("base", ".ext") { |_name| 257 }
@@ -347,6 +386,103 @@ class UtilsTest < Minitest::Test
         uri = IOStreams::Utils::URI.new("s3://bucket/a+b/c%2Bd.csv")
 
         assert_equal "/a+b/c+d.csv", uri.path
+      end
+
+      it "keeps characters that are not ASCII in the path" do
+        uri = IOStreams::Utils::URI.new("s3://bucket/données/café.csv")
+
+        assert_equal "bucket", uri.hostname
+        assert_equal "/données/café.csv", uri.path
+        assert_equal Encoding::UTF_8, uri.path.encoding
+      end
+
+      it "keeps the bytes of a name that is not valid UTF-8" do
+        uri = IOStreams::Utils::URI.new("sftp://example.org/in/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+
+        assert_equal "/in/caf\xE9.csv".b, uri.path.b
+      end
+
+      it "decodes characters that are not ASCII in the query" do
+        uri = IOStreams::Utils::URI.new("s3://bucket/key?prefix=café")
+
+        assert_equal({"prefix" => "café"}, uri.query)
+      end
+
+      it "keeps characters in the path that a url cannot hold, such as brackets" do
+        name = %(/report [1] {a|b} "x" <y> c^d`e\\f.csv)
+
+        assert_equal name, IOStreams::Utils::URI.new("s3://bucket#{name}").path
+      end
+
+      it "parses a host that is an IPv6 address" do
+        uri = IOStreams::Utils::URI.new("sftp://[::1]:2222/data/[1].csv")
+
+        assert_equal "::1", uri.hostname
+        assert_equal 2222, uri.port
+        assert_equal "/data/[1].csv", uri.path
+      end
+
+      it "takes the user name and password as they are, ending at the last @" do
+        uri = IOStreams::Utils::URI.new("sftp://jäck:p%41@s[s]@example.org/a.csv")
+
+        assert_equal "jäck", uri.user
+        assert_equal "p%41@s[s]", uri.password
+        assert_equal "example.org", uri.hostname
+      end
+
+      it "raises for a host that is not ASCII, or has a space" do
+        ["s3://bücher/a.csv", "sftp://jack:secret@a b.example/a.csv"].each do |url|
+          error = assert_raises(ArgumentError) { IOStreams::Utils::URI.new(url) }
+
+          assert_includes error.message, "The host of a url cannot have a space or a character that is not ASCII"
+          refute_includes error.message, "secret"
+        end
+      end
+
+      describe ".encode_path" do
+        it "encodes each %, ? and #, so that the path is parsed as the name again" do
+          ["a#b.csv", "q?.csv", "100%.csv", "caf%E9.csv", "café [1].csv", "caf\xE9.csv".dup.force_encoding(Encoding::UTF_8)].each do |name|
+            encoded = IOStreams::Utils::URI.encode_path("/#{name}")
+
+            assert_equal "/#{name}".b, IOStreams::Utils::URI.new("s3://bucket#{encoded}").path.b
+          end
+          assert_equal "/a%23b%3F%25.csv", IOStreams::Utils::URI.encode_path("/a#b?%.csv")
+        end
+      end
+
+      describe ".authority" do
+        it "returns the scheme, user name, password, host and port" do
+          assert_equal "sftp://jack:secret@[::1]:2222", IOStreams::Utils::URI.authority("sftp://jack:secret@[::1]:2222/a?b#c")
+          assert_equal "sftp://example.org", IOStreams::Utils::URI.authority("sftp://example.org/caf\xE9".dup.force_encoding(Encoding::UTF_8))
+          assert_equal "", IOStreams::Utils::URI.authority("/a/b")
+        end
+      end
+
+      describe ".root" do
+        it "adds the path / to a url without a path" do
+          assert_equal "sftp://host/", IOStreams::Utils::URI.root("sftp://host")
+          assert_equal "https://host/?a=1", IOStreams::Utils::URI.root("https://host?a=1")
+          assert_equal "sftp://host/a", IOStreams::Utils::URI.root("sftp://host/a")
+        end
+
+        it "keeps the bytes of a url that is not valid UTF-8" do
+          url = "sftp://host/caf\xE9".dup.force_encoding(Encoding::UTF_8)
+
+          assert_equal url.b, IOStreams::Utils::URI.root(url).b
+        end
+      end
+
+      describe ".without_userinfo_or_query" do
+        it "removes the user name, password, query and fragment" do
+          assert_equal "sftp://[::1]:2222/a.csv",
+                       IOStreams::Utils::URI.without_userinfo_or_query("sftp://jack:p@ss@[::1]:2222/a.csv?IdentityFile=x#y")
+        end
+
+        it "keeps the bytes of a url that is not valid UTF-8" do
+          url = "sftp://jack@host/caf\xE9".dup.force_encoding(Encoding::UTF_8)
+
+          assert_equal "sftp://host/caf\xE9".b, IOStreams::Utils::URI.without_userinfo_or_query(url).b
+        end
       end
     end
   end

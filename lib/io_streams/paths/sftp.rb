@@ -33,6 +33,7 @@ module IOStreams
       @before_password_wait_seconds = 2
       @sshpass_wait_seconds         = 5
 
+      autoload :Batch, "io_streams/paths/sftp/batch"
       autoload :Failure, "io_streams/paths/sftp/failure"
       autoload :Listing, "io_streams/paths/sftp/listing"
       autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
@@ -123,7 +124,7 @@ module IOStreams
         @hostname = uri.hostname
         @mkdir    = false
         @username = username || uri.user
-        @url      = Utils.root_url(url)
+        @url      = Utils::URI.root(url)
         @password = password || uri.password
         @port     = uri.port || 22
         # Not Ruby 2.5 yet: transform_keys(&:to_s)
@@ -137,8 +138,9 @@ module IOStreams
       # Returns [String] the path of a url: `~` for the login directory, and `/` for a url without a path.
       def self.url_path(path)
         return "/" if path.empty?
+        return path unless path == "/~" || path.start_with?("/~/")
 
-        path.sub(%r{\A/~(?=/|\z)}, "~")
+        path.delete_prefix("/")
       end
 
       # Does not support relative file names since there is no concept of current working directory.
@@ -281,8 +283,9 @@ module IOStreams
       end
 
       # Returns [String] the url without the user name, password, or query, which can hold ssh options such as a key.
+      # Each byte of a name that is not valid UTF-8 is shown as `\xHH`, see `IOStreams::Path#display_name`.
       def display_name
-        url.sub(%r{\A([^:/]+://)[^/?#]*@}, "\\1").sub(/[?#].*\z/m, "")
+        Utils.display_text(Utils::URI.without_userinfo_or_query(url))
       end
 
       protected
@@ -291,11 +294,14 @@ module IOStreams
       def store = [hostname.to_s.downcase, port]
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
+      #
+      # Each `%`, `?` and `#` in the path is percent-encoded in the url, so that the path can be created again from
+      # its url, see `IOStreams::Utils::URI.encode_path`.
       def path=(path)
         # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.
         super([".", ""].include?(path) ? "~" : path)
         separator = self.path.start_with?("/") ? "" : "/"
-        @url      = "#{url[%r{\A[^:/]+://[^/?#]*}]}#{separator}#{self.path}"
+        @url      = "#{Utils::URI.authority(url)}#{separator}#{Utils::URI.encode_path(self.path)}"
       end
 
       # Returns [String] the name of this path on the server, where a path within the login
@@ -376,8 +382,11 @@ module IOStreams
       # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
       #
       # The supplied name is relative to the supplied directory, which defaults to this path.
+      #
+      # The url of the child has the host and port of this url, as they are written, such as an IPv6 address within
+      # `[` and `]`, without its user name or password, which are supplied as arguments instead.
       def child_path(name, directory = path)
-        server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
+        server     = Utils::URI.without_userinfo_or_query(url)
         child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
         child.path = ::File.join(directory, name).freeze
         child
@@ -400,6 +409,8 @@ module IOStreams
 
       # Use the sftp executable to download to a local file, via sshpass when a password is supplied
       def sftp_download(remote_file_name, local_file_name)
+        # Built first, so that a name that sftp cannot use raises before it is started.
+        command = Batch.get(remote_file_name, local_file_name)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
             if password
@@ -412,7 +423,7 @@ module IOStreams
               sleep self.class.sshpass_wait_seconds
             end
 
-            writer.puts "get #{remote_file_name.inspect} #{local_file_name.inspect}"
+            writer.puts command
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
@@ -431,6 +442,8 @@ module IOStreams
       end
 
       def sftp_upload(local_file_name, remote_file_name)
+        # Built first, so that a name that sftp cannot use raises before it is started.
+        commands = Batch.put(local_file_name, remote_file_name, mkpath: @mkdir)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
             if password
@@ -438,9 +451,7 @@ module IOStreams
               # Give time for password to be processed and stdin to be passed to sftp process.
               sleep self.class.sshpass_wait_seconds
             end
-            # The `-` prefix ignores the failure when a directory already exists.
-            parent_directories(remote_file_name).each { |directory| writer.puts "-mkdir #{directory.inspect}" } if @mkdir
-            writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
+            commands.each { |command| writer.puts(command) }
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
@@ -456,18 +467,6 @@ module IOStreams
             raise_failure("Upload", out, waith_thr.value)
           end
         end
-      end
-
-      # Returns [Array<String>] each directory of the file name, from the top down.
-      # For example `["/a", "/a/b"]` for `"/a/b/file.csv"`.
-      def parent_directories(file_name)
-        directories = []
-        directory   = ::File.dirname(file_name)
-        until ["/", "."].include?(directory)
-          directories.unshift(directory)
-          directory = ::File.dirname(directory)
-        end
-        directories
       end
 
       # Raises [IOStreams::Errors::CommunicationsFailure] with the output of the sftp program, tagged with the kind of

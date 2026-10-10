@@ -138,6 +138,95 @@ module Paths
         end
       end
 
+      describe "a name that is not valid UTF-8" do
+        # The name of a file that a program wrote in Latin-1, as Ruby lists it from a file system of UTF-8 names.
+        let(:latin1_name) { "caf\xE9.csv.gz".dup.force_encoding(Encoding::UTF_8) }
+        let(:latin1_path) { IOStreams.path("/data/in", latin1_name) }
+
+        # JRuby converts file names to Java strings, which replace each byte that is not valid UTF-8 with U+FFFD,
+        # so it cannot hold such a name, for example in `File.join`.
+        def skip_on_jruby
+          skip "JRuby replaces each byte of a file name that is not valid UTF-8 with U+FFFD" if defined?(JRuby)
+        end
+
+        # Creates a file with the supplied name in a temp directory, and yields the directory.
+        # Skips the test when the file system cannot hold the name, such as on macOS, which only holds UTF-8 names.
+        def with_file(name, data = "data")
+          Dir.mktmpdir do |dir|
+            begin
+              ::File.binwrite(::File.join(dir.b, name.b), data)
+            rescue Errno::EILSEQ
+              skip "The file system only holds names that are valid UTF-8"
+            end
+            yield(IOStreams.path(dir))
+          end
+        end
+
+        it "creates the path from the name as it is" do
+          skip_on_jruby
+
+          assert_instance_of IOStreams::Paths::File, latin1_path
+          assert_equal "/data/in/#{latin1_name}".b, latin1_path.to_s.b
+        end
+
+        it "displays each byte that is not valid UTF-8 as \\xHH" do
+          skip_on_jruby
+
+          assert_equal "/data/in/caf\\xE9.csv.gz", latin1_path.display_name
+        end
+
+        it "creates the path from a file url" do
+          skip_on_jruby
+
+          url = "file:///data/in/#{latin1_name}".force_encoding(Encoding::UTF_8)
+
+          assert_equal latin1_path.to_s.b, IOStreams.path(url).to_s.b
+          assert_equal latin1_path.to_s.b, IOStreams.path("file:///data/in/caf%E9.csv.gz").to_s.b
+          assert_includes latin1_path.inspect, "/data/in/caf\\xE9.csv.gz"
+        end
+
+        it "detects the streams and format from the name" do
+          assert_equal "gz", latin1_path.extension
+          assert_equal :csv, latin1_path.format
+          assert_equal({gz: {}}, latin1_path.pipeline)
+        end
+
+        it "joins, cleans and compares names" do
+          skip_on_jruby
+
+          assert_equal "/data/in/archive/x_caf\\xE9.csv.gz", latin1_path.directory.join("archive", "x_#{latin1_path.basename}").display_name
+          assert_equal latin1_path, IOStreams.path("/data/./in/../in", latin1_name).cleanpath
+          assert_equal "in/#{latin1_name}".b, latin1_path.relative_path_from(IOStreams.path("/data")).b
+          assert_equal "/data/in/caf\\xE9.csv.bz2", latin1_path.sub_ext(".bz2").display_name
+        end
+
+        it "is within the home directory when it starts with ~" do
+          assert_equal ::File.join(Dir.home, latin1_name).b, IOStreams.path("~", latin1_name).to_s.b
+        end
+
+        it "lists, reads and moves the file" do
+          skip_on_jruby
+
+          with_file("caf\xE9.csv".b) do |dir|
+            child = dir.children("*.csv").first
+
+            assert_equal ::File.join(dir.to_s, "caf\xE9.csv").b, child.to_s.b
+            assert_equal "data", child.read
+
+            target = dir.join("archive", "moved.csv")
+            child.move_to(target)
+
+            assert_equal "data", target.read
+          end
+        end
+
+        it "is not listed by a pattern that does not match it, when ignoring case" do
+          with_file("caf\xE9.txt".b) do |dir|
+            assert_empty dir.children("*.csv")
+          end
+        end
+      end
+
       describe "#each_child" do
         it "iterates an empty path" do
           none = nil

@@ -431,7 +431,7 @@ module IOStreams
     #   IOStreams.path(".profile").extension        #=> ""
     #   IOStreams.path(".profile.sh").extension     #=> "sh"
     def extension
-      extname&.sub(/^\./, "")
+      extname&.delete_prefix(".")
     end
 
     protected

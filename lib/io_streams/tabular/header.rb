@@ -49,8 +49,9 @@ module IOStreams
       # Each column is cleansed as follows:
       # - Leading and trailing whitespace is stripped.
       # - All characters converted to lower case.
-      # - Spaces and '-' are converted to '_'.
-      # - All characters except for letters, digits, and '_' are stripped.
+      # - Whitespace and '-' are converted to '_'. Whitespace that is not ASCII, such as a no-break space, is too.
+      # - All characters except for letters, digits, and '_' are stripped. Letters and digits that are not ASCII,
+      #   such as in `Prénom` or `日付`, are kept.
       #
       # Parameters:
       #   rename [true|false]
@@ -200,10 +201,14 @@ module IOStreams
       end
 
       def cleanse_column(name)
-        cleansed = name.to_s.strip.downcase
-        cleansed.gsub!(/\s+/, "_")
+        # Unlike `strip` and `\s`, which are only ASCII, `[[:space:]]` is whitespace of every language, such as a
+        # no-break space or an ideographic space, so that it separates words like a space. Like `strip`, also
+        # removes a leading or trailing null.
+        cleansed = name.to_s.downcase.gsub(/\A[[:space:]\0]+|[[:space:]\0]+\z/, "")
+        cleansed.gsub!(/[[:space:]]+/, "_")
         cleansed.gsub!(/-+/, "_")
-        cleansed.gsub!(/\W+/, "")
+        # Unlike `\W`, which is only ASCII, keeps the letters and digits of every language.
+        cleansed.gsub!(/[^[:word:]]+/, "")
         cleansed
       end
 

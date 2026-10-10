@@ -151,12 +151,42 @@ write a file with characters that are not ASCII, set its encoding, such as
 `encoding("ISO-8859-1")`, or `replace: " "`. See
 [Fixed width files](formats#fixed-width-files).
 
+### Cleansing a header row keeps letters that are not ASCII
+
+Now that a header row is read as UTF-8, cleansing it keeps the letters and digits of every language,
+so the column `Prénom` is `prénom`, and `日付` is `日付`. Previously they were `prnom`, and an empty
+name, so columns such as `日付` and `金額` had the same empty name. Whitespace that is not ASCII, such
+as a no-break space, is now converted to `_` and stripped like a space, so `First Name` with a
+no-break space is `first_name`, where it was `firstname`. JSON keys are cleansed the same way when they
+are matched to columns.
+
+`IOStreams.enforce_column_restrictions` now defaults to true, so an `allowed_columns` or
+`required_columns` written to match the previous names no longer matches: its columns are skipped, or
+raise `IOStreams::Errors::InvalidHeader`.
+
+Fix: rename any `allowed_columns`, `required_columns` or `columns` written to match the previous
+names, such as `prnom` to `prénom`, and `firstname` to `first_name`.
+
 ### A `+` in an S3 or SFTP url is kept
 
 A `+` in the path of an S3 or SFTP url is now kept, so `IOStreams.path("s3://bucket/a+b.csv")` reads
 the key `a+b.csv`. Previously it was decoded as a space, and read the key `a b.csv`.
 
 Fix: use a space, or `%20`, in the url for a space.
+
+### A `%`, `?` or `#` in an S3 or SFTP name is percent-encoded in its url
+
+`#to_s` of an S3 or SFTP path now percent-encodes each `%`, `?` and `#` in the key or file name, as
+`%25`, `%3F` and `%23`, so that the path can be created again from its url. For example the file
+`a#b.csv`, found by `#each_child` or joined to a path, is `sftp://host/data/a%23b.csv`, and the key
+`100%.csv` is `s3://bucket/100%25.csv`. Previously `#to_s` returned `sftp://host/data/a#b.csv`, which
+is the file `/data/a` when it is created again, so that an application that stored the url and read it
+later read or wrote another file, or raised `URI::InvalidURIError`. `#path` and `#basename` are
+unchanged, and `#display_name` shows the encoded name.
+
+Fix: use `#path` or `#basename` for the name of the file, rather than taking it from `#to_s`. A url
+stored by a previous version that holds one of these characters names another file, as it always did,
+so store its path again from `#each_child`.
 
 ### The path of an HTTP url is decoded
 

@@ -43,7 +43,7 @@ module IOStreams
           entries.sort_by(&:name).each do |entry|
             next if %w[. ..].include?(entry.name)
 
-            name = prefix ? ::File.join(prefix, entry.name) : entry.name
+            name = prefix ? ::File.join(prefix, utf8(entry.name)) : utf8(entry.name)
             yield(name, entry)
             next unless entry.directory? && (depth.nil? || depth.positive?)
 
@@ -67,10 +67,17 @@ module IOStreams
           sftp.dir.entries(directory).each do |entry|
             next if %w[. ..].include?(entry.name)
 
-            name = ::File.join(directory, entry.name)
+            name = ::File.join(directory, utf8(entry.name))
             entry.directory? ? remove_tree(sftp, name) : sftp.remove!(name)
           end
           sftp.rmdir!(directory)
+        end
+
+        # Returns [String] the name of a remote file as UTF-8. Net::SFTP returns each name as bytes, which servers send
+        # in UTF-8, as version 4 of the SFTP protocol requires, and as OpenSSH does on a file system of UTF-8 names.
+        # A name in another encoding, such as Latin-1, is then not valid UTF-8, see `IOStreams::Utils.matchable`.
+        def self.utf8(name)
+          name.dup.force_encoding(Encoding::UTF_8)
         end
 
         # Returns the attributes of the remote file or directory, or nil when it does not exist.
@@ -83,7 +90,7 @@ module IOStreams
           nil
         end
 
-        private_class_method :each_entry, :entries
+        private_class_method :each_entry, :entries, :utf8
       end
     end
   end

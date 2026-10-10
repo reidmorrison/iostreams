@@ -20,7 +20,8 @@ module IOStreams
       def initialize(file_name, create_path: true)
         @create_path = create_path
         file_name    = file_name.to_s
-        super(file_name.match?(%r{\Afile://}i) ? self.class.path_from_url(file_name) : self.class.home_path(file_name))
+        url          = Utils.matchable(file_name).match?(%r{\Afile://}i)
+        super(url ? self.class.path_from_url(file_name) : self.class.home_path(file_name))
       end
 
       # Returns [String] the absolute path of a `file://` url.
@@ -38,18 +39,21 @@ module IOStreams
                 "or within the home directory, such as 'file://~/a.txt'. " \
                 "Supply a relative path without 'file://', such as 'a.txt'.")
         end
-        if path.match?(/[?#]/)
+        # A name that is not valid UTF-8 is matched and decoded by its bytes, see `IOStreams::Utils.matchable`.
+        bytes = Utils.matchable(path)
+        if bytes.match?(/[?#]/)
           raise(ArgumentError, "Invalid file url #{url.inspect}: percent-encode '?' as '%3F' and '#' as '%23'.")
         end
 
-        path.match?(HOME_DIRECTORY) ? home_path(::URI.decode_uri_component(path)) : "/#{::URI.decode_uri_component(path)}"
+        name = ::URI.decode_uri_component(bytes).force_encoding(url.encoding)
+        bytes.match?(HOME_DIRECTORY) ? home_path(name) : "/#{name}"
       end
 
       # Returns [String] the file name with a leading `~` replaced by the home directory, or the file name unchanged.
       def self.home_path(file_name)
-        return file_name unless file_name.match?(HOME_DIRECTORY)
+        return file_name unless Utils.matchable(file_name).match?(HOME_DIRECTORY)
 
-        home = file_name.sub(HOME_DIRECTORY) { "#{Dir.home}/" }.chomp("/")
+        home = "#{Dir.home}/#{file_name.delete_prefix('~').delete_prefix('/')}".chomp("/")
         if ::File.directory?("~")
           IOStreams.logger&.warn(
             "#{file_name} is within the home directory: #{home}. " \
@@ -153,13 +157,14 @@ module IOStreams
         # characters such as `[` in its name are not pattern characters.
         glob_flags = matcher.hidden? ? ::File::FNM_DOTMATCH : 0
         candidates = Dir.glob(candidate_pattern(matcher.depth), glob_flags, base: directory)
+        # A name that is not valid UTF-8, such as one written in Latin-1, is listed too, see `IOStreams::Utils.matchable`.
         results    = candidates.filter_map do |name|
-          next if ::File.basename(name).match?(/\A\.\.?\z/) || !matcher.match?(name)
+          next if %w[. ..].include?(::File.basename(name)) || !matcher.match?(name)
 
           next ::File.join(directory, name) if directory
 
           # A child of the current directory called `~` is not the home directory.
-          name.match?(HOME_DIRECTORY) ? "./#{name}" : name
+          Utils.matchable(name).match?(HOME_DIRECTORY) ? "./#{name}" : name
         end
 
         results.each do |full_path|

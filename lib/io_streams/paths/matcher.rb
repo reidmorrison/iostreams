@@ -32,15 +32,24 @@ module IOStreams
         raise(ArgumentError, "The pattern must be a String, not #{pattern.inspect}") unless pattern.is_a?(String)
 
         @hidden              = hidden
+        @case_sensitive      = case_sensitive
         @directory, @pattern = split(pattern)
         @flags               = ::File::FNM_EXTGLOB | ::File::FNM_PATHNAME
-        @flags              |= ::File::FNM_CASEFOLD unless case_sensitive
         @flags              |= ::File::FNM_DOTMATCH if hidden
+        @folded_pattern      = @pattern.downcase unless case_sensitive
       end
 
       # Returns [true|false] whether the name, relative to the #directory, matches the pattern.
+      #
+      # Unless the pattern is case-sensitive, the pattern and the name are compared in lower case, of every
+      # language, rather than with `File::FNM_CASEFOLD`, which on JRuby raises for a name with a character that is
+      # not ASCII. A name that is not valid in its encoding, such as a Latin-1 name on a file system of UTF-8 names,
+      # is matched with each byte that is not valid replaced, so that the rest of it, such as its extension, can be.
       def match?(name)
-        ::File.fnmatch?(pattern, name, flags)
+        name = name.scrub unless name.valid_encoding?
+        return ::File.fnmatch?(pattern, name, flags) if @case_sensitive
+
+        ::File.fnmatch?(@folded_pattern, name.downcase, flags)
       end
 
       # Returns [true|false] whether the pattern has no pattern characters, so that it is the name of a child

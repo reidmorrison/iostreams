@@ -190,6 +190,8 @@ When reading or writing records (`:hash`), the following options control the hea
   Whether to cleanse the column names read from the header row.
   Column names are stripped of leading and trailing whitespace, lowercased, and spaces
   and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
+  Any other character that is not a letter, digit or underscore is removed. Letters and digits that
+  are not ASCII are kept, so `"Prénom"` becomes `"prénom"`.
   Default: true
 
 * `allowed_columns: [Array<String>]`
