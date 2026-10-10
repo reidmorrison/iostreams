@@ -277,15 +277,12 @@ class TabularTest < Minitest::Test
           assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
         end
 
-        it "parses blank strings" do
-          skip "TODO: Part of fixed refactor to get this working"
-
-          assert hash = fixed.record_parse("                                                                                        ")
-          assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
+        it "parses a blank line as nil, like every other format" do
+          assert_nil fixed.record_parse(" " * fixed.parser.line_length)
         end
 
         it "parses nil data as nil" do
-          refute fixed.record_parse(nil)
+          assert_nil fixed.record_parse(nil)
         end
 
         it "parses empty string as nil" do

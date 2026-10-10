@@ -42,6 +42,18 @@ class DelimitedWriterTest < Minitest::Test
         assert_equal 53_534, result
         assert_equal raw, io_string.string
       end
+
+      it "yields a line writer that it is given as it is" do
+        io_string = StringIO.new
+        IOStreams::Line::Writer.stream(io_string) do |io|
+          IOStreams::Line::Writer.stream(io) do |inner|
+            assert_same io, inner
+            inner << "first"
+          end
+        end
+
+        assert_equal "first\n", io_string.string
+      end
     end
 
     describe ".write" do

@@ -11,7 +11,7 @@ module IOStreams
       # Read a line at a time from a stream
       def self.stream(input_stream, **args)
         # Pass-through if already a line reader
-        return yield(input_stream) if input_stream.is_a?(self.class)
+        return yield(input_stream) if input_stream.is_a?(self)
 
         yield new(input_stream, **args)
       end

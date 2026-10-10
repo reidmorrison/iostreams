@@ -69,6 +69,19 @@ gnupg_home = File.expand_path(File.join(__dir__, "../tmp/gnupg"))
 FileUtils.mkdir_p(gnupg_home, mode: 0o700)
 ENV["GNUPGHOME"] = gnupg_home
 
+# gpg-agent keeps a key unlocked once a passphrase has opened it, so that gpg would then decrypt or sign without the
+# passphrase that a test supplies, and a test of a wrong or missing passphrase would pass whatever IOStreams does
+# with it. So the agent of the test keyring caches no passphrases, and an agent already running reloads the setting.
+agent_conf     = File.join(gnupg_home, "gpg-agent.conf")
+agent_settings = "default-cache-ttl 0\nmax-cache-ttl 0\n"
+unless File.exist?(agent_conf) && File.read(agent_conf) == agent_settings
+  File.write(agent_conf, agent_settings)
+  system("gpgconf", "--reload", "gpg-agent", out: File::NULL, err: File::NULL)
+end
+# gpg looks up the key of an unknown recipient on the internet, using the domain of its email address, so that a test
+# of a missing key would depend on the network. Only look in the test keyring.
+File.write(File.join(gnupg_home, "gpg.conf"), "auto-key-locate local\n")
+
 # Test PGP Keys
 unless IOStreams::Pgp.key?(email: "sender@example.org")
   puts "Generating test PGP key: sender@example.org"

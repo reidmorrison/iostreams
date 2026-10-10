@@ -360,6 +360,44 @@ class BuilderTest < Minitest::Test
 
         assert_equal expected, streams.pipeline
       end
+
+      describe "an extension of a format that has another extension" do
+        it "applies the option for the format's other extension" do
+          {
+            "a.csv.gpg"  => [:pgp, {passphrase: "unlock-me"}, {gpg: {passphrase: "unlock-me"}}],
+            "a.csv.pgp"  => [:gpg, {passphrase: "unlock-me"}, {pgp: {passphrase: "unlock-me"}}],
+            "a.csv.gzip" => [:gz, {level: 9}, {gzip: {level: 9}}],
+            "a.xlsm"     => [:xlsx, {sheet_name: "Data"}, {xlsm: {sheet_name: "Data"}}]
+          }.each_pair do |file_name, (stream, options, expected)|
+            assert_equal expected, IOStreams::Builder.new(file_name).option(stream, **options).pipeline, file_name
+          end
+        end
+
+        it "prefers the option set for the extension in the file name" do
+          builder = IOStreams::Builder.new("a.csv.gpg").option(:gpg, passphrase: "for gpg").
+                    option(:pgp, passphrase: "for pgp", verify_first: true)
+
+          assert_equal({gpg: {passphrase: "for gpg", verify_first: true}}, builder.pipeline)
+        end
+
+        it "applies the options for each extension to its own stream" do
+          builder = IOStreams::Builder.new("a.csv.gpg.pgp").option(:gpg, passphrase: "inner").option(:pgp, passphrase: "outer")
+
+          assert_equal({gpg: {passphrase: "inner"}, pgp: {passphrase: "outer"}}, builder.pipeline)
+        end
+
+        it "does not apply the option for another format" do
+          assert_equal({gpg: {}}, IOStreams::Builder.new("a.csv.gpg").option(:enc, compress: false).pipeline)
+        end
+
+        it "keeps the options as they were set" do
+          builder = IOStreams::Builder.new("a.csv.gpg").option(:pgp, passphrase: "unlock-me")
+          builder.pipeline
+
+          assert_equal({passphrase: "unlock-me"}, builder.setting(:pgp))
+          assert_nil builder.setting(:gpg)
+        end
+      end
     end
 
     describe "#encoding" do

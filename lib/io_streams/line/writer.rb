@@ -6,7 +6,7 @@ module IOStreams
       # Write a line at a time to a stream.
       def self.stream(output_stream, **args)
         # Pass-through if already a line writer
-        return yield(output_stream) if output_stream.is_a?(self.class)
+        return yield(output_stream) if output_stream.is_a?(self)
 
         yield new(output_stream, **args)
       end

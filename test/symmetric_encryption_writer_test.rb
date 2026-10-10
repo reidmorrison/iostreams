@@ -44,6 +44,7 @@ class SymmetricEncryptionWriterTest < Minitest::Test
         io = StringIO.new(io_string.string)
 
         assert_equal decrypted, ::SymmetricEncryption::Reader.open(io, &:read)
+        assert_equal [true, true], header_and_compression(io_string.string)
       end
 
       it "writes an uncompressed encrypted stream" do
@@ -55,6 +56,14 @@ class SymmetricEncryptionWriterTest < Minitest::Test
         io = StringIO.new(io_string.string)
 
         assert_equal decrypted, ::SymmetricEncryption::Reader.open(io, &:read)
+        assert_equal [true, false], header_and_compression(io_string.string)
+      end
+
+      # Returns [Array<true|false>] whether the encrypted data has a header, and whether the header says that the data
+      # is compressed.
+      def header_and_compression(encrypted)
+        reader = ::SymmetricEncryption::Reader.new(StringIO.new(encrypted))
+        [reader.header_present?, reader.compressed?]
       end
     end
 

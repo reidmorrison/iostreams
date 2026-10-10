@@ -28,10 +28,6 @@ class PgpTest < Minitest::Test
       IOStreams::Pgp.export(email: email)
     end
 
-    let :gpg_v24_or_above do
-      IOStreams::Pgp.version_at_least?("2.4")
-    end
-
     before do
       # There is a timing issue with creating and then deleting keys.
       # Call list_keys again to give GnuPGP time.
@@ -39,6 +35,13 @@ class PgpTest < Minitest::Test
       IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
       # ap "KEYS DELETED"
       # ap IOStreams::Pgp.list_keys(email: email, private: true)
+    end
+
+    # Returns [String] the owner trust that gpg records for the key with the fingerprint, which is its trust level plus
+    # one, such as "6" for 5 : Ultimate, or nil when gpg records none.
+    def ownertrust(fingerprint)
+      out, = Open3.capture2(*IOStreams::Pgp.gpg_command("--export-ownertrust"))
+      out[/^#{fingerprint}:(\d+):$/, 1]
     end
 
     # Returns the supplied output from gpg instead of running it.
@@ -50,15 +53,27 @@ class PgpTest < Minitest::Test
 
     describe ".pgp_version" do
       it "returns pgp version" do
-        assert IOStreams::Pgp.pgp_version
+        assert_match(/\A\d+\.\d+\.\d+\z/, IOStreams::Pgp.pgp_version)
       end
 
-      describe "when gpg fails" do
+      describe "from the output of gpg" do
         before { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
 
         after { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
 
-        it "raises Pgp::Failure" do
+        it "returns the version on its first line" do
+          {
+            "gpg (GnuPG) 2.4.7\nlibgcrypt 1.10.3\n"          => "2.4.7",
+            "gpg (GnuPG/MacGPG2) 2.2.41\nlibgcrypt 1.8.10\n" => "2.2.41"
+          }.each_pair do |output, version|
+            IOStreams::Pgp.instance_variable_set(:@pgp_version, nil)
+            result = Open3.stub(:capture3, [output, "", Struct.new(:success?).new(true)]) { IOStreams::Pgp.pgp_version }
+
+            assert_equal version, result
+          end
+        end
+
+        it "raises Pgp::Failure when gpg fails" do
           error = Open3.stub(:capture3, ["", "gpg: failed", Struct.new(:success?).new(false)]) do
             assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp.pgp_version }
           end
@@ -135,7 +150,42 @@ class PgpTest < Minitest::Test
 
     describe ".generate_key" do
       it "returns the key id" do
-        assert generated_key_id
+        key_id = generated_key_id
+
+        assert_match(/\A\h+\z/, key_id)
+        # gpg 2.1 and later list the fingerprint of the key, which ends with its key id.
+        assert IOStreams::Pgp.list_keys(email: email).first[:key_id].end_with?(key_id), key_id
+      end
+
+      it "generates a key that is protected by the passphrase" do
+        generated_key_id
+
+        error = assert_raises(IOStreams::Pgp::Failure) do
+          IOStreams::Pgp::Writer.stream(StringIO.new("".b), encrypt: false, signer: email, signer_passphrase: "BAD") do |io|
+            io.write("signed")
+          end
+        end
+        assert_includes error.message, "Bad passphrase"
+
+        output = StringIO.new("".b)
+        IOStreams::Pgp::Writer.stream(output, encrypt: false, signer: email, signer_passphrase: passphrase) { |io| io.write("signed") }
+
+        assert_equal "signed", IOStreams::Pgp::Reader.stream(StringIO.new(output.string), signer: email, &:read)
+      end
+
+      it "generates a key with a comment, which expires on the supplied date" do
+        key_id = IOStreams::Pgp.generate_key(name: user_name, email: email, comment: "Test Key", passphrase: passphrase,
+                                             key_length: 1024, expire_date: "2040-01-01")
+
+        assert_equal "#{user_name} (Test Key)", IOStreams::Pgp.list_keys(email: email).first[:name]
+
+        # The 7th field of the key in gpg's colon listing is when it expires.
+        listing, = Open3.capture2(*IOStreams::Pgp.gpg_command("--list-keys", "--with-colons", "--", "<#{email}>"))
+        expires  = listing.lines.grep(/\Apub:/).first.split(":")[6]
+
+        assert_equal Date.new(2040, 1, 1), Time.at(Integer(expires)).utc.to_date
+      ensure
+        IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if key_id
       end
 
       # Newlines would otherwise allow extra directives to be injected into the
@@ -145,7 +195,9 @@ class PgpTest < Minitest::Test
            key_curve key_usage subkey_curve subkey_usage creation_date].each do |field|
           args        = {name: user_name, email: email, passphrase: passphrase, key_length: 1024}
           args[field] = "#{args[field] || 'sign'}\nKey-Type: RSA"
-          assert_raises(ArgumentError) { IOStreams::Pgp.generate_key(**args) }
+          error       = assert_raises(ArgumentError) { IOStreams::Pgp.generate_key(**args) }
+
+          assert_equal "IOStreams::Pgp.generate_key: :#{field} cannot contain newlines", error.message
         end
       end
 
@@ -156,8 +208,11 @@ class PgpTest < Minitest::Test
 
         it "generates an unprotected key when passphrase is nil" do
           key_id = IOStreams::Pgp.generate_key(name: user_name, email: email, key_length: 1024, passphrase: nil)
+          output = StringIO.new("".b)
+          # gpg-agent caches no passphrases for the test keyring, so that only a key without one signs without it.
+          IOStreams::Pgp::Writer.stream(output, encrypt: false, signer: email) { |io| io.write("signed") }
 
-          assert key_id
+          assert_equal "signed", IOStreams::Pgp::Reader.stream(StringIO.new(output.string), signer: email, &:read)
         ensure
           IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if key_id
         end
@@ -173,8 +228,10 @@ class PgpTest < Minitest::Test
             subkey_type:  "ECDH",
             subkey_curve: "cv25519"
           )
+          key = IOStreams::Pgp.list_keys(email: email).first
 
-          assert key_id
+          # gpg lists the curve as the type of the key, such as "ed25519".
+          assert_equal "ed25519", "#{key[:key_type]}#{key[:key_length]}"
         ensure
           IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if key_id
         end
@@ -240,6 +297,18 @@ class PgpTest < Minitest::Test
       end
     end
 
+    describe ".gpg_command" do
+      it "splits the executable into its fixed arguments, and keeps each argument as it is" do
+        original                  = IOStreams::Pgp.executable
+        IOStreams::Pgp.executable = "/usr/local/bin/gpg --homedir '/path with a space'"
+
+        assert_equal ["/usr/local/bin/gpg", "--homedir", "/path with a space", "--list-keys", "a b; touch x", "7"],
+                     IOStreams::Pgp.gpg_command("--list-keys", "a b; touch x", 7)
+      ensure
+        IOStreams::Pgp.executable = original
+      end
+    end
+
     describe ".key?" do
       before do
         generated_key_id
@@ -279,6 +348,8 @@ class PgpTest < Minitest::Test
         IOStreams::Pgp.list_keys(email: email, private: true)
 
         assert IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
+        refute IOStreams::Pgp.key?(email: email, private: true)
+        refute IOStreams::Pgp.key?(email: email)
       end
 
       it "deletes existing keys with specified key_id" do
@@ -289,6 +360,8 @@ class PgpTest < Minitest::Test
         IOStreams::Pgp.list_keys(key_id: generated_key_id, private: true)
 
         assert IOStreams::Pgp.delete_keys(key_id: generated_key_id, public: true, private: true)
+        refute IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
+        refute IOStreams::Pgp.key?(key_id: generated_key_id)
       end
 
       it "deletes just the private key with specified email" do
@@ -319,19 +392,38 @@ class PgpTest < Minitest::Test
         generated_key_id
       end
 
+      # Returns [Array<Array<String>>] the email address and key id of each key in the supplied exported keys.
+      def exported(keys)
+        IOStreams::Pgp.key_info(key: keys).map { |key| [key[:email], key[:key_id]] }
+      end
+
+      let(:fingerprint) { IOStreams::Pgp.list_keys(email: email).first[:key_id] }
+
       it "exports public keys by email" do
-        assert ascii_keys = IOStreams::Pgp.export(email: email)
-        assert_match(/BEGIN PGP PUBLIC KEY BLOCK/, ascii_keys, ascii_keys)
+        ascii_keys = IOStreams::Pgp.export(email: email)
+
+        assert_match(/\A-----BEGIN PGP PUBLIC KEY BLOCK-----/, ascii_keys)
+        assert_equal [[email, fingerprint]], exported(ascii_keys)
       end
 
       it "exports public keys as binary" do
-        assert keys = IOStreams::Pgp.export(email: email, ascii: false)
+        keys = IOStreams::Pgp.export(email: email, ascii: false)
+
         refute_match(/BEGIN PGP (PUBLIC|PRIVATE) KEY BLOCK/, keys, keys)
+        assert_equal [[email, fingerprint]], exported(keys)
       end
 
       it "exports public keys by key_id" do
-        assert ascii_keys = IOStreams::Pgp.export(key_id: generated_key_id)
-        assert_match(/BEGIN PGP PUBLIC KEY BLOCK/, ascii_keys, ascii_keys)
+        ascii_keys = IOStreams::Pgp.export(key_id: generated_key_id)
+
+        assert_match(/\A-----BEGIN PGP PUBLIC KEY BLOCK-----/, ascii_keys)
+        assert_equal [[email, fingerprint]], exported(ascii_keys)
+      end
+
+      it "raises for an email address that has no key" do
+        error = assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp.export(email: "nobody@iostreams.net") }
+
+        assert_match(/\AGPG Failed reading key: nobody@iostreams.net: /, error.message)
       end
 
       it "raises when neither email nor key_id is supplied" do
@@ -349,8 +441,21 @@ class PgpTest < Minitest::Test
       end
 
       it "exports private keys using the passphrase" do
-        assert keys = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
-        assert_match(/BEGIN PGP PRIVATE KEY BLOCK/, keys)
+        keys = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
+
+        assert_match(/\A-----BEGIN PGP PRIVATE KEY BLOCK-----/, keys)
+        # gpg shows the details of a private key from 2.2.8, see `IOStreams::Pgp.key_info`.
+        if IOStreams::Pgp.version_at_least?("2.2.8")
+          assert_equal([[email, true]], IOStreams::Pgp.key_info(key: keys).map { |key| [key[:email], key[:private]] })
+        end
+      end
+
+      it "raises when exporting private keys with the wrong passphrase" do
+        error = assert_raises(IOStreams::Pgp::Failure) do
+          IOStreams::Pgp.export(email: email, private: true, passphrase: "BAD")
+        end
+
+        assert_includes error.message, "Bad passphrase"
       end
 
       it "supplies the passphrase on stdin instead of the command line" do
@@ -401,9 +506,8 @@ class PgpTest < Minitest::Test
         assert_includes %w[R rsa], key[:key_type]
         assert_equal user_name, key[:name]
         refute key[:private], key
-        ver   = IOStreams::Pgp.pgp_version
-        maint = ver.split(".").last.to_i
-        assert_equal "ultimate", key[:trust] if (ver.to_f >= 2) && (maint >= 30)
+        # gpg lists the trust of a key from v2.0.30.
+        assert_equal "ultimate", key[:trust] if IOStreams::Pgp.version_at_least?("2.0.30")
       end
 
       it "lists public keys for key_id" do
@@ -418,9 +522,8 @@ class PgpTest < Minitest::Test
         assert_includes %w[R rsa], key[:key_type]
         assert_equal user_name, key[:name]
         refute key[:private], key
-        ver   = IOStreams::Pgp.pgp_version
-        maint = ver.split(".").last.to_i
-        assert_equal "ultimate", key[:trust] if (ver.to_f >= 2) && (maint >= 30)
+        # gpg lists the trust of a key from v2.0.30.
+        assert_equal "ultimate", key[:trust] if IOStreams::Pgp.version_at_least?("2.0.30")
       end
 
       it "lists private keys for email" do
@@ -467,6 +570,21 @@ class PgpTest < Minitest::Test
         refute key[:private], key
         refute key.key?(:trust)
       end
+
+      it "extracts private key info" do
+        skip "Requires GnuPG 2.2.8 or later" unless IOStreams::Pgp.version_at_least?("2.2.8")
+
+        generated_key_id
+        keys = IOStreams::Pgp.key_info(key: IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase))
+
+        assert_equal 1, keys.size
+        key = keys.first
+
+        assert_equal email, key[:email]
+        assert_equal user_name, key[:name]
+        assert_includes key[:key_id], generated_key_id
+        assert key[:private], key
+      end
     end
 
     describe ".import output" do
@@ -505,6 +623,36 @@ class PgpTest < Minitest::Test
 
         assert_equal [{key_id: "7932AB23D7238F6B", private: false, name: nil, email: nil}], keys
       end
+
+      it "reports the secret key of each key that gpg imported after its public key, as from GnuPG 2.4" do
+        output = <<~OUTPUT
+          gpg: key 7932AB23D7238F6B: public key "Jack Jones <jack@example.org>" imported
+          gpg: key 7932AB23D7238F6B: secret key imported
+          gpg: key 1111222233334444: public key "Jill Smith <jill@example.org>" imported
+          gpg: Total number processed: 2
+          gpg:               imported: 2
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [
+          {key_id: "7932AB23D7238F6B", private: true, name: "Jack Jones", email: "jack@example.org"},
+          {key_id: "1111222233334444", private: false, name: "Jill Smith", email: "jill@example.org"}
+        ], keys
+      end
+
+      it "reports the secret key of a key that gpg imported before its public key, as before GnuPG 2.4" do
+        output = <<~OUTPUT
+          gpg: key C16500E3: secret key imported
+          gpg: key C16500E3: public key "Jack Jones <jack@example.org>" imported
+          gpg: Total number processed: 1
+          gpg:               imported: 1  (RSA: 1)
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "C16500E3", private: true, name: "Jack Jones", email: "jack@example.org"}], keys
+      end
     end
 
     describe ".import" do
@@ -516,41 +664,42 @@ class PgpTest < Minitest::Test
 
       describe "without keys" do
         before do
-          @public_key = public_key
+          @public_key  = public_key
+          @binary_key  = IOStreams::Pgp.export(email: email, ascii: false)
+          @private_key = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
           # There is a timing issue with creating and then deleting keys.
           # Call list_keys again to give GnuPGP time.
           IOStreams::Pgp.list_keys(email: email, private: true)
           IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
         end
 
-        it "imports ascii public key" do
-          assert keys = IOStreams::Pgp.import(key: @public_key)
+        # Asserts that the keys are the one key that was generated, and whether its secret key was imported.
+        def assert_imported(keys, private:)
           assert_equal 1, keys.size
-          assert key = keys.first
+          key = keys.first
 
-          assert_equal email, key[:email] if key.key?(:email)
+          assert_equal email, key[:email]
+          assert_equal user_name, key[:name]
+          assert_equal private, key[:private]
           # Allow for different key_id formats between GnuPG versions
           # Older versions return the full key ID, while 2.4+ returns shorter key IDs
           assert generated_key_id.end_with?(key[:key_id]) || key[:key_id].end_with?(generated_key_id),
                  "Key ID #{key[:key_id]} doesn't match expected pattern with #{generated_key_id}"
-          # Skip name assertion for GnuPG 2.4+
-          assert_equal user_name, key[:name] if key.key?(:name) && !gpg_v24_or_above
-          refute key[:private], key if key.key?(:private)
+          assert IOStreams::Pgp.key?(email: email)
+          assert_equal private, IOStreams::Pgp.key?(email: email, private: true)
+        end
+
+        it "imports ascii public key" do
+          assert_imported IOStreams::Pgp.import(key: @public_key), private: false
         end
 
         it "imports binary public key" do
-          assert keys = IOStreams::Pgp.import(key: @public_key)
-          assert_equal 1, keys.size
-          assert key = keys.first
+          refute_match(/BEGIN PGP/, @binary_key)
+          assert_imported IOStreams::Pgp.import(key: @binary_key), private: false
+        end
 
-          assert_equal email, key[:email] if key.key?(:email)
-          # Allow for different key_id formats between GnuPG versions
-          # Older versions return the full key ID, while 2.4+ returns shorter key IDs
-          assert generated_key_id.end_with?(key[:key_id]) || key[:key_id].end_with?(generated_key_id),
-                 "Key ID #{key[:key_id]} doesn't match expected pattern with #{generated_key_id}"
-          # Skip name assertion for GnuPG 2.4+
-          assert_equal user_name, key[:name] if key.key?(:name) && !gpg_v24_or_above
-          refute key[:private], key if key.key?(:private)
+        it "imports private key" do
+          assert_imported IOStreams::Pgp.import(key: @private_key), private: true
         end
       end
     end
@@ -590,10 +739,30 @@ class PgpTest < Minitest::Test
         # There is a timing issue with creating and then immediately using keys.
         IOStreams::Pgp.list_keys(email: email)
 
-        assert key = IOStreams::Pgp.list_keys(email: email).first
-        ver   = IOStreams::Pgp.pgp_version
-        maint = ver.split(".").last.to_i
-        assert_equal "ultimate", key[:trust] if (ver.to_f >= 2) && (maint >= 30)
+        key = IOStreams::Pgp.list_keys(email: email).first
+
+        assert_equal "6", ownertrust(IOStreams::Pgp.send(:fingerprint, email: email))
+        # gpg lists the trust of a key from v2.0.30.
+        assert_equal "ultimate", key[:trust] if IOStreams::Pgp.version_at_least?("2.0.30")
+      end
+
+      it "imports the key and trusts it at the supplied level" do
+        assert_equal email, IOStreams::Pgp.import_and_trust(key: @public_key, trust_level: 4)
+
+        assert_equal "5", ownertrust(IOStreams::Pgp.send(:fingerprint, email: email))
+      end
+
+      it "imports and trusts a private key" do
+        skip "Requires GnuPG 2.2.8 or later" unless IOStreams::Pgp.version_at_least?("2.2.8")
+
+        # The key that `before` generated was deleted.
+        IOStreams::Pgp.generate_key(name: user_name, email: email, key_length: 1024, passphrase: passphrase)
+        private_key = IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase)
+        IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
+
+        assert_equal email, IOStreams::Pgp.import_and_trust(key: private_key)
+        assert IOStreams::Pgp.key?(email: email, private: true)
+        assert_equal "6", ownertrust(IOStreams::Pgp.send(:fingerprint, email: email))
       end
 
       it "defaults the trust level to ultimate (5)" do
@@ -697,14 +866,20 @@ class PgpTest < Minitest::Test
       end
 
       it "trusts an existing key" do
+        fingerprint = IOStreams::Pgp.send(:fingerprint, email: email)
+        IOStreams::Pgp.set_trust(email: email, level: 2)
+
+        assert_equal "3", ownertrust(fingerprint)
         refute_nil IOStreams::Pgp.set_trust(email: email)
+        assert_equal "6", ownertrust(fingerprint)
       end
 
       it "trusts an existing key by key_id" do
         # #fingerprint is internal (private); reach it directly to exercise the key_id path of #set_trust.
         fingerprint = IOStreams::Pgp.send(:fingerprint, email: email)
 
-        refute_nil IOStreams::Pgp.set_trust(key_id: fingerprint)
+        refute_nil IOStreams::Pgp.set_trust(key_id: fingerprint, level: 3)
+        assert_equal "4", ownertrust(fingerprint)
       end
 
       it "raises when the key_id is not hexadecimal" do
@@ -720,6 +895,19 @@ class PgpTest < Minitest::Test
 
       it "trusts an existing key at the supplied level" do
         refute_nil IOStreams::Pgp.set_trust(email: email, level: 4)
+        assert_equal "5", ownertrust(IOStreams::Pgp.send(:fingerprint, email: email))
+      end
+    end
+
+    describe ".primary_fingerprints" do
+      it "returns the fingerprint of the primary key, and not of its subkey" do
+        generated_key_id
+
+        assert_equal [IOStreams::Pgp.send(:fingerprint, email: email)], IOStreams::Pgp.primary_fingerprints(email)
+      end
+
+      it "returns none for an email address that has no key" do
+        assert_empty IOStreams::Pgp.primary_fingerprints("nobody@iostreams.net")
       end
     end
 
@@ -794,6 +982,30 @@ class PgpTest < Minitest::Test
 
           assert_equal "secret", IOStreams::Pgp::Reader.file(file.path, &:read)
         end
+      end
+
+      it "does not export the key of another email address that contains it" do
+        assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp.export(email: exact_email) }
+      end
+
+      it "exports the key of the exact email address" do
+        generate(exact_email)
+
+        assert_equal([exact_email], IOStreams::Pgp.key_info(key: IOStreams::Pgp.export(email: exact_email)).map { |key| key[:email] })
+      end
+
+      it "does not sign as another email address that contains the signer" do
+        assert_raises(IOStreams::Pgp::Failure) do
+          IOStreams::Pgp::Writer.stream(StringIO.new("".b), encrypt: false, signer: exact_email) { |io| io.write("signed") }
+        end
+      end
+
+      it "signs as the exact email address" do
+        generate(exact_email)
+        output = StringIO.new("".b)
+        IOStreams::Pgp::Writer.stream(output, encrypt: false, signer: exact_email) { |io| io.write("signed") }
+
+        assert_equal "signed", IOStreams::Pgp::Reader.stream(StringIO.new(output.string), signer: exact_email, &:read)
       end
     end
 
@@ -929,6 +1141,19 @@ class PgpTest < Minitest::Test
       assert_equal "ABCDEF0123456789ABCDEF0123456789ABCDEF01", key[:key_id]
       assert_equal "ultimate", key[:trust]
       refute key.key?(:email)
+    end
+
+    it "returns the date as a Date when the application has not loaded the date library" do
+      # In another process, since this one has loaded it, for example by requiring yaml.
+      script = <<~'SCRIPT'
+        require "iostreams"
+        key = IOStreams::Pgp.parse_list_output("pub   rsa1024 2017-10-24 [SCEA]\nuid           [ultimate] Jack <jack@example.org>\n").first
+        print "#{key[:date].class} #{key[:date]}"
+      SCRIPT
+      output, status = Open3.capture2e(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-e", script)
+
+      assert_predicate status, :success?, output
+      assert_equal "Date 2017-10-24", output
     end
   end
 end

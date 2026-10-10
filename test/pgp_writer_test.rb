@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "open3"
 require "timeout"
 
 class PgpWriterTest < Minitest::Test
@@ -79,9 +80,11 @@ class PgpWriterTest < Minitest::Test
           io.write(decrypted)
         end
 
-        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", &:read)
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", signer: "sender@example.org", &:read)
 
         assert_equal decrypted, result
+        # Encrypted, so that it cannot be read without the recipient's passphrase.
+        assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp::Reader.file(file_name, &:read) }
       end
 
       it "signs without encrypting" do
@@ -90,15 +93,38 @@ class PgpWriterTest < Minitest::Test
         end
 
         # A signed-only file is not encrypted and so needs no passphrase to read.
-        result = IOStreams::Pgp::Reader.file(file_name, &:read)
+        result = IOStreams::Pgp::Reader.file(file_name, signer: "sender@example.org", &:read)
 
         assert_equal decrypted, result
       end
 
+      it "signs with the default signer and its passphrase" do
+        IOStreams::Pgp::Writer.default_signer            = "sender@example.org"
+        IOStreams::Pgp::Writer.default_signer_passphrase = "sender_passphrase"
+        IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org") { |io| io.write(decrypted) }
+
+        result = IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver_passphrase", signer: "sender@example.org", &:read)
+
+        assert_equal decrypted, result
+      ensure
+        IOStreams::Pgp::Writer.default_signer            = nil
+        IOStreams::Pgp::Writer.default_signer_passphrase = nil
+      end
+
       it "raises when signing without encryption and no signer is supplied" do
-        assert_raises ArgumentError do
+        error = assert_raises(ArgumentError) do
           IOStreams::Pgp::Writer.file(file_name, encrypt: false) { |io| io.write(decrypted) }
         end
+
+        assert_equal "Requires a :signer when encrypt is false", error.message
+      end
+
+      it "raises when encrypting without a recipient" do
+        error = assert_raises(ArgumentError) do
+          IOStreams::Pgp::Writer.file(file_name, signer: "sender@example.org") { |io| io.write(decrypted) }
+        end
+
+        assert_equal "Requires either :recipient or :import_and_trust_key", error.message
       end
 
       it "supports multiple recipients" do
@@ -132,16 +158,17 @@ class PgpWriterTest < Minitest::Test
       end
 
       it "fails with bad signer passphrase" do
-        skip "GnuPG v2.1 and above passes when it should not" if IOStreams::Pgp.version_at_least?("2.1")
-        assert_raises IOStreams::Pgp::Failure do
+        error = assert_raises(IOStreams::Pgp::Failure) do
           IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "BAD") do |io|
             io.write(decrypted)
           end
         end
+
+        assert_includes error.message, "Bad passphrase"
       end
 
       it "fails with bad recipient" do
-        assert_raises IOStreams::Pgp::Failure do
+        error = assert_raises(IOStreams::Pgp::Failure) do
           IOStreams::Pgp::Writer.file(file_name, recipient: "BAD@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
             io.write(decrypted)
             # Allow process to terminate
@@ -149,14 +176,18 @@ class PgpWriterTest < Minitest::Test
             io.write(decrypted)
           end
         end
+
+        assert_includes error.message, "<BAD@example.org>"
       end
 
       it "fails with bad signer" do
-        assert_raises IOStreams::Pgp::Failure do
+        error = assert_raises(IOStreams::Pgp::Failure) do
           IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org", signer: "BAD@example.org", signer_passphrase: "sender_passphrase") do |io|
             io.write(decrypted)
           end
         end
+
+        assert_includes error.message, "<BAD@example.org>"
       end
 
       it "writes to a stream" do
@@ -309,17 +340,18 @@ class PgpWriterTest < Minitest::Test
         assert_equal decrypted, output.string
       end
 
-      it "writes with the methods of IO that write" do
-        output = StringIO.new("".b)
+      it "writes with the methods of IO that write, which return what they return for IO" do
+        output  = StringIO.new("".b)
+        results = nil
         IOStreams::Pgp::Writer.stream(output, recipient: "receiver@example.org") do |io|
-          io << "a" << "b"
-          io.print("c", "d")
-          io.puts("e", %w[f g])
-          io.printf("%03d", 7)
-          io.write("h", "i")
+          results = [
+            (io << "a" << "b").equal?(io), io.print("c", "d"), io.puts("e", %w[f g]), io.printf("%03d", 7),
+            io.write("h", "ié"), io.flush.equal?(io)
+          ]
         end
 
-        assert_equal "abcde\nf\ng\n007hi", decrypt(output.string)
+        assert_equal [true, nil, nil, nil, 4, true], results
+        assert_equal "abcde\nf\ng\n007hié", decrypt(output.string).force_encoding(Encoding::UTF_8)
       end
 
       it "raises a broken pipe when writing to the stream, rather than a failure of gpg" do
@@ -424,6 +456,36 @@ class PgpWriterTest < Minitest::Test
         end
 
         assert_empty gpg_lock_files - before
+      end
+    end
+
+    describe "compress" do
+      # Returns [Array<String>] the compressed packets of a file that is signed and not encrypted, so that gpg lists
+      # them without decrypting it, such as ":compressed packet: algo=1" for zip.
+      def compressed_packets(**compression)
+        IOStreams::Pgp::Writer.file(file_name, encrypt: false, signer: "sender@example.org", signer_passphrase: "sender_passphrase",
+                                               **compression) { |io| io.write(decrypted) }
+
+        assert_equal decrypted, IOStreams::Pgp::Reader.file(file_name, &:read)
+        packets, = Open3.capture2e(*IOStreams::Pgp.gpg_command("--batch", "--list-packets", file_name))
+        packets.lines.grep(/compressed packet/).map(&:strip)
+      end
+
+      it "compresses with zip by default" do
+        assert_equal [":compressed packet: algo=1"], compressed_packets
+      end
+
+      it "compresses with the supplied algorithm" do
+        assert_equal [":compressed packet: algo=2"], compressed_packets(compress: :zlib)
+        assert_equal [":compressed packet: algo=3"], compressed_packets(compress: :bzip2)
+      end
+
+      it "does not compress with compress: :none" do
+        assert_empty compressed_packets(compress: :none)
+      end
+
+      it "does not compress with compress_level: 0" do
+        assert_empty compressed_packets(compress_level: 0)
       end
     end
 

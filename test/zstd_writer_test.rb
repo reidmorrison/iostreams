@@ -76,5 +76,24 @@ class ZstdWriterTest < Minitest::Test
         assert_operator io_string.string.bytesize, :<, lines.join.bytesize / 10
       end
     end
+
+    describe "level" do
+      # Returns [String] the data compressed at the supplied level, or the default level when it is nil.
+      def compress(data, level: nil)
+        io_string = StringIO.new("".b)
+        IOStreams::Zstd::Writer.stream(io_string, level: level) { |io| io.write(data) }
+        io_string.string
+      end
+
+      it "compresses at the supplied level" do
+        data = Array.new(20_000) { |i| "line #{i % 997},#{(i * 7919) % 104_729}\n" }.join
+
+        # The frame does not record the level, but compressing the same data the same way at another level writes other
+        # bytes, since zstd is deterministic.
+        assert_equal compress(data), compress(data)
+        refute_equal compress(data), compress(data, level: 19)
+        assert_equal data, ZstdLibrary.decompress(compress(data, level: 19))
+      end
+    end
   end
 end

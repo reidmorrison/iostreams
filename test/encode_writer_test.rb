@@ -1,6 +1,25 @@
 require_relative "test_helper"
 
 class EncodeWriterTest < Minitest::Test
+  # An output stream that keeps each block written to it, so that a test can check the encoding of what the writer
+  # wrote, which a StringIO does not show, since it keeps the encoding of its own string.
+  class BlockRecorder
+    attr_reader :blocks
+
+    def initialize
+      @blocks = []
+    end
+
+    def write(data)
+      @blocks << data.dup
+      data.bytesize
+    end
+
+    def string
+      @blocks.map(&:b).join
+    end
+  end
+
   describe IOStreams::Encode::Writer do
     let :bad_data do
       [
@@ -35,7 +54,7 @@ class EncodeWriterTest < Minitest::Test
       end
 
       it "stream" do
-        io     = StringIO.new("".b)
+        io     = BlockRecorder.new
         result =
           IOStreams::Encode::Writer.stream(io, encoding: "ASCII-8BIT") do |encoded|
             encoded << bad_data
@@ -43,26 +62,29 @@ class EncodeWriterTest < Minitest::Test
           end
 
         assert_equal 53_534, result
-        assert_equal "ASCII-8BIT", io.string.encoding.to_s
+        assert_equal [Encoding::BINARY], io.blocks.map(&:encoding).uniq
         assert_equal bad_data, io.string
       end
 
       it "stream as utf-8" do
-        io = StringIO.new(+"")
-        assert_raises Encoding::UndefinedConversionError do
+        io    = StringIO.new(+"")
+        error = assert_raises(IOStreams::Errors::InvalidEncoding) do
           IOStreams::Encode::Writer.stream(io, encoding: "UTF-8") do |encoded|
             encoded << bad_data
           end
         end
+
+        assert_equal 5, error.byte_offset
+        assert_empty io.string
       end
 
       it "stream as utf-8 with replacement" do
-        io = StringIO.new(+"")
+        io = BlockRecorder.new
         IOStreams::Encode::Writer.stream(io, encoding: "UTF-8", replace: "?") do |encoded|
           encoded << bad_data
         end
 
-        assert_equal "UTF-8", io.string.encoding.to_s
+        assert_equal [Encoding::UTF_8], io.blocks.map(&:encoding).uniq
         assert_equal cleansed_data, io.string
       end
 
@@ -146,6 +168,40 @@ class EncodeWriterTest < Minitest::Test
         assert_equal 3, exc.byte_offset
       end
 
+      it "raises for a UTF-8 string that is not valid UTF-8" do
+        exc = assert_raises(IOStreams::Errors::InvalidEncoding) { write(["ab\xFFc".dup.force_encoding(Encoding::UTF_8)]) }
+
+        assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 2", exc.message
+      end
+
+      it "replaces the invalid characters of a UTF-8 string" do
+        assert_equal "ab?c", write(["ab\xFFc".dup.force_encoding(Encoding::UTF_8)], replace: "?")
+      end
+
+      describe "strings in another encoding" do
+        let(:latin1) { "caf\u00e9".encode(Encoding::ISO_8859_1) }
+
+        it "converts them" do
+          assert_equal "caf\u00e9", write([latin1])
+        end
+
+        it "counts their bytes in the byte offset of an invalid character written after them" do
+          exc = assert_raises(IOStreams::Errors::InvalidEncoding) { write([latin1, "\xFF".b]) }
+
+          assert_equal 4, exc.byte_offset
+        end
+
+        it "replaces an incomplete character written before them" do
+          assert_equal "ab?caf\u00e9", write(["ab\xC3".b, latin1], replace: "?")
+        end
+
+        it "raises for an incomplete character written before them" do
+          exc = assert_raises(IOStreams::Errors::InvalidEncoding) { write(["ab\xC3".b, latin1]) }
+
+          assert_equal 2, exc.byte_offset
+        end
+      end
+
       it "copies a UTF-8 file to a path with an encode stream" do
         Dir.mktmpdir do |dir|
           source = File.join(dir, "source.txt")
@@ -179,8 +235,21 @@ class EncodeWriterTest < Minitest::Test
         end
       end
 
+      it "replaces non-printable characters with the replace value" do
+        io = StringIO.new(+"")
+        IOStreams::Encode::Writer.stream(io, encoding: "UTF-8", cleaner: :replace_non_printable, replace: "X") do |encoded|
+          encoded << "abc\x07def"
+        end
+
+        assert_equal "abcXdef", io.string
+      end
+
       it "raises for an unknown cleaner symbol" do
-        assert_raises(ArgumentError) { IOStreams::Encode::Writer.stream(StringIO.new, cleaner: :unknown_rule) { |_io| flunk } }
+        error = assert_raises(ArgumentError) do
+          IOStreams::Encode::Writer.stream(StringIO.new, cleaner: :unknown_rule) { |_io| flunk }
+        end
+
+        assert_equal "Invalid cleansing rule :unknown_rule", error.message
       end
 
       it "raises for a cleaner that is neither a Symbol nor a Proc, rather than ignoring it" do

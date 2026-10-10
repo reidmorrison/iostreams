@@ -16,7 +16,7 @@ module IOStreams
       #   For all other parameters, see `IOStreams::Tabular.new`.
       def self.stream(line_reader, original_file_name: nil, cleanse_header: true, **args)
         # Pass-through if already a row reader
-        return yield(line_reader) if line_reader.is_a?(self.class)
+        return yield(line_reader) if line_reader.is_a?(self)
 
         tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
         yield new(line_reader, tabular: tabular, cleanse_header: cleanse_header)

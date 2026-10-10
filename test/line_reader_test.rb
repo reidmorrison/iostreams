@@ -47,7 +47,7 @@ class LineReaderTest < Minitest::Test
     #
     #  name, description, zip
     # "\nJack","Firstname is Jack","234567"
-    # "John","Firstname\n is John","234568"
+    # "John","Firstname\nis John","234568"
     # "Zack","Firstname is Zack","234568\n"
     #
     describe "embedded_within_quotes" do
@@ -60,7 +60,17 @@ class LineReaderTest < Minitest::Test
             end
           end
 
-          assert_equal 7, lines.count
+          expected = [
+            "name, description, zip",
+            '"',
+            'Jack","Firstname is Jack","234567"',
+            '"John","Firstname',
+            'is John","234568"',
+            '"Zack","Firstname is Zack","234568',
+            '"'
+          ]
+
+          assert_equal expected, lines
         end
 
         it "keeps embedded lines if flag is set" do
@@ -71,7 +81,14 @@ class LineReaderTest < Minitest::Test
             end
           end
 
-          assert_equal 4, lines.count
+          expected = [
+            "name, description, zip",
+            %("\nJack","Firstname is Jack","234567"),
+            %("John","Firstname\nis John","234568"),
+            %("Zack","Firstname is Zack","234568\n")
+          ]
+
+          assert_equal expected, lines
         end
 
         it "keeps a field with many embedded lines" do
@@ -170,6 +187,24 @@ class LineReaderTest < Minitest::Test
         assert_equal 0, exc.byte_offset
       end
 
+      it "counts the lines that were read while detecting the line endings" do
+        # The first block ends with "\r", so the reader reads the next block to tell "\r" from "\r\n".
+        lines, exc = read_lines("first\rsecond\r\xFF\r")
+
+        assert_empty lines
+        assert_equal 3, exc.line_number
+        assert_equal 13, exc.byte_offset
+      end
+
+      it "keeps the line number that it was given first" do
+        error             = IOStreams::Errors::InvalidEncoding.new("\"\\xFF\" is not valid UTF-8", byte_offset: 7)
+        error.line_number = 3
+        error.line_number = 5
+
+        assert_equal 3, error.line_number
+        assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 7 on line 3", error.message
+      end
+
       it "names the line when reading a path" do
         exc = assert_raises(Encoding::UndefinedConversionError) do
           IOStreams.stream(StringIO.new("name,age\nJos\xE9,32\n".b)).each(:hash) { |hash| hash }
@@ -237,6 +272,18 @@ class LineReaderTest < Minitest::Test
           assert_equal data, lines
           assert_equal data.size, count
         end
+      end
+
+      it "yields a line reader that it is given as it is" do
+        lines = []
+        IOStreams::Line::Reader.stream(StringIO.new("first\nsecond\n")) do |io|
+          IOStreams::Line::Reader.stream(io) do |inner|
+            assert_same io, inner
+            inner.each { |line| lines << line }
+          end
+        end
+
+        assert_equal %w[first second], lines
       end
 
       it "returns UTF-8 lines when characters and the delimiter are split across blocks" do
@@ -430,6 +477,8 @@ class LineReaderTest < Minitest::Test
 
           IOStreams::Line::Reader.stream(stream) do |io|
             assert_predicate io, :eof?
+            assert_nil io.readline
+            assert_equal(0, io.each { |line| flunk("Read the line #{line.inspect} from an empty file") })
           end
         end
 

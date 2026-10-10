@@ -140,22 +140,66 @@ class PgpReaderTest < Minitest::Test
       end
 
       it "fails with bad passphrase" do
-        assert_raises IOStreams::Pgp::Failure do
+        IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") { |io| io.write(decrypted) }
+
+        error = assert_raises(IOStreams::Pgp::Failure) do
           IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "BAD", &:read)
         end
+
+        assert_includes error.message, "Bad passphrase"
       end
 
-      # We cannot reliably generate an MDC-less file across GnuPG versions (modern GnuPG
-      # mandates MDC), so this only verifies that ignore_mdc_error is accepted and remains
-      # harmless for a normal encrypted file. The flag's real effect is on legacy files.
-      it "decrypts with ignore_mdc_error enabled" do
-        IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") do |io|
-          io.write(decrypted)
+      it "fails without a passphrase" do
+        IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") { |io| io.write(decrypted) }
+
+        error = assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp::Reader.file(temp_file.path, &:read) }
+
+        assert_match(/\AGPG Failed to decrypt file: /, error.message)
+      end
+
+      it "decrypts with the default passphrase when none is supplied" do
+        IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") { |io| io.write(decrypted) }
+        IOStreams::Pgp::Reader.default_passphrase = "receiver_passphrase"
+
+        assert_equal decrypted, IOStreams::Pgp::Reader.file(temp_file.path, &:read)
+      ensure
+        IOStreams::Pgp::Reader.default_passphrase = nil
+      end
+
+      describe "ignore_mdc_error" do
+        # Encrypted with the passphrase "legacy" and without the modification detection code (MDC) that protects the
+        # contents from being changed, as legacy programs write it, with `gpg --symmetric --rfc2440`.
+        let(:without_mdc) { File.join(__dir__, "files", "without_mdc.txt.pgp") }
+
+        it "is required to decrypt a file without integrity protection" do
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.file(without_mdc, passphrase: "legacy", &:read)
+          end
+
+          assert_includes error.message, "--ignore-mdc-error"
         end
 
-        result = IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase", ignore_mdc_error: true, &:read)
+        it "decrypts a file without integrity protection" do
+          result = IOStreams::Pgp::Reader.file(without_mdc, passphrase: "legacy", ignore_mdc_error: true, &:read)
 
-        assert_equal decrypted, result
+          assert_equal "Encrypted without integrity protection\n", result
+        end
+
+        it "decrypts a file with integrity protection" do
+          IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") do |io|
+            io.write(decrypted)
+          end
+
+          result = IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase", ignore_mdc_error: true, &:read)
+
+          assert_equal decrypted, result
+        end
+
+        it "is supported as a stream option" do
+          path = IOStreams.path(without_mdc).option(:pgp, passphrase: "legacy", ignore_mdc_error: true)
+
+          assert_equal "Encrypted without integrity protection\n", path.read
+        end
       end
 
       it "streams input" do
@@ -216,6 +260,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_equal "from the block", error.message
+        assert_operator input.pos, :<, input.size
         refute_predicate input, :closed?
       end
 
@@ -245,6 +290,27 @@ class PgpReaderTest < Minitest::Test
           assert_predicate file, :eof?
           refute_predicate file, :closed?
         end
+      end
+
+      it "reads a local file from where the caller has read to" do
+        encrypted = encrypt(decrypted)
+        File.binwrite(temp_file.path, "header\n".b + encrypted)
+        File.open(temp_file.path, "rb") do |file|
+          # Ruby reads ahead into its buffer, so that the file's position is past the start of the PGP data.
+          assert_equal "header\n", file.gets
+          assert_equal decrypted, IOStreams::Pgp::Reader.stream(file, passphrase: "receiver_passphrase", &:read)
+        end
+      end
+
+      it "reads the file of a Tempfile through its file descriptor, naming it when gpg fails" do
+        temp_file.write("Not a PGP file")
+        temp_file.flush
+        temp_file.rewind
+        error = assert_raises(IOStreams::Pgp::Failure) do
+          IOStreams::Pgp::Reader.stream(temp_file, passphrase: "receiver_passphrase", &:read)
+        end
+
+        assert_match(/\AGPG Failed to decrypt file: #{Regexp.escape(File.absolute_path(temp_file.path))}: /, error.message)
       end
 
       it "raises for a local file that was not opened for reading" do
@@ -314,6 +380,132 @@ class PgpReaderTest < Minitest::Test
           assert_equal %W[second\n third], io.each_line.to_a
           assert_nil io.gets
           assert_predicate io, :eof?
+        end
+      end
+
+      describe "the stream that the block reads" do
+        # Returns the result of the block, which reads the decrypted data, once it has checked that the block returns
+        # the same result whether gpg reads a local file, when the block reads gpg's stdout, which is an IO, or any
+        # other stream, when the block reads a StdoutReader, which must behave like an IO.
+        def read_as_file_and_stream(data, &block)
+          encrypted   = encrypt(data)
+          from_stream = IOStreams::Pgp::Reader.stream(StringIO.new(encrypted), passphrase: "receiver_passphrase") do |io|
+            assert_instance_of IOStreams::Pgp::GpgProcess::StdoutReader, io
+            block.call(io)
+          end
+          from_file = File.open(temp_file.path, "rb") do |file|
+            IOStreams::Pgp::Reader.stream(file, passphrase: "receiver_passphrase") do |io|
+              assert_instance_of IO, io
+              block.call(io)
+            end
+          end
+
+          assert_equal from_file, from_stream
+          from_stream
+        end
+
+        it "reads like IO#read" do
+          # More than gpg writes to its stdout at a time.
+          data    = Array.new(20_000) { |i| "line #{i}\n" }.join
+          results = read_as_file_and_stream(data) do |io|
+            # Each read has its own buffer, since the block returns it.
+            buffer = +"previous"
+            [
+              io.read(0), io.read(3), io.read(150_000) == data.byteslice(3, 150_000), io.read(5, buffer).dup, buffer.dup,
+              io.read == data.byteslice(150_008..), io.read(0), io.read, io.read(5, buffer), buffer
+            ]
+          end
+
+          assert_equal ["", "lin", true, data.byteslice(150_003, 5), data.byteslice(150_003, 5), true, "", "", nil, ""], results
+        end
+
+        it "reads lines like IO#gets" do
+          data    = "first\nsecond\nthird line\nfourth\n\n\n\nfifth paragraph\n\nlast"
+          results = read_as_file_and_stream(data) do |io|
+            [
+              io.gets, io.gets(chomp: true), io.gets("d"), io.gets(4), io.gets("\n", 3), io.gets(nil, 5), io.gets(""),
+              io.gets("", chomp: true), io.gets(""), io.gets, io.eof?
+            ]
+          end
+
+          assert_equal ["first\n", "second", "third", " lin", "e\n", "fourt", "h\n\n", "fifth paragraph", "last", nil, true], results
+        end
+
+        it "reads paragraphs like IO#each_line" do
+          results = read_as_file_and_stream("\n\nfirst\n\n\n\nsecond\n\nthird\n") do |io|
+            # With a block, since on JRuby the Enumerator that IO#each_line returns does not accept `chomp:`.
+            lines = []
+            io.each_line("", chomp: true) { |line| lines << line }
+            lines
+          end
+
+          assert_equal %W[first second third\n], results
+        end
+
+        it "skips the line endings after a paragraph like IO#gets" do
+          results = read_as_file_and_stream("first\n\n\n\nrest") { |io| [io.gets(""), io.read] }
+
+          assert_equal %W[first\n\n rest], results
+        end
+
+        it "reads what is available like IO#readpartial" do
+          results = read_as_file_and_stream("abcdef") do |io|
+            first = io.readpartial(4)
+            rest  = io.read
+            eof   = begin
+              io.readpartial(1)
+            rescue EOFError
+              :eof
+            end
+            [first, rest, eof]
+          end
+
+          assert_equal ["abcd", "ef", :eof], results
+        end
+
+        it "reports the end of the data like IO#eof?" do
+          results = read_as_file_and_stream("abcdef") { |io| [io.eof?, io.read(3), io.eof?, io.read, io.eof?] }
+
+          assert_equal [false, "abc", false, "def", true], results
+        end
+      end
+
+      describe "trust in the signer's key" do
+        let(:fingerprint) { "A" * 40 }
+
+        # Returns [String] the data read with a stub gpg, which reports a good signature by a subkey of the key with
+        # the fingerprint, followed by the supplied trust that gpg has in the key.
+        def read_signed(trust, signed_by: fingerprint)
+          script = <<~SCRIPT
+            echo "[GNUPG:] PLAINTEXT 62 0" >&3
+            echo "[GNUPG:] VALIDSIG #{'B' * 40} 2026-10-10 1791590400 0 4 0 1 10 00 #{signed_by}" >&3
+            echo "[GNUPG:] #{trust} 0 pgp" >&3
+            cat
+          SCRIPT
+          IOStreams::Pgp.stub(:primary_fingerprints, [fingerprint]) do
+            with_gpg_stub(script) { IOStreams::Pgp::Reader.stream(StringIO.new("data"), signer: "jack@example.org", &:read) }
+          end
+        end
+
+        %w[TRUST_FULLY TRUST_ULTIMATE].each do |trust|
+          it "accepts a signature by a key with #{trust}" do
+            assert_equal "data", read_signed(trust)
+          end
+        end
+
+        %w[TRUST_UNDEFINED TRUST_NEVER TRUST_MARGINAL].each do |trust|
+          it "rejects a signature by a key with #{trust}" do
+            error = assert_raises(IOStreams::Pgp::Failure) { read_signed(trust) }
+
+            assert_equal "PGP stream was signed by jack@example.org, but gpg does not trust the key, " \
+                         "see IOStreams::Pgp.set_trust", error.message
+          end
+        end
+
+        it "rejects a signature by another key" do
+          error = assert_raises(IOStreams::Pgp::Failure) { read_signed("TRUST_ULTIMATE", signed_by: "C" * 40) }
+
+          assert_equal "PGP stream was not signed by jack@example.org", error.message
         end
       end
 
