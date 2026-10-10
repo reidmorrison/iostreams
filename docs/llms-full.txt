@@ -2161,8 +2161,10 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-To ensure no streams are inferred or applied use stream `:none` 
-~~~ruby 
+To ensure no streams are inferred or applied use stream `:none`. It removes the streams that the file
+name implies, and any encoding set with `#encoding`, but lines, rows and records are still read as
+text, see [Text and binary data](#text-and-binary-data). Add `encoding("BINARY")` after it to read bytes:
+~~~ruby
 path = IOStreams.path("file.zip")
 path.stream(:none)
 path.read
@@ -2555,7 +2557,9 @@ IOStreams.path("sample.csv.gz").
 ~~~
 
 Each call merges its options with those already set, so `encoding("UTF-8").encoding(replace: "")` is
-the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams.
+the same as `encoding("UTF-8", replace: "")`. `stream(:none)` removes it, along with the other streams. Text is still read in its default encoding,
+UTF-8, or ASCII for [fixed width files](formats#fixed-width-files), so call `#encoding` after
+`stream(:none)` to read it in another, such as `encoding("BINARY")` for bytes.
 
 **Deprecated:** setting the encode stream with `option(:encode, ...)` or `stream(:encode, ...)`.
 Both still work, and set the same options as `#encoding`, but use `#encoding` instead:
@@ -2827,7 +2831,7 @@ padded and truncated to `:size` characters. In ASCII, and in a single-byte code 
 is one byte, so the sizes count bytes.
 
 Set the encoding of the file with [`#encoding`](extensions#character-encoding) when it is not
-ASCII. An encoding that is set always replaces the ASCII default:
+ASCII. An encoding that is set always replaces the ASCII default, which `stream(:none)` keeps:
 
 * A single-byte code page, such as ISO-8859-1 or Windows-1252, or EBCDIC from a mainframe: name it
   with the encoding that the values are read as, for example
