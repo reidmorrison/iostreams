@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "digest"
 require "fileutils"
 require "net/http"
@@ -7,10 +9,10 @@ require "net/http"
 # `bundle exec rake zstd_jni` downloads it from Maven Central into the local Maven repository,
 # where jar-dependencies finds it, and `bundle exec rake` on JRuby does so before running the tests.
 module ZstdJni
-  GROUP_ID    = "com.github.luben".freeze
-  ARTIFACT_ID = "zstd-jni".freeze
-  VERSION     = "1.5.7-3".freeze
-  SHA256      = "a38a4a97f1b43b878c91e0dd7f1e3d17f0e70beec71d95bacaf56a2f207624a3".freeze
+  GROUP_ID    = "com.github.luben"
+  ARTIFACT_ID = "zstd-jni"
+  VERSION     = "1.5.7-3"
+  SHA256      = "a38a4a97f1b43b878c91e0dd7f1e3d17f0e70beec71d95bacaf56a2f207624a3"
 
   def self.jar_name
     "#{ARTIFACT_ID}-#{VERSION}.jar"

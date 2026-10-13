@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative "test_helper"
 
 # A stream never closes the IO supplied to it, which belongs to the caller.

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # The miminum methods that any IOStreams Reader must implement.
 class MinimalFileReader
   def self.open(file_name)

@@ -1,7 +1,23 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Tabular
     module Parser
       class Base
+        # Parameters:
+        #   schema: [IOStreams::Schema|nil]
+        #     The schema of the rows, which a format needs when the schema says where each value is, such as the
+        #     width of each field of a fixed width file, see `IOStreams::Tabular::Parser::Fixed`.
+        def initialize(schema: nil)
+          @schema = schema
+        end
+
+        # Returns [:text|:json|:typed] the form in which this format writes the values of a schema, see
+        # `IOStreams::Schema::Field#render`: as text, the default.
+        def self.value_form
+          :text
+        end
+
         # Returns [String] the quote character within which field delimiters and embedded
         # newlines may appear for this format, or [nil] when the format has no such quoting.
         #

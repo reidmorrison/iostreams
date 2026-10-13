@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Pgp
     class Reader < IOStreams::Reader

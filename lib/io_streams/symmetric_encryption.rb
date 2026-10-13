@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Encryption using the `symmetric-encryption` gem.
   module SymmetricEncryption

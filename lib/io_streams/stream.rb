@@ -1,7 +1,23 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Stream
     # Why a copy with `convert: false` cannot accept options.
-    UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is".freeze
+    UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is"
+
+    # The settings of rows and records that describe the file, so that they are set on the path, rather than supplied
+    # to each call of a reader or writer, with an example of setting each one.
+    PATH_SETTINGS = {
+      format:         "path.format(:json).each(:hash)",
+      default_format: "path.format(:json).each(:hash)",
+      file_name:      "path.file_name(\"data.json\").each(:hash)",
+      format_options: "path.schema(\"layout.json\").each(:hash)",
+      schema:         "path.schema(\"people.json\").each(:hash)"
+    }.freeze
+
+    # The options that only apply when reading, so that a writer, and a copy, which uses its options to write its
+    # target, raise for them, rather than ignore them.
+    READ_OPTIONS = %i[cleanse_header allowed_columns required_columns skip_unknown embedded_within buffer_size].freeze
 
     attr_reader :io_stream
 
@@ -13,13 +29,17 @@ module IOStreams
       @builder        = nil
       @format         = nil
       @format_options = nil
+      @schema         = nil
+      @schema_source  = nil
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
+    # It shares the source of the schema, which does not change, so that a schema file is read once.
     def initialize_copy(source)
       super
       @builder        = @builder&.dup
       @format_options = @format_options&.dup
+      @schema         = @schema.dup if @schema.is_a?(Hash)
     end
 
     # Ignore the filename and use only the supplied streams.
@@ -190,8 +210,12 @@ module IOStreams
     #   1. The tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)`,
     #      or detected from a `.csv` file name. Rows and records are read as CSV unless another format
     #      applies, so this includes `:array` and `:hash` for a file name without a tabular extension.
-    #   2. Or the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`)
-    # - Pass `embedded_within: nil` to disable quote-aware line joining for a quoted format.
+    #   2. Or, in the `:line` mode, the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`).
+    # - Pass `embedded_within: nil` to read the physical lines of a quoted format in the `:line` mode.
+    #   Supplying `embedded_within` in the `:array` and `:hash` modes is deprecated, since the format splits their
+    #   lines: set the format with #format instead.
+    # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
+    #   ArgumentError when they are supplied to a call, see PATH_SETTINGS.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -317,6 +341,9 @@ module IOStreams
       if convert
         stream = to_stream(source)
         if mode
+          reject_read_options!(
+            args, "but a copy uses its options to write the target", suggest_columns: %i[array hash].include?(mode)
+          )
           stream.reader(mode) do |rows|
             writer(mode, **args) do |target|
               rows.each { |row| target << row }
@@ -379,7 +406,10 @@ module IOStreams
       @format = format
     end
 
-    # Set/get the tabular format options
+    # Deprecated: use #schema, which gives the width of each field of a fixed width file, see docs/formats.md.
+    #
+    # Set/get the layout of a fixed width file, `layout:` and `truncate:`, which are translated into the schema,
+    # see `IOStreams::Tabular::Parser::Fixed.schema`, so that #schema returns the schema of the layout.
     def format_options(format_options = :none)
       if format_options == :none
         @format_options
@@ -389,8 +419,59 @@ module IOStreams
       end
     end
 
-    # Set the tabular format_options
-    attr_writer :format_options
+    # Deprecated: use #schema=, see #format_options.
+    #
+    # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid.
+    def format_options=(format_options)
+      raise_if_frozen!
+      if format_options.nil? || format_options.empty?
+        # Removes the schema of the layout set before, but not a schema set with #schema.
+        self.schema = nil if @format_options
+      else
+        self.schema = IOStreams::Tabular::Parser::Fixed.schema(**format_options)
+      end
+      @format_options = format_options
+    end
+
+    # Set/get the schema of the rows and records of this file: the name and type of each field, so that reading
+    # rows and records returns each value as its type, such as an Integer or a Date, and writing them writes each
+    # value in the text form of its type. It applies to every tabular format, and gives the position of each field of
+    # a fixed width file. See docs/formats.md, and `IOStreams::Schema` for its properties.
+    #
+    # Parameters:
+    #   schema: [Hash|String|IOStreams::Path]
+    #     A Frictionless Table Schema as a Hash, which is checked now, or the path or url of a JSON file that holds
+    #     one, in any store, which is read the first time that a reader or writer needs it.
+    #     nil removes the schema.
+    #
+    # Returns [Hash|String|IOStreams::Path] the schema that was set, or [nil] when none was set.
+    #
+    # Examples:
+    #
+    #   IOStreams.path("people.csv").schema(fields: [{name: "age", type: "integer"}]).each(:hash) do |person|
+    #     person["age"] # => 42
+    #   end
+    #
+    #   path = IOStreams.path("s3://bucket/people.txt").format(:fixed).schema("s3://bucket/schemas/people.json")
+    #   path.each(:hash) { |person| p person }
+    def schema(schema = :none)
+      if schema == :none
+        @schema
+      else
+        self.schema = schema
+        self
+      end
+    end
+
+    # Set the schema, see #schema.
+    #
+    # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+    def schema=(schema)
+      raise_if_frozen!
+      @schema_source  = schema.nil? ? nil : IOStreams::Schema::Source.new(schema)
+      @schema         = schema
+      @format_options = nil
+    end
 
     # Returns [String] the last component of this path.
     # Returns `nil` if no `file_name` was set.
@@ -470,12 +551,14 @@ module IOStreams
     # Replaces the streams and options. Not public, since a builder is internal.
     attr_writer :builder
 
-    # Clears the streams, options, format and format options, for example `#join` and `#directory`
+    # Clears the streams, options, format, format options and schema, for example `#join` and `#directory`
     # clear them on a copy of a path, since they were set for the file of the original path.
     def clear_configuration
       self.builder    = nil
       @format         = nil
       @format_options = nil
+      @schema         = nil
+      @schema_source  = nil
     end
 
     # Options are strict: raise rather than ignore options that a copy cannot use.
@@ -514,6 +597,31 @@ module IOStreams
       file_name_or_io.is_a?(Stream) ? file_name_or_io : IOStreams.new(file_name_or_io)
     end
 
+    # Raises ArgumentError for a setting that describes the file, see PATH_SETTINGS, since it is set on the path.
+    def reject_path_settings!(options)
+      names = PATH_SETTINGS.keys & options.keys
+      return if names.empty?
+
+      messages = names.map do |name|
+        "#{name.inspect} cannot be supplied to each call, set it on the path instead, for example: #{PATH_SETTINGS[name]}"
+      end
+      raise(ArgumentError, messages.join(". "))
+    end
+
+    # Raises ArgumentError for an option that only applies when reading, see READ_OPTIONS, since writing would ignore it.
+    #
+    # Suggests `columns:` in place of a column restriction when `suggest_columns`, for the modes that accept it.
+    def reject_read_options!(options, reason, suggest_columns: true)
+      names = READ_OPTIONS & options.keys
+      return if names.empty?
+
+      message = "#{names.map(&:inspect).join(', ')} only #{names.size == 1 ? 'applies' : 'apply'} when reading, #{reason}"
+      if suggest_columns && names.intersect?(%i[allowed_columns required_columns skip_unknown])
+        message << ". To choose the columns that are written, supply `columns:`"
+      end
+      raise(ArgumentError, message)
+    end
+
     # Options are strict: raise rather than ignore options that the :stream mode cannot use.
     def reject_stream_mode_options!(options)
       return if options.empty?
@@ -543,13 +651,14 @@ module IOStreams
 
     # The lines are read in the encoding of the format, set with #format or detected from the file name, see
     # `IOStreams::Tabular#encoding`, unless an encoding is set on the encode stream.
-    def line_reader(embedded_within: :auto, **, &)
+    def line_reader(embedded_within: :auto, **args, &)
+      reject_path_settings!(args)
       # `:auto` uses the quote character of the format, set with #format or detected from the file name,
       # such as `"` for CSV, while distinguishing "not supplied" from an explicit value such as `nil`
       # (disable) or `'"'` (force).
       embedded_within = IOStreams::Tabular.quote_character(format) if embedded_within == :auto
 
-      open_line_reader(IOStreams::Tabular.encoding(format), embedded_within: embedded_within, **, &)
+      open_line_reader(IOStreams::Tabular.encoding(format), embedded_within: embedded_within, **args, &)
     end
 
     # Yields a line reader of the text read in the supplied encoding, unless an encoding is set on the encode stream.
@@ -583,9 +692,11 @@ module IOStreams
     end
 
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream in the format set with #format,
-    # otherwise the one detected from the file name, otherwise CSV, see `IOStreams::Tabular.new`.
+    # otherwise the one detected from the file name, otherwise CSV, see `IOStreams::Tabular.new`, with the schema
+    # set with #schema, reading its file the first time.
     def tabular(**args)
-      IOStreams::Tabular.new(file_name: file_name, format: @format, format_options: @format_options, **args)
+      reject_path_settings!(args)
+      IOStreams::Tabular.new(file_name: file_name, format: @format, schema: @schema_source&.schema, **args)
     end
 
     def stream_writer(&)
@@ -593,10 +704,12 @@ module IOStreams
     end
 
     # The lines are written in the encoding of the format, see #line_reader.
-    def line_writer(**, &block)
+    def line_writer(**args, &block)
+      reject_path_settings!(args)
+      reject_read_options!(args, "not when writing", suggest_columns: false)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
-      open_line_writer(IOStreams::Tabular.encoding(format), **, &block)
+      open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)
     end
 
     # Yields a line writer of the text written in the supplied encoding, unless an encoding is set on the encode
@@ -610,6 +723,7 @@ module IOStreams
     end
 
     def row_writer(delimiter: $/, **args, &block)
+      reject_read_options!(args, "not when writing")
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
       tabular = tabular(**args)
@@ -619,6 +733,7 @@ module IOStreams
     end
 
     def record_writer(delimiter: $/, **args, &block)
+      reject_read_options!(args, "not when writing")
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
       tabular = tabular(**args)

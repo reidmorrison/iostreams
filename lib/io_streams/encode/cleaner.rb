@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Encode
     # Cleanses the data that the encode reader and writer convert, with a built-in rule or a Proc.

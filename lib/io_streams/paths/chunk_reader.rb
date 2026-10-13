@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Paths
     # Reads data that arrives one chunk at a time, such as the ranges of an S3 object or the body of an HTTP response,

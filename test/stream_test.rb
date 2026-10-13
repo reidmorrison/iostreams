@@ -1,4 +1,8 @@
+# frozen_string_literal: true
+
 require_relative "test_helper"
+require "bigdecimal"
+require "json"
 
 class StreamTest < Minitest::Test
   describe IOStreams::Stream do
@@ -841,6 +845,78 @@ class StreamTest < Minitest::Test
         assert_equal [{"id" => "01", "name" => "Jack"}, {"id" => "02", "name" => "Jill"}], rows
       end
 
+      it "is translated into the schema, which #schema returns" do
+        stream.format_options(
+          layout:   [{size: 2, key: :id, type: :integer}, {size: 1}, {size: 4, key: :name}, {size: 6, key: :pay, type: :float}],
+          truncate: false
+        )
+
+        expected = {
+          fields: [
+            {name: :id, type: "integer", width: 2},
+            {name: :name, type: "string", width: 4, start: 4},
+            {name: :pay, type: "number", width: 6, floatNumber: true, decimals: 2}
+          ]
+        }
+
+        assert_equal expected, stream.schema
+      end
+
+      it "truncates strings unless truncate is false" do
+        stream.format_options(layout: [{size: 4, key: "name"}, {size: 2}])
+
+        assert_equal({fields: [{name: "name", type: "string", width: 4, truncate: true}], width: 6}, stream.schema)
+      end
+
+      it "raises for an invalid layout when it is set" do
+        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{key: "id"}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 2, key: "id", type: :money}]) }
+        assert_raises(ArgumentError) { stream.format_options(layout: [{size: 2, key: "id", width: 3}]) }
+        assert_raises(ArgumentError) { stream.format_options(layout: [], compress: true) }
+      end
+
+      it "is replaced by #schema" do
+        stream.format_options(layout: [{size: 2, key: "id"}])
+        stream.schema(fields: [{name: "id", type: "integer", width: 2}])
+
+        assert_nil stream.format_options
+        assert_equal({fields: [{name: "id", type: "integer", width: 2}]}, stream.schema)
+      end
+
+      it "removes the schema of its layout when it is set to nil, but not a schema set with #schema" do
+        stream.format_options(layout: [{size: 2, key: "id"}]).format_options(nil)
+
+        assert_nil stream.schema
+
+        stream.schema(fields: [{name: "id"}]).format_options(nil)
+
+        assert_equal({fields: [{name: "id"}]}, stream.schema)
+      end
+
+      it "reads integers and floats, and writes them zero filled" do
+        layout = [{size: 2, key: "id", type: :integer}, {size: 6, key: "pay", type: :float}]
+        out    = StringIO.new
+        IOStreams::Stream.new(out).format(:fixed).format_options(layout: layout).writer(:hash) do |io|
+          io << {"id" => 7, "pay" => 12.5}
+          io << {"id" => 8}
+        end
+
+        assert_equal "07012.50\n08000.00\n", out.string
+
+        rows = []
+        IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout: layout).each(:hash) { |row| rows << row }
+
+        assert_equal [{"id" => 7, "pay" => 12.5}, {"id" => 8, "pay" => 0.0}], rows
+        assert_kind_of Float, rows.first["pay"]
+      end
+
+      it "raises for a column that is not a number, rather than return 0" do
+        path = IOStreams::Stream.new(StringIO.new("N/A\n")).format(:fixed).format_options(layout: [{size: 3, key: "id", type: :integer}])
+
+        error = assert_raises(IOStreams::Errors::InvalidValue) { path.each(:hash) { |row| row } }
+        assert_equal 'Field "id": "N/A" is not a valid integer', error.message
+      end
+
       describe "fixed width columns" do
         let(:layout) { [{size: 6, key: "name"}, {size: 7, key: "city"}] }
 
@@ -1060,6 +1136,325 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#schema" do
+      let(:people) do
+        {
+          fields: [
+            {name: "id", type: "integer"},
+            {name: "pay", type: "number", decimals: 2},
+            {name: "joined", type: "date"},
+            {name: "active", type: "boolean"}
+          ]
+        }
+      end
+
+      let(:csv) { "id,pay,joined,active\n0042,12.5,2026-10-13,true\n" }
+
+      let(:record) { {"id" => 42, "pay" => BigDecimal("12.5"), "joined" => Date.new(2026, 10, 13), "active" => true} }
+
+      # Returns [Array] the rows or records read from the text, with the supplied file name and schema.
+      def read(text, mode = :hash, file_name: "people.csv", schema: people)
+        rows = []
+        IOStreams::Stream.new(StringIO.new(text)).file_name(file_name).schema(schema).each(mode) { |row| rows << row }
+        rows
+      end
+
+      # Returns [String] the text written for the records, with the supplied file name and schema.
+      def write(records, mode = :hash, file_name: "people.csv", schema: people)
+        out = StringIO.new
+        IOStreams::Stream.new(out).file_name(file_name).schema(schema).writer(mode) do |io|
+          records.each { |record| io << record }
+        end
+        out.string
+      end
+
+      it "returns the schema that was set" do
+        assert_nil stream.schema
+        assert_same stream, stream.schema(people)
+        assert_equal people, stream.schema
+
+        stream.schema = "s3://bucket/people.json"
+
+        assert_equal "s3://bucket/people.json", stream.schema
+
+        stream.schema = nil
+
+        assert_nil stream.schema
+      end
+
+      it "checks a schema in a Hash when it is set" do
+        assert_raises(ArgumentError) { stream.schema(fields: [{name: "id", type: "money"}]) }
+        assert_nil stream.schema
+      end
+
+      it "raises when the schema is not a Hash, or a path or url" do
+        error = assert_raises(ArgumentError) { stream.schema([{name: "id"}]) }
+        assert_match(/\AA schema must be a Hash, or the path or url of a JSON file/, error.message)
+      end
+
+      it "raises for a frozen path" do
+        path = IOStreams.path("/data/people.csv").freeze
+
+        assert_raises(FrozenError) { path.schema(people) }
+      end
+
+      it "converts the values of the records read" do
+        assert_equal [record], read(csv)
+      end
+
+      it "converts the values of the rows read, but not the header row" do
+        assert_equal [%w[id pay joined active], [42, BigDecimal("12.5"), Date.new(2026, 10, 13), true]], read(csv, :array)
+      end
+
+      it "applies to every format" do
+        json = %({"id":"0042","pay":12.5,"joined":"2026-10-13","active":true}\n)
+
+        assert_equal [record], read(json, file_name: "people.json")
+        assert_equal [record], read("id|pay|joined|active\n0042|12.5|2026-10-13|true\n", file_name: "people.psv")
+      end
+
+      it "leaves the values of other columns as they are" do
+        assert_equal [{"id" => 1, "name" => "Jack"}], read("id,name\n1,Jack\n")
+      end
+
+      it "applies to the columns of a header row once they are cleansed, and to the keys of JSON as they are" do
+        schema = {fields: [{name: "first_name", type: "string"}, {name: "Age", type: "integer"}]}
+
+        assert_equal [{"first_name" => "Jack", "age" => 21}], read("First Name,Age\nJack,21\n", schema: schema)
+        assert_equal [{"First Name" => "Jack", "age" => 21}], read(%({"First Name":"Jack","age":"21"}\n), file_name: "people.json", schema: schema)
+      end
+
+      it "raises for a value that is not of the type of its field" do
+        error = assert_raises(IOStreams::Errors::InvalidValue) { read("id\n12-\n") }
+        assert_equal 'Field "id": "12-" is not a valid integer', error.message
+      end
+
+      it "writes each value in the text form of its type" do
+        written = write([{id: "0042", pay: 12.5, joined: Date.new(2026, 10, 13), active: "1"}])
+
+        assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", written
+        assert_equal [record], read(written)
+      end
+
+      it "writes rows in the text form of the type of each column" do
+        written = write([%w[id pay joined active], ["0042", 12.5, Date.new(2026, 10, 13), "1"]], :array)
+
+        assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", written
+      end
+
+      it "writes JSON numbers and booleans as themselves" do
+        written = write([record], file_name: "people.json")
+
+        assert_equal %({"id":42,"pay":12.5,"joined":"2026-10-13","active":true}\n), written
+        assert_equal [record], read(written, file_name: "people.json")
+      end
+
+      it "raises when writing a value that is not of the type of its field" do
+        assert_raises(IOStreams::Errors::InvalidValue) { write([{"id" => "abc"}]) }
+      end
+
+      it "reads the schema from a file the first time that it is needed" do
+        Dir.mktmpdir do |dir|
+          schema_path = ::File.join(dir, "people.json")
+          path        = IOStreams.path(dir, "people.csv").schema(schema_path)
+          IOStreams.path(dir, "people.csv").write(csv)
+
+          assert_raises(IOStreams::Errors::NotFound) { path.each(:hash) { |row| row } }
+
+          IOStreams.path(schema_path).write(JSON.generate(people))
+          rows = []
+          path.each(:hash) { |row| rows << row }
+
+          assert_equal [record], rows
+          assert_equal schema_path, path.schema
+        end
+      end
+
+      it "is read once for a path and its copies" do
+        Dir.mktmpdir do |dir|
+          schema_path = IOStreams.path(dir, "people.json")
+          schema_path.write(JSON.generate(people))
+          path = IOStreams.path(dir, "people.csv").schema(schema_path)
+          path.write(csv)
+          path.each(:hash) { |row| row }
+          copy = IOStreams.path(path)
+          schema_path.delete
+          rows = []
+          copy.each(:hash) { |row| rows << row }
+
+          assert_equal [record], rows
+        end
+      end
+
+      it "is kept by a copy, and cleared by #join" do
+        path = IOStreams.path("/data/people.csv").schema(people)
+
+        assert_equal people, IOStreams.path(path).schema
+        assert_nil path.join("other.csv").schema
+        assert_nil path.sub_ext(".json").schema
+      end
+
+      describe "a file without a header row" do
+        let(:headerless) { people.merge(header: false) }
+
+        it "reads every line as a record of the fields" do
+          assert_equal [record], read("0042,12.5,2026-10-13,true\n", schema: headerless)
+          assert_equal [[42, BigDecimal("12.5"), Date.new(2026, 10, 13), true]], read("0042,12.5,2026-10-13,true\n", :array, schema: headerless)
+        end
+
+        it "writes no header row, and the fields in order" do
+          written = write([{active: true, joined: Date.new(2026, 10, 13), pay: 12.5, id: 42}], schema: headerless)
+
+          assert_equal "42,12.50,2026-10-13,true\n", written
+        end
+
+        it "copies typed values into a target without a schema as their usual text" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.csv").schema(headerless)
+            source.write("0042,12.5,2026-10-13,true\n")
+            IOStreams.path(dir, "people.json").copy_from(source, mode: :hash)
+
+            assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "people.json").read
+          end
+        end
+
+        it "is read by #copy_from and #copy_to, whose options only apply to the target" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.csv").schema(headerless)
+            source.write("0042,12.5,2026-10-13,true\n")
+            IOStreams.path(dir, "people.json").schema(people).copy_from(source, mode: :hash)
+            source.copy_to(IOStreams.path(dir, "copy.json").schema(people), mode: :hash)
+
+            expected = %({"id":42,"pay":12.5,"joined":"2026-10-13","active":true}\n)
+
+            assert_equal expected, IOStreams.path(dir, "people.json").read
+            assert_equal expected, IOStreams.path(dir, "copy.json").read
+          end
+        end
+      end
+
+      describe "fixed width" do
+        let(:fixed) do
+          {
+            fields: [
+              {name: "name", type: "string", width: 6},
+              {name: "zip", type: "integer", width: 5, start: 9},
+              {name: "pay", type: "number", width: 8, decimals: 2}
+            ],
+            width:  24
+          }
+        end
+
+        let(:line) { "Jack  xx12345-0012.50   " }
+
+        # Returns [Array<Hash>] the records read from the text, as a fixed width file.
+        def read_fixed(text, schema: fixed)
+          records = []
+          IOStreams::Stream.new(StringIO.new(text)).format(:fixed).schema(schema).each(:hash) { |record| records << record }
+          records
+        end
+
+        # Returns [String] the text written for the records, as a fixed width file.
+        def write_fixed(*records, schema: fixed)
+          out = StringIO.new
+          IOStreams::Stream.new(out).format(:fixed).schema(schema).writer(:hash) do |io|
+            records.each { |record| io << record }
+          end
+          out.string
+        end
+
+        it "reads each field at its position, skipping the characters before its start" do
+          assert_equal [{"name" => "Jack", "zip" => 12_345, "pay" => BigDecimal("-12.5")}], read_fixed("#{line}\n")
+        end
+
+        it "returns keys that are the names of the fields as they are given" do
+          schema = {fields: [{name: :name, width: 4}, {name: "id", type: "integer", width: 2}]}
+
+          assert_equal [{name: "Jack", "id" => 7}], read_fixed("Jack07\n", schema: schema)
+        end
+
+        it "raises for a line of another length" do
+          assert_raises(IOStreams::Errors::InvalidLineLength) { read_fixed("#{line} \n") }
+        end
+
+        it "writes a number right justified and zero filled, and a missing number as zero" do
+          assert_equal "Jack    12345-0012.50   \nJill    0000000000.00   \n",
+                       write_fixed({"name" => "Jack", "zip" => 12_345, "pay" => BigDecimal("-12.5")}, {name: "Jill"})
+        end
+
+        it "raises for a string that is too long, unless its field truncates it" do
+          error = assert_raises(IOStreams::Errors::ValueTooLong) { write_fixed({"name" => "Jackson"}) }
+          assert_equal "Value: Jackson is too large to fit into column:name of size:6", error.message
+
+          fixed[:fields][0][:truncate] = true
+
+          assert_equal "Jackso  0000000000.00   \n", write_fixed({"name" => "Jackson"})
+        end
+
+        it "raises for a number that is too long" do
+          assert_raises(IOStreams::Errors::ValueTooLong) { write_fixed({"zip" => 123_456}) }
+        end
+
+        it "takes the remainder of the line" do
+          schema = {fields: [{name: "id", type: "integer", width: 2}, {name: "note", width: "remainder"}]}
+
+          assert_equal [{"id" => 7, "note" => "any length"}], read_fixed("07any length\n", schema: schema)
+          assert_equal "07any length\n", write_fixed({"id" => 7, "note" => "any length"}, schema: schema)
+        end
+
+        it "accepts lines of any length with a schema width of remainder" do
+          schema = {fields: [{name: "id", type: "integer", width: 2}], width: "remainder"}
+
+          assert_equal [{"id" => 7}, {"id" => 8}], read_fixed("07\n08 and the rest\n", schema: schema)
+        end
+
+        it "raises for a field without a width" do
+          error = assert_raises(ArgumentError) { read_fixed("Jack\n", schema: {fields: [{name: "name"}]}) }
+          assert_equal 'Field "name" needs a width for the :fixed format', error.message
+        end
+
+        it "raises for a field that starts within the field before it" do
+          schema = {fields: [{name: "a", width: 4}, {name: "b", width: 2, start: 3}]}
+
+          error = assert_raises(ArgumentError) { read_fixed("abcdef\n", schema: schema) }
+          assert_equal 'Field "b" starts at 3, within the field before it, which ends at 4', error.message
+        end
+
+        it "raises for a field after one that takes the remainder of the line" do
+          schema = {fields: [{name: "a", width: "remainder"}, {name: "b", width: 2}]}
+
+          assert_raises(ArgumentError) { read_fixed("abcdef\n", schema: schema) }
+        end
+
+        it "raises without a schema" do
+          error = assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new("abc\n")).format(:fixed).each(:hash) { |row| row } }
+          assert_match(/needs a schema that gives the width of each field/, error.message)
+        end
+      end
+
+      describe "supplied to each call" do
+        it "raises for the format, format options or schema, since they are set on the path" do
+          error = assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:hash, format: :json) { |row| row } }
+          assert_equal ":format cannot be supplied to each call, set it on the path instead, for example: path.format(:json).each(:hash)",
+                       error.message
+
+          assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:array, format_options: {layout: []}) { |row| row } }
+          assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:hash, schema: people) { |row| row } }
+          assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:line, format: :psv) { |row| row } }
+          assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new).writer(:hash, format: :json) { |io| io << {"a" => 1} } }
+          assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new).writer(:line, schema: people) { |io| io << "a" } }
+        end
+
+        it "raises when copying with a mode" do
+          Dir.mktmpdir do |dir|
+            IOStreams.path(dir, "a.csv").write(csv)
+
+            assert_raises(ArgumentError) { IOStreams.path(dir, "b.json").copy_from(IOStreams.path(dir, "a.csv"), mode: :hash, format: :psv) }
+          end
+        end
+      end
+    end
+
     describe "embedded_within line handling" do
       let :pipe_delimited_csv_file do
         File.join(File.dirname(__FILE__), "files", "pipe_delimited_with_quotes.csv")
@@ -1098,11 +1493,11 @@ class StreamTest < Minitest::Test
         assert_equal [["first column", "second column", "third column"], ["data 1", "data 2", "more\ndata"]], rows
       end
 
-      it "splits lines for the format supplied when reading records" do
+      it "splits lines for the format set on the stream when reading records" do
         # The escaped quote within the JSON value is not a CSV quote, so it must not join the next line.
         io      = StringIO.new(%({"name":"5\\" pipe"}\n{"name":"Jill"}\n))
         records = []
-        IOStreams::Stream.new(io).file_name("data.csv").each(:hash, format: :json) { |record| records << record }
+        IOStreams::Stream.new(io).file_name("data.csv").format(:json).each(:hash) { |record| records << record }
 
         assert_equal [{"name" => %(5" pipe)}, {"name" => "Jill"}], records
       end

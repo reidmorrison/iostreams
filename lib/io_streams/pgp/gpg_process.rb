@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Pgp
     # One run of gpg, which moves the data between gpg and the caller's stream in the caller's thread.

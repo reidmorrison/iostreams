@@ -1831,8 +1831,12 @@ Notes:
   tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)` or detected
   from a `.csv` file name. Rows read with `each(:array)` and records read with `each(:hash)` are CSV
   unless another format applies, so this also applies to them for a file name without a tabular
-  extension, such as `data.txt`, a spreadsheet, or a stream without a file name. `embedded_within` only
-  needs to be supplied for quoted formats that are not set or detected, or to override the quote character.
+  extension, such as `data.txt`, a spreadsheet, or a stream without a file name.
+* `embedded_within` chooses the lines that `each(:line)` returns: supply `embedded_within: nil` for the
+  physical lines of a quoted format, or a quote character for the logical lines of a format that is not set or
+  detected. When reading rows and records, the format splits the lines, since its parser must agree with
+  where they are split, so supplying `embedded_within` to `each(:array)` or `each(:hash)` is deprecated. Set
+  the format of the file with `#format` instead.
 * A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
   real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
 ~~~ruby
@@ -1952,6 +1956,48 @@ Notes:
   `example.csv.zip` creates an entry named `example.csv`.
 * Gzip is still recommended over Zip for very large files, since Zip files can only
   be read via a local file.
+
+## Settings on the path, options for each call
+
+A setting that describes the file is set on the path, and an option that says what your code wants from
+the file is supplied to each call. A path is configuration: it can be held in a configuration system and
+handed to code that only calls `each(:hash)`, so the settings of the path are all that it takes to read or
+write the file the right way, by any code, including `#copy_from` and `#copy_to`.
+
+| Setting | Where | Because it says |
+|---------|-------|-----------------|
+| The path or url, and `#file_name` | The path | Where the file is, and the extensions that name its streams and format |
+| `#stream` and `#option` | The path | How the file is compressed or encrypted |
+| `#encoding` | The path | The encoding of the text of the file |
+| `#format` | The path | The tabular format of the file, such as `:json` |
+| `#schema` | The path | The fields of the file and their types, the position of each fixed width field, and whether it has a header row |
+| The mode, such as `:hash` | Each call | Whether the code reads or writes blocks, lines, rows or records |
+| `cleanse_header:` | Each call, when reading | How the code wants the keys of each record named |
+| `allowed_columns:`, `required_columns:` and `skip_unknown:` | Each call, when reading | Which columns the code accepts, which can differ between two readers of the same file |
+| `columns:` | Each call | When writing, the columns to write and their order. When reading a file without a header row, its columns, which a schema with `header: false` describes on the path instead |
+| `delimiter:` and `buffer_size:` | Each call | How lines are split or ended, and how much is read at a time |
+| `embedded_within:` | Each call, in the `:line` mode | Whether the code reads the physical lines, or the logical lines of a quoted format |
+
+IOStreams checks where each setting is supplied:
+
+* A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
+  `file_name:`, `schema:`, `format_options:` and `default_format:`.
+* An option that only applies when reading, such as `allowed_columns:`, raises `ArgumentError` when it is supplied
+  to `#writer`, rather than being ignored. To choose the columns that are written, supply `columns:`.
+* `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
+  raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set
+  what describes the source, such as its schema, on its path.
+
+~~~ruby
+# The configuration describes the file.
+people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHEMA"])
+
+# The code says what it wants from it.
+people.each(:hash, allowed_columns: %w[name age]) { |person| p person }
+
+# A copy reads the source with the settings of its path, and writes the target with its own options.
+IOStreams.path("people.json").copy_from(people, mode: :hash, columns: %w[name age])
+~~~
 
 ## Text and binary data
 
@@ -2149,7 +2195,8 @@ In this example the file contains JSON data that was compressed with Zip, and si
 ~~~ruby 
 IOStreams.path("tempfile2527").
   stream(:zip).
-  each(:hash, format: :json) do |row|
+  format(:json).
+  each(:hash) do |row|
     p row
   end
 ~~~
@@ -2257,9 +2304,12 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidHeader`: the header has columns that are not allowed, or is missing required columns.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
-  * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its layout.
-  * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width column.
-  * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width format is not valid.
+  * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, see
+    [Schema](formats#schema).
+  * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
+  * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
+  * `IOStreams::Errors::InvalidLayout`: the deprecated layout of a fixed width file, supplied with `#format_options`,
+    is not valid. An invalid schema raises `ArgumentError`.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
@@ -2778,72 +2828,219 @@ path.each(:hash) { |record| p record }
 IOStreams.path("sample_data").format(:json).each(:hash) { |record| p record }
 ~~~
 
-## Format options
+The format describes the file, so it is set on the path, rather than supplied to each call of `#each`, `#reader` or
+`#writer`, which raises `ArgumentError` for `format:`.
 
-Format specific options are supplied with `format_options`. They are passed to the parser
-for the chosen format. The `:fixed` format requires its file layout to be supplied this way,
-as shown in the next section. The other formats do not currently take any options.
+## Schema
+
+A schema gives the type of each field, so that reading rows and records returns each value as its type, such as an
+`Integer` or a `Date`, rather than as text, and writing them writes each value in the text form of its type. It
+applies to every format, and gives the position of each field of a fixed width file.
+
+A schema is a [Frictionless Table Schema](https://datapackage.org/standard/table-schema/), set on the path with
+`#schema`, either as a Hash:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  fields: [
+    {name: "id",     type: "integer"},
+    {name: "pay",    type: "number", decimals: 2},
+    {name: "joined", type: "date"},
+    {name: "active", type: "boolean"}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"id" => 42, "pay" => BigDecimal("12.5"), "joined" => Date.new(2026, 10, 13), "active" => true}
+end
+path.read
+# => "id,pay,joined,active\n42,12.50,2026-10-13,true\n"
+
+path.each(:hash) { |person| p person }
+# => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13>, "active" => true}
+~~~
+
+Or as the path or url of a JSON file that holds it, in any store that IOStreams reads, so that the schema can be held
+in configuration, like the path of the file:
+
+~~~ruby
+IOStreams.path(ENV["PEOPLE_PATH"]).schema(ENV["PEOPLE_SCHEMA"]).each(:hash) { |person| p person }
+~~~
+
+A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
+so that setting it does not read the file, and the copies of a path read it once. `#schema` returns the schema
+that was set.
+
+Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
+`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`.
+
+### Types
+
+| Type | Read as | Written as |
+|------|---------|------------|
+| `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
+| `integer` | an `Integer`, from text such as `42`, `-12` or `0042` | `42` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
+| `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
+| `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
+| `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` | ISO 8601, or text in its `format` |
+| `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, see [Values without a field](#values-without-a-field) |
+
+A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
+field, which keeps it.
+
+A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
+`IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
+or `datetime` that does not exist, such as `2026-02-30`.
+
+JSON writes integers, numbers and booleans as JSON numbers and booleans, and every other value as text, such as a
+date. The `:hash` and `:array` formats keep the values themselves.
+
+A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
+Gemfile, or set `floatNumber: true` to read a `Float` instead.
+
+### Schema properties
+
+* `fields` The fields of the file, in the order of its columns. Required.
+* `header` `false` when the file has no header row, as in a Frictionless Table Dialect. The columns of the file are
+  then the fields, in order: reading takes every line as a row, and writing writes no header row, and the fields in
+  order. A format without a header row, such as JSON or fixed width, ignores it. Default: `true`
+* `width` The length of every line of a fixed width file, see [Fixed width files](#fixed-width-files).
+
+`$schema`, `title` and `description` describe the schema to people and have no effect.
+
+~~~ruby
+# A CSV file without a header row.
+path = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
+path.each(:hash) { |person| p person }
+# => {"name" => "Jack", "age" => 21}
+~~~
+
+Since the schema is set on the path, every reader of the path reads the file the same way, including `#copy_from`
+and `#copy_to`, whose options only apply to the target.
+
+### Field properties
+
+* `name` The key of the field in each record. Required.
+* `type` See [Types](#types). Default: `any`
+* `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`.
+  Default: ISO 8601.
+* `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
+  Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
+* `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
+* `decimals` For a `number`, the number of digits to write after the decimal point, rounding half up. IOStreams adds
+  this property.
+* `width`, `start` and `truncate` The position of the field in a fixed width file, see
+  [Fixed width files](#fixed-width-files). IOStreams adds these properties. The other formats ignore them, so that
+  one schema can describe both a fixed width file and the CSV file that it is converted to.
+
+`title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
+of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
+the parts of Frictionless that IOStreams does not support yet, such as `constraints`, `missingValues`, `primaryKey`
+and the `time` type, so that a schema never appears to check a value that it does not.
+
+### The column of each field
+
+A field applies to the key of each record, or the column of each row, with its name. When there is none, it applies
+to the column whose name is the same once both are cleansed like a header row, see [Header options](#header-options),
+so that the field `first_name` applies to the column `First Name`, and the field `First Name` of an existing
+Frictionless schema applies to the column `first_name` once the header row is cleansed. The values of the other
+columns are left as they are, and the header row itself is not converted.
+
+### Values without a field
+
+A value without a field, in a file without a schema, or in a column that its schema does not list, is written as a
+field of type `any` writes it:
+
+| Value | Written as |
+|-------|------------|
+| `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
+| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with as many digits of its fraction of a second as it needs |
+| `Date` | ISO 8601, such as `2026-10-13` |
+| any other value | its `to_s`, such as `42` or `true` |
+
+JSON writes a `BigDecimal`, `Date` or `Time` as that text, within an object or an array too, so that a `BigDecimal`
+keeps all of its digits, and writes every other value as itself, such as a number or `true`. The `:hash` and `:array`
+formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
+a type and a `format` in the schema.
 
 ## Fixed width files
 
-Fixed width files have no delimiters; each column is identified by its position within the line.
-Since the layout cannot be inferred from the file, supply it using `format_options`:
+Fixed width files have no delimiters; each field is at the same position in every line. Since the positions cannot be
+inferred from the file, the schema gives the `width` of each field, in the order of the line:
 
 ~~~ruby
-path = IOStreams.path("sample_data")
-path.format(:fixed)
-path.format_options(
-  layout: [
-    {size: 23, key: "name"},
-    {size: 40, key: "address"},
-    {size: 5,  key: "zip"}
+path = IOStreams.path("sample_data").format(:fixed).schema(
+  fields: [
+    {name: "name",    type: "string",  width: 23},
+    {name: "address", type: "string",  width: 40},
+    {name: "zip",     type: "integer", width: 5}
   ]
 )
 path.each(:hash) { |record| p record }
 ~~~
 
-Writing a fixed width file uses the same layout to render each record:
+Writing a fixed width file uses the same schema to render each record:
 
 ~~~ruby
-path = IOStreams.path("sample_data")
-path.format(:fixed)
-path.format_options(
-  layout: [
-    {size: 23, key: "name"},
-    {size: 40, key: "address"},
-    {size: 5,  key: "zip"}
-  ]
-)
 path.writer(:hash) do |io|
   io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
 end
 ~~~
 
-Note: The keys in the hashes being written must match the layout `:key` values exactly,
-including whether they are strings or symbols.
+The schema can be held in a file, such as this `people.schema.json`:
 
-Layout column definitions:
+~~~json
+{
+  "fields": [
+    {"name": "name",    "type": "string",  "width": 23, "truncate": true},
+    {"name": "address", "type": "string",  "width": 40},
+    {"name": "zip",     "type": "integer", "width": 5,  "start": 66},
+    {"name": "weight",  "type": "number",  "width": 10, "decimals": 2},
+    {"name": "joined",  "type": "date",    "width": 8,  "format": "%Y%m%d"},
+    {"name": "notes",   "type": "string",  "width": "remainder"}
+  ]
+}
+~~~
 
-* `:size` The number of characters this column occupies.
-  The last column may use a size of `:remainder` to take the rest of the line as its value.
-* `:key` The name for this column. Leave out the key to ignore the column during parsing,
-  and to space fill when rendering.
-* `:type` `:string` (default), `:integer`, or `:float`.
-  Strings are left justified and space padded, numbers are right justified and zero padded.
-  When writing, line breaks within a string are replaced with a space so that a value cannot
-  add records.
-  Raises `IOStreams::Errors::ValueTooLong` when an `:integer` or `:float` value cannot be
-  rendered in `size` characters.
-* `:decimals` For `:float` columns, the number of decimal places to render.
-  Default: 2
+~~~ruby
+IOStreams.path("people.txt").format(:fixed).schema("people.schema.json").each(:hash) { |person| p person }
+~~~
 
-In addition to `layout`, the `:fixed` format takes one more option:
+The properties that place each field:
 
-* `truncate: [true|false]`
-  Whether to truncate string values that are longer than their column `:size` when writing.
-  When false, a string value that is too long raises `IOStreams::Errors::ValueTooLong`
-  instead of being truncated. Numeric values are never truncated.
-  Default: true
+* `width` The number of characters of the field. The last field may have a width of `"remainder"` to take the rest
+  of the line.
+* `start` The position of the first character of the field, counting from 1, as the specifications of fixed width
+  files do. It skips the characters after the field before it, such as a filler: in the example above, `zip` starts
+  at 66, which skips the 2 characters after the 63 characters of `name` and `address`.
+  Default: right after the field before it.
+* `truncate` For a `string`, `true` to write only the first `width` characters of a longer value. Without it, a value
+  that is too long raises `IOStreams::Errors::ValueTooLong`. A number is never truncated, and raises instead.
+
+The `width` at the top level of the schema is the length of every line, when the line ends after the last field, such
+as after a filler, for example `{"fields": [...], "width": 94}`. A `width` of `"remainder"` accepts lines of any
+length, ignoring what follows the last field. Otherwise every line ends where the last field ends. A line of another
+length raises `IOStreams::Errors::InvalidLineLength`.
+
+When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
+its field. The keys of each record are the names of the fields as they are given, so that a field whose name is a
+Symbol returns a Symbol key.
+
+When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
+specifications of most fixed width files require. Any other value is left justified and space filled, with each line
+break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
+filler, are spaces. The keys of the records written may be strings or symbols.
+
+### Format options
+
+Before v3.0 the layout of a fixed width file was supplied with `format_options`:
+
+~~~ruby
+path.format(:fixed).format_options(layout: [{size: 23, key: "name"}, {size: 2}, {size: 5, key: "zip", type: :integer}])
+~~~
+
+`format_options` is deprecated, but still works: it is translated into the schema, which `#schema` returns, see
+[Upgrading to v3.0](upgrading#format_options-is-replaced-by-schema).
 
 ### Character encoding
 
@@ -2854,9 +3051,9 @@ is a UTF-8 string, like the values of every other format, and any byte that is n
 `IOStreams::Errors::InvalidEncoding`, naming the byte and its offset, rather than shifting every
 column that follows it.
 
-Each `:size` counts the characters of the text as it is read, and when writing, string values are
-padded and truncated to `:size` characters. In ASCII, and in a single-byte code page, each character
-is one byte, so the sizes count bytes.
+Each `width` counts the characters of the text as it is read, and when writing, string values are
+padded and truncated to `width` characters. In ASCII, and in a single-byte code page, each character
+is one byte, so the widths count bytes.
 
 Set the encoding of the file with [`#encoding`](extensions#character-encoding) when it is not
 ASCII. An encoding that is set always replaces the ASCII default, and `#raw` reads and writes the bytes as
@@ -2865,7 +3062,7 @@ they are stored:
 * A single-byte code page, such as ISO-8859-1 or Windows-1252, or EBCDIC from a mainframe: name it
   with the encoding that the values are read as, for example
   `encoding("ISO-8859-1:UTF-8")`, `"Windows-1252:UTF-8"`, or `"IBM037:UTF-8"` for
-  EBCDIC. The sizes count bytes, and the values are UTF-8 strings.
+  EBCDIC. The widths count bytes, and the values are UTF-8 strings.
 * To load a file anyway, replacing each byte that is not ASCII with a space, so that the columns stay
   aligned: `encoding(replace: " ")`.
 * UTF-8 written by a program that counts characters: `encoding("UTF-8")`.
@@ -2880,13 +3077,13 @@ The `:line` mode reads ASCII too when the format of the path is `:fixed`, set wi
 detected from a file name such as `data.fixed`.
 
 When writing, a value that is not ASCII raises `Encoding::UndefinedConversionError`, rather than
-writing a line that is longer than the layout in bytes. Set the encoding of the file, such as
-`encoding("ISO-8859-1")`, whose lines are then the length of the layout in bytes, or
+writing a line that is longer than the schema in bytes. Set the encoding of the file, such as
+`encoding("ISO-8859-1")`, whose lines are then the length of the schema in bytes, or
 `replace: " "` to write a space for each character that is not ASCII:
 
 ~~~ruby
 path = IOStreams.path("people.txt").encoding("ISO-8859-1")
-path.format(:fixed).format_options(layout: [{size: 10, key: "name"}, {size: 5, key: "zip"}])
+path.format(:fixed).schema(fields: [{name: "name", width: 10}, {name: "zip", width: 5}])
 path.writer(:hash) { |io| io << {"name" => "José", "zip" => "12345"} }
 ~~~
 
@@ -2908,12 +3105,18 @@ follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 
 ## Header options
 
-When reading or writing records (`:hash`), the following options control the header row:
+When reading or writing records (`:hash`), the following options control the header row. They are supplied to
+each call, since they say what the code wants from the file, see
+[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+`cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when reading, so `#writer`,
+`#copy_from` and `#copy_to` raise `ArgumentError` for them.
 
 * `columns: [Array<String>]`
   When reading, supplies the header columns for files that do not include a header row.
   When writing, sets the columns to write, including their order. Keys not listed in
   `columns` are ignored during writes.
+  To describe a file without a header row on its path instead, so that every reader of the path reads it that way,
+  including `#copy_from`, set a schema with `header: false`, see [Schema properties](#schema-properties).
 
 * `cleanse_header: [true|false]`
   Whether to cleanse the column names read from the header row.
@@ -3046,6 +3249,17 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 
 Notes:
 * `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
+* The other options of a copy are used to write the target, such as `columns:` to choose the columns that are
+  written, and their order. An option that only applies when reading, such as `allowed_columns:` or
+  `cleanse_header:`, raises `ArgumentError`, rather than being ignored.
+* The source is read with the settings of its own path, so describe the source there: its format, encoding and
+  schema, see [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+  For example, a CSV file without a header row:
+
+~~~ruby
+source = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
+IOStreams.path("people.json").schema(source.schema).copy_from(source, mode: :hash)
+~~~
 
 ---
 
@@ -3931,7 +4145,7 @@ Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `S
 
 ### Fixed width files are read and written as ASCII
 
-Fixed width files, read or written with `format: :fixed`, are now ASCII unless an encoding is set on
+Fixed width files, read or written in the `:fixed` format, are now ASCII unless an encoding is set on
 the `:encode` stream, since their sizes count bytes, and their text is ASCII or a single-byte code page.
 The values read are UTF-8 strings, and a byte that is not ASCII raises
 `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, naming the byte and its
@@ -4558,6 +4772,143 @@ already did in an application that had loaded the `date` library, as `yaml` and 
 `String`, such as `"2017-10-24"`, in an application that had not.
 
 Fix: compare the date with a `Date`, such as `Date.new(2017, 10, 24)`, or call `to_s` on it for the `String`.
+
+### `format:` and `format_options:` are set on the path
+
+`#each`, `#reader`, `#writer`, `#copy_from` and `#copy_to` no longer accept `format:` or `format_options:`, and raise
+`ArgumentError` for them. They were the only way to set the format before v1.6, which added `#format` to the path.
+Like its file name, the format describes the file, so it is set on the path, where it also applies to the `:line`
+mode, which splits and decodes the lines for the format. They also raise for `file_name:` and `default_format:`,
+which set the format of one call by another name, see
+[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+
+Fix: set the format on the path with `#format`, and the layout of a fixed width file with `#schema`, see
+[`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema):
+
+~~~ruby
+# Before
+path.each(:hash, format: :json) { |row| p row }
+path.each(:hash, format: :fixed, format_options: {layout: layout}) { |row| p row }
+
+# After
+path.format(:json).each(:hash) { |row| p row }
+path.format(:fixed).schema(fields: fields).each(:hash) { |row| p row }
+~~~
+
+### `#format_options` is replaced by `#schema`
+
+`#format_options` is deprecated. It still works, so no change is needed: it translates the layout of a fixed width
+file and its `truncate:` option into a schema, which `#schema` returns, and which then reads and writes the file.
+A schema gives the type of each field of every format, and can be held in a JSON file, see
+[Schema](formats#schema). Each column of a layout is a field of the schema:
+
+| Layout | Schema |
+|--------|--------|
+| `key:` | `name` |
+| `size:` | `width` |
+| `size: :remainder` | `width: "remainder"` |
+| A column without a `key:`, a filler | `start` on the field after it, or the `width` of the schema at the end of the line |
+| `type: :string` | `type: "string"`, with `truncate: true` unless the layout has `truncate: false` |
+| `type: :integer` | `type: "integer"` |
+| `type: :float` and `decimals:` | `type: "number"`, with `floatNumber: true` and `decimals:` |
+
+~~~ruby
+# Before (deprecated)
+path.format(:fixed).format_options(layout: [{size: 23, key: "name"}, {size: 2}, {size: 5, key: "zip", type: :integer}])
+
+# After
+path.format(:fixed).schema(
+  fields: [
+    {name: "name", type: "string",  width: 23, truncate: true},
+    {name: "zip",  type: "integer", width: 5,  start: 26}
+  ]
+)
+~~~
+
+To see the schema of a layout, set the layout with `#format_options` and call `#schema`. Saved as a JSON file, the
+names of its fields are strings, so the keys of the records read are strings too, where a layout with Symbol keys
+returns Symbol keys.
+
+Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
+for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema of a layout sets
+both, so that it reads and writes as the layout did, except as described in
+[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises).
+
+An invalid layout now raises when it is set with `#format_options`, rather than when the file is read:
+`IOStreams::Errors::InvalidLayout` for a column without a `size:`, with a `size:` that is not positive, with an
+unknown `type:`, or after a column with the size `:remainder`, which was ignored when reading, and `ArgumentError`
+for any other key or option.
+
+Writing a fixed width file now accepts string and symbol keys, whichever the layout uses. Previously a key of the
+other kind was ignored, and its column written as spaces, or as zeros for a number.
+
+A filler is written as spaces, as the layout documented, including one with a `type:` of `:integer` or `:float`,
+which was written as zeros. To write zeros, give the column a `key:` and leave it out of the records written, since a
+missing number is written as zeros.
+
+A `:string` column still writes any value as its text, except a `Hash` or an `Array`, which holds several values, and
+now raises `IOStreams::Errors::InvalidValue`, where its `to_s`, such as `[1, 2]`, was written. A `BigDecimal` is
+written as `12.5`, and a `Date` or `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where their `to_s`, such as
+`0.125e2` or `2026-10-13 09:30:00 UTC`, was written. To keep another form, convert the value to text before writing
+it.
+
+### Options that only apply when reading raise when writing or copying
+
+`#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for the options that only apply when reading:
+`allowed_columns:`, `required_columns:`, `skip_unknown:`, `cleanse_header:`, `embedded_within:` and `buffer_size:`.
+Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
+options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column.
+
+Fix: to choose the columns that are written, supply `columns:`. To read the source of a copy in a particular way,
+set what describes it on its path, such as its schema, or read it with `#each` and write each record to the target:
+
+~~~ruby
+# Before
+target.copy_from(source, mode: :hash, allowed_columns: %w[name zip])
+
+# After
+target.copy_from(source, mode: :hash, columns: %w[name zip])
+~~~
+
+### `embedded_within:` for rows and records is deprecated
+
+Supplying `embedded_within:` to `each(:array)`, `each(:hash)` or `#reader` in those modes is deprecated. It still
+works, but the format of the file splits the lines of its rows and records, since its parser must agree with where
+they are split: `embedded_within: nil` for a CSV file raises when a value contains a line break, and another quote
+character splits the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
+
+Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
+
+### `BigDecimal` and `Time` values are written as their usual text
+
+A value without a field in the schema, including every value of a file without a schema, is now written as a field
+of type `any` writes it, in CSV, PSV and JSON:
+
+| Value | Now | Before |
+|-------|-----|--------|
+| `BigDecimal("12.5")` | `12.5` | `0.125e2`, or `12.5` in a Rails application |
+| `Time.utc(2026, 10, 13, 9, 30)` | `2026-10-13T09:30:00Z` | `2026-10-13 09:30:00 UTC`, or in JSON in a Rails application `2026-10-13T09:30:00.000Z` |
+| `Date.new(2026, 10, 13)` | `2026-10-13` | its `to_s`, which an application can change |
+
+JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
+does the header row that `writer(:array)` takes from the first row written, when no `columns:` are supplied, so that
+it matches the rows after it. PSV writes an `Array` value as its text, such as `[1, 2]`, where its items were
+written as more columns.
+
+Fix: to keep another form, give the column a field in the schema with a `type` and a `format`, such as
+`{name: "on", type: "date", format: "%d/%m/%Y"}`, or convert the value to text before writing it.
+
+### A fixed width number that holds no number raises
+
+Reading an `:integer` or `:float` column of a fixed width file that holds no number, such as `N/A` or `12-`, now
+raises `IOStreams::Errors::InvalidValue`, which names the field and the value. Previously the column was converted
+with `to_i` or `to_f`, to `0`, or to the number that its leading digits make, such as `12` for `12-`, so that a
+corrupt file was read without an error. Writing such a value also raises, as does writing a fraction to an
+`:integer` column, which was truncated. A blank column is still read as `nil`, and a missing number is still
+written as zeros.
+
+Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, or `type: :string` in the
+layout, and convert it in the application.
 
 ## Upgrading to v2.1
 

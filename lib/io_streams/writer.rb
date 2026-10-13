@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Writer
     # Returns [Array<Symbol>] the names of the options this writer accepts,

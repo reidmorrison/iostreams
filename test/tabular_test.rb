@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require_relative "test_helper"
+require "bigdecimal"
 require "logger"
 
 class TabularTest < Minitest::Test
@@ -492,6 +495,27 @@ class TabularTest < Minitest::Test
           assert_equal "Jack                   over there                                34618000000210123456.79", string
         end
 
+        it "renders a record whose keys match the fields once cleansed, with fields missing" do
+          assert string = fixed.render("Name" => "Jack", "ZIP" => 34_618, "Age " => 21)
+          assert_equal "Jack                                                             34618000000210000000.00", string
+        end
+
+        it "renders any other object as its text in a string field" do
+          id = Struct.new(:value) { def to_s = "id-#{value}" }.new(7)
+
+          assert string = fixed.render(name: id, zip: 34_618)
+          assert_equal "id-7                                                             34618000000000000000.00", string
+        end
+
+        it "renders a filler with a type as spaces, like any other filler" do
+          tabular = IOStreams::Tabular.new(
+            format:         :fixed,
+            format_options: {layout: [{size: 3, key: :a}, {size: 3, type: :integer}, {size: 2, key: :b}]}
+          )
+
+          assert_equal "x     y ", tabular.render(a: "x", b: "y")
+        end
+
         it "truncates long strings" do
           assert string = fixed.render(name: "Jack ran up the beanstalk and when jack reached the top it was truncated", address: "over there", zip: 34_618)
           assert_equal "Jack ran up the beanstaover there                                34618000000000000000.00", string
@@ -860,6 +884,207 @@ class TabularTest < Minitest::Test
       it "raises UnknownFormat when the format cannot be inferred from the file name" do
         assert_raises IOStreams::Errors::UnknownFormat do
           IOStreams::Tabular.new(file_name: "sample.unknown", default_format: nil)
+        end
+      end
+
+      it "raises for both a schema and format options" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", width: 2}])
+
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :fixed, schema: schema, format_options: {layout: [{size: 2}]}) }
+      end
+
+      it "ignores empty format options" do
+        assert_nil IOStreams::Tabular.new(format: :csv, format_options: {}).schema
+      end
+    end
+
+    describe "schema" do
+      let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
+
+      it "converts the values of each record, of every format" do
+        csv = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay])
+
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, csv.record_parse("1,2.5"))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :json, schema: schema).record_parse(%({"id":1,"pay":2.5})))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).record_parse({"id" => "1", "pay" => "2.5"}))
+      end
+
+      it "renders each value in the form of the format" do
+        assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay]).render({"id" => "1", "pay" => 2.5})
+        assert_equal %({"id":1,"pay":2.5}), IOStreams::Tabular.new(format: :json, schema: schema).render({"id" => "1", "pay" => "2.5"})
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).render({"id" => "1", "pay" => "2.5"}))
+      end
+
+      it "converts the values of a row by the field of each column" do
+        array = IOStreams::Tabular.new(format: :array, schema: schema, columns: %w[pay id])
+
+        assert_equal [BigDecimal("2.5"), 1], array.row_parse(%w[2.5 1])
+      end
+
+      it "translates the format options of a fixed width file, which Rocket Job supplies" do
+        fixed = IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: "id", type: :integer}]})
+
+        assert_equal({"id" => 7}, fixed.record_parse("07"))
+        assert_equal "07", fixed.render({"id" => 7})
+      end
+    end
+
+    describe "values without a field" do
+      let(:columns) { %w[amount at on stamp count ok none] }
+
+      let(:values) do
+        {
+          "amount" => BigDecimal("12.5"),
+          "at"     => Time.utc(2026, 10, 13, 9, 30, 0.25r),
+          "on"     => Date.new(2026, 10, 13),
+          "stamp"  => DateTime.new(2026, 10, 13, 9, 30),
+          "count"  => 3,
+          "ok"     => true,
+          "none"   => nil
+        }
+      end
+
+      it "writes CSV with the usual text of each value" do
+        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3,true,",
+                     IOStreams::Tabular.new(format: :csv, columns: columns).render(values)
+      end
+
+      it "writes PSV with the usual text of each value" do
+        assert_equal "12.5|2026-10-13T09:30:00.250Z|2026-10-13|2026-10-13T09:30:00+00:00|3|true|",
+                     IOStreams::Tabular.new(format: :psv, columns: columns).render(values)
+      end
+
+      it "writes JSON with a BigDecimal, Date or Time as text, within a Hash or an Array too, and other values as they are" do
+        record = values.merge("items" => [{"price" => BigDecimal("1.5")}, 2])
+
+        assert_equal %({"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00+00:00",) +
+                     %("count":3,"ok":true,"none":null,"items":[{"price":"1.5"},2]}),
+                     IOStreams::Tabular.new(format: :json).render(record)
+        assert_equal BigDecimal("1.5"), record["items"].first["price"]
+      end
+
+      it "writes JSON the same whether or not the json gem has JSON::Coder" do
+        custom = Class.new { def to_json(*) = '{"custom":1}' }.new
+        record = values.merge(
+          1                    => "integer key",
+          :symbol              => :value,
+          Date.new(2026, 1, 2) => "date key",
+          BigDecimal("1.5")    => "number key",
+          "custom"             => custom,
+          "nested"             => {"list" => [BigDecimal("1.25"), {"on" => Date.new(2026, 1, 2)}, "text", 4]}
+        )
+        with_coder    = IOStreams::Tabular.new(format: :json).render(record)
+        without_coder = IOStreams::Tabular::Parser::Json.stub(:coder, nil) { IOStreams::Tabular.new(format: :json).render(record) }
+
+        assert_equal without_coder, with_coder
+        assert_equal '{"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00+00:00",' \
+                     '"count":3,"ok":true,"none":null,"1":"integer key","symbol":"value","2026-01-02":"date key",' \
+                     '"0.15e1":"number key","custom":{"custom":1},"nested":{"list":["1.25",{"on":"2026-01-02"},"text",4]}}',
+                     with_coder
+      end
+
+      it "writes a DateTime at its offset, even when DateTime#to_time converts it to the local time zone" do
+        stamp = DateTime.new(2026, 10, 13, 9, 30, 0.25r, "+05:30")
+        # As ActiveSupport 7 does, unless `ActiveSupport.to_time_preserves_timezone` is set.
+        def stamp.to_time = super.getlocal("-04:00")
+
+        assert_equal "2026-10-13T09:30:00.250+05:30", IOStreams::Tabular.new(format: :csv, columns: ["stamp"]).render("stamp" => stamp)
+      end
+
+      it "writes a header row taken from the first row the same way as the rows" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        row     = [BigDecimal("1.5"), Time.utc(2026, 10, 13, 9, 30)]
+
+        assert_equal "1.5,2026-10-13T09:30:00Z", tabular.render_header(row)
+        assert_equal "1.5,2026-10-13T09:30:00Z", tabular.render(row)
+      end
+
+      it "keeps the values of a format whose rows are Ruby objects" do
+        assert_equal values, IOStreams::Tabular.new(format: :hash).render(values)
+      end
+
+      it "applies to the columns that have no field in the schema" do
+        schema = IOStreams::Schema.new(fields: [{name: "count", type: "number", decimals: 1}])
+
+        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3.0,true,",
+                     IOStreams::Tabular.new(format: :csv, columns: columns, schema: schema).render(values)
+      end
+    end
+
+    describe "schema without a header row" do
+      let(:schema) { IOStreams::Schema.new(header: false, fields: [{name: "name"}, {name: :age, type: "integer"}]) }
+
+      it "has the fields as its columns, and parses every line as a row" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        refute_predicate tabular, :header?
+        refute_predicate tabular, :requires_header?
+        assert_equal %w[name age], tabular.header.columns
+        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse("Jack,21"))
+        assert_equal "Jack,21", tabular.render({"age" => 21, "name" => "Jack"})
+      end
+
+      it "keeps the columns that are supplied" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[age name])
+
+        assert_equal({"age" => 21, "name" => "Jack"}, tabular.record_parse("21,Jack"))
+      end
+
+      it "has no effect on a format without a header row" do
+        tabular = IOStreams::Tabular.new(format: :json, schema: schema)
+
+        assert_nil tabular.header.columns
+        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse(%({"name":"Jack","age":"21"})))
+      end
+
+      it "raises without fields" do
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(header: false, fields: [])) }
+      end
+    end
+
+    describe "IOStreams::Tabular::Parser::Fixed.schema" do
+      it "translates a layout into a schema" do
+        layout = [
+          {size: 23, key: :name},
+          {size: 40, key: :address},
+          {size: 2},
+          {size: 5, key: :zip, type: :integer},
+          {size: 8, key: :age, type: :integer},
+          {size: 10, key: :weight, type: :float, decimals: 2}
+        ]
+        expected = {
+          fields: [
+            {name: :name, type: "string", width: 23, truncate: true},
+            {name: :address, type: "string", width: 40, truncate: true},
+            {name: :zip, type: "integer", width: 5, start: 66},
+            {name: :age, type: "integer", width: 8},
+            {name: :weight, type: "number", width: 10, floatNumber: true, decimals: 2}
+          ]
+        }
+
+        assert_equal expected, IOStreams::Tabular::Parser::Fixed.schema(layout: layout)
+      end
+
+      it "translates a remainder, and a filler at the end of the line" do
+        assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}]},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "rest"}], truncate: false))
+        assert_equal({fields: [{name: "id", type: "string", width: 2}], width: 5},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: 3}], truncate: false))
+        assert_equal({fields: [{name: "id", type: "string", width: 2}], width: "remainder"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: :remainder}], truncate: false))
+      end
+
+      it "translates sizes and types that are strings" do
+        assert_equal({fields: [{name: "id", type: "integer", width: 5}]},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: "5", key: "id", type: "integer"}]))
+      end
+
+      it "raises for an invalid layout" do
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{key: "id"}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 0, key: "id"}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id", type: :date}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) do
+          IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: 2, key: "b"}])
         end
       end
     end

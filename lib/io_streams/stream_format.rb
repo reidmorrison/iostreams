@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # A format registered with `IOStreams.register_extension`, such as `IOStreams::Gzip`, which opens its reader
   # and writer classes with the options that they use.

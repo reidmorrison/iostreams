@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Converts text to an encoding, and optionally cleanses it.
   #

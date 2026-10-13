@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "pathname"
 
 module IOStreams
@@ -16,6 +18,8 @@ module IOStreams
       @builder        = nil
       @format         = nil
       @format_options = nil
+      @schema         = nil
+      @schema_source  = nil
     end
 
     # Returns [IOStreams::Path] a new path with the elements joined to this path.

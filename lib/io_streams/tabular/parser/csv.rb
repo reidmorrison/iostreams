@@ -1,15 +1,17 @@
+# frozen_string_literal: true
+
 require "csv"
 module IOStreams
   class Tabular
     module Parser
       class Csv < Base
         # Frozen, so that using one does not create a string each time, as a string literal does in this file.
-        QUOTE         = '"'.freeze
-        ESCAPED_QUOTE = '""'.freeze
-        COMMA         = ",".freeze
-        CR            = "\r".freeze
-        LF            = "\n".freeze
-        EMPTY         = "".freeze
+        QUOTE         = '"'
+        ESCAPED_QUOTE = '""'
+        COMMA         = ","
+        CR            = "\r"
+        LF            = "\n"
+        EMPTY         = ""
         QUOTE_BYTE    = QUOTE.ord
         COMMA_BYTE    = COMMA.ord
         # The characters that a value is quoted for when it is written.
@@ -106,13 +108,16 @@ module IOStreams
         # unless a value is text that is neither valid UTF-8 nor ASCII, which `CSV.generate_line` still writes, so
         # that the line and any error are the same.
         def render_array(array)
-          render_line(array) || CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
+          render_line(array) ||
+            CSV.generate_line(array.map { |value| value && IOStreams::Schema::Field.any_text(value) },
+                              encoding: "UTF-8", row_sep: "")
         end
 
         # Returns [String] the values as a UTF-8 line, or nil when a value is text that is neither valid UTF-8 nor ASCII.
         #
-        # Like CSV, a nil value is written as nothing, and any other value is converted with `String()`, and quoted when
-        # it is empty, or contains a quote, a comma or a line break.
+        # Like CSV, a nil value is written as nothing, and any other value is quoted when it is empty, or contains a quote,
+        # a comma or a line break. A value that is not a String is written as its text, see
+        # `IOStreams::Schema::Field.any_text`, such as a BigDecimal as "12.5" rather than "0.125e2".
         def render_line(values)
           line  = +""
           index = 0
@@ -122,7 +127,7 @@ module IOStreams
             index += 1
             next if value.nil?
 
-            value = String(value)
+            value = IOStreams::Schema::Field.any_text(value) unless value.is_a?(String)
             return unless (value.encoding == Encoding::UTF_8 || value.ascii_only?) && value.valid_encoding?
 
             if value.empty? || QUOTABLE.match?(value)

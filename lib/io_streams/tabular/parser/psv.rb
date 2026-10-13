@@ -1,9 +1,14 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Tabular
     module Parser
       # For parsing a single line of Pipe-separated values
       class Psv < Base
         LINE_BREAK = /\r\n|\r|\n/
+        # The characters that a value is cleansed of when it is written, see #render.
+        CLEANSED   = /[|\r\n]/
+
         # Returns [Array] the parsed PSV line
         def parse(row)
           return row if row.is_a?(::Array)
@@ -17,10 +22,14 @@ module IOStreams
         #
         # Since PSV has no escaping, any `|` within a value is replaced with `:`,
         # and any line break with a space, so that a value cannot add columns or records.
+        # A value that is not a String is written as its text, see `IOStreams::Schema::Field.any_text`.
         def render(row, header)
           array          = header.to_array(row)
-          cleansed_array = array.collect do |i|
-            i.is_a?(String) ? i.tr("|", ":").gsub(LINE_BREAK, " ") : i
+          cleansed_array = array.collect do |value|
+            next if value.nil?
+
+            text = IOStreams::Schema::Field.any_text(value)
+            CLEANSED.match?(text) ? text.tr("|", ":").gsub(LINE_BREAK, " ") : text
           end
           cleansed_array.join("|")
         end

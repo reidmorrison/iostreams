@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Paths
     # A pattern supplied to `#each_child`, such as `"a/b/**/*.csv"`, which matches names like `Dir.glob`.

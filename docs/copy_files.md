@@ -73,3 +73,14 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 
 Notes:
 * `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
+* The other options of a copy are used to write the target, such as `columns:` to choose the columns that are
+  written, and their order. An option that only applies when reading, such as `allowed_columns:` or
+  `cleanse_header:`, raises `ArgumentError`, rather than being ignored.
+* The source is read with the settings of its own path, so describe the source there: its format, encoding and
+  schema, see [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+  For example, a CSV file without a header row:
+
+~~~ruby
+source = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
+IOStreams.path("people.json").schema(source.schema).copy_from(source, mode: :hash)
+~~~

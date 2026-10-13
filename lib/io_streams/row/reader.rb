@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Row
     # Converts each line of an input stream into an array for every line

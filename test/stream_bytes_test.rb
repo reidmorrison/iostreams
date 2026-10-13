@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative "test_helper"
 
 # The `:stream` mode reads bytes from every stream, like `File#read` on a file opened in binary mode,

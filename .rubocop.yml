@@ -67,6 +67,8 @@ Metrics/ClassLength:
   Max: 300
   Exclude:
     - "test/**/*"
+    # Holds the public API of every path and stream, see CLAUDE.md, so it has a method for each setting.
+    - "lib/io_streams/stream.rb"
 
 # TODO: Soften Limits for phase 1 only
 Metrics/CyclomaticComplexity:
@@ -111,9 +113,9 @@ Style/Documentation:
 Style/EmptyMethod:
   EnforcedStyle: expanded
 
-# Ruby 3 compatibility feature
+# Freeze string literals in every file, ahead of Ruby freezing them by default.
 Style/FrozenStringLiteralComment:
-  Enabled: false
+  EnforcedStyle: always_true
 
 Style/NumericPredicate:
   AutoCorrect: true

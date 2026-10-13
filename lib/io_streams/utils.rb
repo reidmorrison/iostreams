@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "uri"
 require "tmpdir"
 module IOStreams
@@ -5,7 +7,7 @@ module IOStreams
     MAX_TEMP_FILE_NAME_ATTEMPTS = 5
 
     # Replaces the value of a sensitive option for display, see .redact_options.
-    FILTERED = "[FILTERED]".freeze
+    FILTERED = "[FILTERED]"
 
     # Option names whose values are hidden as a precaution, even when they are not declared sensitive.
     # Matched against the name in lower case without `_` or `-`, see .redact_options.

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Zstd
     # Zstandard with the `zstd-ruby` gem, a C extension.

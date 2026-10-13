@@ -1,12 +1,28 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Tabular
     # Process files / streams that start with a header.
     class Header
       # Column names that begin with this prefix have been rejected and should be ignored.
-      IGNORE_PREFIX = "__rejected__".freeze
+      IGNORE_PREFIX = "__rejected__"
 
       attr_accessor :allowed_columns, :required_columns, :skip_unknown
       attr_reader :columns
+
+      # Returns [String] the name of a column once it is cleansed, see #cleanse!, so that other names can be
+      # compared to columns in the same way, such as the fields of a schema, see `IOStreams::Schema#field`.
+      def self.cleanse_column(name)
+        # Unlike `strip` and `\s`, which are only ASCII, `[[:space:]]` is whitespace of every language, such as a
+        # no-break space or an ideographic space, so that it separates words like a space. Like `strip`, also
+        # removes a leading or trailing null.
+        cleansed = name.to_s.downcase.gsub(/\A[[:space:]\0]+|[[:space:]\0]+\z/, "")
+        cleansed.gsub!(/[[:space:]]+/, "_")
+        cleansed.gsub!(/-+/, "_")
+        # Unlike `\W`, which is only ASCII, keeps the letters and digits of every language.
+        cleansed.gsub!(/[^[:word:]]+/, "")
+        cleansed
+      end
 
       # Header
       #
@@ -213,19 +229,14 @@ module IOStreams
       end
 
       def cleanse_column(name)
-        # Unlike `strip` and `\s`, which are only ASCII, `[[:space:]]` is whitespace of every language, such as a
-        # no-break space or an ideographic space, so that it separates words like a space. Like `strip`, also
-        # removes a leading or trailing null.
-        cleansed = name.to_s.downcase.gsub(/\A[[:space:]\0]+|[[:space:]\0]+\z/, "")
-        cleansed.gsub!(/[[:space:]]+/, "_")
-        cleansed.gsub!(/-+/, "_")
-        # Unlike `\W`, which is only ASCII, keeps the letters and digits of every language.
-        cleansed.gsub!(/[^[:word:]]+/, "")
-        cleansed
+        self.class.cleanse_column(name)
       end
 
+      # Returns [Array<String>] the columns as text, as a value without a field of a schema is written, see
+      # `IOStreams::Schema::Field.any_text`, so that a header row taken from the first row written matches the rows
+      # after it.
       def stringify(columns)
-        columns&.collect { |column| column&.to_s }
+        columns&.collect { |column| column.nil? ? nil : IOStreams::Schema::Field.any_text(column) }
       end
     end
   end

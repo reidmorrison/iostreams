@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Errors
     class Error < StandardError
@@ -34,6 +36,11 @@ module IOStreams
     end
 
     class ValueTooLong < Error
+    end
+
+    # A value that is not one of the type of its field in the schema, such as `"abc"` for an integer,
+    # see `IOStreams::Stream#schema`.
+    class InvalidValue < Error
     end
 
     class MalformedDataError < RuntimeError

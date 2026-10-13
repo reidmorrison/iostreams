@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Encode
     # Converts blocks of data to an encoding, for the encode reader and writer.

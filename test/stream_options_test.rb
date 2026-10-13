@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative "test_helper"
 
 # Options supplied via `#option` / `#stream` are strict: an option that is not valid for the stream
@@ -60,6 +62,62 @@ class StreamOptionsTest < Minitest::Test
         assert_equal ":mode, :columns cannot be used with `convert: false`, which copies the data as-is", error.message
         error = assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.csv"), convert: false, columns: %w[id]) }
         assert_equal ":columns cannot be used with `convert: false`, which copies the data as-is", error.message
+      end
+    end
+
+    describe "options that only apply when reading" do
+      it "raises for them when writing, rather than ignore them" do
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:hash, allowed_columns: %w[id]) { |io| io << {"id" => 1} } }
+        assert_equal ":allowed_columns only applies when reading, not when writing. To choose the columns that are written, supply `columns:`",
+                     error.message
+
+        %i[array hash line].each do |mode|
+          assert_raises(ArgumentError) { path("a.csv").writer(mode, required_columns: %w[id]) { |io| io << [1] } }
+          assert_raises(ArgumentError) { path("a.csv").writer(mode, skip_unknown: false) { |io| io << [1] } }
+          assert_raises(ArgumentError) { path("a.csv").writer(mode, cleanse_header: false) { |io| io << [1] } }
+          assert_raises(ArgumentError) { path("a.csv").writer(mode, embedded_within: '"') { |io| io << [1] } }
+          assert_raises(ArgumentError) { path("a.csv").writer(mode, buffer_size: 10) { |io| io << [1] } }
+        end
+        refute_path_exists ::File.join(dir, "a.csv")
+      end
+
+      it "only suggests columns: in the modes that accept it" do
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:line, allowed_columns: %w[id]) { |io| io << "1" } }
+        assert_equal ":allowed_columns only applies when reading, not when writing", error.message
+
+        path("a.csv").write("id,name\n1,Jack\n")
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), mode: :line, allowed_columns: %w[id]) }
+        assert_equal ":allowed_columns only applies when reading, but a copy uses its options to write the target", error.message
+      end
+
+      it "raises for them when copying, since a copy uses its options to write the target" do
+        path("a.csv").write("id,name\n1,Jack\n")
+
+        error = assert_raises(ArgumentError) { path("b.json").copy_from(path("a.csv"), mode: :hash, allowed_columns: %w[name]) }
+        assert_equal ":allowed_columns only applies when reading, but a copy uses its options to write the target. " \
+                     "To choose the columns that are written, supply `columns:`", error.message
+        assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.json"), mode: :hash, cleanse_header: false) }
+        refute_path_exists ::File.join(dir, "b.json")
+      end
+
+      it "copies the columns supplied with columns:" do
+        path("a.csv").write("id,name,secret\n1,Jack,x\n")
+        path("a.csv").copy_to(path("b.json"), mode: :hash, columns: %w[name])
+
+        assert_equal %({"name":"Jack"}\n), path("b.json").read
+      end
+    end
+
+    describe "settings that describe the file" do
+      it "raises for them for each call, since they are set on the path" do
+        path("a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("a.csv").each(:hash, file_name: "a.json") { |row| row } }
+        assert_equal ':file_name cannot be supplied to each call, set it on the path instead, for example: path.file_name("data.json").each(:hash)',
+                     error.message
+        assert_raises(ArgumentError) { path("a.csv").each(:hash, default_format: :json) { |row| row } }
+        assert_raises(ArgumentError) { path("a.csv").each(:line, file_name: "a.json") { |row| row } }
+        assert_raises(ArgumentError) { path("b.csv").writer(:array, file_name: "b.json") { |io| io << [1] } }
       end
     end
 

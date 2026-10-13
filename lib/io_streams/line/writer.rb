@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Line
     class Writer < IOStreams::Writer

@@ -64,9 +64,12 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidHeader`: the header has columns that are not allowed, or is missing required columns.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
-  * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its layout.
-  * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width column.
-  * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width format is not valid.
+  * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, see
+    [Schema](formats#schema).
+  * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
+  * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
+  * `IOStreams::Errors::InvalidLayout`: the deprecated layout of a fixed width file, supplied with `#format_options`,
+    is not valid. An invalid schema raises `ArgumentError`.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "io_streams/version"
 # @formatter:off
 module IOStreams
@@ -5,6 +7,7 @@ module IOStreams
   autoload :Errors,              "io_streams/errors"
   autoload :Path,                "io_streams/path"
   autoload :Reader,              "io_streams/reader"
+  autoload :Schema,              "io_streams/schema"
   autoload :Stream,              "io_streams/stream"
   autoload :StreamFormat,        "io_streams/stream_format"
   autoload :Tabular,             "io_streams/tabular"
