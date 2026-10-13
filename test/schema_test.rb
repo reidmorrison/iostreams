@@ -70,8 +70,58 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for a property of Frictionless that is not supported, rather than ignore its check" do
-        error = assert_raises(ArgumentError) { field(constraints: {required: true}) }
-        assert_equal 'Field "value": the property "constraints" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(missingValues: ["-"]) }
+        assert_equal 'Field "value": the property "missingValues" is not supported', error.message
+      end
+
+      it "accepts the required constraint" do
+        assert_predicate field(constraints: {required: true}), :required?
+        assert_predicate field("constraints" => {"required" => true}), :required?
+        refute_predicate field(constraints: {required: false}), :required?
+        refute_predicate field(constraints: {}), :required?
+        refute_predicate field, :required?
+      end
+
+      it "raises for the constraints of Frictionless that are not supported, and unknown ones" do
+        error = assert_raises(ArgumentError) { field(constraints: {required: true, maxLength: 5}) }
+        assert_equal 'Field "value": the constraint "maxLength" is not supported', error.message
+
+        error = assert_raises(ArgumentError) { field(constraints: {mandatory: true}) }
+        assert_equal 'Field "value": unknown constraint "mandatory"', error.message
+
+        assert_raises(ArgumentError) { field(constraints: {required: "yes"}) }
+        assert_raises(ArgumentError) { field(constraints: [:required]) }
+      end
+
+      it "accepts aliases, which are names" do
+        assert_equal ["DOB", "Birth Date"], field(aliases: ["DOB", "Birth Date"]).aliases
+        assert_empty field.aliases
+        assert_raises(ArgumentError) { field(aliases: "DOB") }
+        assert_raises(ArgumentError) { field(aliases: [""]) }
+        assert_raises(ArgumentError) { field(aliases: [:dob]) }
+      end
+
+      it "raises for an alias that is the name or alias of another field, since either could be meant" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}, {name: "key", aliases: ["id"]}]) }
+        assert_equal 'Field "key": the alias "id" is already the name or an alias of the field "id"', error.message
+
+        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "a", aliases: ["x"]}, {name: "b", aliases: ["x"]}]) }
+        assert_equal ["id"], IOStreams::Schema.new(fields: [{name: "id", aliases: ["id"]}]).fields.map(&:name)
+      end
+
+      it "defaults fieldsMatch to exact, as Frictionless does" do
+        assert_equal "exact", IOStreams::Schema.new(fields: []).fields_match
+        %w[exact equal subset superset partial].each do |fields_match|
+          assert_equal fields_match, IOStreams::Schema.new(fields: [], fieldsMatch: fields_match).fields_match
+        end
+        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: "any") }
+        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: :equal) }
+      end
+
+      it "raises for a fieldsMatch other than exact without a header row, whose columns are the fields in order" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal") }
+        assert_match(/header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
+        assert_equal "exact", IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "exact").fields_match
       end
 
       it "raises for a property of another type of field" do
@@ -109,8 +159,12 @@ class SchemaTest < Minitest::Test
 
       it "has a header row unless header is false" do
         assert_predicate IOStreams::Schema.new(fields: []), :header?
-        refute_predicate IOStreams::Schema.new(fields: [], header: false), :header?
+        refute_predicate IOStreams::Schema.new(fields: [{name: "id"}], header: false), :header?
         assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: "no") }
+      end
+
+      it "raises without fields when there is no header row, since the fields are the columns" do
+        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: false) }
       end
 
       it "accepts a width of remainder" do
@@ -153,23 +207,172 @@ class SchemaTest < Minitest::Test
       end
     end
 
-    describe "#field" do
-      let(:schema) { IOStreams::Schema.new(fields: [{name: "first_name"}, {name: :age}, {name: "Zip Code"}]) }
+    describe ".match_key" do
+      it "compares letters and digits, in every language, without their case" do
+        assert_equal "firstname", IOStreams::Schema.match_key("First Name")
+        assert_equal "firstname", IOStreams::Schema.match_key("first_name")
+        assert_equal "firstname", IOStreams::Schema.match_key("first.name")
+        assert_equal "firstname", IOStreams::Schema.match_key(:FIRSTNAME)
+        assert_equal "email", IOStreams::Schema.match_key(" E-mail ")
+        assert_equal "prénom", IOStreams::Schema.match_key("PRÉNOM")
+        assert_equal "日付", IOStreams::Schema.match_key("日付")
+        assert_equal "strasse", IOStreams::Schema.match_key("Straße")
+      end
+
+      it "makes the forms of a character that Unicode treats as the same the same" do
+        assert_equal "id", IOStreams::Schema.match_key("ＩＤ")
+        assert_equal IOStreams::Schema.match_key("Pr\u00E9nom"), IOStreams::Schema.match_key("Pre\u0301nom")
+        assert_equal "firstname", IOStreams::Schema.match_key("First\u00A0Name")
+      end
+
+      it "returns nil without letters or digits" do
+        assert_nil IOStreams::Schema.match_key("#")
+        assert_nil IOStreams::Schema.match_key("")
+        assert_nil IOStreams::Schema.match_key(" - ")
+      end
+
+      it "compares the ASCII letters of text that is not Unicode" do
+        assert_equal "name", IOStreams::Schema.match_key("Na\xE9me".b)
+        assert_nil IOStreams::Schema.match_key("\xFF".dup.force_encoding("UTF-8"))
+      end
+    end
+
+    describe "#field_for" do
+      let(:schema) do
+        IOStreams::Schema.new(
+          fields: [
+            {name: "first_name"},
+            {name: :age},
+            {name: "Zip Code"},
+            {name: "date_of_birth", aliases: ["DOB", "Birth Date"]},
+            {name: "Amount ($)"},
+            {name: "Amount (€)"}
+          ]
+        )
+      end
 
       it "finds the field with the same name, whether it is a String or a Symbol" do
-        assert_equal "first_name", schema.field("first_name").name
-        assert_equal "first_name", schema.field(:first_name).name
-        assert_equal :age, schema.field("age").name
+        assert_equal "first_name", schema.field_for("first_name").name
+        assert_equal "first_name", schema.field_for(:first_name).name
+        assert_equal :age, schema.field_for("age").name
       end
 
-      it "finds the field whose name is the same once both are cleansed" do
-        assert_equal "first_name", schema.field("First Name").name
-        assert_equal "Zip Code", schema.field("zip_code").name
+      it "finds the field whose name is the same once both are compared loosely" do
+        assert_equal "first_name", schema.field_for("First Name").name
+        assert_equal "first_name", schema.field_for("FIRST.NAME").name
+        assert_equal "Zip Code", schema.field_for("zip_code").name
+        assert_equal :age, schema.field_for(" AGE ").name
       end
 
-      it "returns nil when no field applies" do
-        assert_nil schema.field("last_name")
-        assert_nil schema.field(nil)
+      it "finds the field of an alias, exactly or loosely" do
+        assert_equal "date_of_birth", schema.field_for("DOB").name
+        assert_equal "date_of_birth", schema.field_for("birth_date").name
+        assert_equal "date_of_birth", schema.field_for("Date of Birth").name
+      end
+
+      it "finds a field by its name before comparing loosely, even when several fields are the same loosely" do
+        assert_equal "Amount ($)", schema.field_for("Amount ($)").name
+        assert_equal "Amount (€)", schema.field_for("Amount (€)").name
+      end
+
+      it "raises for a column that is several fields loosely, since either could be meant" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { schema.field_for("amount") }
+        assert_match(/\AThe column "amount" could be any of the fields "Amount \(\$\)" and "Amount \(€\)"/, error.message)
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { schema.field_for("AMOUNT", "key") }
+        assert_match(/\AThe key "AMOUNT"/, error.message)
+      end
+
+      it "returns nil when no field is the column" do
+        assert_nil schema.field_for("last_name")
+        assert_nil schema.field_for("#")
+        assert_nil schema.field_for("")
+        assert_nil schema.field_for(nil)
+      end
+    end
+
+    describe "#check_columns" do
+      let(:id_field) { {name: "id"} }
+      let(:name_field) { {name: "name"} }
+
+      # Returns [String|nil] the message that checking the columns raises, or nil when it does not raise.
+      def check(fields_match, labels, ordered: true, noun: "column", fields: [id_field, name_field])
+        schema = IOStreams::Schema.new(fields: fields, fieldsMatch: fields_match)
+        found  = labels.filter_map { |label| schema.field_for(label) }
+        schema.check_columns(found, labels.reject { |label| schema.field_for(label) }, ordered: ordered, noun: noun)
+        nil
+      rescue IOStreams::Errors::InvalidHeader => e
+        e.message
+      end
+
+      it "exact: the columns are the fields, in the same order" do
+        assert_nil check("exact", %w[id name])
+        assert_match(/the columns are not in the order of the fields, "id" and "name", which fieldsMatch "exact" requires/,
+                     check("exact", %w[name id]))
+        assert_match(/missing the field "name", which fieldsMatch "exact" requires/, check("exact", %w[id]))
+        assert_match(/the column "x" is not a field of the schema, which fieldsMatch "exact" does not accept/, check("exact", %w[id name x]))
+      end
+
+      it "exact: accepts the keys of a record in any order" do
+        assert_nil check("exact", %w[name id], ordered: false, noun: "key")
+      end
+
+      it "equal: the columns are the fields, in any order" do
+        assert_nil check("equal", %w[name id])
+        assert_match(/missing the field "name"/, check("equal", %w[id]))
+        assert_match(/the column "x" is not a field/, check("equal", %w[name id x]))
+      end
+
+      it "subset: the columns include every field" do
+        assert_nil check("subset", %w[x name id y])
+        assert_match(/missing the field "name", which fieldsMatch "subset" requires/, check("subset", %w[id x]))
+      end
+
+      it "superset: every column is a field" do
+        assert_nil check("superset", %w[name])
+        assert_nil check("superset", [])
+        assert_match(/the columns "x" and "y" are not fields of the schema, which fieldsMatch "superset" does not accept/,
+                     check("superset", %w[id x y]))
+      end
+
+      it "partial: at least one column is a field" do
+        assert_nil check("partial", %w[x name])
+        assert_match(/no column is a field of the schema, but fieldsMatch "partial" needs at least one/, check("partial", %w[x y]))
+      end
+
+      it "requires a required field whatever fieldsMatch is" do
+        fields = [id_field, {name: "name", constraints: {required: true}}]
+
+        assert_match(/missing the required field "name"\z/, check("superset", %w[id], fields: fields))
+        assert_match(/missing the required field "name"\z/, check("partial", %w[id x], fields: fields))
+        assert_nil check("partial", %w[name], fields: fields)
+      end
+
+      it "names the input, and counts the columns without a name" do
+        assert_match(/\AThe header row does not match the schema: a column without a name is not a field/, check("equal", ["id", "name", nil]))
+        assert_match(/2 columns without a name are not fields/, check("equal", ["id", "", "name", " "]))
+        assert_match(/\AThe keys of a record do not match the schema: the key "x" is not a field/, check("equal", %w[id name x], noun: "key"))
+      end
+
+      it "lists every problem" do
+        assert_match(/"x" is not a field .*; missing the field "name"/, check("equal", %w[id x]))
+      end
+    end
+
+    describe "#check_unknown" do
+      it "raises for the keys or values that are not fields, unless fieldsMatch skips them" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "id"}]).check_unknown(["x"], noun: "key")
+        end
+        assert_match(/\AThe keys of a record do not match the schema: the key "x" is not a field/, error.message)
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "id"}], fieldsMatch: "superset").check_unknown([1, 2], noun: "value")
+        end
+        assert_match(/\AThe values of a row do not match the schema: 2 values after the last field/, error.message)
+
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}], fieldsMatch: "subset").check_unknown(["x"], noun: "key")
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}]).check_unknown([], noun: "key")
       end
     end
 
@@ -448,6 +651,36 @@ class SchemaTest < Minitest::Test
           assert_equal "2026-10-13T09:30:00Z", any.render(Time.utc(2026, 10, 13, 9, 30), :text)
           assert_equal({"at" => "2026-10-13"}, any.render({"at" => Date.new(2026, 10, 13)}, :json))
           assert_equal BigDecimal("12.5"), any.render(BigDecimal("12.5"), :typed)
+        end
+      end
+
+      describe "required" do
+        it "raises for no value: nil, or empty text, as Frictionless does, when reading and writing" do
+          %w[any string integer date].each do |type|
+            required = field(type: type, constraints: {required: true})
+
+            error = assert_raises(IOStreams::Errors::InvalidValue) { required.cast(nil) }
+            assert_equal 'Field "value" is required, but has no value', error.message
+            assert_raises(IOStreams::Errors::InvalidValue) { required.cast("") }
+            assert_raises(IOStreams::Errors::InvalidValue) { required.render(nil, :text) }
+          end
+        end
+
+        it "raises for text that is only spaces, for a type that removes them" do
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "integer", constraints: {required: true}).cast("  ") }
+          assert_equal "  ", field(type: "string", constraints: {required: true}).cast("  ")
+        end
+
+        it "accepts a value" do
+          assert_equal 0, field(type: "integer", constraints: {required: true}).cast("0")
+          refute field(type: "boolean", constraints: {required: true}).cast("false")
+          assert_equal "x", field(constraints: {required: true}).cast("x")
+        end
+
+        it "accepts no value for a field that is not required" do
+          assert_nil field(type: "integer").cast("")
+          assert_equal "", field(type: "string").cast("")
+          assert_nil field.cast(nil)
         end
       end
     end

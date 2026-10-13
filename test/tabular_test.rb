@@ -901,24 +901,61 @@ class TabularTest < Minitest::Test
     describe "schema" do
       let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
 
-      it "converts the values of each record, of every format" do
-        csv = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay])
+      it "converts the values of each record, of every format, by the names of its fields" do
+        csv = IOStreams::Tabular.new(format: :csv, schema: schema)
 
+        assert_equal %w[id pay], csv.read_header("ID,Pay")
         assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, csv.record_parse("1,2.5"))
-        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :json, schema: schema).record_parse(%({"id":1,"pay":2.5})))
-        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).record_parse({"id" => "1", "pay" => "2.5"}))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :json, schema: schema).record_parse(%({"Id":1,"pay":2.5})))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).record_parse({:id => "1", "PAY" => "2.5"}))
       end
 
-      it "renders each value in the form of the format" do
-        assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay]).render({"id" => "1", "pay" => 2.5})
-        assert_equal %({"id":1,"pay":2.5}), IOStreams::Tabular.new(format: :json, schema: schema).render({"id" => "1", "pay" => "2.5"})
+      it "renders each value in the form of the format, in the order of the fields" do
+        assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema).render({"pay" => 2.5, "id" => "1"})
+        assert_equal %({"id":1,"pay":2.5}), IOStreams::Tabular.new(format: :json, schema: schema).render({"pay" => "2.5", "id" => "1"})
         assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).render({"id" => "1", "pay" => "2.5"}))
       end
 
-      it "converts the values of a row by the field of each column" do
-        array = IOStreams::Tabular.new(format: :array, schema: schema, columns: %w[pay id])
+      it "raises for a row of a format whose rows supply their own keys that is not a record" do
+        assert_raises(IOStreams::Errors::MissingHeader) { IOStreams::Tabular.new(format: :json, schema: schema).record_parse("[1,2.5]") }
+      end
 
-        assert_equal [BigDecimal("2.5"), 1], array.row_parse(%w[2.5 1])
+      it "renders the names of the fields as the header row, rather than take it from the first row" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        refute_predicate tabular, :columns_from_first_row?
+        assert_equal "id,pay", tabular.render_header
+        assert_raises(ArgumentError) { tabular.render_header(%w[pay id]) }
+      end
+
+      it "converts the values of a row in the order of the fields" do
+        array = IOStreams::Tabular.new(format: :array, schema: IOStreams::Schema.new(fields: schema.fields.map { |field| {name: field.name} }, fieldsMatch: "equal"))
+
+        assert_equal %w[id pay], array.read_header(%w[pay id])
+        assert_equal %w[1 2.5], array.row_parse(%w[2.5 1])
+      end
+
+      it "raises for the options of the header, since the schema describes the columns" do
+        %i[columns allowed_columns required_columns].each do |name|
+          error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, name => ["id"]) }
+          assert_match(/\A#{name}: cannot be supplied with a schema/, error.message)
+        end
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, skip_unknown: true) }
+      end
+
+      it "accepts the options of the header when they are nil, as Rocket Job supplies them" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil)
+
+        assert_equal "id,pay", tabular.render_header
+      end
+
+      it "raises for cleansing the header row, whose columns are matched to the fields instead" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        assert_predicate tabular, :field_names?
+        assert_nil tabular.header_cleansing(nil)
+        assert_raises(ArgumentError) { tabular.header_cleansing(true) }
+        assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
       end
 
       it "translates the format options of a fixed width file, which Rocket Job supplies" do
@@ -926,6 +963,16 @@ class TabularTest < Minitest::Test
 
         assert_equal({"id" => 7}, fixed.record_parse("07"))
         assert_equal "07", fixed.render({"id" => 7})
+      end
+
+      it "applies the options of the header to the records of the format options, as before they were deprecated" do
+        layout = {layout: [{size: 2, key: :id, type: :integer}, {size: 1, key: :code}]}
+        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: ["id"], allowed_columns: nil, skip_unknown: false)
+
+        refute_predicate fixed, :field_names?
+        assert fixed.header_cleansing(nil)
+        assert_equal({"id" => 7}, fixed.record_parse("07x"))
+        assert_equal "07 ", fixed.render({id: 7, code: "x"})
       end
     end
 
@@ -1003,42 +1050,38 @@ class TabularTest < Minitest::Test
         assert_equal values, IOStreams::Tabular.new(format: :hash).render(values)
       end
 
-      it "applies to the columns that have no field in the schema" do
-        schema = IOStreams::Schema.new(fields: [{name: "count", type: "number", decimals: 1}])
+      it "applies to the fields of a schema without a type" do
+        fields = columns.map { |name| name == "count" ? {name: name, type: "number", decimals: 1} : {name: name} }
+        schema = IOStreams::Schema.new(fields: fields)
 
         assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3.0,true,",
-                     IOStreams::Tabular.new(format: :csv, columns: columns, schema: schema).render(values)
+                     IOStreams::Tabular.new(format: :csv, schema: schema).render(values)
       end
     end
 
     describe "schema without a header row" do
       let(:schema) { IOStreams::Schema.new(header: false, fields: [{name: "name"}, {name: :age, type: "integer"}]) }
 
-      it "has the fields as its columns, and parses every line as a row" do
+      it "has the fields as its columns, and parses every line as a row, by the names of the fields as they are given" do
         tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
 
         refute_predicate tabular, :header?
         refute_predicate tabular, :requires_header?
-        assert_equal %w[name age], tabular.header.columns
-        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse("Jack,21"))
-        assert_equal "Jack,21", tabular.render({"age" => 21, "name" => "Jack"})
+        assert_equal({"name" => "Jack", :age => 21}, tabular.record_parse("Jack,21"))
+        assert_equal ["Jack", 21], tabular.row_parse("Jack,21")
+        assert_equal "Jack,21", tabular.render({age: 21, "name" => "Jack"})
+        assert_equal "Jack,21", tabular.render(%w[Jack 21])
       end
 
-      it "keeps the columns that are supplied" do
-        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[age name])
-
-        assert_equal({"age" => 21, "name" => "Jack"}, tabular.record_parse("21,Jack"))
+      it "raises for columns, which are the fields" do
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[age name]) }
       end
 
       it "has no effect on a format without a header row" do
         tabular = IOStreams::Tabular.new(format: :json, schema: schema)
 
         assert_nil tabular.header.columns
-        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse(%({"name":"Jack","age":"21"})))
-      end
-
-      it "raises without fields" do
-        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(header: false, fields: [])) }
+        assert_equal({"name" => "Jack", :age => 21}, tabular.record_parse(%({"name":"Jack","age":"21"})))
       end
     end
 

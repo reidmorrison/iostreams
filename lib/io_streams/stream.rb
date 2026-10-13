@@ -672,7 +672,7 @@ module IOStreams
     #
     # The lines are split where the format that parses them expects, so that for example a newline within
     # a quoted CSV value stays within its row, including when CSV is the default format.
-    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
+    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: nil, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
@@ -683,7 +683,7 @@ module IOStreams
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: nil, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
@@ -694,9 +694,17 @@ module IOStreams
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream in the format set with #format,
     # otherwise the one detected from the file name, otherwise CSV, see `IOStreams::Tabular.new`, with the schema
     # set with #schema, reading its file the first time.
+    #
+    # The layout set with #format_options, which is deprecated, is supplied as the layout, so that the options of each
+    # call that describe its columns, such as `columns:`, still apply to it as they did before. They raise with a
+    # schema.
     def tabular(**args)
       reject_path_settings!(args)
-      IOStreams::Tabular.new(file_name: file_name, format: @format, schema: @schema_source&.schema, **args)
+      if @format_options
+        IOStreams::Tabular.new(file_name: file_name, format: @format, format_options: @format_options, **args)
+      else
+        IOStreams::Tabular.new(file_name: file_name, format: @format, schema: @schema_source&.schema, **args)
+      end
     end
 
     def stream_writer(&)

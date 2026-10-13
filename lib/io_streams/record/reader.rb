@@ -22,8 +22,9 @@ module IOStreams
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
       #   schema: [IOStreams::Schema]
-      #     The type of each field, see `IOStreams::Tabular.new`. The `:fixed` format needs it for the position of each
-      #     field.
+      #     The fields of the file and the type of each one, see `IOStreams::Tabular.new`. The `:fixed` format needs it
+      #     for the position of each field. With a schema, `columns`, `allowed_columns`, `required_columns` and
+      #     `skip_unknown` raise ArgumentError, since it describes the columns of the file.
       #
       #   format_options: [Hash]
       #     Deprecated, use `schema:`, see `IOStreams::Tabular.new`.
@@ -53,7 +54,7 @@ module IOStreams
       # Note:
       # * `allowed_columns`, `required_columns` and `skip_unknown` apply to every input, including JSON records,
       #   supplied `columns` and `cleanse_header: false`, unless `IOStreams.enforce_column_restrictions?` is false.
-      def self.stream(line_reader, original_file_name: nil, cleanse_header: true, **args)
+      def self.stream(line_reader, original_file_name: nil, cleanse_header: nil, **args)
         # Pass-through if already a record reader
         return yield(line_reader) if line_reader.is_a?(self)
 
@@ -63,7 +64,7 @@ module IOStreams
 
       # When reading from a file also add the line reader stream, which splits the lines where the format expects,
       # such as within a quoted CSV value. See `.stream` for the parameters.
-      def self.file(file_name, original_file_name: file_name, delimiter: $/, cleanse_header: true, **args)
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, cleanse_header: nil, **args)
         tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
         IOStreams::Line::Reader.file(file_name, delimiter: delimiter, embedded_within: tabular.quote_character) do |io|
           yield new(io, tabular: tabular, cleanse_header: cleanse_header)
@@ -80,19 +81,21 @@ module IOStreams
       #     Parses each line in its format, and holds the header.
       #
       #   cleanse_header: [true|false]
-      #     Whether to cleanse the header row, see `IOStreams::Tabular::Header#cleanse!`.
+      #     Deprecated. Whether to cleanse the header row, see `IOStreams::Tabular::Header#cleanse!`. With a schema, the
+      #     keys of the records are the names of its fields instead, so it raises ArgumentError, see
+      #     `IOStreams::Tabular#header_cleansing`.
       #     Default: true
-      def initialize(line_reader, tabular:, cleanse_header: true)
+      def initialize(line_reader, tabular:, cleanse_header: nil)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
 
         @tabular        = tabular
         @line_reader    = line_reader
-        @cleanse_header = cleanse_header
+        @cleanse_header = tabular.header_cleansing(cleanse_header)
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
-        @tabular.restrict_columns(rename: cleanse_header)
+        @tabular.restrict_columns(rename: @cleanse_header)
       end
 
       def each

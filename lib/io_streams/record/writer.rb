@@ -21,8 +21,9 @@ module IOStreams
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
       #   schema: [IOStreams::Schema]
-      #     The type of each field, see `IOStreams::Tabular.new`. The `:fixed` format needs it for the position of each
-      #     field.
+      #     The fields of the file and the type of each one, see `IOStreams::Tabular.new`. The `:fixed` format needs it
+      #     for the position of each field. With a schema, `columns`, `allowed_columns`, `required_columns` and
+      #     `skip_unknown` raise ArgumentError, since it describes the columns of the file.
       #
       #   format_options: [Hash]
       #     Deprecated, use `schema:`, see `IOStreams::Tabular.new`.
@@ -77,15 +78,15 @@ module IOStreams
         @tabular     = tabular
         @line_writer = line_writer
 
-        # Render the header line when the columns were supplied.
-        @line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.header?
+        # Render the header line when the columns were supplied, or are the fields of a schema.
+        @line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.columns_from_first_row?
       end
 
       # Returns self, so that calls can be chained.
       def <<(hash)
         raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
 
-        if @tabular.header?
+        if @tabular.columns_from_first_row?
           # Extract header from the keys from the first row when not supplied above.
           @line_writer << @tabular.render_header(hash.keys)
         end

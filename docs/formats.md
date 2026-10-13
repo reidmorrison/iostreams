@@ -55,12 +55,37 @@ The format describes the file, so it is set on the path, rather than supplied to
 
 ## Schema
 
-A schema gives the type of each field, so that reading rows and records returns each value as its type, such as an
-`Integer` or a `Date`, rather than as text, and writing them writes each value in the text form of its type. It
-applies to every format, and gives the position of each field of a fixed width file.
+A schema gives the fields of the rows and records of a file, and the type of each one, so that reading them returns
+each value as its type, such as an `Integer` or a `Date`, rather than as text, and writing them writes each value in
+the text form of its type. It applies to every format, and gives the position of each field of a fixed width file.
 
 A schema is a [Frictionless Table Schema](https://datapackage.org/standard/table-schema/), set on the path with
 `#schema`, either as a Hash:
+
+~~~ruby
+# Read the id and joined columns of the file as their types, and skip its other columns.
+path = IOStreams.path("people.csv").schema(
+  fieldsMatch: "partial",
+  fields:      [
+    {name: "id",     type: "integer"},
+    {name: "joined", type: "date"}
+  ]
+)
+path.each(:hash) { |person| p person }
+# => {"id" => 42, "joined" => #<Date: 2026-10-13>}
+~~~
+
+Or as the path or url of a JSON file that holds it, in any store that IOStreams reads, so that the schema can be held
+in configuration, like the path of the file:
+
+~~~ruby
+IOStreams.path(ENV["PEOPLE_PATH"]).schema(ENV["PEOPLE_SCHEMA"]).each(:hash) { |person| p person }
+~~~
+
+The columns of the file are matched to the fields, and the keys of each record read are the names of its fields,
+see [Matching columns to fields](#matching-columns-to-fields). `fieldsMatch: "partial"` above reads the fields that
+the file has, and skips its other columns. Without `fieldsMatch`, as in Frictionless, the columns of the file must be
+the fields, in order, which is what a file written with the schema has:
 
 ~~~ruby
 path = IOStreams.path("people.csv").schema(
@@ -81,19 +106,15 @@ path.each(:hash) { |person| p person }
 # => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13>, "active" => true}
 ~~~
 
-Or as the path or url of a JSON file that holds it, in any store that IOStreams reads, so that the schema can be held
-in configuration, like the path of the file:
-
-~~~ruby
-IOStreams.path(ENV["PEOPLE_PATH"]).schema(ENV["PEOPLE_SCHEMA"]).each(:hash) { |person| p person }
-~~~
-
 A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
 so that setting it does not read the file, and the copies of a path read it once. `#schema` returns the schema
 that was set.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
-`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`.
+`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. Since it describes the columns of the
+file, the options of each call that describe them without a schema, `columns:`, `allowed_columns:`,
+`required_columns:`, `skip_unknown:` and `cleanse_header:`, raise `ArgumentError` with it, see
+[Header options](#header-options).
 
 ### Types
 
@@ -120,9 +141,98 @@ date. The `:hash` and `:array` formats keep the values themselves.
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
 
+### Matching columns to fields
+
+Each column of the header row, or key of a JSON record, is matched to the field:
+
+1. Whose name is the column, such as `email` for the column `email`, whether the name is a String or a Symbol.
+2. Whose `aliases` include the column, such as `["DOB", "Birth Date"]` for the field `date_of_birth`.
+3. Whose name or alias is the same as the column once both are compared without their case, spaces and
+   punctuation, and with the forms of a character that Unicode treats as the same made the same. So the field
+   `first_name` matches the columns `First Name`, `FIRST.NAME` and `firstname`, the field `email` matches `E-mail`,
+   and `id` matches the full width `ＩＤ` that some spreadsheets have.
+
+The columns are matched once, when the header row is read, or once for the keys of the JSON records, which are
+usually the same for every record, rather than for each value.
+
+The keys of the records read are the names of their fields as they are given, so a field named with a Symbol, such as
+`name: :id`, returns the key `:id`, whatever the column of the file is called. `each(:array)` returns the values of the
+fields in the order of the fields, after a header row of their names. A column that the schema does not list is
+skipped, or raises, see [fieldsMatch](#fieldsmatch).
+
+A column that could be either of two fields raises `IOStreams::Errors::InvalidHeader`, rather than guess, such as
+`amount` for the fields `Amount ($)` and `Amount (€)`, which match their own columns exactly. So do two columns that
+are the same field, such as `email` and `Email`, rather than lose the value of one of them.
+
+When writing, the header row is the names of the fields, in order, and the keys of each record written are matched
+to the fields in the same way. So a file can have readable column names, while the code uses its own keys:
+
+~~~ruby
+report = IOStreams.path("report.csv").schema(fields: [{name: "First Name"}, {name: "Date of Birth", type: "date"}])
+report.writer(:hash) do |io|
+  io << {first_name: "Jack", date_of_birth: Date.new(2001, 2, 3)}
+end
+report.read
+# => "First Name,Date of Birth\nJack,2001-02-03\n"
+~~~
+
+### fieldsMatch
+
+`fieldsMatch` says how the columns of the file must match the fields, as Frictionless defines it:
+
+| `fieldsMatch` | The columns of the file | Columns that the schema does not list |
+|---------------|-------------------------|---------------------------------------|
+| `exact`, the default | are the fields, in the same order | raise |
+| `equal` | are the fields, in any order | raise |
+| `subset` | include every field | are skipped |
+| `superset` | are fields, but a field can be missing | raise |
+| `partial` | include at least one field | are skipped |
+
+A file that does not match raises `IOStreams::Errors::InvalidHeader`, which lists each problem, such as the columns
+that are not fields, and the fields that are missing. A column without a name, such as an empty column that a
+spreadsheet exports after the last one, is a column that the schema does not list.
+
+`partial` is the easiest to start with, and suits a schema that only gives the type of some of the columns. A schema
+for files that are received from elsewhere, such as uploads, is usually stricter: `subset` accepts files with more
+columns than the code needs, and `equal` or `exact` accept only the columns that the schema lists.
+
+The keys of each JSON record are checked the same way, in any order. The columns of a file without a header row are
+the fields in order, so `header: false` only accepts `exact`, and a fixed width file always has every field.
+
+A file that is written always has every field, so writing only checks the keys of each record, or the values of each
+row after the last field: `subset` and `partial` skip them, and the others raise `IOStreams::Errors::InvalidHeader`.
+A field that a record does not supply is written as empty, or as `null` in JSON.
+
+### Required fields
+
+A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
+record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
+`nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing. Text that is only
+spaces is a value for a `string` field, as in Frictionless, but not for a type that reads it as `nil`, such as an
+`integer`.
+
+~~~ruby
+# An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
+schema = {
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "first_name",    constraints: {required: true}},
+    {name: "email",         aliases: ["E-mail Address"], constraints: {required: true}},
+    {name: "date_of_birth", type: "date", aliases: ["DOB", "Birth Date"]}
+  ]
+}
+IOStreams.path("upload.csv").schema(schema).each(:hash) { |contact| p contact }
+# "E-mail Address,FIRST NAME,DOB,Notes" =>
+# {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03>}
+~~~
+
+IOStreams does not support the other constraints of Frictionless yet, such as `maxLength`, so they raise
+`ArgumentError`, rather than appear to check values that they do not.
+
 ### Schema properties
 
 * `fields` The fields of the file, in the order of its columns. Required.
+* `fieldsMatch` How the columns of the file must match the fields, see [fieldsMatch](#fieldsmatch). Default: `exact`
 * `header` `false` when the file has no header row, as in a Frictionless Table Dialect. The columns of the file are
   then the fields, in order: reading takes every line as a row, and writing writes no header row, and the fields in
   order. A format without a header row, such as JSON or fixed width, ignores it. Default: `true`
@@ -142,13 +252,16 @@ and `#copy_to`, whose options only apply to the target.
 
 ### Field properties
 
-* `name` The key of the field in each record. Required.
+* `name` The key of the field in each record, and its column in the header row written. Required.
 * `type` See [Types](#types). Default: `any`
+* `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
 * `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`.
   Default: ISO 8601.
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
+* `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
+  IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding half up. IOStreams adds
   this property.
 * `width`, `start` and `truncate` The position of the field in a fixed width file, see
@@ -157,21 +270,12 @@ and `#copy_to`, whose options only apply to the target.
 
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
 of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
-the parts of Frictionless that IOStreams does not support yet, such as `constraints`, `missingValues`, `primaryKey`
-and the `time` type, so that a schema never appears to check a value that it does not.
-
-### The column of each field
-
-A field applies to the key of each record, or the column of each row, with its name. When there is none, it applies
-to the column whose name is the same once both are cleansed like a header row, see [Header options](#header-options),
-so that the field `first_name` applies to the column `First Name`, and the field `First Name` of an existing
-Frictionless schema applies to the column `first_name` once the header row is cleansed. The values of the other
-columns are left as they are, and the header row itself is not converted.
+the parts of Frictionless that IOStreams does not support yet, such as `missingValues`, `primaryKey`, the constraints
+other than `required`, and the `time` type, so that a schema never appears to check a value that it does not.
 
 ### Values without a field
 
-A value without a field, in a file without a schema, or in a column that its schema does not list, is written as a
-field of type `any` writes it:
+A value of a file without a schema, or of a field without a type, is written as a field of type `any` writes it:
 
 | Value | Written as |
 |-------|------------|
@@ -327,11 +431,24 @@ follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 
 ## Header options
 
-When reading or writing records (`:hash`), the following options control the header row. They are supplied to
-each call, since they say what the code wants from the file, see
+When reading or writing records (`:hash`) of a file without a schema, the following options control the header row.
+They are supplied to each call, see
 [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 `cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when reading, so `#writer`,
 `#copy_from` and `#copy_to` raise `ArgumentError` for them.
+
+A [schema](#schema) describes the columns of the file on its path instead, so that every reader and writer of the
+path, including a copy, checks them the same way. So with a schema, these options raise `ArgumentError`:
+
+| Option | With a schema |
+|--------|---------------|
+| `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
+| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "equal"`, or `"superset"` when a field can be missing |
+| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "subset"`, or `"partial"` when a field can be missing |
+| `required_columns:` | `constraints: {required: true}` on each field, or a `fieldsMatch` that needs every field |
+| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
+
+The layout of a fixed width file set with the deprecated `#format_options` still accepts them, as it did before.
 
 * `columns: [Array<String>]`
   When reading, supplies the header columns for files that do not include a header row.
@@ -341,6 +458,8 @@ each call, since they say what the code wants from the file, see
   including `#copy_from`, set a schema with `header: false`, see [Schema properties](#schema-properties).
 
 * `cleanse_header: [true|false]`
+  Deprecated: a schema names the keys of the records instead, and matches the columns of the header row to them, see
+  [Matching columns to fields](#matching-columns-to-fields). It still works without a schema.
   Whether to cleanse the column names read from the header row.
   Column names are stripped of leading and trailing whitespace, lowercased, and spaces
   and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.

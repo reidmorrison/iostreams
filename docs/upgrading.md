@@ -841,8 +841,9 @@ it.
 Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
 options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column.
 
-Fix: to choose the columns that are written, supply `columns:`. To read the source of a copy in a particular way,
-set what describes it on its path, such as its schema, or read it with `#each` and write each record to the target:
+Fix: to choose the columns that are written, supply `columns:`, or set a schema on the target, whose fields are the
+columns written. To read the source of a copy in a particular way, set what describes it on its path, such as its
+schema, or read it with `#each` and write each record to the target:
 
 ~~~ruby
 # Before
@@ -860,6 +861,28 @@ they are split: `embedded_within: nil` for a CSV file raises when a value contai
 character splits the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
 
 Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
+
+### `cleanse_header:` is deprecated
+
+`cleanse_header:` is deprecated. It still works without a schema, so no change is needed. A
+[schema](formats#schema) names the keys of the records read instead: they are the names of its fields, and each column
+of the header row is matched to a field whatever its case, spaces and punctuation, or to one of the `aliases` of a
+field, see [Matching columns to fields](formats#matching-columns-to-fields). So the keys no longer depend on how the
+cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which are both `amount_`.
+
+With a schema, `cleanse_header:` raises `ArgumentError`, as do `columns:`, `allowed_columns:`, `required_columns:`
+and `skip_unknown:`, since the schema describes the columns of the file, see [Header options](formats#header-options):
+
+~~~ruby
+# Before (deprecated)
+path.each(:hash, cleanse_header: false, required_columns: ["Zip Code"]) { |row| p row }
+
+# After
+path.schema(
+  fieldsMatch: "partial",
+  fields:      [{name: "First Name"}, {name: "Zip Code", constraints: {required: true}}]
+).each(:hash) { |row| p row }
+~~~
 
 ### `BigDecimal` and `Time` values are written as their usual text
 

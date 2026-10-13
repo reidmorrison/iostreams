@@ -9,6 +9,8 @@ module IOStreams
     #     stream << ['Jack', 'Somewhere', 12345]
     #     stream << ['Joe', 'Lost', 32443]
     #   end
+    #
+    # With a schema, the header row is the names of its fields, so every row is the values of the fields, in order.
     class Writer < IOStreams::Writer
       # Write a record from an Array at a time to a stream.
       #
@@ -49,8 +51,8 @@ module IOStreams
         @tabular     = tabular
         @line_writer = line_writer
 
-        # Render the header line when the columns were supplied.
-        line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.header?
+        # Render the header line when the columns were supplied, or are the fields of a schema.
+        line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.columns_from_first_row?
       end
 
       # Supply a hash or an array to render
@@ -60,7 +62,7 @@ module IOStreams
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
 
         # If header (columns) was not supplied as an argument, assume first line is the header.
-        @line_writer << (@tabular.header? ? @tabular.render_header(array) : @tabular.render(array))
+        @line_writer << (@tabular.columns_from_first_row? ? @tabular.render_header(array) : @tabular.render(array))
         self
       end
     end

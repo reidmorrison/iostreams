@@ -9,9 +9,13 @@ module IOStreams
     #
     # Properties of a field, as Frictionless defines them:
     #   name: [String|Symbol]
-    #     The key of the field in each record. Required.
-    #     A fixed width file returns records whose keys are the names as they are given, so a Symbol name returns a
-    #     Symbol key. Other formats keep the keys of the file, see `IOStreams::Schema#field`.
+    #     The key of the field in each record, and its column in the header row that is written. Required.
+    #     The records read have the names as they are given as their keys, so a Symbol name returns a Symbol key,
+    #     whatever the column of the file is, see `IOStreams::Schema#field_for`.
+    #
+    #   constraints: [Hash]
+    #     The rules that the values of the field must follow, such as `{required: true}` for a field that must have a
+    #     value, both when reading and when writing, see `IOStreams::Schema::Constraints`.
     #
     #   type: [String]
     #     "string":   a String. Any other value is written as its text, except a Hash or an Array, which raise.
@@ -38,6 +42,12 @@ module IOStreams
     #     Default: false
     #
     # Properties that IOStreams adds:
+    #   aliases: [Array<String>]
+    #     The other names of the column of this field, such as `["DOB", "Birth Date"]` for the field `date_of_birth`, for
+    #     files whose columns are not named the same way, such as spreadsheets made by hand. A column is matched to an
+    #     alias as it is to the name, see `IOStreams::Schema#field_for`. The header row that is written has the name.
+    #     Default: []
+    #
     #   decimals: [Integer]
     #     For a number, the number of digits written after the decimal point, rounding the value to them.
     #     Default: as many as the value has.
@@ -60,7 +70,7 @@ module IOStreams
     # accepted and have no effect, as are the properties of other tools, whose names include a `:`.
     #
     # Any other property raises `ArgumentError`, as does a type that IOStreams does not support yet, such as "time",
-    # and the Frictionless properties that it does not support yet, such as `constraints`, so that a schema never
+    # and the Frictionless properties that it does not support yet, such as `missingValues`, so that a schema never
     # appears to check a value that it does not.
     class Field
       # The types of field that IOStreams supports.
@@ -76,13 +86,13 @@ module IOStreams
       }.freeze
 
       # The properties that every field accepts.
-      PROPERTIES = %w[name type format width start].freeze
+      PROPERTIES = %w[name type format width start constraints aliases].freeze
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
       # The properties of a Frictionless field that IOStreams does not support yet.
-      UNSUPPORTED_PROPERTIES = %w[constraints missingValues categories categoriesOrdered decimalChar groupChar
+      UNSUPPORTED_PROPERTIES = %w[missingValues categories categoriesOrdered decimalChar groupChar
                                   bareNumber delimiter itemType].freeze
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
@@ -115,12 +125,15 @@ module IOStreams
       # Returns [Integer|nil] the position of the first character of the field in a fixed width file, counting from 1.
       attr_reader :start
 
+      # Returns [Array<String>] the other names of the column of this field, see `aliases` above.
+      attr_reader :aliases
+
       # Parameters:
       #   descriptor: [Hash]
       #     The properties of the field, see above, whose keys are Strings or Symbols.
       #
       # Raises ArgumentError when the descriptor is not a valid field.
-      def initialize(descriptor)
+      def initialize(descriptor) # rubocop:disable Metrics/AbcSize -- one check for each property of a field
         raise(ArgumentError, "A schema field must be a Hash: #{descriptor.inspect}") unless descriptor.is_a?(Hash)
 
         descriptor = descriptor.transform_keys(&:to_s)
@@ -140,6 +153,8 @@ module IOStreams
         @decimals     = check_decimals(descriptor["decimals"])
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
+        @aliases      = check_values("aliases", descriptor["aliases"], [].freeze)
+        @constraints  = Constraints.new(descriptor["constraints"], @name)
         require_bigdecimal if @type == "number" && !@float
         freeze
       end
@@ -244,22 +259,26 @@ module IOStreams
         @truncate
       end
 
+      # Returns [true|false] whether the field must have a value, see `constraints` above.
+      def required? = @constraints.required?
+
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, or nil
       # when the value is nil, or is text that is empty once its leading and trailing whitespace is removed, except
       # for a string or any field, which returns the text as it is.
       #
-      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
+      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a required field has
+      # no value: nil, or empty text.
       def cast(value)
-        return if value.nil?
+        return @constraints.no_value if value.nil?
 
         case type
-        when "any" then return value
-        when "string" then return cast_string(value)
+        when "any" then return value == "" ? @constraints.no_text(value) : value
+        when "string" then return value == "" ? @constraints.no_text(value) : cast_string(value)
         end
 
         if value.is_a?(String)
           value = value.strip
-          return if value.empty?
+          return @constraints.no_value if value.empty?
         end
 
         case type
@@ -370,11 +389,15 @@ module IOStreams
         raise(ArgumentError, "Field #{name.inspect}: decimals must be an Integer of 0 or more: #{decimals.inspect}")
       end
 
+      # Returns [Array<String>] the text of a property, such as the true values of a boolean. Empty text raises, since a
+      # field never compares it, see #cast.
       def check_values(property, values, default)
         return default if values.nil?
-        return values.dup.freeze if values.is_a?(Array) && !values.empty? && values.all?(String)
 
-        raise(ArgumentError, "Field #{name.inspect}: #{property} must be an Array of Strings: #{values.inspect}")
+        texts = values.is_a?(Array) && !values.empty? && values.all? { |value| value.is_a?(String) && !value.empty? }
+        return values.dup.freeze if texts
+
+        raise(ArgumentError, "Field #{name.inspect}: #{property} must be an Array of text that is not empty: #{values.inspect}")
       end
 
       # The bigdecimal gem is a default gem before Ruby 3.4, and a bundled gem since, so it is loaded only when a
