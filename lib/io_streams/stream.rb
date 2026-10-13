@@ -339,7 +339,9 @@ module IOStreams
       if convert
         stream = to_stream(source)
         if mode
-          reject_read_options!(args, "but a copy uses its options to write the target")
+          reject_read_options!(
+            args, "but a copy uses its options to write the target", suggest_columns: %i[array hash].include?(mode)
+          )
           stream.reader(mode) do |rows|
             writer(mode, **args) do |target|
               rows.each { |row| target << row }
@@ -605,12 +607,14 @@ module IOStreams
     end
 
     # Raises ArgumentError for an option that only applies when reading, see READ_OPTIONS, since writing would ignore it.
-    def reject_read_options!(options, reason)
+    #
+    # Suggests `columns:` in place of a column restriction when `suggest_columns`, for the modes that accept it.
+    def reject_read_options!(options, reason, suggest_columns: true)
       names = READ_OPTIONS & options.keys
       return if names.empty?
 
       message = "#{names.map(&:inspect).join(', ')} only #{names.size == 1 ? 'applies' : 'apply'} when reading, #{reason}"
-      if names.intersect?(%i[allowed_columns required_columns skip_unknown])
+      if suggest_columns && names.intersect?(%i[allowed_columns required_columns skip_unknown])
         message << ". To choose the columns that are written, supply `columns:`"
       end
       raise(ArgumentError, message)
@@ -700,7 +704,7 @@ module IOStreams
     # The lines are written in the encoding of the format, see #line_reader.
     def line_writer(**args, &block)
       reject_path_settings!(args)
-      reject_read_options!(args, "not when writing")
+      reject_read_options!(args, "not when writing", suggest_columns: false)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
       open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)

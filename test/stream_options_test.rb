@@ -79,6 +79,15 @@ class StreamOptionsTest < Minitest::Test
         refute_path_exists ::File.join(dir, "a.csv")
       end
 
+      it "only suggests columns: in the modes that accept it" do
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:line, allowed_columns: %w[id]) { |io| io << "1" } }
+        assert_equal ":allowed_columns only applies when reading, not when writing", error.message
+
+        path("a.csv").write("id,name\n1,Jack\n")
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), mode: :line, allowed_columns: %w[id]) }
+        assert_equal ":allowed_columns only applies when reading, but a copy uses its options to write the target", error.message
+      end
+
       it "raises for them when copying, since a copy uses its options to write the target" do
         path("a.csv").write("id,name\n1,Jack\n")
 
