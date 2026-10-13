@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "bigdecimal"
 require "logger"
 
 class TabularTest < Minitest::Test
@@ -860,6 +861,94 @@ class TabularTest < Minitest::Test
       it "raises UnknownFormat when the format cannot be inferred from the file name" do
         assert_raises IOStreams::Errors::UnknownFormat do
           IOStreams::Tabular.new(file_name: "sample.unknown", default_format: nil)
+        end
+      end
+
+      it "raises for both a schema and format options" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", width: 2}])
+
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :fixed, schema: schema, format_options: {layout: [{size: 2}]}) }
+      end
+
+      it "ignores empty format options" do
+        assert_nil IOStreams::Tabular.new(format: :csv, format_options: {}).schema
+      end
+    end
+
+    describe "schema" do
+      let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
+
+      it "converts the values of each record, of every format" do
+        csv = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay])
+
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, csv.record_parse("1,2.5"))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :json, schema: schema).record_parse(%({"id":1,"pay":2.5})))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).record_parse({"id" => "1", "pay" => "2.5"}))
+      end
+
+      it "renders each value in the form of the format" do
+        assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay]).render({"id" => "1", "pay" => 2.5})
+        assert_equal %({"id":1,"pay":2.5}), IOStreams::Tabular.new(format: :json, schema: schema).render({"id" => "1", "pay" => "2.5"})
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).render({"id" => "1", "pay" => "2.5"}))
+      end
+
+      it "converts the values of a row by the field of each column" do
+        array = IOStreams::Tabular.new(format: :array, schema: schema, columns: %w[pay id])
+
+        assert_equal [BigDecimal("2.5"), 1], array.row_parse(%w[2.5 1])
+      end
+
+      it "translates the format options of a fixed width file, which Rocket Job supplies" do
+        fixed = IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: "id", type: :integer}]})
+
+        assert_equal({"id" => 7}, fixed.record_parse("07"))
+        assert_equal "07", fixed.render({"id" => 7})
+      end
+    end
+
+    describe "IOStreams::Tabular::Parser::Fixed.schema" do
+      it "translates a layout into a schema" do
+        layout = [
+          {size: 23, key: :name},
+          {size: 40, key: :address},
+          {size: 2},
+          {size: 5, key: :zip, type: :integer},
+          {size: 8, key: :age, type: :integer},
+          {size: 10, key: :weight, type: :float, decimals: 2}
+        ]
+        expected = {
+          fields: [
+            {name: :name, type: "string", width: 23, truncate: true},
+            {name: :address, type: "string", width: 40, truncate: true},
+            {name: :zip, type: "integer", width: 5, start: 66},
+            {name: :age, type: "integer", width: 8},
+            {name: :weight, type: "number", width: 10, floatNumber: true, decimals: 2}
+          ]
+        }
+
+        assert_equal expected, IOStreams::Tabular::Parser::Fixed.schema(layout: layout)
+      end
+
+      it "translates a remainder, and a filler at the end of the line" do
+        assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}]},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "rest"}], truncate: false))
+        assert_equal({fields: [{name: "id", type: "string", width: 2}], width: 5},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: 3}], truncate: false))
+        assert_equal({fields: [{name: "id", type: "string", width: 2}], width: "remainder"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: :remainder}], truncate: false))
+      end
+
+      it "translates sizes and types that are strings" do
+        assert_equal({fields: [{name: "id", type: "integer", width: 5}]},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: "5", key: "id", type: "integer"}]))
+      end
+
+      it "raises for an invalid layout" do
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{key: "id"}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 0, key: "id"}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id", type: :date}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) do
+          IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: 2, key: "b"}])
         end
       end
     end

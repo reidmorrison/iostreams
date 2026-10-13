@@ -11,6 +11,8 @@ gem "rake"
 # These are not required for all features, so they are not listed in the gemspec dependencies.
 # Instead, they are soft dependencies that are only loaded when needed.
 gem "aws-sdk-s3"
+# A bundled gem from Ruby 3.4, for the number fields of a schema.
+gem "bigdecimal"
 gem "bzip2-ffi"
 gem "creek"
 gem "net-sftp"

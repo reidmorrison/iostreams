@@ -368,7 +368,8 @@ In this example the file contains JSON data that was compressed with Zip, and si
 ~~~ruby 
 IOStreams.path("tempfile2527").
   stream(:zip).
-  each(:hash, format: :json) do |row|
+  format(:json).
+  each(:hash) do |row|
     p row
   end
 ~~~

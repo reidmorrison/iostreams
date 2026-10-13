@@ -36,6 +36,11 @@ module IOStreams
     class ValueTooLong < Error
     end
 
+    # A value that is not one of the type of its field in the schema, such as `"abc"` for an integer,
+    # see `IOStreams::Stream#schema`.
+    class InvalidValue < Error
+    end
+
     class MalformedDataError < RuntimeError
       attr_reader :line_number
 

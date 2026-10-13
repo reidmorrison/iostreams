@@ -40,7 +40,7 @@ module IOStreams
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
 
-    attr_reader :format, :header, :parser
+    attr_reader :format, :header, :parser, :schema
 
     # Parse a delimited data source.
     #
@@ -52,8 +52,14 @@ module IOStreams
     #     When `:format` is not supplied the file name can be used to infer the required format.
     #     Optional. Default: nil
     #
+    #   schema: [IOStreams::Schema]
+    #     The type of each field, which converts the values of each row read, and renders those written,
+    #     see `IOStreams::Stream#schema`. A fixed width file needs it for the position of each field.
+    #     Optional. Default: nil
+    #
     #   format_options: [Hash]
-    #     Any specialized format specific options. For example, `:fixed` format requires the file definition.
+    #     Deprecated, use `schema:`. The layout and truncate option of a fixed width file, which are translated into
+    #     the schema, see `IOStreams::Tabular::Parser::Fixed.schema`.
     #
     #   columns [Array<String|Symbol>]
     #     The header columns when the file does not include a header row.
@@ -82,14 +88,15 @@ module IOStreams
     #     then this default format will be used.
     #     Default: :csv
     #     Set to nil to force it to raise an exception when the format is undefined.
-    def initialize(format: nil, file_name: nil, format_options: nil, default_format: :csv, **args)
+    def initialize(format: nil, file_name: nil, schema: nil, format_options: nil, default_format: :csv, **args)
       @header = Header.new(**args)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
 
-      klass   = self.class.parser_class(@format)
-      @parser = format_options ? klass.new(**format_options) : klass.new
+      @schema = legacy_schema(format_options, schema) || schema
+      @parser = self.class.parser_class(@format).new(schema: @schema)
+      @fields = {}
       @warned = false
     end
 
@@ -137,18 +144,25 @@ module IOStreams
       header.to_hash(line) if line
     end
 
-    # Returns [Array] the row/line as a parsed Array of values.
+    # Returns [Array] the row/line as a parsed Array of values, each converted to the type of its field when there is
+    # a schema, see `IOStreams::Schema#field`.
     # Returns nil if the row/line is blank.
     def row_parse(line)
       return if IOStreams::Utils.blank?(line)
 
-      parser.parse(line)
+      row = parser.parse(line)
+      schema ? convert(row) { |field, value| field.cast(value) } : row
     end
 
-    # Renders the output row
+    # Renders the output row, with each value in the form of its field that the format writes when there is a schema,
+    # see `IOStreams::Schema::Field#render`.
     def render(row)
       return if IOStreams::Utils.blank?(row)
 
+      if schema
+        form = parser.class.value_form
+        row  = convert(row) { |field, value| field.render(value, form) }
+      end
       parser.render(row, header)
     end
 
@@ -278,6 +292,37 @@ module IOStreams
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 
     private
+
+    # Returns [IOStreams::Schema] the schema of the fixed width layout supplied as format options, which are deprecated,
+    # or nil when there are none.
+    def legacy_schema(format_options, schema)
+      return if format_options.nil? || format_options.empty?
+      raise(ArgumentError, "Supply either schema: or format_options:, not both") if schema
+
+      IOStreams::Schema.new(Parser::Fixed.schema(**format_options))
+    end
+
+    # Returns [Hash|Array] the row, with each value that has a field in the schema replaced by the result of the block,
+    # which is passed the field and the value. The field of each value of an Array is that of its header column.
+    def convert(row)
+      case row
+      when ::Hash
+        row.to_h { |key, value| (field = field(key)) ? [key, yield(field, value)] : [key, value] }
+      when ::Array
+        columns = header.columns
+        return row unless columns
+
+        row.each_with_index.map { |value, index| (field = field(columns[index])) ? yield(field, value) : value }
+      else
+        row
+      end
+    end
+
+    # Returns [IOStreams::Schema::Field] the field of the schema for the key, see `IOStreams::Schema#field`, worked out
+    # once for each key, since the same keys usually apply to every row.
+    def field(key)
+      @fields.fetch(key) { @fields[key] = schema.field(key) }
+    end
 
     # Logs a warning that the column restrictions are not applied, once, since the same columns usually apply
     # to every record.

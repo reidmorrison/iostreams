@@ -4,6 +4,11 @@ module IOStreams
     module Parser
       # For parsing a single line of JSON at a time
       class Json < Base
+        # Returns [:json] JSON writes numbers and booleans as themselves, and every other value as text.
+        def self.value_form
+          :json
+        end
+
         def parse(row)
           return row if row.is_a?(::Hash)
 

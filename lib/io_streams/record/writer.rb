@@ -18,8 +18,12 @@ module IOStreams
       #   format: [Symbol]
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
+      #   schema: [IOStreams::Schema]
+      #     The type of each field, see `IOStreams::Tabular.new`. The `:fixed` format needs it for the position of each
+      #     field.
+      #
       #   format_options: [Hash]
-      #     Any specialized format specific options. For example, `:fixed` format requires the file definition.
+      #     Deprecated, use `schema:`, see `IOStreams::Tabular.new`.
       #
       #   columns [Array<String|Symbol>]
       #     The header columns when the file does not include a header row.
