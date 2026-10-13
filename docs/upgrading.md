@@ -872,7 +872,10 @@ of type `any` writes it, in CSV, PSV and JSON:
 | `Time.utc(2026, 10, 13, 9, 30)` | `2026-10-13T09:30:00Z` | `2026-10-13 09:30:00 UTC`, or in JSON in a Rails application `2026-10-13T09:30:00.000Z` |
 | `Date.new(2026, 10, 13)` | `2026-10-13` | its `to_s`, which an application can change |
 
-JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits.
+JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
+does the header row that `writer(:array)` takes from the first row written, when no `columns:` are supplied, so that
+it matches the rows after it. PSV writes an `Array` value as its text, such as `[1, 2]`, where its items were
+written as more columns.
 
 Fix: to keep another form, give the column a field in the schema with a `type` and a `format`, such as
 `{name: "on", type: "date", format: "%d/%m/%Y"}`, or convert the value to text before writing it.

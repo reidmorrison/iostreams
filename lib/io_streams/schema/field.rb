@@ -161,9 +161,11 @@ module IOStreams
       # without a schema.
       def self.any_text(value)
         return value if value.is_a?(String)
+        # The most common values first, so that they skip the checks below.
+        return value.to_s if value.is_a?(Integer) || value.is_a?(Float)
         # `is_a?` rather than `case`, which an `ActiveSupport::TimeWithZone` does not match.
         return time_text(value) if value.is_a?(Time)
-        return time_text(value.to_time) if value.is_a?(DateTime)
+        return time_text(time_of(value)) if value.is_a?(DateTime)
         return value.iso8601 if value.is_a?(Date)
         return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
 
@@ -188,6 +190,9 @@ module IOStreams
       def self.json_hash(hash)
         copy = nil
         hash.each_pair do |key, item|
+          # Skips the call for a value that JSON holds as it is, see .any_json.
+          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || item.is_a?(Float) || item == true || item == false
+
           json = any_json(item)
           (copy ||= hash.dup)[key] = json unless json.equal?(item)
         end
@@ -199,6 +204,9 @@ module IOStreams
       def self.json_array(array)
         copy = nil
         array.each_with_index do |item, index|
+          # Skips the call for a value that JSON holds as it is, see .any_json.
+          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || item.is_a?(Float) || item == true || item == false
+
           json = any_json(item)
           (copy ||= array.dup)[index] = json unless json.equal?(item)
         end

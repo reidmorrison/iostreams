@@ -4,6 +4,9 @@ module IOStreams
       # For parsing a single line of Pipe-separated values
       class Psv < Base
         LINE_BREAK = /\r\n|\r|\n/
+        # The characters that a value is cleansed of when it is written, see #render.
+        CLEANSED   = /[|\r\n]/
+
         # Returns [Array] the parsed PSV line
         def parse(row)
           return row if row.is_a?(::Array)
@@ -23,7 +26,8 @@ module IOStreams
           cleansed_array = array.collect do |value|
             next if value.nil?
 
-            IOStreams::Schema::Field.any_text(value).tr("|", ":").gsub(LINE_BREAK, " ")
+            text = IOStreams::Schema::Field.any_text(value)
+            CLEANSED.match?(text) ? text.tr("|", ":").gsub(LINE_BREAK, " ") : text
           end
           cleansed_array.join("|")
         end

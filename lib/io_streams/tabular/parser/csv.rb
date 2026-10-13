@@ -125,7 +125,7 @@ module IOStreams
             index += 1
             next if value.nil?
 
-            value = IOStreams::Schema::Field.any_text(value)
+            value = IOStreams::Schema::Field.any_text(value) unless value.is_a?(String)
             return unless (value.encoding == Encoding::UTF_8 || value.ascii_only?) && value.valid_encoding?
 
             if value.empty? || QUOTABLE.match?(value)

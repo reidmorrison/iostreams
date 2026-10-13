@@ -961,6 +961,42 @@ class TabularTest < Minitest::Test
         assert_equal BigDecimal("1.5"), record["items"].first["price"]
       end
 
+      it "writes JSON the same whether or not the json gem has JSON::Coder" do
+        custom = Class.new { def to_json(*) = '{"custom":1}' }.new
+        record = values.merge(
+          1                    => "integer key",
+          :symbol              => :value,
+          Date.new(2026, 1, 2) => "date key",
+          BigDecimal("1.5")    => "number key",
+          "custom"             => custom,
+          "nested"             => {"list" => [BigDecimal("1.25"), {"on" => Date.new(2026, 1, 2)}, "text", 4]}
+        )
+        with_coder    = IOStreams::Tabular.new(format: :json).render(record)
+        without_coder = IOStreams::Tabular::Parser::Json.stub(:coder, nil) { IOStreams::Tabular.new(format: :json).render(record) }
+
+        assert_equal without_coder, with_coder
+        assert_equal '{"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00+00:00",' \
+                     '"count":3,"ok":true,"none":null,"1":"integer key","symbol":"value","2026-01-02":"date key",' \
+                     '"0.15e1":"number key","custom":{"custom":1},"nested":{"list":["1.25",{"on":"2026-01-02"},"text",4]}}',
+                     with_coder
+      end
+
+      it "writes a DateTime at its offset, even when DateTime#to_time converts it to the local time zone" do
+        stamp = DateTime.new(2026, 10, 13, 9, 30, 0.25r, "+05:30")
+        # As ActiveSupport 7 does, unless `ActiveSupport.to_time_preserves_timezone` is set.
+        def stamp.to_time = super.getlocal("-04:00")
+
+        assert_equal "2026-10-13T09:30:00.250+05:30", IOStreams::Tabular.new(format: :csv, columns: ["stamp"]).render("stamp" => stamp)
+      end
+
+      it "writes a header row taken from the first row the same way as the rows" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        row     = [BigDecimal("1.5"), Time.utc(2026, 10, 13, 9, 30)]
+
+        assert_equal "1.5,2026-10-13T09:30:00Z", tabular.render_header(row)
+        assert_equal "1.5,2026-10-13T09:30:00Z", tabular.render(row)
+      end
+
       it "keeps the values of a format whose rows are Ruby objects" do
         assert_equal values, IOStreams::Tabular.new(format: :hash).render(values)
       end

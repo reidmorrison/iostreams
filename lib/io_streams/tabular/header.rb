@@ -230,8 +230,11 @@ module IOStreams
         self.class.cleanse_column(name)
       end
 
+      # Returns [Array<String>] the columns as text, as a value without a field of a schema is written, see
+      # `IOStreams::Schema::Field.any_text`, so that a header row taken from the first row written matches the rows
+      # after it.
       def stringify(columns)
-        columns&.collect { |column| column&.to_s }
+        columns&.collect { |column| column.nil? ? nil : IOStreams::Schema::Field.any_text(column) }
       end
     end
   end
