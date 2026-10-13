@@ -91,8 +91,8 @@ module IOStreams
       # The text of the numbers that are not finite, whose case does not matter.
       SPECIAL_NUMBERS = {"nan" => Float::NAN, "inf" => Float::INFINITY, "-inf" => -Float::INFINITY}.freeze
 
-      # The types whose values are numbers. Frozen, so that using it does not create an Array each time, as a literal
-      # does in this file.
+      # The types whose values are numbers. A constant, so that using it does not create an Array each time, as an
+      # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
 
       INTEGER  = /\A[+-]?\d+\z/
@@ -252,7 +252,6 @@ module IOStreams
       def cast(value)
         return if value.nil?
 
-        # `case` compares the type with its literal strings without creating them, unlike `==` in this file.
         case type
         when "any" then return value
         when "string" then return cast_string(value)

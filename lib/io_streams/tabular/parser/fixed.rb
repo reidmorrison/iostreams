@@ -15,9 +15,6 @@ module IOStreams
       # such as fillers, are spaces.
       class Fixed < Base
         LINE_BREAK = /\r\n|\r|\n/
-        # Frozen, so that using one does not create a string each time, as a string literal does in this file.
-        MINUS      = "-".freeze
-        ZERO       = "0".freeze
 
         # Where a field is in each line: the offset of its first character, and its width, or -1 for the remainder of
         # the line.
@@ -234,10 +231,10 @@ module IOStreams
           return text if column.width == -1
 
           padded =
-            if text.start_with?(MINUS)
-              MINUS + text.delete_prefix(MINUS).rjust(column.width - 1, ZERO)
+            if text.start_with?("-")
+              "-#{text.delete_prefix('-').rjust(column.width - 1, '0')}"
             else
-              text.rjust(column.width, ZERO)
+              text.rjust(column.width, "0")
             end
           raise(value_too_long(column, text)) if padded.length > column.width
 
