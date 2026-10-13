@@ -503,6 +503,24 @@ bucket, or retry the read on `Aws::S3::Errors::PreconditionFailed`. Where proces
 whole object has been read, read it into a local file first, for example with
 `IOStreams.path("s3://bucket/a.csv").copy_to(local_path, convert: false)`.
 
+### HTTP files are read without a temp file
+
+Reading an `http://` or `https://` path now reads the response one chunk at a time, as the application reads
+it, instead of downloading the whole file into a temp file before the block is called. So the application
+starts on the data straight away, and the file no longer has to fit on the local disk. This changes when a
+failure can occur:
+
+* The connection stays open while the block runs, and is closed once it returns, so a block that is slow to
+  read can reach the idle timeout of the server, or of a proxy in between.
+* A failure to read the file part way through, or a body that exceeds `maximum_file_size`, now raises from
+  within the block, once some of the data has been processed, as it can for any other stream.
+
+A zip file or spreadsheet on HTTP is still copied into a temp file, since it is read from a file.
+
+Fix: none is needed in most cases. Where processing must not start until the whole file has been read, or the
+block is slow to read, read it into a local file first, for example with
+`IOStreams.path("https://example.com/a.csv").copy_to(local_path, convert: false)`.
+
 ### S3 objects are written without a temp file
 
 Writing to an S3 path now uploads the data as it is written, instead of writing it into a temp file that was

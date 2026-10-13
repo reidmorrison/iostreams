@@ -82,7 +82,7 @@ end
 Notes:
 * The underlying `creek` gem reads a spreadsheet file and returns its rows to a block, so the rows are
   converted into CSV in a temp file for the application to read. A local spreadsheet is read directly,
-  as is the temp file that an S3 or SFTP path downloads it into, while one in an IO that is not a
+  as is the temp file that an SFTP path downloads it into, while one in an IO that is not a
   `File` is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
 ## Writing an Excel Spreadsheet
@@ -283,6 +283,6 @@ IOStreams.register_scheme(:gcs, MyGoogleCloudStoragePath)
 ~~~
 
 When writing fails, the path class is responsible for not leaving an incomplete file behind, for example
-by writing to a temp file and only uploading it once it is complete, like the S3, SFTP and HTTP paths,
-or by removing the incomplete file, like the local file path. IOStreams does not delete the target of a
+by writing to a temp file and only uploading it once it is complete, like the SFTP and HTTP paths, by only
+completing an upload once the block completes, like the S3 path, or by removing the incomplete file, like the local file path. IOStreams does not delete the target of a
 failed write or copy.

@@ -208,9 +208,9 @@ Deleting temp file /tmp/iostreams-sftp-reader20261008-41-1x5yq2, which held 5251
 ~~~
 
 Notes:
-* `#copy_from` and `#copy_to` read the source while they write the target, so copying from one SFTP path to
-  another holds two temp files at once, each holding the whole file, and from SFTP to HTTP, one for each. S3 copies an object to another S3
-  path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
+* `#copy_from` and `#copy_to` read the source while they write the target, so copying from SFTP to SFTP or
+  HTTP holds two temp files at once, each holding the whole file: the download and the upload. S3 copies an
+  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
   than 5GB.
 * An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp
   files, since `sftp` and `gpg` read them from files.
