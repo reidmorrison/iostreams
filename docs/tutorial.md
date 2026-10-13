@@ -191,8 +191,8 @@ Output:
 Noticed that it took a while to return the first line?
 
 That is because `zip` requires the entire file to be downloaded before it can decompress anything
-in the file. And HTTP uses a push protocol when reading files, so it is downloaded automatically
-into a temp file behind the scenes so that we can read it as if it was a local file.
+in the file, so the download is copied automatically into a temp file behind the scenes, so that we
+can read it as if it was a local file.
 
 ## Same Code - Varying File Types
 

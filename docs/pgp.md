@@ -16,7 +16,7 @@ GnuPG is required because there is no standard, maintained pure-Ruby PGP library
 executable directly is the deliberate approach: it is the reference PGP implementation, is widely
 installed, and is kept current with the OpenPGP standard. It is also well suited to the large files
 IOStreams targets, since `gpg` streams the data rather than holding it in memory. `gpg` reads a local
-file itself, such as the temp file that an S3, SFTP or HTTP path downloads into, and any other stream,
+file itself, such as the temp file that an S3 or SFTP path downloads into, and any other stream,
 such as PGP data within another stream, or a `StringIO`, through its stdin, and writes through its stdout,
 so PGP data is never copied into a temp file, unless it is read with `verify_first: true`, see
 [When temp files are used](config#when-temp-files-are-used).

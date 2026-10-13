@@ -4,6 +4,8 @@ require "cgi"
 module IOStreams
   module Paths
     class HTTP < IOStreams::Path
+      autoload :BodyReader, "io_streams/paths/http/body_reader"
+
       attr_reader :username, :password, :http_redirect_count, :url
 
       # Requests that do not change the file, so that they can follow a redirect to another host.
@@ -303,15 +305,13 @@ module IOStreams
       #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').raw.reader {|file| puts file.read}
       #
       # Notes:
-      # * Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first.
+      # * The body is read one chunk at a time as the block reads it, see `BodyReader`, so the connection stays open
+      #   while the block runs, and is closed once it returns.
       def stream_reader(&)
-        # Since Net::HTTP download only supports a push stream, write it to a tempfile first.
-        Utils.private_temp_file("iostreams_http", purpose: "the download of #{display_name}") do |file_name|
-          send_request(Net::HTTP::Get, url, http_redirect_count) { |response| download_to_file(response, file_name) }
-          # Read it once the request has completed, so that the connection is not held open while the block runs,
-          # and a failure of the block is not mistaken for a failure of the request.
-          ::File.open(file_name, "rb") { |io| builder.reader(io, &) }
-        end
+        input = BodyReader.new(->(&each) { send_request(Net::HTTP::Get, url, http_redirect_count) { |r| read_body(r, &each) } })
+        builder.reader(input, &)
+      ensure
+        input&.close
       end
 
       # Write a file using an http put.
@@ -529,19 +529,18 @@ module IOStreams
         @original_uri_cache[:uri] ||= URI.parse(url)
       end
 
-      def download_to_file(response, file_name)
+      # Yields each chunk of the body of the response, raising when it exceeds the maximum file size.
+      def read_body(response)
         size = 0
-        ::File.open(file_name, "wb") do |io|
-          response.read_body do |chunk|
-            size += chunk.bytesize
-            if maximum_file_size && (size > maximum_file_size)
-              raise(
-                IOStreams::Errors::CommunicationsFailure,
-                "Exceeded maximum allowed download size of #{maximum_file_size} bytes"
-              )
-            end
-            io.write(chunk)
+        response.read_body do |chunk|
+          size += chunk.bytesize
+          if maximum_file_size && (size > maximum_file_size)
+            raise(
+              IOStreams::Errors::CommunicationsFailure,
+              "Exceeded maximum allowed download size of #{maximum_file_size} bytes"
+            )
           end
+          yield(chunk)
         end
       end
     end

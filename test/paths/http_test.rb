@@ -255,23 +255,77 @@ module Paths
           end
         end
 
-        it "closes the connection before the block reads the file" do
-          start_server { |_path| TestHTTPServer.response(200, body: body) }
-          path     = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
-          started  = Net::HTTP.method(:start)
-          open     = false
-          tracking = lambda do |*args, **options, &block|
-            started.call(*args, **options) do |http|
-              open = true
-              block.call(http)
-            ensure
-              open = false
+        describe "reading as the block reads" do
+          # Larger than a chunk, and than the socket buffers, so that the server is still sending it when the block
+          # stops reading.
+          let(:large) { "0123456789" * 200_000 }
+
+          # Returns the result of the block, which is called with a lambda that answers whether a connection is open.
+          def tracking_connections
+            started  = Net::HTTP.method(:start)
+            open     = false
+            tracking = lambda do |*args, **options, &block|
+              started.call(*args, **options) do |http|
+                open = true
+                block.call(http)
+              ensure
+                open = false
+              end
+            end
+            Net::HTTP.stub(:start, tracking) { yield(-> { open }) }
+          end
+
+          it "keeps the connection open while the block reads, and closes it once the block returns" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+
+            tracking_connections do |open|
+              was_open = path.reader { |io| io.read(10) && open.call }
+
+              assert was_open
+              refute open.call
             end
           end
 
-          was_open = Net::HTTP.stub(:start, tracking) { path.reader { |_io| open } }
+          it "closes the connection when the block raises" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
 
-          refute was_open
+            tracking_connections do |open|
+              assert_raises(ArgumentError) { path.reader { |io| io.read(10) && raise(ArgumentError, "block failed") } }
+              refute open.call
+            end
+          end
+
+          it "does not tag a failure of the block as a failure of the request" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+
+            error = assert_raises(Errno::ECONNRESET) { path.reader { |io| io.read(10) && raise(Errno::ECONNRESET) } }
+            refute_kind_of IOStreams::Errors::Unavailable, error
+          end
+
+          it "raises within the block when the body exceeds the maximum file size" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file", maximum_file_size: 100_000)
+            read = nil
+
+            assert_raises(IOStreams::Errors::CommunicationsFailure) do
+              path.reader do |io|
+                read = io.read(10)
+                io.read
+              end
+            end
+            assert_equal "0123456789", read
+          end
+
+          it "reads a zip file, which is copied into a temp file" do
+            zip = StringIO.new
+            IOStreams.stream(zip).file_name("data.zip").option(:zip, entry_file_name: "data.csv").write(body)
+            start_server { |_path| TestHTTPServer.response(200, body: zip.string) }
+
+            assert_equal body, IOStreams::Paths::HTTP.new("#{@server.base_url}/data.zip").read
+          end
         end
 
         it "appends supplied parameters to the url as a query string" do

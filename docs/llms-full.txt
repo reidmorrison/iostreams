@@ -584,8 +584,8 @@ Output:
 Noticed that it took a while to return the first line?
 
 That is because `zip` requires the entire file to be downloaded before it can decompress anything
-in the file. And HTTP uses a push protocol when reading files, so it is downloaded automatically
-into a temp file behind the scenes so that we can read it as if it was a local file.
+in the file, so the download is copied automatically into a temp file behind the scenes, so that we
+can read it as if it was a local file.
 
 ## Same Code - Varying File Types
 
@@ -1338,7 +1338,8 @@ IOStreams.path('https://example.com/upload/report.csv', headers: {"Authorization
 ~~~
 
 Notes:
-* Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first,
+* Reading streams the response as the block reads it, without a temp file, so the connection stays open
+  while the block runs, and is closed once it returns,
   see [When temp files are used](config#when-temp-files-are-used).
 * Writing also streams into a tempfile first, which is uploaded in a single PUT request once the
   block completes, so that the server receives its size in the `Content-Length` header.
@@ -1942,7 +1943,7 @@ Notes:
 ## Notes
 
 * Reading a Zip file requires the entire file to be available locally. A local zip file is
-  read directly, as is the temp file that an S3, SFTP or HTTP path downloads it into. A zip file
+  read directly, as is the temp file that an S3 or SFTP path downloads it into. A zip file
   within another stream, such as `data.csv.zip.pgp`, or in an IO that is not a `File`, is first
   copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
   Writing Zip is fully streamed, no temp file is required.
@@ -2409,8 +2410,9 @@ also rescue an attempt to access a path that the application does not allow, suc
   directory cannot be written to, the failure is tagged with the display name of the target.
 * A local file is never `Unavailable`.
 * The AWS SDK retries a request that S3 could not handle, or that could not reach it, before it raises `Unavailable`.
-* Reading an HTTP path downloads the whole file before the block is called, so the connection is closed before the
-  block reads it.
+* Reading an HTTP path reads the response as the block reads it, so a connection that fails part way through raises
+  from within the block, once some of the data has been processed. A failure raised by the block itself is not
+  tagged.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
 
 ## Storage registered with `IOStreams.register_scheme`
@@ -2522,7 +2524,7 @@ end
 Notes:
 * The underlying `creek` gem reads a spreadsheet file and returns its rows to a block, so the rows are
   converted into CSV in a temp file for the application to read. A local spreadsheet is read directly,
-  as is the temp file that an S3, SFTP or HTTP path downloads it into, while one in an IO that is not a
+  as is the temp file that an S3 or SFTP path downloads it into, while one in an IO that is not a
   `File` is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
 ## Writing an Excel Spreadsheet
@@ -3057,7 +3059,7 @@ GnuPG is required because there is no standard, maintained pure-Ruby PGP library
 executable directly is the deliberate approach: it is the reference PGP implementation, is widely
 installed, and is kept current with the OpenPGP standard. It is also well suited to the large files
 IOStreams targets, since `gpg` streams the data rather than holding it in memory. `gpg` reads a local
-file itself, such as the temp file that an S3, SFTP or HTTP path downloads into, and any other stream,
+file itself, such as the temp file that an S3 or SFTP path downloads into, and any other stream,
 such as PGP data within another stream, or a `StringIO`, through its stdin, and writes through its stdout,
 so PGP data is never copied into a temp file, unless it is read with `verify_first: true`, see
 [When temp files are used](config#when-temp-files-are-used).
@@ -3660,7 +3662,7 @@ IOStreams reads and writes files of any size a block at a time, and most streams
 For some storage locations and formats IOStreams copies the data into a temp file under the covers, see
 [When temp files are used](#when-temp-files-are-used). Each temp file holds a whole file, so when working with
 large files the standard temp location can be too small, for example to download a large file from SFTP, or to
-copy one from SFTP to HTTP, which holds two temp files at once.
+copy one from SFTP to another SFTP server, which holds two temp files at once.
 
 By default IOStreams looks up the location to store temp files in the following order:
 * `ENV['TMPDIR']`
@@ -3686,12 +3688,12 @@ transfers go through a temp file that holds the whole file:
 | Local file | No temp file | No temp file | |
 | AWS S3 | No temp file: requests the object 8MB at a time, as the application reads it. With the `range` or `part_number` option, downloads the object into a temp file before the block is called | No temp file: uploads the data as it is written, in parts of 8MB or more. With an option that describes the whole object, such as `content_md5` or `checksum_crc32`, writes into a temp file, which is uploaded once the block completes | A single download is pushed by the AWS SDK, so the bytes chosen by `range` or `part_number` are downloaded first. An option that describes the whole object cannot be supplied to each part |
 | SFTP | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The `sftp` program transfers local files, and only uploads a regular file |
-| HTTP(S) | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded with a single PUT once the block completes | Net::HTTP pushes the data that it downloads, and downloading first closes the connection before the block runs. An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
+| HTTP(S) | No temp file: reads the response one chunk at a time, as the application reads it | Writes into a temp file, which is uploaded with a single PUT once the block completes | An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
 | An IO supplied to `IOStreams.stream` | No temp file | No temp file | |
 
 Most formats are read and written as the data passes through them. A format that only works on whole files
 reads or writes a local file directly when it has one: a local path, a `File` supplied to `IOStreams.stream`, or
-the temp file of an SFTP or HTTP path. Otherwise its data is copied into a temp file first, for example when
+the temp file of an SFTP path. Otherwise its data is copied into a temp file first, for example when
 reading the zip file within `data.csv.zip.pgp`, which comes from `gpg` as it decrypts the file, or a zip file
 supplied in a `StringIO`.
 
@@ -3738,8 +3740,8 @@ Deleting temp file /tmp/iostreams-sftp-reader20261008-41-1x5yq2, which held 5251
 ~~~
 
 Notes:
-* `#copy_from` and `#copy_to` read the source while they write the target, so copying from one SFTP or HTTP
-  path to another holds two temp files at once, each holding the whole file. S3 copies an object to another S3
+* `#copy_from` and `#copy_to` read the source while they write the target, so copying from one SFTP path to
+  another holds two temp files at once, each holding the whole file, and from SFTP to HTTP, one for each. S3 copies an object to another S3
   path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
   than 5GB.
 * An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp

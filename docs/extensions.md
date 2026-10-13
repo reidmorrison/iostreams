@@ -82,7 +82,7 @@ end
 Notes:
 * The underlying `creek` gem reads a spreadsheet file and returns its rows to a block, so the rows are
   converted into CSV in a temp file for the application to read. A local spreadsheet is read directly,
-  as is the temp file that an S3, SFTP or HTTP path downloads it into, while one in an IO that is not a
+  as is the temp file that an S3 or SFTP path downloads it into, while one in an IO that is not a
   `File` is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
 ## Writing an Excel Spreadsheet
