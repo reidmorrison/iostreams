@@ -13,6 +13,12 @@ module IOStreams
   #   fields: [Array<Hash>]
   #     The fields, in the order of the columns of the file, see `IOStreams::Schema::Field`.
   #
+  #   header: [true|false]
+  #     Whether the file has a header row, as the `header` of a Frictionless Table Dialect says. When false, the
+  #     columns of the file are the fields, in order: reading takes every line as a row, and writing writes no header
+  #     row, and the fields in order. A format without a header row, such as JSON or fixed width, ignores it.
+  #     Default: true
+  #
   #   width: [Integer|"remainder"]
   #     The width of every line of a fixed width file, when it ends after the last field, such as after a filler.
   #     "remainder" accepts lines of any length, ignoring what follows the last field.
@@ -25,6 +31,9 @@ module IOStreams
   class Schema
     autoload :Field,  "io_streams/schema/field"
     autoload :Source, "io_streams/schema/source"
+
+    # The properties of a schema that IOStreams supports.
+    PROPERTIES = %w[fields header width].freeze
 
     # The properties of a schema that only describe it to people.
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
@@ -65,12 +74,18 @@ module IOStreams
       descriptor = descriptor.transform_keys(&:to_s)
       check_properties(descriptor)
       @fields = build_fields(descriptor["fields"])
+      @header = check_header(descriptor["header"])
       @width  = check_width(descriptor["width"])
       @named  = @fields.to_h { |field| [field.name.to_s, field] }
       # So that a field also matches the key that is the same once both are cleansed, like a header row.
       @cleansed = {}
       @fields.each { |field| @cleansed[Tabular::Header.cleanse_column(field.name)] ||= field }
       freeze
+    end
+
+    # Returns [true|false] whether the file has a header row, see `header` above.
+    def header?
+      @header
     end
 
     # Returns [IOStreams::Schema::Field] the field for the supplied key of a record, or a column of a row: the field
@@ -89,7 +104,7 @@ module IOStreams
 
     def check_properties(descriptor)
       descriptor.each_key do |name|
-        next if %w[fields width].include?(name) || DESCRIPTIVE_PROPERTIES.include?(name) || name.include?(":")
+        next if PROPERTIES.include?(name) || DESCRIPTIVE_PROPERTIES.include?(name) || name.include?(":")
 
         raise(ArgumentError, "The schema property #{name.inspect} is not supported") if UNSUPPORTED_PROPERTIES.include?(name)
 
@@ -106,6 +121,13 @@ module IOStreams
       raise(ArgumentError, "Field names must be unique: #{duplicates.join(', ')}") unless duplicates.empty?
 
       fields
+    end
+
+    def check_header(header)
+      return true if header.nil?
+      return header if [true, false].include?(header)
+
+      raise(ArgumentError, "The schema header must be true or false: #{header.inspect}")
     end
 
     def check_width(width)

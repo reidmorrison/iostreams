@@ -98,6 +98,7 @@ module IOStreams
       @parser = self.class.parser_class(@format).new(schema: @schema)
       @fields = {}
       @warned = false
+      headerless_columns
     end
 
     # Returns [true|false] whether a header is still required in order to parse or render the current format.
@@ -105,9 +106,10 @@ module IOStreams
       parser.requires_header? && IOStreams::Utils.blank?(header.columns)
     end
 
-    # Returns [true|false] whether a header row show be rendered on output.
+    # Returns [true|false] whether a header row show be rendered on output: when the format has one, unless the
+    # schema says that the file has none, see `IOStreams::Schema#header?`.
     def requires_header?
-      parser.requires_header?
+      parser.requires_header? && (schema.nil? || schema.header?)
     end
 
     # Returns [String] the quote character within which the format embeds field delimiters and newlines,
@@ -292,6 +294,18 @@ module IOStreams
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 
     private
+
+    # The columns of a file without a header row, see `IOStreams::Schema#header?`, are the fields of its schema, in order,
+    # unless columns were supplied.
+    def headerless_columns
+      return if schema.nil? || schema.header? || !parser.requires_header? || header.columns
+
+      if schema.fields.empty?
+        raise(ArgumentError, "A schema with header: false needs fields, which are the columns of the file")
+      end
+
+      header.columns = schema.fields.map(&:name)
+    end
 
     # Returns [IOStreams::Schema] the schema of the fixed width layout supplied as format options, which are deprecated,
     # or nil when there are none.

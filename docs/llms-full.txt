@@ -2852,6 +2852,26 @@ date. The `:hash` and `:array` formats keep the values themselves.
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
 
+### Schema properties
+
+* `fields` The fields of the file, in the order of its columns. Required.
+* `header` `false` when the file has no header row, as in a Frictionless Table Dialect. The columns of the file are
+  then the fields, in order: reading takes every line as a row, and writing writes no header row, and the fields in
+  order. A format without a header row, such as JSON or fixed width, ignores it. Default: `true`
+* `width` The length of every line of a fixed width file, see [Fixed width files](#fixed-width-files).
+
+`$schema`, `title` and `description` describe the schema to people and have no effect.
+
+~~~ruby
+# A CSV file without a header row.
+path = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
+path.each(:hash) { |person| p person }
+# => {"name" => "Jack", "age" => 21}
+~~~
+
+Since the schema is set on the path, every reader of the path reads the file the same way, including `#copy_from`
+and `#copy_to`, whose options only apply to the target.
+
 ### Field properties
 
 * `name` The key of the field in each record. Required.
@@ -3028,6 +3048,8 @@ When reading or writing records (`:hash`), the following options control the hea
   When reading, supplies the header columns for files that do not include a header row.
   When writing, sets the columns to write, including their order. Keys not listed in
   `columns` are ignored during writes.
+  To describe a file without a header row on its path instead, so that every reader of the path reads it that way,
+  including `#copy_from`, set a schema with `header: false`, see [Schema properties](#schema-properties).
 
 * `cleanse_header: [true|false]`
   Whether to cleanse the column names read from the header row.

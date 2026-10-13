@@ -927,6 +927,37 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "schema without a header row" do
+      let(:schema) { IOStreams::Schema.new(header: false, fields: [{name: "name"}, {name: :age, type: "integer"}]) }
+
+      it "has the fields as its columns, and parses every line as a row" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        refute_predicate tabular, :header?
+        refute_predicate tabular, :requires_header?
+        assert_equal %w[name age], tabular.header.columns
+        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse("Jack,21"))
+        assert_equal "Jack,21", tabular.render({"age" => 21, "name" => "Jack"})
+      end
+
+      it "keeps the columns that are supplied" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[age name])
+
+        assert_equal({"age" => 21, "name" => "Jack"}, tabular.record_parse("21,Jack"))
+      end
+
+      it "has no effect on a format without a header row" do
+        tabular = IOStreams::Tabular.new(format: :json, schema: schema)
+
+        assert_nil tabular.header.columns
+        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse(%({"name":"Jack","age":"21"})))
+      end
+
+      it "raises without fields" do
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(header: false, fields: [])) }
+      end
+    end
+
     describe "IOStreams::Tabular::Parser::Fixed.schema" do
       it "translates a layout into a schema" do
         layout = [

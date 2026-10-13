@@ -1292,6 +1292,35 @@ class StreamTest < Minitest::Test
         assert_nil path.sub_ext(".json").schema
       end
 
+      describe "a file without a header row" do
+        let(:headerless) { people.merge(header: false) }
+
+        it "reads every line as a record of the fields" do
+          assert_equal [record], read("0042,12.5,2026-10-13,true\n", schema: headerless)
+          assert_equal [[42, BigDecimal("12.5"), Date.new(2026, 10, 13), true]], read("0042,12.5,2026-10-13,true\n", :array, schema: headerless)
+        end
+
+        it "writes no header row, and the fields in order" do
+          written = write([{active: true, joined: Date.new(2026, 10, 13), pay: 12.5, id: 42}], schema: headerless)
+
+          assert_equal "42,12.50,2026-10-13,true\n", written
+        end
+
+        it "is read by #copy_from and #copy_to, whose options only apply to the target" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.csv").schema(headerless)
+            source.write("0042,12.5,2026-10-13,true\n")
+            IOStreams.path(dir, "people.json").schema(people).copy_from(source, mode: :hash)
+            source.copy_to(IOStreams.path(dir, "copy.json").schema(people), mode: :hash)
+
+            expected = %({"id":42,"pay":12.5,"joined":"2026-10-13","active":true}\n)
+
+            assert_equal expected, IOStreams.path(dir, "people.json").read
+            assert_equal expected, IOStreams.path(dir, "copy.json").read
+          end
+        end
+      end
+
       describe "fixed width" do
         let(:fixed) do
           {

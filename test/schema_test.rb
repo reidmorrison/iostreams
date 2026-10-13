@@ -105,6 +105,12 @@ class SchemaTest < Minitest::Test
         assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], width: 0) }
       end
 
+      it "has a header row unless header is false" do
+        assert_predicate IOStreams::Schema.new(fields: []), :header?
+        refute_predicate IOStreams::Schema.new(fields: [], header: false), :header?
+        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: "no") }
+      end
+
       it "accepts a width of remainder" do
         assert_equal :remainder, field(width: "remainder").width
         assert_equal :remainder, IOStreams::Schema.new(fields: [], width: "remainder").width
