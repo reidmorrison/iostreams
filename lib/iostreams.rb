@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "io_streams/version"
 # @formatter:off
 module IOStreams

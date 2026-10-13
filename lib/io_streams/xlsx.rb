@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Excel workbooks, which are read and written as CSV.
   module Xlsx

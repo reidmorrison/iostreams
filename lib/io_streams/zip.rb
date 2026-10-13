@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Zip compression: reads a file within a zip file, and writes a zip file that contains one file.
   module Zip

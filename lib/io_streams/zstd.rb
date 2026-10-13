@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Zstandard compression, using the `zstd-ruby` gem, or the `zstd-jni` jar on JRuby.
   #

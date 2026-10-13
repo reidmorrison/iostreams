@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Build the streams that need to be applied to a path during reading or writing.
   class Builder

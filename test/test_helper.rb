@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 $LOAD_PATH.unshift "#{File.dirname(__FILE__)}/../lib"
 
 # Must be started before any application code is required so that all lib files are tracked.
@@ -142,7 +144,7 @@ end
 
 # Shell script for a wrapper executable that runs gpg as its child, rather than replacing itself with gpg,
 # such as `sudo -u pgp gpg` or `/usr/bin/time gpg`.
-WRAPPER_GPG = <<~SCRIPT.freeze
+WRAPPER_GPG = <<~SCRIPT
   gpg "$@"
 SCRIPT
 
@@ -153,7 +155,7 @@ end
 
 # Shell script for a stub gpg that writes more to its stderr than a pipe holds, and then copies its stdin to its stdout.
 # When decrypting, it reports the plaintext on the status file descriptor, as gpg does.
-NOISY_GPG = <<~SCRIPT.freeze
+NOISY_GPG = <<~SCRIPT
   head -c 200000 /dev/zero | tr '\\000' w >&2
   case " $* " in *" --decrypt "*) echo "[GNUPG:] PLAINTEXT 62 0" >&3 ;; esac
   cat

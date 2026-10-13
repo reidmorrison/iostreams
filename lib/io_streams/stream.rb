@@ -1,7 +1,9 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Stream
     # Why a copy with `convert: false` cannot accept options.
-    UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is".freeze
+    UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is"
 
     # The settings of rows and records that describe the file, so that they are set on the path, rather than supplied
     # to each call of a reader or writer, with an example of setting each one.

@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Encode
     class Reader < IOStreams::Reader
       # The byte order mark that some programs, such as Excel, write at the start of UTF-8 text.
-      BYTE_ORDER_MARK = "\uFEFF".freeze
+      BYTE_ORDER_MARK = "\uFEFF"
 
       def self.option_names
         %i[encoding cleaner replace]

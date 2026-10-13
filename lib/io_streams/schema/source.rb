@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Schema
     # The schema supplied to `IOStreams::Stream#schema`: a Hash, which is checked as soon as it is supplied, or the

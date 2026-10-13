@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative "test_helper"
 
 # Options supplied via `#option` / `#stream` are strict: an option that is not valid for the stream

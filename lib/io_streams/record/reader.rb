@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Record
     # Converts each line of an input stream into hash for every row

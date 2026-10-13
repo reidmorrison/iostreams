@@ -1,15 +1,17 @@
+# frozen_string_literal: true
+
 require "csv"
 module IOStreams
   class Tabular
     module Parser
       class Csv < Base
         # Frozen, so that using one does not create a string each time, as a string literal does in this file.
-        QUOTE         = '"'.freeze
-        ESCAPED_QUOTE = '""'.freeze
-        COMMA         = ",".freeze
-        CR            = "\r".freeze
-        LF            = "\n".freeze
-        EMPTY         = "".freeze
+        QUOTE         = '"'
+        ESCAPED_QUOTE = '""'
+        COMMA         = ","
+        CR            = "\r"
+        LF            = "\n"
+        EMPTY         = ""
         QUOTE_BYTE    = QUOTE.ord
         COMMA_BYTE    = COMMA.ord
         # The characters that a value is quoted for when it is written.

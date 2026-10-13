@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Tabular
     # Process files / streams that start with a header.
     class Header
       # Column names that begin with this prefix have been rejected and should be ignored.
-      IGNORE_PREFIX = "__rejected__".freeze
+      IGNORE_PREFIX = "__rejected__"
 
       attr_accessor :allowed_columns, :required_columns, :skip_unknown
       attr_reader :columns

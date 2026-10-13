@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Gzip
     class Reader < IOStreams::Reader

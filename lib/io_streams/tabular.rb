@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Common handling for efficiently processing tabular data such as CSV, spreadsheet or other tabular files
   # on a line by line basis.

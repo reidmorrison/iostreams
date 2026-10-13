@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   module Record
     # Example, implied header from first record:

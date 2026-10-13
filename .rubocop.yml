@@ -113,9 +113,9 @@ Style/Documentation:
 Style/EmptyMethod:
   EnforcedStyle: expanded
 
-# Ruby 3 compatibility feature
+# Freeze string literals in every file, ahead of Ruby freezing them by default.
 Style/FrozenStringLiteralComment:
-  Enabled: false
+  EnforcedStyle: always_true
 
 Style/NumericPredicate:
   AutoCorrect: true

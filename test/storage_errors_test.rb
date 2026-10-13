@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative "test_helper"
 require_relative "s3_stub"
 # The tests build AWS errors, such as Seahorse::Client::NetworkingError, before any S3 path loads the SDK.

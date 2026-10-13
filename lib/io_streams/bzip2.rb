@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Bzip2 compression, using the `bzip2-ffi` gem.
   module Bzip2
