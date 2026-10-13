@@ -32,8 +32,10 @@ gem "zstd-ruby", platform: :ruby # A C extension, so JRuby uses the zstd-jni jar
 gem "async", platform: :ruby
 
 # Dev Tools
-gem "rubocop"
-gem "rubocop-minitest"
-gem "rubocop-rake"
+# Pinned to a minor version since .rubocop.yml enables new cops, so that a RuboCop release cannot fail CI
+# without a code change. Bump these deliberately and fix any new offenses in the same commit.
+gem "rubocop", "~> 1.91.0"
+gem "rubocop-minitest", "~> 0.41.0"
+gem "rubocop-rake", "~> 0.7.1"
 gem "simplecov", require: false
 gem "solargraph", require: false, platform: :ruby
