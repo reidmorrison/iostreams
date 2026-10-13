@@ -307,11 +307,13 @@ module IOStreams
       # Notes:
       # * The body is read one chunk at a time as the block reads it, see `BodyReader`, so the connection stays open
       #   while the block runs, and is closed once it returns.
+      # * The request is made before the block is called, so that a failure of it, such as a missing file, raises
+      #   before the block runs, and before `#copy_from` opens its target.
       def stream_reader(&)
-        input = BodyReader.new(->(&each) { send_request(Net::HTTP::Get, url, http_redirect_count) { |r| read_body(r, &each) } })
-        builder.reader(input, &)
-      ensure
-        input&.close
+        request = lambda do |&each_chunk|
+          send_request(Net::HTTP::Get, url, http_redirect_count) { |response| read_body(response, &each_chunk) }
+        end
+        BodyReader.open(request) { |input| builder.reader(input, &) }
       end
 
       # Write a file using an http put.
@@ -346,9 +348,13 @@ module IOStreams
       #
       # The block is part of the request, such as downloading the response, so a failure of the connection within it is
       # tagged as a failure of the request, see `#failure_kind`.
+      #
+      # A redirect is followed once the connection that returned it is closed, so that the connection is not held open
+      # while the block reads the body of the next one.
       def send_request(request_class, uri, http_redirect_count, body_file_name: nil, allow_missing: false, &block)
-        uri    = URI.parse(uri) unless uri.is_a?(URI)
-        result = nil
+        uri      = URI.parse(uri) unless uri.is_a?(URI)
+        result   = nil
+        redirect = nil
 
         validate_uri!(uri)
 
@@ -366,14 +372,15 @@ module IOStreams
 
             begin
               http.request(request) do |response|
+                # A failure once the response has arrived must not send the request again, as Net::HTTP before v0.5
+                # does for a GET, since the block may already have passed part of the body on to the application.
+                http.max_retries = 0
                 return nil if allow_missing && (response.is_a?(Net::HTTPNotFound) || response.is_a?(Net::HTTPGone))
 
                 if response.is_a?(Net::HTTPRedirection)
-                  new_uri = redirect_uri(uri, response, http_redirect_count, request_class)
-                  return send_request(
-                    request_class, new_uri, http_redirect_count - 1,
-                    body_file_name: body_file_name, allow_missing: allow_missing, &block
-                  )
+                  redirect = redirect_uri(uri, response, http_redirect_count, request_class)
+                  # Without reading the body of the redirect.
+                  break
                 end
 
                 raise_failure(response, uri) unless response.is_a?(Net::HTTPSuccess)
@@ -385,7 +392,9 @@ module IOStreams
             end
           end
         end
-        result
+        return result unless redirect
+
+        send_request(request_class, redirect, http_redirect_count - 1, body_file_name:, allow_missing:, &block)
       end
 
       # Returns [Module] the kind of failure that an exception raised by a request means, see `IOStreams::Path#failure_kind`.
@@ -530,8 +539,14 @@ module IOStreams
       end
 
       # Yields each chunk of the body of the response, raising when it exceeds the maximum file size.
+      #
+      # Raises [IOStreams::Errors::CommunicationsFailure], tagged as `Unavailable`, when the connection closes before the
+      # whole body has been received, rather than EOFError, which the application would take for the end of the body,
+      # since it reads the body as it is received.
       def read_body(response)
         size = 0
+        # Rather than accepting a body that is shorter than its Content-Length.
+        response.ignore_eof = false
         response.read_body do |chunk|
           size += chunk.bytesize
           if maximum_file_size && (size > maximum_file_size)
@@ -542,6 +557,9 @@ module IOStreams
           end
           yield(chunk)
         end
+      rescue EOFError
+        error = Errors::CommunicationsFailure.new("The connection closed before the whole body was received")
+        raise(Errors::Unavailable.tag(error, display_name))
       end
     end
   end

@@ -9,68 +9,56 @@ module IOStreams
       # the caller's code stays in the caller's Fiber, so a failure of the caller is never mistaken for a failure of
       # the request.
       #
+      # The request starts with the caller's fiber-local variables, such as the tags of a logger, as it would in the
+      # caller's Fiber. Under a Fiber scheduler, such as Async, the request waits for the network in the scheduler, so
+      # that the scheduler's other Fibers run meanwhile.
+      #
       # Like a Fiber, it can only be read by the thread that created it.
       #
       # Used internally by the HTTP path, which makes the request, so that it supplies its url and options, follows
-      # redirects, and checks the size of the body.
+      # redirects, and checks the body.
       class BodyReader
+        include ChunkReader
+
         # Raised within the request to stop it, when the body is closed before it has all been read.
         class Stop < StandardError
         end
         private_constant :Stop
 
+        # Makes the request, and returns the result of the block, which is called with the reader of its body.
+        #
+        # The reader is closed once the block returns, which stops the request when the body has not all been read.
+        def self.open(request)
+          reader = new(request)
+          yield(reader)
+        ensure
+          reader&.close
+        end
+
+        # Makes the request, and waits for the first chunk of its body, so that a failure of the request, such as a
+        # missing file, raises before the body is read.
+        #
         # Parameters:
         #   request: [Proc]
         #     Makes the request, calling the block that it is supplied with each chunk of the body.
         def initialize(request)
-          @chunk   = "".b
-          @offset  = 0
           @closed  = false
-          @started = false
-          # Blocking, so that a Fiber scheduler, such as Async, does not switch to another Fiber part way through
-          # reading a chunk, which would resume the request from a Fiber other than the caller's.
-          @fiber = Fiber.new(blocking: true) do
+          @failure = nil
+          locals   = fiber_locals
+          @fiber   = Fiber.new do
+            locals.each { |key, value| Thread.current[key] = value }
             request.call { |chunk| Fiber.yield(chunk) }
             nil
           rescue Stop
             nil
           end
+          eof?
         end
-
-        # Returns [String] upto `length` bytes, or nil at the end of the body, or with no length, the rest of the body,
-        # like `IO#read`. The bytes replace the contents of `outbuf` when it is supplied.
-        def read(length = nil, outbuf = nil)
-          data = length.nil? ? read_rest : read_upto(length)
-          return data unless outbuf
-
-          outbuf.replace(data.to_s)
-          outbuf unless data.nil?
-        end
-
-        # Returns [String] upto `maxlen` bytes that have already been received, reading the next chunk only when they
-        # have all been read, like `IO#readpartial`. Raises EOFError at the end of the body.
-        def readpartial(maxlen, outbuf = nil)
-          raise(EOFError, "end of file reached") if maxlen.positive? && eof?
-
-          data = @chunk.byteslice(@offset, maxlen)
-          @offset += data.bytesize
-          outbuf ? outbuf.replace(data) : data
-        end
-
-        # Returns [true|false] whether the whole body has been read, reading the next chunk to find out, like
-        # `IO#eof?`.
-        def eof?
-          @offset >= @chunk.bytesize && !next_chunk
-        end
-
-        alias eof eof?
 
         # Stops the request when the body has not all been read, which closes its connection. Returns nil.
         def close
           @closed = true
-          @chunk  = "".b
-          @offset = 0
-          @fiber.raise(Stop) if @fiber.alive? && started?
+          stop if @fiber.alive?
           nil
         end
 
@@ -80,49 +68,33 @@ module IOStreams
 
         private
 
-        def read_upto(length)
-          return "".b if length.zero?
-
-          data = nil
-          while length.positive?
-            break if @offset >= @chunk.bytesize && !next_chunk
-
-            part = @chunk.byteslice(@offset, length)
-            @offset += part.bytesize
-            length  -= part.bytesize
-            data ? data << part : data = part
-          end
-          data
-        end
-
-        def read_rest
-          data = "".b
-          while @offset < @chunk.bytesize || next_chunk
-            data << @chunk.byteslice(@offset..)
-            @offset = @chunk.bytesize
-          end
-          data
-        end
-
-        # Resumes the request until it supplies the next chunk that is not empty, which replaces the last one.
-        # Returns [String] the chunk, or nil at the end of the body.
+        # Resumes the request until it supplies the next chunk. Returns [String] the chunk, or nil at the end of the
+        # body, see `ChunkReader`.
+        #
+        # Once the request has failed, every later read raises its failure again, rather than finding the end of the
+        # body.
         def next_chunk
-          raise(IOError, "closed stream") if @closed
+          raise(@failure) if @failure
 
-          while @fiber.alive?
-            @started = true
-            chunk    = @fiber.resume
-            next if chunk.nil? || chunk.empty?
+          @fiber.resume if @fiber.alive?
+        rescue Exception => e # rubocop:disable Lint/RescueException
+          @failure = e
+          raise
+        end
 
-            @chunk  = chunk.b
-            @offset = 0
-            return @chunk
-          end
+        # Stops the request, ignoring any failure of it as it stops, since the rest of the body is not needed. For
+        # example, Net::HTTP reads the end of the chunk that it is in, which fails when the connection has closed, and
+        # would otherwise replace an exception that the block raised.
+        def stop
+          @fiber.raise(Stop)
+        rescue StandardError
           nil
         end
 
-        def started?
-          @started
+        # Returns [Hash] the fiber-local variables of the caller's Fiber.
+        def fiber_locals
+          thread = Thread.current
+          thread.keys.to_h { |key| [key, thread[key]] }
         end
       end
     end

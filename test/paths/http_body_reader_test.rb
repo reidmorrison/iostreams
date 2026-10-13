@@ -78,6 +78,11 @@ module Paths
           assert_nil input.read(1)
           assert_equal "", input.read
         end
+
+        it "raises ArgumentError for a negative length, rather than ending the body" do
+          error = assert_raises(ArgumentError) { reader.read(-1) }
+          assert_equal "negative length -1 given", error.message
+        end
       end
 
       describe "#readpartial" do
@@ -102,6 +107,10 @@ module Paths
           assert_same outbuf, reader.readpartial(2, outbuf)
           assert_equal "01", outbuf
         end
+
+        it "raises ArgumentError for a negative length" do
+          assert_raises(ArgumentError) { reader.readpartial(-1) }
+        end
       end
 
       describe "#eof?" do
@@ -120,11 +129,8 @@ module Paths
       end
 
       describe "the request" do
-        it "is not made until the body is read" do
-          input = reader
-
-          assert_empty events
-          input.read(1)
+        it "is made when the reader is created, before the body is read" do
+          reader
 
           assert_equal [:started], events
         end
@@ -140,12 +146,17 @@ module Paths
             end
           )
 
+          assert_equal %w[0123], received
           input.read(5)
 
           assert_equal %w[0123 4567], received
         end
 
-        it "raises its failure to the caller" do
+        it "raises its failure when the reader is created" do
+          assert_raises(Errno::ECONNREFUSED) { IOStreams::Paths::HTTP::BodyReader.new(->(&_block) { raise(Errno::ECONNREFUSED) }) }
+        end
+
+        it "raises its failure to the caller, and again on every later read, rather than ending the body" do
           input = IOStreams::Paths::HTTP::BodyReader.new(
             lambda do |&block|
               block.call("01")
@@ -154,7 +165,28 @@ module Paths
           )
 
           assert_equal "01", input.read(2)
-          assert_raises(Errno::ECONNRESET) { input.read(1) }
+          failure = assert_raises(Errno::ECONNRESET) { input.read(1) }
+          assert_same failure, assert_raises(Errno::ECONNRESET) { input.read(1) }
+          assert_same failure, assert_raises(Errno::ECONNRESET) { input.read }
+          assert_same failure, assert_raises(Errno::ECONNRESET) { input.readpartial(1) }
+          assert_same failure, assert_raises(Errno::ECONNRESET) { input.eof? }
+        end
+
+        it "starts with the fiber-local variables of the caller, such as the tags of a logger" do
+          Thread.current[:iostreams_test_tags] = %w[job]
+          tags = nil
+          IOStreams::Paths::HTTP::BodyReader.new(->(&_block) { tags = Thread.current[:iostreams_test_tags] })
+
+          assert_equal %w[job], tags
+        ensure
+          Thread.current[:iostreams_test_tags] = nil
+        end
+
+        it "runs in a Fiber that is not blocking, so that a Fiber scheduler can run its other Fibers while it waits" do
+          blocking = nil
+          IOStreams::Paths::HTTP::BodyReader.new(->(&_block) { blocking = Fiber.current.blocking? })
+
+          refute blocking
         end
       end
 
@@ -168,13 +200,6 @@ module Paths
           assert_predicate input, :closed?
         end
 
-        it "does not make the request when the body has not been read" do
-          input = reader
-          input.close
-
-          assert_empty events
-        end
-
         it "does nothing more once the body has all been read" do
           input = reader
           input.read
@@ -183,12 +208,44 @@ module Paths
           assert_equal %i[started finished ended], events
         end
 
-        it "raises IOError when reading afterwards" do
+        it "does not raise a failure of the request as it stops" do
+          input = IOStreams::Paths::HTTP::BodyReader.new(
+            lambda do |&block|
+              block.call("0123")
+            rescue StandardError
+              # Like Net::HTTP reading the end of its chunk from a connection that has closed.
+              raise(EOFError)
+            end
+          )
+
+          assert_nil input.close
+        end
+
+        it "raises IOError when reading afterwards, even with bytes left in the current chunk" do
           input = reader
           input.read(1)
           input.close
 
           assert_raises(IOError) { input.read(1) }
+          assert_raises(IOError) { input.readpartial(1) }
+          assert_raises(IOError) { input.eof? }
+        end
+      end
+
+      describe ".open" do
+        it "returns the result of the block, and closes the reader once it returns" do
+          result = IOStreams::Paths::HTTP::BodyReader.open(request) do |input|
+            input.read(1)
+            :result
+          end
+
+          assert_equal :result, result
+          assert_equal %i[started ended], events
+        end
+
+        it "closes the reader when the block raises" do
+          assert_raises(ArgumentError) { IOStreams::Paths::HTTP::BodyReader.open(request) { |_input| raise(ArgumentError) } }
+          assert_equal %i[started ended], events
         end
       end
     end

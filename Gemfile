@@ -24,6 +24,9 @@ gem "xlsxtream"
 gem "zip_kit"
 gem "zstd-ruby", platform: :ruby # A C extension, so JRuby uses the zstd-jni jar instead, see test/zstd_jni.rb.
 
+# To test reading an HTTP path under a Fiber scheduler. Its io-event dependency is a C extension.
+gem "async", platform: :ruby
+
 # Dev Tools
 gem "rubocop"
 gem "rubocop-minitest"

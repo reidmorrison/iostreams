@@ -68,6 +68,15 @@ class TestHTTPServer
     nil
   end
 
+  # Returns [Proc] a handler response that resets the connection, rather than closing it, once the block returns, so
+  # that the client's next read raises Errno::ECONNRESET.
+  def self.reset_after
+    lambda do |client|
+      yield(client)
+      client.setsockopt(Socket::SOL_SOCKET, Socket::SO_LINGER, [1, 0].pack("ii"))
+    end
+  end
+
   # Build a raw HTTP response string.
   def self.response(status, body: "", headers: {})
     reason = {200 => "OK", 201 => "Created", 204 => "No Content", 301 => "Moved Permanently", 302 => "Found",
@@ -116,10 +125,12 @@ class TestHTTPServer
       key, value                  = line.split(":", 2)
       headers[key.strip.downcase] = value.to_s.strip
     end
-    body    = headers["content-length"] ? client.read(headers["content-length"].to_i) : nil
-    request = {method: method, path: path, headers: headers, body: body}
+    body     = headers["content-length"] ? client.read(headers["content-length"].to_i) : nil
+    request  = {method: method, path: path, headers: headers, body: body}
     @requests << request
-    client.write(@handler.call(path, request))
+    response = @handler.call(path, request)
+    # A handler that sends the response itself, such as part of one, returns a Proc, which is called with the connection.
+    response.respond_to?(:call) ? response.call(client) : client.write(response)
   ensure
     client&.close
   end
