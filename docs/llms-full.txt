@@ -823,7 +823,8 @@ Using `writer(:hash)` makes it easier to develop the application without regard 
 
 Note: The first row written determines the column names as well as the order of the elements to be written.
 To supply the header columns up front, to set the order or to filter out which columns should be written to the
-target file, pass them to the writer: `path.writer(:hash, columns: ["name", "login"])`.
+target file, set a schema on the path, whose fields are the columns:
+`path.schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "login"}]).writer(:hash)`.
 
 Now lets write the same data into a JSON file, then read it to see what it looks like:
 ~~~ruby
@@ -1973,8 +1974,8 @@ write the file the right way, by any code, including `#copy_from` and `#copy_to`
 | `#schema` | The path | The fields of the file and their types, which columns it can have and must have, the position of each fixed width field, and whether it has a header row |
 | The mode, such as `:hash` | Each call | Whether the code reads or writes blocks, lines, rows or records |
 | `cleanse_header:` | Each call, when reading, without a schema | Deprecated. How the code wants the keys of each record named, which the names of the fields of a schema give instead |
-| `allowed_columns:`, `required_columns:` and `skip_unknown:` | Each call, when reading, without a schema | Which columns the code accepts. A schema says which columns the file can have and must have instead, with `fieldsMatch` and `constraints` |
-| `columns:` | Each call, without a schema | When writing, the columns to write and their order. When reading a file without a header row, its columns. The fields of a schema are the columns instead |
+| `allowed_columns:`, `required_columns:` and `skip_unknown:` | Each call, when reading, without a schema | Deprecated. Which columns the code accepts. A schema says which columns the file can have and must have instead, with `fieldsMatch` and `constraints` |
+| `columns:` | Each call, without a schema | Deprecated. When writing, the columns to write and their order. When reading a file without a header row, its columns. The fields of a schema are the columns instead |
 | `delimiter:` and `buffer_size:` | Each call | How lines are split or ended, and how much is read at a time |
 | `embedded_within:` | Each call, in the `:line` mode | Whether the code reads the physical lines, or the logical lines of a quoted format |
 
@@ -1983,7 +1984,7 @@ IOStreams checks where each setting is supplied:
 * A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
   `file_name:`, `schema:`, `format_options:` and `default_format:`.
 * An option that only applies when reading, such as `allowed_columns:`, raises `ArgumentError` when it is supplied
-  to `#writer`, rather than being ignored. To choose the columns that are written, supply `columns:`.
+  to `#writer`, rather than being ignored. To choose the columns that are written, set a schema on the path.
 * With a schema, the options that describe the columns of the file, `columns:`, `allowed_columns:`,
   `required_columns:`, `skip_unknown:` and `cleanse_header:`, raise `ArgumentError`, since the schema describes them,
   see [Header options](formats#header-options).
@@ -1998,8 +1999,8 @@ people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHE
 # The code says what it wants from it: records, whose columns the schema checks.
 people.each(:hash) { |person| p person }
 
-# A copy reads the source with the settings of its path, and writes the target with its own options.
-IOStreams.path("people.json").copy_from(people, mode: :hash, columns: %w[name age])
+# A copy reads the source with the settings of its path, and writes the target with the settings of its own.
+IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}]).copy_from(people, mode: :hash)
 ~~~
 
 ## Text and binary data
@@ -3213,7 +3214,8 @@ follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 ## Header options
 
 When reading or writing records (`:hash`) of a file without a schema, the following options control the header row.
-They are supplied to each call, see
+They are deprecated: a [schema](#schema) describes the columns of the file instead, see the table below. They still
+work without a schema. They are supplied to each call, see
 [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 `cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when reading, so `#writer`,
 `#copy_from` and `#copy_to` raise `ArgumentError` for them.
@@ -3232,6 +3234,7 @@ path, including a copy, checks them the same way. So with a schema, these option
 The layout of a fixed width file set with the deprecated `#format_options` still accepts them, as it did before.
 
 * `columns: [Array<String>]`
+  Deprecated: the fields of a schema are the columns, in order.
   When reading, supplies the header columns for files that do not include a header row.
   When writing, sets the columns to write, including their order. Keys not listed in
   `columns` are ignored during writes.
@@ -3249,14 +3252,17 @@ The layout of a fixed width file set with the deprecated `#format_options` still
   Default: true
 
 * `allowed_columns: [Array<String>]`
+  Deprecated: use `fieldsMatch` in a schema.
   List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
   otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
   Default: nil (allow all columns)
 
 * `required_columns: [Array<String>]`
+  Deprecated: use `constraints: {required: true}` on the fields of a schema.
   List of columns that must be present, otherwise an exception is raised.
 
 * `skip_unknown: [true|false]`
+  Deprecated: use `fieldsMatch` in a schema.
   When true, any columns not present in `allowed_columns` are skipped entirely as if they
   were not in the file at all. When false, an unknown column raises
   `IOStreams::Errors::InvalidHeader`.
@@ -3277,16 +3283,20 @@ This applies to reading both records and rows. A warning is then logged when app
 change the records or the header row read. Since the format is usually inferred from the file name,
 renaming an uploaded file from `.csv` to `.json` then bypasses them.
 
-Example, reading a headerless CSV file:
+Example, reading a headerless CSV file, deprecated:
 
 ~~~ruby
 path = IOStreams.path("no_header.csv")
 path.each(:hash, columns: ["name", "address", "zip"]) do |record|
   p record
 end
+
+# Instead
+path = IOStreams.path("no_header.csv").schema(header: false, fields: [{name: "name"}, {name: "address"}, {name: "zip"}])
+path.each(:hash) { |record| p record }
 ~~~
 
-Example, writing only specific columns in a fixed order:
+Example, writing only specific columns in a fixed order, deprecated:
 
 ~~~ruby
 path = IOStreams.path("sample.csv")
@@ -3295,6 +3305,12 @@ path.writer(:hash, columns: ["name", "zip"]) do |io|
 end
 path.read
 # => "name,zip\nJack Jones,12345\n"
+
+# Instead
+path = IOStreams.path("sample.csv").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}])
+path.writer(:hash) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
 ~~~
 
 Note: Column names are converted to strings, and the keys in the hashes being written may
@@ -3371,8 +3387,8 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 
 Notes:
 * `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
-* The other options of a copy are used to write the target, such as `columns:` to choose the columns that are
-  written, and their order, unless the target has a schema, whose fields are the columns written. An option that
+* The other options of a copy are used to write the target. To choose the columns that are written, and their order,
+  set a schema on the target, whose fields are the columns written. An option that
   only applies when reading, such as `allowed_columns:` or `cleanse_header:`, raises `ArgumentError`, rather than
   being ignored.
 * The source is read with the settings of its own path, so describe the source there: its format, encoding and
@@ -4130,8 +4146,8 @@ IOStreams.logger = nil
 
 ## enforce_column_restrictions
 
-Applies `allowed_columns`, `required_columns` and `skip_unknown` to every input when reading
-records, including JSON records, so that renaming an uploaded file from `.csv` to `.json` cannot
+Applies `allowed_columns`, `required_columns` and `skip_unknown`, which are deprecated in favor of a
+[schema](formats#schema), to every input when reading records, including JSON records, so that renaming an uploaded file from `.csv` to `.json` cannot
 bypass them.
 
 To return to the behavior before v3.0, where they only apply to a header row read from the file,
@@ -4982,16 +4998,16 @@ it.
 Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
 options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column.
 
-Fix: to choose the columns that are written, supply `columns:`, or set a schema on the target, whose fields are the
-columns written. To read the source of a copy in a particular way, set what describes it on its path, such as its
-schema, or read it with `#each` and write each record to the target:
+Fix: to choose the columns that are written, set a schema on the target, whose fields are the columns written. To
+read the source of a copy in a particular way, set what describes it on its path, such as its schema, or read it with
+`#each` and write each record to the target:
 
 ~~~ruby
 # Before
 target.copy_from(source, mode: :hash, allowed_columns: %w[name zip])
 
 # After
-target.copy_from(source, mode: :hash, columns: %w[name zip])
+target.schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}]).copy_from(source, mode: :hash)
 ~~~
 
 ### `embedded_within:` for rows and records is deprecated
@@ -5003,16 +5019,18 @@ character splits the lines where CSV does not. It is still the way to choose the
 
 Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
-### `cleanse_header:` is deprecated
+### `cleanse_header:` and the column options of each call are deprecated
 
-`cleanse_header:` is deprecated. It still works without a schema, so no change is needed. A
+`cleanse_header:`, `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` are deprecated. They still
+work without a schema, so no change is needed. A
 [schema](formats#schema) names the keys of the records read instead: they are the names of its fields, and each column
 of the header row is matched to a field whatever its case, spaces and punctuation, or to one of the `aliases` of a
 field, see [Matching columns to fields](formats#matching-columns-to-fields). So the keys no longer depend on how the
 cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which are both `amount_`.
 
-With a schema, `cleanse_header:` raises `ArgumentError`, as do `columns:`, `allowed_columns:`, `required_columns:`
-and `skip_unknown:`, since the schema describes the columns of the file, see [Header options](formats#header-options):
+A schema describes the columns of the file on its path, so that every reader and writer of the path, including a
+copy, checks them the same way, see [Header options](formats#header-options) for the property that replaces each
+option. With a schema, the options raise `ArgumentError`:
 
 ~~~ruby
 # Before (deprecated)

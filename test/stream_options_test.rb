@@ -68,7 +68,7 @@ class StreamOptionsTest < Minitest::Test
     describe "options that only apply when reading" do
       it "raises for them when writing, rather than ignore them" do
         error = assert_raises(ArgumentError) { path("a.csv").writer(:hash, allowed_columns: %w[id]) { |io| io << {"id" => 1} } }
-        assert_equal ":allowed_columns only applies when reading, not when writing. To choose the columns that are written, supply `columns:`",
+        assert_equal ":allowed_columns only applies when reading, not when writing. To choose the columns that are written, set a schema on the path, whose fields are the columns",
                      error.message
 
         %i[array hash line].each do |mode|
@@ -81,7 +81,7 @@ class StreamOptionsTest < Minitest::Test
         refute_path_exists ::File.join(dir, "a.csv")
       end
 
-      it "only suggests columns: in the modes that accept it" do
+      it "only suggests a schema in the modes that have columns" do
         error = assert_raises(ArgumentError) { path("a.csv").writer(:line, allowed_columns: %w[id]) { |io| io << "1" } }
         assert_equal ":allowed_columns only applies when reading, not when writing", error.message
 
@@ -95,7 +95,7 @@ class StreamOptionsTest < Minitest::Test
 
         error = assert_raises(ArgumentError) { path("b.json").copy_from(path("a.csv"), mode: :hash, allowed_columns: %w[name]) }
         assert_equal ":allowed_columns only applies when reading, but a copy uses its options to write the target. " \
-                     "To choose the columns that are written, supply `columns:`", error.message
+                     "To choose the columns that are written, set a schema on the path, whose fields are the columns", error.message
         assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.json"), mode: :hash, cleanse_header: false) }
         refute_path_exists ::File.join(dir, "b.json")
       end

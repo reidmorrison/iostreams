@@ -342,7 +342,7 @@ module IOStreams
         stream = to_stream(source)
         if mode
           reject_read_options!(
-            args, "but a copy uses its options to write the target", suggest_columns: %i[array hash].include?(mode)
+            args, "but a copy uses its options to write the target", suggest_schema: %i[array hash].include?(mode)
           )
           stream.reader(mode) do |rows|
             writer(mode, **args) do |target|
@@ -610,14 +610,14 @@ module IOStreams
 
     # Raises ArgumentError for an option that only applies when reading, see READ_OPTIONS, since writing would ignore it.
     #
-    # Suggests `columns:` in place of a column restriction when `suggest_columns`, for the modes that accept it.
-    def reject_read_options!(options, reason, suggest_columns: true)
+    # Suggests a schema in place of a column restriction when `suggest_schema`, for the modes that have columns.
+    def reject_read_options!(options, reason, suggest_schema: true)
       names = READ_OPTIONS & options.keys
       return if names.empty?
 
       message = "#{names.map(&:inspect).join(', ')} only #{names.size == 1 ? 'applies' : 'apply'} when reading, #{reason}"
-      if suggest_columns && names.intersect?(%i[allowed_columns required_columns skip_unknown])
-        message << ". To choose the columns that are written, supply `columns:`"
+      if suggest_schema && names.intersect?(%i[allowed_columns required_columns skip_unknown])
+        message << ". To choose the columns that are written, set a schema on the path, whose fields are the columns"
       end
       raise(ArgumentError, message)
     end
@@ -714,7 +714,7 @@ module IOStreams
     # The lines are written in the encoding of the format, see #line_reader.
     def line_writer(**args, &block)
       reject_path_settings!(args)
-      reject_read_options!(args, "not when writing", suggest_columns: false)
+      reject_read_options!(args, "not when writing", suggest_schema: false)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
       open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)

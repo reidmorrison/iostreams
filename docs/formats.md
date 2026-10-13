@@ -432,7 +432,8 @@ follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 ## Header options
 
 When reading or writing records (`:hash`) of a file without a schema, the following options control the header row.
-They are supplied to each call, see
+They are deprecated: a [schema](#schema) describes the columns of the file instead, see the table below. They still
+work without a schema. They are supplied to each call, see
 [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 `cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when reading, so `#writer`,
 `#copy_from` and `#copy_to` raise `ArgumentError` for them.
@@ -451,6 +452,7 @@ path, including a copy, checks them the same way. So with a schema, these option
 The layout of a fixed width file set with the deprecated `#format_options` still accepts them, as it did before.
 
 * `columns: [Array<String>]`
+  Deprecated: the fields of a schema are the columns, in order.
   When reading, supplies the header columns for files that do not include a header row.
   When writing, sets the columns to write, including their order. Keys not listed in
   `columns` are ignored during writes.
@@ -468,14 +470,17 @@ The layout of a fixed width file set with the deprecated `#format_options` still
   Default: true
 
 * `allowed_columns: [Array<String>]`
+  Deprecated: use `fieldsMatch` in a schema.
   List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
   otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
   Default: nil (allow all columns)
 
 * `required_columns: [Array<String>]`
+  Deprecated: use `constraints: {required: true}` on the fields of a schema.
   List of columns that must be present, otherwise an exception is raised.
 
 * `skip_unknown: [true|false]`
+  Deprecated: use `fieldsMatch` in a schema.
   When true, any columns not present in `allowed_columns` are skipped entirely as if they
   were not in the file at all. When false, an unknown column raises
   `IOStreams::Errors::InvalidHeader`.
@@ -496,16 +501,20 @@ This applies to reading both records and rows. A warning is then logged when app
 change the records or the header row read. Since the format is usually inferred from the file name,
 renaming an uploaded file from `.csv` to `.json` then bypasses them.
 
-Example, reading a headerless CSV file:
+Example, reading a headerless CSV file, deprecated:
 
 ~~~ruby
 path = IOStreams.path("no_header.csv")
 path.each(:hash, columns: ["name", "address", "zip"]) do |record|
   p record
 end
+
+# Instead
+path = IOStreams.path("no_header.csv").schema(header: false, fields: [{name: "name"}, {name: "address"}, {name: "zip"}])
+path.each(:hash) { |record| p record }
 ~~~
 
-Example, writing only specific columns in a fixed order:
+Example, writing only specific columns in a fixed order, deprecated:
 
 ~~~ruby
 path = IOStreams.path("sample.csv")
@@ -514,6 +523,12 @@ path.writer(:hash, columns: ["name", "zip"]) do |io|
 end
 path.read
 # => "name,zip\nJack Jones,12345\n"
+
+# Instead
+path = IOStreams.path("sample.csv").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}])
+path.writer(:hash) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
 ~~~
 
 Note: Column names are converted to strings, and the keys in the hashes being written may

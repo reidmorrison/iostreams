@@ -260,8 +260,8 @@ IOStreams.logger = nil
 
 ## enforce_column_restrictions
 
-Applies `allowed_columns`, `required_columns` and `skip_unknown` to every input when reading
-records, including JSON records, so that renaming an uploaded file from `.csv` to `.json` cannot
+Applies `allowed_columns`, `required_columns` and `skip_unknown`, which are deprecated in favor of a
+[schema](formats#schema), to every input when reading records, including JSON records, so that renaming an uploaded file from `.csv` to `.json` cannot
 bypass them.
 
 To return to the behavior before v3.0, where they only apply to a header row read from the file,

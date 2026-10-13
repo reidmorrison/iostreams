@@ -213,6 +213,7 @@ class SchemaTest < Minitest::Test
         assert_equal "firstname", IOStreams::Schema.match_key("first_name")
         assert_equal "firstname", IOStreams::Schema.match_key("first.name")
         assert_equal "firstname", IOStreams::Schema.match_key(:FIRSTNAME)
+        assert_equal "firstname", IOStreams::Schema.match_key("FirstName")
         assert_equal "email", IOStreams::Schema.match_key(" E-mail ")
         assert_equal "prénom", IOStreams::Schema.match_key("PRÉNOM")
         assert_equal "日付", IOStreams::Schema.match_key("日付")
@@ -260,6 +261,8 @@ class SchemaTest < Minitest::Test
       it "finds the field whose name is the same once both are compared loosely" do
         assert_equal "first_name", schema.field_for("First Name").name
         assert_equal "first_name", schema.field_for("FIRST.NAME").name
+        assert_equal "first_name", schema.field_for("FirstName").name
+        assert_equal "Zip Code", schema.field_for("ZipCode").name
         assert_equal "Zip Code", schema.field_for("zip_code").name
         assert_equal :age, schema.field_for(" AGE ").name
       end

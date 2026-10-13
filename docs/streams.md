@@ -192,8 +192,8 @@ write the file the right way, by any code, including `#copy_from` and `#copy_to`
 | `#schema` | The path | The fields of the file and their types, which columns it can have and must have, the position of each fixed width field, and whether it has a header row |
 | The mode, such as `:hash` | Each call | Whether the code reads or writes blocks, lines, rows or records |
 | `cleanse_header:` | Each call, when reading, without a schema | Deprecated. How the code wants the keys of each record named, which the names of the fields of a schema give instead |
-| `allowed_columns:`, `required_columns:` and `skip_unknown:` | Each call, when reading, without a schema | Which columns the code accepts. A schema says which columns the file can have and must have instead, with `fieldsMatch` and `constraints` |
-| `columns:` | Each call, without a schema | When writing, the columns to write and their order. When reading a file without a header row, its columns. The fields of a schema are the columns instead |
+| `allowed_columns:`, `required_columns:` and `skip_unknown:` | Each call, when reading, without a schema | Deprecated. Which columns the code accepts. A schema says which columns the file can have and must have instead, with `fieldsMatch` and `constraints` |
+| `columns:` | Each call, without a schema | Deprecated. When writing, the columns to write and their order. When reading a file without a header row, its columns. The fields of a schema are the columns instead |
 | `delimiter:` and `buffer_size:` | Each call | How lines are split or ended, and how much is read at a time |
 | `embedded_within:` | Each call, in the `:line` mode | Whether the code reads the physical lines, or the logical lines of a quoted format |
 
@@ -202,7 +202,7 @@ IOStreams checks where each setting is supplied:
 * A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
   `file_name:`, `schema:`, `format_options:` and `default_format:`.
 * An option that only applies when reading, such as `allowed_columns:`, raises `ArgumentError` when it is supplied
-  to `#writer`, rather than being ignored. To choose the columns that are written, supply `columns:`.
+  to `#writer`, rather than being ignored. To choose the columns that are written, set a schema on the path.
 * With a schema, the options that describe the columns of the file, `columns:`, `allowed_columns:`,
   `required_columns:`, `skip_unknown:` and `cleanse_header:`, raise `ArgumentError`, since the schema describes them,
   see [Header options](formats#header-options).
@@ -217,8 +217,8 @@ people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHE
 # The code says what it wants from it: records, whose columns the schema checks.
 people.each(:hash) { |person| p person }
 
-# A copy reads the source with the settings of its path, and writes the target with its own options.
-IOStreams.path("people.json").copy_from(people, mode: :hash, columns: %w[name age])
+# A copy reads the source with the settings of its path, and writes the target with the settings of its own.
+IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}]).copy_from(people, mode: :hash)
 ~~~
 
 ## Text and binary data

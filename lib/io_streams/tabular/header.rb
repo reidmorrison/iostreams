@@ -3,6 +3,9 @@
 module IOStreams
   class Tabular
     # Process files / streams that start with a header.
+    #
+    # Its options, `columns`, `allowed_columns`, `required_columns` and `skip_unknown`, and the cleansing of the header
+    # row, are deprecated: a schema describes the columns of a file instead, see `IOStreams::Schema`.
     class Header
       # Column names that begin with this prefix have been rejected and should be ignored.
       IGNORE_PREFIX = "__rejected__"

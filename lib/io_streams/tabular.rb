@@ -69,11 +69,13 @@ module IOStreams
     #     they did before it was deprecated.
     #
     #   columns [Array<String|Symbol>]
+    #     Deprecated: the fields of a schema are the columns, see `schema:`.
     #     The header columns when the file does not include a header row.
     #     Note:
     #       Column names are converted to strings.
     #
     #   allowed_columns [Array<String>]
+    #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
     #     List of columns to allow.
     #     Default: nil ( Allow all columns )
     #     Note:
@@ -81,9 +83,11 @@ module IOStreams
     #       as nil so that they can be ignored during processing.
     #
     #   required_columns [Array<String>]
+    #     Deprecated: see `constraints` in `IOStreams::Schema::Field`.
     #     List of columns that must be present, otherwise an Exception is raised.
     #
     #   skip_unknown [true|false]
+    #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
     #     true:
     #       Skip columns not present in the `allowed_columns` by cleansing them to nil.
     #       #as_hash will skip these additional columns entirely as if they were not in the file at all.

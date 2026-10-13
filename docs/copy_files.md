@@ -73,8 +73,8 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 
 Notes:
 * `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
-* The other options of a copy are used to write the target, such as `columns:` to choose the columns that are
-  written, and their order, unless the target has a schema, whose fields are the columns written. An option that
+* The other options of a copy are used to write the target. To choose the columns that are written, and their order,
+  set a schema on the target, whose fields are the columns written. An option that
   only applies when reading, such as `allowed_columns:` or `cleanse_header:`, raises `ArgumentError`, rather than
   being ignored.
 * The source is read with the settings of its own path, so describe the source there: its format, encoding and
