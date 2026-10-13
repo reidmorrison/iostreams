@@ -12,7 +12,7 @@ module IOStreams
     #     Symbol key. Other formats keep the keys of the file, see `IOStreams::Schema#field`.
     #
     #   type: [String]
-    #     "string":   a String.
+    #     "string":   a String. Any other value is written as its text, except a Hash or an Array, which raise.
     #     "integer":  an Integer, such as `-12` or `0042`.
     #     "number":   a BigDecimal, such as `12.50`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a Float with `floatNumber`.
     #     "boolean":  true or false, see `trueValues` and `falseValues`.
@@ -89,8 +89,15 @@ module IOStreams
       # The text of the numbers that are not finite, whose case does not matter.
       SPECIAL_NUMBERS = {"nan" => Float::NAN, "inf" => Float::INFINITY, "-inf" => -Float::INFINITY}.freeze
 
+      # The types whose values are numbers. Frozen, so that using it does not create an Array each time, as a literal
+      # does in this file.
+      NUMERIC_TYPES = %w[integer number].freeze
+
       INTEGER  = /\A[+-]?\d+\z/
       NUMBER   = /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+      # A decimal point without digits after it, such as in "12.", which NUMBER accepts, as Ruby 3.4 does, but
+      # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
+      BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
       DATETIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
 
@@ -135,9 +142,19 @@ module IOStreams
         freeze
       end
 
+      # Returns [Time] the time of the DateTime, at its offset from UTC.
+      #
+      # Unlike `DateTime#to_time` in ActiveSupport 7, which converts it to the local time zone of the server, unless
+      # `ActiveSupport.to_time_preserves_timezone` is set.
+      def self.time_of(datetime)
+        seconds = datetime.sec + datetime.sec_fraction
+        Time.new(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds,
+                 (datetime.offset * 86_400).to_i)
+      end
+
       # Returns [true|false] whether the values of this field are numbers, which a fixed width file zero fills.
       def numeric?
-        %w[integer number].include?(type)
+        NUMERIC_TYPES.include?(type)
       end
 
       # Returns [true|false] whether to write only the first `width` characters of a longer string in a fixed width
@@ -153,15 +170,25 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
       def cast(value)
         return if value.nil?
-        return value if type == "any"
-        return cast_string(value) if type == "string"
+
+        # `case` compares the type with its literal strings without creating them, unlike `==` in this file.
+        case type
+        when "any" then return value
+        when "string" then return cast_string(value)
+        end
 
         if value.is_a?(String)
           value = value.strip
           return if value.empty?
         end
 
-        send(:"cast_#{type}", value)
+        case type
+        when "integer" then cast_integer(value)
+        when "number" then cast_number(value)
+        when "boolean" then cast_boolean(value)
+        when "date" then cast_date(value)
+        else cast_datetime(value)
+        end
       end
 
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
@@ -280,13 +307,15 @@ module IOStreams
                          "the Gemfile, or set `floatNumber: true` to return a Float: #{e.message}")
       end
 
+      # A Hash or an Array holds several values, rather than one value of text, so it raises. Any other value is its
+      # text, such as a `URI` or an id.
       def cast_string(value)
         return value if value.is_a?(String)
         return value.to_s("F") if bigdecimal?(value)
         return value.iso8601 if value.is_a?(Date) || value.is_a?(Time)
-        return value.to_s if value.is_a?(Symbol) || value.is_a?(Numeric) || [true, false].include?(value)
+        return invalid(value) if value.is_a?(::Hash) || value.is_a?(::Array)
 
-        invalid(value)
+        value.to_s
       end
 
       def cast_integer(value)
@@ -307,11 +336,22 @@ module IOStreams
       end
 
       def parse_number(text)
-        special = SPECIAL_NUMBERS[text.downcase]
-        return @float ? special : BigDecimal(special.to_s) if special
-        return invalid(text) unless NUMBER.match?(text)
+        return number(text) if NUMBER.match?(text)
 
+        special = SPECIAL_NUMBERS[text.downcase]
+        return invalid(text) unless special
+
+        @float ? special : BigDecimal(special.to_s)
+      end
+
+      # Returns [BigDecimal|Float] the number of text that NUMBER matches.
+      def number(text)
         @float ? Float(text) : BigDecimal(text)
+      rescue ArgumentError
+        return invalid(text) unless BARE_POINT.match?(text)
+
+        # Before Ruby 3.4, so that "12." is read the same with every version of Ruby.
+        number(text.sub(BARE_POINT, ".0"))
       end
 
       def cast_boolean(value)
@@ -333,22 +373,29 @@ module IOStreams
         invalid(value)
       end
 
+      # `Time` moves a day past the end of its month into the next month, such as February 30 into March 2, so the
+      # date is checked first, as a date field does.
       def cast_datetime(value)
         return value if value.is_a?(Time)
-        return value.to_time if value.is_a?(DateTime)
+        return self.class.time_of(value) if value.is_a?(DateTime)
         return invalid(value) unless value.is_a?(String)
         return parse_time(Time, value) if @format
         return invalid(value) unless DATETIME.match?(value)
+        return invalid(value) unless Date.valid_date?(value[0, 4].to_i, value[5, 2].to_i, value[8, 2].to_i)
 
         Time.iso8601(value)
       rescue ArgumentError
         invalid(value)
       end
 
-      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text.
+      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
+      # and whose date must exist, see #cast_datetime.
       def parse_time(klass, text)
         parts = Date._strptime(text, @format)
         return invalid(text) if parts.nil? || parts.key?(:leftover)
+        if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
+          return invalid(text)
+        end
 
         klass.strptime(text, @format)
       rescue ArgumentError

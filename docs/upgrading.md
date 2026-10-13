@@ -822,6 +822,16 @@ for any other key or option.
 Writing a fixed width file now accepts string and symbol keys, whichever the layout uses. Previously a key of the
 other kind was ignored, and its column written as spaces, or as zeros for a number.
 
+A filler is written as spaces, as the layout documented, including one with a `type:` of `:integer` or `:float`,
+which was written as zeros. To write zeros, give the column a `key:` and leave it out of the records written, since a
+missing number is written as zeros.
+
+A `:string` column still writes any value as its text, except a `Hash` or an `Array`, which holds several values, and
+now raises `IOStreams::Errors::InvalidValue`, where its `to_s`, such as `[1, 2]`, was written. A `BigDecimal` is
+written as `12.5`, and a `Date` or `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where their `to_s`, such as
+`0.125e2` or `2026-10-13 09:30:00 UTC`, was written. To keep another form, convert the value to text before writing
+it.
+
 ### A fixed width number that holds no number raises
 
 Reading an `:integer` or `:float` column of a fixed width file that holds no number, such as `N/A` or `12-`, now

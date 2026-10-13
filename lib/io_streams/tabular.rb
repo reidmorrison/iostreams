@@ -307,12 +307,16 @@ module IOStreams
     def convert(row)
       case row
       when ::Hash
-        row.to_h { |key, value| (field = field(key)) ? [key, yield(field, value)] : [key, value] }
+        converted = {}
+        row.each_pair { |key, value| converted[key] = (field = field(key)) ? yield(field, value) : value }
+        converted
       when ::Array
-        columns = header.columns
-        return row unless columns
+        fields = column_fields
+        return row unless fields
 
-        row.each_with_index.map { |value, index| (field = field(columns[index])) ? yield(field, value) : value }
+        converted = ::Array.new(row.size)
+        row.each_with_index { |value, index| converted[index] = (field = fields[index]) ? yield(field, value) : value }
+        converted
       else
         row
       end
@@ -322,6 +326,19 @@ module IOStreams
     # once for each key, since the same keys usually apply to every row.
     def field(key)
       @fields.fetch(key) { @fields[key] = schema.field(key) }
+    end
+
+    # Returns [Array<IOStreams::Schema::Field|nil>] the field of each header column, or nil when there are no columns.
+    #
+    # Worked out once for the columns, rather than for each value, and again when `IOStreams::Tabular::Header#columns=`
+    # replaces them.
+    def column_fields
+      columns = header.columns
+      return unless columns
+      return @column_fields if @fields_of_columns.equal?(columns)
+
+      @fields_of_columns = columns
+      @column_fields     = columns.map { |column| field(column) }
     end
 
     # Logs a warning that the column restrictions are not applied, once, since the same columns usually apply

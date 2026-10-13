@@ -13,6 +13,9 @@ module IOStreams
       # such as fillers, are spaces.
       class Fixed < Base
         LINE_BREAK = /\r\n|\r|\n/
+        # Frozen, so that using one does not create a string each time, as a string literal does in this file.
+        MINUS      = "-".freeze
+        ZERO       = "0".freeze
 
         # Where a field is in each line: the offset of its first character, and its width, or -1 for the remainder of
         # the line.
@@ -141,11 +144,14 @@ module IOStreams
         # Returns [String] the line for the supplied record, whose values the schema has already rendered as text,
         # see `IOStreams::Tabular#render`.
         def render(row, header)
-          hash = header.to_hash(row)
-          line = +""
+          hash   = header.to_hash(row)
+          values = nil
+          line   = +""
           @columns.each do |column|
+            name  = column.field.name
+            value = hash.key?(name) ? hash[name] : (values ||= values_by_field(hash))[column.field]
             line << (" " * (column.index - line.length)) if column.index > line.length
-            line << render_value(column, value(hash, column.field))
+            line << render_value(column, value)
           end
           line << (" " * (line_length - line.length)) if line_length > line.length
           line
@@ -196,20 +202,25 @@ module IOStreams
           width
         end
 
-        # Returns the value of the field in the hash: by its name, otherwise by the key that the schema finds for it,
-        # see `IOStreams::Schema#field`.
-        def value(hash, field)
-          return hash[field.name] if hash.key?(field.name)
-
-          key = hash.each_key.find { |name| @fields.fetch(name) { @fields[name] = @schema.field(name) }.equal?(field) }
-          hash[key] unless key.nil?
+        # Returns [Hash] the value of each field of the schema that a key of the hash applies to, see
+        # `IOStreams::Schema#field`, the first key when several do, for the fields whose name is not a key.
+        #
+        # Worked out once for the row, when a field is missing from it, rather than once for each missing field.
+        def values_by_field(hash)
+          values = {}.compare_by_identity
+          hash.each_pair do |key, value|
+            field = @fields.fetch(key) { @fields[key] = @schema.field(key) }
+            values[field] = value if field && !values.key?(field)
+          end
+          values
         end
 
         def render_value(column, text)
           field = column.field
           return render_number(column, text.nil? ? field.render(0, :text) : text.to_s) if field.numeric?
 
-          text = text.to_s.gsub(LINE_BREAK, " ")
+          text = text.to_s
+          text = text.gsub(LINE_BREAK, " ") if LINE_BREAK.match?(text)
           return text if column.width == -1
           return text.ljust(column.width) if text.length <= column.width
           raise(value_too_long(column, text)) unless field.truncate?
@@ -220,8 +231,12 @@ module IOStreams
         def render_number(column, text)
           return text if column.width == -1
 
-          sign   = text.start_with?("-") ? "-" : ""
-          padded = sign + text.delete_prefix(sign).rjust(column.width - sign.length, "0")
+          padded =
+            if text.start_with?(MINUS)
+              MINUS + text.delete_prefix(MINUS).rjust(column.width - 1, ZERO)
+            else
+              text.rjust(column.width, ZERO)
+            end
           raise(value_too_long(column, text)) if padded.length > column.width
 
           padded

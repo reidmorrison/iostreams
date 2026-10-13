@@ -493,6 +493,27 @@ class TabularTest < Minitest::Test
           assert_equal "Jack                   over there                                34618000000210123456.79", string
         end
 
+        it "renders a record whose keys match the fields once cleansed, with fields missing" do
+          assert string = fixed.render("Name" => "Jack", "ZIP" => 34_618, "Age " => 21)
+          assert_equal "Jack                                                             34618000000210000000.00", string
+        end
+
+        it "renders any other object as its text in a string field" do
+          id = Struct.new(:value) { def to_s = "id-#{value}" }.new(7)
+
+          assert string = fixed.render(name: id, zip: 34_618)
+          assert_equal "id-7                                                             34618000000000000000.00", string
+        end
+
+        it "renders a filler with a type as spaces, like any other filler" do
+          tabular = IOStreams::Tabular.new(
+            format:         :fixed,
+            format_options: {layout: [{size: 3, key: :a}, {size: 3, type: :integer}, {size: 2, key: :b}]}
+          )
+
+          assert_equal "x     y ", tabular.render(a: "x", b: "y")
+        end
+
         it "truncates long strings" do
           assert string = fixed.render(name: "Jack ran up the beanstalk and when jack reached the top it was truncated", address: "over there", zip: 34_618)
           assert_equal "Jack ran up the beanstaover there                                34618000000000000000.00", string

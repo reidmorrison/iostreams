@@ -99,7 +99,7 @@ Like `#format`, the schema describes the file, so it is set on the path, rather 
 
 | Type | Read as | Written as |
 |------|---------|------------|
-| `string` | a `String` | the text |
+| `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042` | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
@@ -111,7 +111,8 @@ A field without a `type` is `any`, as in Frictionless. Empty text is read as `ni
 field, which keeps it.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
-`IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing.
+`IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
+or `datetime` that does not exist, such as `2026-02-30`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, and every other value as text, such as a
 date. The `:hash` and `:array` formats keep the values themselves.

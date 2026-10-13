@@ -183,6 +183,12 @@ class SchemaTest < Minitest::Test
           assert_equal "2026-10-13T09:30:00Z", string.cast(Time.utc(2026, 10, 13, 9, 30))
         end
 
+        it "converts any other object to its text, such as an id" do
+          id = Struct.new(:value) { def to_s = "id-#{value}" }.new(7)
+
+          assert_equal "id-7", string.cast(id)
+        end
+
         it "raises for a Hash or an Array" do
           assert_raises(IOStreams::Errors::InvalidValue) { string.cast({}) }
           assert_raises(IOStreams::Errors::InvalidValue) { string.cast([1]) }
@@ -240,6 +246,15 @@ class SchemaTest < Minitest::Test
           assert_equal BigDecimal("-1500"), number.cast("-1.5E3")
           assert_equal BigDecimal("0.5"), number.cast(".5")
           assert_equal BigDecimal("5"), number.cast("+5.")
+        end
+
+        it "reads a decimal point without digits after it with every version of Ruby" do
+          float = field(type: "number", floatNumber: true)
+
+          assert_equal BigDecimal("12"), number.cast("12.")
+          assert_equal BigDecimal("-100"), number.cast("-1.E2")
+          assert_in_delta 12.0, float.cast("000000012.")
+          assert_in_delta 0.01, float.cast("1.e-2")
         end
 
         it "reads the numbers that are not finite" do
@@ -367,6 +382,30 @@ class SchemaTest < Minitest::Test
           ["2026-10-13", "2026-10-13 09:30:00", "2026-10-13T25:00:00Z"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
           end
+        end
+
+        it "raises for a date that does not exist, rather than move it into the next month" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M")
+
+          ["2026-02-30T10:00:00Z", "2026-02-29T10:00:00Z", "2026-04-31T10:00:00+05:30"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-02-30 10:00") }
+          assert_equal Time.utc(2028, 2, 29, 10), datetime.cast("2028-02-29T10:00:00Z")
+          leap = pattern.cast("2028-02-29 10:00")
+
+          assert_equal [2028, 2, 29, 10], [leap.year, leap.month, leap.day, leap.hour]
+        end
+
+        it "converts a DateTime at its offset, even when DateTime#to_time converts it to the local time zone" do
+          value = DateTime.new(2026, 10, 13, 9, 30, 0.25r, "+05:30")
+          # As ActiveSupport 7 does, unless `ActiveSupport.to_time_preserves_timezone` is set.
+          def value.to_time = super.getlocal("-04:00")
+
+          time = datetime.cast(value)
+
+          assert_equal Time.new(2026, 10, 13, 9, 30, 0.25r, "+05:30"), time
+          assert_equal 19_800, time.utc_offset
         end
 
         it "renders ISO 8601, with as many digits of the fraction of a second as it needs" do
