@@ -1831,8 +1831,12 @@ Notes:
   tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)` or detected
   from a `.csv` file name. Rows read with `each(:array)` and records read with `each(:hash)` are CSV
   unless another format applies, so this also applies to them for a file name without a tabular
-  extension, such as `data.txt`, a spreadsheet, or a stream without a file name. `embedded_within` only
-  needs to be supplied for quoted formats that are not set or detected, or to override the quote character.
+  extension, such as `data.txt`, a spreadsheet, or a stream without a file name.
+* `embedded_within` chooses the lines that `each(:line)` returns: supply `embedded_within: nil` for the
+  physical lines of a quoted format, or a quote character for the logical lines of a format that is not set or
+  detected. When reading rows and records, the format splits the lines, since its parser must agree with
+  where they are split, so supplying `embedded_within` to `each(:array)` or `each(:hash)` is deprecated. Set
+  the format of the file with `#format` instead.
 * A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
   real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
 ~~~ruby
@@ -1952,6 +1956,48 @@ Notes:
   `example.csv.zip` creates an entry named `example.csv`.
 * Gzip is still recommended over Zip for very large files, since Zip files can only
   be read via a local file.
+
+## Settings on the path, options for each call
+
+A setting that describes the file is set on the path, and an option that says what your code wants from
+the file is supplied to each call. A path is configuration: it can be held in a configuration system and
+handed to code that only calls `each(:hash)`, so the settings of the path are all that it takes to read or
+write the file the right way, by any code, including `#copy_from` and `#copy_to`.
+
+| Setting | Where | Because it says |
+|---------|-------|-----------------|
+| The path or url, and `#file_name` | The path | Where the file is, and the extensions that name its streams and format |
+| `#stream` and `#option` | The path | How the file is compressed or encrypted |
+| `#encoding` | The path | The encoding of the text of the file |
+| `#format` | The path | The tabular format of the file, such as `:json` |
+| `#schema` | The path | The fields of the file and their types, the position of each fixed width field, and whether it has a header row |
+| The mode, such as `:hash` | Each call | Whether the code reads or writes blocks, lines, rows or records |
+| `cleanse_header:` | Each call, when reading | How the code wants the keys of each record named |
+| `allowed_columns:`, `required_columns:` and `skip_unknown:` | Each call, when reading | Which columns the code accepts, which can differ between two readers of the same file |
+| `columns:` | Each call | When writing, the columns to write and their order. When reading a file without a header row, its columns, which a schema with `header: false` describes on the path instead |
+| `delimiter:` and `buffer_size:` | Each call | How lines are split or ended, and how much is read at a time |
+| `embedded_within:` | Each call, in the `:line` mode | Whether the code reads the physical lines, or the logical lines of a quoted format |
+
+IOStreams checks where each setting is supplied:
+
+* A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
+  `file_name:`, `schema:`, `format_options:` and `default_format:`.
+* An option that only applies when reading, such as `allowed_columns:`, raises `ArgumentError` when it is supplied
+  to `#writer`, rather than being ignored. To choose the columns that are written, supply `columns:`.
+* `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
+  raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set
+  what describes the source, such as its schema, on its path.
+
+~~~ruby
+# The configuration describes the file.
+people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHEMA"])
+
+# The code says what it wants from it.
+people.each(:hash, allowed_columns: %w[name age]) { |person| p person }
+
+# A copy reads the source with the settings of its path, and writes the target with its own options.
+IOStreams.path("people.json").copy_from(people, mode: :hash, columns: %w[name age])
+~~~
 
 ## Text and binary data
 
@@ -3042,7 +3088,11 @@ follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 
 ## Header options
 
-When reading or writing records (`:hash`), the following options control the header row:
+When reading or writing records (`:hash`), the following options control the header row. They are supplied to
+each call, since they say what the code wants from the file, see
+[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+`cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when reading, so `#writer`,
+`#copy_from` and `#copy_to` raise `ArgumentError` for them.
 
 * `columns: [Array<String>]`
   When reading, supplies the header columns for files that do not include a header row.
@@ -3182,6 +3232,17 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 
 Notes:
 * `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
+* The other options of a copy are used to write the target, such as `columns:` to choose the columns that are
+  written, and their order. An option that only applies when reading, such as `allowed_columns:` or
+  `cleanse_header:`, raises `ArgumentError`, rather than being ignored.
+* The source is read with the settings of its own path, so describe the source there: its format, encoding and
+  schema, see [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+  For example, a CSV file without a header row:
+
+~~~ruby
+source = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
+IOStreams.path("people.json").schema(source.schema).copy_from(source, mode: :hash)
+~~~
 
 ---
 
@@ -4697,10 +4758,12 @@ Fix: compare the date with a `Date`, such as `Date.new(2017, 10, 24)`, or call `
 
 ### `format:` and `format_options:` are set on the path
 
-`#each`, `#reader`, `#writer` and `#copy_from` no longer accept `format:` or `format_options:`, and raise
+`#each`, `#reader`, `#writer`, `#copy_from` and `#copy_to` no longer accept `format:` or `format_options:`, and raise
 `ArgumentError` for them. They were the only way to set the format before v1.6, which added `#format` to the path.
 Like its file name, the format describes the file, so it is set on the path, where it also applies to the `:line`
-mode, which splits and decodes the lines for the format.
+mode, which splits and decodes the lines for the format. They also raise for `file_name:` and `default_format:`,
+which set the format of one call by another name, see
+[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 
 Fix: set the format on the path with `#format`, and the layout of a fixed width file with `#schema`, see
 [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema):
@@ -4771,6 +4834,33 @@ now raises `IOStreams::Errors::InvalidValue`, where its `to_s`, such as `[1, 2]`
 written as `12.5`, and a `Date` or `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where their `to_s`, such as
 `0.125e2` or `2026-10-13 09:30:00 UTC`, was written. To keep another form, convert the value to text before writing
 it.
+
+### Options that only apply when reading raise when writing or copying
+
+`#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for the options that only apply when reading:
+`allowed_columns:`, `required_columns:`, `skip_unknown:`, `cleanse_header:`, `embedded_within:` and `buffer_size:`.
+Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
+options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column.
+
+Fix: to choose the columns that are written, supply `columns:`. To read the source of a copy in a particular way,
+set what describes it on its path, such as its schema, or read it with `#each` and write each record to the target:
+
+~~~ruby
+# Before
+target.copy_from(source, mode: :hash, allowed_columns: %w[name zip])
+
+# After
+target.copy_from(source, mode: :hash, columns: %w[name zip])
+~~~
+
+### `embedded_within:` for rows and records is deprecated
+
+Supplying `embedded_within:` to `each(:array)`, `each(:hash)` or `#reader` in those modes is deprecated. It still
+works, but the format of the file splits the lines of its rows and records, since its parser must agree with where
+they are split: `embedded_within: nil` for a CSV file raises when a value contains a line break, and another quote
+character splits the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
+
+Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
 ### A fixed width number that holds no number raises
 

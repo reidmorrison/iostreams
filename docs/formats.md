@@ -310,7 +310,11 @@ follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 
 ## Header options
 
-When reading or writing records (`:hash`), the following options control the header row:
+When reading or writing records (`:hash`), the following options control the header row. They are supplied to
+each call, since they say what the code wants from the file, see
+[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+`cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when reading, so `#writer`,
+`#copy_from` and `#copy_to` raise `ArgumentError` for them.
 
 * `columns: [Array<String>]`
   When reading, supplies the header columns for files that do not include a header row.

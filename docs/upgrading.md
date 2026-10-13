@@ -757,10 +757,12 @@ Fix: compare the date with a `Date`, such as `Date.new(2017, 10, 24)`, or call `
 
 ### `format:` and `format_options:` are set on the path
 
-`#each`, `#reader`, `#writer` and `#copy_from` no longer accept `format:` or `format_options:`, and raise
+`#each`, `#reader`, `#writer`, `#copy_from` and `#copy_to` no longer accept `format:` or `format_options:`, and raise
 `ArgumentError` for them. They were the only way to set the format before v1.6, which added `#format` to the path.
 Like its file name, the format describes the file, so it is set on the path, where it also applies to the `:line`
-mode, which splits and decodes the lines for the format.
+mode, which splits and decodes the lines for the format. They also raise for `file_name:` and `default_format:`,
+which set the format of one call by another name, see
+[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 
 Fix: set the format on the path with `#format`, and the layout of a fixed width file with `#schema`, see
 [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema):
@@ -831,6 +833,33 @@ now raises `IOStreams::Errors::InvalidValue`, where its `to_s`, such as `[1, 2]`
 written as `12.5`, and a `Date` or `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where their `to_s`, such as
 `0.125e2` or `2026-10-13 09:30:00 UTC`, was written. To keep another form, convert the value to text before writing
 it.
+
+### Options that only apply when reading raise when writing or copying
+
+`#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for the options that only apply when reading:
+`allowed_columns:`, `required_columns:`, `skip_unknown:`, `cleanse_header:`, `embedded_within:` and `buffer_size:`.
+Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
+options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column.
+
+Fix: to choose the columns that are written, supply `columns:`. To read the source of a copy in a particular way,
+set what describes it on its path, such as its schema, or read it with `#each` and write each record to the target:
+
+~~~ruby
+# Before
+target.copy_from(source, mode: :hash, allowed_columns: %w[name zip])
+
+# After
+target.copy_from(source, mode: :hash, columns: %w[name zip])
+~~~
+
+### `embedded_within:` for rows and records is deprecated
+
+Supplying `embedded_within:` to `each(:array)`, `each(:hash)` or `#reader` in those modes is deprecated. It still
+works, but the format of the file splits the lines of its rows and records, since its parser must agree with where
+they are split: `embedded_within: nil` for a CSV file raises when a value contains a line break, and another quote
+character splits the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
+
+Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
 ### A fixed width number that holds no number raises
 

@@ -87,12 +87,15 @@ These bug fixes change behavior that existing code may depend on:
 - **An invalid fixed width layout raises when `#format_options` is set**, rather than when the file is read, and a column after one with the size `:remainder` raises `IOStreams::Errors::InvalidLayout`, where previously it was ignored when reading.
 - **A fixed width filler is written as spaces**, as the layout documented, including a column without a `key:` that has a `type:` of `:integer` or `:float`, which was written as zeros.
 - **A `Hash` or an `Array` written to a fixed width `:string` column raises `IOStreams::Errors::InvalidValue`**, where its `to_s`, such as `[1, 2]`, was written. Any other value is still written as its text, but a `BigDecimal` is written as `12.5`, and a `Date` or `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where their `to_s`, such as `0.125e2` or `2026-10-13 09:30:00 UTC`, was written.
+- **`#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for the options that only apply when reading**, `allowed_columns:`, `required_columns:`, `skip_unknown:`, `cleanse_header:`, `embedded_within:` and `buffer_size:`. Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, so a copy, which uses its options to write the target, copied every column for `copy_from(source, mode: :hash, allowed_columns: ["name"])`. Supply `columns:` to choose the columns that are written.
+- **`#each`, `#reader`, `#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for `file_name:` and `default_format:`**, which set the format of one call by another name, now that the format is set on the path, see `format:` above.
 
 ### Deprecated
 
 - **`stream(:none)`.** Use `#raw` to read or write the data as it is stored, see Added, or `#file_name` to read a file that is not named for its format, such as `file_name("data.csv")` for a CSV file named `data.txt`. `stream(:none)` still works as before: it applies no streams, but text is still read and written in its default encoding, such as UTF-8, where `#raw` reads and writes bytes.
 - **Setting the encode stream with `option(:encode, ...)` or `stream(:encode, ...)`.** Use `#encoding` instead, see Added. Both still work, and set the same options as `#encoding`, so no change is needed. `stream(:encode, ...)` still stops the streams being taken from the file name, like any other stream set with `#stream`. `option(:encode, ...)` no longer raises `ArgumentError` after `#stream`, or for a stream without a file name.
 - **`#format_options`.** Use `#schema`, see Added, which gives the `width` of each field of a fixed width file. `#format_options` still works: it translates the layout and its `truncate:` into a schema, which `#schema` returns.
+- **`embedded_within:` when reading rows and records.** The format of the file splits the lines of its rows and records, since its parser must agree with where they are split, so set the format with `#format` instead. It still works, and is still the way to choose the lines that `each(:line)` returns.
 
 ### Added
 
