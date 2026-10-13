@@ -31,8 +31,8 @@ module IOStreams
 
       # Read from a PGP / GPG stream, decrypting the contents as it is read.
       #
-      # gpg reads a local file through its file descriptor, such as a local path, or the temp file of an S3, SFTP or HTTP
-      # path, and the block reads gpg's stdout. Any other stream, such as PGP data within another stream, or a
+      # gpg reads a local file through its file descriptor, such as a local path, or the temp file of an SFTP path, and
+      # the block reads gpg's stdout. Any other stream, such as PGP data within another stream, or a
       # StringIO, is fed to gpg's stdin as the block reads the decrypted contents, in the caller's thread, so that it
       # is never copied into a temp file, see `IOStreams::Pgp::GpgProcess`. The block then reads from an IO-like
       # stream, which responds to `read`, `readpartial`, `gets`, `each_line` and `eof?`. The input stream is not

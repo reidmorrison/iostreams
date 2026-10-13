@@ -11,6 +11,8 @@ module IOStreams
       # Used internally by the S3 path, which makes each `get_object` request, so that it supplies its bucket, key and
       # options, and tags each failure.
       class RangeReader
+        include ChunkReader
+
         # The number of bytes requested at a time.
         RANGE_SIZE = 8 * 1024 * 1024
 
@@ -28,40 +30,10 @@ module IOStreams
         def initialize(request, range_size: RANGE_SIZE)
           @request    = request
           @range_size = range_size
-          @range      = "".b
-          @offset     = 0
           @position   = 0
           @size       = nil
           @same       = {}
         end
-
-        # Returns [String] upto `length` bytes, or nil at the end of the object, or with no length, the rest of the
-        # object, like `IO#read`. The bytes replace the contents of `outbuf` when it is supplied.
-        def read(length = nil, outbuf = nil)
-          data = length.nil? ? read_rest : read_upto(length)
-          return data unless outbuf
-
-          outbuf.replace(data.to_s)
-          outbuf unless data.nil?
-        end
-
-        # Returns [String] upto `maxlen` bytes that have already been requested, requesting the next range only when
-        # they have all been read, like `IO#readpartial`. Raises EOFError at the end of the object.
-        def readpartial(maxlen, outbuf = nil)
-          raise(EOFError, "end of file reached") if maxlen.positive? && eof?
-
-          data = @range.byteslice(@offset, maxlen)
-          @offset += data.bytesize
-          outbuf ? outbuf.replace(data) : data
-        end
-
-        # Returns [true|false] whether the whole object has been read, requesting the next range to find out, like
-        # `IO#eof?`.
-        def eof?
-          @offset >= @range.bytesize && !next_range
-        end
-
-        alias eof eof?
 
         def closed?
           false
@@ -69,40 +41,15 @@ module IOStreams
 
         private
 
-        def read_upto(length)
-          return "".b if length.zero?
-
-          data = nil
-          while length.positive?
-            break if @offset >= @range.bytesize && !next_range
-
-            part = @range.byteslice(@offset, length)
-            @offset += part.bytesize
-            length  -= part.bytesize
-            data ? data << part : data = part
-          end
-          data
-        end
-
-        def read_rest
-          data = "".b
-          while @offset < @range.bytesize || next_range
-            data << @range.byteslice(@offset..)
-            @offset = @range.bytesize
-          end
-          data
-        end
-
-        # Requests the next range, which replaces the last one. Returns [String] the range, or nil at the end.
-        def next_range
+        # Requests the next range. Returns [String] the range, or nil at the end of the object, see `ChunkReader`.
+        def next_chunk
           return if @size && @position >= @size
 
           response  = request_range
-          @range    = response.body.read.force_encoding(Encoding::BINARY)
-          @offset   = 0
-          @position += @range.bytesize
+          range     = response.body.read.force_encoding(Encoding::BINARY)
+          @position += range.bytesize
           @size ||= total_size(response)
-          return @range unless @range.empty?
+          return range unless range.empty?
           # Rather than ending the object early.
           raise(Errors::CommunicationsFailure, "S3 returned no data at byte #{@position} of #{@size}") if @position < @size
         end

@@ -130,7 +130,7 @@ IOStreams reads and writes files of any size a block at a time, and most streams
 For some storage locations and formats IOStreams copies the data into a temp file under the covers, see
 [When temp files are used](#when-temp-files-are-used). Each temp file holds a whole file, so when working with
 large files the standard temp location can be too small, for example to download a large file from SFTP, or to
-copy one from SFTP to HTTP, which holds two temp files at once.
+copy one from SFTP to another SFTP server, which holds two temp files at once.
 
 By default IOStreams looks up the location to store temp files in the following order:
 * `ENV['TMPDIR']`
@@ -156,12 +156,12 @@ transfers go through a temp file that holds the whole file:
 | Local file | No temp file | No temp file | |
 | AWS S3 | No temp file: requests the object 8MB at a time, as the application reads it. With the `range` or `part_number` option, downloads the object into a temp file before the block is called | No temp file: uploads the data as it is written, in parts of 8MB or more. With an option that describes the whole object, such as `content_md5` or `checksum_crc32`, writes into a temp file, which is uploaded once the block completes | A single download is pushed by the AWS SDK, so the bytes chosen by `range` or `part_number` are downloaded first. An option that describes the whole object cannot be supplied to each part |
 | SFTP | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The `sftp` program transfers local files, and only uploads a regular file |
-| HTTP(S) | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded with a single PUT once the block completes | Net::HTTP pushes the data that it downloads, and downloading first closes the connection before the block runs. An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
+| HTTP(S) | No temp file: reads the response one chunk at a time, as the application reads it | Writes into a temp file, which is uploaded with a single PUT once the block completes | An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
 | An IO supplied to `IOStreams.stream` | No temp file | No temp file | |
 
 Most formats are read and written as the data passes through them. A format that only works on whole files
 reads or writes a local file directly when it has one: a local path, a `File` supplied to `IOStreams.stream`, or
-the temp file of an SFTP or HTTP path. Otherwise its data is copied into a temp file first, for example when
+the temp file of an SFTP path. Otherwise its data is copied into a temp file first, for example when
 reading the zip file within `data.csv.zip.pgp`, which comes from `gpg` as it decrypts the file, or a zip file
 supplied in a `StringIO`.
 
@@ -208,9 +208,9 @@ Deleting temp file /tmp/iostreams-sftp-reader20261008-41-1x5yq2, which held 5251
 ~~~
 
 Notes:
-* `#copy_from` and `#copy_to` read the source while they write the target, so copying from one SFTP or HTTP
-  path to another holds two temp files at once, each holding the whole file. S3 copies an object to another S3
-  path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
+* `#copy_from` and `#copy_to` read the source while they write the target, so copying from SFTP to SFTP or
+  HTTP holds two temp files at once, each holding the whole file: the download and the upload. S3 copies an
+  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
   than 5GB.
 * An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp
   files, since `sftp` and `gpg` read them from files.

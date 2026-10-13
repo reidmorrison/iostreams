@@ -255,23 +255,218 @@ module Paths
           end
         end
 
-        it "closes the connection before the block reads the file" do
-          start_server { |_path| TestHTTPServer.response(200, body: body) }
-          path     = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
-          started  = Net::HTTP.method(:start)
-          open     = false
-          tracking = lambda do |*args, **options, &block|
-            started.call(*args, **options) do |http|
-              open = true
-              block.call(http)
-            ensure
-              open = false
+        describe "reading as the block reads" do
+          # Larger than a chunk, and than the socket buffers, so that the server is still sending it when the block
+          # stops reading.
+          let(:large) { "0123456789" * 200_000 }
+
+          # Returns the result of the block, which is called with a lambda that returns the number of open connections.
+          def tracking_connections
+            started  = Net::HTTP.method(:start)
+            open     = 0
+            tracking = lambda do |*args, **options, &block|
+              started.call(*args, **options) do |http|
+                open += 1
+                block.call(http)
+              ensure
+                open -= 1
+              end
+            end
+            Net::HTTP.stub(:start, tracking) { yield(-> { open }) }
+          end
+
+          it "keeps the connection open while the block reads, and closes it once the block returns" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+
+            tracking_connections do |open|
+              open_while_reading = path.reader { |io| io.read(10) && open.call }
+
+              assert_equal 1, open_while_reading
+              assert_equal 0, open.call
             end
           end
 
-          was_open = Net::HTTP.stub(:start, tracking) { path.reader { |_io| open } }
+          it "closes the connection when the block raises" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
 
-          refute was_open
+            tracking_connections do |open|
+              assert_raises(ArgumentError) { path.reader { |io| io.read(10) && raise(ArgumentError, "block failed") } }
+              assert_equal 0, open.call
+            end
+          end
+
+          it "closes the connection that redirected before the block reads" do
+            start_server do |path|
+              path == "/redirect" ? TestHTTPServer.response(302, headers: {"Location" => "/file"}) : TestHTTPServer.response(200, body: large)
+            end
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect")
+
+            tracking_connections do |open|
+              open_while_reading = path.reader { |io| io.read(10) && open.call }
+
+              assert_equal 1, open_while_reading
+            end
+          end
+
+          it "lets a Fiber scheduler, such as Async, run its other Fibers while it waits for the body" do
+            skip "The async gem is only installed on MRI" if defined?(JRuby)
+            require "async"
+            start_server do |_path|
+              lambda do |client|
+                client.write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n")
+                4.times do |i|
+                  sleep(0.05)
+                  client.write(i.to_s)
+                end
+              end
+            end
+            path  = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+            ticks = 0
+            data  = nil
+
+            Sync do |task|
+              ticker = task.async do
+                loop do
+                  ticks += 1
+                  sleep(0.01)
+                end
+              end
+              data = path.read
+              ticker.stop
+            end
+
+            assert_equal "0123", data
+            # Blocking the scheduler would allow only the first tick.
+            assert_operator ticks, :>, 5
+          end
+
+          it "makes the request before the block is called, so that a missing file raises before the block runs" do
+            start_server { |_path| TestHTTPServer.response(404) }
+            called = false
+
+            assert_raises(IOStreams::Errors::NotFound) do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/missing.csv").reader { |_io| called = true }
+            end
+            refute called
+          end
+
+          it "does not change the target of #copy_from when the source is missing" do
+            start_server { |_path| TestHTTPServer.response(404) }
+
+            IOStreams.temp_file("iostreams_http_target", ".csv") do |target|
+              target.write("existing")
+
+              assert_raises(IOStreams::Errors::NotFound) { target.copy_from("#{@server.base_url}/missing.csv") }
+              assert_equal "existing", target.read
+            end
+          end
+
+          describe "when the connection closes part way through the body" do
+            let(:chunked) { "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\na\r\n0123456789\r\na\r\nabc" }
+            let(:url) { "#{@server.base_url}/data.csv" }
+
+            it "raises Unavailable, rather than EOFError, which would end the body early" do
+              start_server { |_path| chunked }
+
+              error = assert_raises(IOStreams::Errors::CommunicationsFailure) { IOStreams.path(url).read }
+              assert_kind_of IOStreams::Errors::Unavailable, error
+              assert_equal "#{url}: The connection closed before the whole body was received", error.message
+            end
+
+            it "raises when the body is shorter than its Content-Length" do
+              start_server { |_path| "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n0123456789" }
+
+              assert_raises(IOStreams::Errors::Unavailable) { IOStreams.path(url).read }
+            end
+
+            it "raises from #copy_to, rather than copying part of the file" do
+              start_server { |_path| chunked }
+
+              IOStreams.temp_file("iostreams_http_target", ".csv") do |target|
+                assert_raises(IOStreams::Errors::Unavailable) { IOStreams.path(url).copy_to(target, convert: false) }
+                refute_predicate target, :exist?
+              end
+            end
+
+            it "does not delete the source after #move_to fails" do
+              start_server { |_path| chunked }
+
+              IOStreams.temp_file("iostreams_http_target", ".csv") do |target|
+                assert_raises(IOStreams::Errors::Unavailable) { IOStreams.path(url).move_to(target) }
+                methods = @server.requests.map { |request| request[:method] }
+
+                assert_equal ["GET"], methods
+              end
+            end
+
+            it "raises its failure again on every later read" do
+              start_server { |_path| chunked }
+
+              IOStreams.path(url).raw.reader do |io|
+                assert_equal "0123456789abc", io.read(13)
+                first = assert_raises(IOStreams::Errors::Unavailable) { io.read(1) }
+                assert_same first, assert_raises(IOStreams::Errors::Unavailable) { io.read(1) }
+                assert_same first, assert_raises(IOStreams::Errors::Unavailable) { io.eof? }
+              end
+            end
+
+            it "does not send the request again once part of the body has been received" do
+              received = Queue.new
+              start_server do |_path|
+                if @server.requests.size == 1
+                  TestHTTPServer.reset_after do |client|
+                    client.write("HTTP/1.1 200 OK\r\nContent-Length: 20\r\nConnection: close\r\n\r\n0123456789")
+                    received.pop(timeout: 5)
+                  end
+                else
+                  TestHTTPServer.response(200, body: "0123456789abcdefghij")
+                end
+              end
+              read = +""
+
+              assert_raises(IOStreams::Errors::Unavailable) do
+                IOStreams.path(url).raw.reader do |io|
+                  read << io.read(10)
+                  received << true
+                  read << io.read
+                end
+              end
+              assert_equal "0123456789", read
+              assert_equal 1, @server.requests.size
+            end
+          end
+
+          it "does not tag a failure of the block as a failure of the request" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+
+            error = assert_raises(Errno::ECONNRESET) { path.reader { |io| io.read(10) && raise(Errno::ECONNRESET) } }
+            refute_kind_of IOStreams::Errors::Unavailable, error
+          end
+
+          it "raises within the block when the body exceeds the maximum file size" do
+            start_server { |_path| TestHTTPServer.response(200, body: large) }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file", maximum_file_size: 100_000)
+            read = nil
+
+            assert_raises(IOStreams::Errors::CommunicationsFailure) do
+              path.reader do |io|
+                read = io.read(10)
+                io.read
+              end
+            end
+            assert_equal "0123456789", read
+          end
+
+          it "reads a zip file, which is copied into a temp file" do
+            zip = StringIO.new
+            IOStreams.stream(zip).file_name("data.zip").option(:zip, entry_file_name: "data.csv").write(body)
+            start_server { |_path| TestHTTPServer.response(200, body: zip.string) }
+
+            assert_equal body, IOStreams::Paths::HTTP.new("#{@server.base_url}/data.zip").read
+          end
         end
 
         it "appends supplied parameters to the url as a query string" do

@@ -466,7 +466,8 @@ IOStreams.path('https://example.com/upload/report.csv', headers: {"Authorization
 ~~~
 
 Notes:
-* Since Net::HTTP download only supports a push stream, the data is streamed into a tempfile first,
+* Reading streams the response as the block reads it, without a temp file, so the connection stays open
+  while the block runs, and is closed once it returns,
   see [When temp files are used](config#when-temp-files-are-used).
 * Writing also streams into a tempfile first, which is uploaded in a single PUT request once the
   block completes, so that the server receives its size in the `Content-Length` header.

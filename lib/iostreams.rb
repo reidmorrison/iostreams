@@ -22,11 +22,12 @@ module IOStreams
   autoload :Zstd,                "io_streams/zstd"
 
   module Paths
-    autoload :File,    "io_streams/paths/file"
-    autoload :HTTP,    "io_streams/paths/http"
-    autoload :Matcher, "io_streams/paths/matcher"
-    autoload :S3,      "io_streams/paths/s3"
-    autoload :SFTP,    "io_streams/paths/sftp"
+    autoload :ChunkReader, "io_streams/paths/chunk_reader"
+    autoload :File,        "io_streams/paths/file"
+    autoload :HTTP,        "io_streams/paths/http"
+    autoload :Matcher,     "io_streams/paths/matcher"
+    autoload :S3,          "io_streams/paths/s3"
+    autoload :SFTP,        "io_streams/paths/sftp"
   end
 
   module Line

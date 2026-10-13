@@ -494,14 +494,46 @@ occur:
   download returned the object as it was when the download started.
 * S3 returns no checksum for a range of an object, so the AWS SDK no longer checks one when reading. The data
   is still protected in transit by TLS.
+* The IO that `#reader` supplies to the block, when the path has no streams, such as `data.csv`, or is read with
+  `#raw`, is no longer a `File`. Like the other streams, it responds to `#read`, `#readpartial` and `#eof?`, so
+  `#gets`, `#each_line`, `#rewind` and `#size` raise `NoMethodError`, as does a library that calls them, such as
+  `CSV.new(io)`.
 
 With the `range` or `part_number` option, which choose the bytes of the object to read, the object is still
 downloaded into a temp file first.
 
-Fix: none is needed in most cases. Where an object can be replaced while it is read, enable versioning on the
-bucket, or retry the read on `Aws::S3::Errors::PreconditionFailed`. Where processing must not start until the
+Fix: replace calls such as `#gets` on the IO with `each(:line)`, which reads lines from any stream. Where an
+object can be replaced while it is read, enable versioning on the bucket, or retry the read on
+`Aws::S3::Errors::PreconditionFailed`. Where the IO must be a `File`, or processing must not start until the
 whole object has been read, read it into a local file first, for example with
 `IOStreams.path("s3://bucket/a.csv").copy_to(local_path, convert: false)`.
+
+### HTTP files are read without a temp file
+
+Reading an `http://` or `https://` path now reads the response one chunk at a time, as the application reads
+it, instead of downloading the whole file into a temp file before the block is called. So the application
+starts on the data straight away, and the file no longer has to fit on the local disk. The request is still
+made before the block is called, so a missing file, or a server that cannot be reached, raises before the block
+runs, as before. This changes:
+
+* The IO that `#reader` supplies to the block, when the path has no streams, such as `data.csv`, or is read with
+  `#raw`, is no longer a `File`. Like the other streams, it responds to `#read`, `#readpartial` and `#eof?`, so
+  `#gets`, `#each_line`, `#rewind` and `#size` raise `NoMethodError`, as does a library that calls them, such as
+  `CSV.new(io)`. It can only be read by the thread that called `#reader`.
+* The connection stays open while the block runs, and is closed once it returns, so a block that is slow to
+  read can reach the idle timeout of the server, or of a proxy in between.
+* A failure to read the file part way through, or a body that exceeds `maximum_file_size`, now raises from
+  within the block, once some of the data has been processed, as it can for any other stream.
+* A connection that closes before the whole body has been received raises
+  `IOStreams::Errors::CommunicationsFailure`, tagged as `IOStreams::Errors::Unavailable`, rather than `EOFError`.
+  A body that is shorter than its `Content-Length` now raises it too, where it was accepted.
+
+A zip file or spreadsheet on HTTP is still copied into a temp file, since it is read from a file.
+
+Fix: replace calls such as `#gets` on the IO with `each(:line)`, which reads lines from any stream. Where the IO
+must be a `File`, where processing must not start until the whole file has been read, or where the block is slow
+to read, read it into a local file first, for example with
+`IOStreams.path("https://example.com/a.csv").copy_to(local_path, convert: false)`.
 
 ### S3 objects are written without a temp file
 

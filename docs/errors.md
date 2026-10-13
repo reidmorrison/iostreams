@@ -217,8 +217,10 @@ also rescue an attempt to access a path that the application does not allow, suc
   directory cannot be written to, the failure is tagged with the display name of the target.
 * A local file is never `Unavailable`.
 * The AWS SDK retries a request that S3 could not handle, or that could not reach it, before it raises `Unavailable`.
-* Reading an HTTP path downloads the whole file before the block is called, so the connection is closed before the
-  block reads it.
+* Reading an HTTP path reads the response as the block reads it, so a connection that fails part way through raises
+  from within the block, once some of the data has been processed. A connection that closes before the whole body
+  has been received raises `IOStreams::Errors::CommunicationsFailure` tagged as `Unavailable`, as does a body that is
+  shorter than its `Content-Length`. A failure raised by the block itself is not tagged.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
 
 ## Storage registered with `IOStreams.register_scheme`
