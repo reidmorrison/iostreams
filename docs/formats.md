@@ -105,7 +105,7 @@ Like `#format`, the schema describes the file, so it is set on the path, rather 
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` | ISO 8601, or text in its `format` |
-| `any` | the value as it is read | the value as it is |
+| `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, see [Values without a field](#values-without-a-field) |
 
 A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
 field, which keeps it.
@@ -167,6 +167,23 @@ to the column whose name is the same once both are cleansed like a header row, s
 so that the field `first_name` applies to the column `First Name`, and the field `First Name` of an existing
 Frictionless schema applies to the column `first_name` once the header row is cleansed. The values of the other
 columns are left as they are, and the header row itself is not converted.
+
+### Values without a field
+
+A value without a field, in a file without a schema, or in a column that its schema does not list, is written as a
+field of type `any` writes it:
+
+| Value | Written as |
+|-------|------------|
+| `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
+| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with as many digits of its fraction of a second as it needs |
+| `Date` | ISO 8601, such as `2026-10-13` |
+| any other value | its `to_s`, such as `42` or `true` |
+
+JSON writes a `BigDecimal`, `Date` or `Time` as that text, within an object or an array too, so that a `BigDecimal`
+keeps all of its digits, and writes every other value as itself, such as a number or `true`. The `:hash` and `:array`
+formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
+a type and a `format` in the schema.
 
 ## Fixed width files
 

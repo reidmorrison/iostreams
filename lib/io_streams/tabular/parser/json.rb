@@ -18,9 +18,12 @@ module IOStreams
         end
 
         # Return the supplied array as a single line JSON string.
+        #
+        # A BigDecimal, Date or Time is written as its text, see `IOStreams::Schema::Field.any_json`, such as "12.5"
+        # rather than "0.125e2", so that a BigDecimal keeps all of its digits.
         def render(row, header)
           hash = header.to_hash(row)
-          hash.to_json
+          IOStreams::Schema::Field.any_json(hash).to_json
         end
 
         def requires_header?

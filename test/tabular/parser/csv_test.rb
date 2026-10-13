@@ -1,4 +1,5 @@
 require_relative "../../test_helper"
+require "bigdecimal"
 
 module Tabular
   module Parser
@@ -105,11 +106,20 @@ module Tabular
             [e.class, e.message]
           end
 
+          # A value that is not text is written as its text, see `IOStreams::Schema::Field.any_text`, which CSV then
+          # writes like any other text.
           def assert_renders_like_csv(values)
-            expected = rendered { CSV.generate_line(values, encoding: "UTF-8", row_sep: "") }
+            text     = values.map { |value| value && IOStreams::Schema::Field.any_text(value) }
+            expected = rendered { CSV.generate_line(text, encoding: "UTF-8", row_sep: "") }
             actual   = rendered { parser.render(values, header) }
 
             assert_equal expected, actual, "Rendering #{values.inspect}"
+          end
+
+          it "writes a BigDecimal, Date or Time as its usual text, rather than the text that CSV writes for it" do
+            row = [BigDecimal("12.5"), Time.at(0).utc, Date.new(2026, 10, 13), DateTime.new(2026, 10, 13, 9, 30)]
+
+            assert_equal "12.5,1970-01-01T00:00:00Z,2026-10-13,2026-10-13T09:30:00+00:00", parser.render(row, header)
           end
 
           # The parser writes most lines itself, so check that each is the same, in the same encoding, or raises

@@ -17,10 +17,13 @@ module IOStreams
         #
         # Since PSV has no escaping, any `|` within a value is replaced with `:`,
         # and any line break with a space, so that a value cannot add columns or records.
+        # A value that is not a String is written as its text, see `IOStreams::Schema::Field.any_text`.
         def render(row, header)
           array          = header.to_array(row)
-          cleansed_array = array.collect do |i|
-            i.is_a?(String) ? i.tr("|", ":").gsub(LINE_BREAK, " ") : i
+          cleansed_array = array.collect do |value|
+            next if value.nil?
+
+            IOStreams::Schema::Field.any_text(value).tr("|", ":").gsub(LINE_BREAK, " ")
           end
           cleansed_array.join("|")
         end

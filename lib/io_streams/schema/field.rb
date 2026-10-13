@@ -152,6 +152,77 @@ module IOStreams
                  (datetime.offset * 86_400).to_i)
       end
 
+      # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
+      # as a plain decimal, such as "12.5" rather than "0.125e2", a Time or DateTime in ISO 8601, such as
+      # "2026-10-13T09:30:00Z", with as many digits of its fraction of a second as it needs, a Date in ISO 8601, such as
+      # "2026-10-13", and any other value with `to_s`.
+      #
+      # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
+      # without a schema.
+      def self.any_text(value)
+        return value if value.is_a?(String)
+        # `is_a?` rather than `case`, which an `ActiveSupport::TimeWithZone` does not match.
+        return time_text(value) if value.is_a?(Time)
+        return time_text(value.to_time) if value.is_a?(DateTime)
+        return value.iso8601 if value.is_a?(Date)
+        return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+
+        value.to_s
+      end
+
+      # Returns the value as JSON holds it when its type is not known, as a field of type "any" writes it: a
+      # BigDecimal, Date, Time or DateTime as its text, see .any_text, so that a BigDecimal keeps all of its digits, and
+      # every other value as it is. The values within a Hash or an Array are converted too, in a copy, and the value
+      # itself is returned when none of them needs it.
+      def self.any_json(value)
+        case value
+        when ::Hash then json_hash(value)
+        when ::Array then json_array(value)
+        when String, Integer, Float, true, false, nil then value
+        else textual?(value) ? any_text(value) : value
+        end
+      end
+
+      # Returns [Hash] a copy of the hash with each of its values converted, see .any_json, or the hash itself when none
+      # of them needs it.
+      def self.json_hash(hash)
+        copy = nil
+        hash.each_pair do |key, item|
+          json = any_json(item)
+          (copy ||= hash.dup)[key] = json unless json.equal?(item)
+        end
+        copy || hash
+      end
+
+      # Returns [Array] a copy of the array with each of its values converted, see .any_json, or the array itself when
+      # none of them needs it.
+      def self.json_array(array)
+        copy = nil
+        array.each_with_index do |item, index|
+          json = any_json(item)
+          (copy ||= array.dup)[index] = json unless json.equal?(item)
+        end
+        copy || array
+      end
+
+      # Returns [true|false] whether JSON holds the value as its text, see .any_json.
+      def self.textual?(value)
+        value.is_a?(Time) || value.is_a?(Date) || (defined?(::BigDecimal) && value.is_a?(::BigDecimal))
+      end
+
+      # Returns [String] the time in ISO 8601, with as many digits of its fraction of a second as it needs.
+      def self.time_text(value)
+        nanoseconds = value.nsec
+        digits      =
+          if nanoseconds.zero? then 0
+          elsif (nanoseconds % 1_000_000).zero? then 3
+          elsif (nanoseconds % 1000).zero? then 6
+          else 9
+          end
+        value.iso8601(digits)
+      end
+      private_class_method :time_text, :json_hash, :json_array, :textual?
+
       # Returns [true|false] whether the values of this field are numbers, which a fixed width file zero fills.
       def numeric?
         NUMERIC_TYPES.include?(type)
@@ -216,9 +287,8 @@ module IOStreams
         case type
         when "number" then number_text(value)
         when "boolean" then value ? @true_values.first : @false_values.first
-        when "date" then @format ? value.strftime(@format) : value.iso8601
-        when "datetime" then @format ? value.strftime(@format) : datetime_text(value)
-        else value.to_s
+        when "date", "datetime" then @format ? value.strftime(@format) : self.class.any_text(value)
+        else self.class.any_text(value)
         end
       end
 
@@ -311,11 +381,9 @@ module IOStreams
       # text, such as a `URI` or an id.
       def cast_string(value)
         return value if value.is_a?(String)
-        return value.to_s("F") if bigdecimal?(value)
-        return value.iso8601 if value.is_a?(Date) || value.is_a?(Time)
         return invalid(value) if value.is_a?(::Hash) || value.is_a?(::Array)
 
-        value.to_s
+        self.class.any_text(value)
       end
 
       def cast_integer(value)
@@ -416,22 +484,11 @@ module IOStreams
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
       end
 
-      # Returns [String] the time in ISO 8601, with as many digits of its fraction of a second as it needs.
-      def datetime_text(value)
-        nanoseconds = value.nsec
-        digits      =
-          if nanoseconds.zero? then 0
-          elsif (nanoseconds % 1_000_000).zero? then 3
-          elsif (nanoseconds % 1000).zero? then 6
-          else 9
-          end
-        value.iso8601(digits)
-      end
-
       def json(value)
         case type
         when "number" then (@decimals ? value.round(@decimals) : value).to_f
-        when "integer", "boolean", "string", "any" then value
+        when "integer", "boolean", "string" then value
+        when "any" then self.class.any_json(value)
         else text(value)
         end
       end

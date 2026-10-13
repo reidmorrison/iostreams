@@ -106,13 +106,16 @@ module IOStreams
         # unless a value is text that is neither valid UTF-8 nor ASCII, which `CSV.generate_line` still writes, so
         # that the line and any error are the same.
         def render_array(array)
-          render_line(array) || CSV.generate_line(array, encoding: "UTF-8", row_sep: "")
+          render_line(array) ||
+            CSV.generate_line(array.map { |value| value && IOStreams::Schema::Field.any_text(value) },
+                              encoding: "UTF-8", row_sep: "")
         end
 
         # Returns [String] the values as a UTF-8 line, or nil when a value is text that is neither valid UTF-8 nor ASCII.
         #
-        # Like CSV, a nil value is written as nothing, and any other value is converted with `String()`, and quoted when
-        # it is empty, or contains a quote, a comma or a line break.
+        # Like CSV, a nil value is written as nothing, and any other value is quoted when it is empty, or contains a quote,
+        # a comma or a line break. A value that is not a String is written as its text, see
+        # `IOStreams::Schema::Field.any_text`, such as a BigDecimal as "12.5" rather than "0.125e2".
         def render_line(values)
           line  = +""
           index = 0
@@ -122,7 +125,7 @@ module IOStreams
             index += 1
             next if value.nil?
 
-            value = String(value)
+            value = IOStreams::Schema::Field.any_text(value)
             return unless (value.encoding == Encoding::UTF_8 || value.ascii_only?) && value.valid_encoding?
 
             if value.empty? || QUOTABLE.match?(value)

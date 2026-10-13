@@ -927,6 +927,52 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "values without a field" do
+      let(:columns) { %w[amount at on stamp count ok none] }
+
+      let(:values) do
+        {
+          "amount" => BigDecimal("12.5"),
+          "at"     => Time.utc(2026, 10, 13, 9, 30, 0.25r),
+          "on"     => Date.new(2026, 10, 13),
+          "stamp"  => DateTime.new(2026, 10, 13, 9, 30),
+          "count"  => 3,
+          "ok"     => true,
+          "none"   => nil
+        }
+      end
+
+      it "writes CSV with the usual text of each value" do
+        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3,true,",
+                     IOStreams::Tabular.new(format: :csv, columns: columns).render(values)
+      end
+
+      it "writes PSV with the usual text of each value" do
+        assert_equal "12.5|2026-10-13T09:30:00.250Z|2026-10-13|2026-10-13T09:30:00+00:00|3|true|",
+                     IOStreams::Tabular.new(format: :psv, columns: columns).render(values)
+      end
+
+      it "writes JSON with a BigDecimal, Date or Time as text, within a Hash or an Array too, and other values as they are" do
+        record = values.merge("items" => [{"price" => BigDecimal("1.5")}, 2])
+
+        assert_equal %({"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00+00:00",) +
+                     %("count":3,"ok":true,"none":null,"items":[{"price":"1.5"},2]}),
+                     IOStreams::Tabular.new(format: :json).render(record)
+        assert_equal BigDecimal("1.5"), record["items"].first["price"]
+      end
+
+      it "keeps the values of a format whose rows are Ruby objects" do
+        assert_equal values, IOStreams::Tabular.new(format: :hash).render(values)
+      end
+
+      it "applies to the columns that have no field in the schema" do
+        schema = IOStreams::Schema.new(fields: [{name: "count", type: "number", decimals: 1}])
+
+        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3.0,true,",
+                     IOStreams::Tabular.new(format: :csv, columns: columns, schema: schema).render(values)
+      end
+    end
+
     describe "schema without a header row" do
       let(:schema) { IOStreams::Schema.new(header: false, fields: [{name: "name"}, {name: :age, type: "integer"}]) }
 

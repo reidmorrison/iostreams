@@ -187,6 +187,7 @@ class SchemaTest < Minitest::Test
           assert_equal "name", string.cast(:name)
           assert_equal "2026-10-13", string.cast(Date.new(2026, 10, 13))
           assert_equal "2026-10-13T09:30:00Z", string.cast(Time.utc(2026, 10, 13, 9, 30))
+          assert_equal "2026-10-13T09:30:00.250Z", string.cast(Time.utc(2026, 10, 13, 9, 30, 0.25r))
         end
 
         it "converts any other object to its text, such as an id" do
@@ -435,6 +436,16 @@ class SchemaTest < Minitest::Test
           assert_equal " 12 ", any.cast(" 12 ")
           assert_equal [1], any.render([1], :json)
           assert_equal "12", any.render(12, :text)
+        end
+
+        it "writes a BigDecimal, Date or Time as its usual text" do
+          any = field
+
+          assert_equal "12.5", any.render(BigDecimal("12.5"), :text)
+          assert_equal "12.5", any.render(BigDecimal("12.5"), :json)
+          assert_equal "2026-10-13T09:30:00Z", any.render(Time.utc(2026, 10, 13, 9, 30), :text)
+          assert_equal({"at" => "2026-10-13"}, any.render({"at" => Date.new(2026, 10, 13)}, :json))
+          assert_equal BigDecimal("12.5"), any.render(BigDecimal("12.5"), :typed)
         end
       end
     end

@@ -861,6 +861,22 @@ character splits the lines where CSV does not. It is still the way to choose the
 
 Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
+### `BigDecimal` and `Time` values are written as their usual text
+
+A value without a field in the schema, including every value of a file without a schema, is now written as a field
+of type `any` writes it, in CSV, PSV and JSON:
+
+| Value | Now | Before |
+|-------|-----|--------|
+| `BigDecimal("12.5")` | `12.5` | `0.125e2`, or `12.5` in a Rails application |
+| `Time.utc(2026, 10, 13, 9, 30)` | `2026-10-13T09:30:00Z` | `2026-10-13 09:30:00 UTC`, or in JSON in a Rails application `2026-10-13T09:30:00.000Z` |
+| `Date.new(2026, 10, 13)` | `2026-10-13` | its `to_s`, which an application can change |
+
+JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits.
+
+Fix: to keep another form, give the column a field in the schema with a `type` and a `format`, such as
+`{name: "on", type: "date", format: "%d/%m/%Y"}`, or convert the value to text before writing it.
+
 ### A fixed width number that holds no number raises
 
 Reading an `:integer` or `:float` column of a fixed width file that holds no number, such as `N/A` or `12-`, now

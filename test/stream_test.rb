@@ -1306,6 +1306,16 @@ class StreamTest < Minitest::Test
           assert_equal "42,12.50,2026-10-13,true\n", written
         end
 
+        it "copies typed values into a target without a schema as their usual text" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.csv").schema(headerless)
+            source.write("0042,12.5,2026-10-13,true\n")
+            IOStreams.path(dir, "people.json").copy_from(source, mode: :hash)
+
+            assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "people.json").read
+          end
+        end
+
         it "is read by #copy_from and #copy_to, whose options only apply to the target" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "people.csv").schema(headerless)
