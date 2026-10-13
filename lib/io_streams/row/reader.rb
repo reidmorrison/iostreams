@@ -4,6 +4,12 @@ module IOStreams
   module Row
     # Converts each line of an input stream into an array for every line
     class Reader < IOStreams::Reader
+      # Returns [Array<Symbol>] the options of each call that read with this reader, see `IOStreams::Stream#each`: those
+      # of its lines, except their buffer size, `cleanse_header`, and those of `IOStreams::Tabular`.
+      def self.option_names
+        [*(IOStreams::Line::Reader.option_names - %i[buffer_size]), :cleanse_header, *IOStreams::Tabular.read_option_names]
+      end
+
       # Read a line as an Array at a time from a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :each

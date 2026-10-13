@@ -48,6 +48,18 @@ module IOStreams
     # schema, see #header_cleansing. Distinct from nil, which does not cleanse it, as before.
     CLEANSE_BY_DEFAULT = :default
 
+    # Returns [Array<Symbol>] the options of the header that a reader of rows or records supplies to each call,
+    # see #initialize.
+    def self.read_option_names
+      Header::OPTION_NAMES
+    end
+
+    # Returns [Array<Symbol>] the options of the header that a writer of rows or records supplies to each call: all but
+    # the restrictions of the columns read, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`.
+    def self.write_option_names
+      Header::OPTION_NAMES - Header::READ_OPTION_NAMES
+    end
+
     # Parse a delimited data source.
     #
     # Parameters

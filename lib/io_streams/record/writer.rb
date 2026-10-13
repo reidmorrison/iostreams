@@ -8,6 +8,12 @@ module IOStreams
     #     stream << {name: 'Joe', address: 'Lost', zipcode: 32443, age: 23}
     #   end
     class Writer < IOStreams::Writer
+      # Returns [Array<Symbol>] the options of each call that write with this writer, see `IOStreams::Stream#writer`:
+      # those of its lines, and those of `IOStreams::Tabular`.
+      def self.option_names
+        [*IOStreams::Line::Writer.option_names, *IOStreams::Tabular.write_option_names]
+      end
+
       # Write a record as a Hash at a time to a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<

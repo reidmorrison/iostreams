@@ -6,6 +6,12 @@ module IOStreams
     class Reader < IOStreams::Reader
       include Enumerable
 
+      # Returns [Array<Symbol>] the options of each call that read with this reader, see `IOStreams::Stream#each`: those
+      # of its lines, except their buffer size, `cleanse_header`, and those of `IOStreams::Tabular`.
+      def self.option_names
+        [*(IOStreams::Line::Reader.option_names - %i[buffer_size]), :cleanse_header, *IOStreams::Tabular.read_option_names]
+      end
+
       # Read a record at a time from a line stream
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :each

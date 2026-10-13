@@ -404,6 +404,39 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
+    describe ".option_names of lines, rows and records" do
+      # Returns [Array<Symbol>] the keyword arguments of the method.
+      def keywords(method)
+        method.parameters.filter_map { |kind, name| name if %i[key keyreq].include?(kind) }
+      end
+
+      it "matches the keyword arguments of the line reader and writer" do
+        assert_equal keywords(IOStreams::Line::Reader.instance_method(:initialize)).sort, IOStreams::Line::Reader.option_names.sort
+        assert_equal keywords(IOStreams::Line::Writer.instance_method(:initialize)).sort, IOStreams::Line::Writer.option_names.sort
+      end
+
+      it "matches the keyword arguments of the header" do
+        assert_equal keywords(IOStreams::Tabular::Header.instance_method(:initialize)).sort, IOStreams::Tabular.read_option_names.sort
+      end
+
+      it "matches the options that each mode of a stream takes, with those of the header" do
+        header = IOStreams::Tabular.read_option_names
+        stream = IOStreams::Stream
+
+        assert_equal (keywords(stream.instance_method(:row_reader)) + header).sort, IOStreams::Row::Reader.option_names.sort
+        assert_equal (keywords(stream.instance_method(:record_reader)) + header).sort, IOStreams::Record::Reader.option_names.sort
+        assert_equal (keywords(stream.instance_method(:row_writer)) + IOStreams::Tabular.write_option_names).sort,
+                     IOStreams::Row::Writer.option_names.sort
+        assert_equal (keywords(stream.instance_method(:record_writer)) + IOStreams::Tabular.write_option_names).sort,
+                     IOStreams::Record::Writer.option_names.sort
+      end
+
+      it "gives the options that only apply when reading" do
+        assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns skip_unknown],
+                     IOStreams::Stream.read_option_names.sort
+      end
+    end
+
     describe ".sensitive_option_names" do
       # A class can only declare its own options sensitive.
       FORMATS.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|

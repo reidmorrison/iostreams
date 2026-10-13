@@ -12,6 +12,12 @@ module IOStreams
     #
     # With a schema, the header row is the names of its fields, so every row is the values of the fields, in order.
     class Writer < IOStreams::Writer
+      # Returns [Array<Symbol>] the options of each call that write with this writer, see `IOStreams::Stream#writer`:
+      # those of its lines, and those of `IOStreams::Tabular`.
+      def self.option_names
+        [*IOStreams::Line::Writer.option_names, *IOStreams::Tabular.write_option_names]
+      end
+
       # Write a record from an Array at a time to a stream.
       #
       # Note:

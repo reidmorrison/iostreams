@@ -5,6 +5,11 @@ module IOStreams
     class Writer < IOStreams::Writer
       attr_reader :delimiter
 
+      # Returns [Array<Symbol>] the options that the writer accepts, see #initialize.
+      def self.option_names
+        %i[delimiter]
+      end
+
       # Write a line at a time to a stream.
       def self.stream(output_stream, **args)
         # Pass-through if already a line writer

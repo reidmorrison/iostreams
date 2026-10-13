@@ -15,11 +15,18 @@ module IOStreams
       schema:         "path.schema(\"people.json\").each(:hash)"
     }.freeze
 
-    # The options that only apply when reading, so that a writer, and a copy, which uses its options to write its
-    # target, raise for them, rather than ignore them.
-    READ_OPTIONS = %i[cleanse_header allowed_columns required_columns skip_unknown embedded_within buffer_size].freeze
-
     attr_reader :io_stream
+
+    # Returns [Array<Symbol>] the options that only the readers of lines, rows and records accept, so that a writer, and
+    # a copy, which uses its options to write its target, raise for them, rather than ignore them. Each reader and
+    # writer declares the options that it accepts.
+    def self.read_option_names
+      @read_option_names ||= [
+        [IOStreams::Line::Reader, IOStreams::Line::Writer],
+        [IOStreams::Row::Reader, IOStreams::Row::Writer],
+        [IOStreams::Record::Reader, IOStreams::Record::Writer]
+      ].flat_map { |reader, writer| reader.option_names - writer.option_names }.uniq.freeze
+    end
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
@@ -608,15 +615,17 @@ module IOStreams
       raise(ArgumentError, messages.join(". "))
     end
 
-    # Raises ArgumentError for an option that only applies when reading, see READ_OPTIONS, since writing would ignore it.
+    # Raises ArgumentError for an option that only applies when reading, see .read_option_names, since writing would
+    # ignore it.
     #
     # Suggests a schema in place of a column restriction when `suggest_schema`, for the modes that have columns.
     def reject_read_options!(options, reason, suggest_schema: true)
-      names = READ_OPTIONS & options.keys
+      names = self.class.read_option_names & options.keys
       return if names.empty?
 
       message = "#{names.map(&:inspect).join(', ')} only #{names.size == 1 ? 'applies' : 'apply'} when reading, #{reason}"
-      if suggest_schema && names.intersect?(%i[allowed_columns required_columns skip_unknown])
+      restrictions = IOStreams::Tabular.read_option_names - IOStreams::Tabular.write_option_names
+      if suggest_schema && names.intersect?(restrictions)
         message << ". To choose the columns that are written, set a schema on the path, whose fields are the columns"
       end
       raise(ArgumentError, message)
