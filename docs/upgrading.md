@@ -554,7 +554,7 @@ exactly that email address, ignoring case. gpg treats a bare email address as a 
 that contains it, so previously `bob@example.com` also matched `jimbob@example.com`.
 
 Fix: supply the exact email address of each key. To search the way gpg does, supply a value that is not
-just an email address, such as `*example.com`.
+just an email address, such as `*@example.com`.
 
 #### PGP writer options raise `ArgumentError` before the file is opened
 

@@ -24,7 +24,9 @@ reads or writes:
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
-lines, see [Tabular formats](formats).
+lines, see [Tabular formats](formats). The extensions of the file name also say how the file is compressed or
+encrypted, which IOStreams applies as the data is read or written, see
+[Streams from the file name](#streams-from-the-file-name).
 
 ## Reading
 
@@ -55,11 +57,7 @@ IOStreams.path("example.csv").reader do |io|
 end
 ~~~
 
-`#reader` and `#writer` return the result of the block. Within the block, an S3 object or an HTTP response is read as
-the block reads it, so the IO is not a `File`. Like the IO of every stream, such as of a `.gz` file, it has the methods
-of an IO that read, such as `#read`, `#gets` and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`,
-reads it, but not `#rewind`, `#pos`, `#size` or `#path`. Where the code needs a `File`, copy the file to a local file
-first, see [Copying and moving](copy_files).
+`#reader` and `#writer` return the result of the block.
 
 `#read` returns the whole file, which is only suitable for a small one, since all of it is held in memory:
 
@@ -67,6 +65,11 @@ first, see [Copying and moving](copy_files).
 IOStreams.path("example.csv.gz").read
 # => "name,login\nJack Jones,jjones\n"
 ~~~
+
+Within a `#reader` block, an S3 object or an HTTP response is read as the block reads it, so the IO is not a `File`.
+Like the IO of every stream, such as of a `.gz` file, it has the methods of an IO that read, such as `#read`, `#gets`
+and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`, reads it, but not `#rewind`, `#pos`, `#size`
+or `#path`. Where the code needs a `File`, copy the file to a local file first, see [Copying and moving](copy_files).
 
 ## Writing
 
@@ -180,7 +183,7 @@ With just one encoding, such as `encoding("Windows-1252")`, the strings read are
 converted to UTF-8, and cannot be combined with UTF-8 text. `encoding("BINARY")` reads lines, rows and records as
 binary strings.
 
-`#encoding` also takes the other options of the encode stream, which converts the text:
+`#encoding` also takes these options, which change how the text is converted:
 
 * `replace:` replaces each character that is not valid, or that the target encoding does not have, rather than raising,
   such as `encoding("UTF-8", replace: "?")`. With `replace: ""` such characters are removed.
@@ -330,10 +333,10 @@ configured path names:
 IOStreams.path(ENV.fetch("IMPORT_PATH")).option(:pgp, passphrase: "receiver_passphrase").read
 ~~~
 
-An option for a format applies to each of its extensions, so `option(:pgp, ...)` also applies to a `.gpg` file,
+An option for a stream applies to each of its extensions, so `option(:pgp, ...)` also applies to a `.gpg` file,
 `option(:gz, ...)` to a `.gzip` file, and `option(:xlsx, ...)` to a `.xlsm` file. So a file name held in configuration
 can change from one extension to the other without changing the code. When options are set for more than one
-extension of a format, those for the extension in the file name take precedence.
+extension of a stream, those for the extension in the file name take precedence.
 
 `#setting` returns the options set for a stream:
 

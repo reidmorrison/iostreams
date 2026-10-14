@@ -18,8 +18,8 @@ settings on this page. None of them is on by default, since each one depends on 
 ## Allowed paths
 
 If a user, a job, or any other untrusted input can supply a file name, it can also supply `..` or an absolute path,
-and read or overwrite any file that the process can access. Roots, see `IOStreams.join`, make paths easy to build,
-but they do not stop a path from leaving the root, for example `IOStreams.join("../../etc/passwd")`.
+and read or overwrite any file that the process can access. [Root paths](path#using-root-paths) make paths easy to
+build, but they do not stop a path from leaving the root, for example `IOStreams.join("../../etc/passwd")`.
 
 Add the allowed paths in an initializer, where untrusted input cannot change them:
 
@@ -39,7 +39,7 @@ IOStreams.path("/var/my_app/uploads/file.csv").read
 # => "..."
 
 IOStreams.path("/var/my_app/uploads/../secrets.yml").read
-# => IOStreams::Errors::AccessDenied
+# raises IOStreams::Errors::AccessDenied
 
 # Check without raising:
 IOStreams.path("/etc/passwd").allowed?

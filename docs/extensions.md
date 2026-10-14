@@ -53,7 +53,7 @@ IOStreams.path("example.csv.gz").option(:gz, level: 9).write("name,login\nJack J
 
 * An option for a stream that the file name does not include has no effect, so the same code can set the options of
   every stream that a path held in configuration might use.
-* An option for a format applies to each of its extensions: `option(:gz, ...)` to a `.gzip` file, `option(:pgp, ...)`
+* An option for a stream applies to each of its extensions: `option(:gz, ...)` to a `.gzip` file, `option(:pgp, ...)`
   to a `.gpg` file, and `option(:xlsx, ...)` to a `.xlsm` file.
 * For a file whose name does not name its streams, set them with `#stream`, which takes the same options, such as
   `IOStreams.path("tempfile2527").stream(:gz, level: 9)`, see [Stream](streams#stream).
@@ -194,9 +194,7 @@ end
 ### Zstandard
 
 Zstandard uses the `zstd-ruby` gem, 2.0.0 or later, which decompresses one zstd block, 128KB, at a time, however well
-the data compresses. IOStreams uses its `Zstd::StreamingCompress` and `Zstd::StreamingDecompress`, rather than its
-`Zstd::StreamWriter` and `Zstd::StreamReader`, which the
-[zstd-ruby README marks as experimental](https://github.com/SpringMT/zstd-ruby#stream-writer-and-reader-wrapper).
+the data compresses.
 
 JRuby cannot load `zstd-ruby`, which is a C extension, so on JRuby IOStreams uses the
 [zstd-jni](https://github.com/luben/zstd-jni) jar instead, which the application adds to the classpath, for example

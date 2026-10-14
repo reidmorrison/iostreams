@@ -4,8 +4,8 @@ title: Errors
 description: >-
   Rescue a missing file, a file that cannot be accessed, a server that cannot
   be reached, or a file whose data is corrupt, the same way wherever the file is
-  stored and whatever its format, keeping the exception that was raised, and the
-  other exceptions that IOStreams raises.
+  stored and however it is compressed or encrypted, keeping the exception that
+  was raised, and the other exceptions that IOStreams raises.
 ---
 
 **Contents**
@@ -18,13 +18,13 @@ storage raised, such as `Errno::ENOENT` for a local file or `Aws::S3::Errors::No
 exception with the kind of failure: `IOStreams::Errors::NotFound`, `PermissionDenied` or `Unavailable`.
 
 Likewise, when a stream cannot read the data of a file, for example because a file named `.gz` is not gzip data, or a
-zip file does not contain the file to read, the stream raises the exception of the gem that reads the format, such as
+zip file does not contain the file to read, the stream raises the exception of its gem, such as
 `Zlib::GzipFile::Error`, tagged with the kind of failure: `IOStreams::Errors::Corrupt` or `MissingEntry`.
 
 Rescue the kind of failure, rather than the exception from one storage or one gem, so that the same code keeps working
 when the path changes, for example from a local file in development to S3 in production, or from `.gz` to `.zip`. See
 [Paths are configuration](config#paths-are-configuration). It also keeps working when IOStreams replaces the gem that
-reads a format with a newer or better one, or reads it with another library on another platform, as JRuby reads zip
+reads a stream with a newer or better one, or reads it with another library on another platform, as JRuby reads zip
 files with Java.
 
 ## Rescue the kind of failure
@@ -53,7 +53,7 @@ rescue Errno::ENOENT
 rescue Errno::ENOENT, Aws::S3::Errors::NoSuchKey, IOStreams::Errors::CommunicationsFailure
 ~~~
 
-## Rescue a file that cannot be read, whatever its format
+## Rescue a file that cannot be read, whatever its streams
 
 ~~~ruby
 path = IOStreams.path(ENV.fetch("IMPORT_PATH"))
@@ -65,10 +65,10 @@ rescue IOStreams::Errors::Corrupt => e
 end
 ~~~
 
-The same rescue handles a file that is damaged, cut short, or not in its format at all, whether `IMPORT_PATH` is
+The same rescue handles a file that is damaged, cut short, or not what its file name says at all, whether `IMPORT_PATH` is
 `orders.csv.gz`, `orders.csv.bz2`, `orders.csv.zst`, `orders.zip`, `orders.csv.enc` or `orders.xlsx`.
 
-Rescuing the exception of one gem only works for that format:
+Rescuing the exception of one gem only works for that stream:
 
 ~~~ruby
 # Avoid: misses a corrupt file once the file name changes to .bz2 or .zip.
@@ -77,7 +77,7 @@ rescue Zlib::GzipFile::Error
 
 ## The exception tree
 
-The kinds of failure are modules that tag the exception that the storage, or the gem that reads a format, raised:
+The kinds of failure are modules that tag the exception that the storage, or the gem of a stream, raised:
 
 * `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure of the storage includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
@@ -144,14 +144,7 @@ The exception that each storage raises, which is tagged with the kind of failure
 | `PermissionDenied` | `Errno::EACCES` or `Errno::EPERM` | `Aws::S3::Errors::AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken` and the like, `Forbidden` from a HEAD request, or `Aws::Errors::MissingCredentialsError` | `IOStreams::Errors::CommunicationsFailure` when reading or writing, `Net::SFTP::StatusException`, or `Net::SSH::AuthenticationFailed` | `IOStreams::Errors::CommunicationsFailure` for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required` |
 | `Unavailable` | Never | `Seahorse::Client::NetworkingError` when S3 cannot be reached, or `Aws::S3::Errors::SlowDown`, `InternalError`, `ServiceUnavailable`, `RequestTimeout`, or a `429`, `500`, `502`, `503` or `504` response, once the AWS SDK has retried the request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, a connection error such as `Errno::ECONNREFUSED` or `SocketError`, or `Net::SSH::Disconnect` | A connection error such as `Errno::ECONNREFUSED`, `SocketError` or `Net::ReadTimeout`, or `IOStreams::Errors::CommunicationsFailure` for `408`, `429`, `500`, `502`, `503` or `504` |
 
-A host name that does not resolve, such as a mistyped host, is not `Unavailable`, since the same request will fail
-again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
-when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
-or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
-`ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
-musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
-that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
-not `Unavailable` then either.
+A host name that does not resolve, such as a mistyped host, is not `Unavailable`, see [Notes](#notes).
 
 SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem for everything else, such as
 `#each_child`, `#exist?` and `#delete`.
@@ -175,7 +168,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 `.pgp` and `.gpg` do not tag their failures yet: gpg raises `IOStreams::Pgp::Failure`, whose message gives the
 reason, since gpg does not always tell a key that is missing or wrong apart from corrupt data.
 
-Rescue the kind of failure rather than these exceptions: they belong to the gem that reads the format, which a newer
+Rescue the kind of failure rather than these exceptions: they belong to the gem of the stream, which a newer
 version of IOStreams can replace with another, and the zip stream already raises different ones on MRI and JRuby.
 
 ## The exception is kept
@@ -195,9 +188,9 @@ end
 ~~~
 
 * `#display_name` is the path that failed, without any user name, password or query, which can hold credentials,
-  see `IOStreams::Path#display_name`. For a failure of a stream, it is the file whose data the stream could not
-  read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the other streams,
-  whose message is that of the gem, such as `not in gzip format`.
+  see [Operations on the name](path#operations-on-the-name). For a failure of a stream, it is the file whose data the
+  stream could not read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the
+  other streams, whose message is that of the gem, such as `not in gzip format`.
 * The message starts with the display name, unless it already includes it, so that a log of the exception names
   the file. For example the message from S3 does not name the key, while that of `Errno::ENOENT` already names the file.
 
@@ -308,6 +301,14 @@ also rescue an attempt to access a path that the application does not allow, suc
   directory cannot be written to, the failure is tagged with the display name of the target.
 * A local file is never `Unavailable`.
 * The AWS SDK retries a request that S3 could not handle, or that could not reach it, before it raises `Unavailable`.
+* A host name that does not resolve, such as a mistyped host, is not `Unavailable`, since the same request will fail
+  again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
+  when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
+  or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
+  `ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
+  musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
+  that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
+  not `Unavailable` then either.
 * Reading an HTTP path reads the response as the block reads it, so a connection that fails part way through raises
   from within the block, once some of the data has been processed. A connection that closes before the whole body
   has been received raises `IOStreams::Errors::CommunicationsFailure` tagged as `Unavailable`, as does a body that is
@@ -316,13 +317,13 @@ also rescue an attempt to access a path that the application does not allow, suc
   `IOStreams::Errors::CommunicationsFailure` without a tag, since the whole response was received, so sending the
   request again returns the same response.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
-* Likewise a stream tags only the exceptions of the gem that reads its format. An exception raised by the block that
+* Likewise a stream tags only the exceptions of its gem. An exception raised by the block that
   you supply, such as a `Zlib::GzipFile::Error` from another gzip file that it reads, is not tagged.
 * The failure of a stream that reads another stream keeps its tag. For example, data that cannot be decrypted within
   `orders.csv.gz.enc` raises the exception of `.enc`, which the gzip stream reading it does not tag again.
 * A key for `.enc` that is not the one that the data was encrypted with also raises `Corrupt`, since the cipher
   cannot tell it apart from corrupt data.
-* A stream can only report the corruption that its format, or the gem that reads it, detects. A frame of `.zst`
+* A stream can only report the corruption that it, or its gem, detects. A frame of `.zst`
   data that is cut short is not detected on MRI, where `zstd-ruby` does not report it, nor is a damaged frame without
   the checksum of its content, which `.zst` written on MRI does not have. An empty `.bz2` or `.enc` file reads as
   empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
