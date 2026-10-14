@@ -4246,10 +4246,23 @@ just an email address, such as `*example.com`.
 
 Reading a gzip file that contains several members, for example concatenated gzip files, now returns
 the contents of every member, instead of only the first. The stream supplied to the block when reading
-gzip is no longer a `Zlib::GzipReader`; like the other streams it responds to `#read`, `#readpartial`
-and `#eof?`.
+gzip is no longer a `Zlib::GzipReader`, see
+[The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem).
 
-Fix: replace calls such as `#gets` on the gzip stream with `each(:line)`.
+### The stream of a reader block is not the reader of a gem
+
+When reading `.gz`, `.bz2`, `.zip` or `.enc`, or PGP within another stream or from an IO that is not a
+`File`, the stream supplied to the block is no longer the reader of its gem, or the pipe from `gpg`, such
+as a `Zlib::GzipReader`, a `Bzip2::FFI::Reader`, a `Zip::InputStream` or a `SymmetricEncryption::Reader`.
+Like every other stream, it responds to the methods of an IO that read, `#read`, `#readpartial`, `#gets`,
+`#readline`, `#readlines`, `#each_line`, `#each` and `#eof?`, which behave as they do for an IO whichever
+streams the data uses, so a library that reads an IO, such as `CSV.new(io)`, reads any stream. The other
+methods of those readers, such as `#rewind`, `#pos`, `#lineno`, `#getc` and `#size`, raise `NoMethodError`.
+The `.bz2` stream now also has `#readpartial`, `#gets` and `#each_line`.
+
+Fix: replace calls such as `#rewind` or `#size` on the stream. Read lines with `each(:line)` or
+`reader(:line)`. Where the stream must be a `File`, copy the file into a local file first, for example with
+`IOStreams.path("data.csv.gz").copy_to("/tmp/data.csv")`, which decompresses it, and read that file.
 
 ### The encode stream validates every read
 
@@ -4366,6 +4379,17 @@ documented, instead of `file`.
 Fix: if the program that reads the zip file expects the name `file`, supply
 `option(:zip, entry_file_name: "file")`.
 
+### A zip file that cannot be read raises `Zip::Error`
+
+Reading a zip file that does not contain the file to read, such as a zip file of only folders, or one without
+the `entry_file_name:` supplied, raises `Zip::Error`, naming the zip file. Previously a zip file of only
+folders read as empty on MRI, so `#read` returned nil, and a missing `entry_file_name:` raised `Errno::ENOENT`,
+as if the zip file itself were missing. A file within the zip file whose size or CRC32 is not the one that the
+zip file records raises `Zip::Error` once it has all been read, where the corrupt data was returned on MRI.
+
+Fix: rescue `Zip::Error`, rather than `Errno::ENOENT`, for a missing `entry_file_name:`, and for a zip file
+without any file in it, rather than checking for a nil `#read`.
+
 ### Hash keys match columns once cleansed
 
 When writing a hash with `columns:`, or reading JSON or `:hash` records with `columns:`, a key such as
@@ -4421,6 +4445,23 @@ since IOStreams opens and closes their files itself.
 
 Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
 reads until it is closed.
+
+### A failed write to your IO is not completed
+
+When writing `.gz`, `.bz2` or `.enc` to an IO that you supply with `IOStreams.stream(io)`, such as a
+`StringIO`, a socket or a pipe, and the block raises, or the thread writing is killed, the end of the
+compressed or encrypted data, such as the gzip trailer, is no longer written to `io`. So whoever reads it
+cannot take the data written before the failure for a complete file. Previously the end was written, so the
+partial data read back without an error. Now `io` holds only what was written before the failure:
+
+* gzip: its 10 byte header, and any compressed data already flushed, which raises when read.
+* bzip2: the blocks already flushed, often nothing, which reads as empty.
+* `.enc`: its header and the cipher blocks already written, which reads as empty or raises.
+
+Leaving the block early, such as with `break`, still writes the end. Paths are not affected, since a local
+path removes its partial file, and S3, SFTP and HTTP paths only store a file once the block completes.
+
+Fix: discard what `io` holds after a failure.
 
 ### PGP output is streamed into your IO
 
@@ -4650,18 +4691,17 @@ occur:
 * S3 returns no checksum for a range of an object, so the AWS SDK no longer checks one when reading. The data
   is still protected in transit by TLS.
 * The IO that `#reader` supplies to the block, when the path has no streams, such as `data.csv`, or is read with
-  `#raw`, is no longer a `File`. Like the other streams, it responds to `#read`, `#readpartial` and `#eof?`, so
-  `#gets`, `#each_line`, `#rewind` and `#size` raise `NoMethodError`, as does a library that calls them, such as
-  `CSV.new(io)`.
+  `#raw`, is no longer a `File`. Like every other stream, it responds to the methods of an IO that read, such as
+  `#read`, `#gets` and `#each_line`, so `CSV.new(io)` still reads it, but `#rewind`, `#pos`, `#size` and `#path`
+  raise `NoMethodError`, as does a library that calls them.
 
 With the `range` or `part_number` option, which choose the bytes of the object to read, the object is still
 downloaded into a temp file first.
 
-Fix: replace calls such as `#gets` on the IO with `each(:line)`, which reads lines from any stream. Where an
-object can be replaced while it is read, enable versioning on the bucket, or retry the read on
-`Aws::S3::Errors::PreconditionFailed`. Where the IO must be a `File`, or processing must not start until the
-whole object has been read, read it into a local file first, for example with
-`IOStreams.path("s3://bucket/a.csv").copy_to(local_path, convert: false)`.
+Fix: replace calls such as `#rewind` or `#size` on the IO. Where an object can be replaced while it is read,
+enable versioning on the bucket, or retry the read on `Aws::S3::Errors::PreconditionFailed`. Where the IO must
+be a `File`, or processing must not start until the whole object has been read, read it into a local file
+first, for example with `IOStreams.path("s3://bucket/a.csv").copy_to(local_path, convert: false)`.
 
 ### HTTP files are read without a temp file
 
@@ -4672,9 +4712,10 @@ made before the block is called, so a missing file, or a server that cannot be r
 runs, as before. This changes:
 
 * The IO that `#reader` supplies to the block, when the path has no streams, such as `data.csv`, or is read with
-  `#raw`, is no longer a `File`. Like the other streams, it responds to `#read`, `#readpartial` and `#eof?`, so
-  `#gets`, `#each_line`, `#rewind` and `#size` raise `NoMethodError`, as does a library that calls them, such as
-  `CSV.new(io)`. It can only be read by the thread that called `#reader`.
+  `#raw`, is no longer a `File`. Like every other stream, it responds to the methods of an IO that read, such as
+  `#read`, `#gets` and `#each_line`, so `CSV.new(io)` still reads it, but `#rewind`, `#pos`, `#size` and `#path`
+  raise `NoMethodError`, as does a library that calls them. It can only be read by the thread that called
+  `#reader`.
 * The connection stays open while the block runs, and is closed once it returns, so a block that is slow to
   read can reach the idle timeout of the server, or of a proxy in between.
 * A failure to read the file part way through, or a body that exceeds `maximum_file_size`, now raises from
@@ -4685,10 +4726,9 @@ runs, as before. This changes:
 
 A zip file or spreadsheet on HTTP is still copied into a temp file, since it is read from a file.
 
-Fix: replace calls such as `#gets` on the IO with `each(:line)`, which reads lines from any stream. Where the IO
-must be a `File`, where processing must not start until the whole file has been read, or where the block is slow
-to read, read it into a local file first, for example with
-`IOStreams.path("https://example.com/a.csv").copy_to(local_path, convert: false)`.
+Fix: replace calls such as `#rewind` or `#size` on the IO. Where the IO must be a `File`, where processing
+must not start until the whole file has been read, or where the block is slow to read, read it into a local
+file first, for example with `IOStreams.path("https://example.com/a.csv").copy_to(local_path, convert: false)`.
 
 ### S3 objects are written without a temp file
 
@@ -5224,6 +5264,17 @@ the rows, records or lines are read or written.
 
 Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
 `nil` for a spreadsheet.
+
+### Spreadsheet date and time cells are read as ISO 8601
+
+A time cell of a spreadsheet is read as its time of day in UTC in ISO 8601, such as `2026-01-02T09:30:00Z`,
+since Excel holds a time without a time zone, so that a `datetime` field of a schema can read it. Previously it
+was the text of a `Time` in the local time zone of the process, such as `2026-01-02 09:30:00 -0500`. A date cell
+is read as before, such as `2026-01-02`. A decimal cell that the `creek` gem returns as a `BigDecimal` is read as
+a plain decimal, such as `12.5`, where it was `0.125e2`.
+
+Fix: code that parses the text of a time cell, such as with `Time.parse`, still works, but gets the time in
+UTC. To get a local time, convert it, such as with `Time.parse(value).localtime`.
 
 ## Upgrading to v2.1
 
