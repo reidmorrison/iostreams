@@ -32,6 +32,10 @@ gem "zstd-ruby", platform: :ruby # A C extension, so JRuby uses the zstd-jni jar
 # To test reading an HTTP path under a Fiber scheduler. Its io-event dependency is a C extension.
 gem "async", platform: :ruby
 
+# Ruby 3.2 bundles timeout 0.3, which leaves the block that it interrupts with `throw`, as `break` does, so a write
+# that a Timeout interrupts would keep what was written, rather than discard it, as from timeout 0.4.
+gem "timeout", ">= 0.4"
+
 # Dev Tools
 # Pinned to a minor version since .rubocop.yml enables new cops, so that a RuboCop release cannot fail CI
 # without a code change. Bump these deliberately and fix any new offenses in the same commit.
