@@ -1376,6 +1376,8 @@ for each one.
   `reports.json/data.txt` as JSON.
 - `IOStreams.each_child` with a pattern that has no directory, such as `IOStreams.each_child("*.csv")`, searches the
   current directory, where it searched the root directory `/`.
+- A file whose first line ends with `\r\n` also ends a line at a `\n` alone, whose `\r` is removed, so a file whose
+  lines end in both ways reads each line, where two lines were read as one, and `each(:hash)` dropped a record.
 - `#copy_from` and `#copy_to` with `convert: false` no longer change the streams of the source or the target, which
   were left without any streams, as with `stream(:none)`.
 - `#inspect` shows the full name of a path, such as `#<IOStreams::Paths::S3:s3://bucket/a.csv pipeline={}>`, where it

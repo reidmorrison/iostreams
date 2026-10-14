@@ -105,19 +105,13 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
 ## Lines
 
 Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line
-ending is removed from each line. Every line of a file is split at that same ending, so in a file whose lines end in
-different ways, such as `\r\n` and then `\n`, the other endings stay within a line, and two rows would be read as one.
-Supply `delimiter: "\n"` for such a file: its rows and records are then read correctly, while the lines that ended
-with `\r\n` keep their `\r` in the `:line` mode.
+ending is removed from each line. When it is `\r\n`, as in a file written on Windows, a `\n` alone also ends a line,
+so a file whose lines end in both ways, such as a Windows file to which a program on Linux added lines, is read line by
+line.
 
-~~~ruby
-IOStreams.path("mixed_endings.csv").each(:hash, delimiter: "\n") do |record|
-  p record
-end
-~~~
-
-`delimiter:` splits the file at any other String too, such as `delimiter: "|"`. When writing, it is written after
-each line, `"\n"` by default.
+`delimiter:` splits the file at the String supplied instead, such as `delimiter: "|"`, and then only at it, so
+`delimiter: "\r\n"` keeps a `\n` alone within its line. When writing, it is written after each line, `"\n"` by
+default.
 
 A quoted value of a CSV file can contain a line break, which must not end the line. Lines are split where the format
 of the file expects, so `each(:array)` and `each(:hash)` keep a quoted line break within its row. So does `each(:line)`,
