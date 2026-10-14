@@ -37,6 +37,7 @@ module IOStreams
           # The input that zstd has not read yet.
           @input        = String.new(encoding: Encoding::BINARY)
           @end_of_input = false
+          @read         = false
         end
 
         # Returns [String] the next data decompressed, at most one block of zstd, 128KB, however well the data
@@ -65,16 +66,23 @@ module IOStreams
 
         private
 
+        # Raises [RuntimeError] at the end of an input stream without any data, which is not zstd, like `zstd -d`.
         def read_input
           block = @input_stream.read(BLOCK_SIZE)
           if block.nil?
+            raise("zstd decompress error: the data is empty") unless @read
+
             @end_of_input = true
           else
-            @input = block
+            @read ||= !block.empty?
+            @input  = block
           end
         end
       end
 
+      # Writes zstd frames without a checksum of their content, since `zstd-ruby`, upto version 2.0.10 at least, has no
+      # option to write one. Reading checks the checksum of a frame that has one, such as a frame that the zstd command
+      # or zstd-jni on JRuby wrote.
       class Encoder
         def initialize(output_stream, level: nil)
           @output_stream = output_stream

@@ -90,11 +90,34 @@ class ZstdReaderTest < Minitest::Test
         assert_raises(RuntimeError) { read_with("not zstd data", &:read) }
       end
 
-      it "raises for a frame cut short at the end of the stream" do
-        skip "zstd-ruby does not report a frame cut short" unless defined?(JRuby)
+      it "raises for empty data, which is not zstd, like the zstd command" do
+        error = assert_raises(RuntimeError) { read_with("".b, &:read) }
+        assert_equal "zstd decompress error: the data is empty", error.message
+      end
 
+      it "raises for a frame cut short at the end of the stream on JRuby, and returns the data before it on MRI" do
         compressed = ZstdLibrary.compress(data)
-        assert_raises(RuntimeError) { read_with(compressed[0, compressed.bytesize - 3], &:read) }
+        cut_short  = compressed[0, compressed.bytesize - 3]
+
+        if defined?(JRuby)
+          error = assert_raises(RuntimeError) { read_with(cut_short, &:read) }
+          assert_equal "zstd decompress error: Truncated source", error.message
+        else
+          # zstd-ruby does not report a frame cut short.
+          result = read_with(cut_short, &:read)
+
+          assert_operator result.bytesize, :<, data.bytesize
+          assert data.start_with?(result)
+        end
+      end
+
+      it "raises for data that does not match the checksum of its frame" do
+        # Written by the zstd command, which ends each frame with the checksum of its content.
+        corrupt = File.binread(file_name)
+        corrupt.setbyte(15, corrupt.getbyte(15) ^ 0x01)
+
+        error = assert_raises(RuntimeError) { read_with(corrupt, &:read) }
+        assert_match(/Restored data doesn't match checksum/, error.message)
       end
     end
 

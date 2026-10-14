@@ -69,6 +69,15 @@ class ZstdWriterTest < Minitest::Test
         assert_raises(StandardError) { ZstdLibrary.decompress(io_string.string) }
       end
 
+      it "ends the frame with the checksum of its content on JRuby, which zstd-ruby cannot write on MRI" do
+        io_string = StringIO.new("".b)
+        IOStreams::Zstd::Writer.stream(io_string) { |io| io.write(decompressed) }
+
+        # Bit 2 of the frame header descriptor, which follows the 4 bytes of the magic number, flags the checksum.
+        assert_equal defined?(JRuby) ? 1 : 0, io_string.string.getbyte(4)[2]
+        assert_equal decompressed, ZstdLibrary.decompress(io_string.string)
+      end
+
       it "compresses many small writes into one frame" do
         lines     = Array.new(10_000) { |i| "#{i},same text on every line\n" }
         io_string = StringIO.new("".b)
