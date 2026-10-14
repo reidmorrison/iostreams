@@ -92,7 +92,7 @@ people = IOStreams.path("s3://my-bucket/people.csv.gz").schema(
   fields: [{name: "name", type: "string"}, {name: "born", type: "date"}]
 )
 people.each(:hash) { |person| p person }
-# => {"name" => "Jack", "born" => #<Date: 1990-02-01>}
+# => {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
 ~~~
 
 Convert it to JSON, compressed and encrypted, by copying it to a path whose name says so:

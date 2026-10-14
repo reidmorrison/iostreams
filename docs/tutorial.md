@@ -198,7 +198,7 @@ path.read
 # => "name,born,salary\nJack Jones,1990-02-01,1234.50\n"
 
 path.each(:hash) { |person| p person }
-# => {"name" => "Jack Jones", "born" => #<Date: 1990-02-01>, "salary" => 0.12345e4}
+# => {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
 ~~~
 
 A `number` field needs the `bigdecimal` gem, so `require "bigdecimal"` first.

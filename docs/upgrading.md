@@ -392,7 +392,8 @@ Like every other stream, it responds to the methods of an IO that read, `#read`,
 `#readline`, `#readlines`, `#each_line`, `#each` and `#eof?`, which behave as they do for an IO whichever
 streams the data uses, so a library that reads an IO, such as `CSV.new(io)`, reads any stream. The other
 methods of those readers, such as `#rewind`, `#pos`, `#lineno`, `#getc` and `#size`, raise `NoMethodError`.
-The `.bz2` stream now also has `#readpartial`, `#gets` and `#each_line`.
+The `.bz2` stream now also has `#readpartial`, `#gets` and `#each_line`. The encode stream is the exception, as in
+v2.1: when an encoding is set with `#encoding`, the IO that `#reader` supplies has only `#read`.
 
 Fix: replace calls such as `#rewind` or `#size` on the stream. Read lines with `each(:line)` or
 `reader(:line)`. Where the stream must be a `File`, copy the file into a local file first, for example with
@@ -534,7 +535,9 @@ Fix: rescue `IOStreams::Pgp::Failure` rather than `Errno::ENOENT` or `SystemCall
 #### PGP `export` without an email or key id
 
 `IOStreams::Pgp.export(email: nil)` without a `key_id:` now raises `ArgumentError`, instead of
-`IOStreams::Pgp::Failure`.
+`IOStreams::Pgp::Failure`, and so does `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`.
+
+Fix: rescue `ArgumentError` rather than `IOStreams::Pgp::Failure` for these, or supply the email or key id.
 
 #### PGP key dates are a `Date`
 
@@ -1025,7 +1028,7 @@ based on the file name.
 Fix: use `reader_class` and `writer_class` instead of the methods of a struct, and
 `IOStreams.register_extension` to change a registered extension. To replace the reader or writer of an
 extension whose data is compressed or encrypted, register a format that says so, see
-[Registering a custom extension](extensions#registering-a-custom-extension).
+[Registering a format](extending#registering-a-format).
 
 #### The encode stream is not a registered extension
 

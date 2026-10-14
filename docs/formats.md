@@ -86,7 +86,7 @@ path = IOStreams.path("people.csv").schema(
   ]
 )
 path.each(:hash) { |person| p person }
-# => {"id" => 42, "joined" => #<Date: 2026-10-13>}
+# => {"id" => 42, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>}
 ~~~
 
 Or as the path or url of a JSON file that holds it, in any store that IOStreams reads, so that the schema can be held
@@ -117,7 +117,7 @@ path.read
 # => "id,pay,joined,active\n42,12.50,2026-10-13,true\n"
 
 path.each(:hash) { |person| p person }
-# => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13>, "active" => true}
+# => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>, "active" => true}
 ~~~
 
 A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
@@ -259,7 +259,7 @@ schema = {
 }
 IOStreams.path("upload.csv").schema(schema).each(:hash) { |contact| p contact }
 # "E-mail Address,FIRST NAME,DOB,Notes" =>
-# {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03>}
+# {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>}
 ~~~
 
 IOStreams does not support the other constraints of Frictionless yet, such as `maxLength`, so they raise
@@ -428,7 +428,7 @@ format, and it can also be compressed or encrypted, such as `data.parquet.pgp`. 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
   p record
-  # => {"id" => 1, "name" => "Jack", "amount" => 0.1235e2, "born" => #<Date: 2000-02-29>}
+  # => {"id" => 1, "name" => "Jack", "amount" => 0.1235e2, "born" => #<Date: 2000-02-29 ((2451604j,0s,0n),+0s,2299161j)>}
 end
 ~~~
 
@@ -581,7 +581,7 @@ Each `width` counts the characters of the text as it is read, and when writing, 
 padded and truncated to `width` characters. In ASCII, and in a single-byte code page, each character
 is one byte, so the widths count bytes.
 
-Set the encoding of the file with [`#encoding`](extensions#character-encoding) when it is not
+Set the encoding of the file with [`#encoding`](streams#character-encoding) when it is not
 ASCII. An encoding that is set always replaces the ASCII default, and `#raw` reads and writes the bytes as
 they are stored:
 
