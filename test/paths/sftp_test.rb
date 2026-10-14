@@ -369,6 +369,9 @@ module Paths
       # The remote directories that were listed.
       attr_reader :listed
 
+      # Whether the SSH session was shut down, see #session.
+      attr_reader :shut_down
+
       def initialize(names, root:, missing:, unreadable:, links: {})
         @names      = names
         @root       = root
@@ -405,6 +408,15 @@ module Paths
         links   = @links.keys.select { |link| link.start_with?(relative) && !link.delete_prefix(relative).include?("/") }.
                   map { |link| link.delete_prefix(relative) }
         entries + links.map { |link| Entry.new(link, Attributes.new({size: 99}, :link)) }
+      end
+
+      # The SSH session of this SFTP session.
+      def session
+        self
+      end
+
+      def shutdown!
+        @shut_down = true
       end
     end
 
@@ -1382,10 +1394,32 @@ module Paths
             on_start&.call(hostname, username, options)
             session = StubSFTPSession.new(names, root: root, missing: missing, unreadable: unreadable, links: links)
             stub_sftp.instance_variable_set(:@listed, session.listed)
+            stub_sftp.instance_variable_set(:@session, session)
             block.call(session)
           end
 
           StubNetSFTP.replace(stub_sftp) { yield(stub_sftp) }
+        end
+
+        it "shuts the session down when the block leaves early, since Net::SFTP.start would leave it open" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv b.csv]) do |stub_sftp|
+            child, _attributes = path.each_child.first
+
+            assert_equal "/data/a.csv", child.path
+            assert stub_sftp.instance_variable_get(:@session).shut_down
+          end
+        end
+
+        it "leaves the session for Net::SFTP.start to close when the block returns" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv b.csv]) do |stub_sftp|
+            path.each_child { |_child| nil }
+
+            refute stub_sftp.instance_variable_get(:@session).shut_down
+          end
         end
 
         it "does not parse remote file names as part of a url" do

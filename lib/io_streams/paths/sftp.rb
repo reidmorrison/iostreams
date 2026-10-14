@@ -368,7 +368,14 @@ module IOStreams
           NetSSH.options(ssh_options, port: port, password: password) do |options|
             Net::SFTP.start(hostname, username, options) do |sftp|
               connected = true
-              result    = yield(sftp)
+              returned  = false
+              # Net::SFTP.start only closes the session once the block returns, and shuts it down when it raises, so
+              # shut it down when the block leaves early, such as with `break` from `#each_child`, or
+              # `Enumerator#first`, rather than leave the connection open until the session is garbage collected.
+              Utils.finish_or_abort(finish: -> { sftp.session.shutdown! unless returned }) do
+                result   = yield(sftp)
+                returned = true
+              end
             end
           end
         rescue *Failure::CONNECTION_ERRORS => e
