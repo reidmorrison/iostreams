@@ -66,8 +66,11 @@ module IOStreams
       #     IOStreams::Paths::S3.new("s3://bucket/path/file_name.txt", client: { endpoint: "https://s3.test.com" })
       #
       # Any other options are supplied to each S3 request that accepts them, for example `acl` when
-      # writing or copying, and `request_payer` to every request. An option that no request accepts
-      # raises ArgumentError.
+      # writing or copying to this path, and `request_payer` to every request. An option that no request
+      # accepts raises ArgumentError.
+      #
+      # A direct copy within S3, with `convert: false` or `#move_to`, is made with the client and options of
+      # the target, which it writes, and the customer encryption key and `request_payer` of the source.
       #
       # Writer specific options:
       #
@@ -283,7 +286,7 @@ module IOStreams
         target
       end
 
-      # Make S3 perform direct copies within S3 itself.
+      # Make S3 perform direct copies within S3 itself, with the client and options of the target, see `#copy_from`.
       #
       # Returns [Integer] the number of bytes copied, like any other copy.
       def copy_to(target_path, convert: true, **args)
@@ -298,11 +301,15 @@ module IOStreams
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         target.authorize!
-        copy_object(self, target)
+        target.copy_object_from(self)
         bytes
       end
 
       # Make S3 perform direct copies within S3 itself.
+      #
+      # The copy writes this object, so it is requested with the client and options of this path, such as its `acl`,
+      # and the source supplies what S3 needs to read it, such as its customer encryption key, see
+      # `#copy_source_parameters`.
       #
       # Returns [Integer] the number of bytes copied, like any other copy.
       def copy_from(source_path, convert: true, **args)
@@ -317,7 +324,7 @@ module IOStreams
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         source.authorize!
-        copy_object(source, self)
+        copy_object_from(source)
         bytes
       end
 
@@ -492,9 +499,22 @@ module IOStreams
       # Paths in the same bucket are in the same store, see `IOStreams::Path#same_store?`.
       def store = bucket_name
 
-      # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.
-      def copy_source
-        "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
+      # Copies the source object into this object within S3, see `#copy_from`. A missing object is a failure of the
+      # source, and any other failure is one of this path, since the size of the source is read before the copy, which
+      # raises when the source cannot be read.
+      def copy_object_from(source)
+        Sdk.load
+        tag_failure do
+          client.copy_object(options_for(:copy_object).merge(source.copy_source_parameters, bucket: bucket_name, key: path))
+        rescue Aws::S3::Errors::NoSuchKey => e
+          raise(Errors::NotFound.tag(e, source.display_name))
+        end
+      end
+
+      # Returns [Hash] the parameters of a copy that name this object as its source, which S3 requires to be url-encoded,
+      # with the options of this path that S3 needs to read it, see `Sdk.copy_source_options`.
+      def copy_source_parameters
+        {copy_source: "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}", **Sdk.copy_source_options(options)}
       end
 
       private
@@ -508,20 +528,6 @@ module IOStreams
       # failure that it means, see `#failure_kind`.
       def request(operation, **params)
         tag_failure { client.public_send(operation, options_for(operation).merge(params)) }
-      end
-
-      # Copies the source object to the target object within S3. A missing object is a failure of the source, and any
-      # other failure is one of the target, since the size of the source is read before the copy, which raises when
-      # the source cannot be read.
-      def copy_object(source, target)
-        Sdk.load
-        tag_failure(target) do
-          client.copy_object(
-            options_for(:copy_object).merge(bucket: target.bucket_name, key: target.path, copy_source: source.copy_source)
-          )
-        rescue Aws::S3::Errors::NoSuchKey => e
-          raise(Errors::NotFound.tag(e, source.display_name))
-        end
       end
 
       # Deletes upto 1,000 keys in one request, raising when S3 could not delete any of them.

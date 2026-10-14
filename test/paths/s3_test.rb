@@ -693,6 +693,37 @@ module Paths
           end
         end
 
+        it "copies directly with the client and options of the target, and what S3 needs to read the source" do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          credentials   = Aws::Credentials.new("id", "secret")
+          source_client = Aws::S3::Client.new(stub_responses: {head_object: {content_length: 4}}, region: "us-east-1", credentials: credentials)
+          target_client = Aws::S3::Client.new(stub_responses: true, region: "us-east-1", credentials: credentials)
+          key           = "k" * 32
+          key_md5       = [Digest::MD5.digest(key)].pack("m0")
+          source        = IOStreams::Paths::S3.new("s3://bucket-a/x.csv", client: source_client, storage_class: "GLACIER",
+                                                                          request_payer: "requester", sse_customer_algorithm: "AES256",
+                                                                          sse_customer_key: key, sse_customer_key_md5: key_md5)
+          target        = IOStreams::Paths::S3.new("s3://bucket-b/y.csv", client: target_client, storage_class: "STANDARD_IA",
+                                                                          acl: "bucket-owner-full-control")
+          source_requests = capture_requests(source_client)
+          target_requests = capture_requests(target_client)
+
+          source.copy_to(target, convert: false)
+          target.copy_from(source, convert: false)
+          source.move_to(target)
+
+          # The AWS SDK encodes the customer key in base64 before the request is sent.
+          expected = {
+            bucket: "bucket-b", key: "y.csv", copy_source: "bucket-a/x.csv", storage_class: "STANDARD_IA",
+            acl: "bucket-owner-full-control", request_payer: "requester", copy_source_sse_customer_algorithm: "AES256",
+            copy_source_sse_customer_key: [key].pack("m0"), copy_source_sse_customer_key_md5: key_md5
+          }
+
+          assert_empty source_requests[:copy_object]
+          assert_equal([expected] * 3, target_requests[:copy_object].map { |params| params.slice(*expected.keys) })
+          assert(target_requests[:copy_object].none? { |params| params.key?(:sse_customer_key) })
+        end
+
         it "raises for an option that no request accepts" do
           error = assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, acll: "public-read") }
           assert_equal "Unknown S3 option: :acll", error.message

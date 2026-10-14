@@ -11,6 +11,15 @@ module IOStreams
         OPERATIONS = %i[get_object head_object put_object copy_object delete_object delete_objects list_objects_v2].freeze
         # Request parameters that the path sets itself, which cannot be supplied as options.
         PATH_PARAMETERS = %i[bucket key body response_target copy_source prefix continuation_token delete].freeze
+        # The options of an object that S3 needs to read it as the source of a direct copy, and the parameter of
+        # `copy_object` that supplies each one: its customer encryption key, and that the requester pays, which a
+        # bucket can require to read it.
+        COPY_SOURCE_OPTIONS = {
+          sse_customer_algorithm: :copy_source_sse_customer_algorithm,
+          sse_customer_key:       :copy_source_sse_customer_key,
+          sse_customer_key_md5:   :copy_source_sse_customer_key_md5,
+          request_payer:          :request_payer
+        }.freeze
 
         # Loads the AWS SDK, unless it is already loaded. Raises LoadError when the `aws-sdk-s3` gem is not installed.
         #
@@ -63,6 +72,14 @@ module IOStreams
           # Replaces the cache rather than changing it, since the parts of an upload are requested in several threads.
           @operation_options = (@operation_options || {}).merge(operation => names).freeze
           names
+        end
+
+        # Returns [Hash] the parameters of `copy_object` that supply the options of its source that S3 needs to read it,
+        # see COPY_SOURCE_OPTIONS, such as `copy_source_sse_customer_key` for the source's `sse_customer_key`.
+        def self.copy_source_options(options)
+          COPY_SOURCE_OPTIONS.each_with_object({}) do |(option, parameter), parameters|
+            parameters[parameter] = options[option] if options.key?(option)
+          end
         end
 
         # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts.
