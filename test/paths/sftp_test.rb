@@ -646,10 +646,19 @@ module Paths
           end
         end
 
-        it "ignores ssh options in the url query string" do
-          path = new_path("sftp://example.org/path/file.txt?ProxyCommand=id", username: "jack", password: "secret")
+        it "raises ArgumentError for a part of the url that SFTP does not use, rather than ignore it" do
+          {
+            "sftp://example.org/path/file.txt?ProxyCommand=id" =>
+              %(Invalid SFTP url "sftp://example.org/path/file.txt": it cannot have a query. Supply ssh options with ssh_options:),
+            "sftp://example.org/path/a#b.txt"                  =>
+              %(Invalid SFTP url "sftp://example.org/path/a": percent-encode a '#' in a name as '%23'),
+            "sftp:///path/file.txt"                            =>
+              %(Invalid SFTP url "sftp:///path/file.txt": it must name a host, such as 'sftp://example.org/a.csv')
+          }.each_pair do |url, message|
+            error = assert_raises(ArgumentError, url) { new_path(url, username: "jack", password: "secret") }
 
-          assert_empty path.ssh_options
+            assert_includes error.message, message, url
+          end
         end
       end
 

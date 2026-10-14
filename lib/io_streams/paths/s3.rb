@@ -186,6 +186,7 @@ module IOStreams
         uri = Utils::URI.new(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"
 
+        validate_url!(uri, url)
         @bucket_name = uri.hostname
         key          = utf8_key(uri.path.delete_prefix("/"))
 
@@ -193,6 +194,7 @@ module IOStreams
         # It is held in a Hash so that it is also created when this path is frozen, for example a root path.
         @client_cache = {}
         if client && !client.is_a?(Hash)
+          validate_client_arguments!(region: region, access_key_id: access_key_id, secret_access_key: secret_access_key)
           @client_cache[:client] = client
         else
           @client_options                     = client.is_a?(Hash) ? client.dup : {}
@@ -581,6 +583,32 @@ module IOStreams
         return key if key.dup.force_encoding(Encoding::UTF_8).valid_encoding?
 
         raise(ArgumentError, "An S3 key must be valid UTF-8: s3://#{bucket_name}/#{Utils.display_text(key)}")
+      end
+
+      # Raises ArgumentError for a part of the url that S3 does not use, rather than ignore it.
+      def validate_url!(uri, url)
+        problem =
+          if uri.hostname.to_s.empty?
+            "it must name a bucket, such as 's3://bucket/a.csv'"
+          elsif uri.fragment
+            "percent-encode a '#' in a key as '%23', since it starts a fragment, which an S3 url cannot have"
+          elsif uri.port
+            "it cannot have a port. Supply the endpoint of another service that implements the S3 API with " \
+              "client: {endpoint: \"https://host:port\"}"
+          elsif uri.user || uri.password
+            "it cannot have a user name or password. Supply the credentials with access_key_id: and secret_access_key:"
+          end
+        raise(Utils::URI.invalid("S3", url, problem)) if problem
+      end
+
+      # Raises ArgumentError for a region or credentials supplied with a client, which already has them, rather than
+      # ignore them.
+      def validate_client_arguments!(**arguments)
+        names = arguments.compact.keys.map { |name| "#{name}:" }.join(", ")
+        return if names.empty?
+
+        raise(ArgumentError, "#{names} cannot be supplied with an Aws::S3::Client as client:, which already has them. " \
+                             "Supply #{names} to Aws::S3::Client.new, or supply client: as a Hash of its options")
       end
 
       # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.

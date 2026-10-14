@@ -100,6 +100,9 @@ module IOStreams
             "Invalid URL. Required Format: 'http://<host_name>/<file_name>', or 'https://<host_name>/<file_name>'"
           )
         end
+        if uri.host.to_s.empty?
+          raise(Utils::URI.invalid("HTTP", url, "it must name a host, such as 'https://example.org/a.csv'"))
+        end
 
         @username            = username || uri.user
         @password            = password || uri.password

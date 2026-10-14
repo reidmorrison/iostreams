@@ -379,8 +379,8 @@ module IOStreams
 
         it "does not include credentials in the url" do
           {
-            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "sftp://example.org/a.csv",
-            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "https://example.org/a.csv"
+            "sftp://jack:TOP-SECRET@example.org/a.csv"                     => "sftp://example.org/a.csv",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x" => "https://example.org/a.csv"
           }.each_pair do |url, name|
             assert_equal name, IOStreams.path(url).display_name
           end
@@ -419,8 +419,8 @@ module IOStreams
 
         it "does not display credentials in the url" do
           {
-            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "SFTP:sftp://example.org/a.csv ",
-            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "HTTP:https://example.org/a.csv "
+            "sftp://jack:TOP-SECRET@example.org/a.csv"                     => "SFTP:sftp://example.org/a.csv ",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x" => "HTTP:https://example.org/a.csv "
           }.each_pair do |url, name|
             str = IOStreams.path(url).inspect
 

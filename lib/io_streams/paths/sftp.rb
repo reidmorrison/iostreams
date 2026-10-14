@@ -123,6 +123,7 @@ module IOStreams
         uri = Utils::URI.new(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == "sftp"
 
+        validate_url!(uri, url)
         @hostname = uri.hostname
         @mkdir    = false
         @username = username || uri.user
@@ -282,7 +283,7 @@ module IOStreams
         nil
       end
 
-      # Returns [String] the url without the user name, password, or query, which can hold ssh options such as a key.
+      # Returns [String] the url without the user name or password, which are credentials.
       # Each byte of a name that is not valid UTF-8 is shown as `\xHH`, see `IOStreams::Path#display_name`.
       def display_name
         Utils.display_text(Utils::URI.without_userinfo_or_query(url))
@@ -387,6 +388,20 @@ module IOStreams
       # `.` and `..` are resolved the way the sftp server resolves them.
       def allowed_location
         "sftp://#{hostname.to_s.downcase}:#{port}#{normalize_path(path)}".chomp("/")
+      end
+
+      # Raises ArgumentError for a part of the url that SFTP does not use, rather than ignore it. A query cannot hold ssh
+      # options, since an option such as `ProxyCommand` runs a command, so they are only supplied with `ssh_options:`.
+      def validate_url!(uri, url)
+        problem =
+          if uri.hostname.to_s.empty?
+            "it must name a host, such as 'sftp://example.org/a.csv'"
+          elsif uri.query
+            "it cannot have a query. Supply ssh options with ssh_options:, and percent-encode a '?' in a name as '%3F'"
+          elsif uri.fragment
+            "percent-encode a '#' in a name as '%23', since it starts a fragment, which an SFTP url cannot have"
+          end
+        raise(Utils::URI.invalid("SFTP", url, problem)) if problem
       end
 
       # Usernames are passed to the `sftp` executable, so reject values that it could treat as options.

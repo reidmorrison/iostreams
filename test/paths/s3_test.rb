@@ -593,6 +593,31 @@ module Paths
           end
         end
 
+        it "raises ArgumentError for a part of the url that S3 does not use, rather than ignore it" do
+          {
+            "s3://bucket/a#b.csv"           => %(Invalid S3 url "s3://bucket/a": percent-encode a '#' in a key as '%23'),
+            "s3://bucket:9000/a.csv"        => %(Invalid S3 url "s3://bucket:9000/a.csv": it cannot have a port. Supply the endpoint),
+            "s3://AKIA:SECRET@bucket/a.csv" => %(Invalid S3 url "s3://bucket/a.csv": it cannot have a user name or password),
+            "s3:///a.csv"                   => %(Invalid S3 url "s3:///a.csv": it must name a bucket, such as 's3://bucket/a.csv')
+          }.each_pair do |url, message|
+            error = assert_raises(ArgumentError, url) { IOStreams::Paths::S3.new(url, client: client) }
+
+            assert_includes error.message, message, url
+            refute_includes error.message, "SECRET"
+          end
+        end
+
+        it "raises ArgumentError for a region or credentials supplied with a client, which already has them" do
+          %i[region access_key_id secret_access_key].each do |name|
+            error = assert_raises(ArgumentError, name.to_s) { IOStreams::Paths::S3.new("s3://bucket/a.csv", client: client, name => "x") }
+
+            assert_includes error.message, "Supply #{name}: to Aws::S3::Client.new, or supply client: as a Hash of its options"
+          end
+          path = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: {region: "eu-west-1", stub_responses: true}, region: "us-east-1")
+
+          assert_equal "us-east-1", path.client.config.region
+        end
+
         it "raises for a key that is not valid UTF-8, which S3 cannot hold" do
           latin1  = "caf\xE9.csv".dup.force_encoding(Encoding::UTF_8)
           creates = [

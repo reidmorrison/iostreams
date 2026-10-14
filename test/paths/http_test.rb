@@ -21,6 +21,12 @@ module Paths
           assert_includes error.message, "Invalid URL"
         end
 
+        it "raises ArgumentError for a url without a host" do
+          error = assert_raises(ArgumentError) { IOStreams.path("http:///a.csv") }
+
+          assert_includes error.message, %(Invalid HTTP url "http:///a.csv": it must name a host, such as 'https://example.org/a.csv')
+        end
+
         it "raises ArgumentError for a url that cannot be parsed, without its password or query" do
           {
             "https://jack:TOP SECRET@example.com/a.csv"    => "https://[FILTERED]@example.com/a.csv",

@@ -260,7 +260,7 @@ module IOStreams
     # Also answers the parts of such a url, by its bytes, so that a url with a name that is not valid UTF-8 can be
     # taken apart and put together again, see `.authority`, `.root`, `.without_userinfo_or_query` and `.encode_path`.
     class URI
-      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
+      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query, :fragment
 
       # A space, a control character, or a byte of a character that is not ASCII, none of which `::URI` parses.
       UNPARSEABLE_BYTE           = /[^\x21-\x7E]/n
@@ -291,6 +291,7 @@ module IOStreams
         @user     = uri.user && ::URI.decode_uri_component(uri.user)
         @password = uri.password && ::URI.decode_uri_component(uri.password)
         @port     = uri.port
+        @fragment = uri.fragment
         return unless uri.query
 
         @query = {}
@@ -309,6 +310,12 @@ module IOStreams
         ::URI.parse(url)
       rescue ::URI::InvalidURIError
         raise(ArgumentError, unparseable(name), cause: nil)
+      end
+
+      # Returns [ArgumentError] for a url that a path of the kind, such as "S3", cannot use, naming the url without
+      # its user name, password, query or fragment, see `.without_userinfo_or_query`, and the problem with it.
+      def self.invalid(kind, url, problem)
+        ArgumentError.new("Invalid #{kind} url #{Utils.display_text(without_userinfo_or_query(url)).inspect}: #{problem}")
       end
 
       # Returns [String] the message for a url that cannot be parsed, see `.parse`.
