@@ -191,8 +191,6 @@ IOStreams.path("export.zip").option(:zip, entry_file_name: "people.csv").writer(
 end
 ~~~
 
-`zip_file_name`, which earlier versions took when writing, raises `ArgumentError`: use `entry_file_name`.
-
 ### Zstandard
 
 Zstandard uses the `zstd-ruby` gem, 2.0.0 or later, which decompresses one zstd block, 128KB, at a time, however well

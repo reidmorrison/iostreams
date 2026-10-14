@@ -651,7 +651,7 @@ path.read
 ```
 
 To change the streams of a root, supply them each time the root is used, for example
-`IOStreams.join("a.csv").stream(:none)`. Code that compares with `equal?` should compare with `==`.
+`IOStreams.join("a.csv").stream(:gz)`. Code that compares with `equal?` should compare with `==`.
 
 #### `IOStreams.add_root` returns a frozen path
 
@@ -1410,7 +1410,7 @@ strings, and the keys of the hashes written may be strings or symbols.
   Default: nil (allow all columns)
 
 * `required_columns: [Array<String>]`
-  List of columns that must be present, otherwise an exception is raised.
+  List of columns that must be present, otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
 
 * `skip_unknown: [true|false]`
   When true, any columns not present in `allowed_columns` are skipped entirely as if they

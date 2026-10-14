@@ -4,7 +4,7 @@ title: Configuring IOStreams
 description: >-
   Keeping paths in configuration so the same code targets different storage per
   environment, named roots via IOStreams.add_root, the temp directory, when temp
-  files are used, the logger, and every process-wide setting.
+  files are used, the logger, and the process-wide settings.
 ---
 
 **Contents**
@@ -292,4 +292,3 @@ Each of these applies to the whole process, so set them once, in an initializer,
 | `IOStreams::Pgp::Writer.default_signer = email` and `.default_signer_passphrase = passphrase` | Signs every PGP file written | [PGP](pgp) |
 | `IOStreams::Pgp::Writer.audit_recipient = email` | Also encrypts every PGP file written for this recipient | [PGP](pgp) |
 | `IOStreams::Pgp::Reader.default_passphrase = passphrase` | The passphrase of the private key when a read supplies none | [PGP](pgp) |
-| `IOStreams.enforce_column_restrictions = false` | Keeps the behavior of v2 for the deprecated column options | [Upgrading](upgrading#enforce_column_restrictions) |

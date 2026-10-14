@@ -13,7 +13,7 @@ description: >-
 
 IOStreams reads and writes whatever its paths name, with the access of the process. When any part of a path, url or
 file comes from outside the application, such as from a user, a partner, or a job's configuration, review the
-settings on this page. Each one depends on how the application uses IOStreams, so upgrading alone does not apply them.
+settings on this page. None of them is on by default, since each one depends on how the application uses IOStreams.
 
 ## Allowed paths
 

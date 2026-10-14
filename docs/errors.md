@@ -111,8 +111,7 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidHeader`: the columns of a file do not match its [schema](formats#fieldsmatch): when
     reading, a header row, or the keys of a JSON record, has columns that `fieldsMatch` does not allow, or is missing
     a required field, or a row has values after its last column that the schema does not skip, and when writing, the
-    keys of a record, or the columns or values of a row, that the schema does not skip. It is also raised for the
-    deprecated `allowed_columns:` and `required_columns:`.
+    keys of a record, or the columns or values of a row, that the schema does not skip.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format, such as, with a schema, a
     row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
@@ -121,16 +120,17 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width file, set with the deprecated `#format_options`,
-    is not valid. It is raised when the layout is set.
+    is not valid. It is raised when the layout is set, see
+    [Upgrading](upgrading#format_options-is-replaced-by-schema).
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
   encoding that it is read or written in, such as UTF-8. Its `#byte_offset` is the offset of the first invalid byte
   within the data after any decompression or decryption, and its `#line_number` is the line that it is on, when it
   is read a line at a time, such as with `each(:line)` or `each(:hash)`, where the lines before it are read first.
-  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. Like the `Encoding::UndefinedConversionError`
-  that was raised before it, its `#error_char` is the invalid bytes, and its `#source_encoding` and
-  `#destination_encoding` the encodings that they were read and checked as.
+  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. As an `Encoding::UndefinedConversionError`,
+  its `#error_char` is the invalid bytes, and its `#source_encoding` and `#destination_encoding` the encodings that
+  they were read and checked as.
 * `IOStreams::Pgp::Failure`, a `StandardError`: gpg failed, for example to decrypt a file or to check its signature,
   or could not be run.
 

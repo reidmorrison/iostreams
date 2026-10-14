@@ -178,7 +178,7 @@ end
 
 With just one encoding, such as `encoding("Windows-1252")`, the strings read are in that encoding, rather than
 converted to UTF-8, and cannot be combined with UTF-8 text. `encoding("BINARY")` reads lines, rows and records as
-binary strings, as IOStreams did before v3.0.
+binary strings.
 
 `#encoding` also takes the other options of the encode stream, which converts the text:
 
@@ -261,7 +261,7 @@ any code, including `#copy_from` and `#copy_to`.
 IOStreams checks where each setting is supplied:
 
 * A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
-  `file_name:`, `schema:`, `format_options:` and `default_format:`.
+  `file_name:` and `schema:`.
 * An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
   `#writer`, rather than being ignored.
 * Any other option that the mode does not take, such as a misspelled `delimitr:`, raises `ArgumentError` before the
