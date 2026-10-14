@@ -12,18 +12,15 @@ module IOStreams
         Encode.check(**)
       end
 
-      attr_reader :cleaner
-
-      # Write a line at a time to a file or stream
-      def self.stream(input_stream, **args)
-        writer = new(input_stream, **args)
-        result = yield(writer)
-        writer.send(:finish)
-        result
+      # Yields a writer that encodes the data written to the supplied output stream. Once the block returns, including
+      # when it leaves early, such as with `break`, a character still held back at the end of the data is written, see
+      # #finish, as the data written so far is kept, but not when the block raises, see `IOStreams::Utils.finish_or_abort`.
+      def self.stream(output_stream, **)
+        writer = new(output_stream, **)
+        Utils.finish_or_abort(finish: -> { writer.finish }) { yield(writer) }
       end
 
-      # A delimited stream writer that will write to the supplied output stream
-      # Written data is encoded prior to writing.
+      # A writer that encodes the data written to it, and writes it to the supplied output stream.
       #
       # Parameters
       #   output_stream
@@ -63,11 +60,6 @@ module IOStreams
         @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
       end
 
-      # Returns [Encoding] the encoding of the data written, or nil when it is written unchanged.
-      def encoding
-        @converter.encoding
-      end
-
       # Write a line to the output stream
       #
       # Example:
@@ -98,13 +90,14 @@ module IOStreams
         write_block(block)
       end
 
-      private
-
-      # Writes a multi-byte character still held back at the end of the data.
+      # Writes a multi-byte character still held back at the end of the data, after replacing it when it is incomplete.
+      # Raises IOStreams::Errors::InvalidEncoding for an incomplete character without `replace`.
       def finish
         block = @converter.finish
         write_block(block) if block
       end
+
+      private
 
       def write_block(block)
         block = @cleaner.call(block) if @cleaner

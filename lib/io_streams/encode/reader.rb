@@ -15,8 +15,6 @@ module IOStreams
         Encode.check(**)
       end
 
-      attr_reader :cleaner
-
       # Read a line at a time from a file or stream
       def self.stream(input_stream, **args)
         yield new(input_stream, **args)
@@ -78,7 +76,9 @@ module IOStreams
       # Returns [String] data returned from the input stream, in the requested encoding.
       # Returns [nil] if end of file and no further data was read.
       #
-      # A multi-byte character that is split by `size` is returned by the next read.
+      # `size` is the number of bytes read from the input stream, so the data returned holds whole characters, and can be a
+      # few bytes longer or shorter than `size`, such as when an earlier read held back a character that `size` split,
+      # which this read returns, or when the text is converted to another encoding, such as UTF-16.
       # When `outbuf` is supplied, it is replaced with the data and returned, otherwise each read returns a new string.
       def read(size = nil, outbuf = nil)
         data = nil
@@ -107,11 +107,6 @@ module IOStreams
         data = data.encode(@internal, **@transcode_options) if @internal
         data = @cleaner.call(data) if @cleaner
         outbuf ? outbuf.replace(data) : data
-      end
-
-      # Returns [Encoding] the encoding of the data returned, or nil when it is returned unchanged.
-      def encoding
-        @internal || @converter.encoding
       end
 
       private

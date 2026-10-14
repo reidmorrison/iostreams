@@ -178,6 +178,33 @@ class EncodeReaderTest < Minitest::Test
         end
       end
 
+      describe "invalid data" do
+        it "raises an error that answers what Encoding::UndefinedConversionError answers" do
+          exc = assert_raises(Encoding::UndefinedConversionError) do
+            IOStreams::Encode::Reader.stream(StringIO.new("ab\xE9cd".b), encoding: "UTF-8", &:read)
+          end
+
+          assert_instance_of IOStreams::Errors::InvalidEncoding, exc
+          assert_equal "\xE9".b, exc.error_char
+          assert_equal Encoding::BINARY, exc.source_encoding
+          assert_equal Encoding::UTF_8, exc.destination_encoding
+          assert_equal "ASCII-8BIT", exc.source_encoding_name
+          assert_equal "UTF-8", exc.destination_encoding_name
+        end
+
+        it "keeps a character of another encoding that is split across reads after an invalid byte, with replace" do
+          data   = "\xFF".b + "ab".b + "\u65E5cd".encode("Shift_JIS").b
+          chunks = []
+          IOStreams::Encode::Reader.stream(StringIO.new(data), encoding: "Shift_JIS:UTF-8", replace: "?") do |io|
+            while (chunk = io.read(4))
+              chunks << chunk
+            end
+          end
+
+          assert_equal "?ab\u65E5cd", chunks.join
+        end
+      end
+
       describe "valid multi-byte characters" do
         let(:text) { "Jos\u00e9, M\u00fcnchen \u{1F600}" }
 

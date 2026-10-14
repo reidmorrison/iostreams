@@ -202,6 +202,31 @@ class EncodeWriterTest < Minitest::Test
 
           assert_equal 2, exc.byte_offset
         end
+
+        it "raises InvalidEncoding for a string that is not valid in its own encoding, with its offset" do
+          io  = StringIO.new("".b)
+          exc = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            IOStreams::Encode::Writer.stream(io, encoding: "ISO-8859-1") do |encoded|
+              encoded.write("ab ")
+              encoded.write("caf\xE9".dup.force_encoding(Encoding::UTF_8))
+            end
+          end
+
+          assert_equal "\"\\xE9\" is not valid UTF-8 at byte offset 6", exc.message
+          assert_equal "\xE9".b, exc.error_char
+          assert_equal Encoding::UTF_8, exc.source_encoding
+          assert_equal Encoding::ISO_8859_1, exc.destination_encoding
+        end
+      end
+
+      it "writes a character held back at the end when the block leaves early, as it does when it returns" do
+        io = StringIO.new("".b)
+        IOStreams::Encode::Writer.stream(io, encoding: "UTF-8", replace: "?") do |encoded|
+          encoded.write("ab\xC3".b)
+          break
+        end
+
+        assert_equal "ab?", io.string
       end
 
       it "copies a UTF-8 file to a path with an encode stream" do

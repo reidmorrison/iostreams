@@ -71,10 +71,33 @@ module IOStreams
       # or [nil] when the data is not read a line at a time.
       attr_reader :line_number
 
-      def initialize(message, byte_offset:, line_number: nil)
-        @byte_offset = byte_offset
-        @line_number = line_number
+      # Returns [String] the invalid bytes, as binary, like `Encoding::UndefinedConversionError#error_char`, so that code
+      # that rescued that error, which was raised before this one, can still read them.
+      attr_reader :error_char
+
+      # Returns [Encoding] the encoding that the invalid bytes were read or written as, binary for data read from a file,
+      # and the encoding that they are not valid in, like `Encoding::UndefinedConversionError#source_encoding` and
+      # `#destination_encoding`.
+      attr_reader :source_encoding, :destination_encoding
+
+      def initialize(message, byte_offset:, line_number: nil, error_char: nil, source_encoding: nil,
+                     destination_encoding: nil)
+        @byte_offset          = byte_offset
+        @line_number          = line_number
+        @error_char           = error_char
+        @source_encoding      = source_encoding
+        @destination_encoding = destination_encoding
         super(message)
+      end
+
+      # Returns [String] the name of the #source_encoding, such as "ASCII-8BIT", or nil.
+      def source_encoding_name
+        source_encoding&.name
+      end
+
+      # Returns [String] the name of the #destination_encoding, such as "UTF-8", or nil.
+      def destination_encoding_name
+        destination_encoding&.name
       end
 
       # Sets the number of the line that the invalid data is on, unless it is already set.
