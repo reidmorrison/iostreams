@@ -109,8 +109,11 @@ name's format, compression and encryption, and returns the target path:
 IOStreams.path("uploads/orders.csv.pgp").move_to("s3://my-bucket/archive/orders.csv.pgp")
 ~~~
 
-It creates the directories of the target first, and moving onto the same file raises `ArgumentError`, rather than
-deleting it. A move within S3 copies the object within S3, and a move between local files renames the file.
+It creates the directories of the target first, and moving onto the same file, by any name, raises `ArgumentError`,
+rather than deleting it. So does moving a local file onto an existing directory, rather than into it, as `mv` would:
+join the name of the file to the directory, such as `path.move_to(IOStreams.path("archive").join(path.basename))`. A move within S3 copies the object
+within S3, with the client and options of the target, such as its `acl:`, and a move between local files renames the
+file.
 
 ## When a copy fails
 
