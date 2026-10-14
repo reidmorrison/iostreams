@@ -279,6 +279,47 @@ class LineReaderTest < Minitest::Test
         end
       end
 
+      describe "a file whose first line ends with \"\\r\\n\"" do
+        # Returns [Array<String>] the lines read from the data, in blocks of the supplied size.
+        def lines_of(data, buffer_size: nil, **)
+          lines = []
+          IOStreams::Line::Reader.stream(StringIO.new(data), buffer_size: buffer_size, **) do |io|
+            io.each { |line| lines << line }
+          end
+          lines
+        end
+
+        it "also ends a line at a \"\\n\" without a \"\\r\", and keeps \"\\r\\n\" as its delimiter" do
+          data = "name,zip\r\nJack,12345\nJill,98101\r\nBob,10001"
+
+          IOStreams::Line::Reader.stream(StringIO.new(data)) { |io| assert_equal "\r\n", io.delimiter }
+          [nil, 1, 2, 3, 7].each do |buffer_size|
+            assert_equal ["name,zip", "Jack,12345", "Jill,98101", "Bob,10001"], lines_of(data, buffer_size: buffer_size)
+          end
+        end
+
+        it "keeps a \"\\r\" that does not end a line" do
+          assert_equal ["a,b", "c\rd", "e"], lines_of("a,b\r\nc\rd\ne\r")
+        end
+
+        it "keeps the line break within a quoted value as it is" do
+          data = "a,b\r\n\"one\r\ntwo\",1\r\n\"three\nfour\",2\n"
+
+          assert_equal ["a,b", "\"one\r\ntwo\",1", "\"three\nfour\",2"], lines_of(data, embedded_within: "\"")
+        end
+
+        it "only ends a line at \"\\r\\n\" when it is the supplied delimiter" do
+          assert_equal %W[a b\nc], lines_of("a\r\nb\nc\r\n", delimiter: "\r\n")
+        end
+
+        it "reads every record of a CSV file whose lines end with \"\\r\\n\" and \"\\n\"" do
+          records = []
+          IOStreams.stream(StringIO.new("name,zip\r\nJack,12345\nJill,98101\r\n")).each(:hash) { |record| records << record }
+
+          assert_equal [{"name" => "Jack", "zip" => "12345"}, {"name" => "Jill", "zip" => "98101"}], records
+        end
+      end
+
       ["@", "BLAH"].each do |delimiter|
         it "reads delimited #{delimiter.inspect}" do
           lines  = []
