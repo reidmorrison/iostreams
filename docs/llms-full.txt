@@ -1849,8 +1849,22 @@ raises `ArgumentError` when it is set.
 
 The encoding of the text is converted closest to your code, after the file is decompressed or decrypted, so
 `IOStreams.path("data.csv.gz").encoding("BINARY")` still decompresses the file, and reads its text as bytes.
-`read(length)` through an encode stream returns whole characters, which can be a few bytes more or fewer than the
-length.
+
+With an encoding, the stream that `#reader` supplies reads like an IO that converts text, such as
+`File.open(name, "r:Windows-1252:UTF-8")`, so a library that reads an IO, such as `CSV`, reads the text in the encoding
+that your code reads:
+
+~~~ruby
+require "csv"
+
+IOStreams.path("export.csv").encoding("Windows-1252:UTF-8").reader do |io|
+  CSV.new(io, headers: true).map(&:to_h)
+end
+# => [{"name" => "José", "city" => "Málaga"}]
+~~~
+
+Its `read(length)` and `#readpartial` read text too, rather than bytes: whole characters, up to `length` bytes of them,
+or the first character when it is longer.
 
 ### Data as it is stored
 
@@ -3000,8 +3014,10 @@ The stream is not the reader or writer of the gem, such as a `Zlib::GzipReader`,
 `#rewind`, `#pos`, `#lineno`, `#getc` and `#size`, raise `NoMethodError`. To read lines, use `each(:line)`, and where a
 library needs a `File`, copy the file into a local file first, see [Copying and moving](copy_files).
 
-An encoding set with `#encoding` is converted by a stream of its own, closest to your code, which only responds to
-`#read` when reading. So with an encoding, read lines with `each(:line)` rather than `#gets`.
+An encoding set with `#encoding` is converted by a stream of its own, closest to your code, which reads like an IO that
+converts text, such as `File.open(name, "r:Windows-1252:UTF-8")`: what it reads is in the encoding that your code
+reads, and its `read(length)` and `#readpartial` return whole characters, up to `length` bytes of them, rather than
+bytes. See [Character encoding](streams#character-encoding).
 
 ### When writing fails
 
@@ -5281,12 +5297,18 @@ Like every other stream, it responds to the methods of an IO that read, `#read`,
 `#readline`, `#readlines`, `#each_line`, `#each` and `#eof?`, which behave as they do for an IO whichever
 streams the data uses, so a library that reads an IO, such as `CSV.new(io)`, reads any stream. The other
 methods of those readers, such as `#rewind`, `#pos`, `#lineno`, `#getc` and `#size`, raise `NoMethodError`.
-The `.bz2` stream now also has `#readpartial`, `#gets` and `#each_line`. The encode stream is the exception, as in
-v2.1: when an encoding is set with `#encoding`, the IO that `#reader` supplies has only `#read`.
+The `.bz2` stream now also has `#readpartial`, `#gets` and `#each_line`.
+
+With an encoding set with `#encoding`, the stream reads like an IO that converts text, such as
+`File.open(name, "r:Windows-1252:UTF-8")`, where in v2.1 it had only `#read`: what it reads is in the encoding
+that is read, and `read(length)` returns whole characters, up to `length` bytes of them, where in v2.1 it returned
+`length` bytes, which could end within a character, or more when it converted the text from another encoding.
 
 Fix: replace calls such as `#rewind` or `#size` on the stream. Read lines with `each(:line)` or
 `reader(:line)`. Where the stream must be a `File`, copy the file into a local file first, for example with
-`IOStreams.path("data.csv.gz").copy_to("/tmp/data.csv")`, which decompresses it, and read that file.
+`IOStreams.path("data.csv.gz").copy_to("/tmp/data.csv")`, which decompresses it, and read that file. To read a
+number of bytes with an encoding set, such as a record of a fixed size, read the bytes without the encoding, and
+convert them.
 
 #### Reading gzip returns every member
 
