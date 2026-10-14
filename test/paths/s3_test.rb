@@ -314,7 +314,6 @@ module Paths
       end
 
       describe "#each_child" do
-        # TODO: case_sensitive: false, directories: false, hidden: false
         let(:abd_file_names) { %w[abd/test1.txt abd/test5.file abd/extra/file.csv] }
         let(:files_for_test) { abd_file_names + %w[xyz/test2.csv xyz/another.csv] }
 
@@ -387,6 +386,34 @@ module Paths
 
           assert_empty each_root.children("abd")
           assert_equal [each_root.join("abd").to_s], each_root.children("abd", directories: true).collect(&:to_s)
+        end
+
+        it "matches a pattern, or an exact name, ignoring case by default, like a local path" do
+          write_raw_data
+          directory = each_root.join("abd")
+
+          assert_equal [directory.join("test1.txt").to_s], directory.children("TEST1.*").collect(&:to_s)
+          assert_equal [directory.join("test1.txt").to_s], directory.children("TEST1.TXT").collect(&:to_s)
+          assert_equal [each_root.join("abd").to_s], each_root.children("ABD", directories: true).collect(&:to_s)
+        end
+
+        it "matches a pattern, or an exact name, with case_sensitive: true" do
+          write_raw_data
+          directory = each_root.join("abd")
+
+          assert_empty directory.children("TEST1.*", case_sensitive: true)
+          assert_empty directory.children("TEST1.TXT", case_sensitive: true)
+          assert_equal [directory.join("test1.txt").to_s], directory.children("test1.txt", case_sensitive: true).collect(&:to_s)
+        end
+
+        it "returns hidden children only when requested" do
+          hidden = each_root.join("abd/.hidden.txt")
+          hidden.write(raw)
+
+          refute_includes each_root.children("abd/*").collect(&:to_s), hidden.to_s
+          assert_includes each_root.children("abd/*", hidden: true).collect(&:to_s), hidden.to_s
+        ensure
+          hidden&.delete
         end
 
         it "missing path" do

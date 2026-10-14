@@ -435,8 +435,13 @@ module IOStreams
         # When the pattern is an exact file name without any pattern characters
         if matcher.exact?
           Sdk.load
-          each_exact_child(child_path(key_within(prefix, matcher.pattern)), directories, &)
-          return
+          child = child_path(key_within(prefix, matcher.pattern))
+          return unless allowed_child?(child)
+
+          attributes = child.exact_attributes(directories)
+          yield(child, attributes) if attributes
+          # Otherwise the name is matched within its directory, ignoring case, like a local path.
+          return if attributes || matcher.case_sensitive?
         end
 
         # List within the key as a directory, so that a key such as "reports" does not also list "reports_2024.csv".
@@ -481,6 +486,15 @@ module IOStreams
         size
       rescue Errors::NotFound
         nil
+      end
+
+      # Returns [Hash] the attributes of this object, see `#object_attributes`, empty attributes when it is a directory
+      # and `directories`, or nil when it is neither, for `#each_child` to yield this path as an exact name.
+      #
+      # Only the requests are rescued, rather than the block of `#each_child`, so that an exception that the block
+      # raises, such as `Aws::S3::Errors::NotFound` for another path, is raised as it is.
+      def exact_attributes(directories)
+        object_attributes || ({} if directories && directory?)
       end
 
       # Returns [Hash] the attributes of this object, in the same form as those of a listed object, see `#each_child`,
@@ -581,19 +595,6 @@ module IOStreams
         return if unknown.empty?
 
         raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
-      end
-
-      # Yields the child, when it is an object, or a directory and `directories`, with its attributes,
-      # in the same form as those of a listed object. Load the AWS SDK first, see `Sdk.load`.
-      #
-      # Only the requests of the child are rescued, see `#object_attributes`, so that an exception raised by the block,
-      # such as `Aws::S3::Errors::NotFound` for another path, is raised as it is.
-      def each_exact_child(child, directories)
-        return unless allowed_child?(child)
-
-        attributes   = child.object_attributes
-        attributes ||= {} if directories && child.directory?
-        yield(child, attributes) if attributes
       end
 
       # Returns [Listing] the listing of the objects in the bucket, which makes each request of this path.
