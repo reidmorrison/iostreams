@@ -80,6 +80,16 @@ class StreamIOTest < Minitest::Test
         end
       end
 
+      it "reads the rest of the lines like IO#readlines for the #{name.inspect} stream" do
+        skip_unless_read_back(format)
+
+        read_back(name, writer_options, reader_options) do |io|
+          assert_equal "0,#{'x' * 20}\n", io.gets
+          assert_equal data.lines[1..], io.readlines
+          assert_empty io.readlines
+        end
+      end
+
       it "is read by CSV for the #{name.inspect} stream, as an IO is" do
         skip_unless_read_back(format)
 
