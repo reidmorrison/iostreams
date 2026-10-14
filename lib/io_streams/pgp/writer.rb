@@ -148,7 +148,11 @@ module IOStreams
       # recipient, key or signer, and no signer when not encrypting.
       #
       # Takes the same options as .stream. Only gpg can check the others, such as whether a key exists.
-      def self.check(encrypt: true, recipient: nil, import_and_trust_key: nil, signer: default_signer, **)
+      # rubocop:disable Lint/UnusedMethodArgument -- the options of .stream that only gpg can check
+      def self.check(encrypt: true, recipient: nil, import_and_trust_key: nil, import_and_trust_level: 5,
+                     signer: default_signer, signer_passphrase: default_signer_passphrase, compress: :zip,
+                     compress_level: 6)
+        # rubocop:enable Lint/UnusedMethodArgument
         if encrypt
           recipients = Array(recipient)
           keys       = Array(import_and_trust_key)
