@@ -614,6 +614,69 @@ module Paths
           assert_same file_path, file_path.delete
           refute_path_exists file_path.to_s
         end
+
+        it "deletes a symbolic link to a file that does not exist" do
+          link = directory.mkdir.join("dangling.txt")
+          ::File.symlink(directory.join("nowhere.txt").to_s, link.to_s)
+
+          assert_same link, link.delete
+          refute ::File.symlink?(link.to_s)
+        end
+
+        it "raises PermissionDenied for a file in a directory that cannot be searched" do
+          skip "Every directory can be searched as root" if Process.uid.zero?
+
+          file_path
+          begin
+            ::File.chmod(0o600, directory.to_s)
+            error = assert_raises(IOStreams::Errors::PermissionDenied) { file_path.delete }
+
+            assert_instance_of Errno::EACCES, error
+          ensure
+            ::File.chmod(0o755, directory.to_s)
+          end
+        end
+
+        it "deletes a symbolic link to a directory, rather than the directory" do
+          target = directory.join("target").mkdir
+          target.join("a.txt").write(data)
+          link = directory.join("link")
+          ::File.symlink(target.to_s, link.to_s)
+
+          link.delete
+
+          refute ::File.symlink?(link.to_s)
+          assert_equal data, target.join("a.txt").read
+        end
+      end
+
+      describe "#delete_all" do
+        it "deletes a directory and everything within it, without following a symbolic link within it" do
+          target = root.join("target").mkdir
+          target.join("a.txt").write(data)
+          directory.join("sub/b.txt").write(data)
+          ::File.symlink(target.to_s, directory.join("sub/link").to_s)
+
+          assert_same directory, directory.delete_all
+          refute_path_exists directory.to_s
+          assert_equal data, target.join("a.txt").read
+        end
+
+        it "deletes a symbolic link, rather than what it refers to" do
+          target = directory.join("target").mkdir
+          target.join("a.txt").write(data)
+          link = root.join("link")
+          ::File.symlink(target.to_s, link.to_s)
+          dangling = root.join("dangling")
+          ::File.symlink(root.join("nowhere").to_s, dangling.to_s)
+
+          link.delete_all
+          dangling.delete_all
+
+          refute ::File.symlink?(link.to_s)
+          refute ::File.symlink?(dangling.to_s)
+          assert_equal data, target.join("a.txt").read
+        end
       end
 
       describe "reader" do

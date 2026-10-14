@@ -250,19 +250,19 @@ module IOStreams
         tag_failure { ::File.directory?(path) ? Dir.empty?(path) : ::File.empty?(path) }
       end
 
+      # A symbolic link is deleted, rather than what it refers to, including one that refers to nothing.
       def delete
         authorize!
-        return self unless exist?
-
-        tag_failure { ::File.directory?(path) ? Dir.delete(path) : ::File.unlink(path) }
+        status = link_status
+        tag_failure { status.directory? ? Dir.delete(path) : ::File.unlink(path) } if status
         self
       end
 
+      # A symbolic link is deleted, rather than what it refers to, and the links within a directory are not followed.
       def delete_all
         authorize!
-        return self unless exist?
-
-        tag_failure { ::File.directory?(path) ? FileUtils.remove_dir(path) : ::File.unlink(path) }
+        status = link_status
+        tag_failure { status.directory? ? FileUtils.remove_dir(path) : ::File.unlink(path) } if status
         self
       end
 
@@ -337,6 +337,14 @@ module IOStreams
         ::File.join(::File.realpath(existing), *missing)
       rescue SystemCallError => e
         raise(Errors::AccessDenied, "Access denied to #{path}: #{e.message}")
+      end
+
+      # Returns [File::Stat] the status of this file or directory, or of a symbolic link itself, rather than what it
+      # refers to, or nil when it does not exist.
+      def link_status
+        tag_failure { ::File.lstat(path) }
+      rescue Errno::ENOENT, Errno::ENOTDIR
+        nil
       end
 
       # Returns [true|false] whether the file, directory or symbolic link exists, without following the link.
