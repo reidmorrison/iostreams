@@ -94,16 +94,37 @@ module IOStreams
     #     neither validated nor sliced as options are, such as the schema of the records of a Parquet file, which is set
     #     on the path, see `IOStreams::Tabular#write_rows`.
     def open_stream(type, io_stream, options, name:, file_name: nil, arguments: nil, &)
-      klass = stream_class(type) || raise(ArgumentError, "No #{type} registered for Stream type: #{name.inspect}")
+      klass = registered_class(type, name)
+      klass.open(io_stream, **stream_arguments(type, options, name, file_name, arguments), &)
+    end
+
+    # Raises what #open_stream would raise before the class reads or writes anything, so that the caller can check
+    # before it opens the output, which would replace an existing file, see `IOStreams::Stream#open_rows_writer`. The
+    # options are validated, see #validate_options, and those that the class uses, with the arguments, are supplied to
+    # its `.check`, when it has one, such as `IOStreams::Parquet::Writer.check`. See #open_stream for the parameters.
+    def check_stream(type, options, name:, file_name: nil, arguments: nil)
+      klass     = registered_class(type, name)
+      arguments = stream_arguments(type, options, name, file_name, arguments)
+      klass.check(**arguments) if klass.respond_to?(:check)
+    end
+
+    private
+
+    def registered_class(type, name)
+      stream_class(type) || raise(ArgumentError, "No #{type} registered for Stream type: #{name.inspect}")
+    end
+
+    # Returns [Hash] the keyword arguments that the class is opened with: the options that it uses, once they are
+    # validated, and the arguments of the caller, see #open_stream.
+    def stream_arguments(type, options, name, file_name, arguments)
       validate_options(type, options, name: name)
+      klass    = stream_class(type)
       accepted = option_names(type)
       options  = options.slice(*accepted) if accepted
       options  = klass.file_name_options(file_name, **options) if file_name && klass.respond_to?(:file_name_options)
       options  = options.merge(arguments) if arguments
-      klass.open(io_stream, **options, &)
+      options
     end
-
-    private
 
     # Options are checked when they are set, against those that are valid when either reading or writing,
     # since it is not yet known which will be used. Not checked when the reader or the writer does not

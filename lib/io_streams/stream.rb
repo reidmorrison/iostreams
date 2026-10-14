@@ -745,11 +745,14 @@ module IOStreams
     # holds its rows in a binary layout of its own, such as Parquet, see `IOStreams::Tabular#write_rows`.
     #
     # Raises ArgumentError when `delimiter` is supplied, or an encoding is set, for a format without lines, see
-    # #reject_line_options!.
+    # #reject_line_options!. Raises before the output is opened when the format cannot write the rows, such as without a
+    # schema for Parquet, see `IOStreams::Tabular#check_write_rows`, so that an existing file is not replaced.
     def open_rows_writer(tabular, delimiter, &)
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter)
-        return stream_writer { |io| tabular.write_rows(io, builder.row_format_options(tabular.format), &) }
+        options = builder.row_format_options(tabular.format)
+        tabular.check_write_rows(options)
+        return stream_writer { |io| tabular.write_rows(io, options, &) }
       end
 
       open_line_writer(tabular.encoding, delimiter: delimiter.nil? ? $/ : delimiter, &)

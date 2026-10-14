@@ -42,7 +42,7 @@ module IOStreams
       purpose = "the output of #{self}, which only writes files"
       Utils.private_temp_file("iostreams_writer", purpose: purpose) do |file_name|
         copy = -> { ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) } }
-        Utils.finish_after(copy) { file(file_name, **args, &block) }
+        Utils.finish_or_abort(finish: copy) { file(file_name, **args, &block) }
       end
     end
 

@@ -806,6 +806,46 @@ module Paths
             assert_equal "one\ntwo\n", @server.requests.first[:body]
           end
 
+          it "uploads what was written when the block leaves early, as a local file keeps it" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").writer do |io|
+              io.write(body)
+              break
+            end
+
+            assert_equal body, @server.requests.first[:body]
+          end
+
+          it "uploads nothing when the block raises" do
+            start_server { |_path| TestHTTPServer.response(200) }
+
+            assert_raises(RuntimeError) do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").writer do |io|
+                io.write(body)
+                raise "boom"
+              end
+            end
+
+            assert_empty @server.requests
+          end
+
+          it "uploads nothing when the thread writing it is killed" do
+            start_server { |_path| TestHTTPServer.response(200) }
+            started = Queue.new
+            thread  = Thread.new do
+              IOStreams::Paths::HTTP.new("#{@server.base_url}/file.txt").writer do |io|
+                io.write(body)
+                started << true
+                sleep
+              end
+            end
+            started.pop
+            thread.kill.join
+
+            assert_empty @server.requests
+          end
+
           it "uploads an empty file" do
             start_server { |_path| TestHTTPServer.response(200) }
 

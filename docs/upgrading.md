@@ -239,6 +239,17 @@ and S3 paths, instead of the size of the file written.
 
 Fix: if you need the size, return it from the block, for example the total of what `io.write` returns.
 
+### Leaving a write early keeps what was written
+
+Writing to an S3, SFTP or HTTP(S) path now stores what was written when the block leaves early, such as
+with `break` or `return`, as writing to a local file always has, so the same code behaves the same
+whichever file store the path refers to. Previously nothing was stored. A stream registered with
+`IOStreams.register_extension` whose writer only writes files likewise keeps its output. Nothing is
+stored when the block raises an exception, or when the thread writing it is killed.
+
+Fix: to abandon a write, such as on a bad record, raise an exception from the block rather than leave it
+with `break`.
+
 ### Options that a mode or copy cannot use raise `ArgumentError`
 
 `#reader` and `#writer` in the `:stream` mode, which is the default, `#copy_from` and `#copy_to` without

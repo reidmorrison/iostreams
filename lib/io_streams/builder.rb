@@ -42,6 +42,18 @@ module IOStreams
       end
     end
 
+    # Returns [Hash<Symbol:Hash>] the options of each tabular format, see #row_format_options, with the value of each
+    # sensitive option replaced, see `IOStreams::StreamFormat#redact_options`. The format is the one that the options
+    # were set for, even when an extension of the same name was registered after, see .find_row_format. Every value is
+    # replaced when the format is no longer registered, since it cannot say which are sensitive, as for a stream, see
+    # .redact_streams.
+    def self.redact_row_options(row_options)
+      row_options.to_h do |name, opts|
+        format = IOStreams::Tabular.row_format(name)
+        [name, format ? format.redact_options(opts) : opts.transform_values { Utils::FILTERED }]
+      end
+    end
+
     # Returns the format of the stream, such as `IOStreams::Gzip` for `:gz`, or nil when it is not registered.
     def self.find_format(stream)
       stream = stream&.to_sym
@@ -323,7 +335,7 @@ module IOStreams
       @streams     = self.class.redact_streams(@streams) if @streams
       @options     = self.class.redact_streams(@options) if @options
       @encoding    = Encode.redact_options(@encoding) if @encoding
-      @row_options = @row_options&.to_h { |name, opts| [name, self.class.find_row_format(name).redact_options(opts)] }
+      @row_options = self.class.redact_row_options(@row_options) if @row_options
     end
 
     private

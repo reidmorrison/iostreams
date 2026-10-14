@@ -1413,6 +1413,23 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "copies the header row as a row when the columns are supplied, which it does not replace, as before" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "in.csv")
+          source.write("Age,Name\n21,Jack\n")
+
+          json = IOStreams.path(dir, "out.json")
+          json.copy_from(source, mode: :array, columns: %w[age name])
+
+          assert_equal %({"age":"Age","name":"Name"}\n{"age":"21","name":"Jack"}\n), json.read
+
+          csv = IOStreams.path(dir, "out.csv")
+          csv.copy_from(source, mode: :array, columns: %w[age name])
+
+          assert_equal "age,name\nAge,Name\n21,Jack\n", csv.read
+        end
+      end
+
       it "writes the rows read with a schema whose fields can be missing in the columns of their fields" do
         schema = {fieldsMatch: "superset", fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "score", type: "integer"}]}
         Dir.mktmpdir do |dir|

@@ -382,7 +382,9 @@ wide file. The other values of `fieldsMatch` read every column, so that they can
 A Parquet file records its columns at its end, so it is read from a local file, and a file stored elsewhere, such as
 on S3, is first copied into a temp file. Likewise it is written to a temp file, which is then copied to the path. The
 records written before the block leaves early, such as with `break`, are kept, as for other formats, and nothing is
-written when the block raises, or when the thread writing it is killed.
+written when the block raises, or when the thread writing it is killed. Writing without a schema, with a field that
+has no Parquet type, or with a compression that Parquet does not have, raises `ArgumentError` before the file is
+opened, so that an existing file is kept.
 
 A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, naming its field, when the record is
 written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its

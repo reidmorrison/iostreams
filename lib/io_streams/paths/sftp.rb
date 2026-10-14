@@ -403,9 +403,9 @@ module IOStreams
 
       def stream_writer(&block)
         # Uploads the file once all data has been written to it, including when the block leaves early, such as with
-        # `break`, as a local file keeps what was written, see `IOStreams::Utils.finish_after`.
+        # `break`, as a local file keeps what was written, see `IOStreams::Utils.finish_or_abort`.
         Utils.private_temp_file("iostreams-sftp-writer", purpose: "the upload to #{display_name}") do |file_name|
-          Utils.finish_after(-> { sftp_upload(file_name, remote_path) }) do
+          Utils.finish_or_abort(finish: -> { sftp_upload(file_name, remote_path) }) do
             ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
           end
         end
