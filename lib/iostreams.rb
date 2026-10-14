@@ -4,6 +4,7 @@ require "io_streams/version"
 # @formatter:off
 module IOStreams
   autoload :Builder,             "io_streams/builder"
+  autoload :ChunkReader,         "io_streams/chunk_reader"
   autoload :Errors,              "io_streams/errors"
   autoload :Path,                "io_streams/path"
   autoload :Reader,              "io_streams/reader"
@@ -28,7 +29,6 @@ module IOStreams
   autoload :Parquet,             "io_streams/parquet"
 
   module Paths
-    autoload :ChunkReader, "io_streams/paths/chunk_reader"
     autoload :File,        "io_streams/paths/file"
     autoload :HTTP,        "io_streams/paths/http"
     autoload :Matcher,     "io_streams/paths/matcher"
