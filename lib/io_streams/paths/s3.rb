@@ -203,9 +203,10 @@ module IOStreams
       end
 
       # Returns [String] the url of this path, with each `%`, `?` and `#` in the key percent-encoded, so that the
-      # path can be created again from its url, see `IOStreams::Utils::URI.encode_path`.
+      # path can be created again from its url, see `IOStreams::Utils::URI.encode_path`. The key is as it is, so that
+      # a key that starts with `/`, which S3 can hold, is `s3://bucket//a.csv`, rather than the key `a.csv`.
       def to_s
-        ::File.join("s3://", bucket_name, Utils::URI.encode_path(path))
+        "s3://#{bucket_name}/#{Utils::URI.encode_path(path)}"
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -475,6 +476,17 @@ module IOStreams
       # and copying, and `request_payer` to every operation.
       def options_for(operation)
         options.slice(*Sdk.operation_options(operation))
+      end
+
+      # Returns [String] the key of the name joined to this path, see `IOStreams::Path#join`. A name joined to the
+      # bucket itself is a key within it, as a name joined to the local directory `/` is within it, so that a name that
+      # starts with `/`, such as from untrusted input, is not a key that starts with `/`, outside a directory such as
+      # `exports/` that it names.
+      def joined_path(name)
+        return super unless path.empty?
+
+        name = name.delete_prefix("/") while name.start_with?("/")
+        name
       end
 
       # Returns [Integer] the size of the object, or nil when it does not exist, see `#empty?`. A direct copy of an object

@@ -30,20 +30,20 @@ module IOStreams
     def join(*elements)
       return dup if elements.empty?
 
-      elements = elements.collect(&:to_s)
-      relative = ::File.join(*elements)
-
       new_path = dup
       new_path.clear_configuration
-      new_path.path = contains?(relative) ? relative : ::File.join(path, relative)
+      new_path.path = joined_path(::File.join(*elements.collect(&:to_s)))
       new_path
     end
 
     # Returns [IOStreams::Path] a new path with the element joined to this path, see #join.
     #
-    # Like #join, and unlike `Pathname#/`, an absolute element is joined to this path rather than replacing it,
-    # so that a name from untrusted input, or from configuration, stays within this path:
+    # Like #join, and unlike `Pathname#/`, an absolute element is joined to this path rather than replacing it:
     #   IOStreams.path("/data") / "/b.csv"   # => /data/b.csv
+    #
+    # A name from untrusted input can still leave this path with `..`, such as `"../etc/passwd"`, and an absolute
+    # element joined to an empty path, the current directory, is used as it is, so restrict the paths that can be
+    # accessed with `IOStreams.add_allowed_path`.
     def /(other)
       join(other)
     end
@@ -392,6 +392,12 @@ module IOStreams
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
     attr_writer :path
+
+    # Returns [String] the path of the supplied name joined to this path, see #join: the name itself when it is
+    # already within this path.
+    def joined_path(name)
+      contains?(name) ? name : ::File.join(path, name)
+    end
 
     # Returns [true|false] whether the other path is the same location as this one, such as the same file, see
     # #move_to. Paths with the same full name are, see #==, and each path class also detects the other names of a

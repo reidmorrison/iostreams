@@ -878,6 +878,27 @@ module Paths
 
           assert_equal "reports/2024.csv", path.join("reports/2024.csv").path
         end
+
+        it "joins a name that starts with / onto the bucket as a key within it, as onto a local directory" do
+          bucket = IOStreams::Paths::S3.new("s3://bucket", client: client)
+
+          %w[/a.csv //a.csv].each do |name|
+            joined = bucket / name
+
+            assert_equal "a.csv", joined.path, name
+            assert_equal "s3://bucket/a.csv", joined.to_s, name
+          end
+          assert_equal "exports/a.csv", bucket.join("/exports", "a.csv").path
+          assert_equal "data/a.csv", IOStreams::Paths::S3.new("s3://bucket/data", client: client).join("/a.csv").path
+        end
+
+        it "is created again from its url, for a key that starts with /" do
+          path = IOStreams::Paths::S3.new("s3://bucket//exports/a.csv", client: client)
+
+          assert_equal "/exports/a.csv", path.path
+          assert_equal "s3://bucket//exports/a.csv", path.to_s
+          assert_equal path.path, IOStreams::Paths::S3.new(path.to_s, client: client).path
+        end
       end
 
       describe "#each_child" do

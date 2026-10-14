@@ -387,6 +387,19 @@ class AllowedPathsTest < Minitest::Test
         assert_denied { IOStreams.path("/allowed/file.txt").read }
       end
 
+      it "denies a key that starts with /, which is not within an allowed path whose key does not" do
+        assert_denied { IOStreams.path("s3://bucket//allowed/file.txt").write("x") }
+        refute IOStreams.allowed_path?("s3://bucket//allowed/file.txt")
+        assert_equal ["allowed/file.txt"], IOStreams.path("s3://bucket/allowed").children("**/*", hidden: true).map(&:path)
+      end
+
+      it "allows a name that starts with / joined to the bucket, which is a key within the bucket" do
+        path = IOStreams.path("s3://bucket").join("/allowed/file.txt")
+
+        assert_equal "s3://bucket/allowed/file.txt", path.to_s
+        assert_equal "allowed", path.read
+      end
+
       it "denies keys containing . or .." do
         assert_denied { IOStreams.path("s3://bucket/allowed/../other/file.txt").write("x") }
         assert_denied { IOStreams.path("s3://bucket/allowed/./file.txt").read }
