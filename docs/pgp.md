@@ -76,7 +76,16 @@ A few features need a later version than 2.1:
 ## Tutorial
 
 This tutorial creates a key for a sender and one for a receiver, in your own keyring, and then encrypts, decrypts,
-signs and verifies a file with them. Open an interactive Ruby console, such as `irb`, and load IOStreams:
+signs and verifies a file with them. [Cleanup](#cleanup) removes them afterwards. To keep them apart from your own keys
+instead, use a new keyring of its own, in a directory with a short path, since gpg-agent creates its socket there, and a
+long path fails with `File name too long`:
+
+~~~
+mkdir -m 700 /tmp/iostreams-pgp
+export GNUPGHOME=/tmp/iostreams-pgp
+~~~
+
+Open an interactive Ruby console, such as `irb`, and load IOStreams:
 
 ~~~ruby
 require "iostreams"
@@ -273,7 +282,19 @@ IOStreams.path("sample/example.csv.pgp").read
 # => "name,login\nJack Jones,jjones\n"
 ~~~
 
-To remove the keys and the settings of this tutorial, see [Cleanup](#cleanup).
+### Cleanup
+
+To remove the settings and the keys that the tutorial created:
+
+~~~ruby
+IOStreams::Pgp::Writer.default_signer            = nil
+IOStreams::Pgp::Writer.default_signer_passphrase = nil
+IOStreams::Pgp::Writer.audit_recipient           = nil
+IOStreams::Pgp::Reader.default_passphrase        = nil
+
+IOStreams::Pgp.delete_keys(email: "sender@example.org", private: true)
+IOStreams::Pgp.delete_keys(email: "receiver@example.org", private: true)
+~~~
 
 ## Reader options
 
@@ -636,17 +657,3 @@ That of the user that runs the process, in `~/.gnupg`, or the directory that the
   need a later version of IOStreams.
 * Writing cannot encrypt a file with a passphrase alone, as `gpg --symmetric` does, while reading such a file works,
   with its `passphrase`.
-
-## Cleanup
-
-To remove the settings and the keys that the tutorial created:
-
-~~~ruby
-IOStreams::Pgp::Writer.default_signer            = nil
-IOStreams::Pgp::Writer.default_signer_passphrase = nil
-IOStreams::Pgp::Writer.audit_recipient           = nil
-IOStreams::Pgp::Reader.default_passphrase        = nil
-
-IOStreams::Pgp.delete_keys(email: "sender@example.org", private: true)
-IOStreams::Pgp.delete_keys(email: "receiver@example.org", private: true)
-~~~
