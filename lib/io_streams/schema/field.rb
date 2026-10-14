@@ -112,6 +112,8 @@ module IOStreams
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
       DATETIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
+      # The offset from UTC at the end of the text of a datetime that DATETIME matches.
+      OFFSET   = /(?:Z|[+-]\d{2}:\d{2})\z/
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -518,6 +520,9 @@ module IOStreams
 
       # `Time` moves a day past the end of its month into the next month, such as February 30 into March 2, so the
       # date is checked first, as a date field does.
+      #
+      # Text without an offset from UTC is read as UTC, rather than in the time zone of the process, so that a file
+      # reads the same on every server.
       def cast_datetime(value)
         return value if value.is_a?(Time)
         return self.class.time_of(value) if value.is_a?(DateTime)
@@ -526,21 +531,29 @@ module IOStreams
         return invalid(value) unless DATETIME.match?(value)
         return invalid(value) unless Date.valid_date?(value[0, 4].to_i, value[5, 2].to_i, value[8, 2].to_i)
 
-        Time.iso8601(value)
+        Time.iso8601(OFFSET.match?(value) ? value : "#{value}Z")
       rescue ArgumentError
         invalid(value)
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
       # and whose date must exist, see #cast_datetime.
+      #
+      # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
+      # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
       def parse_time(klass, text)
         parts = Date._strptime(text, @format)
         return invalid(text) if parts.nil? || parts.key?(:leftover)
         if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
           return invalid(text)
         end
+        return Date.strptime(text, @format) if klass == Date
+        return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
-        klass.strptime(text, @format)
+        # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
+        # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
+        time = self.class.time_of(DateTime.strptime(text, @format))
+        parts[:offset] ? time : time.utc
       rescue ArgumentError
         invalid(text)
       end

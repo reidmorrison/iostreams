@@ -743,6 +743,33 @@ class SchemaTest < Minitest::Test
         it "reads ISO 8601" do
           assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13T09:30:00Z")
           assert_equal Time.utc(2026, 10, 13, 14, 30, 0.3r), datetime.cast("2026-10-13T09:30:00.300-05:00")
+          assert_equal(-18_000, datetime.cast("2026-10-13T09:30:00.300-05:00").utc_offset)
+        end
+
+        it "reads text without an offset from UTC as UTC, rather than in the time zone of the process" do
+          original  = ENV.fetch("TZ", nil)
+          ENV["TZ"] = "America/New_York"
+          pattern   = field(type: "datetime", format: "%Y-%m-%d %H:%M")
+
+          [datetime.cast("2026-10-13T09:30:00"), pattern.cast("2026-10-13 09:30"), field(type: "datetime", format: "%s").cast("1791883800")].each do |time|
+            assert_equal Time.utc(2026, 10, 13, 9, 30), time
+            assert_predicate time, :utc?
+          end
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.25r), datetime.cast("2026-10-13T09:30:00.25")
+          # A time that the clocks of the time zone skip, which a local time would move by an hour.
+          assert_equal Time.utc(2026, 3, 8, 2, 30), pattern.cast("2026-03-08 02:30")
+        ensure
+          ENV["TZ"] = original
+        end
+
+        it "reads text with a zone at its offset, and raises for a zone whose offset is not known" do
+          zone = field(type: "datetime", format: "%Y-%m-%d %H:%M %Z")
+
+          assert_equal Time.utc(2026, 10, 13, 8, 30), zone.cast("2026-10-13 09:30 CET")
+          assert_equal 3600, zone.cast("2026-10-13 09:30 CET").utc_offset
+          assert_equal Time.utc(2026, 10, 13, 14, 30), zone.cast("2026-10-13 09:30 EST")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { zone.cast("2026-10-13 09:30 XYZ") }
+          assert_equal 'Field "value": "2026-10-13 09:30 XYZ" is not a valid datetime', error.message
         end
 
         it "raises for a date without a time, or another form" do
