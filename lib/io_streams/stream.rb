@@ -136,10 +136,20 @@ module IOStreams
     # IOStreams.path("export.csv").encoding("UTF-8", replace: "?").read
     #
     # Replaces `option(:encode, ...)` and `stream(:encode, ...)`, which still work.
-    def encoding(encoding = nil, **)
+    #
+    # Without any arguments, returns [String|Encoding|nil] the encoding that was set, or nil when none was, like
+    # `IO#encoding`.
+    def encoding(encoding = nil, **options)
+      return builder.setting(:encode)&.[](:encoding) if encoding.nil? && options.empty?
+
       raise_if_frozen!
-      builder.encoding(encoding, **)
+      builder.encoding(encoding, **options)
       self
+    end
+
+    # Returns [true|false] whether the data is read and written as it is stored, see #raw.
+    def raw?
+      builder.raw?
     end
 
     # Adds the options for the specified stream as an option,
@@ -419,8 +429,9 @@ module IOStreams
       end
     end
 
-    # Set the tabular format
+    # Set the tabular format, such as `:json`, or the name of one, such as "json", for a format held in configuration.
     def format=(format)
+      format = format.to_sym if format.is_a?(String)
       unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
         raise(ArgumentError, "Invalid format: #{format.inspect}")
       end
@@ -500,6 +511,17 @@ module IOStreams
       @schema_source  = schema.nil? ? nil : IOStreams::Schema::Source.new(schema)
       @schema         = schema
       @format_options = nil
+    end
+
+    # Freezes this stream, so that the methods that set its streams, options, file name, format and schema raise
+    # FrozenError, see `IOStreams.add_root`, and so does changing the Hashes that `#setting`, `#pipeline`,
+    # `#format_options` and `#schema` return. The builder is created first, if it was not already, so that a frozen
+    # stream can still be read and written.
+    def freeze
+      builder.freeze
+      @format_options = Utils.frozen_copy(@format_options)
+      @schema         = Utils.frozen_copy(@schema)
+      super
     end
 
     # Returns [String] the last component of this path.

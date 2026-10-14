@@ -382,14 +382,6 @@ module IOStreams
       Utils.display_text(to_s)
     end
 
-    # Freezes this path, so that `#option`, `#stream` and `#file_name=` can no longer change the streams,
-    # options or file name it already holds, see `IOStreams.add_root`. The builder is created first, if it
-    # was not already, so that this path can still be read, for example with `#reader` or `#pipeline`.
-    def freeze
-      builder
-      super
-    end
-
     protected
 
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.

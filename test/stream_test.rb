@@ -903,6 +903,11 @@ class StreamTest < Minitest::Test
         assert_equal :csv, stream.format
       end
 
+      it "accepts the name of a format as a String, such as from configuration" do
+        assert_equal :json, stream.format("json").format
+        assert_raises(ArgumentError) { stream.format("bogus") }
+      end
+
       it "returns set format with file_name" do
         stream.file_name = "abc.json"
         stream.format    = :csv
@@ -2225,6 +2230,11 @@ class StreamTest < Minitest::Test
       it "is nil when the stream has no settings" do
         assert_nil IOStreams.path("file.csv.gz").setting(:gz)
       end
+
+      it "accepts the name of the stream as a String" do
+        assert_equal({level: 1}, IOStreams.path("tempfile2527").stream(:gz, level: 1).setting("gz"))
+        assert_equal({level: 1}, IOStreams.path("file.csv.gz").option(:gz, level: 1).setting("gz"))
+      end
     end
 
     describe "#option_or_stream" do
@@ -2241,6 +2251,32 @@ class StreamTest < Minitest::Test
         path.option_or_stream(:enc, compress: false)
 
         assert_equal({zip: {}, enc: {compress: false}}, path.pipeline)
+      end
+    end
+
+    describe "a frozen stream" do
+      it "can be read and written" do
+        assert_equal "abc", IOStreams.stream(StringIO.new("abc")).freeze.read
+
+        io = StringIO.new
+        IOStreams.stream(io).freeze.write("abc")
+
+        assert_equal "abc", io.string
+      end
+    end
+
+    describe "#encoding without arguments" do
+      it "returns the encoding that was set" do
+        assert_nil IOStreams.path("a.csv").encoding
+        assert_equal "Windows-1252:UTF-8", IOStreams.path("a.csv").encoding("Windows-1252:UTF-8").encoding
+        assert_nil IOStreams.path("a.csv").encoding(replace: "?").encoding
+      end
+    end
+
+    describe "#raw?" do
+      it "returns whether the data is read and written as it is stored" do
+        refute_predicate IOStreams.path("a.csv.gz"), :raw?
+        assert_predicate IOStreams.path("a.csv.gz").raw, :raw?
       end
     end
 

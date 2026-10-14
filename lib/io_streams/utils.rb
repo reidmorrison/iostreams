@@ -151,6 +151,18 @@ module IOStreams
       end
     end
 
+    # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that freezing an
+    # object that holds options does not freeze the objects that the caller supplied. Any other value, such as a Proc
+    # or a Symbol, is returned as it is.
+    def self.frozen_copy(value)
+      case value
+      when Hash then value.to_h { |key, item| [frozen_copy(key), frozen_copy(item)] }.freeze
+      when Array then value.map { |item| frozen_copy(item) }.freeze
+      when String then value.frozen? ? value : value.dup.freeze
+      else value
+      end
+    end
+
     # Returns [File] the open local file that the IO reads or writes: the IO itself when it is a `File`, or the file of
     # a `Tempfile`, which delegates to it. Returns nil for any other IO, such as a pipe, a socket or a StringIO, and for
     # a file that is closed.

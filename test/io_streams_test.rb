@@ -279,6 +279,27 @@ module IOStreams
         ensure
           IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
         end
+
+        it "cannot be changed through the settings that it returns" do
+          layout  = [{size: 2, key: :id}]
+          options = {level: 1}
+          root    = IOStreams.add_root(
+            :frozen_test, IOStreams.path("exports.csv.gz").option(:gz, **options).encoding("UTF-8").format_options(layout: layout)
+          )
+
+          assert_raises(FrozenError) { root.setting(:gz)[:level] = 9 }
+          assert_raises(FrozenError) { root.pipeline[:encode][:encoding] = "BINARY" }
+          assert_raises(FrozenError) { root.format_options[:layout] << {size: 1, key: :x} }
+          assert_raises(FrozenError) { root.option_or_stream(:gz, level: 9) }
+          assert_raises(FrozenError) { root.remove_from_pipeline(:gz) }
+          assert_equal({encode: {encoding: "UTF-8"}, gz: {level: 1}}, IOStreams.root(:frozen_test).pipeline)
+          assert_equal [{size: 2, key: :id}], IOStreams.root(:frozen_test).format_options[:layout]
+          # The objects that the caller supplied are not frozen.
+          refute_predicate layout, :frozen?
+          refute_predicate options, :frozen?
+        ensure
+          IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
+        end
       end
 
       describe ".roots" do
@@ -604,6 +625,11 @@ module IOStreams
 
         it "replaces every option of a stream that is not registered" do
           assert_equal({gone: {region: "[FILTERED]"}}, IOStreams.redact_stream_options(gone: {region: "east"}))
+        end
+
+        it "replaces options that are not a Hash, since they cannot say which of their values are sensitive" do
+          assert_equal({pgp: "[FILTERED]"}, IOStreams.redact_stream_options(pgp: "secret"))
+          assert_equal({pgp: "[FILTERED]"}, IOStreams.redact_stream_options(pgp: [[:passphrase, "secret"]]))
         end
       end
 

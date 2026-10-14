@@ -458,6 +458,12 @@ class BuilderTest < Minitest::Test
         assert_nil streams.setting(:encode)
       end
 
+      it "set with the deprecated stream(:encode) keeps the streams from the file name when its options are invalid" do
+        assert_raises(ArgumentError) { streams.stream(:encode, bogus: 1) }
+
+        assert_equal({xlsx: {}, zip: {}, gz: {}, pgp: {}}, streams.pipeline)
+      end
+
       it "checks the options merged with those already set" do
         streams.encoding("UTF-8", replace: "?")
 

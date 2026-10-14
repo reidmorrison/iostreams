@@ -33,7 +33,9 @@ module IOStreams
     # is not registered, since it cannot say which are sensitive.
     def self.redact_streams(streams)
       streams.to_h do |stream, opts|
-        next [stream, opts] unless opts.is_a?(Hash)
+        next [stream, opts] if opts.nil?
+        # A stream's options are a Hash, so anything else cannot say which of its values are sensitive.
+        next [stream, Utils::FILTERED] unless opts.is_a?(Hash)
 
         format = find_format(stream)
         next [stream, opts.transform_values { Utils::FILTERED }] unless format
@@ -78,6 +80,17 @@ module IOStreams
       @encoding    = nil
       @raw         = false
       @row_options = nil
+    end
+
+    # Freezes this builder, holding frozen copies of its streams and options, so that neither its methods nor a change to
+    # the Hashes that #setting and #pipeline return can change it, see `IOStreams::Stream#freeze`. The objects that the
+    # caller supplied are not frozen.
+    def freeze
+      @streams     = Utils.frozen_copy(@streams)
+      @options     = Utils.frozen_copy(@options)
+      @encoding    = Utils.frozen_copy(@encoding)
+      @row_options = Utils.frozen_copy(@row_options)
+      super
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
@@ -146,8 +159,10 @@ module IOStreams
         return self
       end
       if stream == :encode
+        # Checked before the streams from the file name are replaced, so that a stream that raises changes nothing.
+        merge_encoding(options)
         @streams ||= {}
-        return merge_encoding(options)
+        return self
       end
       format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
 
@@ -225,8 +240,9 @@ module IOStreams
 
     # Return the options set for either a stream or option.
     def setting(stream)
-      return @encoding if stream.to_sym == :encode
-      return @row_options&.[](stream.to_sym) if self.class.find_row_format(stream.to_sym)
+      stream = stream.to_sym
+      return @encoding if stream == :encode
+      return @row_options&.[](stream) if self.class.find_row_format(stream)
       return streams[stream] if streams
 
       options[stream] if options
