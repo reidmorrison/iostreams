@@ -104,6 +104,13 @@ class PgpReaderTest < Minitest::Test
       temp_file.delete
     end
 
+    describe "settings" do
+      it "are initialized on the reader" do
+        assert IOStreams::Pgp::Reader.instance_variable_defined?(:@default_passphrase)
+        refute IOStreams::Pgp::Reader.singleton_class.instance_variable_defined?(:@default_passphrase)
+      end
+    end
+
     describe ".file" do
       it "reads encrypted file" do
         IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") do |io|

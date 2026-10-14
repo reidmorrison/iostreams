@@ -32,11 +32,11 @@ module IOStreams
         private
 
         attr_reader :default_signer_passphrase, :default_signer
-
-        @default_signer_passphrase = nil
-        @default_signer            = nil
-        @audit_recipient           = nil
       end
+
+      @default_signer_passphrase = nil
+      @default_signer            = nil
+      @audit_recipient           = nil
 
       # Write to a PGP / GPG stream, encrypting and/or signing the contents as it is written.
       #

@@ -40,6 +40,8 @@ module IOStreams
     class Failure < StandardError
     end
 
+    # Not raised since v2.0, which supports gpg v2.4 and later, the versions that it was raised for before.
+    # Kept for compatibility, so that code that rescues it still loads.
     class UnsupportedVersion < Failure
     end
 
@@ -128,8 +130,6 @@ module IOStreams
                           subkey_usage: nil,
                           creation_date: nil,
                           expire_date: nil)
-      version_check
-
       # Reject newlines so that a value cannot inject additional directives into
       # the gpg batch key-generation parameter file.
       reject_newlines!(name: name, email: email, comment: comment, passphrase: passphrase,
@@ -233,7 +233,6 @@ module IOStreams
     def self.delete_keys(email: nil, key_id: nil, public: true, private: false)
       raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
 
-      version_check
       # Version 2.1+ uses delete_public_or_private_keys
       # Version < 2.1 uses delete_public_or_private_keys_v1
       method_name = version_at_least?("2.1") ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
@@ -262,7 +261,6 @@ module IOStreams
     #     trust:      [String]
     # Returns [] if no keys were found.
     def self.list_keys(email: nil, key_id: nil, private: false)
-      version_check
       args = [private ? "--list-secret-keys" : "--list-keys"]
       # `--` stops gpg from treating the email or key id as an option.
       args += ["--", user_id(email || key_id)] if email || key_id
@@ -295,7 +293,6 @@ module IOStreams
     #     private:    [true|false]
     #     trust:      [String]
     def self.key_info(key:)
-      version_check
       args = ["--batch", "--no-tty"]
       # Without a command, gpg shows the keys that it reads, but from gpg 2.1 it cannot show a secret key.
       # `--show-keys`, from gpg 2.2.8, shows both in the same format.
@@ -332,8 +329,6 @@ module IOStreams
     def self.export(email: nil, key_id: nil, ascii: true, private: false, passphrase: nil)
       raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
 
-      version_check
-
       args = passphrase_args
       args << "--armor" if ascii
       args += ["--no-tty", "--batch"]
@@ -367,7 +362,6 @@ module IOStreams
     # * Importing a new key for the same email address does not remove the prior key if any.
     # * Invalidated keys must be removed manually.
     def self.import(key:)
-      version_check
       command = gpg_command("--batch", "--import")
 
       out, err, status = Open3.capture3(*command, binmode: true, stdin_data: key)
@@ -558,7 +552,6 @@ module IOStreams
         raise(ArgumentError, "Invalid :key_id, it must only contain hexadecimal digits: #{key_id.inspect}")
       end
 
-      version_check
       fingerprint = key_id || fingerprint(email: email)
       return unless fingerprint
 
@@ -575,7 +568,6 @@ module IOStreams
     # Internal: resolve an email address to a key fingerprint.
     # Public callers should identify keys by `key_id` (see #list_keys / #key_info).
     def self.fingerprint(email:)
-      version_check
       command = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", user_id(email))
       Open3.popen2e(*command) do |_stdin, out, waith_thr|
         output = out.read.chomp
@@ -598,7 +590,6 @@ module IOStreams
     #
     # Used internally by the PGP reader to check who signed a file.
     def self.primary_fingerprints(value)
-      version_check
       command = gpg_command("--list-keys", "--with-colons", "--", user_id(value))
       out, err, status = Open3.capture3(*command, binmode: true)
       unless status.success?
@@ -686,12 +677,6 @@ module IOStreams
     # Used internally, including by the PGP reader and writer.
     def self.fingerprint?(value)
       value.to_s.match?(/\A(\h{40}|\h{64})\z/)
-    end
-
-    def self.version_check
-      # Previously, this method raised an error for versions >= 2.4
-      # Now we support versions up to and including 2.4.7
-      # If future versions introduce breaking changes, we can add specific checks here
     end
 
     # v2.4.7 output:

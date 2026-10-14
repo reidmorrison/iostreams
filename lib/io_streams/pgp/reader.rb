@@ -27,9 +27,9 @@ module IOStreams
         private
 
         attr_reader :default_passphrase
-
-        @default_passphrase = nil
       end
+
+      @default_passphrase = nil
 
       # Read from a PGP / GPG stream, decrypting the contents as it is read.
       #

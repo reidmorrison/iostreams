@@ -43,6 +43,15 @@ class PgpWriterTest < Minitest::Test
       temp_file.delete
     end
 
+    describe "settings" do
+      it "are initialized on the writer" do
+        names = %i[@default_signer @default_signer_passphrase @audit_recipient]
+
+        assert_empty(names.reject { |name| IOStreams::Pgp::Writer.instance_variable_defined?(name) })
+        assert_empty(names.select { |name| IOStreams::Pgp::Writer.singleton_class.instance_variable_defined?(name) })
+      end
+    end
+
     describe ".file" do
       it "writes encrypted text file" do
         result =
