@@ -15,8 +15,12 @@ module IOStreams
       OPTION_NAMES      = %i[columns allowed_columns required_columns skip_unknown].freeze
       READ_OPTION_NAMES = %i[allowed_columns required_columns skip_unknown].freeze
 
-      attr_accessor :allowed_columns, :required_columns, :skip_unknown
-      attr_reader :columns
+      # The most sets of keys whose plans it keeps, see #restrict_hash and #to_hash, so that records whose keys vary,
+      # such as JSON records that leave out the keys without a value, are matched once for each set of keys, while
+      # records whose keys are all different do not fill the memory.
+      PLANS = 64
+
+      attr_reader :columns, :allowed_columns, :required_columns, :skip_unknown
 
       # Returns [Array<Symbol>] the names of the supplied options, see #initialize, that describe the columns of a file:
       # those that are not nil, other than `skip_unknown`, which only applies to `allowed_columns`, so that on its own it
@@ -68,6 +72,14 @@ module IOStreams
         @required_columns = required_columns
         @allowed_columns  = allowed_columns
         @skip_unknown     = skip_unknown
+        clear_plans
+      end
+
+      # A copy has plans of its own, so that changing its columns, as #cleanse_changes? does, keeps those of the
+      # original.
+      def initialize_copy(source)
+        super
+        clear_plans
       end
 
       # Set the columns in this header, converting the column names to strings.
@@ -77,6 +89,22 @@ module IOStreams
       def columns=(columns)
         @columns      = stringify(columns)
         @hash_columns = nil
+        clear_plans
+      end
+
+      def allowed_columns=(allowed_columns)
+        @allowed_columns = allowed_columns
+        clear_plans
+      end
+
+      def required_columns=(required_columns)
+        @required_columns = required_columns
+        clear_plans
+      end
+
+      def skip_unknown=(skip_unknown)
+        @skip_unknown = skip_unknown
+        clear_plans
       end
 
       # Returns [Array<String>] list columns that were ignored during cleansing.
@@ -177,18 +205,17 @@ module IOStreams
       end
 
       # Returns [Hash] the supplied hash after applying `allowed_columns`, `required_columns` and `skip_unknown`
-      # to its keys, as if its keys were the header row.
+      # to its keys, as if its keys were the header row, or nil for an empty hash.
       #
-      # Used for formats such as JSON where each record supplies its own keys instead of a header row.
+      # Used for formats such as JSON where each record supplies its own keys instead of a header row. The keys are
+      # restricted once for each set of keys, see PLANS, rather than for every record.
       def restrict_hash(hash, rename: true)
-        header = self.class.new(
-          columns:          hash.keys,
-          allowed_columns:  allowed_columns,
-          required_columns: required_columns,
-          skip_unknown:     skip_unknown
-        )
-        header.cleanse!(rename: rename)
-        header.to_hash(hash.values)
+        plan = restrict_plan(hash.keys, rename)
+        return if plan.nil?
+
+        record = {}
+        plan.each { |key, column| record[column] = hash[key] }
+        record
       end
 
       def to_array(row, cleanse = true)
@@ -225,10 +252,20 @@ module IOStreams
         end
       end
 
+      # Returns [Hash] the values of the hash for each column, see #column_values, by the key that supplies each one,
+      # worked out once for each set of keys, see PLANS.
+      def cleanse_hash(hash)
+        keys = hash.keys
+        plan = keys.eql?(@cleanse_keys) ? @cleanse_plan : cleanse_plan(keys)
+        result = {}
+        plan.each { |column, key| result[column] = hash[key] }
+        result
+      end
+
       # Returns [Hash] the values of the hash for each column.
       # A column without a key of the same name takes the value of the first key that is the same once
       # both are cleansed, so that for example the key `"First Name"` supplies the column `"first_name"`.
-      def cleanse_hash(hash)
+      def column_values(hash)
         hash      = hash.transform_keys(&:to_s) unless hash.keys.all?(String)
         allowed   = columns.reject { |column| column.start_with?(IGNORE_PREFIX) }
         unmatched = allowed - hash.keys
@@ -241,6 +278,50 @@ module IOStreams
           matched[column] = value if column && !matched.key?(column)
         end
         hash.slice(*allowed).merge(matched)
+      end
+
+      # Returns [Array<Array(String, Object)>] each column that the keys of a record supply, see #column_values, with
+      # the key that supplies it. Worked out from the position of each key, so that a plan gives what #column_values
+      # gives for the record itself, including the last of two keys of the same text, such as `:a` and `"a"`.
+      def cleanse_plan(keys)
+        @cleanse_plan = @cleanse_plans.fetch(keys) do
+          @cleanse_plans.clear if @cleanse_plans.size >= PLANS
+          @cleanse_plans[keys] = column_values(keys.each_with_index.to_h).map { |column, index| [column, keys[index]] }
+        end
+        @cleanse_keys = keys
+        @cleanse_plan
+      end
+
+      # Returns [Array<Array(Object, String)>|nil] each key of a record that #restrict_hash keeps, with the column whose
+      # value it is, worked out once for each set of keys, or nil for a record without keys, whose restricted hash is
+      # blank. Like the plans of #cleanse_hash, it is worked out from the position of each key.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` each time for keys that the restrictions do not accept, see #cleanse!.
+      def restrict_plan(keys, rename)
+        return @restrict_plan if keys.eql?(@restrict_keys) && rename == @restrict_rename
+
+        plans = (@restrict_plans[rename] ||= {})
+        plan  = plans.fetch(keys) do
+          header = self.class.new(columns: keys, allowed_columns: allowed_columns, required_columns: required_columns,
+                                  skip_unknown: skip_unknown)
+          header.cleanse!(rename: rename)
+          plans.clear if plans.size >= PLANS
+          plans[keys] = header.to_hash((0...keys.size).to_a)&.map { |column, index| [keys[index], column] }
+        end
+        @restrict_keys   = keys
+        @restrict_rename = rename
+        @restrict_plan   = plan
+      end
+
+      # Forgets the plans of the records restricted and matched to the columns, see #restrict_plan and #cleanse_plan,
+      # when the columns or their restrictions change.
+      def clear_plans
+        @cleanse_plans  = {}
+        @cleanse_keys   = nil
+        @cleanse_plan   = nil
+        @restrict_plans = {}
+        @restrict_keys  = nil
+        @restrict_plan  = nil
       end
 
       def cleanse_column(name)

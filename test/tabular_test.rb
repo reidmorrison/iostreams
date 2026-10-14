@@ -872,6 +872,56 @@ class TabularTest < Minitest::Test
           assert header.restrict_hash_changes?({"name" => "x"})
         end
       end
+
+      describe "plans for each set of keys" do
+        # Returns [Integer] the number of columns that the block cleanses.
+        def cleansings(&)
+          count    = 0
+          original = IOStreams::Tabular::Header.method(:cleanse_column)
+          counting = lambda do |name|
+            count += 1
+            original.call(name)
+          end
+          IOStreams::Tabular::Header.stub(:cleanse_column, counting, &)
+          count
+        end
+
+        it "restricts the keys of the records once for each set of keys, rather than for every record" do
+          header  = IOStreams::Tabular::Header.new(allowed_columns: %w[name age])
+          input   = [{"Name" => "a", "Age" => 1, "x" => 2}, {"Name" => "b"}, {"Name" => "c", "Age" => 3, "x" => 4}]
+          records = nil
+          count   = cleansings { records = input.map { |record| header.restrict_hash(record) } }
+
+          assert_equal [{"name" => "a", "age" => 1}, {"name" => "b"}, {"name" => "c", "age" => 3}], records
+          # Each key of the two sets of keys once.
+          assert_equal 4, count
+          assert_nil header.restrict_hash({})
+        end
+
+        it "restricts the keys again when the restrictions change" do
+          header = IOStreams::Tabular::Header.new(allowed_columns: %w[name])
+          header.restrict_hash({"name" => "a", "age" => 1})
+          header.allowed_columns = %w[age]
+
+          assert_equal({"age" => 1}, header.restrict_hash({"name" => "a", "age" => 1}))
+          header.required_columns = %w[zip]
+          assert_raises(IOStreams::Errors::InvalidHeader) { header.restrict_hash({"name" => "a", "age" => 1}) }
+        end
+
+        it "matches the keys of the records to the columns once for each set of keys, and again when the columns change" do
+          header = IOStreams::Tabular::Header.new(columns: %w[first_name age])
+          count  = cleansings do
+            3.times { assert_equal({"first_name" => "Jack", "age" => 21}, header.to_hash({"First Name" => "Jack", "age" => 21})) }
+          end
+
+          # The column without a key of its name, and each key, once.
+          assert_equal 3, count
+          header.columns = %w[age]
+
+          assert_equal({"age" => 21}, header.to_hash({"First Name" => "Jack", "age" => 21}))
+          assert_equal [21, "Jack"], IOStreams::Tabular::Header.new(columns: %w[age first_name]).to_array({first_name: "Jack", age: 21})
+        end
+      end
     end
 
     describe ".new" do
