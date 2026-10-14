@@ -680,10 +680,11 @@ S3 and HTTP have no directories, so `#mkpath` and `#mkdir` do nothing there, and
 file is next written, see [Writing, directories and deleting](#writing-directories-and-deleting).
 
 `#move_to` raises `ArgumentError` when the target is the same location as the path, before anything is copied, since
-the file would otherwise be deleted once it had been copied onto itself. This includes another spelling of the
-location that the path can tell without a request: a local file by another name, such as a relative name, or a
-symbolic link to it, and an SFTP or HTTP url whatever the case of its host, with or without its default port, and with
-`.`, `..` or repeated `/` in its path.
+the file would otherwise be deleted once it had been copied onto itself. This includes a path that is equal to it, see
+[Comparing paths](#comparing-paths), and another spelling of the location that the path can tell without a request: a
+local file by another name, such as a relative name, or a symbolic link to it, an SFTP or HTTP url with `.`, `..` or
+repeated `/` in its path, and an HTTP url with a trailing `/`, or with a percent-encoded character that a web server
+can decode, such as `%2F` for `/`.
 
 An operation that a store does not support, such as `#each_child` on HTTP, raises `NotImplementedError`, whose message
 names the class of the path, the operation and the path. `#respond_to?` returns false for it, as Ruby does for a method
@@ -716,7 +717,7 @@ These operations use only the name of the path, so they never access its store:
 | `#relative_path_from(base)` | The name of the path relative to another path in the same store, as a String |
 | `#absolute?`, `#relative?` | Whether the name is absolute: a local name that starts with `/`, and every S3, SFTP and HTTP path |
 | `#compressed?`, `#encrypted?` | Whether a stream of the path compresses or encrypts the data, see [Streams from the file name](streams#streams-from-the-file-name) |
-| `==`, `#eql?`, `#hash`, `<=>` | Comparisons by the full name, see [Comparing paths](#comparing-paths) |
+| `==`, `#eql?`, `#hash`, `<=>` | Comparisons of the parts of the name that identify the file, see [Comparing paths](#comparing-paths) |
 | `#blank?` | Whether the name is empty, so that ActiveSupport's `blank?` and `present?` do not call `#empty?`, which makes a request of the store |
 
 `#basename`, `#dirname`, `#extname` and `#extension` use the file name set with `#file_name`, when there is one, see
@@ -950,29 +951,53 @@ HTTP scheme, host and port, or another kind of store, and when one path is absol
 
 ### Comparing paths
 
-Paths compare by their full name, see `#to_s`:
-
-* `==` is true for a path of the same class with the same `#to_s`, whatever its streams and options, and for a String
-  equal to its `#to_s`. So paths with the same key in different buckets, or with the same name on different hosts, are
-  not equal.
-* Names are compared as they are written, so a relative name does not equal its absolute name, and neither does
-  `sftp://Example.org/data.csv` equal `sftp://example.org/data.csv`, nor `sftp://example.org:22/data.csv`.
-* `#eql?` and `#hash` agree with `==` for paths, so equal paths are the same Hash key, and `#uniq` removes duplicates.
-* `<=>` sorts paths by their full name, and returns nil for anything other than a path or a String.
-* `"/var/exports/daily.csv" == path` is false, since a String is only equal to a String.
+Two paths are equal when they name the same file in the same store, however the name is spelled, and whatever their
+streams and options:
 
 ~~~ruby
+IOStreams.path("sftp://Example.org:22/data/daily.csv") == IOStreams.path("sftp://example.org/data/daily.csv")
+# => true
+
 IOStreams.path("s3://bucket-a/daily.csv") == IOStreams.path("s3://bucket-b/daily.csv")
 # => false
-
-IOStreams.path("/var/exports/daily.csv") == "/var/exports/daily.csv"
-# => true
 
 [IOStreams.path("s3://my-bucket/b.csv"), IOStreams.path("/var/a.csv"), IOStreams.path("s3://my-bucket/b.csv")].uniq.sort
 # => [#<IOStreams::Paths::File:/var/a.csv pipeline={}>, #<IOStreams::Paths::S3:s3://my-bucket/b.csv pipeline={}>]
 ~~~
 
-`#move_to` also detects another spelling of the same location, see [Operations on the store](#operations-on-the-store).
+Each kind of path compares the parts of its name that identify the file, the way its store tells files apart, without
+making a request:
+
+| Path | Compares | Equal | Not equal |
+|------|----------|-------|-----------|
+| Local file | The name as it is written, like `Pathname#==`, even on a file system that ignores case | `/data/a.csv`, `file:///data/a.csv` | `data/a.csv`, `/data/A.csv` |
+| S3 | The bucket and the key, as they are, but not the options of the path, such as those in the query of its url | `s3://bucket/a b.csv`, `s3://bucket/a%20b.csv?acl=private` | `s3://Bucket/a b.csv` |
+| SFTP | The host, ignoring case, the port, and the path once it is decoded, which is the name that the server is sent | `sftp://example.org/a b.csv`, `sftp://jack:secret@Example.org:22/a%20b.csv` | `sftp://example.org:2222/a b.csv` |
+| HTTP(S) | The scheme and the host, ignoring case, the port, the path and the query, with each percent-encoded character that a url can hold as it is decoded, as RFC 3986 normalizes urls | `https://example.com/data/~a.csv?day=1`, `https://Example.com:443/data/%7Ea.csv?day=1#top` | `https://example.com/data/~a.csv?day=2`, `https://example.com/data%2F~a.csv?day=1` |
+
+* The user name and password of a path are not compared, apart from the user name of an SFTP path within the login
+  directory, such as `sftp://host/~/a.csv`, which is the login directory of that user. Neither are the other arguments
+  of a path, such as `ssh_options:` or `headers:`, nor the fragment of a url.
+* `.` and `..` are not resolved, as with `Pathname`, so compare the paths from `#cleanpath` to ignore them.
+* Paths in different stores, or of different kinds, are never equal. Neither is a path equal to a String, even its own
+  name, since only the path knows which parts of its name identify the file, so compare `#to_s` to compare names as they
+  are written, or create a path from the String, such as `path == IOStreams.path(name)`.
+* `#eql?` and `#hash` agree with `==`, so equal paths are the same Hash key, and `#uniq` removes duplicates.
+* `<=>` sorts paths by their full name, spelled as `==` compares it, so that equal paths sort together, and returns nil
+  for anything other than a path.
+
+~~~ruby
+IOStreams.path("sftp://example.org/~/a.csv", username: "jack") == IOStreams.path("sftp://jack@example.org/~/a.csv")
+# => true
+
+IOStreams.path("/var/exports/./daily.csv").cleanpath == IOStreams.path("/var/exports/daily.csv")
+# => true
+
+IOStreams.path("/var/exports/daily.csv").to_s == "/var/exports/daily.csv"
+# => true
+~~~
+
+`#move_to` also detects other spellings of the same location, see [Operations on the store](#operations-on-the-store).
 
 ### Coming from Pathname
 
@@ -991,7 +1016,7 @@ differences, each of which keeps a path working the same way wherever the file i
 | `basename`, `dirname` and `relative_path_from` return a `Pathname` | They return a String; `directory` returns the directory as a path | A name on its own has no store; `basename` uses `file_name` when it is set |
 | `read(length, offset)` | `read(length)` reads bytes from the start, after any decompression or decryption | A compressed or encrypted stream cannot seek |
 | `each_line` without a block returns an Enumerator | `each` requires a block | The file, any temp file and any gpg process are closed when the block returns |
-| Paths sort with `/` first | Paths sort by their full name, see `#to_s` | Names include the scheme, bucket or host |
+| Paths sort with `/` first | Paths sort by their full name, spelled as `==` compares it, see [Comparing paths](#comparing-paths) | Names include the scheme, bucket or host |
 | `to_path`, so `File.exist?(pathname)` works | No `to_path`; use the methods of the path, such as `exist?` and `reader` | `File` and `Dir` only work with local files, so code that passes a path to them breaks when the configured path moves to S3 or SFTP |
 
 ## Using root paths

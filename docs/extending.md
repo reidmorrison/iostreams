@@ -233,6 +233,25 @@ Never call the block that the caller supplied within `#tag_failure`, since an ex
 failure of the path. To tag an exception directly, such as one that the path raises itself, call
 `IOStreams::Errors::NotFound.tag(exception, display_name)`.
 
+### Comparing paths
+
+Paths of the class compare by their full name, `#to_s`, as it is written, see [Comparing paths](path#comparing-paths).
+When the store names a file in more than one way, such as a host in any case, or when the url can hold credentials,
+implement the protected method `#identity`, which returns the parts of the name that identify the file, in one
+spelling, without the credentials. `==`, `#eql?`, `#hash` and `<=>` compare it, so it must not make a request of the
+store, or resolve `.` and `..`:
+
+~~~ruby
+class MyCloudStoragePath < IOStreams::Path
+  protected
+
+  # The bucket and the name of the file, without the token that the url can hold.
+  def identity
+    "gcs://#{bucket_name}/#{path}"
+  end
+end
+~~~
+
 ### Allowed paths and credentials
 
 * Once an application adds [allowed paths](security#allowed-paths), every path of a class that cannot say where it is

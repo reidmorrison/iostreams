@@ -611,14 +611,20 @@ IOStreams.join("a.csv.pgp", root: :exports).option(:pgp, passphrase: "secret").w
 
 #### Paths compare by their full name
 
-`==` and `<=>` now compare the full name of a path, as returned by `#to_s`, instead of only `#path`, so
-paths in different S3 buckets, on different SFTP or HTTP hosts, or in different stores are no longer
-equal, even with the same key or file name. A path also equals a `String` of its full name, such as
-`IOStreams.path("/home/user/a.txt") == "/home/user/a.txt"`. Names are compared as given, so a relative
-path does not equal its absolute path, and `"a.txt" == path` is false, since a `String` does not
-compare equal to other objects.
+`==` and `<=>` now compare the parts of the full name of a path that identify its file, instead of only
+`#path`, so paths in different S3 buckets, on different SFTP or HTTP hosts or ports, or in different
+stores are no longer equal, even with the same key or file name. Each kind of path compares its name
+the way its store tells files apart, see [Comparing paths](path#comparing-paths): for example the host
+of a url ignoring case, with or without its default port, so `sftp://Example.org:22/a.csv` is still
+equal to `sftp://example.org/a.csv`, while the user name and password of a url are not compared, apart
+from the user name of an SFTP path within the login directory, such as `sftp://host/~/a.csv`. A relative
+path does not equal its absolute path, `.` and `..` are not resolved, and comparing a path with a
+`String` returns false, where it raised `NoMethodError`. `<=>` sorts paths by their full name, rather
+than by `#path`. Equal paths are now also the same `Hash` key, so `#uniq` removes duplicates.
 
-Fix: to compare only the file names or keys, compare `#path`, for example `a.path == b.path`.
+Fix: to compare only the file names or keys, compare `#path`, for example `a.path == b.path`. To compare
+a path with a name, create a path from the name, such as `path == IOStreams.path(name)`, or compare the
+names as they are written with `#to_s`, such as `path.to_s == name`.
 
 #### `#path` is read-only
 
@@ -938,8 +944,8 @@ now refers to the login directory, not to a directory named `~`.
 `IOStreams.path("https://host?a=1").to_s` is `https://host/?a=1`. Previously the url was returned as
 supplied, so `sftp://host` and `sftp://host/` were not equal, although they are the same location.
 
-Fix: compare paths with paths, such as `path == IOStreams.path("sftp://host")`, or compare with the
-url ending with `/`.
+Fix: compare paths with paths, such as `path == IOStreams.path("sftp://host")`, or compare `#to_s` with
+the url ending with `/`.
 
 #### SFTP `each_child` is case-insensitive
 
