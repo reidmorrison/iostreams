@@ -11,6 +11,85 @@ class StreamIOTest < Minitest::Test
     gpg: [{recipient: "receiver@example.org"}, {passphrase: "receiver_passphrase"}]
   }.freeze
 
+  describe "the stream supplied to a reader block" do
+    # More than one block of the data that most streams decompress at a time.
+    let(:data) { Array.new(5000) { |i| "#{i},#{'x' * 20}\n" }.join }
+
+    # Yields the stream that reads the data, once it is written through the named stream.
+    def read_back(name, writer_options, reader_options, &)
+      output = StringIO.new(+"".b)
+      IOStreams.stream(output).stream(name, **writer_options).write(data)
+      IOStreams.stream(StringIO.new(output.string)).stream(name, **reader_options).reader(&)
+    end
+
+    def skip_unless_read_back(format)
+      return unless defined?(JRuby) && format == IOStreams::Xlsx
+
+      skip("creek on JRuby loses characters of the cells of a large worksheet")
+    end
+
+    # Every stream registered for a file name extension that both writes and reads.
+    IOStreams.extensions.each_pair do |name, format|
+      next unless format.reader_class && format.writer_class
+
+      writer_options, reader_options = STREAM_OPTIONS.fetch(name, [{}, {}])
+
+      it "reads parts of the data like an IO for the #{name.inspect} stream" do
+        skip_unless_read_back(format)
+
+        read_back(name, writer_options, reader_options) do |io|
+          assert_equal "", io.read(0)
+          refute_predicate io, :eof?
+
+          buffer = +"data of an earlier read"
+
+          assert_same buffer, io.read(10, buffer)
+          assert_equal data[0, 10], buffer
+          # Bytes, like the data read without a buffer, apart from a File, whose `#read` keeps the encoding of the buffer.
+          assert_equal Encoding::BINARY, buffer.encoding unless io.is_a?(::File)
+
+          part = io.readpartial(10)
+
+          assert_includes 1..10, part.bytesize
+          assert_equal data[10, part.bytesize], part
+
+          offset = 10 + part.bytesize
+          block  = io.read(70_000)
+
+          assert_equal Encoding::BINARY, block.encoding
+          assert_equal data[offset, 70_000], block
+          assert_equal data[(offset + 70_000)..], io.read
+        end
+      end
+
+      it "reads the end of the data like an IO for the #{name.inspect} stream" do
+        skip_unless_read_back(format)
+
+        read_back(name, writer_options, reader_options) do |io|
+          assert_equal data, io.read
+          assert_predicate io, :eof?
+
+          buffer = +"data of an earlier read"
+
+          assert_nil io.read(10)
+          assert_nil io.read(10, buffer)
+          assert_empty buffer
+          assert_equal "", io.read
+          assert_raises(EOFError) { io.readpartial(10) }
+        end
+      end
+    end
+
+    it "reads like an IO for an uncompressed :enc stream" do
+      read_back(:enc, {compress: false}, {}) do |io|
+        assert_equal data[0, 10], io.readpartial(10)
+        assert_equal data[10..], io.read
+        assert_predicate io, :eof?
+        assert_raises(EOFError) { io.readpartial(10) }
+      end
+    end
+  end
+
   describe "the stream supplied to a writer block" do
     # Every stream registered for a file name extension that both writes and reads.
     IOStreams.extensions.each_pair do |name, format|

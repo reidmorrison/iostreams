@@ -102,6 +102,14 @@ class GzipReaderTest < Minitest::Test
         end
       end
 
+      it "reads the requested length across the end of a member" do
+        IOStreams::Gzip::Reader.stream(StringIO.new(Zlib.gzip("abc") + Zlib.gzip("defgh"))) do |io|
+          assert_equal "abcde", io.read(5)
+          assert_equal "fgh", io.read(5)
+          assert_nil io.read(5)
+        end
+      end
+
       it "reaches the end of the stream after the last member" do
         IOStreams::Gzip::Reader.stream(StringIO.new(members)) do |io|
           refute_predicate io, :eof?

@@ -21,14 +21,16 @@ module IOStreams
       #   small: [true|false]
       #     Use an alternative decompression algorithm that uses less memory but is slower.
       #     Default: false
+      #
+      # The stream supplied to the block responds to #read, #readpartial and #eof?, see `IOStreams::BlockReader`.
       def self.stream(input_stream, autoclose: false, first_only: false, small: false)
         Utils.load_soft_dependency("bzip2-ffi", "Bzip2", "bzip2/ffi") unless defined?(::Bzip2::FFI)
 
         begin
-          io = ::Bzip2::FFI::Reader.new(input_stream, autoclose: autoclose, first_only: first_only, small: small)
-          yield io
+          reader = ::Bzip2::FFI::Reader.new(input_stream, autoclose: autoclose, first_only: first_only, small: small)
+          yield BlockReader.new(reader)
         ensure
-          io&.close
+          reader&.close
         end
       end
     end

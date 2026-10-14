@@ -33,7 +33,7 @@ module IOStreams
             raise(Java::JavaUtilZip::ZipException, "File #{entry_file_name} not found within zip file.")
 
           # Bytes, like every other stream, rather than the external encoding of the IO.
-          yield(zin.to_io.binmode)
+          yield(BlockReader.new(zin.to_io.binmode))
         ensure
           zin&.close
           fin&.close
@@ -55,11 +55,11 @@ module IOStreams
 
           ::Zip::File.open(file_name) do |zip_file|
             if entry_file_name
-              zip_file.get_input_stream(entry_file_name, &block)
+              zip_file.get_input_stream(entry_file_name) { |input| block.call(BlockReader.new(input)) }
             else
               # Return the first file, skipping any folders.
               entry = zip_file.find(&:file?)
-              entry&.get_input_stream(&block)
+              entry&.get_input_stream { |input| block.call(BlockReader.new(input)) }
             end
           end
         end
