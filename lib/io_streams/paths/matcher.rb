@@ -56,8 +56,16 @@ module IOStreams
 
       # Returns [true|false] whether the pattern has no pattern characters, so that it is the name of a child
       # of the #directory, which a path can look up directly rather than list.
+      #
+      # Unless the pattern is #case_sensitive?, the name also matches a child whose name has another case, so a path
+      # that does not find the name lists the #directory to match it, like a local path.
       def exact?
         !pattern.match?(PATTERN_CHARACTERS)
+      end
+
+      # Returns [true|false] whether the pattern only matches names of the same case.
+      def case_sensitive?
+        @case_sensitive
       end
 
       # Returns [Integer] how many levels of sub-directories within the #directory the pattern can match names in,

@@ -1385,12 +1385,14 @@ module Paths
           end
         end
 
-        it "is case-insensitive by default" do
+        it "is case-insensitive by default, for a pattern or an exact name" do
           path = new_path("sftp://example.org/data", username: "jack")
 
-          with_stub_net_sftp(%w[a.csv B.CSV]) do
+          with_stub_net_sftp(%w[a.csv B.CSV], root: "/data") do
             assert_equal %w[/data/B.CSV /data/a.csv], path.children("*.csv").map(&:path)
             assert_equal %w[/data/a.csv], path.children("*.csv", case_sensitive: true).map(&:path)
+            assert_equal %w[/data/a.csv], path.children("A.CSV").map(&:path)
+            assert_empty path.children("A.CSV", case_sensitive: true)
           end
         end
 
@@ -1415,7 +1417,7 @@ module Paths
           end
         end
 
-        it "yields an exact name with its attributes" do
+        it "yields an exact name with its attributes, without listing its directory" do
           path = new_path("sftp://example.org/data", username: "jack")
 
           with_stub_net_sftp(%w[a.csv], root: "/data") do |stub_sftp|
@@ -1423,6 +1425,17 @@ module Paths
 
             assert_equal([["/data/a.csv", {size: 1}]], children.map { |child, attributes| [child.path, attributes] })
             assert_empty stub_sftp.instance_variable_get(:@listed)
+          end
+        end
+
+        it "lists the directory of an exact name that is not found, to match it ignoring case" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv sub/A.CSV], root: "/data") do |stub_sftp|
+            children = path.each_child("sub/a.csv").to_a
+
+            assert_equal([["/data/sub/A.CSV", {size: 1}]], children.map { |child, attributes| [child.path, attributes] })
+            assert_equal ["/data/sub"], stub_sftp.instance_variable_get(:@listed)
           end
         end
 

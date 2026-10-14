@@ -368,7 +368,8 @@ module IOStreams
           attributes = Listing.remote_attributes(sftp, child.remote_path)
           found      = attributes && (attributes.file? || (directories && attributes.directory?))
           yield(child, attributes.attributes) if found && allowed_child?(child)
-          return
+          # Otherwise the name is matched within its directory, ignoring case, like a local path.
+          return if found || matcher.case_sensitive?
         end
 
         Listing.each(sftp, directory.remote_path, matcher, directories: directories) do |name, attributes|
