@@ -336,6 +336,39 @@ module Paths
           assert_nil(root.each_child("**/*") { |child| child })
         end
 
+        it "raises PermissionDenied for a directory that cannot be read, like SFTP" do
+          skip "Every directory can be read as root" if Process.uid.zero?
+
+          locked = root.join("locked").mkdir
+          locked.join("a.csv").write(data)
+          begin
+            ::File.chmod(0o000, locked.to_s)
+
+            [-> { locked.children("*") }, -> { root.children("locked/*.csv") }].each do |list|
+              error = assert_raises(IOStreams::Errors::PermissionDenied, &list)
+
+              assert_instance_of Errno::EACCES, error
+            end
+          ensure
+            ::File.chmod(0o755, locked.to_s)
+          end
+        end
+
+        it "skips a sub-directory that cannot be read, like Dir.glob" do
+          skip "Every directory can be read as root" if Process.uid.zero?
+
+          root.join("a.csv").write(data)
+          locked = root.join("locked").mkdir
+          locked.join("b.csv").write(data)
+          begin
+            ::File.chmod(0o000, locked.to_s)
+
+            assert_equal [root.join("a.csv").to_s], root.children("**/*.csv").collect(&:to_s)
+          ensure
+            ::File.chmod(0o755, locked.to_s)
+          end
+        end
+
         it "with no block returns enumerator" do
           expected = [file_path.to_s, file_path2.to_s]
           actual   = root.each_child("**/*").first(100).collect(&:to_s)

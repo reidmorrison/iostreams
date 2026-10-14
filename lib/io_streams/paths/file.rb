@@ -154,6 +154,8 @@ module IOStreams
         # A name without pattern characters is also matched within its directory, so that `case_sensitive` applies.
         matcher   = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
         directory = local_directory(matcher.directory)
+        return unless listable?(directory || ".")
+
         # `Dir.glob` ignores FNM_CASEFOLD on a case-sensitive file system, such as on Linux, so it lists every
         # candidate and the matcher matches the pattern. The directory is supplied as `base`, so that
         # characters such as `[` in its name are not pattern characters.
@@ -305,6 +307,18 @@ module IOStreams
         return (path unless path.empty?) if directory.empty?
 
         path.empty? ? directory : ::File.join(path, directory)
+      end
+
+      # Returns [true|false] whether the directory exists, so that it can be listed: false when it does not exist, or
+      # is a file, as on SFTP and S3.
+      #
+      # Raises [Errno::EACCES] tagged as `IOStreams::Errors::PermissionDenied` when it cannot be read, as SFTP does,
+      # rather than list nothing, as `Dir.glob` does. A directory within it that cannot be read is still skipped.
+      def listable?(directory)
+        tag_failure { Dir.open(directory).close }
+        true
+      rescue Errno::ENOENT, Errno::ENOTDIR
+        false
       end
 
       # Returns [String] a pattern for `Dir.glob` that lists every file within the depth that a pattern can match,
