@@ -12,7 +12,7 @@ read and write it as stored. It is read and written with `#each`, `#reader`, `#w
 
 ## Docs
 
-- [Overview](https://iostreams.reidmorrison.com/): what IOStreams is, why it exists, a quick tour, what it supports, and the optional gems to install for each feature.
+- [Overview](https://iostreams.reidmorrison.com/): what IOStreams is, why it exists, a quick tour, how it works, common tasks with a line of code each, what it supports, and the optional gems to install for each feature.
 - [Tutorial](https://iostreams.reidmorrison.com/tutorial): step-by-step introduction to writing and reading files, lines, rows and records, schemas, storage, encodings, errors and copies.
 - [Paths](https://iostreams.reidmorrison.com/path): where a file is stored (local disk, S3, SFTP, HTTP), the options of each store, and the operations on a path, such as listing, joining and deleting.
 - [Reading and Writing](https://iostreams.reidmorrison.com/streams): the `:stream`, `:line`, `:array` and `:hash` modes, what a failed write keeps, lines, text encodings with `#encoding`, `#raw`, and the streams that a file name implies.

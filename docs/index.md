@@ -51,9 +51,10 @@ IOStreams.path("s3://my-bucket/data.csv.gz").each(:hash) do |record|
 end
 ~~~
 
-IOStreams reads the file name, `data.csv.gz`, infers that it is a gzip compressed CSV file, and builds the pipeline
-of streams that reads it from S3, decompresses it, and parses it. Point the same code at `data.csv`, `data.csv.pgp`,
-`data.xlsx` or a local file instead, and nothing else changes.
+IOStreams reads the file name, `data.csv.gz`, infers that it is a gzip compressed CSV file, and builds the
+[pipeline of streams](#how-it-works) that reads it from S3, decompresses it, and parses it. Point the same code at
+`data.csv`, `data.xlsx`, a local file, or `data.csv.pgp` with its passphrase set on the path, and nothing else
+changes.
 
 ### One API, whatever the format, compression or encryption
 
@@ -81,33 +82,57 @@ location is set once, at startup. See [Paths are configuration](config#paths-are
 
 ## A quick tour
 
-Read each record of a compressed CSV file on S3, as a Hash:
+Write a CSV file, compressed with gzip, a record at a time:
 
 ~~~ruby
-IOStreams.path("s3://my-bucket/people.csv.gz").each(:hash) do |person|
-  p person
-  # => {"name" => "Jack", "born" => "1990-02-01"}
+IOStreams.path("people.csv.gz").writer(:hash) do |io|
+  io << {"name" => "Jack", "born" => "1990-02-01"}
+  io << {"name" => "Jill", "born" => "1992-07-14"}
 end
 ~~~
+
+Read it back a record at a time, as a Hash, while it is decompressed:
+
+~~~ruby
+IOStreams.path("people.csv.gz").each(:hash) { |person| p person }
+# {"name" => "Jack", "born" => "1990-02-01"}
+# {"name" => "Jill", "born" => "1992-07-14"}
+~~~
+
+The same code reads `s3://my-bucket/people.csv.gz` or `sftp://sftp.example.org/people.csv.gz` instead: only the name
+changes. See [Paths](path) for the gems and credentials of each store.
 
 Describe the columns of the file with a [schema](formats#schema), so that each value is read as its type:
 
 ~~~ruby
-people = IOStreams.path("s3://my-bucket/people.csv.gz").schema(
+people = IOStreams.path("people.csv.gz").schema(
   fields: [{name: "name", type: "string"}, {name: "born", type: "date"}]
 )
 people.each(:hash) { |person| p person }
-# => {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
+# {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
+# {"name" => "Jill", "born" => #<Date: 1992-07-14 ((2448818j,0s,0n),+0s,2299161j)>}
 ~~~
 
-Convert it to JSON, compressed and encrypted, by copying it to a path whose name says so:
+Convert it to another format by copying it to a path whose name says so:
 
 ~~~ruby
-target = IOStreams.path("exports/people.json.gz.pgp").option(:pgp, recipient: "partner@example.org")
-target.copy_from(people, mode: :hash)
+IOStreams.path("people.json").copy_from(people, mode: :hash)
+
+IOStreams.path("people.json").read
+# => "{\"name\":\"Jack\",\"born\":\"1990-02-01\"}\n{\"name\":\"Jill\",\"born\":\"1992-07-14\"}\n"
 ~~~
 
-Write an Excel spreadsheet, or a Parquet file, from records:
+The target can be anywhere, compressed and encrypted, such as JSON on S3, encrypted with PGP for a partner whose public
+key is in your keyring, see [PGP](pgp):
+
+~~~ruby
+IOStreams.path("s3://my-bucket/exports/people.json.gz.pgp").
+  option(:pgp, recipient: "partner@example.org").
+  copy_from(people, mode: :hash)
+~~~
+
+Write an Excel spreadsheet from records. A Parquet file is written the same way, with a schema that gives the type of
+each column, see [Parquet files](formats#parquet-files):
 
 ~~~ruby
 IOStreams.path("report.xlsx").writer(:hash) do |io|
@@ -116,42 +141,89 @@ IOStreams.path("report.xlsx").writer(:hash) do |io|
 end
 ~~~
 
-Rescue a missing file the same way wherever it is stored:
+Rescue a missing file the same way wherever it is stored, so that the path can come from configuration:
 
 ~~~ruby
 begin
-  IOStreams.path(ENV.fetch("UPLOAD_PATH")).each(:hash) { |record| p record }
+  IOStreams.path("missing.csv").each(:hash) { |record| p record }
 rescue IOStreams::Errors::NotFound => e
   puts "Nothing to process: #{e.message}"
 end
+# Nothing to process: No such file or directory @ rb_sysopen - missing.csv
 ~~~
+
+## How it works
+
+* A **path** names a file and the store that holds it, such as `IOStreams.path("s3://my-bucket/people.csv.gz")`.
+  `IOStreams.stream(io)` reads or writes an IO that you already have, such as a `StringIO`, the same way. See
+  [Paths](path).
+* Each extension at the end of the file name, such as `.gz` or `.pgp`, names a **stream** that the data passes
+  through, a block at a time. In order, they are the **pipeline** of the path: reading `people.csv.gz.pgp` decrypts the
+  data and then decompresses it, and writing it compresses the data and then encrypts it. See
+  [Streams from the file name](streams#streams-from-the-file-name).
+* The **tabular format** of the file, such as `.csv`, `.json` or `.xlsx`, says how its rows and records are stored.
+  See [Tabular formats](formats).
+* The **mode** says what your code reads or writes: blocks of bytes (`:stream`), lines of text (`:line`), **rows**,
+  each an Array of the values of a line (`:array`), or **records**, each a Hash of those values by column name
+  (`:hash`). For a CSV file, the names of the columns come from its **header row**, its first line. See
+  [Reading and writing](streams).
+* A **schema** names the columns of a file, gives the type of each one, such as a `Date`, and says which columns a
+  file can have. See [Schema](formats#schema).
+
+## Common tasks
+
+* **Read a CSV, JSON or Excel file a record at a time:**
+  `IOStreams.path("people.csv").each(:hash) { |record| p record }`, see [Reading](streams#reading).
+* **Write a file compressed with gzip:** `IOStreams.path("people.csv.gz").writer(:hash) { |io| io << record }`, see
+  [gzip](extensions#gzip).
+* **Convert CSV to JSON:** `IOStreams.path("people.json").copy_from("people.csv", mode: :hash)`, see
+  [Converting rows and records](copy_files#converting-rows-and-records).
+* **Upload a file to S3:** `IOStreams.path("s3://my-bucket/people.csv").copy_from("people.csv")`, see
+  [Copying and moving](copy_files).
+* **Encrypt a file with PGP:**
+  `IOStreams.path("people.csv.pgp").option(:pgp, recipient: "partner@example.org").copy_from("people.csv")`, see
+  [PGP](pgp).
+* **Decrypt a PGP file:** `IOStreams.path("people.csv.pgp").option(:pgp, passphrase: ENV.fetch("PGP_PASSPHRASE")).read`,
+  see [PGP](pgp).
+* **Read numbers and dates as their types, and skip the other columns:**
+  `path.schema(fieldsMatch: "partial", fields: [{name: "born", type: "date"}])`, see [Schema](formats#schema).
+* **Read a Windows-1252 file as UTF-8:** `path.encoding("Windows-1252:UTF-8")`, see
+  [Character encoding](streams#character-encoding).
+* **List the CSV files in a directory or bucket:**
+  `IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }`, see
+  [Listing files](path#listing-files).
+* **Keep the location of the files in configuration:** `IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))` at
+  startup, then `IOStreams.join("people.csv")`, see [Configuration](config#add_root).
+* **Handle a missing file wherever it is stored:** `rescue IOStreams::Errors::NotFound`, see [Errors](errors).
+* **Keep untrusted file names within a directory:** `IOStreams.add_allowed_path("/var/my_app/uploads")`, see
+  [Security](security#allowed-paths).
 
 ## What IOStreams supports
 
 | Storage | Url |
 |---------|-----|
-| Local files | `/data/file.csv`, `~/data/file.csv`, `file:///data/file.csv` |
-| AWS S3, and S3 compatible stores | `s3://bucket/key` |
-| SFTP | `sftp://host/path`, `sftp://host/~/path` within the login directory |
-| HTTP and HTTPS | `https://host/path`, read with GET and written with PUT |
+| [Local files](path#file) | `/data/file.csv`, `~/data/file.csv`, `file:///data/file.csv` |
+| [AWS S3](path#aws-s3-s3), and S3 compatible stores | `s3://bucket/key` |
+| [SFTP](path#sftp-sftp) | `sftp://host/path`, `sftp://host/~/path` within the login directory |
+| [HTTP and HTTPS](path#http-http-https) | `https://host/path`, read with GET and written with PUT |
 
 | Tabular format | Extension | Read | Write |
 |----------------|-----------|------|-------|
-| CSV | `.csv` | yes | yes |
-| Pipe separated values | `.psv` | yes | yes |
-| JSON Lines, one JSON object on each line | `.json` | yes | yes |
-| Fixed width | `.fixed`, or `format(:fixed)` | yes | yes |
-| Excel spreadsheet | `.xlsx`, `.xlsm` | yes | yes |
-| Apache Parquet | `.parquet` | yes | yes |
+| [CSV](formats#csv-and-psv-files) | `.csv` | yes | yes |
+| [Pipe separated values](formats#csv-and-psv-files) | `.psv` | yes | yes |
+| [JSON Lines](formats#json-files), one JSON object on each line | `.json` | yes | yes |
+| [Fixed width](formats#fixed-width-files) | `.fixed`, or `format(:fixed)` | yes | yes |
+| [Excel spreadsheet](formats#excel-spreadsheets) | `.xlsx`, `.xlsm` | yes | yes |
+| [Apache Parquet](formats#parquet-files) | `.parquet` | yes | yes |
 
 | Compression and encryption | Extension |
 |----------------------------|-----------|
-| gzip | `.gz`, `.gzip` |
-| bzip2 | `.bz2` |
-| Zip | `.zip` |
-| Zstandard | `.zst` |
-| PGP, with GnuPG | `.pgp`, `.gpg` |
-| [Symmetric Encryption](https://encryption.reidmorrison.com/) | `.enc` |
+| [gzip](extensions#gzip) | `.gz`, `.gzip` |
+| [bzip2](extensions#bzip2) | `.bz2` |
+| [Zip](extensions#zip) | `.zip` |
+| [Zstandard](extensions#zstandard) | `.zst` |
+| [PGP](pgp), with GnuPG | `.pgp`, `.gpg` |
+| [Symmetric Encryption](extensions#symmetric-encryption) | `.enc` |
 
 ## Installation
 
@@ -182,7 +254,13 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 ## Next steps
 
 * The [tutorial](tutorial) walks through reading and writing files, step by step.
-* [Paths](path) explains where files can be stored, and the operations on a path.
-* [Reading and writing](streams) explains lines, rows, records and text encodings.
-* [Tabular formats](formats) explains CSV, JSON, fixed width and Parquet files, and schemas.
-* [Upgrading](upgrading) lists what changed in v3.0, and what to check when upgrading.
+* [Reading and writing](streams): lines, rows, records and text encodings.
+* [Tabular formats](formats): CSV, JSON, Excel, fixed width and Parquet files, and schemas.
+* [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
+* [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
+* [Copying and moving](copy_files): copying files between stores, and converting them on the way.
+* [Errors](errors): rescuing a missing file the same way wherever it is stored.
+* [PGP](pgp): encrypting, decrypting, signing and verifying files, and managing keys.
+* [Configuration](config): roots, temp files and logging.
+* [Security](security): allowed paths, untrusted urls and credentials.
+* [Upgrading](upgrading): what changed in v3.0, for applications that use an earlier version.
