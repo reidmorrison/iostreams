@@ -54,6 +54,14 @@ module Paths
           assert_same missing_path, missing_path.delete
           refute_predicate missing_path, :exist?
         end
+
+        it "does nothing for the bucket itself, which is a directory, like any other directory" do
+          existing_path
+          bucket = IOStreams::Paths::S3.new("s3://#{root_path.bucket_name}")
+
+          assert_same bucket, bucket.delete
+          assert_predicate existing_path, :exist?
+        end
       end
 
       describe "#delete_all" do

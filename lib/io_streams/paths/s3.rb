@@ -224,7 +224,8 @@ module IOStreams
       def delete
         Sdk.load
         authorize!
-        unless_not_found(nil) { request(:delete_object, bucket: bucket_name, key: path) }
+        # The bucket itself is a directory, which, like any other, has no object to delete, see #delete_all.
+        unless_not_found(nil) { request(:delete_object, bucket: bucket_name, key: path) } unless path.empty?
         self
       end
 
