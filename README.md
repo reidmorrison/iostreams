@@ -1,32 +1,50 @@
 # IOStreams
 [![Gem Version](https://img.shields.io/gem/v/iostreams.svg)](https://rubygems.org/gems/iostreams) [![Downloads](https://img.shields.io/gem/dt/iostreams.svg)](https://rubygems.org/gems/iostreams) [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/reidmorrison/iostreams/badges/coverage.json)](https://github.com/reidmorrison/iostreams/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](http://opensource.org/licenses/Apache-2.0) ![](https://img.shields.io/badge/status-Production%20Ready-blue.svg)
 
-IOStreams is a streaming library for Ruby that makes the format, compression, encryption and storage location of a
-file transparent to your code. Read and write files of any size, one block at a time, whether they are CSV, JSON,
-Excel or Parquet, compressed with gzip, zip, bzip2 or Zstandard, encrypted with PGP, and whether they are stored on
-local disk, AWS S3, an SFTP server, or a web server.
+IOStreams reads and writes files of any size in Ruby, a block at a time, and makes their format, compression,
+encryption and storage location transparent to your code: CSV, JSON, Excel or Parquet files, compressed with gzip,
+zip, bzip2 or Zstandard, encrypted with PGP, on local disk, AWS S3, an SFTP server or a web server.
 
 ~~~ruby
-# Read each record of a gzip compressed CSV file on S3, as it is downloaded.
-IOStreams.path("s3://my-bucket/people.csv.gz").each(:hash) do |person|
-  p person
+require "iostreams"
+
+# Write a CSV file compressed with gzip, a record at a time.
+IOStreams.path("people.csv.gz").writer(:hash) do |io|
+  io << {"name" => "Jack", "city" => "Oslo"}
+  io << {"name" => "Jill", "city" => "Lima"}
 end
 
-# Write them to a local JSON file, compressed and encrypted with PGP.
-IOStreams.path("people.json.gz.pgp").
-  option(:pgp, recipient: "partner@example.org").
-  copy_from("s3://my-bucket/people.csv.gz", mode: :hash)
+# Read it back a record at a time, as it is decompressed.
+IOStreams.path("people.csv.gz").each(:hash) { |person| p person }
+# {"name" => "Jack", "city" => "Oslo"}
+# {"name" => "Jill", "city" => "Lima"}
 ~~~
 
-The file names say how each file is stored, so the same code reads a plain CSV file, a spreadsheet, or a file on SFTP
-instead, and a path held in configuration can move between local files, S3 and SFTP without a code change.
+The file name says how each file is stored, so the same code reads a plain CSV file, a spreadsheet, a file encrypted
+with PGP, or a file on S3 or SFTP. Copy it to S3 as JSON, encrypted with PGP for a partner, by naming the target so:
+
+~~~ruby
+IOStreams.path("s3://my-bucket/people.json.gz.pgp").
+  option(:pgp, recipient: "partner@example.org").
+  copy_from("people.csv.gz", mode: :hash)
+~~~
+
+## Why IOStreams
+
+* **The same code for every format, compression and encryption**, chosen by the file name, so the code does not
+  change when a partner sends `.csv.pgp` instead of `.xlsx`.
+* **The same code wherever the file is stored**, so a path held in configuration can be a local file in development,
+  and on S3 or SFTP in production.
+* **Constant memory**: files are read and written a block at a time, so a 10 GB file needs about as much memory as a
+  10 KB one.
+* **Strict options**: a misspelled option raises `ArgumentError` when it is set, wherever the code runs.
 
 ## Installation
 
-Add the gem to your Gemfile, for Ruby 3.3 or later:
+For Ruby 3.3 or later, add the gem to your Gemfile:
 
-~~~ruby
-gem "iostreams"
+~~~
+bundle add iostreams
 ~~~
 
 IOStreams loads the gems of the features that need one, such as `aws-sdk-s3` for S3, when they are first used. See
@@ -34,7 +52,8 @@ IOStreams loads the gems of the features that need one, such as `aws-sdk-s3` for
 
 ## Documentation
 
-Start with the [IOStreams tutorial](https://iostreams.reidmorrison.com/tutorial), then read the rest of the
+Start with the [IOStreams tutorial](https://iostreams.reidmorrison.com/tutorial), or the
+[common tasks](https://iostreams.reidmorrison.com/#common-tasks), each a line of code, then read the rest of the
 [IOStreams documentation](https://iostreams.reidmorrison.com/).
 
 See the [CHANGELOG](CHANGELOG.md) for the release history and notable changes.
