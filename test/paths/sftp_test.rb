@@ -347,24 +347,30 @@ module Paths
     # Minimal stand-in for a Net::SFTP session, with a directory containing the supplied file names, which can
     # include sub-directories, relative to `root`, which defaults to the first name looked up.
     # A missing directory raises "no such file", and an unreadable sub-directory "permission denied".
+    #
+    # Each of the supplied symbolic links, relative to `root`, refers to a name, which `stat!` follows, while the
+    # directory listing has the link's own attributes, as a server lists it.
     class StubSFTPSession
-      Attributes = Struct.new(:attributes, :directory) do
-        def directory? = directory
-        def file? = !directory
+      Attributes = Struct.new(:attributes, :type) do
+        def directory? = type == :directory
+        def file? = type == :file
+        def symlink? = type == :link
       end
       Entry = Struct.new(:name, :attributes) do
         def directory? = attributes.directory?
         def file? = attributes.file?
+        def symlink? = attributes.symlink?
       end
 
       # The remote directories that were listed.
       attr_reader :listed
 
-      def initialize(names, root:, missing:, unreadable:)
+      def initialize(names, root:, missing:, unreadable:, links: {})
         @names      = names
         @root       = root
         @missing    = missing
         @unreadable = unreadable
+        @links      = links
         @listed     = []
       end
 
@@ -373,10 +379,11 @@ module Paths
 
         @root  ||= name
         relative = name.delete_prefix(@root).delete_prefix("/")
-        return Attributes.new({}, true) if relative.empty? || @names.any? { |n| n.start_with?("#{relative}/") }
+        relative = @links.fetch(relative, relative)
+        return Attributes.new({}, :directory) if relative.empty? || @names.any? { |n| n.start_with?("#{relative}/") }
         raise StubStatusException, 2 unless @names.include?(relative)
 
-        Attributes.new({size: 1}, false)
+        Attributes.new({size: 1}, :file)
       end
 
       def dir
@@ -388,9 +395,12 @@ module Paths
         relative = name == @root ? "" : "#{name.delete_prefix("#{@root}/")}/"
         raise StubStatusException, 3 if @unreadable.include?(relative.chomp("/"))
 
-        @names.filter_map { |n| n.delete_prefix(relative).split("/") if n.start_with?(relative) }.
-          group_by(&:first).
-          map { |child, elements| Entry.new(child, Attributes.new({size: 1}, elements.first.size > 1)) }
+        entries = @names.filter_map { |n| n.delete_prefix(relative).split("/") if n.start_with?(relative) }.
+                  group_by(&:first).
+                  map { |child, elements| Entry.new(child, Attributes.new({size: 1}, elements.first.size > 1 ? :directory : :file)) }
+        links   = @links.keys.select { |link| link.start_with?(relative) && !link.delete_prefix(relative).include?("/") }.
+                  map { |link| link.delete_prefix(relative) }
+        entries + links.map { |link| Entry.new(link, Attributes.new({size: 99}, :link)) }
       end
     end
 
@@ -1211,12 +1221,14 @@ module Paths
 
       describe "#each_child" do
         # Minimal stand-in for Net::SFTP. Records the options supplied to `start`, and the directories listed.
-        def with_stub_net_sftp(names, root: nil, missing: false, unreadable: [])
+        # Calls `on_start` with the arguments of `start`, while they are in use, such as a temp file that they name.
+        def with_stub_net_sftp(names, root: nil, missing: false, unreadable: [], links: {}, on_start: nil)
           stub_sftp = Module.new
           stub_sftp.const_set(:StatusException, StubStatusException)
           stub_sftp.define_singleton_method(:start) do |hostname, username, options, &block|
             stub_sftp.instance_variable_set(:@started, [hostname, username, options])
-            session = StubSFTPSession.new(names, root: root, missing: missing, unreadable: unreadable)
+            on_start&.call(hostname, username, options)
+            session = StubSFTPSession.new(names, root: root, missing: missing, unreadable: unreadable, links: links)
             stub_sftp.instance_variable_set(:@listed, session.listed)
             block.call(session)
           end
@@ -1390,6 +1402,19 @@ module Paths
           end
         end
 
+        it "returns a symbolic link by what it refers to, with its attributes, like a local path" do
+          path  = new_path("sftp://example.org/data", username: "jack")
+          links = {"link.csv" => "a.csv", "dangling.csv" => "missing.csv", "dir_link" => "sub"}
+
+          with_stub_net_sftp(%w[a.csv sub/b.csv], root: "/data", links: links) do
+            files = path.each_child("*").to_a.map { |child, attributes| [child.path, attributes] }
+
+            assert_equal [["/data/a.csv", {size: 1}], ["/data/link.csv", {size: 1}]], files
+            assert_includes path.children("*", directories: true).map(&:path), "/data/dir_link"
+            assert_equal %w[/data/a.csv /data/link.csv /data/sub/b.csv], path.children("**/*").map(&:path)
+          end
+        end
+
         it "yields an exact name with its attributes" do
           path = new_path("sftp://example.org/data", username: "jack")
 
@@ -1428,15 +1453,12 @@ module Paths
         def net_ssh_options(path)
           known_hosts = nil
           options     = nil
-          with_stub_net_sftp([]) do |stub_sftp|
-            stub_sftp.define_singleton_method(:start) do |_hostname, _username, opts, &_block|
-              options = opts
-              return unless opts[:user_known_hosts_file]&.first&.include?("iostreams-sftp-known-hosts")
-
-              known_hosts = File.read(opts[:user_known_hosts_file].first)
-            end
-            path.each_child.to_a
+          on_start    = lambda do |_hostname, _username, opts|
+            options = opts
+            file    = opts[:user_known_hosts_file]&.first
+            known_hosts = File.read(file) if file&.include?("iostreams-sftp-known-hosts")
           end
+          with_stub_net_sftp([], on_start: on_start) { path.each_child.to_a }
           [options, known_hosts]
         end
 
