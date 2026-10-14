@@ -64,7 +64,7 @@ Metrics/BlockLength:
 
 # Soften limits
 Metrics/ClassLength:
-  Max: 300
+  Max: 320
   Exclude:
     - "test/**/*"
     # Holds the public API of every path and stream, see CLAUDE.md, so it has a method for each setting.

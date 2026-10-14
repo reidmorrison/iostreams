@@ -8,6 +8,7 @@ module IOStreams
   module Paths
     class HTTP < IOStreams::Path
       autoload :BodyReader, "io_streams/paths/http/body_reader"
+      autoload :ContentCoding, "io_streams/paths/http/content_coding"
       autoload :Failure, "io_streams/paths/http/failure"
 
       attr_reader :username, :password, :http_redirect_count, :url
@@ -69,6 +70,8 @@ module IOStreams
       #     Optional maximum number of bytes to download.
       #     When the response body exceeds this size the download is aborted with a
       #     CommunicationsFailure, protecting against unbounded (denial of service) responses.
+      #     A body that the server compressed while it sent it is also limited to this size once
+      #     it is decompressed, since a small body can decompress to far more data.
       #     Only applies when reading: writing to a path with a maximum_file_size raises ArgumentError.
       #     Default: nil (no limit).
       #
@@ -76,7 +79,9 @@ module IOStreams
       #     Optional headers to add to every request, for example
       #     `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` when writing.
       #     Since any header may hold a credential, such as `X-Api-Key`, none of them are resent
-      #     when a redirect points at a different scheme, host, or port.
+      #     when a redirect points at a different scheme, host, or port, apart from an `Accept-Encoding`.
+      #     An `Accept-Encoding`, such as `{"Accept-Encoding" => "identity"}`, is sent instead of the one
+      #     that reading chooses, see #stream_reader, and the body is then read as it is sent.
       #     Default: nil (no additional headers).
       #
       # Security notes:
@@ -85,7 +90,8 @@ module IOStreams
       #   redirects with `http_redirect_count: 0`) when the url is not fully trusted.
       # - Basic authentication credentials, and the supplied headers, are only sent to the original
       #   host. They are not resent when a redirect points at a different scheme, host, or port,
-      #   so that a redirect cannot leak the credentials to another server.
+      #   so that a redirect cannot leak the credentials to another server. A supplied `Accept-Encoding`
+      #   is the exception, since it holds no credential, so that the body is still read as it is sent.
       # - A redirect from https to http is not followed, so that the data cannot be read or changed in transit.
       # - When writing or deleting, a redirect is only followed to the same scheme, host, and port, so that a
       #   redirect cannot send the data being uploaded to another server, or delete a file on it.
@@ -334,11 +340,21 @@ module IOStreams
       #   while the block runs, and is closed once it returns.
       # * The request is made before the block is called, so that a failure of it, such as a missing file, raises
       #   before the block runs, and before `#copy_from` opens its target.
+      # * A file that is read through streams that neither compress nor encrypt it, such as `data.csv`, is requested
+      #   compressed, so that it is sent faster, and its body is decompressed as it is read, see #compress_in_transit?
+      #   and `ContentCoding`. A Content-Encoding that cannot be decoded raises before the block runs.
       def stream_reader(&)
+        coding  = nil
         request = lambda do |&each_chunk|
-          send_request(Net::HTTP::Get, url, http_redirect_count) { |response| read_body(response, &each_chunk) }
+          send_request(Net::HTTP::Get, url, http_redirect_count) do |response|
+            # Before the body is read, so that a content coding that cannot be decoded raises before the block runs.
+            coding = compress_in_transit? ? ContentCoding.of(response, display_name) : ContentCoding::AS_SENT
+            read_body(response, &each_chunk)
+          end
         end
-        BodyReader.open(request) { |input| builder.reader(input, &) }
+        BodyReader.open(request) do |body|
+          coding.reader(body, maximum_size: maximum_file_size) { |input| builder.reader(input, &) }
+        end
       end
 
       # Write a file using an http put.
@@ -454,23 +470,51 @@ module IOStreams
       end
 
       # Returns [Net::HTTPRequest] the request, with the supplied headers and credentials
-      # when it is sent to the original host.
-      #
-      # A HEAD only accepts the identity encoding, so that the Content-Length is the size of the file, rather than of a
-      # compressed response, and so does a GET, so that the file is read as it is stored, rather than decoded by
-      # Net::HTTP, since a `.gz` file served with `Content-Encoding: gzip` would then be decoded twice. A GET with an
-      # Accept-Encoding supplied with `headers:` sends that instead, and reads the body as it is sent.
+      # when it is sent to the original host, and its Accept-Encoding, see #accept_encoding.
       def build_request(request_class, uri)
         # Only send headers and credentials to the original host to avoid leaking them via a redirect.
-        original = same_origin?(uri)
-        supplied = original ? headers : {}
-        identity = request_class == Net::HTTP::Head ||
-                   (request_class == Net::HTTP::Get && supplied.keys.none? { |name| name.casecmp?("accept-encoding") })
-        # Supplied when the request is created, so that Net::HTTP does not decode the body.
-        request = request_class.new(uri, identity ? {"Accept-Encoding" => "identity"} : nil)
-        supplied.each { |name, value| request[name] = value unless identity && name.casecmp?("accept-encoding") }
+        original        = same_origin?(uri)
+        accept_encoding = accept_encoding(request_class)
+        # Supplied when the request is created, so that Net::HTTP never decodes the body.
+        request         = request_class.new(uri, accept_encoding ? {"Accept-Encoding" => accept_encoding} : nil)
+        (original ? headers : {}).each do |name, value|
+          request[name] = value unless accept_encoding && name.casecmp?("accept-encoding")
+        end
         request.basic_auth(username, password) if original && username
         request
+      end
+
+      # Returns [String] the Accept-Encoding of a request whose response body is read, or nil for a PUT or DELETE:
+      # * a HEAD accepts only identity, so that its Content-Length is the size of the file as it is stored;
+      # * a GET sends the Accept-Encoding supplied with `headers:`, and the body is then read as it is sent, see
+      #   #compress_in_transit?. Unlike the other supplied headers it is sent to every host, since it holds no
+      #   credential, so that the body is read the same way after a redirect;
+      # * otherwise a GET asks for a body that the server compresses while it sends it, when #compress_in_transit?,
+      #   and for the file as it is stored when not.
+      def accept_encoding(request_class)
+        return ContentCoding::IDENTITY if request_class == Net::HTTP::Head
+        return unless request_class == Net::HTTP::Get
+        return ContentCoding::ACCEPT_ENCODING if compress_in_transit?
+
+        supplied_header("accept-encoding") || ContentCoding::IDENTITY
+      end
+
+      # Returns [true|false] whether a GET asks the server to compress the body while it sends it, which is then
+      # decompressed as it is read, see `ContentCoding`: when this path reads its data through streams that neither
+      # compress nor encrypt it, such as `data.csv`, a `.parquet` file, or a url without an extension, and `headers:`
+      # do not supply an Accept-Encoding.
+      #
+      # A compressed or encrypted file, such as `data.csv.gz`, and a file read as it is stored, see #raw, are requested
+      # as they are stored: their data does not compress further, a Content-Encoding that the server sends with them,
+      # such as `gzip` for a `.gz` file, belongs to the file as it is stored, which their own streams decode, and a
+      # server that compresses every response would otherwise compress them again.
+      def compress_in_transit?
+        !raw? && !compressed? && !encrypted? && supplied_header("accept-encoding").nil?
+      end
+
+      # Returns [String] the value of the header supplied with `headers:`, whatever the case of its name, or nil.
+      def supplied_header(name)
+        headers.find { |key, _value| key.casecmp?(name) }&.last
       end
 
       # Returns [URI] the location to redirect to, resolved against the current uri.
@@ -568,7 +612,8 @@ module IOStreams
         @original_uri_cache[:uri] ||= URI.parse(url)
       end
 
-      # Yields each chunk of the body of the response, raising when it exceeds the maximum file size.
+      # Yields each chunk of the body of the response as it is received, raising when the bytes received exceed the maximum
+      # file size, before any content coding is decoded, see `ContentCoding`.
       #
       # Raises [IOStreams::Errors::CommunicationsFailure], tagged as `Unavailable`, when the connection closes before the
       # whole body has been received, rather than EOFError, which the application would take for the end of the body,
