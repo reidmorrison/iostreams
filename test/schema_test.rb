@@ -520,11 +520,18 @@ class SchemaTest < Minitest::Test
         end
 
         it "raises for a value that is not a whole number, rather than return 0 or its leading digits" do
-          ["abc", "12-", "1,234", "1.5", "0x1A", "1_000"].each do |text|
+          ["abc", "12-", "1,234", "1.5", "0x1A", "1_000", "12.01", "1.2e1", ".0"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { integer.cast(text) }
           end
           assert_raises(IOStreams::Errors::InvalidValue) { integer.cast(1.5) }
           assert_raises(IOStreams::Errors::InvalidValue) { integer.cast(true) }
+        end
+
+        it "reads the text of a whole number with a decimal point, as a spreadsheet stores every number" do
+          assert_equal 12, integer.cast("12.0")
+          assert_equal(-12, integer.cast(" -12.00 "))
+          assert_equal 12, integer.cast("+0012.")
+          assert_equal "12", integer.render("12.0", :text)
         end
 
         it "names the field and the value" do

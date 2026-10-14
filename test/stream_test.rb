@@ -1100,6 +1100,18 @@ class StreamTest < Minitest::Test
         assert_equal 'Field "id": "N/A" is not a valid integer', error.message
       end
 
+      it "reads an integer column of a whole number with a decimal point, as before it was deprecated, but not a fraction" do
+        layout = {layout: [{size: 4, key: "id", type: :integer}]}
+        rows   = []
+        IOStreams::Stream.new(StringIO.new("12.0\n1.00\n")).format(:fixed).format_options(layout).each(:hash) { |row| rows << row }
+
+        assert_equal [{"id" => 12}, {"id" => 1}], rows
+        error = assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams::Stream.new(StringIO.new("12.5\n")).format(:fixed).format_options(layout).each(:hash) { |row| row }
+        end
+        assert_equal 'Field "id": "12.5" is not a valid integer', error.message
+      end
+
       describe "fixed width columns" do
         let(:layout) { [{size: 6, key: "name"}, {size: 7, key: "city"}] }
 

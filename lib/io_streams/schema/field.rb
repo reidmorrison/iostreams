@@ -106,6 +106,9 @@ module IOStreams
       NUMERIC_TYPES = %w[integer number].freeze
 
       INTEGER  = /\A[+-]?\d+\z/
+      # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and a
+      # fixed width layout read the column with `to_i` before it was deprecated.
+      WHOLE    = /\A([+-]?\d+)\.0*\z/
       NUMBER   = /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
       # A decimal point without digits after it, such as in "12.", which NUMBER accepts, as Ruby 3.4 does, but
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
@@ -447,10 +450,19 @@ module IOStreams
       def cast_integer(value)
         case value
         when Integer then value
-        when String then INTEGER.match?(value) ? Integer(value, 10) : invalid(value)
+        when String then integer_text(value)
         when Float, Rational then value.finite? && value == value.floor ? value.to_i : invalid(value)
         else bigdecimal?(value) && value.finite? && value.frac.zero? ? value.to_i : invalid(value)
         end
+      end
+
+      # Returns [Integer] the whole number of the text, which can have a decimal point followed only by zeros, such as
+      # "12.0", see WHOLE.
+      def integer_text(text)
+        return Integer(text, 10) if INTEGER.match?(text)
+
+        whole = WHOLE.match(text)
+        whole ? Integer(whole[1], 10) : invalid(text)
       end
 
       def cast_number(value)
