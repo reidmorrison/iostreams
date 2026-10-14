@@ -112,9 +112,8 @@ that was set.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
 `#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. Since it describes the columns of the
-file, the options of each call that describe them without a schema, `columns:`, `allowed_columns:`,
-`required_columns:`, `skip_unknown:` and `cleanse_header:`, raise `ArgumentError` with it, see
-[Header options](#header-options).
+file, the deprecated options of each call that describe them without a schema, such as `columns:`, raise
+`ArgumentError` with it, see [Upgrading](upgrading#the-column-options-of-each-call-are-deprecated).
 
 ### Types
 
@@ -357,17 +356,6 @@ specifications of most fixed width files require. Any other value is left justif
 break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
 filler, are spaces. The keys of the records written may be strings or symbols.
 
-### Format options
-
-Before v3.0 the layout of a fixed width file was supplied with `format_options`:
-
-~~~ruby
-path.format(:fixed).format_options(layout: [{size: 23, key: "name"}, {size: 2}, {size: 5, key: "zip", type: :integer}])
-~~~
-
-`format_options` is deprecated, but still works: it is translated into the schema, which `#schema` returns, see
-[Upgrading to v3.0](upgrading#format_options-is-replaced-by-schema).
-
 ### Character encoding
 
 Fixed width files are read and written as ASCII by default. The programs that write them, such as
@@ -428,108 +416,3 @@ too, unless the encoding of the file is set.
 The `:printable` cleaner removes non-printable characters rather than replacing them, even with
 `replace:`, which only replaces invalid characters. So each one it removes moves every column that
 follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
-
-## Header options
-
-When reading or writing records (`:hash`) of a file without a schema, the following options control the header row.
-They are deprecated: a [schema](#schema) describes the columns of the file instead, see the table below. They still
-work without a schema. They are supplied to each call, see
-[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
-`cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when reading, so `#writer`,
-`#copy_from` and `#copy_to` raise `ArgumentError` for them.
-
-A [schema](#schema) describes the columns of the file on its path instead, so that every reader and writer of the
-path, including a copy, checks them the same way. So with a schema, these options raise `ArgumentError`:
-
-| Option | With a schema |
-|--------|---------------|
-| `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
-| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "equal"`, or `"superset"` when a field can be missing |
-| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "subset"`, or `"partial"` when a field can be missing |
-| `required_columns:` | `constraints: {required: true}` on each field, or a `fieldsMatch` that needs every field |
-| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
-
-The layout of a fixed width file set with the deprecated `#format_options` still accepts them, as it did before.
-
-* `columns: [Array<String>]`
-  Deprecated: the fields of a schema are the columns, in order.
-  When reading, supplies the header columns for files that do not include a header row.
-  When writing, sets the columns to write, including their order. Keys not listed in
-  `columns` are ignored during writes.
-  To describe a file without a header row on its path instead, so that every reader of the path reads it that way,
-  including `#copy_from`, set a schema with `header: false`, see [Schema properties](#schema-properties).
-
-* `cleanse_header: [true|false]`
-  Deprecated: a schema names the keys of the records instead, and matches the columns of the header row to them, see
-  [Matching columns to fields](#matching-columns-to-fields). It still works without a schema.
-  Whether to cleanse the column names read from the header row.
-  Column names are stripped of leading and trailing whitespace, lowercased, and spaces
-  and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
-  Any other character that is not a letter, digit or underscore is removed. Letters and digits that
-  are not ASCII are kept, so `"Prénom"` becomes `"prénom"`.
-  Default: true
-
-* `allowed_columns: [Array<String>]`
-  Deprecated: use `fieldsMatch` in a schema.
-  List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
-  otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
-  Default: nil (allow all columns)
-
-* `required_columns: [Array<String>]`
-  Deprecated: use `constraints: {required: true}` on the fields of a schema.
-  List of columns that must be present, otherwise an exception is raised.
-
-* `skip_unknown: [true|false]`
-  Deprecated: use `fieldsMatch` in a schema.
-  When true, any columns not present in `allowed_columns` are skipped entirely as if they
-  were not in the file at all. When false, an unknown column raises
-  `IOStreams::Errors::InvalidHeader`.
-  Default: true
-
-When reading records, `allowed_columns`, `required_columns` and `skip_unknown` apply to the
-header row, to the supplied `columns`, and, for formats without a header row such as JSON,
-to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
-are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
-
-When reading rows with `each(:array)`, they apply to the header row and to the supplied `columns`,
-including with `cleanse_header: false`. The header row is yielded as it was read, and each row
-still contains every value.
-
-To return to the behavior before v3.0, where they only apply to a header row read from the file,
-and only when `cleanse_header` is true, set `IOStreams.enforce_column_restrictions = false`.
-This applies to reading both records and rows. A warning is then logged when applying them would
-change the records or the header row read. Since the format is usually inferred from the file name,
-renaming an uploaded file from `.csv` to `.json` then bypasses them.
-
-Example, reading a headerless CSV file, deprecated:
-
-~~~ruby
-path = IOStreams.path("no_header.csv")
-path.each(:hash, columns: ["name", "address", "zip"]) do |record|
-  p record
-end
-
-# Instead
-path = IOStreams.path("no_header.csv").schema(header: false, fields: [{name: "name"}, {name: "address"}, {name: "zip"}])
-path.each(:hash) { |record| p record }
-~~~
-
-Example, writing only specific columns in a fixed order, deprecated:
-
-~~~ruby
-path = IOStreams.path("sample.csv")
-path.writer(:hash, columns: ["name", "zip"]) do |io|
-  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
-end
-path.read
-# => "name,zip\nJack Jones,12345\n"
-
-# Instead
-path = IOStreams.path("sample.csv").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}])
-path.writer(:hash) do |io|
-  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
-end
-~~~
-
-Note: Column names are converted to strings, and the keys in the hashes being written may
-be strings or symbols.

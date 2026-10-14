@@ -62,8 +62,9 @@ as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped
 required column raises `IOStreams::Errors::InvalidHeader`.
 
 Fix: check that the JSON files you read with these options have the expected keys. See
-[Header options](formats#header-options). To keep the previous behavior, set
-`IOStreams.enforce_column_restrictions = false` in an initializer, which defaulted to false in v2.1.
+[The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated). To keep the
+previous behavior, set `IOStreams.enforce_column_restrictions = false` in an initializer, which defaulted to false in
+v2.1.
 Renaming an uploaded file from `.csv` to `.json` then bypasses the restrictions.
 
 ### BZip2 options are strict
@@ -649,6 +650,13 @@ change is needed, but `#encoding` avoids two surprises of the old forms:
   with `#stream`, so `IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")` reads the
   compressed bytes. It still does, so that existing code keeps its behavior. `#encoding` does not.
 
+| Deprecated                                         | Use instead                       |
+|----------------------------------------------------|-----------------------------------|
+| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
+| `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
+| `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
+| `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
+
 ~~~ruby
 # Before (deprecated)
 IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
@@ -862,18 +870,26 @@ character splits the lines where CSV does not. It is still the way to choose the
 
 Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
-### `cleanse_header:` and the column options of each call are deprecated
+### The column options of each call are deprecated
 
-`cleanse_header:`, `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` are deprecated. They still
-work without a schema, so no change is needed. A
-[schema](formats#schema) names the keys of the records read instead: they are the names of its fields, and each column
-of the header row is matched to a field whatever its case, spaces and punctuation, or to one of the `aliases` of a
-field, see [Matching columns to fields](formats#matching-columns-to-fields). So the keys no longer depend on how the
-cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which are both `amount_`.
+`columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` are deprecated. They still
+work without a schema, so no change is needed. A [schema](formats#schema) describes the columns of the file on its
+path instead, so that every reader and writer of the path, including a copy, checks them the same way. Its fields
+name the keys of the records read, and each column of the header row is matched to a field whatever its case, spaces
+and punctuation, or to one of the `aliases` of a field, see [Matching columns to fields](formats#matching-columns-to-fields).
+So the keys no longer depend on how the cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which
+are both `amount_`.
 
-A schema describes the columns of the file on its path, so that every reader and writer of the path, including a
-copy, checks them the same way, see [Header options](formats#header-options) for the property that replaces each
-option. With a schema, the options raise `ArgumentError`:
+With a schema, the options raise `ArgumentError`. The layout of a fixed width file set with the deprecated
+`#format_options` still accepts them, as it did before. The property of a schema that replaces each one:
+
+| Option | With a schema |
+|--------|---------------|
+| `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
+| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "equal"`, or `"superset"` when a field can be missing |
+| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "subset"`, or `"partial"` when a field can be missing |
+| `required_columns:` | `constraints: {required: true}` on each field, or a `fieldsMatch` that needs every field |
+| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
 
 ~~~ruby
 # Before (deprecated)
@@ -885,6 +901,99 @@ path.schema(
   fields:      [{name: "First Name"}, {name: "Zip Code", constraints: {required: true}}]
 ).each(:hash) { |row| p row }
 ~~~
+
+Example, reading a headerless CSV file:
+
+~~~ruby
+# Before (deprecated)
+path = IOStreams.path("no_header.csv")
+path.each(:hash, columns: ["name", "address", "zip"]) do |record|
+  p record
+end
+
+# After
+path = IOStreams.path("no_header.csv").schema(header: false, fields: [{name: "name"}, {name: "address"}, {name: "zip"}])
+path.each(:hash) { |record| p record }
+~~~
+
+Example, writing only specific columns in a fixed order:
+
+~~~ruby
+# Before (deprecated)
+path = IOStreams.path("sample.csv")
+path.writer(:hash, columns: ["name", "zip"]) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+path.read
+# => "name,zip\nJack Jones,12345\n"
+
+# After
+path = IOStreams.path("sample.csv").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}])
+path.writer(:hash) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+~~~
+
+#### The deprecated options
+
+When reading or writing records (`:hash`) of a file without a schema, these options control the header row. They are
+supplied to each call. `cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when
+reading, so `#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for them. Column names are converted to
+strings, and the keys of the hashes written may be strings or symbols.
+
+* `columns: [Array<String>]`
+  When reading, supplies the header columns for files that do not include a header row.
+  When writing, sets the columns to write, including their order. Keys not listed in
+  `columns` are ignored during writes.
+  To describe a file without a header row on its path instead, so that every reader of the path reads it that way,
+  including `#copy_from`, set a schema with `header: false`, see [Schema properties](formats#schema-properties).
+
+* `cleanse_header: [true|false]`
+  Whether to cleanse the column names read from the header row.
+  Column names are stripped of leading and trailing whitespace, lowercased, and spaces
+  and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
+  Any other character that is not a letter, digit or underscore is removed. Letters and digits that
+  are not ASCII are kept, so `"Prénom"` becomes `"prénom"`.
+  Default: true
+
+* `allowed_columns: [Array<String>]`
+  List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
+  otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
+  Default: nil (allow all columns)
+
+* `required_columns: [Array<String>]`
+  List of columns that must be present, otherwise an exception is raised.
+
+* `skip_unknown: [true|false]`
+  When true, any columns not present in `allowed_columns` are skipped entirely as if they
+  were not in the file at all. When false, an unknown column raises
+  `IOStreams::Errors::InvalidHeader`.
+  Default: true
+
+When reading records, `allowed_columns`, `required_columns` and `skip_unknown` apply to the
+header row, to the supplied `columns`, and, for formats without a header row such as JSON,
+to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
+are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
+
+When reading rows with `each(:array)`, they apply to the header row and to the supplied `columns`,
+including with `cleanse_header: false`. The header row is yielded as it was read, and each row
+still contains every value.
+
+#### enforce_column_restrictions
+
+`IOStreams.enforce_column_restrictions` applies `allowed_columns`, `required_columns` and `skip_unknown` to every
+input when reading records and rows, including JSON records, so that renaming an uploaded file from `.csv` to `.json`
+cannot bypass them.
+
+To return to the behavior before v3.0, where they only apply to a header row read from the file, and only when
+`cleanse_header` is true, set it to false in an initializer. A warning is then logged when applying them would change
+the records or the header row read:
+
+~~~ruby
+IOStreams.enforce_column_restrictions = false
+~~~
+
+Default: true. It defaulted to false before v3.0.
 
 ### `BigDecimal` and `Time` values are written as their usual text
 
