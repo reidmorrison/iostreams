@@ -491,7 +491,7 @@ class PgpReaderTest < Minitest::Test
             echo "[GNUPG:] #{trust} 0 pgp" >&3
             cat
           SCRIPT
-          IOStreams::Pgp.stub(:primary_fingerprints, [fingerprint]) do
+          IOStreams::Pgp::Gpg.stub(:primary_fingerprints, [fingerprint]) do
             with_gpg_stub(script) { IOStreams::Pgp::Reader.stream(StringIO.new("data"), signer: "jack@example.org", &:read) }
           end
         end
@@ -692,7 +692,7 @@ class PgpReaderTest < Minitest::Test
       end
 
       it "identifies the signer by fingerprint" do
-        fingerprint = IOStreams::Pgp.primary_fingerprints("sender@example.org").first
+        fingerprint = IOStreams::Pgp::Gpg.primary_fingerprints("sender@example.org").first
 
         assert_equal decrypted, read(signed_by_sender, signer: fingerprint)
       end
@@ -791,7 +791,7 @@ class PgpReaderTest < Minitest::Test
 
         it "does not change the trust of the imported key by default" do
           key         = untrusted_pgp_key
-          fingerprint = IOStreams::Pgp.primary_fingerprints("untrusted@example.org").first
+          fingerprint = IOStreams::Pgp::Gpg.primary_fingerprints("untrusted@example.org").first
           levels      = []
           import      = lambda do |key:, trust_level:|
             levels << [key, trust_level]

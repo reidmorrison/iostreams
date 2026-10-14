@@ -12,6 +12,7 @@ module IOStreams
   module Pgp
     extend StreamFormat
 
+    autoload :Gpg, "io_streams/pgp/gpg"
     autoload :GpgProcess, "io_streams/pgp/gpg_process"
     autoload :Reader, "io_streams/pgp/reader"
     autoload :Writer, "io_streams/pgp/writer"
@@ -65,20 +66,6 @@ module IOStreams
     # additional fixed arguments (for example "gpg --homedir /path").
     def self.gpg_command(*args)
       Shellwords.split(executable) + args.map(&:to_s)
-    end
-
-    # Returns [String] the supplied email address or key id, in the form that gpg uses to find the key.
-    #
-    # gpg treats a bare email address as a case-insensitive search for any user id containing it, so that
-    # `bob@example.com` also finds `jimbob@example.com` and `bob@example.com.attacker.net`. Enclosing an
-    # email address in `<` and `>` only finds keys with exactly that email address, ignoring case.
-    # Anything else, such as a key id, fingerprint, name, an email address already in `<` and `>`, or a value
-    # that starts with one of gpg's search prefixes, such as `*` for a substring search, is returned unchanged.
-    #
-    # Used internally, including by the PGP writer.
-    def self.user_id(value)
-      value = value.to_s
-      value.match?(/\A[^<>@\s*=&+#^][^<>@\s]*@[^<>@\s]+\z/) ? "<#{value}>" : value
     end
 
     # Generate a new ultimate trusted local public and private key.
@@ -142,7 +129,7 @@ module IOStreams
       # were all introduced in GnuPG 2.1. Keep older versions working by only
       # emitting them when a 2.1+ binary is detected. `--batch --gen-key` accepts
       # all of these on 2.1+, so there is no need for the newer `--full-gen-key`.
-      modern = version_at_least?("2.1")
+      modern = Gpg.version_at_least?("2.1")
 
       unless modern
         new_options = {
@@ -235,7 +222,7 @@ module IOStreams
 
       # Version 2.1+ uses delete_public_or_private_keys
       # Version < 2.1 uses delete_public_or_private_keys_v1
-      method_name = version_at_least?("2.1") ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
+      method_name = Gpg.version_at_least?("2.1") ? :delete_public_or_private_keys : :delete_public_or_private_keys_v1
       status      = false
       status      = send(method_name, email: email, key_id: key_id, private: true) if private
       status      = send(method_name, email: email, key_id: key_id, private: false) if public
@@ -263,7 +250,7 @@ module IOStreams
     def self.list_keys(email: nil, key_id: nil, private: false)
       args = [private ? "--list-secret-keys" : "--list-keys"]
       # `--` stops gpg from treating the email or key id as an option.
-      args += ["--", user_id(email || key_id)] if email || key_id
+      args += ["--", Gpg.user_id(email || key_id)] if email || key_id
       command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true)
@@ -296,7 +283,7 @@ module IOStreams
       args = ["--batch", "--no-tty"]
       # Without a command, gpg shows the keys that it reads, but from gpg 2.1 it cannot show a secret key.
       # `--show-keys`, from gpg 2.2.8, shows both in the same format.
-      args << "--show-keys" if version_at_least?("2.2.8")
+      args << "--show-keys" if Gpg.version_at_least?("2.2.8")
       command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true, stdin_data: key)
@@ -329,13 +316,13 @@ module IOStreams
     def self.export(email: nil, key_id: nil, ascii: true, private: false, passphrase: nil)
       raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
 
-      args = passphrase_args
+      args = Gpg.passphrase_args
       args << "--armor" if ascii
       args += ["--no-tty", "--batch"]
       # Supply the passphrase on stdin so that it is not visible in the process list.
       args += ["--passphrase-fd", "0"]
       args << (private ? "--export-secret-keys" : "--export")
-      args += ["--", user_id(email || key_id)]
+      args += ["--", Gpg.user_id(email || key_id)]
       command = gpg_command(*args)
 
       out, err, status = Open3.capture3(*command, binmode: true, stdin_data: passphrase.to_s)
@@ -493,7 +480,7 @@ module IOStreams
       info   = import_and_trust_key_info(key: key, trust_level: trust_level)
       key_id = info[:key_id].to_s
       # gpg v2.1 and later supply the full fingerprint. Earlier versions only supply a short key id, which is not unique.
-      return key_id if fingerprint?(key_id)
+      return key_id if Gpg.fingerprint?(key_id)
 
       info[:email] || info[:key_id]
     end
@@ -568,7 +555,7 @@ module IOStreams
     # Internal: resolve an email address to a key fingerprint.
     # Public callers should identify keys by `key_id` (see #list_keys / #key_info).
     def self.fingerprint(email:)
-      command = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", user_id(email))
+      command = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", Gpg.user_id(email))
       Open3.popen2e(*command) do |_stdin, out, waith_thr|
         output = out.read.chomp
         if !waith_thr.value.success? && output !~ /(public key not found|No public key)/i
@@ -584,35 +571,6 @@ module IOStreams
       end
     end
     private_class_method :fingerprint
-
-    # Returns [Array<String>] the fingerprints of the primary keys that gpg finds for the supplied
-    # email address, key id or fingerprint, see `user_id`, or [] when there are none.
-    #
-    # Used internally by the PGP reader to check who signed a file.
-    def self.primary_fingerprints(value)
-      command = gpg_command("--list-keys", "--with-colons", "--", user_id(value))
-      out, err, status = Open3.capture3(*command, binmode: true)
-      unless status.success?
-        return [] if err =~ /(not found|No public key|key not available)/i
-
-        raise(Pgp::Failure, "GPG Failed calling '#{executable}' to list keys for #{value}: #{err}#{out}")
-      end
-
-      # A primary key is listed as `pub`, followed by its `fpr`, then its subkeys as `sub`, each followed by its own.
-      fingerprints = []
-      primary      = false
-      out.each_line do |line|
-        fields = line.split(":")
-        case fields[0]
-        when "pub"
-          primary = true
-        when "fpr"
-          fingerprints << fields[9] if primary
-          primary = false
-        end
-      end
-      fingerprints
-    end
 
     # Returns [String] the version of pgp currently installed
     def self.pgp_version
@@ -641,42 +599,6 @@ module IOStreams
           match[1]
         end
       end
-    end
-
-    # Returns [true|false] whether the installed gpg is at least the supplied version, such as "2.1".
-    # Versions are compared by their numbers, so that for example 2.10 is later than 2.4.
-    def self.version_at_least?(version)
-      Gem::Version.new(pgp_version.to_s) >= Gem::Version.new(version)
-    end
-
-    # Returns [Array<String>] the arguments that stop gpg from asking pinentry for a passphrase, which fails without
-    # a tty, so that it reads the one supplied with `--passphrase-fd`, and from caching the session keys of the
-    # data that it decrypts.
-    #
-    # Used internally, including by the PGP reader and writer.
-    def self.passphrase_args
-      args = []
-      # Loopback pinentry is available from GnuPG 2.1.
-      args += ["--pinentry-mode", "loopback"] if version_at_least?("2.1")
-      # Avoid caching session keys, from GnuPG 2.4.
-      args << "--no-symkey-cache" if version_at_least?("2.4")
-      args
-    end
-
-    # Returns [true|false] whether gpg can encrypt to a key in a file supplied with `--recipient-file`, which is
-    # available from GnuPG 2.1.14.
-    #
-    # Used internally by the PGP writer.
-    def self.recipient_file?
-      version_at_least?("2.1.14")
-    end
-
-    # Returns [true|false] whether the value is the full fingerprint of a key: 40 hexadecimal digits for a v4 key,
-    # or 64 for a v5 or v6 key. Not a short key id, which is not unique, nor an email address.
-    #
-    # Used internally, including by the PGP reader and writer.
-    def self.fingerprint?(value)
-      value.to_s.match?(/\A(\h{40}|\h{64})\z/)
     end
 
     # v2.4.7 output:
@@ -796,7 +718,7 @@ module IOStreams
 
       # List the fingerprints, then delete each one. Previously this shelled out
       # to a `for` loop, which allowed shell injection via :email / :key_id.
-      list_command        = gpg_command("--list-#{keys}", "--with-colons", "--fingerprint", "--", user_id(email || key_id))
+      list_command        = gpg_command("--list-#{keys}", "--with-colons", "--fingerprint", "--", Gpg.user_id(email || key_id))
       list_out, list_err, = Open3.capture3(*list_command, binmode: true)
       IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{list_command.shelljoin}\n#{list_err}: #{list_out}" }
 

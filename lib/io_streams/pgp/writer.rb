@@ -164,11 +164,11 @@ module IOStreams
       def self.build_args(encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:, recipient_files:)
         args = ["--batch", "--no-tty", "--yes"]
         args << "--encrypt" if encrypt
-        args += ["--sign", "--local-user", IOStreams::Pgp.user_id(signer)] if signer
-        args += [*IOStreams::Pgp.passphrase_args, "--passphrase-fd", PASSPHRASE_FD.to_s] if signer_passphrase
+        args += ["--sign", "--local-user", IOStreams::Pgp::Gpg.user_id(signer)] if signer
+        args += [*IOStreams::Pgp::Gpg.passphrase_args, "--passphrase-fd", PASSPHRASE_FD.to_s] if signer_passphrase
         args += ["-z", compress_level.to_s] if compress_level != 6
         args += ["--compress-algo", compress.to_s] unless compress == :none
-        recipients.each { |address| args += ["--recipient", IOStreams::Pgp.user_id(address)] }
+        recipients.each { |address| args += ["--recipient", IOStreams::Pgp::Gpg.user_id(address)] }
         recipient_files.each { |recipient_file| args += ["--recipient-file", recipient_file] }
         args
       end
@@ -197,8 +197,8 @@ module IOStreams
       #
       # gpg before v2.1.14 does not support `--recipient-file`, so the imported keys are recipients instead.
       def self.with_recipient_files(recipients, imported, &)
-        files       = IOStreams::Pgp.recipient_file?
-        keys, other = imported.partition { |value| files && IOStreams::Pgp.fingerprint?(value) }
+        files       = IOStreams::Pgp::Gpg.recipient_file?
+        keys, other = imported.partition { |value| files && IOStreams::Pgp::Gpg.fingerprint?(value) }
         write_recipient_files(keys, [], recipients + other, &)
       end
       private_class_method :with_recipient_files

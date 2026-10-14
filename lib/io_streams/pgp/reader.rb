@@ -116,7 +116,7 @@ module IOStreams
         # so that a missing or invalid key fails before any data is read.
         signers = expected_signers(signer, import_and_trust_key, import_and_trust_level)
 
-        args = IOStreams::Pgp.passphrase_args
+        args = IOStreams::Pgp::Gpg.passphrase_args
         args << "--ignore-mdc-error" if ignore_mdc_error
         args += ["--status-fd", STATUS_FD.to_s, "--batch", "--no-tty", "--yes", "--decrypt"]
         # Only feed a passphrase when one is supplied; sign-only files need none.
@@ -198,7 +198,7 @@ module IOStreams
 
       # Returns [Array<String>] the fingerprints of the signer's primary keys.
       def self.signer_fingerprints(signer)
-        fingerprints = IOStreams::Pgp.primary_fingerprints(signer)
+        fingerprints = IOStreams::Pgp::Gpg.primary_fingerprints(signer)
         raise(Pgp::Failure, "No PGP key found for the signer: #{signer}") if fingerprints.empty?
 
         fingerprints.map(&:upcase)
@@ -209,7 +209,7 @@ module IOStreams
       def self.imported_fingerprint(key, trust_level)
         fingerprint = IOStreams::Pgp.import_and_trust_recipient(key: key, trust_level: trust_level)
         # Earlier versions of gpg do not supply the fingerprint of the key.
-        return fingerprint.upcase if IOStreams::Pgp.fingerprint?(fingerprint)
+        return fingerprint.upcase if IOStreams::Pgp::Gpg.fingerprint?(fingerprint)
 
         raise(Pgp::Failure, "Checking who signed a file with import_and_trust_key requires gpg v2.1 or later")
       end
