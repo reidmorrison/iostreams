@@ -165,10 +165,9 @@ module IOStreams
         results    = candidates.filter_map do |name|
           next if %w[. ..].include?(::File.basename(name)) || !matcher.match?(name)
 
-          next ::File.join(directory, name) if directory
-
+          full_name = directory ? ::File.join(directory, name) : name
           # A child of the current directory called `~` is not the home directory.
-          Utils.matchable(name).match?(HOME_DIRECTORY) ? "./#{name}" : name
+          Utils.matchable(full_name).match?(HOME_DIRECTORY) ? "./#{full_name}" : full_name
         end
 
         results.each do |full_path|

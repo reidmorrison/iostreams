@@ -79,6 +79,21 @@ module Paths
           end
         end
 
+        it "yields the children of a directory called ~ within the current directory, for a pattern that starts with ~" do
+          in_home do |home, current|
+            FileUtils.mkdir_p(::File.join(current, "~"))
+            ::File.write(::File.join(current, "~", "a.csv"), "data")
+            ::File.write(::File.join(home, "a.csv"), "home")
+
+            [IOStreams.path(""), IOStreams.path(".")].each do |path|
+              children = path.children("~/*.csv")
+
+              assert_equal ["./~/a.csv"], children.collect(&:to_s), path.to_s
+              assert_equal "data", children.first.read
+            end
+          end
+        end
+
         it "warns when the current directory contains a directory called ~" do
           in_home do |home, current|
             FileUtils.mkdir_p(::File.join(current, "~"))
