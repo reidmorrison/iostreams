@@ -1889,7 +1889,7 @@ module Paths
             path = IOStreams::Paths::HTTP.new("https://example.com/file")
 
             error = assert_raises IOStreams::Errors::CommunicationsFailure do
-              path.send(:redirect_uri, URI.parse(path.url), redirect_to("http://example.com/file"), 1, Net::HTTP::Get)
+              path.send(:redirects).follow(URI.parse(path.url), redirect_to("http://example.com/file"), 1, Net::HTTP::Get)
             end
             assert_includes error.message, "from https to http"
           end
@@ -1899,7 +1899,7 @@ module Paths
             redirect = redirect_to("http://example.com/file?token=LOCATION-SECRET")
 
             error = assert_raises IOStreams::Errors::CommunicationsFailure do
-              path.send(:redirect_uri, URI.parse(path.url), redirect, 1, Net::HTTP::Get)
+              path.send(:redirects).follow(URI.parse(path.url), redirect, 1, Net::HTTP::Get)
             end
             assert_equal "Redirect from https to http is not followed: https://example.com/file to http://example.com/file",
                          error.message
@@ -1907,7 +1907,7 @@ module Paths
 
           it "follows a redirect from http to https when reading" do
             path    = IOStreams::Paths::HTTP.new("http://example.com/file")
-            new_uri = path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Get)
+            new_uri = path.send(:redirects).follow(URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Get)
 
             assert_equal "https://example.com/file", new_uri.to_s
           end
@@ -1916,7 +1916,7 @@ module Paths
             path = IOStreams::Paths::HTTP.new("http://example.com/file")
 
             error = assert_raises IOStreams::Errors::CommunicationsFailure do
-              path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Put)
+              path.send(:redirects).follow(URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Put)
             end
             assert_includes error.message, "same scheme, host and port"
           end

@@ -10,12 +10,9 @@ module IOStreams
       autoload :BodyReader, "io_streams/paths/http/body_reader"
       autoload :ContentCoding, "io_streams/paths/http/content_coding"
       autoload :Failure, "io_streams/paths/http/failure"
+      autoload :Redirect, "io_streams/paths/http/redirect"
 
       attr_reader :username, :password, :http_redirect_count, :url
-
-      # Requests that do not change the file, so that they can follow a redirect to another host.
-      SAFE_REQUESTS = [Net::HTTP::Get, Net::HTTP::Head].freeze
-      private_constant :SAFE_REQUESTS
 
       # The password, the query `parameters`, which can hold an access key, and the cookie headers, see
       # IOStreams::Path.redact_options. The authentication headers, such as "Authorization", "Proxy-Authorization",
@@ -417,7 +414,7 @@ module IOStreams
                 return nil if allow_missing && (response.is_a?(Net::HTTPNotFound) || response.is_a?(Net::HTTPGone))
 
                 if response.is_a?(Net::HTTPRedirection)
-                  redirect = redirect_uri(uri, response, http_redirect_count, request_class)
+                  redirect = redirects.follow(uri, response, http_redirect_count, request_class)
                   # Without reading the body of the redirect.
                   break
                 end
@@ -434,17 +431,6 @@ module IOStreams
         return result unless redirect
 
         send_request(request_class, redirect, http_redirect_count - 1, body_file_name:, allow_missing:, &block)
-      end
-
-      # Returns [URI] the location of a redirect, resolved against the url that redirected.
-      #
-      # Raises [IOStreams::Errors::CommunicationsFailure] when the location is not a url, without the location in its
-      # message, which the server supplies, and which can hold a token, unlike the message of `URI::InvalidURIError`.
-      def redirect_location(uri, location)
-        uri.merge(location)
-      rescue URI::Error
-        raise(IOStreams::Errors::CommunicationsFailure, "Redirect to a location that is not a url: #{loggable(uri)}",
-              cause: nil)
       end
 
       # Returns [Module] the kind of failure that an exception raised by a request means, see `Failure.kind`.
@@ -473,7 +459,7 @@ module IOStreams
       # when it is sent to the original host, and its Accept-Encoding, see #accept_encoding.
       def build_request(request_class, uri)
         # Only send headers and credentials to the original host to avoid leaking them via a redirect.
-        original        = same_origin?(uri)
+        original        = redirects.same_origin?(uri)
         accept_encoding = accept_encoding(request_class)
         # Supplied when the request is created, so that Net::HTTP never decodes the body.
         request         = request_class.new(uri, accept_encoding ? {"Accept-Encoding" => accept_encoding} : nil)
@@ -517,48 +503,6 @@ module IOStreams
       # Returns [String] the value of the header supplied with `headers:`, whatever the case of its name, or nil.
       def supplied_header(name)
         headers.find { |key, _value| key.casecmp?(name) }&.last
-      end
-
-      # Returns [URI] the location to redirect to, resolved against the current uri.
-      def redirect_uri(uri, response, http_redirect_count, request_class)
-        raise(IOStreams::Errors::CommunicationsFailure, "Too many redirects") if http_redirect_count < 1
-
-        # Other redirects change the request into a GET, which would discard the body being sent.
-        if !SAFE_REQUESTS.include?(request_class) && !%w[307 308].include?(response.code)
-          raise(
-            IOStreams::Errors::CommunicationsFailure,
-            "Only a 307 or 308 redirect can be followed when writing or deleting, " \
-            "received #{response.code}: #{loggable(uri)}"
-          )
-        end
-
-        location = response["location"]
-        unless location
-          raise(IOStreams::Errors::CommunicationsFailure,
-                "Redirect missing location header: #{loggable(uri)}")
-        end
-
-        # Resolve relative redirects against the current uri.
-        new_uri = redirect_location(uri, location)
-
-        if uri.scheme == "https" && new_uri.scheme == "http"
-          raise(
-            IOStreams::Errors::CommunicationsFailure,
-            "Redirect from https to http is not followed: #{loggable(uri)} to #{loggable(new_uri)}"
-          )
-        end
-
-        # A redirect to another server would send it the data being uploaded, or delete a file on it.
-        if !SAFE_REQUESTS.include?(request_class) && !same_origin?(new_uri)
-          raise(
-            IOStreams::Errors::CommunicationsFailure,
-            "Only a redirect to the same scheme, host and port can be followed when writing or deleting: " \
-            "#{loggable(uri)} to #{loggable(new_uri)}"
-          )
-        end
-
-        IOStreams.logger&.info("Following HTTP #{response.code} redirect from #{loggable(uri)} to #{loggable(new_uri)}")
-        new_uri
       end
 
       # Validate that the host may be contacted, and that the scheme is still http(s)
@@ -605,9 +549,9 @@ module IOStreams
         uri.to_s
       end
 
-      def same_origin?(uri)
-        original = original_uri
-        uri.scheme == original.scheme && uri.hostname == original.hostname && uri.port == original.port
+      # Returns [IOStreams::Paths::HTTP::Redirect] which redirects the requests of this url follow.
+      def redirects
+        Redirect.new(original_uri, method(:loggable))
       end
 
       def original_uri
