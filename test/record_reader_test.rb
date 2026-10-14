@@ -230,5 +230,11 @@ class RecordReaderTest < Minitest::Test
         assert_equal expected.collect { |record| record["state"] }, records
       end
     end
+
+    describe "#inspect" do
+      it "shows the class and the format of the records, rather than the objects that it reads them with" do
+        assert_equal "#<IOStreams::Record::Reader format=:json>", IOStreams.path(json_file_name).reader(:hash, &:inspect)
+      end
+    end
   end
 end

@@ -47,6 +47,13 @@ module IOStreams
         @tabular.render_record(hash) { |line| @line_writer << line }
         self
       end
+
+      # Returns [String] the class and the format of the records, see `IOStreams::Tabular#format`, rather than every
+      # instance variable, such as the tabular and the lines that it writes, so that irb, which displays what a writer
+      # block returns, such as the writer that `io << record` returns, shows what the documentation describes.
+      def inspect
+        "#<#{self.class.name} format=#{@tabular.format.inspect}>"
+      end
     end
   end
 end

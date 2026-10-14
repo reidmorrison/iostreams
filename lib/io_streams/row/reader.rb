@@ -81,6 +81,13 @@ module IOStreams
           end
         end
       end
+
+      # Returns [String] the class and the format of the rows, see `IOStreams::Tabular#format`, rather than every instance
+      # variable, such as the tabular and the lines that it reads, so that irb, which displays what a reader block
+      # returns, shows what the documentation describes.
+      def inspect
+        "#<#{self.class.name} format=#{@tabular.format.inspect}>"
+      end
     end
   end
 end

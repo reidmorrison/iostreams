@@ -61,5 +61,13 @@ class LineWriterTest < Minitest::Test
         assert_equal raw.size, count
       end
     end
+
+    describe "#inspect" do
+      it "shows the class and the delimiter of the lines, rather than the stream that it writes" do
+        inspect = IOStreams.stream(StringIO.new).writer(:line, delimiter: "\r\n", &:inspect)
+
+        assert_equal '#<IOStreams::Line::Writer delimiter="\r\n">', inspect
+      end
+    end
   end
 end

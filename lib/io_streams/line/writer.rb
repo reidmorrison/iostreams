@@ -70,6 +70,13 @@ module IOStreams
       def write(data)
         output_stream.write(data.to_s + delimiter)
       end
+
+      # Returns [String] the class and the delimiter written after each line, rather than every instance variable, such
+      # as the stream that it writes, so that irb, which displays what a writer block returns, shows what the
+      # documentation describes.
+      def inspect
+        "#<#{self.class.name} delimiter=#{delimiter.inspect}>"
+      end
     end
   end
 end

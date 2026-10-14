@@ -568,5 +568,13 @@ class LineReaderTest < Minitest::Test
         end
       end
     end
+
+    describe "#inspect" do
+      it "shows the class and the delimiter of the lines, rather than the stream that it reads" do
+        inspect = IOStreams.stream(StringIO.new("name\r\nJack\r\n")).reader(:line, &:inspect)
+
+        assert_equal '#<IOStreams::Line::Reader delimiter="\r\n">', inspect
+      end
+    end
   end
 end

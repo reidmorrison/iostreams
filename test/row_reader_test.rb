@@ -222,5 +222,13 @@ class RowReaderTest < Minitest::Test
         end
       end
     end
+
+    describe "#inspect" do
+      it "shows the class and the format of the rows, rather than the objects that it reads them with" do
+        assert_equal "#<IOStreams::Row::Reader format=:csv>", IOStreams.path(file_name).reader(:array, &:inspect)
+        assert_equal "#<IOStreams::Row::Reader format=:json>",
+                     IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).reader(:array, &:inspect)
+      end
+    end
   end
 end

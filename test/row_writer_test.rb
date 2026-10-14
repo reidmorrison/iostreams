@@ -77,5 +77,13 @@ class RowWriterTest < Minitest::Test
         assert_equal "name,zip\nname,zip\nJack,12345\n", io_string.string
       end
     end
+
+    describe "#inspect" do
+      it "shows the class and the format of the rows, rather than the objects that it writes them with" do
+        rows = IOStreams.stream(StringIO.new).format(:psv).writer(:array) { |io| io << %w[name zip] }
+
+        assert_equal "#<IOStreams::Row::Writer format=:psv>", rows.inspect
+      end
+    end
   end
 end

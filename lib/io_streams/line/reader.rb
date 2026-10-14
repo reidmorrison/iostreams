@@ -157,6 +157,13 @@ module IOStreams
         @eof && (@buffer.nil? || @buffer.empty?)
       end
 
+      # Returns [String] the class and the delimiter of the lines, which the reader detects unless it was supplied,
+      # rather than every instance variable, such as the stream that it reads and the block of data that it holds, so
+      # that irb, which displays what a reader block returns, shows what the documentation describes.
+      def inspect
+        "#<#{self.class.name} delimiter=#{delimiter.inspect}>"
+      end
+
       private
 
       def _readline
