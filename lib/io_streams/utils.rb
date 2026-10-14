@@ -169,25 +169,35 @@ module IOStreams
       nil
     end
 
-    # Returns [true|false] whether the current thread is being killed, such as by `Thread#kill`, so that an `ensure`
-    # block does not complete output that the block it ensures did not finish, since killing a thread raises no
-    # exception that it can rescue.
+    # Returns [true|false] whether the current thread is being killed, such as by `Thread#kill`, and is running its
+    # `ensure` blocks, since killing a thread raises no exception that it can rescue.
     def self.thread_aborting?
       Thread.current.status == "aborting"
     end
 
     # Yields, then calls `finish`, such as to copy or upload what the block wrote, once the block returns, including
-    # when it leaves early, such as with `break`, which keeps what was written so far, but not when it raises, or its
-    # thread is killed, see .thread_aborting?, since what it wrote is not complete. Returns the result of the block.
-    def self.finish_after(finish)
-      failed = false
+    # when it leaves early, such as with `break`, which keeps what was written so far. Calls `abort` instead, such as to
+    # remove what the block wrote, when it raises, or its thread is killed while it runs, since what it wrote is not
+    # complete.
+    #
+    # A thread that was already being killed when the block started, such as one whose `ensure` block writes a file as
+    # it stops, cannot be killed again, see .thread_aborting?, so the block ran to its end, and is finished.
+    #
+    # Returns the result of the block.
+    def self.finish_or_abort(finish: nil, abort: nil)
+      aborting = thread_aborting?
+      failed   = false
       begin
         yield
       rescue Exception # rubocop:disable Lint/RescueException -- so that no error finishes what the block did not
         failed = true
         raise
       ensure
-        finish.call unless failed || thread_aborting?
+        if failed || (!aborting && thread_aborting?)
+          abort&.call
+        else
+          finish&.call
+        end
       end
     end
 

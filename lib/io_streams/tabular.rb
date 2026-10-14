@@ -163,6 +163,14 @@ module IOStreams
       requires_header? && !@columns.written?
     end
 
+    # Returns [true|false] whether the header row of the rows written after it, such as the one read from the file that
+    # is copied, see `IOStreams::Row::Writer#write_header`, gives their columns, see #render_header, rather than being
+    # written as the first row: for a format without a header row, such as JSON or Parquet, unless the columns were
+    # supplied, which it does not replace, so that it is written as a row, as before.
+    def columns_from_header_row?
+      !(first_row_header? || requires_header? || legacy_columns?)
+    end
+
     # Returns [true|false] whether the keys of the records read are the names of the fields of a schema, rather than the
     # columns of the file, so that cleansing the header row does not apply, see `IOStreams::Schema::Columns`.
     def field_names?
@@ -233,6 +241,13 @@ module IOStreams
     # Returns the result of the block.
     def write_rows(io, options, &)
       parser.class.row_format.open_stream(:writer, io, options, name: format, arguments: {schema: schema}, &)
+    end
+
+    # Raises what #write_rows would raise before it writes anything, such as for a schema whose fields the format cannot
+    # write, or an option value that it does not accept, so that the caller can check before it opens the output, which
+    # would replace an existing file, see `IOStreams::StreamFormat#check_stream`. See #read_rows for the options.
+    def check_write_rows(options)
+      parser.class.row_format.check_stream(:writer, options, name: format, arguments: {schema: schema})
     end
 
     # Returns [String] the encoding that the format reads and writes text in when the caller does not set one on

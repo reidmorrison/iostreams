@@ -212,6 +212,21 @@ module Paths
           refute_predicate path, :exist?
         end
 
+        it "stores an object written by an ensure block as its thread is killed, since it was written to its end" do
+          started = Queue.new
+          thread  = Thread.new do
+            started << true
+            sleep
+          ensure
+            path.write(data)
+          end
+          started.pop
+          thread.kill.join
+
+          assert_empty S3Stub.pending_uploads
+          assert_data data, path.read
+        end
+
         it "stores the data written when the block leaves early" do
           path.writer do |io|
             io.write(data)

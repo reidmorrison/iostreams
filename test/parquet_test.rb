@@ -206,10 +206,12 @@ class ParquetTest < Minitest::Test
       assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"name" => "Jack"}]) }
     end
 
-    it "raises when writing without a schema" do
+    it "raises when writing without a schema, before it replaces an existing file" do
+      File.write(File.join(dir, "people.parquet"), "existing")
       error = assert_raises(ArgumentError) { write(path) }
 
       assert_match(/needs a schema/, error.message)
+      assert_equal "existing", File.read(File.join(dir, "people.parquet"))
     end
 
     it "raises for a number without decimals or floatNumber" do
@@ -219,11 +221,13 @@ class ParquetTest < Minitest::Test
       assert_match(/needs `decimals`/, error.message)
     end
 
-    it "raises for a field of type any" do
+    it "raises for a field of type any, before it replaces an existing file" do
+      File.write(File.join(dir, "people.parquet"), "existing")
       any = {fields: [{name: "value"}]}
 
       error = assert_raises(ArgumentError) { write(path.schema(any), [{"value" => 1}]) }
       assert_match(/has no Parquet type/, error.message)
+      assert_equal "existing", File.read(File.join(dir, "people.parquet"))
     end
 
     it "raises for a number that a decimal cannot hold" do
@@ -329,10 +333,12 @@ class ParquetTest < Minitest::Test
         assert_match(/Unknown option :level for a :parquet stream/, error.message)
       end
 
-      it "raises for a compression that Parquet does not have" do
+      it "raises for a compression that Parquet does not have, before it replaces an existing file" do
+        File.write(File.join(dir, "people.parquet"), "existing")
         error = assert_raises(ArgumentError) { write(path.schema(schema).option(:parquet, compression: "xz")) }
 
         assert_match(/Unknown Parquet compression: "xz"/, error.message)
+        assert_equal "existing", File.read(File.join(dir, "people.parquet"))
       end
 
       it "returns the options set" do
@@ -360,6 +366,15 @@ class ParquetTest < Minitest::Test
 
       it "is shown by #inspect" do
         assert_includes path.option(:parquet, compression: "zstd").inspect, "@row_options=#{{parquet: {compression: 'zstd'}}.inspect}"
+      end
+
+      it "is shown by #inspect once an extension is registered with the same name" do
+        target = path.option(:parquet, compression: "zstd")
+        IOStreams.register_extension(:parquet, IOStreams::Reader, IOStreams::Writer)
+
+        assert_includes target.inspect, "@row_options=#{{parquet: {compression: 'zstd'}}.inspect}"
+      ensure
+        IOStreams.deregister_extension(:parquet)
       end
 
       it "goes to an extension registered with the same name, rather than to Parquet" do

@@ -663,6 +663,32 @@ module Paths
           refute_path_exists new_file_path.to_s
         end
 
+        it "keeps a file written by an ensure block as its thread is killed, since it was written to its end" do
+          new_file_path = directory.join("new.txt")
+          started       = Queue.new
+          thread        = Thread.new do
+            started << true
+            sleep
+          ensure
+            new_file_path.write(data)
+          end
+          started.pop
+          thread.kill.join
+
+          assert_equal data, new_file_path.read
+        end
+
+        it "leaves a file that cannot be opened as it is" do
+          skip("root can write to any file") if Process.respond_to?(:uid) && Process.uid.zero?
+
+          new_file_path = directory.join("read_only.txt")
+          new_file_path.write(data)
+          File.chmod(0o444, new_file_path.to_s)
+
+          assert_raises(Errno::EACCES) { new_file_path.write("new") }
+          assert_equal data, new_file_path.read
+        end
+
         it "keeps the file when the block returns early" do
           new_file_path = directory.join("new.txt.gz")
           write = lambda do

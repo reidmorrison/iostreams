@@ -326,6 +326,9 @@ module IOStreams
       # Notes:
       # * The data is written to a tempfile first, and then uploaded in a single request once
       #   the block completes, so that the server receives its size in the Content-Length header.
+      #   It is uploaded when the block leaves early, such as with `break`, as a local file keeps what
+      #   was written, but not when the block raises, or its thread is killed, see
+      #   `IOStreams::Utils.finish_or_abort`.
       # * Only a 307 or 308 redirect to the same scheme, host, and port is followed when writing.
       #   The other redirects change the request into a GET, which would discard the upload, and
       #   a redirect to another server would send it the data being uploaded.
@@ -335,9 +338,10 @@ module IOStreams
         end
 
         Utils.private_temp_file("iostreams_http", purpose: "the upload to #{display_name}") do |file_name|
-          result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil }
-          result
+          upload = -> { send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil } }
+          Utils.finish_or_abort(finish: upload) do
+            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+          end
         end
       end
 

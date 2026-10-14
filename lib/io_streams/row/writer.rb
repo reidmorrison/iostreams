@@ -67,12 +67,13 @@ module IOStreams
       end
 
       # Writes the header row of rows read from a file with one, see `IOStreams::Row::Reader#header?`, so that the value
-      # of each column of the rows after it is written to its column, or to its field with a schema: as the first row,
-      # see #<<, otherwise, for a format without a header row, such as JSON or Parquet, the columns of the rows after it.
+      # of each column of the rows after it is written to its column, or to its field with a schema: as the columns of
+      # the rows after it, for a format without a header row, such as JSON or Parquet, otherwise as the first row, see
+      # #<<, including when the columns were supplied, see `IOStreams::Tabular#columns_from_header_row?`.
       #
       # Returns self, so that calls can be chained.
       def write_header(columns)
-        return self << columns if @tabular.first_row_header? || @tabular.requires_header?
+        return self << columns unless @tabular.columns_from_header_row?
 
         @tabular.render_header(columns)
         self

@@ -59,28 +59,15 @@ module IOStreams
         #     response.
         def self.upload(request)
           uploader = new(request)
-          failed   = false
-          begin
-            yield(uploader)
-          rescue Exception # rubocop:disable Lint/RescueException
-            failed = true
-            uploader.abort
-            raise
-          ensure
-            finish(uploader) unless failed
-          end
+          Utils.finish_or_abort(finish: -> { finish(uploader) }, abort: -> { uploader.abort }) { yield(uploader) }
         end
 
-        # Completes the upload, or aborts it when the thread is being killed, or completing it fails.
+        # Completes the upload, or aborts it when completing it fails.
         def self.finish(uploader)
-          return uploader.abort if Utils.thread_aborting?
-
-          begin
-            uploader.complete
-          rescue Exception # rubocop:disable Lint/RescueException
-            uploader.abort
-            raise
-          end
+          uploader.complete
+        rescue Exception # rubocop:disable Lint/RescueException
+          uploader.abort
+          raise
         end
         private_class_method :finish
 

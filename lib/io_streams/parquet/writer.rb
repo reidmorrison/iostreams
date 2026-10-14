@@ -48,33 +48,45 @@ module IOStreams
       #
       # Returns the result of the block.
       def self.file(file_name, schema:, compression: "snappy")
+        columns     = columns_of(schema)
+        compression = compression_of(compression)
+        Parquet.load_dependency
+        writer = new(file_name, columns, compression)
+        Utils.finish_or_abort(finish: -> { writer.finish }, abort: -> { writer.abort }) { yield(writer) }
+      end
+
+      # Raises what .file would raise before it writes anything, so that the output is not opened, which would replace an
+      # existing file, when the records cannot be written to it, see `IOStreams::StreamFormat#check_stream`.
+      #
+      # Raises ArgumentError without a schema, for a field that has no Parquet type, see `IOStreams::Parquet::Column`, or
+      # an unknown compression, and LoadError when the `parquet` gem is not installed.
+      def self.check(schema:, compression: "snappy")
+        columns_of(schema)
+        compression_of(compression)
+        Parquet.load_dependency
+        nil
+      end
+
+      # Returns [Array<IOStreams::Parquet::Column>] the column of each field of the schema.
+      def self.columns_of(schema)
         unless schema
           raise(ArgumentError, "Writing Parquet needs a schema, set with #schema on the path, since a Parquet file records " \
                                "the type of each of its columns")
         end
-        compression = compression.to_s
-        unless COMPRESSIONS.include?(compression)
-          raise(ArgumentError, "Unknown Parquet compression: #{compression.inspect}. " \
-                               "Valid compressions: #{COMPRESSIONS.join(', ')}")
-        end
 
-        columns = schema.fields.map { |field| Column.new(field) }
-        Parquet.load_dependency
-        writer = new(file_name, columns, compression)
-        failed = false
-        begin
-          yield(writer)
-        rescue Exception # rubocop:disable Lint/RescueException -- so that every error ends the thread, and is raised
-          failed = true
-          raise
-        ensure
-          if failed || Utils.thread_aborting?
-            writer.abort
-          else
-            writer.finish
-          end
-        end
+        schema.fields.map { |field| Column.new(field) }
       end
+      private_class_method :columns_of
+
+      # Returns [String] the name of the compression, one of `COMPRESSIONS`.
+      def self.compression_of(compression)
+        compression = compression.to_s
+        return compression if COMPRESSIONS.include?(compression)
+
+        raise(ArgumentError, "Unknown Parquet compression: #{compression.inspect}. " \
+                             "Valid compressions: #{COMPRESSIONS.join(', ')}")
+      end
+      private_class_method :compression_of
 
       def initialize(file_name, columns, compression)
         super(nil)
