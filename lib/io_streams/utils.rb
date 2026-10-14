@@ -334,8 +334,8 @@ module IOStreams
       # Returns [String] the message for a url that cannot be parsed, see `.parse`.
       def self.unparseable(url)
         "Invalid url #{redact(url).inspect}: it cannot be parsed. Percent-encode a character that a url cannot hold, " \
-          "such as a space as '%20', and supply a user name or password that has a '/', '?' or '#' with the " \
-          "username: and password: arguments."
+          "such as a space as '%20'. For an SFTP or HTTP url, supply a user name or password that has a '/', '?' or " \
+          "'#' with the username: and password: arguments."
       end
 
       # Returns [String] a url that cannot be parsed without anything that could be its user name, password, query or
