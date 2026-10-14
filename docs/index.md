@@ -150,7 +150,7 @@ end
 
 ## Installation
 
-Add the gem to your Gemfile, for Ruby 3.2 or later:
+Add the gem to your Gemfile, for Ruby 3.3 or later:
 
 ~~~ruby
 gem "iostreams"

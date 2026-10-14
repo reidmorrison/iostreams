@@ -386,11 +386,10 @@ module IOStreams
       # Note:
       #   If an exception is raised whilst the file is being written to the file is removed to
       #   prevent incomplete / partial files from being created. This includes an exception that is
-      #   not a StandardError, such as `Interrupt`, or the one that `Timeout` raises within its block
-      #   from timeout v0.4, the default from Ruby 3.3. A block that exits with `return`, `break` or
-      #   `throw` completes the file. The file is also removed when the thread writing it is killed,
-      #   see `IOStreams::Utils.finish_or_abort`. A file that could not be opened, such as one that
-      #   cannot be written to, is left as it is.
+      #   not a StandardError, such as `Interrupt`, or the one that `Timeout` raises within its block.
+      #   A block that exits with `return`, `break` or `throw` completes the file. The file is also
+      #   removed when the thread writing it is killed, see `IOStreams::Utils.finish_or_abort`. A file
+      #   that could not be opened, such as one that cannot be written to, is left as it is.
       def stream_writer(&)
         mkpath if create_path
         file = nil

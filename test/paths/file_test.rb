@@ -804,10 +804,6 @@ module Paths
         end
 
         it "removes the partial file when Timeout interrupts the block" do
-          if Gem::Version.new(Timeout::VERSION) < Gem::Version.new("0.4")
-            skip("Timeout before v0.4 ends the block with throw, like break")
-          end
-
           new_file_path = directory.join("new.txt.pgp").option(:pgp, recipient: "receiver@example.org")
           assert_raises(Timeout::Error) do
             Timeout.timeout(1) do

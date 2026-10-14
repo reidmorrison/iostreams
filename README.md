@@ -23,7 +23,7 @@ instead, and a path held in configuration can move between local files, S3 and S
 
 ## Installation
 
-Add the gem to your Gemfile, for Ruby 3.2 or later:
+Add the gem to your Gemfile, for Ruby 3.3 or later:
 
 ~~~ruby
 gem "iostreams"

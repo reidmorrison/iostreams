@@ -24,6 +24,7 @@ Start with the changes that apply to your application:
 
 | If your application | See |
 |---------------------|-----|
+| Runs on Ruby 3.2 | [Ruby 3.3 or later is required](#ruby-33-or-later-is-required) |
 | Reads text files that are not UTF-8, such as Windows-1252 exports, or depends on binary strings | [Text is read as UTF-8](#text-is-read-as-utf-8) |
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Uses `allowed_columns`, `required_columns`, `columns:` or `cleanse_header:` | [Column restrictions apply to every input](#column-restrictions-apply-to-every-input), and [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated) |
@@ -35,6 +36,14 @@ Start with the changes that apply to your application:
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
 | Registers its own extensions with `IOStreams.register_extension` | [Extending IOStreams](#extending-iostreams) |
 | Uses `option(:encode, ...)`, `stream(:none)`, `#format_options` or `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
+
+### Ruby 3.3 or later is required
+
+v3.0 requires Ruby 3.3 or later. Ruby 3.2 reached its end of life in March 2026, and its timeout library leaves the
+block that a `Timeout` interrupts as `break` does, so IOStreams would keep a partial write that a `Timeout`
+interrupted, rather than discard it.
+
+Fix: upgrade to Ruby 3.3 or later before upgrading IOStreams.
 
 ### Text and encodings
 

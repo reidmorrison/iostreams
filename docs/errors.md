@@ -140,13 +140,13 @@ The exception that each storage raises, which is tagged with the kind of failure
 | `Unavailable` | Never | `Seahorse::Client::NetworkingError` when S3 cannot be reached, or `Aws::S3::Errors::SlowDown`, `InternalError`, `ServiceUnavailable`, `RequestTimeout`, or a `429`, `500`, `502`, `503` or `504` response, once the AWS SDK has retried the request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, a connection error such as `Errno::ECONNREFUSED` or `SocketError`, or `Net::SSH::Disconnect` | A connection error such as `Errno::ECONNREFUSED`, `SocketError` or `Net::ReadTimeout`, or `IOStreams::Errors::CommunicationsFailure` for `408`, `429`, `500`, `502`, `503` or `504` |
 
 A host name that does not resolve, such as a mistyped host, is not `Unavailable`, since the same request will fail
-again: on Ruby 3.3 and later, a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is
-`Unavailable` only when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is
-how Linux, with glibc or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp`
-program's `ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name
-resolution", or musl's "Try again". Ruby 3.2 has no `Socket::ResolutionError`, so a `SocketError` there is always
-`Unavailable`. A host that resolves only on a private network, such as over a VPN, does not resolve while that
-network is down, so it is not `Unavailable` then either.
+again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
+when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
+or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
+`ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
+musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
+that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
+not `Unavailable` then either.
 
 SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem for everything else, such as
 `#each_child`, `#exist?` and `#delete`.

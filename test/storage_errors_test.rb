@@ -59,7 +59,7 @@ class StorageErrorsTest < Minitest::Test
         refute IOStreams::Errors::Unavailable.unknown_host?(resolution_error(Socket::EAI_AGAIN))
       end
 
-      it "is false for a SocketError that is not a failure of name resolution, as on Ruby 3.2" do
+      it "is false for a SocketError that is not a failure of name resolution, as on JRuby" do
         refute IOStreams::Errors::Unavailable.unknown_host?(SocketError.new("getaddrinfo: nodename nor servname provided"))
       end
 

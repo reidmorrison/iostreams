@@ -271,7 +271,7 @@ module IOStreams
       # mistyped host, so that the same request cannot succeed later. A temporary failure of name resolution
       # (`Socket::EAI_AGAIN`), which is how a DNS outage, or a network without DNS, is reported on Linux, is not.
       #
-      # Ruby 3.2 does not have `Socket::ResolutionError`, so its `SocketError` is never an unknown host.
+      # JRuby does not have `Socket::ResolutionError`, so its `SocketError` is never an unknown host.
       def self.unknown_host?(exception)
         return false unless defined?(::Socket::ResolutionError) && exception.is_a?(::Socket::ResolutionError)
 

@@ -159,7 +159,7 @@ end
 
 ## Installation
 
-Add the gem to your Gemfile, for Ruby 3.2 or later:
+Add the gem to your Gemfile, for Ruby 3.3 or later:
 
 ~~~ruby
 gem "iostreams"
@@ -3297,13 +3297,13 @@ The exception that each storage raises, which is tagged with the kind of failure
 | `Unavailable` | Never | `Seahorse::Client::NetworkingError` when S3 cannot be reached, or `Aws::S3::Errors::SlowDown`, `InternalError`, `ServiceUnavailable`, `RequestTimeout`, or a `429`, `500`, `502`, `503` or `504` response, once the AWS SDK has retried the request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, a connection error such as `Errno::ECONNREFUSED` or `SocketError`, or `Net::SSH::Disconnect` | A connection error such as `Errno::ECONNREFUSED`, `SocketError` or `Net::ReadTimeout`, or `IOStreams::Errors::CommunicationsFailure` for `408`, `429`, `500`, `502`, `503` or `504` |
 
 A host name that does not resolve, such as a mistyped host, is not `Unavailable`, since the same request will fail
-again: on Ruby 3.3 and later, a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is
-`Unavailable` only when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is
-how Linux, with glibc or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp`
-program's `ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name
-resolution", or musl's "Try again". Ruby 3.2 has no `Socket::ResolutionError`, so a `SocketError` there is always
-`Unavailable`. A host that resolves only on a private network, such as over a VPN, does not resolve while that
-network is down, so it is not `Unavailable` then either.
+again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
+when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
+or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
+`ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
+musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
+that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
+not `Unavailable` then either.
 
 SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem for everything else, such as
 `#each_child`, `#exist?` and `#delete`.
@@ -4865,6 +4865,7 @@ Start with the changes that apply to your application:
 
 | If your application | See |
 |---------------------|-----|
+| Runs on Ruby 3.2 | [Ruby 3.3 or later is required](#ruby-33-or-later-is-required) |
 | Reads text files that are not UTF-8, such as Windows-1252 exports, or depends on binary strings | [Text is read as UTF-8](#text-is-read-as-utf-8) |
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Uses `allowed_columns`, `required_columns`, `columns:` or `cleanse_header:` | [Column restrictions apply to every input](#column-restrictions-apply-to-every-input), and [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated) |
@@ -4876,6 +4877,14 @@ Start with the changes that apply to your application:
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
 | Registers its own extensions with `IOStreams.register_extension` | [Extending IOStreams](#extending-iostreams) |
 | Uses `option(:encode, ...)`, `stream(:none)`, `#format_options` or `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
+
+### Ruby 3.3 or later is required
+
+v3.0 requires Ruby 3.3 or later. Ruby 3.2 reached its end of life in March 2026, and its timeout library leaves the
+block that a `Timeout` interrupts as `break` does, so IOStreams would keep a partial write that a `Timeout`
+interrupted, rather than discard it.
+
+Fix: upgrade to Ruby 3.3 or later before upgrading IOStreams.
 
 ### Text and encodings
 

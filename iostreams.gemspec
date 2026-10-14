@@ -32,7 +32,7 @@ Gem::Specification.new do |s|
     "source_code_uri"       => "https://github.com/reidmorrison/iostreams/tree/v#{IOStreams::VERSION}",
     "rubygems_mfa_required" => "true"
   }
-  s.required_ruby_version = ">= 3.2"
+  s.required_ruby_version = ">= 3.3"
 
   # CSV is the default tabular format. It was a Ruby default gem through 3.3, but became a
   # bundled gem in Ruby 3.4, so it must be declared to remain loadable under Bundler.
