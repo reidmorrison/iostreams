@@ -131,9 +131,8 @@ module IOStreams
         @url      = Utils::URI.root(url)
         @password = password || uri.password
         @port     = uri.port || 22
-        # Not Ruby 2.5 yet: transform_keys(&:to_s)
-        @ssh_options = {}
-        ssh_options.each_pair { |key, value| @ssh_options[key.to_s] = value }
+        # A copy of each option, so that a String supplied as an option is not shared, see #ssh_options.
+        @ssh_options = deep_copy(ssh_options.transform_keys(&:to_s))
         validate_username!
 
         super(self.class.url_path(uri.path))
@@ -291,6 +290,12 @@ module IOStreams
         nil
       end
 
+      # Freezes the ssh options too, see #ssh_options and `IOStreams::Path#freeze`.
+      def freeze
+        deep_freeze(@ssh_options)
+        super
+      end
+
       # Returns [String] the url without the user name or password, which are credentials.
       # Each byte of a name that is not valid UTF-8 is shown as `\xHH`, see `IOStreams::Path#display_name`.
       def display_name
@@ -298,6 +303,12 @@ module IOStreams
       end
 
       protected
+
+      # A copy has its own ssh options, so that changing them does not change this path, see #ssh_options.
+      def initialize_copy(source)
+        super
+        @ssh_options = deep_copy(@ssh_options)
+      end
 
       # Paths on the same host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [hostname.to_s.downcase, port]

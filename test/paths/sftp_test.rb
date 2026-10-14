@@ -627,6 +627,20 @@ module Paths
           assert_equal({"IdentityFile" => "~/.ssh/id_rsa"}, path.ssh_options)
         end
 
+        it "gives each copy its own ssh options, and freezes those of a frozen path, such as a root path" do
+          identity_file = +"/keys/a"
+          root          = new_path("sftp://example.org/data", ssh_options: {"IdentityFile" => identity_file}).freeze
+          identity_file << "-changed"
+          joined = root.join("a.csv")
+          joined.ssh_options["IdentityFile"] = "/attacker"
+          joined.ssh_options["ConnectTimeout"] = 1
+
+          assert_equal({"IdentityFile" => "/keys/a"}, root.ssh_options)
+          assert_equal({"IdentityFile" => "/attacker", "ConnectTimeout" => 1}, joined.ssh_options)
+          assert_raises(FrozenError) { root.ssh_options["IdentityFile"] = "/attacker" }
+          assert_raises(FrozenError) { root.ssh_options["IdentityFile"] << "x" }
+        end
+
         it "raises when the scheme is not sftp" do
           assert_raises ArgumentError do
             new_path("http://example.org/path/file.txt")

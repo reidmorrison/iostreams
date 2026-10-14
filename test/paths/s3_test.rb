@@ -867,6 +867,20 @@ module Paths
           assert_same joined.client, path.client
         end
 
+        it "gives each copy its own options, and freezes those of a frozen path, such as a root path" do
+          metadata = {"a" => "1"}
+          root     = IOStreams::Paths::S3.new("s3://bucket/data", client: client, acl: "private", metadata: metadata).freeze
+          metadata["a"] = "changed"
+          joined = root.join("a.csv")
+          joined.options[:acl] = "public-read"
+          joined.options[:metadata]["a"] = "2"
+
+          assert_equal({acl: "private", metadata: {"a" => "1"}}, root.options)
+          assert_equal({acl: "public-read", metadata: {"a" => "2"}}, joined.options)
+          assert_raises(FrozenError) { root.options[:acl] = "public-read" }
+          assert_raises(FrozenError) { root.options[:metadata]["a"] = "2" }
+        end
+
         it "joins a name that only shares a prefix with the key" do
           path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)
 

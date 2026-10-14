@@ -195,11 +195,18 @@ module IOStreams
         @client_cache = ClientCache.new(client, access_key_id: access_key_id, secret_access_key: secret_access_key,
                                                 region: region)
 
-        @options = args
+        # A copy of each option, so that a Hash supplied as an option, such as `metadata:`, is not shared, see #options.
+        @options = deep_copy(args)
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
         Sdk.check_options(options.keys)
 
         super(key)
+      end
+
+      # Freezes the options too, see #options and `IOStreams::Path#freeze`.
+      def freeze
+        deep_freeze(@options)
+        super
       end
 
       # Returns [String] the url of this path, with each `%`, `?` and `#` in the key percent-encoded, so that the
@@ -443,6 +450,12 @@ module IOStreams
       end
 
       protected
+
+      # A copy has its own options, so that changing them does not change this path, see #options.
+      def initialize_copy(source)
+        super
+        @options = deep_copy(@options)
+      end
 
       # Sets the key, for example when called by `#join` or `#directory`.
       #
