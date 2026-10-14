@@ -12,6 +12,10 @@ description: >-
 * TOC
 {:toc}
 
+Most applications set up IOStreams once, at startup, in an initializer: where their files are stored, with
+[roots](#add_root), where temp files go, with [temp_dir](#temp_dir), and where IOStreams logs, with [logger](#logger).
+[Process-wide settings](#process-wide-settings) lists them all.
+
 ## Paths are configuration
 
 A path or url is configuration, not code. Keep it in an environment variable or a centralized configuration
@@ -52,82 +56,32 @@ IOStreams.join("exports", "daily.csv").write(report)
 
 ## add_root
 
-Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
-Their primary purpose is to allow the exact same code to run in production and development, yet use completely
-different data sources in each. For example, in production a root can point to an S3 bucket, while in
-development it points to the local file system.
+A root names a location once, at startup, such as the directory or bucket that the application keeps its files in,
+so that the code joins file names to it, and never names the store. Add the roots in an initializer:
 
-Roots are configured via an initializer at startup. `IOStreams.join` then joins the supplied path
-elements onto the named root, using the `:default` root whenever a root is not supplied.
-
-Set the default root for this environment in an initializer:
 ~~~ruby
+# config/initializers/iostreams.rb
 IOStreams.add_root(:default, "/var/my_app/files")
-~~~
-
-Now the default root path is available:
-~~~ruby
-IOStreams.root
-# => #<IOStreams::Paths::File:/var/my_app/files pipeline={}>
- 
-IOStreams.root.to_s
-# => "/var/my_app/files"
-~~~
-
-Comparing the final path using `path` and then `join` that uses a root path:
-~~~ruby
-IOStreams.path("/var/my_app/files", "my_test_file.txt").to_s
-# => "/var/my_app/files/my_test_file.txt"
-
-IOStreams.join("my_test_file.txt").to_s
-# => "/var/my_app/files/my_test_file.txt"
-~~~
-
-
-Using `path`:
-~~~ruby
-IOStreams.path("/var/my_app/files", "my_test_file.txt").write("Hello World")
-~~~
-
-With the default root path configured the above code can be simplified by using `join` since it resolves to the same path.
-~~~ruby
-IOStreams.join("my_test_file.txt").write("Hello World")
-~~~
-
-Multiple roots can be setup, for example one for input files, another for output files, another for
-reports, etc. During development the roots can all point to a common location, while in production
-they could be completely different S3 buckets.
-
-For example add special paths for `downloads` and `uploads`.
-~~~ruby
-IOStreams.add_root(:downloads, "/var/my_app/downloads")
 IOStreams.add_root(:uploads, "/var/my_app/uploads")
 ~~~
 
-An example that writes a file into the `/var/my_app/downloads` directory:
+`IOStreams.join` joins names to the `:default` root, or to the root that `root:` names:
+
 ~~~ruby
-IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
+IOStreams.join("exports", "daily.csv").to_s
+# => "/var/my_app/files/exports/daily.csv"
+
+IOStreams.join("orders.csv", root: :uploads).to_s
+# => "/var/my_app/uploads/orders.csv"
+
+IOStreams.root(:uploads).to_s
+# => "/var/my_app/uploads"
 ~~~
 
-The other benefit is that the root paths used in an application are externalized from the code base. That way the
-roots can be changed to different locations depending on the environment.
-
-We can also change the storage mechanism by changing the root:
-~~~ruby
-IOStreams.add_root(:downloads, "s3://my-app-bucket-name/downloads")
-IOStreams.add_root(:uploads, "s3://my-app-bucket-name/uploads")
-~~~
-
-Now the application will write to S3 and the code does not change at all.
-~~~ruby
-IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
-~~~
-
-To use or query a configured root path:
-~~~ruby
-IOStreams.root(:downloads).to_s
-# => "s3://my-app-bucket-name/downloads"
-~~~
+In production the same initializer can name S3 buckets instead, such as `"s3://my-app-bucket/uploads"`, or read each
+location from configuration, such as `ENV.fetch("UPLOADS_ROOT")`, so that the code that reads and writes the files does
+not change. In development the roots can all point to one local directory. See
+[Using root paths](path#using-root-paths).
 
 A root is shared by the whole process, so `IOStreams.add_root` freezes it, and returns it frozen. `IOStreams.root`,
 `IOStreams.roots` and `IOStreams.join` return copies of it, which can be changed without changing the root. A path
@@ -228,8 +182,8 @@ Deleting temp file /tmp/iostreams-sftp-reader20261008-41-1x5yq2, which held 5251
 Notes:
 * `#copy_from` and `#copy_to` read the source while they write the target, so copying from SFTP to SFTP or
   HTTP holds two temp files at once, each holding the whole file: the download and the upload. S3 copies an
-  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
-  than 5GB.
+  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for
+  an object smaller than 5GB.
 * An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp
   files, since `sftp` and `gpg` read them from files.
 * Only the current user can read a temp file, and it is deleted when the block returns or raises. A temp file can
