@@ -360,6 +360,23 @@ module IOStreams
         AUTHORITY.match(url.b).to_s.dup.force_encoding(url.encoding)
       end
 
+      # Returns [Array(String, String, String)] the url in three parts, which join to make it again: its scheme, user
+      # name, password, host and port, see `.authority`, its path, as it is written, and its query and fragment, such
+      # as `["s3://bucket", "/data/*.csv", "?request_payer=requester"]`. A name that is not a url is all path.
+      def self.split(url)
+        authority = AUTHORITY.match(url.b)
+        return ["", url, ""] unless authority
+
+        path, rest = authority.post_match.match(/\A([^?#]*)(.*)\z/mn).captures
+        [authority.to_s, path, rest].map { |part| part.force_encoding(url.encoding) }
+      end
+
+      # Returns [String] the name that a path of a url, as it is written, holds, such as `a#b.csv` for `a%23b.csv`,
+      # decoded as `.new` decodes it.
+      def self.decode_path(path)
+        ::URI.decode_uri_component(path)
+      end
+
       # Returns [String] the url with the path `/` when it has no path, such as `sftp://host` or `https://host?a=1`,
       # so that the root of a host is always written the same way, like the root of an S3 bucket, `s3://bucket/`.
       def self.root(url)

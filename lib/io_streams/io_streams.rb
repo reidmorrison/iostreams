@@ -247,10 +247,14 @@ module IOStreams
   # "*"         "dave/.profile"  true
   def self.each_child(pattern, case_sensitive: false, directories: false, hidden: false, &)
     # The directory before the first element with pattern characters is the path, such as `s3://bucket/data`
-    # for `s3://bucket/data/*.csv`, which lists the pattern within it.
-    matcher = Paths::Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
-    path(matcher.directory).
-      each_child(matcher.pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &)
+    # for `s3://bucket/data/*.csv`, which lists the pattern within it. Only the path of a url holds the pattern, so that
+    # the `[` and `]` of an IPv6 host, a password or a query is not part of it, and the pattern is decoded like the rest
+    # of the path, see `IOStreams::Utils::URI.split`.
+    authority, name, query = Utils::URI.split(pattern)
+    matcher   = Paths::Matcher.new(name, case_sensitive: case_sensitive, hidden: hidden)
+    directory = path("#{authority}#{matcher.directory}#{query}")
+    pattern   = authority.empty? ? matcher.pattern : Utils::URI.decode_path(matcher.pattern)
+    directory.each_child(pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &)
   end
 
   # Returns [IOStreams::Path] a copy of the default root path, or the named root path,

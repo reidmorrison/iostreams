@@ -940,6 +940,14 @@ module Paths
             assert_equal [{request_payer: "requester"}], children.map(&:options)
           end
 
+          it "is listed by IOStreams.each_child, which keeps the query of the url as options" do
+            children = []
+            IOStreams.each_child("s3://bucket/reports/*.csv?request_payer=requester") { |child, _attributes| children << child }
+
+            assert_equal ["s3://bucket/reports/a.csv"], children.map(&:to_s)
+            assert_equal [{request_payer: "requester"}], children.map(&:options)
+          end
+
           it "raises the exception that the block raises for an exact name, and yields it once" do
             missing = IOStreams.path("s3://bucket/missing.csv")
             [false, true].each do |directories|

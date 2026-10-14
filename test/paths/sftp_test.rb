@@ -1485,6 +1485,21 @@ module Paths
           end
         end
 
+        it "is listed by IOStreams.each_child, which takes the pattern from the path of the url" do
+          {
+            "sftp://[::1]:2222/data/*.csv"               => ["::1", nil, "sftp://[::1]:2222/data/a.csv"],
+            "sftp://jack:p*ss@example.org/data/[ab].csv" => ["example.org", "jack", "sftp://example.org/data/a.csv"]
+          }.each_pair do |url, (hostname, username, child)|
+            with_stub_net_sftp(%w[a.csv b.txt], root: "/data") do |stub_sftp|
+              children = []
+              IOStreams.each_child(url) { |path, _attributes| children << path.to_s }
+
+              assert_equal [child], children, url
+              assert_equal [hostname, username], stub_sftp.instance_variable_get(:@started).first(2), url
+            end
+          end
+        end
+
         it "keeps the port in the children" do
           path = new_path("sftp://example.org:2222/data", username: "jack")
 

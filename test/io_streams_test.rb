@@ -767,6 +767,17 @@ module IOStreams
           assert_equal(%w[abc.csv def.csv].map { |name| IOStreams.join("each_child_test", name).to_s }, children.sort)
         end
 
+        it "takes the pattern from the path of a url, decoded like the rest of its path" do
+          IOStreams.join("each_child_test", "100%.csv").write("data")
+          directory = IOStreams.join("each_child_test").to_s
+          children  = []
+          IOStreams.each_child("file://#{directory}/100%25*.csv") { |path| children << path.to_s }
+
+          assert_equal [IOStreams.join("each_child_test", "100%.csv").to_s], children
+        ensure
+          IOStreams.join("each_child_test", "100%.csv").delete
+        end
+
         it "searches the current directory when the pattern has no directory" do
           children = []
           Dir.chdir(IOStreams.join("each_child_test").to_s) do
