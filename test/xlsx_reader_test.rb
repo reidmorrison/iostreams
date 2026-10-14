@@ -39,6 +39,19 @@ class XlsxReaderTest < Minitest::Test
       end
     end
 
+    describe "a file that is not a spreadsheet" do
+      it "raises Corrupt naming the spreadsheet that is read, rather than the temp file that it is copied into" do
+        # creek reads a spreadsheet with rubyzip, whose error is tagged.
+        require "zip"
+        stream = IOStreams.stream(StringIO.new("not a spreadsheet")).file_name("archive/bad.xlsx")
+
+        error = assert_raises(IOStreams::Errors::Corrupt) { stream.read }
+        assert_instance_of ::Zip::Error, error
+        assert_equal "archive/bad.xlsx", error.display_name
+        assert_equal "archive/bad.xlsx: Zip end of central directory signature not found", error.message
+      end
+    end
+
     describe "without the creek gem" do
       it "raises LoadError asking to install it" do
         # A new process, since the tests have already loaded creek, which hides it, as if it were not installed.
