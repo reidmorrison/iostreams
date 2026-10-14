@@ -204,6 +204,27 @@ module Paths
           refute_predicate dir.join("missing"), :directory?
         end
 
+        it "#exist? is true for an object or a directory, like a local path" do
+          assert_predicate dir.join("a/data.txt"), :exist?
+          assert_predicate dir.join("a"), :exist?
+          assert_predicate dir.join("folder"), :exist?
+          assert_predicate IOStreams::Paths::S3.new("s3://#{dir.bucket_name}"), :exist?
+          refute_predicate dir.join("a/missing.txt"), :exist?
+          refute_predicate dir.join("missing"), :exist?
+        end
+
+        it "#size and #mtime raise NotFound for the bucket, which is not an object" do
+          bucket = IOStreams::Paths::S3.new("s3://#{dir.bucket_name}")
+
+          %i[size mtime].each do |operation|
+            error = assert_raises(IOStreams::Errors::NotFound, operation.to_s) { bucket.public_send(operation) }
+
+            assert_instance_of Errno::EISDIR, error
+            assert_includes error.message, "s3://#{dir.bucket_name}/ is the bucket, which is not an object"
+          end
+          assert_nil bucket.size?
+        end
+
         it "#empty? is true for an empty object or folder" do
           assert_predicate dir.join("a/empty.txt"), :empty?
           assert_predicate dir.join("folder"), :empty?
@@ -993,6 +1014,13 @@ module Paths
 
           assert_instance_of Aws::S3::Errors::NoSuchBucket, error
           assert_equal "s3://missing-bucket/reports", error.display_name
+        end
+
+        it "is not a path that exists, or a directory, for a bucket that does not exist" do
+          path = IOStreams::Paths::S3.new("s3://missing-bucket", client: stub_client(list_objects_v2: "NoSuchBucket"))
+
+          refute_predicate path, :exist?
+          refute_predicate path, :directory?
         end
 
         it "raises NotFound when an exact child is in a bucket that does not exist" do

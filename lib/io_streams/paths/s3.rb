@@ -235,25 +235,29 @@ module IOStreams
         self
       end
 
+      # Returns [true|false] whether this path is an object, see #file?, or a directory, see #directory?, like a local
+      # path. When no object has the key, a second request looks for a key within it.
       def exist?
         Sdk.load
         authorize!
-        unless_not_found(false) { request(:head_object, bucket: bucket_name, key: path) && true }
+        object_exists? || directory_exists?
       end
 
       # Returns [true|false] whether an object exists with this key.
       # A folder object, with a key ending in `/`, is a directory rather than a file.
       def file?
+        Sdk.load
         authorize!
-        file_key? && exist?
+        object_exists?
       end
 
       # Returns [true|false] whether this path is a directory, which S3 only has within keys: when any key
       # starts with this path followed by `/`, such as `a` and `a/b` for the key `a/b/c.csv`, or when a folder
-      # object exists, such as `a/`. The bucket itself is always a directory.
+      # object exists, such as `a/`. The bucket itself is a directory when it exists.
       def directory?
+        Sdk.load
         authorize!
-        path.empty? || directory_keys(1).any?
+        directory_exists?
       end
 
       # Returns [true|false] whether this path is an object without any data, or a directory without any keys
@@ -330,13 +334,11 @@ module IOStreams
       def mkdir = self
 
       def size
-        authorize!
-        request(:head_object, bucket: bucket_name, key: path).content_length
+        head_object.content_length
       end
 
       def mtime
-        authorize!
-        request(:head_object, bucket: bucket_name, key: path).last_modified
+        head_object.last_modified
       end
 
       # Read from AWS S3 file.
@@ -543,6 +545,34 @@ module IOStreams
 
         raise(Errors::CommunicationsFailure,
               "Failed to delete #{errors.size} keys from #{display_name}, such as #{errors.first.key}: #{errors.first.message}")
+      end
+
+      # Returns the response of a HEAD request for this object.
+      #
+      # Raises [Errno::EISDIR] tagged as `IOStreams::Errors::NotFound` for the bucket, which is not an object, since
+      # S3 cannot be asked for an object without a key.
+      def head_object
+        authorize!
+        if path.empty?
+          raise(Errors::NotFound.tag(Errno::EISDIR.new("#{display_name} is the bucket, which is not an object"), display_name))
+        end
+
+        request(:head_object, bucket: bucket_name, key: path)
+      end
+
+      # Returns [true|false] whether an object, other than a folder object, has this key.
+      # Load the AWS SDK first, see `Sdk.load`.
+      def object_exists?
+        file_key? && unless_not_found(false) { request(:head_object, bucket: bucket_name, key: path) && true }
+      end
+
+      # Returns [true|false] whether this path is a directory, see #directory?. Load the AWS SDK first, see `Sdk.load`.
+      def directory_exists?
+        return directory_keys(1).any? unless path.empty?
+
+        request(:list_objects_v2, bucket: bucket_name, max_keys: 1) && true
+      rescue Aws::S3::Errors::NoSuchBucket
+        false
       end
 
       # Returns [true|false] whether this path can be the key of a file, rather than the bucket or a folder object.
