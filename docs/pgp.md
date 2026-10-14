@@ -441,9 +441,9 @@ The `IOStreams::Pgp` module manages the keys of the keyring that `gpg` uses:
 | `delete_keys(email: nil, key_id: nil, public: true, private: false)` | Deletes the public key, and with `private: true` the private key too. Returns `true`, or `false` when there is no such key. |
 | `pgp_version` | Returns the version of `gpg`, such as `"2.5.24"`. |
 
-`key?`, `export` and `delete_keys` raise `ArgumentError` without an `email:` or `key_id:`, and every method raises
-`IOStreams::Pgp::Failure` when gpg fails. `set_trust` takes a `key_id:` of hexadecimal digits only, such as a
-fingerprint, and raises `ArgumentError` for any other.
+`key?`, `export`, `delete_keys` and `set_trust` raise `ArgumentError` without an `email:` or `key_id:`, and every
+method raises `IOStreams::Pgp::Failure` when gpg fails. `set_trust` takes a `key_id:` of hexadecimal digits only, such
+as a fingerprint, and raises `ArgumentError` for any other.
 
 `list_keys` and `key_info` return a Hash for each key, or for each user id of a key that has several:
 
