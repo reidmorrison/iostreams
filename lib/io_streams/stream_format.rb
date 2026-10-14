@@ -38,6 +38,16 @@ module IOStreams
       own | (option_names(other_type(type)) || [])
     end
 
+    # Returns [Symbol|nil] the tabular format of the text that the reader of this format returns, and its writer
+    # accepts, when the format itself decides it, such as `:csv` for a spreadsheet, whose cells are read and
+    # written as CSV, otherwise nil, for a format whose data is the text, such as gzip.
+    #
+    # The rows and records of a path are read and written in this format when this stream is the one closest to
+    # the application, see `IOStreams::Builder#text_format`, whatever format the file name has before it.
+    def text_format
+      nil
+    end
+
     # Returns [Array<Symbol>] the options whose values must not be displayed, such as a passphrase, as declared
     # by the reader and the writer with `sensitive_option_names`.
     def sensitive_option_names

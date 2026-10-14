@@ -518,7 +518,7 @@ module IOStreams
   # The methods that a format registered with `register_extension` must respond to.
   FORMAT_METHODS = %i[
     reader_class writer_class compressed? encrypted?
-    option_names valid_option_names validate_options open_stream redact_options
+    option_names valid_option_names validate_options open_stream redact_options text_format
   ].freeze
   private_constant :FORMAT_METHODS
 

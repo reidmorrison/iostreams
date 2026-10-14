@@ -316,6 +316,14 @@ module IOStreams
         "@row_options=#{copy.row_options.inspect}>"
     end
 
+    # Returns [Symbol|nil] the tabular format of the text that the stream closest to the application reads and writes,
+    # when its format decides it, such as `:csv` for a spreadsheet, see `IOStreams::StreamFormat#text_format`, otherwise
+    # nil. The encode stream converts that text, so it is the stream after it.
+    def text_format
+      stream = pipeline.each_key.find { |name| name != :encode }
+      stream_format(stream).text_format if stream
+    end
+
     # Returns [true|false] whether a stream in the pipeline compresses the data.
     # Each stream's format answers for itself, see `IOStreams.register_extension`.
     def compressed?

@@ -419,8 +419,8 @@ module IOStreams
 
           assert_includes error.message,
                           "does not respond to reader_class, writer_class, compressed?, encrypted?, " \
-                          "option_names, valid_option_names, validate_options, open_stream, redact_options. " \
-                          "See IOStreams.register_extension."
+                          "option_names, valid_option_names, validate_options, open_stream, redact_options, " \
+                          "text_format. See IOStreams.register_extension."
           refute IOStreams.extensions.key?(:abc123)
         end
 
@@ -435,7 +435,7 @@ module IOStreams
 
           assert_includes error.message,
                           "does not respond to option_names, valid_option_names, validate_options, open_stream, " \
-                          "redact_options."
+                          "redact_options, text_format."
           refute IOStreams.extensions.key?(:abc123)
         end
 

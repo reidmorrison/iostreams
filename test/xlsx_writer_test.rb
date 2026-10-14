@@ -210,5 +210,54 @@ class XlsxWriterTest < Minitest::Test
         assert_equal [%w[a b]], rows
       end
     end
+
+    describe "the format of the rows" do
+      it "writes each value into its own cell, whatever format the file name names before the extension" do
+        path = IOStreams.path(File.join(dir, "report.psv.xlsx"))
+        path.writer(:array) do |io|
+          io << %w[id name]
+          io << [1, "Smith, Jack"]
+        end
+
+        assert_equal [%w[id name], ["1", "Smith, Jack"]], read_rows(File.binread(path.to_s))
+      end
+
+      it "reads each cell as a value, whatever format the file name names before the extension" do
+        File.binwrite(File.join(dir, "report.json.xlsx"), write { |io| io << "id,name\n1,\"Smith, Jack\"\n" })
+
+        records = []
+        IOStreams.path(File.join(dir, "report.json.xlsx")).each(:hash) { |record| records << record }
+
+        assert_equal [{"id" => "1", "name" => "Smith, Jack"}], records
+      end
+
+      it "is CSV" do
+        assert_equal :csv, IOStreams.path("report.xlsx").format
+        assert_equal :csv, IOStreams.path("report.psv.xlsm.pgp").format
+      end
+
+      it "raises for another format set on the path, before the file is opened" do
+        path  = IOStreams.path(file_name).format(:json)
+        error = assert_raises(ArgumentError) { path.writer(:hash) { |io| io << {"a" => 1} } }
+
+        assert_equal "The format of the rows cannot be :json, since the streams read and write them as :csv. " \
+                     "Set the format to :csv, or to nil.", error.message
+        refute_path_exists file_name
+        assert_raises(ArgumentError) { path.each(:line) { |_line| nil } }
+        assert_raises(ArgumentError) { IOStreams.path(file_name).format(:psv).each(:array) { |_row| nil } }
+      end
+
+      it "keeps a line break within a cell in its line" do
+        IOStreams.path(file_name).writer(:array) do |io|
+          io << %w[id note]
+          io << ["1", "line one\nline two"]
+        end
+
+        lines = []
+        IOStreams.path(file_name).each(:line) { |line| lines << line }
+
+        assert_equal ["id,note", "1,\"line one\nline two\""], lines
+      end
+    end
   end
 end

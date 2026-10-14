@@ -397,11 +397,15 @@ module IOStreams
 
     # Set/get the tabular format.
     #
-    # Returns [Symbol] the format that was set, otherwise the format detected from the file name,
-    # or [nil] when neither applies.
+    # Returns [Symbol] the format that was set, otherwise the format of the text that the stream closest to the
+    # application reads and writes, when that stream decides it, such as `:csv` for a spreadsheet, whose cells are read
+    # and written as CSV, otherwise the format detected from the file name, or [nil] when none applies.
+    #
+    # Reading or writing rows, records or lines raises ArgumentError when the format that was set is not the format of
+    # the text of that stream, such as `:json` for a spreadsheet, rather than read or write them in the wrong format.
     def format(format = :none)
       if format == :none
-        @format || IOStreams::Tabular.format_from_file_name(file_name)
+        @format || builder.text_format || IOStreams::Tabular.format_from_file_name(file_name)
       else
         self.format = format
         self
@@ -688,7 +692,8 @@ module IOStreams
     # `IOStreams::Tabular#encoding`, unless an encoding is set on the encode stream.
     def line_reader(embedded_within: :auto, **args, &)
       reject_path_settings!(args)
-      reject_unlined_format!
+      format = rows_format
+      reject_unlined_format!(format)
       # `:auto` uses the quote character of the format, set with #format or detected from the file name,
       # such as `"` for CSV, while distinguishing "not supplied" from an explicit value such as `nil`
       # (disable) or `'"'` (force).
@@ -773,7 +778,7 @@ module IOStreams
     end
 
     # Raises ArgumentError for the `:line` mode of a format whose rows are not lines of text, such as Parquet.
-    def reject_unlined_format!
+    def reject_unlined_format!(format)
       return if IOStreams::Tabular.lines?(format)
 
       raise(ArgumentError, "The #{format.inspect} format has no lines, so read and write its rows with the :array or " \
@@ -790,10 +795,23 @@ module IOStreams
     def tabular(**args)
       reject_path_settings!(args)
       if layout?
-        IOStreams::Tabular.new(file_name: file_name, format: @format, format_options: @format_options, **args)
+        IOStreams::Tabular.new(file_name: file_name, format: rows_format, format_options: @format_options, **args)
       else
-        IOStreams::Tabular.new(file_name: file_name, format: @format, schema: @schema_source&.schema, **args)
+        IOStreams::Tabular.new(file_name: file_name, format: rows_format, schema: @schema_source&.schema, **args)
       end
+    end
+
+    # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.
+    #
+    # Raises ArgumentError when the format set with #format is not the format of the text that the stream closest to the
+    # application reads and writes, see `IOStreams::Builder#text_format`, such as `:json` for a spreadsheet, whose cells
+    # are read and written as CSV, rather than read or write the rows in the wrong format.
+    def rows_format
+      text_format = builder.text_format
+      return format if @format.nil? || text_format.nil? || @format == text_format
+
+      raise(ArgumentError, "The format of the rows cannot be #{@format.inspect}, since the streams read and write them " \
+                           "as #{text_format.inspect}. Set the format to #{text_format.inspect}, or to nil.")
     end
 
     # Returns [true|false] whether the format options set the layout of a fixed width file: they are neither nil nor
@@ -823,7 +841,8 @@ module IOStreams
       reject_read_options!(args, "not when writing", suggest_schema: false)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
-      reject_unlined_format!
+      format = rows_format
+      reject_unlined_format!(format)
       open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)
     end
 

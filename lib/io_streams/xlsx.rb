@@ -27,5 +27,11 @@ module IOStreams
     def self.encrypted?
       false
     end
+
+    # Returns [Symbol] the tabular format of the text that a workbook is read as, and written from: CSV, one line
+    # for each row of its worksheet, see `IOStreams::StreamFormat#text_format`.
+    def self.text_format
+      :csv
+    end
   end
 end

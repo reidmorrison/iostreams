@@ -1046,6 +1046,17 @@ written as zeros.
 Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, or `type: :string` in the
 layout, and convert it in the application.
 
+### The rows of a spreadsheet are CSV
+
+A spreadsheet is read as CSV, one line for each row of its worksheet, so its rows and records are now always parsed
+as CSV, and `#format` returns `:csv` for a `.xlsx` or `.xlsm` path, where it returned `nil`. Previously the format was
+taken from the rest of the file name, so `report.json.xlsx` raised, and `report.psv.xlsx` joined the cells of each
+row into one value. Setting another format with `#format`, such as `format(:psv)`, now raises `ArgumentError` when
+the rows, records or lines are read or written.
+
+Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
+`nil` for a spreadsheet.
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
