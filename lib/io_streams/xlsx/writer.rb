@@ -7,16 +7,40 @@ module IOStreams
     class Writer < IOStreams::Writer
       include Writable
 
+      # The characters that Excel does not allow in the name of a worksheet.
+      INVALID_SHEET_NAME_CHARACTERS = %r{[\[\]:*?/\\]}
+
       def self.option_names
         %i[sheet_name auto_format use_shared_strings]
       end
 
-      # Raises LoadError when the `xlsxtream` gem is not installed, so that it raises before a path opens its output,
-      # which would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
+      # Raises ArgumentError for a `sheet_name` that Excel rejects, which would make it report the workbook as corrupt,
+      # and LoadError when the `xlsxtream` gem is not installed, so that they raise before a path opens its output, which
+      # would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
+      #
+      # Excel rejects a name that is empty, longer than 31 characters, contains any of `[ ] : * ? / \`, or starts or
+      # ends with an apostrophe.
       def self.check(sheet_name: "Sheet1", auto_format: false, use_shared_strings: false) # rubocop:disable Lint/UnusedMethodArgument
         Utils.load_soft_dependency("xlsxtream", "Xlsx") unless defined?(Xlsxtream::Workbook)
-        nil
+
+        problem = sheet_name_problem(sheet_name)
+        raise(ArgumentError, "Invalid sheet_name #{sheet_name.inspect}: #{problem}") if problem
       end
+
+      # Returns [String|nil] why the name of the worksheet cannot be written, or nil when it can, including nil, for
+      # which the worksheet is named "Sheet1".
+      def self.sheet_name_problem(sheet_name)
+        if sheet_name.nil? then nil
+        elsif !sheet_name.is_a?(String) then "supply the name of the worksheet as a String"
+        elsif sheet_name.empty? then "Excel rejects an empty name for a worksheet"
+        elsif sheet_name.length > 31 then "Excel rejects the name of a worksheet that is longer than 31 characters"
+        elsif sheet_name.match?(INVALID_SHEET_NAME_CHARACTERS)
+          "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\"
+        elsif sheet_name.start_with?("'") || sheet_name.end_with?("'")
+          "Excel rejects the name of a worksheet that starts or ends with an apostrophe"
+        end
+      end
+      private_class_method :sheet_name_problem
 
       # Write CSV text as the rows of a workbook with one worksheet, to the supplied output stream.
       #
@@ -28,7 +52,7 @@ module IOStreams
       #     Output stream to write to
       #
       #   sheet_name: [String]
-      #     Name of the worksheet.
+      #     Name of the worksheet, which Excel limits, see .check.
       #     Default: "Sheet1"
       #
       #   auto_format: [true|false]

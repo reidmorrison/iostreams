@@ -132,6 +132,32 @@ class XlsxWriterTest < Minitest::Test
         assert_includes xml, "<sheet name=\"Q&amp;A\""
       end
 
+      it "accepts the name of a worksheet that Excel accepts" do
+        ["Sheet1", "Q&A", "it's", "Données", "x" * 31, nil].each do |sheet_name|
+          assert_nil IOStreams::Xlsx::Writer.check(sheet_name: sheet_name)
+        end
+      end
+
+      it "raises for the name of a worksheet that Excel rejects" do
+        {
+          ""        => "Excel rejects an empty name for a worksheet",
+          "x" * 32  => "Excel rejects the name of a worksheet that is longer than 31 characters",
+          "Q1/Q2"   => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "a\\b"    => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "[draft]" => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "10:30"   => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "*"       => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "Why?"    => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "'quoted" => "Excel rejects the name of a worksheet that starts or ends with an apostrophe",
+          "quoted'" => "Excel rejects the name of a worksheet that starts or ends with an apostrophe",
+          :Totals   => "supply the name of the worksheet as a String"
+        }.each_pair do |sheet_name, problem|
+          error = assert_raises(ArgumentError) { IOStreams::Xlsx::Writer.check(sheet_name: sheet_name) }
+          assert_equal "Invalid sheet_name #{sheet_name.inspect}: #{problem}", error.message
+          assert_raises(ArgumentError) { write(sheet_name: sheet_name) { |io| io.write("a\n") } }
+        end
+      end
+
       it "stores the values in a shared string table with use_shared_strings" do
         data = write(use_shared_strings: true) { |io| io.write("a,a\nb,a\n") }
 
@@ -189,6 +215,15 @@ class XlsxWriterTest < Minitest::Test
 
         # A number written with auto_format is read back as a float.
         assert_equal [%w[a 1234.0]], rows
+      end
+
+      it "keeps an existing file when the name of the worksheet is rejected" do
+        File.write(file_name, "precious")
+
+        assert_raises(ArgumentError) do
+          IOStreams.path(file_name).option(:xlsx, sheet_name: "Q1/Q2").writer(:array) { |io| io << %w[a b] }
+        end
+        assert_equal "precious", File.read(file_name)
       end
 
       it "raises for sheet_name when reading" do
