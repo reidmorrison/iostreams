@@ -371,8 +371,11 @@ IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
 end
 ~~~
 
-Each cell is read as its text: a date or time as ISO 8601, and a number as Excel stores it, as a decimal, such as
-`1.0`, which an `integer` field reads as `1`. Reading needs the `creek` gem.
+Each cell is read as its text: a date as `2026-01-02`, a time as its time of day in UTC, such as
+`2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, and a number as Excel stores it, as a decimal,
+such as `1.0` or `12.5`, which an `integer` field reads as `1`. A date in a custom number format, such as one written
+with `auto_format: true`, reads as a time, such as `2026-01-02T00:00:00Z`, which a `date` field does not read: only
+Excel's built-in date formats read as a date. Reading needs the `creek` gem.
 
 Writing writes the CSV text of each row into the cells of a workbook with one worksheet, with the `xlsxtream` gem:
 
@@ -384,12 +387,17 @@ end
 ~~~
 
 Every cell is written as text by default, so that reading the spreadsheet returns the same values, such as the leading
-zero of `"01234"`. Empty cells at the end of a row, and empty rows, are not stored, so they are read back without
-those values. The writer accepts these options:
+zero of `"01234"`, with these exceptions:
+
+* Empty cells at the end of a row are not stored, so they read back as missing values, which are nil, as for CSV.
+* A row of only empty cells reads back as an empty line, which `each(:array)` and `each(:hash)` yield as nil.
+* A carriage return within a value reads back as a newline, since XML reads a line break within text as a newline.
+
+The writer accepts these options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, as Excel requires. |
+| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
 | `auto_format` | `false` | Write values that look like numbers, dates, times or booleans, such as `"1.5"`, `"2026-10-09"` or `"true"`, as Excel numbers, dates and booleans. Such values may then read back differently, such as `"01234"` as `"1234.0"`. |
 | `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
 
