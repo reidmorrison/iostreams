@@ -33,7 +33,9 @@ module IOStreams
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
-      raise(ArgumentError, "io_stream must not be a string: #{io_stream.inspect}") if io_stream.is_a?(String)
+      if Utils.file_name?(io_stream)
+        raise(ArgumentError, "io_stream must be an IO, not the name of a file: #{io_stream.inspect}, see IOStreams.path")
+      end
 
       @io_stream      = io_stream
       @builder        = nil

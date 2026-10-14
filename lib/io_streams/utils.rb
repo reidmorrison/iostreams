@@ -151,6 +151,12 @@ module IOStreams
       end
     end
 
+    # Returns [true|false] whether the value names a file rather than being an IO: a String, or a Pathname, such as
+    # `Rails.root.join("data.csv")`, so that it is read as the file it names, rather than as an IO.
+    def self.file_name?(value)
+      value.is_a?(String) || (defined?(::Pathname) && value.is_a?(::Pathname)) || false
+    end
+
     # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that freezing an
     # object that holds options does not freeze the objects that the caller supplied. Any other value, such as a Proc
     # or a Symbol, is returned as it is.

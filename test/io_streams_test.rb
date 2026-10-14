@@ -3,6 +3,9 @@
 require_relative "test_helper"
 require "etc"
 require "json"
+require "open3"
+require "pathname"
+require "rbconfig"
 
 module IOStreams
   class PathTest < Minitest::Test
@@ -236,6 +239,13 @@ module IOStreams
           assert_equal Dir.tmpdir, IOStreams.temp_dir
         end
 
+        it "can be read in a process that has loaded nothing else" do
+          script = %(require "iostreams"; print IOStreams.temp_dir)
+          output, = Open3.capture2e(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-e", script)
+
+          assert_equal Dir.tmpdir, output
+        end
+
         it "is the directory that is set, which is created" do
           Dir.mktmpdir do |dir|
             IOStreams.temp_dir = File.join(dir, "a", "b")
@@ -247,6 +257,10 @@ module IOStreams
       end
 
       describe ".add_root" do
+        it "raises for a name that ends with a line break" do
+          assert_raises(ArgumentError) { IOStreams.add_root("x\n", "/tmp") }
+        end
+
         it "raises an exception for an invalid root name" do
           assert_raises ArgumentError do
             IOStreams.add_root("invalid name", "/tmp")
@@ -262,7 +276,7 @@ module IOStreams
           assert_equal({gz: {}}, IOStreams.root(:frozen_test).stream(:gz).pipeline)
           assert_equal "/tmp/frozen_test/a.csv", IOStreams.join("a.csv", root: :frozen_test).to_s
         ensure
-          IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
+          TestRegistry.remove_root(:frozen_test)
         end
 
         it "freezes a root that already has a builder, and can still read it" do
@@ -277,7 +291,7 @@ module IOStreams
           assert_equal "exports.csv.gz", root.file_name
           assert_equal({gz: {level: 1}}, IOStreams.root(:frozen_test).pipeline)
         ensure
-          IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
+          TestRegistry.remove_root(:frozen_test)
         end
 
         it "cannot be changed through the settings that it returns" do
@@ -298,7 +312,7 @@ module IOStreams
           refute_predicate layout, :frozen?
           refute_predicate options, :frozen?
         ensure
-          IOStreams.instance_variable_get(:@root_paths).delete(:frozen_test)
+          TestRegistry.remove_root(:frozen_test)
         end
       end
 
@@ -328,6 +342,7 @@ module IOStreams
           copy = IOStreams.stream(stream)
 
           assert_kind_of IOStreams::Stream, copy
+          refute_same stream, copy
           assert_same stream.io_stream, copy.io_stream
         end
 
@@ -343,11 +358,36 @@ module IOStreams
             IOStreams.stream("file_name.txt")
           end
         end
+
+        it "rejects a Pathname, which names a file" do
+          error = assert_raises(ArgumentError) { IOStreams.stream(Pathname.new("file_name.txt")) }
+
+          assert_includes error.message, "see IOStreams.path"
+        end
       end
 
       describe ".new" do
         it "returns a path for a file name" do
           assert_kind_of IOStreams::Paths::File, IOStreams.new("file_name.txt")
+        end
+
+        it "returns a path for a Pathname, such as Rails.root.join returns" do
+          path = IOStreams.new(Pathname.new("/data/file_name.csv.gz"))
+
+          assert_instance_of IOStreams::Paths::File, path
+          assert_equal "/data/file_name.csv.gz", path.to_s
+          assert_equal({gz: {}}, path.pipeline)
+        end
+
+        it "is what a copy reads, so that a Pathname is copied as the file that it names" do
+          Dir.mktmpdir do |dir|
+            source = Pathname.new(File.join(dir, "source.csv.gz"))
+            IOStreams.path(source).write("name\nJack\n")
+            target = IOStreams.path(dir, "target.csv")
+            target.copy_from(source)
+
+            assert_equal "name\nJack\n", target.read
+          end
         end
 
         it "returns a stream for an io stream" do
@@ -401,6 +441,24 @@ module IOStreams
           IOStreams.deregister_extension(:abc123)
         end
 
+        it "registers an extension in any case, which matches file names whatever their case" do
+          IOStreams.register_extension(:ABC123, compressed_format)
+
+          assert_equal compressed_format, IOStreams.extensions[:abc123]
+          assert_equal({abc123: {}}, IOStreams.path("data.csv.abc123").pipeline)
+          assert_equal({abc123: {}}, IOStreams.path("data.csv.ABC123").pipeline)
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
+        it "raises for a name that ends with a line break, or that is a reserved keyword in any case" do
+          assert_raises(ArgumentError) { IOStreams.register_extension("xz\n", compressed_format) }
+          error = assert_raises(ArgumentError) { IOStreams.register_extension("Encode", compressed_format) }
+
+          assert_equal %(Cannot register the extension "Encode", which is a reserved keyword), error.message
+          refute IOStreams.extensions.key?(:"xz\n")
+        end
+
         it "registers reader and writer classes as a format that is neither compressed nor encrypted" do
           IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
 
@@ -445,9 +503,9 @@ module IOStreams
           end
 
           assert_includes error.message,
-                          "does not respond to reader_class, writer_class, compressed?, encrypted?, " \
-                          "option_names, valid_option_names, validate_options, open_stream, redact_options, " \
-                          "text_format. See IOStreams.register_extension."
+                          "does not respond to reader_class, writer_class, compressed?, encrypted?, check_stream, " \
+                          "open_stream, option_names, redact_options, sensitive_option_names, text_format, " \
+                          "valid_option_names, validate_options. See IOStreams.register_extension."
           refute IOStreams.extensions.key?(:abc123)
         end
 
@@ -461,8 +519,8 @@ module IOStreams
           error = assert_raises(ArgumentError) { IOStreams.register_extension(:abc123, format) }
 
           assert_includes error.message,
-                          "does not respond to option_names, valid_option_names, validate_options, open_stream, " \
-                          "redact_options, text_format."
+                          "does not respond to check_stream, open_stream, option_names, redact_options, " \
+                          "sensitive_option_names, text_format, valid_option_names, validate_options."
           refute IOStreams.extensions.key?(:abc123)
         end
 
@@ -510,6 +568,14 @@ module IOStreams
           IOStreams.deregister_extension(:abc123)
 
           refute IOStreams.extensions.key?(:abc123)
+        end
+
+        it "removes the extension whatever its case, and returns its format" do
+          IOStreams.register_extension(:abc123, IOStreams::Gzip)
+
+          assert_equal IOStreams::Gzip, IOStreams.deregister_extension(:ABC123)
+          refute IOStreams.extensions.key?(:abc123)
+          assert_nil IOStreams.deregister_extension(:abc123)
         end
 
         it "raises an exception for an invalid extension name" do
@@ -612,7 +678,7 @@ module IOStreams
 
           assert_equal({region: "[FILTERED]"}, IOStreams.redact_path_options("other://bucket/a.csv", region: "east"))
         ensure
-          IOStreams.instance_variable_get(:@schemes).delete(:other)
+          TestRegistry.remove_scheme(:other)
         end
       end
 

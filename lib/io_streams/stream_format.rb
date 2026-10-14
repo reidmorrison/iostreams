@@ -12,6 +12,17 @@ module IOStreams
   # listing it in its `unsupported_option_names`, so that it raises, with a message that names the direction it
   # belongs to.
   module StreamFormat
+    # The methods that a format answers itself, see `IOStreams.register_extension`. Extending this module gives it the
+    # others that a registered format must respond to.
+    FORMAT_METHODS = %i[reader_class writer_class compressed? encrypted?].freeze
+
+    # Returns [Array<Symbol>] the methods that a format registered with `IOStreams.register_extension` must respond to,
+    # but the supplied format does not: those that it answers itself, see `FORMAT_METHODS`, and those that extending
+    # this module gives it.
+    def self.missing_methods(format)
+      (FORMAT_METHODS + public_instance_methods(false).sort).reject { |name| format.respond_to?(name) }
+    end
+
     # Returns [Array<Symbol>] the options that the class reading (type: :reader) or writing (:writer) this
     # format uses, which are the only options supplied to it, or [nil] when the class does not declare them.
     def option_names(type)

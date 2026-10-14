@@ -166,6 +166,18 @@ root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))
 IOStreams.add_root(:downloads, File.join(root, "downloads"))
 
+# Removes a root path or url scheme that a test registered, since IOStreams has no method to remove either. Each
+# registry is a frozen Hash that IOStreams replaces, rather than changes, see `IOStreams.add_root`.
+module TestRegistry
+  def self.remove_root(name)
+    IOStreams.instance_variable_set(:@root_paths, IOStreams.instance_variable_get(:@root_paths).except(name).freeze)
+  end
+
+  def self.remove_scheme(name)
+    IOStreams.instance_variable_set(:@schemes, IOStreams.instance_variable_get(:@schemes).except(name).freeze)
+  end
+end
+
 # Returns [Socket::ResolutionError] a failure to look up a host name with the supplied error code, such as
 # `Socket::EAI_NONAME`. Ruby sets the error code of a real failure itself, so this one answers it directly.
 # Ruby 3.2 does not have `Socket::ResolutionError`, so call `skip_without_resolution_error` first.
