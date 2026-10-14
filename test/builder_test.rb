@@ -315,13 +315,15 @@ class BuilderTest < Minitest::Test
 
       it "file name with the deprecated encode option" do
         expected = {encode: {encoding: "BINARY"}, xlsx: {}, zip: {}, gz: {}, pgp: {}}
-        streams.option(:encode, encoding: "BINARY")
+        assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) { streams.option(:encode, encoding: "BINARY") }
 
         assert_equal expected, streams.pipeline
       end
 
       it "applies the deprecated encode option before the file name's streams, whatever order the options are set in" do
-        streams.option(:pgp, passphrase: "unlock-me").option(:encode, encoding: "BINARY")
+        assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) do
+          streams.option(:pgp, passphrase: "unlock-me").option(:encode, encoding: "BINARY")
+        end
 
         expected = [[:encode, {encoding: "BINARY"}], [:xlsx, {}], [:zip, {}], [:gz, {}], [:pgp, {passphrase: "unlock-me"}]]
 
@@ -329,7 +331,9 @@ class BuilderTest < Minitest::Test
       end
 
       it "puts the deprecated encode stream first, whatever order the streams are set in" do
-        streams.stream(:gz).stream(:encode, encoding: "UTF-8").stream(:pgp)
+        assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) do
+          streams.stream(:gz).stream(:encode, encoding: "UTF-8").stream(:pgp)
+        end
 
         assert_equal [[:encode, {encoding: "UTF-8"}], [:gz, {}], [:pgp, {}]], streams.pipeline.to_a
       end
@@ -464,25 +468,27 @@ class BuilderTest < Minitest::Test
       end
 
       it "is set by the deprecated option(:encode)" do
-        streams.option(:encode, encoding: "BINARY").encoding(replace: "")
+        assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) do
+          streams.option(:encode, encoding: "BINARY").encoding(replace: "")
+        end
 
         assert_equal({encoding: "BINARY", replace: ""}, streams.setting(:encode))
       end
 
       it "is set by the deprecated option(:encode) after #stream" do
-        streams.stream(:gz).option(:encode, encoding: "BINARY")
+        assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) { streams.stream(:gz).option(:encode, encoding: "BINARY") }
 
         assert_equal({encode: {encoding: "BINARY"}, gz: {}}, streams.pipeline)
       end
 
       it "is set by the deprecated stream(:encode), which still stops the streams from the file name" do
-        streams.stream(:encode, encoding: "BINARY")
+        assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) { streams.stream(:encode, encoding: "BINARY") }
 
         assert_equal({encode: {encoding: "BINARY"}}, streams.pipeline)
       end
 
       it "is cleared by stream(:none)" do
-        streams.encoding("BINARY").stream(:none)
+        assert_deprecated(/stream\(:none\) is deprecated, use #raw/) { streams.encoding("BINARY").stream(:none) }
 
         assert_empty(streams.pipeline)
         assert_nil streams.setting(:encode)

@@ -1054,7 +1054,46 @@ Fix: register the stream under another name.
 
 ### Deprecated, and still working
 
-These still work as before, without logging a warning, so nothing needs to change when upgrading. Each section shows the replacement to move to.
+These still work as before, so nothing needs to change when upgrading. Each section shows the replacement to move to.
+Each of `option(:encode, ...)`, `stream(:encode, ...)`, `stream(:none)`, `#format_options` and `embedded_within:`
+when reading rows or records reports a deprecation warning when it is used, see
+[Seeing deprecation warnings](#seeing-deprecation-warnings).
+
+#### Seeing deprecation warnings
+
+IOStreams reports the use of a deprecated method or option as a Ruby deprecation warning, the same way that Ruby
+reports its own, which names the line of your application that used it, and what to use instead:
+
+~~~
+app/jobs/export_job.rb:12: warning: IOStreams: stream(:none) is deprecated, use #raw to read or write the data as it is stored, or #file_name to read a file that is not named for its format
+~~~
+
+Ruby only shows deprecation warnings while `Warning[:deprecated]` is true, which it is not by default, so production
+stays quiet without any configuration:
+
+| Where | Deprecation warnings |
+|-------|----------------------|
+| Tests run with Minitest or test-unit | On, since both turn them on |
+| Tests run with RSpec | Off, unless run with `rspec --warnings`, or `Warning[:deprecated] = true` is set in `spec_helper.rb` |
+| Development | Off, unless `RUBYOPT=-W:deprecated` is set in the environment, or `Warning[:deprecated] = true` in code that only runs in development, such as `config/environments/development.rb` |
+| Production | Off |
+
+Rails settings such as `config.active_support.deprecation` only apply to the deprecation warnings of Rails, not to
+those that Ruby reports.
+
+Ruby writes each warning to `$stderr`. To send them elsewhere, such as to your log, or to raise them in your tests so
+that each use is found, extend `Warning` with your own `warn`:
+
+~~~ruby
+module IOStreamsDeprecations
+  def warn(message, *, **)
+    return super unless message.include?("IOStreams: ")
+
+    Rails.logger.warn(message.chomp)
+  end
+end
+Warning.extend(IOStreamsDeprecations)
+~~~
 
 #### `#encoding` replaces `option(:encode, ...)`
 

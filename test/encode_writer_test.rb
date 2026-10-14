@@ -251,7 +251,7 @@ class EncodeWriterTest < Minitest::Test
           source = File.join(dir, "source.txt")
           target = File.join(dir, "target.txt")
           File.write(source, text)
-          IOStreams.path(target).option(:encode, encoding: "UTF-8").copy_from(source)
+          IOStreams.path(target).encoding("UTF-8").copy_from(source)
 
           assert_equal text, File.read(target, encoding: "UTF-8")
         end

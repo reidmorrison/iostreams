@@ -166,7 +166,7 @@ class StreamTest < Minitest::Test
 
       it "reads lines in the encoding of an encode stream" do
         lines = []
-        IOStreams.stream(StringIO.new(bad_data)).stream(:encode, encoding: "ISO-8859-1").each(:line) { |line| lines << line }
+        IOStreams.stream(StringIO.new(bad_data)).encoding("ISO-8859-1").each(:line) { |line| lines << line }
 
         assert_equal Encoding::ISO_8859_1, lines.first.encoding
         assert_equal "New M\u00e9xico,NE", lines.first.encode("UTF-8")
@@ -175,7 +175,9 @@ class StreamTest < Minitest::Test
       it "decodes the text after the other streams, whatever order the streams are set in" do
         compressed = StringIO.new(+"")
         IOStreams.stream(compressed).stream(:gz).write(text)
-        data = IOStreams.stream(StringIO.new(compressed.string)).stream(:gz).stream(:encode, encoding: "UTF-8").read
+        data = assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) do
+          IOStreams.stream(StringIO.new(compressed.string)).stream(:gz).stream(:encode, encoding: "UTF-8").read
+        end
 
         assert_equal text, data
       end
@@ -201,7 +203,8 @@ class StreamTest < Minitest::Test
 
       it "reads lines as UTF-8 without any other streams" do
         lines = []
-        IOStreams.stream(StringIO.new(text)).stream(:none).each(:line) { |line| lines << line }
+        stream = assert_deprecated(/stream\(:none\) is deprecated/) { IOStreams.stream(StringIO.new(text)).stream(:none) }
+        stream.each(:line) { |line| lines << line }
 
         assert_equal Encoding::UTF_8, lines.last.encoding
         assert_equal "Jos\u00e9,Z\u00fcrich", lines.last
@@ -260,7 +263,6 @@ class StreamTest < Minitest::Test
 
       it "returns a line at a time" do
         lines = []
-        stream.stream(:none)
         count = stream.each(:line) { |line| lines << line }
 
         assert_equal data.lines.map(&:strip), lines
@@ -271,7 +273,7 @@ class StreamTest < Minitest::Test
         input  = StringIO.new(bad_data)
         lines  = []
         stream = IOStreams::Stream.new(input)
-        stream.stream(:encode, encoding: "UTF-8", cleaner: :printable, replace: "")
+        stream.encoding("UTF-8", cleaner: :printable, replace: "")
         count = stream.each(:line) { |line| lines << line }
 
         assert_equal stripped_data.lines.map(&:strip), lines
@@ -967,6 +969,16 @@ class StreamTest < Minitest::Test
     end
 
     describe "#format_options" do
+      allow_deprecation(/#format_options is deprecated/)
+
+      it "reports a deprecation warning when it is set or read" do
+        stream = IOStreams::Stream.new(StringIO.new)
+
+        assert_deprecated(/#format_options is deprecated, use #schema instead/) { stream.format_options(layout: [{size: 2, key: "id"}]) }
+        assert_deprecated(/#format_options is deprecated, use #schema instead/) { stream.format_options = {layout: [{size: 2, key: "id"}]} }
+        assert_deprecated(/#format_options is deprecated, use #schema instead/) { stream.format_options }
+      end
+
       it "returns the format options that were set" do
         stream.format_options = {layout: [{size: 2, key: "id"}]}
 
@@ -1213,7 +1225,7 @@ class StreamTest < Minitest::Test
           Dir.mktmpdir do |dir|
             ::File.binwrite(::File.join(dir, "people.txt"), data.b)
             path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.option(:encode, **encode) unless encode.empty?
+            path.encoding(**encode) unless encode.empty?
             rows = []
             path.each(:hash) { |row| rows << row }
             rows
@@ -1224,7 +1236,7 @@ class StreamTest < Minitest::Test
         def write_fixed(record, **encode)
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.option(:encode, **encode) unless encode.empty?
+            path.encoding(**encode) unless encode.empty?
             path.writer(:hash) { |io| io << record }
             ::File.binread(path.to_s)
           end
@@ -1343,7 +1355,7 @@ class StreamTest < Minitest::Test
           Dir.mktmpdir do |dir|
             ::File.binwrite(::File.join(dir, "people.txt"), "Jack  London \n")
             path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.option(:encode, replace: " ")
+            path.encoding(replace: " ")
             path.each(:hash) { |_row| nil }
 
             assert_equal({replace: " "}, path.setting(:encode))
@@ -1401,7 +1413,7 @@ class StreamTest < Minitest::Test
         it "reads a file that it wrote with multi-byte characters as UTF-8 text" do
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.option(:encode, encoding: "UTF-8")
+            path.encoding("UTF-8")
             path.writer(:hash) { |io| io << {"name" => "Jos\u00e9", "city" => "Z\u00fcrich"} }
             rows = []
             path.each(:hash) { |row| rows << row }
@@ -1416,7 +1428,7 @@ class StreamTest < Minitest::Test
             IOStreams.path(dir, "people.txt").write("Jos\u00e9 Z\u00fcrich\n")
             path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
             rows = []
-            path.option(:encode, encoding: "BINARY").each(:hash) { |row| rows << row }
+            path.encoding("BINARY").each(:hash) { |row| rows << row }
 
             assert_equal [{"name" => "Jos\u00e9".b, "city" => "Z\u00fcrich".b}], rows
           end
@@ -2082,7 +2094,7 @@ class StreamTest < Minitest::Test
           assert_equal [{"id" => "0042"}], rows
 
           fixed = IOStreams::Stream.new(StringIO.new("07abc\n")).format(:fixed)
-          fixed.format_options(layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}])
+          assert_deprecated(/#format_options is deprecated/) { fixed.format_options(layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}]) }
           rows = []
           fixed.each(:hash, columns: ["id"]) { |row| rows << row }
 
@@ -2198,11 +2210,14 @@ class StreamTest < Minitest::Test
         it "reads back a number that is not finite from the layout of the deprecated format options" do
           layout = {layout: [{size: 8, key: :pay, type: :float, decimals: 2}]}
           out    = StringIO.new
-          IOStreams::Stream.new(out).format(:fixed).format_options(layout).writer(:hash) do |io|
-            [Float::NAN, -Float::INFINITY, -1.5].each { |pay| io << {pay: pay} }
+          assert_deprecated(/#format_options is deprecated/) do
+            IOStreams::Stream.new(out).format(:fixed).format_options(layout).writer(:hash) do |io|
+              [Float::NAN, -Float::INFINITY, -1.5].each { |pay| io << {pay: pay} }
+            end
           end
-          pays = []
-          IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout).each(:hash) { |record| pays << record[:pay] }
+          pays  = []
+          input = assert_deprecated(/#format_options is deprecated/) { IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout) }
+          input.each(:hash) { |record| pays << record[:pay] }
 
           assert_equal "     NaN\n    -INF\n-0001.50\n", out.string
           assert_predicate pays[0], :nan?
@@ -2410,6 +2425,28 @@ class StreamTest < Minitest::Test
 
         assert_equal [%("Jack\nJohnson",hello)], lines
       end
+
+      it "still applies when supplied to read rows or records, and reports a deprecation warning" do
+        expected = {
+          array: [%w[name note], ["Jack", "line one\nline two"]],
+          hash:  [{"name" => "Jack", "note" => "line one\nline two"}]
+        }
+        expected.each_pair do |mode, rows|
+          read = []
+          assert_deprecated(/embedded_within: is deprecated when reading rows and records, .* set it with #format instead/) do
+            IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(mode, embedded_within: '"') { |row| read << row }
+          end
+
+          assert_equal rows, read, mode
+        end
+      end
+
+      it "reports no deprecation warning when supplied to read lines" do
+        lines = []
+        IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:line, embedded_within: '"') { |line| lines << line }
+
+        assert_equal ["name,note", %("Jack","line one\nline two")], lines
+      end
     end
 
     describe "#basename" do
@@ -2577,7 +2614,11 @@ class StreamTest < Minitest::Test
       it "sets the encoding of a stream without a file name" do
         io = StringIO.new("caf\xE9".b)
 
-        assert_equal "caf\u00e9", IOStreams.stream(io).option(:encode, encoding: "ISO-8859-1:UTF-8").read
+        stream = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+          IOStreams.stream(io).option(:encode, encoding: "ISO-8859-1:UTF-8")
+        end
+
+        assert_equal "caf\u00e9", stream.read
       end
     end
 
@@ -2642,7 +2683,7 @@ class StreamTest < Minitest::Test
       it "reads a fixed width file as bytes, rather than ASCII" do
         rows = []
         IOStreams.stream(StringIO.new("Jos\xE9  Paris  \n".b)).raw.
-          format(:fixed).format_options(layout: [{size: 6, key: "name"}, {size: 7, key: "city"}]).
+          format(:fixed).schema(fields: [{name: "name", width: 6}, {name: "city", width: 7}]).
           each(:hash) { |row| rows << row }
 
         assert_equal [{"name" => "Jos\xE9".b, "city" => "Paris".b}], rows
@@ -2650,8 +2691,8 @@ class StreamTest < Minitest::Test
 
       it "writes text as bytes, rather than in the default encoding of the format" do
         Dir.mktmpdir do |dir|
-          layout = [{size: 6, key: "name"}, {size: 7, key: "city"}]
-          path   = IOStreams.path(dir, "people.txt").raw.format(:fixed).format_options(layout: layout)
+          fields = [{name: "name", width: 6}, {name: "city", width: 7}]
+          path   = IOStreams.path(dir, "people.txt").raw.format(:fixed).schema(fields: fields)
           path.writer(:hash) { |io| io << {"name" => "Jos\u00e9", "city" => "Paris"} }
 
           assert_equal "Jos\u00e9  Paris  \n".b, ::File.binread(path.to_s)

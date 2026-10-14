@@ -320,7 +320,7 @@ class EncodeReaderTest < Minitest::Test
             file.write("#{'x' * 65_534}\n#{"\u00e9,Jos\u00e9\n" * 3}".b)
             file.close
             lines = []
-            IOStreams.path(file.path).option(:encode, encoding: "UTF-8").each(:line) { |line| lines << line }
+            IOStreams.path(file.path).encoding("UTF-8").each(:line) { |line| lines << line }
 
             assert_equal ["x" * 65_534, "\u00e9,Jos\u00e9", "\u00e9,Jos\u00e9", "\u00e9,Jos\u00e9"], lines
           end
@@ -408,7 +408,7 @@ class EncodeReaderTest < Minitest::Test
             file.write("name\nJos\xE9\n".b)
             file.close
             lines = []
-            IOStreams.path(file.path).option(:encode, encoding: "BINARY").each(:line) { |line| lines << line }
+            IOStreams.path(file.path).encoding("BINARY").each(:line) { |line| lines << line }
 
             assert_equal ["name", "Jos\xE9".b], lines
             assert_equal Encoding::BINARY, lines.last.encoding
@@ -419,8 +419,8 @@ class EncodeReaderTest < Minitest::Test
           Dir.mktmpdir do |dir|
             IOStreams.path(dir, "data.txt").write(latin1)
             IOStreams.path(dir, "data.txt.gz").write(latin1)
-            plain = IOStreams.path(dir, "data.txt").option(:encode, encoding: "Windows-1252").read
-            gzip  = IOStreams.path(dir, "data.txt.gz").option(:encode, encoding: "Windows-1252").read
+            plain = IOStreams.path(dir, "data.txt").encoding("Windows-1252").read
+            gzip  = IOStreams.path(dir, "data.txt.gz").encoding("Windows-1252").read
 
             assert_equal plain, gzip
             assert_equal "Jos\u00e9,M\u00e1laga", gzip.encode("UTF-8")
@@ -501,7 +501,7 @@ class EncodeReaderTest < Minitest::Test
 
         it "reads lines in the internal encoding" do
           lines = []
-          IOStreams.stream(StringIO.new(windows1252)).stream(:encode, encoding: "Windows-1252:UTF-8").each(:line) { |line| lines << line }
+          IOStreams.stream(StringIO.new(windows1252)).encoding("Windows-1252:UTF-8").each(:line) { |line| lines << line }
 
           assert_equal %w[café naïve], lines
           assert_equal [Encoding::UTF_8], lines.map(&:encoding).uniq

@@ -135,7 +135,7 @@ module IOStreams
 
         it "does not change the path supplied" do
           original = IOStreams.path("a.csv.pgp").option(:pgp, passphrase: "secret")
-          IOStreams.path(original).option(:pgp, passphrase: "changed").option(:encode, encoding: "UTF-8")
+          IOStreams.path(original).option(:pgp, passphrase: "changed").encoding("UTF-8")
 
           assert_equal({passphrase: "secret"}, original.setting(:pgp))
           assert_nil original.setting(:encode)
@@ -297,17 +297,20 @@ module IOStreams
         it "cannot be changed through the settings that it returns" do
           layout  = [{size: 2, key: :id}]
           options = {level: 1}
-          root    = IOStreams.add_root(
-            :frozen_test, IOStreams.path("exports.csv.gz").option(:gz, **options).encoding("UTF-8").format_options(layout: layout)
-          )
+          root    = assert_deprecated(/#format_options is deprecated/) do
+            IOStreams.add_root(
+              :frozen_test, IOStreams.path("exports.csv.gz").option(:gz, **options).encoding("UTF-8").format_options(layout: layout)
+            )
+          end
+          root_layout = assert_deprecated(/#format_options is deprecated/) { root.format_options[:layout] }
 
           assert_raises(FrozenError) { root.setting(:gz)[:level] = 9 }
           assert_raises(FrozenError) { root.pipeline[:encode][:encoding] = "BINARY" }
-          assert_raises(FrozenError) { root.format_options[:layout] << {size: 1, key: :x} }
+          assert_raises(FrozenError) { root_layout << {size: 1, key: :x} }
           assert_raises(FrozenError) { root.option_or_stream(:gz, level: 9) }
           assert_raises(FrozenError) { root.remove_from_pipeline(:gz) }
           assert_equal({encode: {encoding: "UTF-8"}, gz: {level: 1}}, IOStreams.root(:frozen_test).pipeline)
-          assert_equal [{size: 2, key: :id}], IOStreams.root(:frozen_test).format_options[:layout]
+          assert_equal [{size: 2, key: :id}], assert_deprecated(/#format_options is deprecated/) { IOStreams.root(:frozen_test).format_options[:layout] }
           # The objects that the caller supplied are not frozen.
           refute_predicate layout, :frozen?
           refute_predicate options, :frozen?

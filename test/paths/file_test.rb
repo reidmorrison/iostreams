@@ -546,7 +546,7 @@ module Paths
 
         it "keeps the streams, options and create_path of the path, since it is the same file" do
           path = IOStreams::Paths::File.new(::File.join(__dir__, "../files/test.csv"), create_path: false)
-          path.option(:encode, encoding: "BINARY")
+          path.encoding("BINARY")
           realpath = path.realpath
 
           refute realpath.create_path

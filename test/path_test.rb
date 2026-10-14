@@ -78,7 +78,7 @@ module IOStreams
 
       describe "#builder=" do
         it "is not public" do
-          path = IOStreams.path("a.csv.gz").stream(:none)
+          path = IOStreams.path("a.csv.gz").raw
 
           assert_raises(NoMethodError) { path.builder = nil }
           assert_equal({}, path.pipeline)
@@ -94,6 +94,8 @@ module IOStreams
       end
 
       describe "#format" do
+        allow_deprecation(/#format_options is deprecated/)
+
         let(:path) { IOStreams.path("/data/a.txt").format(:fixed).format_options(layout: [{size: 2, key: "id"}]) }
 
         it "is cleared by #join and #directory, with the format options" do
@@ -203,7 +205,7 @@ module IOStreams
 
       describe "#cleanpath" do
         it "removes . and .. and repeated slashes without accessing the file, keeping the options" do
-          path  = IOStreams.path("a/./b/../c//d.csv").option(:encode, encoding: "BINARY")
+          path  = IOStreams.path("a/./b/../c//d.csv").encoding("BINARY")
           clean = path.cleanpath
 
           assert_equal "a/c/d.csv", clean.to_s
@@ -244,7 +246,7 @@ module IOStreams
         end
 
         it "clears the streams and options, which were for the old file name" do
-          path = IOStreams.path("data.csv").option(:encode, encoding: "BINARY").sub_ext(".csv.gz")
+          path = IOStreams.path("data.csv").encoding("BINARY").sub_ext(".csv.gz")
 
           assert_nil path.setting(:encode)
           assert_equal({gz: {}}, path.pipeline)
@@ -385,7 +387,7 @@ module IOStreams
         end
 
         it "ignores the streams" do
-          assert_equal IOStreams.path("a.csv.gz"), IOStreams.path("a.csv.gz").stream(:none)
+          assert_equal IOStreams.path("a.csv.gz"), IOStreams.path("a.csv.gz").raw
         end
 
         it "is a hash key for its location" do

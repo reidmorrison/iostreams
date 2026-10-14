@@ -237,8 +237,23 @@ module DeprecationCollector
 end
 Warning.extend(DeprecationCollector::Warn)
 
-# Fails a test that caused an IOStreams deprecation warning that it did not assert with #assert_deprecated.
+# Fails a test that caused an IOStreams deprecation warning that it did not assert with #assert_deprecated, or that its
+# class, such as a describe block, does not allow, see ClassMethods#allow_deprecation.
 module DeprecationCheck
+  module ClassMethods
+    # Allows each test of this class, such as a describe block, and of the classes within it, to report the IOStreams
+    # deprecation warnings that match the patterns, for the tests of something deprecated that use it throughout.
+    def allow_deprecation(*patterns)
+      @allowed_deprecations = patterns
+    end
+
+    # Returns [Array<Regexp>] the patterns of the deprecation warnings that the tests of this class can report.
+    def allowed_deprecations
+      inherited = superclass.respond_to?(:allowed_deprecations) ? superclass.allowed_deprecations : []
+      inherited + (@allowed_deprecations || [])
+    end
+  end
+
   def before_setup
     DeprecationCollector.start
     super
@@ -246,7 +261,8 @@ module DeprecationCheck
 
   def after_teardown
     super
-    warnings = DeprecationCollector.stop
+    allowed  = self.class.allowed_deprecations
+    warnings = DeprecationCollector.stop.reject { |warning| allowed.any? { |pattern| warning.match?(pattern) } }
     flunk("Unexpected IOStreams deprecation warnings, assert them with assert_deprecated:\n#{warnings.join}") if warnings.any?
   end
 
@@ -278,3 +294,4 @@ module DeprecationCheck
   end
 end
 Minitest::Test.prepend(DeprecationCheck)
+Minitest::Test.extend(DeprecationCheck::ClassMethods)

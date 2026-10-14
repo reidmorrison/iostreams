@@ -8,6 +8,10 @@ module IOStreams
     # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
     COPY_MODES = %i[line array hash].freeze
 
+    # The deprecation warning of #format_options and #format_options=.
+    FORMAT_OPTIONS_DEPRECATION = "#format_options is deprecated, use #schema instead, which gives the width of each " \
+                                 "field of a fixed width file"
+
     # An example of setting each of the settings of rows and records that describe the file on the path, rather than
     # supplying it to each call of a reader or writer, which raises, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`.
     PATH_SETTINGS = {
@@ -276,7 +280,7 @@ module IOStreams
     #   2. Or, in the `:line` mode, the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`).
     # - Pass `embedded_within: nil` to read the physical lines of a quoted format in the `:line` mode.
     #   Supplying `embedded_within` in the `:array` and `:hash` modes is deprecated, since the format splits their
-    #   lines: set the format with #format instead.
+    #   lines: set the format with #format instead. It reports a deprecation warning, see `IOStreams::Deprecation`.
     # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
     #   ArgumentError when they are supplied to a call, see PATH_SETTINGS. So does any other option that the mode does
     #   not take, before the file is opened, see `IOStreams::Line::Reader.option_names`,
@@ -478,6 +482,7 @@ module IOStreams
     end
 
     # Deprecated: use #schema, which gives the width of each field of a fixed width file, see docs/formats.md.
+    # Reports a deprecation warning, see `IOStreams::Deprecation`.
     #
     # Set/get the layout of a fixed width file, `layout:` and `truncate:`, which are translated into the schema,
     # see `IOStreams::Tabular::Parser::Fixed.schema`, so that #schema returns the schema of the layout. The layout is
@@ -485,6 +490,7 @@ module IOStreams
     # file read always agree with the layout, even when it is changed after it is set.
     def format_options(format_options = :none)
       if format_options == :none
+        Deprecation.warn(FORMAT_OPTIONS_DEPRECATION)
         tabular_settings.format_options
       else
         self.format_options = format_options
@@ -501,6 +507,7 @@ module IOStreams
     def format_options=(format_options)
       raise_if_frozen!
       tabular_settings.format_options = format_options
+      Deprecation.warn(FORMAT_OPTIONS_DEPRECATION)
     end
 
     # Set/get the schema of the rows and records of this file: the name and type of each field, so that reading
@@ -840,7 +847,12 @@ module IOStreams
         return stream_reader { |io| tabular.read_rows(io, &) }
       end
 
-      embedded_within = tabular.quote_character if embedded_within == :auto
+      if embedded_within == :auto
+        embedded_within = tabular.quote_character
+      else
+        Deprecation.warn("embedded_within: is deprecated when reading rows and records, since the format of the file " \
+                         "splits their lines, set it with #format instead")
+      end
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within, buffer_size: buffer_size, &)
     end
 

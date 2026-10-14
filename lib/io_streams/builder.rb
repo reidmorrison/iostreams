@@ -75,11 +75,16 @@ module IOStreams
     #   even when the file name does not include the stream. So a misspelled option raises wherever the code
     #   runs, rather than only where the path, for example from configuration, includes the stream.
     #
-    # Setting the encode stream with `option(:encode, ...)` is deprecated, see #encoding, which it calls.
+    # Setting the encode stream with `option(:encode, ...)` is deprecated, see #encoding, which it calls, and reports a
+    # deprecation warning, see `IOStreams::Deprecation`.
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise_if_raw!("#option")
-      return merge_encoding(options) if stream == :encode
+      if stream == :encode
+        merge_encoding(options)
+        Deprecation.warn("option(:encode, ...) is deprecated, use #encoding instead")
+        return self
+      end
 
       format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
@@ -99,6 +104,8 @@ module IOStreams
     # set with `#stream`, it still stops the streams being taken from the file name.
     #
     # Supplying `:none` is deprecated, see #raw.
+    #
+    # Each reports a deprecation warning, see `IOStreams::Deprecation`.
     def stream(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise_if_raw!("#stream")
@@ -108,12 +115,15 @@ module IOStreams
       if stream == :none
         @streams  = {}
         @encoding = nil
+        Deprecation.warn("stream(:none) is deprecated, use #raw to read or write the data as it is stored, " \
+                         "or #file_name to read a file that is not named for its format")
         return self
       end
       if stream == :encode
         # Checked before the streams from the file name are replaced, so that a stream that raises changes nothing.
         merge_encoding(options)
         @streams ||= {}
+        Deprecation.warn("stream(:encode, ...) is deprecated, use #encoding instead")
         return self
       end
       format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
