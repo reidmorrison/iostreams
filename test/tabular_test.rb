@@ -635,6 +635,27 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "#render_row" do
+      # Returns [Array] the lines that rendering the rows yields, and finishing them, see IOStreams::Tabular#finish_rows.
+      def lines_of(tabular, *rows)
+        lines = []
+        rows.each { |row| tabular.render_row(row) { |line| lines << line } }
+        tabular.finish_rows { |line| lines << line }
+        lines
+      end
+
+      it "takes the first row as the header row, which it renders as the header line of a format with one" do
+        assert_equal ["a,b", "1,2"], lines_of(IOStreams::Tabular.new(format: :csv), %w[a b], [1, 2])
+      end
+
+      it "takes the first row of a format of keyed records as the header row, which names the keys of the rows after it, without a line" do
+        assert_equal [%({"a":1,"b":2}), %({"a":3,"b":null})], lines_of(IOStreams::Tabular.new(format: :json), %w[a b], [1, 2], [3])
+        assert_empty lines_of(IOStreams::Tabular.new(format: :json), %w[a b])
+        assert_empty lines_of(IOStreams::Tabular.new(format: :json))
+        assert_equal [%({"a":1})], lines_of(IOStreams::Tabular.new(format: :json, columns: %w[a]), [1])
+      end
+    end
+
     describe "#header?" do
       it "is true for csv without columns" do
         assert_predicate IOStreams::Tabular.new(format: :csv), :header?

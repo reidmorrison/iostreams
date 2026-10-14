@@ -365,6 +365,15 @@ class StreamTest < Minitest::Test
 
           assert_equal expected_rows, output
         end
+
+        it "writes the rows that it reads into JSON again" do
+          rows = []
+          IOStreams.path(source_file_name).each(:array) { |row| rows << row }
+          io = StringIO.new
+          IOStreams.stream(io).format(:json).writer(:array) { |writer| rows.each { |row| writer << row } }
+
+          assert_equal File.read(source_file_name), io.string
+        end
       end
 
       it "reads the lines of the rows and records in blocks of the buffer_size supplied, as the :line mode does" do
@@ -821,6 +830,22 @@ class StreamTest < Minitest::Test
           end
 
           assert_equal "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
+        end
+
+        it "takes the first row written to JSON as the header row, which names the keys of the rows after it, and writes no line" do
+          io = StringIO.new
+          IOStreams::Stream.new(io).format(:json).writer(:array) do |stream|
+            stream << %w[name zip]
+            stream << ["Jack", 12_345]
+            stream << ["Jill"]
+          end
+
+          assert_equal %({"name":"Jack","zip":12345}\n{"name":"Jill","zip":null}\n), io.string
+
+          io = StringIO.new
+          IOStreams::Stream.new(io).format(:json).writer(:array) { |stream| stream << %w[name zip] }
+
+          assert_equal "", io.string
         end
 
         it "does not write a header from the supplied columns for a format without one" do

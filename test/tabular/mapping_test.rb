@@ -138,6 +138,17 @@ module Tabular
           assert_equal({"name" => "Jack"}, json.record_parse(["Jack", 21]))
         end
 
+        it "takes the columns of the rows written to a format of keyed records from the first row, which renders no line" do
+          json = mapping(:json)
+
+          assert_predicate json, :first_row_header?
+          refute_predicate json, :columns_from_first_row?
+          assert_nil json.render_header(%w[a b])
+          refute_predicate json, :first_row_header?
+          assert_equal %({"a":1,"b":2}), json.render([1, 2])
+          refute_predicate mapping(:json, columns: %w[a]), :first_row_header?
+        end
+
         it "takes the columns of the rows written after a header row from it, for a format without one" do
           json = mapping(:json)
 

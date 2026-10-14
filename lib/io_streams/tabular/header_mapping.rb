@@ -79,9 +79,10 @@ module IOStreams
       end
 
       # Returns [true|false] whether the next row written is the header row, which gives the columns, see
-      # #columns_from_first_row?.
+      # #columns_from_first_row?, also for a format of keyed records, such as JSON, whose rows have no keys of their own,
+      # so that the rows that each(:array) reads from it can be written, although its records keep their own keys.
       def first_row_header?
-        header?
+        header? || (@keyed && IOStreams::Utils.blank?(header.columns))
       end
 
       # Returns [true|false] whether the header row written before the rows copied from a file with one gives the

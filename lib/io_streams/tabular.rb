@@ -397,13 +397,17 @@ module IOStreams
       yield render_header if @mapping.requires_header? && !@mapping.first_row_header?
     end
 
-    # Yields [String|nil] the line that a writer of rows writes for the row: the header line, when it is the first row
-    # of a format with a header row, see `IOStreams::Tabular::Mapping#first_row_header?`, whose columns it gives,
-    # otherwise the line of the row, see #render, or nil for a blank row, which is written as a blank line.
+    # Yields [String|nil] the line that a writer of rows writes for the row: the header line, when it is the header row,
+    # see `IOStreams::Tabular::Mapping#first_row_header?`, whose columns it gives, otherwise the line of the row, see
+    # #render, or nil for a blank row, which is written as a blank line. The header row of a format without one, such
+    # as JSON, gives the columns of the rows after it, but no line, see #render_header.
     #
     # Returns the result of the block.
     def render_row(row)
-      yield(@mapping.first_row_header? ? @mapping.render_header(row) : @mapping.render(row))
+      return yield(@mapping.render(row)) unless @mapping.first_row_header?
+
+      line = @mapping.render_header(row)
+      yield line unless line.nil?
     end
 
     # Yields [String|nil] the line that a writer of rows writes for the header row of the rows after it, which were read
@@ -426,10 +430,13 @@ module IOStreams
     end
 
     # Yields [String] the header line that a writer of rows writes once the rows have been written, when it wrote none:
-    # the names of the fields of a schema, when no row was written, since the first row gives the columns of the rows,
-    # see #render_row. Without a schema the first row is the header row, so there is none to write without it.
+    # the names of the fields of a schema, of a file with a header row, when no row was written, since the first row
+    # gives the columns of the rows, see #render_row. Without a schema the first row is the header row, so there is none
+    # to write without it.
     def finish_rows
-      yield render_header if @mapping.first_row_header? && !@mapping.columns_from_first_row?
+      return unless @mapping.requires_header? && @mapping.first_row_header?
+
+      yield render_header unless @mapping.columns_from_first_row?
     end
 
     # Yields [String] the header line that a writer of records writes before the first record: the names of the fields

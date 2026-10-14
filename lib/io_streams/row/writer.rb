@@ -13,8 +13,9 @@ module IOStreams
     # header row of the file is the names of its fields, and the first row is still the header row of the rows after
     # it, whose columns are matched to the fields, so that a row is written in the order of the fields, and the rows
     # read from another file can be written as they are, see `IOStreams::Schema::Columns#match_written`. Unless the file
-    # has no header row, such as JSON or a schema with `header: false`, whose rows are the values of the fields, in
-    # order.
+    # has no header row, such as JSON or fixed width with a schema, or a schema with `header: false`, whose rows are the
+    # values of the fields, in order. Without a schema, the first row written to JSON is the header row too, which names
+    # the key of each value of the rows after it, without a line of its own.
     #
     # `IOStreams::Stream#writer(:array)` creates it with the tabular of the stream.
     class Writer
