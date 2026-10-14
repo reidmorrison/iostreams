@@ -333,7 +333,8 @@ module IOStreams
     # that you supplied, without any streams, keeps the encoding that the IO gives its data.
     #
     # With a length, such as `read(1024)`, returns up to that number of bytes, which are binary, unless an encoding is
-    # set, when it returns whole characters, which can be a few bytes more or fewer than the length.
+    # set, when it returns whole characters in that encoding, up to that number of bytes of them, or the first character
+    # when it is longer.
     #
     # Notes:
     # - Use with caution since large files can cause a denial of service since

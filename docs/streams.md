@@ -196,8 +196,22 @@ raises `ArgumentError` when it is set.
 
 The encoding of the text is converted closest to your code, after the file is decompressed or decrypted, so
 `IOStreams.path("data.csv.gz").encoding("BINARY")` still decompresses the file, and reads its text as bytes.
-`read(length)` through an encode stream returns whole characters, which can be a few bytes more or fewer than the
-length.
+
+With an encoding, the stream that `#reader` supplies reads like an IO that converts text, such as
+`File.open(name, "r:Windows-1252:UTF-8")`, so a library that reads an IO, such as `CSV`, reads the text in the encoding
+that your code reads:
+
+~~~ruby
+require "csv"
+
+IOStreams.path("export.csv").encoding("Windows-1252:UTF-8").reader do |io|
+  CSV.new(io, headers: true).map(&:to_h)
+end
+# => [{"name" => "José", "city" => "Málaga"}]
+~~~
+
+Its `read(length)` and `#readpartial` read text too, rather than bytes: whole characters, up to `length` bytes of them,
+or the first character when it is longer.
 
 ### Data as it is stored
 

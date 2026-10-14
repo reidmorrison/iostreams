@@ -324,8 +324,10 @@ The stream is not the reader or writer of the gem, such as a `Zlib::GzipReader`,
 `#rewind`, `#pos`, `#lineno`, `#getc` and `#size`, raise `NoMethodError`. To read lines, use `each(:line)`, and where a
 library needs a `File`, copy the file into a local file first, see [Copying and moving](copy_files).
 
-An encoding set with `#encoding` is converted by a stream of its own, closest to your code, which only responds to
-`#read` when reading. So with an encoding, read lines with `each(:line)` rather than `#gets`.
+An encoding set with `#encoding` is converted by a stream of its own, closest to your code, which reads like an IO that
+converts text, such as `File.open(name, "r:Windows-1252:UTF-8")`: what it reads is in the encoding that your code
+reads, and its `read(length)` and `#readpartial` return whole characters, up to `length` bytes of them, rather than
+bytes. See [Character encoding](streams#character-encoding).
 
 ### When writing fails
 
