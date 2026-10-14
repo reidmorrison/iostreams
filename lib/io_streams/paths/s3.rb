@@ -656,8 +656,10 @@ module IOStreams
           raise(Errors::AccessDenied, "Access denied to #{self}: '.' and '..' are not allowed in S3 keys")
         end
 
-        # A trailing `/` that follows another one is not where the match starts, so that it takes linear time.
-        to_s.sub(%r{(?<!/)/+\z}, "")
+        # Without the `/` at its end, found by its last other character, rather than by matching the `/` before the end,
+        # which takes time that grows with the square of the number of `/` within the key.
+        location = to_s
+        location[0..location.rindex(%r{[^/]})]
       end
 
       # Returns [String] the key of the supplied name within the supplied key, or the key itself for an empty name.
