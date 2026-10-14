@@ -130,6 +130,25 @@ module Paths
           assert_equal missing_path.display_name, error.display_name
           assert_includes error.message, missing_path.display_name
         end
+
+        it "requests the object before the block is called, so that a missing file raises before the block runs" do
+          called = false
+
+          assert_raises(IOStreams::Errors::NotFound) { missing_path.reader { |_io| called = true } }
+          refute called
+        end
+
+        it "does not change the target of a copy or move when the source is missing" do
+          IOStreams.temp_file("iostreams_s3_target", ".txt") do |target|
+            target.write("existing")
+
+            assert_raises(IOStreams::Errors::NotFound) { target.copy_from(missing_path) }
+            assert_raises(IOStreams::Errors::NotFound) { target.copy_from(missing_path, convert: false) }
+            assert_raises(IOStreams::Errors::NotFound) { missing_path.copy_to(target) }
+            assert_raises(IOStreams::Errors::NotFound) { missing_path.move_to(target) }
+            assert_equal "existing", target.read
+          end
+        end
       end
 
       describe "#mtime" do

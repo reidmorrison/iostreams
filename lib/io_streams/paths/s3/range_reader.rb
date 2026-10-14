@@ -26,6 +26,9 @@ module IOStreams
           !option_names.intersect?(RANGE_OPTIONS)
         end
 
+        # Requests the first range, so that a failure of the request, such as an object that does not exist, raises
+        # before the object is read, and before `#copy_from` opens its target, as the HTTP `BodyReader` does.
+        #
         # Parameters:
         #   request: [Proc]
         #     Makes a `get_object` request for the object with the supplied parameters, and returns its response.
@@ -35,6 +38,7 @@ module IOStreams
           @position   = 0
           @size       = nil
           @same       = {}
+          eof?
         end
 
         def closed?
