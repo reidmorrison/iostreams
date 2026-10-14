@@ -935,7 +935,7 @@ class TabularTest < Minitest::Test
       it "render a row in the form of the rows of their format: a record for a format of keyed records, otherwise the values in order" do
         keyed = %i[csv psv array json hash fixed parquet].to_h { |format| [format, IOStreams::Tabular.parser_class(format).keyed?] }
 
-        assert_equal({csv: false, psv: false, array: false, json: true, hash: true, fixed: true, parquet: true}, keyed)
+        assert_equal({csv: false, psv: false, array: false, json: true, hash: true, fixed: false, parquet: true}, keyed)
         assert_equal "a,b", IOStreams::Tabular::Parser::Csv.new.render(%w[a b])
         assert_equal "a|b", IOStreams::Tabular::Parser::Psv.new.render(%w[a b])
         assert_equal %w[a b], IOStreams::Tabular::Parser::Array.new.render(%w[a b])
@@ -943,7 +943,17 @@ class TabularTest < Minitest::Test
         assert_equal({"a" => 1}, IOStreams::Tabular::Parser::Hash.new.render({"a" => 1}))
         fixed = IOStreams::Schema.new(fields: [{name: "id", width: 2}, {name: "code", width: 3}])
 
-        assert_equal "07abc", IOStreams::Tabular::Parser::Fixed.new(schema: fixed).render({"id" => "07", "code" => "abc"})
+        assert_equal "07abc", IOStreams::Tabular::Parser::Fixed.new(schema: fixed).render(%w[07 abc])
+      end
+
+      it "parse a line into a row in the form of the rows of their format, and return a row that is already parsed as it is" do
+        fixed = IOStreams::Tabular::Parser::Fixed.new(schema: IOStreams::Schema.new(fields: [{name: "id", width: 2}, {name: "code", width: 4}]))
+        row   = %w[07 abc]
+
+        assert_equal %w[07 ab], fixed.parse("07ab  ")
+        %i[csv psv array].map { |format| IOStreams::Tabular.parser_class(format).new }.push(fixed).each do |parser|
+          assert_same row, parser.parse(row), parser.class.name
+        end
       end
     end
 
@@ -1332,6 +1342,17 @@ class TabularTest < Minitest::Test
       it "raises for the columns before cleanse_header, with a schema" do
         error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id], cleanse_header: true) }
         assert_match(/\Acolumns: cannot be supplied with a schema/, error.message)
+      end
+
+      it "reads a fixed width row as the values of the fields in order, and the record of a row already read, as Rocket Job's workers do" do
+        fixed = IOStreams::Tabular.new(format: :fixed, schema: IOStreams::Schema.new(fields: [{name: "name", width: 4}, {name: :age, type: "integer", width: 2}]))
+
+        refute_predicate fixed, :header?
+        assert_equal ["Jack", 21], fixed.row_parse("Jack21")
+        assert_equal ["name", :age], fixed.headerless_columns
+        assert_equal({"name" => "Jack", :age => 21}, fixed.record_parse(["Jack", 21]))
+        assert_equal({"name" => "Jack", :age => 21}, fixed.record_parse("Jack21"))
+        assert_equal "Jack21", fixed.render(["Jack", 21])
       end
 
       it "translates the format options of a fixed width file, which Rocket Job supplies" do

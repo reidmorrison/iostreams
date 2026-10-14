@@ -1015,6 +1015,29 @@ class StreamTest < Minitest::Test
         assert_equal "", out.string
       end
 
+      it "reads each row as the values of the layout, in order, or of the columns supplied, by their keys" do
+        layout = {layout: [{size: 4, key: "name"}, {size: 2}, {size: 5, key: :zip, type: :integer}]}
+        rows   = []
+        IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).each(:array) { |row| rows << row }
+
+        assert_equal [["Jack", 12_345]], rows
+
+        rows = []
+        IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).
+          each(:array, columns: %w[Zip name], allowed_columns: %w[name]) { |row| rows << row }
+
+        assert_equal [[12_345, "Jack"]], rows
+      end
+
+      it "copies its rows into a file with a header row of the keys of the layout" do
+        layout = {layout: [{size: 4, key: "name"}, {size: 2}, {size: 5, key: :zip, type: :integer}]}
+        source = IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout)
+        out    = StringIO.new
+        IOStreams::Stream.new(out).format(:csv).copy_from(source, mode: :array)
+
+        assert_equal "name,zip\nJack,12345\n", out.string
+      end
+
       it "copies a file with more columns than the layout into it" do
         out    = StringIO.new
         source = IOStreams::Stream.new(StringIO.new("name,age,id\nJill,22,5\n")).format(:csv)
@@ -2241,10 +2264,10 @@ class StreamTest < Minitest::Test
           assert_equal [-Float::INFINITY, -1.5], pays[1..]
         end
 
-        # Returns [Array<Hash>] the records read from the text, as a fixed width file.
-        def read_fixed(text, schema: fixed)
+        # Returns [Array<Hash>] the records read from the text, as a fixed width file, or the rows in the `:array` mode.
+        def read_fixed(text, mode = :hash, schema: fixed)
           records = []
-          IOStreams::Stream.new(StringIO.new(text)).format(:fixed).schema(schema).each(:hash) { |record| records << record }
+          IOStreams::Stream.new(StringIO.new(text)).format(:fixed).schema(schema).each(mode) { |record| records << record }
           records
         end
 
@@ -2259,6 +2282,30 @@ class StreamTest < Minitest::Test
 
         it "reads each field at its position, skipping the characters before its start" do
           assert_equal [{"name" => "Jack", "zip" => 12_345, "pay" => BigDecimal("-12.5")}], read_fixed("#{line}\n")
+        end
+
+        it "reads each row as the values of the fields, in order, without a header row" do
+          assert_equal [["Jack", 12_345, BigDecimal("-12.5")], nil], read_fixed("#{line}\n#{' ' * 24}\n", :array)
+          refute IOStreams::Stream.new(StringIO.new("#{line}\n")).format(:fixed).schema(fixed).reader(:array, &:header?)
+        end
+
+        it "writes the rows that it reads, and copies them into a file with a header row of the names of the fields" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.fixed").schema(fixed)
+            source.write("#{line}\n")
+            rows = []
+            source.each(:array) { |row| rows << row }
+            copy = IOStreams.path(dir, "copy.fixed").schema(fixed)
+            copy.writer(:array) { |io| rows.each { |row| io << row } }
+
+            assert_equal "Jack    12345-0012.50   \n", copy.read
+
+            IOStreams.path(dir, "people.csv").copy_from(source, mode: :array)
+            IOStreams.path(dir, "again.fixed").schema(fixed).copy_from(source, mode: :array)
+
+            assert_equal "name,zip,pay\nJack,12345,-12.5\n", IOStreams.path(dir, "people.csv").read
+            assert_equal "Jack    12345-0012.50   \n", IOStreams.path(dir, "again.fixed").read
+          end
         end
 
         it "returns keys that are the names of the fields as they are given" do

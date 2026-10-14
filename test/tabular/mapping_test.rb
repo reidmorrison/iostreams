@@ -173,6 +173,17 @@ module Tabular
           assert_predicate headerless, :columns_from_header_row?
         end
 
+        it "has the fields as the columns of the rows of a file without a header row, whose rows are the values in order" do
+          fixed = mapping(:fixed, schema: IOStreams::Schema.new(fields: [{name: "id", type: "integer", width: 2}, {name: "code", width: 3}]))
+
+          refute_predicate fixed, :requires_header?
+          refute_predicate fixed, :header?
+          assert_equal %w[id code], fixed.headerless_columns
+          assert_equal [7, "abc"], fixed.row_parse("07abc")
+          assert_equal({"id" => 7, "code" => "abc"}, fixed.record_parse([7, "abc"]))
+          assert_equal "07abc", fixed.render([7, "abc"])
+        end
+
         it "renders a record by the names of the fields for a format whose records supply their own keys, which each line must be" do
           assert_equal %({"id":1,"pay":2.50}), mapping(:json).render({"pay" => "2.5", "ID" => "1"})
 
@@ -191,8 +202,22 @@ module Tabular
 
           refute_predicate fixed, :field_names?
           assert_equal({id: 7, code: "abc"}, fixed.record_parse("07abc"))
-          assert_equal({id: 7, code: "abc"}, fixed.row_parse("07abc"))
+          assert_equal [7, "abc"], fixed.row_parse("07abc")
+          assert_equal({id: 7, code: "abc"}, fixed.record_parse([7, "abc"]))
+          assert_equal %i[id code], fixed.headerless_columns
           assert_equal "07x  ", fixed.render({code: "x", id: 7})
+          assert_equal "07x  ", fixed.render([7, "x"])
+        end
+
+        it "reads the rows by the columns supplied, as they are supplied, which name the keys of the layout" do
+          supplied = mapping(columns: %w[Code id], allowed_columns: %w[id])
+          supplied.restrict_columns
+
+          assert_equal %w[__rejected__Code id], supplied.header.columns
+          assert_equal ["abc", 7], supplied.row_parse("07abc")
+          assert_equal %w[Code id], supplied.headerless_columns
+          assert_equal({"id" => 7}, supplied.record_parse(["abc", 7]))
+          assert_equal({"id" => 7}, supplied.record_parse("07abc"))
         end
 
         it "applies the columns supplied, and the restrictions of the columns, to the records, as before the layout was deprecated" do

@@ -8,7 +8,8 @@ module IOStreams
     # while the schema that the layout is translated into, see `IOStreams::Tabular::Parser::Fixed.schema`, reads and
     # renders its values, see `IOStreams::Tabular::SchemaMapping`.
     #
-    # The keys of its records are the keys of the layout, or the columns supplied.
+    # The keys of its records are the keys of the layout, or the columns supplied, and its rows are their values, in
+    # order.
     class LayoutMapping < HeaderMapping
       # Parameters:
       #   schema: [IOStreams::Schema]
@@ -20,15 +21,29 @@ module IOStreams
         @fields = SchemaMapping.new(schema, header: header, parser: parser, format: format)
       end
 
-      # Returns [Hash] the values of the line, by the keys of the layout, see `IOStreams::Tabular::SchemaMapping#row_parse`,
-      # or nil when it is blank.
+      # Returns [Array<String|Symbol>] the columns of the rows, see #row_parse: the keys of the layout, or the columns
+      # supplied, as they are supplied, see `IOStreams::Tabular#headerless_columns`.
+      def headerless_columns
+        @rows ? @rows.columns.dup : @fields.headerless_columns
+      end
+
+      # Returns [Array] the values of the line, in the order of the columns of its rows: the fields of the layout, see
+      # `IOStreams::Tabular::SchemaMapping#row_parse`, or the columns supplied, as they are supplied, whose values are
+      # those of the keys of the layout that they name, see `IOStreams::Tabular::Header#to_array`, since the column
+      # options never change a row. Returns nil when it is blank.
       def row_parse(line)
-        @fields.row_parse(line)
+        return @fields.row_parse(line) unless @rows
+
+        record = @fields.record_parse(line)
+        @rows.to_array(record) if record
       end
 
       # Returns [Hash] the record of the line, see `IOStreams::Tabular::SchemaMapping#record_parse`, by the columns
       # supplied, see `IOStreams::Tabular::Header#to_hash`, otherwise by the keys of the layout, or nil when it is blank.
+      # The record of a row already read, an Array, is by the columns of the rows, see #row_parse.
       def record_parse(line)
+        return header.to_hash(line) if @rows && line.is_a?(::Array)
+
         record = @fields.record_parse(line)
         record.nil? || header.columns.nil? ? record : header.to_hash(record)
       end

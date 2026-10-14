@@ -31,8 +31,14 @@ module IOStreams
         # of the fields.
         @keyed           = parser.class.keyed?
         @form            = parser.class.value_form
-        # The columns of a file without a header row, of a format with one, are the fields, in order.
-        @columns.match_fields if parser.requires_header? && !schema.header?
+        # The columns of the rows of a file without a header row are the fields, in order: of a format with one whose
+        # schema says that it has none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one whose
+        # rows are the values in order, such as fixed width.
+        if parser.requires_header?
+          @columns.match_fields unless schema.header?
+        elsif !@keyed
+          @columns.match_in_order
+        end
       end
 
       # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, unless the schema
@@ -52,8 +58,8 @@ module IOStreams
         true
       end
 
-      # Returns [Array<String|Symbol>] the names of the fields of a file without a header row, which are its columns, see
-      # `IOStreams::Tabular#headerless_columns`.
+      # Returns [Array<String|Symbol>] the names of the fields of a file without a header row, which are the columns of
+      # its rows, see `IOStreams::Tabular#headerless_columns`.
       # Returns nil for a file with a header row, or a format whose records supply their own keys.
       def headerless_columns
         @columns.names if @columns.matched? && !@requires_header

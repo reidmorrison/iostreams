@@ -61,8 +61,15 @@ module IOStreams
       def match_fields
         @schema.check_fields_in_order
         @fields_in_order = true
-        @matched         = @schema.fields.each_with_index.to_a
-        @width           = @matched.size
+        match_in_order
+      end
+
+      # Matches the columns of the rows of a format without a header row, such as fixed width, which are the fields,
+      # in order, whatever `fieldsMatch` is, since it applies to the columns of the file, which the format already
+      # matches, such as by the position of each field of a fixed width file.
+      def match_in_order
+        @matched = @schema.fields.each_with_index.to_a
+        @width   = @matched.size
       end
 
       # Returns [true|false] whether the columns of the file read are known, see #match.

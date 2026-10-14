@@ -5,6 +5,8 @@ module IOStreams
     module Parser
       # Parses and renders the lines of a fixed width file, where each field is at the same position in every line,
       # which the schema gives with the `width`, and optionally the `start`, of each field, see `IOStreams::Schema`.
+      # Each row is the values of the fields, in their order, as for CSV, since a line has no names, so the mapping of
+      # the columns names them, see `IOStreams::Tabular::SchemaMapping`.
       #
       # When reading, each value is the text at the position of its field without its leading and trailing spaces,
       # which the schema then converts to the type of its field.
@@ -21,12 +23,6 @@ module IOStreams
         # Where a field is in each line: the offset of its first character, and its width, or -1 for the remainder of
         # the line.
         Column = Struct.new(:field, :index, :width)
-
-        # Returns [true] each line is read into a Hash by the names of the fields of the schema, see #parse, and written
-        # from one, see #render.
-        def self.keyed?
-          true
-        end
 
         # Returns [String] the encoding of fixed width files, ASCII, read as UTF-8 strings.
         #
@@ -180,9 +176,11 @@ module IOStreams
           @line_length = build_columns
         end
 
-        # Returns [Hash] the text of each field of the line, without its leading and trailing spaces, by the name of
-        # the field.
+        # Returns [Array] the text of each field of the line, in the order of the fields, without its leading and
+        # trailing spaces, or the row supplied, an Array that is already parsed, as it is, as CSV does, see
+        # `IOStreams::Tabular#record_parse`.
         def parse(line)
+          return line if line.is_a?(::Array)
           unless line.is_a?(String)
             raise(Errors::TypeMismatch, "Line must be a String when format is :fixed. Actual: #{line.class.name}")
           end
@@ -191,21 +189,19 @@ module IOStreams
             raise(Errors::InvalidLineLength, "Expected line length: #{line_length}, actual line length: #{line.length}")
           end
 
-          hash = {}
-          @columns.each do |column|
+          @columns.map do |column|
             value = column.width == -1 ? line[column.index..] : line[column.index, column.width]
-            hash[column.field.name] = value&.strip
+            value&.strip
           end
-          hash
         end
 
-        # Returns [String] the line for the supplied record, by the names of its fields, whose values the schema has
-        # already rendered as text, see `IOStreams::Tabular::SchemaMapping#render`.
+        # Returns [String] the line of the values of the fields, in the order of the fields, which the schema has already
+        # rendered as text, see `IOStreams::Tabular::SchemaMapping#render`.
         def render(row)
           line = +""
-          @columns.each do |column|
+          @columns.each_with_index do |column, index|
             line << (" " * (column.index - line.length)) if column.index > line.length
-            line << render_value(column, row[column.field.name])
+            line << render_value(column, row[index])
           end
           line << (" " * (line_length - line.length)) if line_length > line.length
           line

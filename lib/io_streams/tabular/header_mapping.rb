@@ -25,6 +25,9 @@ module IOStreams
         @keyed           = parser.class.keyed?
         @supplied        = !header.columns.nil?
         @warned          = false
+        # The columns of the rows, as they are supplied, apart from the columns of the records, which the column options
+        # cleanse and restrict, see #restrict_columns, since they never change a row.
+        @rows            = Header.new(columns: header.columns) if @supplied
       end
 
       # Returns [true|false] whether the file has a header row: when its format has one, such as CSV.
