@@ -7,6 +7,7 @@ module IOStreams
   autoload :BlockReader,         "io_streams/block_reader"
   autoload :Builder,             "io_streams/builder"
   autoload :ChunkReader,         "io_streams/chunk_reader"
+  autoload :Deprecation,         "io_streams/deprecation"
   autoload :Errors,              "io_streams/errors"
   autoload :Path,                "io_streams/path"
   autoload :Reader,              "io_streams/reader"

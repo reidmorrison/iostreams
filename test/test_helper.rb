@@ -190,3 +190,91 @@ end
 def skip_without_resolution_error
   skip("Socket::ResolutionError requires Ruby 3.3 or later") unless defined?(Socket::ResolutionError)
 end
+
+# Collects the deprecation warnings that IOStreams reports, see `IOStreams::Deprecation`, while a test runs, rather than
+# writing them to `$stderr`, so that a test asserts each one that it expects with #assert_deprecated, and any other one
+# fails the test, see DeprecationCheck, so that IOStreams never uses its own deprecated methods and options, and every
+# test of one says so. Minitest turns deprecation warnings on.
+module DeprecationCollector
+  # The message that `Kernel#warn` passes to `Warning.warn`, after the location of the caller.
+  MESSAGE = /(?:\A|: warning: )IOStreams: /
+
+  @mutex    = Mutex.new
+  @warnings = nil
+
+  # Starts collecting the warnings of a test.
+  def self.start
+    @mutex.synchronize { @warnings = [] }
+  end
+
+  # Returns [Array<String>] the warnings collected since .start, and stops collecting them.
+  def self.stop
+    @mutex.synchronize { @warnings.tap { @warnings = nil } }
+  end
+
+  # Returns [Array<String>] the warnings reported while the block ran, which are not collected for the test.
+  def self.collect
+    outer = @mutex.synchronize { @warnings.tap { @warnings = [] } }
+    yield
+    @mutex.synchronize { @warnings }
+  ensure
+    @mutex.synchronize { @warnings = outer }
+  end
+
+  # Returns [true|false] whether the warning was collected: one reported by IOStreams while a test runs.
+  def self.add(message)
+    return false unless message.match?(MESSAGE)
+
+    @mutex.synchronize { @warnings ? @warnings.push(message) && true : false }
+  end
+
+  # Collects the warnings of IOStreams, see .add, and writes any other one.
+  module Warn
+    def warn(message, *, **)
+      super unless DeprecationCollector.add(message)
+    end
+  end
+end
+Warning.extend(DeprecationCollector::Warn)
+
+# Fails a test that caused an IOStreams deprecation warning that it did not assert with #assert_deprecated.
+module DeprecationCheck
+  def before_setup
+    DeprecationCollector.start
+    super
+  end
+
+  def after_teardown
+    super
+    warnings = DeprecationCollector.stop
+    flunk("Unexpected IOStreams deprecation warnings, assert them with assert_deprecated:\n#{warnings.join}") if warnings.any?
+  end
+
+  # Asserts that the block reports an IOStreams deprecation warning that matches each pattern, and none that matches
+  # none of them, with deprecation warnings turned on while it runs.
+  #
+  # Returns the result of the block.
+  def assert_deprecated(*patterns)
+    raise(ArgumentError, "Supply the pattern of each deprecation warning that the block reports") if patterns.empty?
+
+    result   = nil
+    enabled  = Warning[:deprecated]
+    warnings =
+      begin
+        Warning[:deprecated] = true
+        DeprecationCollector.collect { result = yield }
+      ensure
+        Warning[:deprecated] = enabled
+      end
+
+    patterns.each do |pattern|
+      assert(warnings.any? { |warning| warning.match?(pattern) },
+             "Expected an IOStreams deprecation warning matching #{pattern.inspect}, got:\n#{warnings.join}")
+    end
+    unexpected = warnings.reject { |warning| patterns.any? { |pattern| warning.match?(pattern) } }
+
+    assert_empty(unexpected, "Unexpected IOStreams deprecation warnings")
+    result
+  end
+end
+Minitest::Test.prepend(DeprecationCheck)
