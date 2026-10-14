@@ -737,6 +737,15 @@ module Paths
           assert_equal "jack@example.org", args.last
         end
 
+        it "supplies a host that is an IPv6 address within [ and ], since sftp reads a : as the start of a path" do
+          with_name = new_path("sftp://[::1]:2222/data", username: "jack")
+          without   = new_path("sftp://[::1]:2222/data")
+
+          assert_equal ["-oPort=2222", "jack@[::1]"], [with_name.send(:sftp_args, {}).grep(/Port/).first, with_name.send(:sftp_args, {}).last]
+          assert_equal "[::1]", without.send(:sftp_args, {}).last
+          assert_equal "example.org", new_path(url).send(:sftp_args, {}).last
+        end
+
         it "ends options before the destination" do
           path = new_path(url, username: "jack", password: "secret")
           args = path.send(:sftp_args, path.ssh_options)

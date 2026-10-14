@@ -10,9 +10,11 @@ module IOStreams
         KEY_FILE_OPTIONS = {"IdentityKey" => "IdentityFile", "HostKey" => "UserKnownHostsFile"}.freeze
 
         # Returns [String] the destination of the sftp program: the host, after the user name when one is supplied.
-        # Without a user name, sftp uses the one from the ssh config, or the current user.
+        # Without a user name, sftp uses the one from the ssh config, or the current user. A host that is an IPv6
+        # address, such as `::1`, is within `[` and `]`, since sftp reads a `:` in the destination as the start of a path.
         def self.destination(hostname, username)
-          username ? "#{username}@#{hostname}" : hostname
+          host = hostname.include?(":") ? "[#{hostname}]" : hostname
+          username ? "#{username}@#{host}" : host
         end
 
         # Returns [String] the sftp LogLevel for the level of a logger, such as `IOStreams.logger`, which is a Symbol
