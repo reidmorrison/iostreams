@@ -4688,6 +4688,36 @@ such as `key` or `bucket`. Each S3 request is supplied the options that it accep
 
 Fix: correct or remove the option.
 
+### Url parts that a path cannot use raise `ArgumentError`
+
+Creating a path now raises `ArgumentError` for a part of its url that the path would ignore, so that a
+mistake in a configured url is reported wherever the code runs:
+
+* An S3 url with a fragment, such as an unencoded `#` in `s3://bucket/a#b.csv`, which read the key `a`. Encode
+  it as `%23`.
+* An S3 url with a port, such as `s3://bucket:9000/a.csv`. Supply the endpoint of a service that implements the
+  S3 API with `client: {endpoint: "https://host:9000"}`.
+* An S3 url with a user name or password. Supply the credentials with `access_key_id:` and
+  `secret_access_key:`.
+* An SFTP url with a query, such as `sftp://host/a.csv?IdentityFile=/tmp/key`, whose ssh options were ignored.
+  Supply them with `ssh_options:`, and encode a `?` in a file name as `%3F`.
+* An SFTP url with a fragment, an unencoded `#`. Encode it as `%23`.
+* An S3, SFTP or HTTP(S) url without a bucket or host, such as `sftp:///a.csv`.
+* `region:`, `access_key_id:` or `secret_access_key:` with an `Aws::S3::Client` as `client:`, which ignored them.
+  Supply them to `Aws::S3::Client.new`, or supply `client:` as a Hash of the options of a new client.
+
+Fix: correct the url, or supply the setting as the message says.
+
+### A url that cannot be parsed raises `ArgumentError`
+
+Creating a path from a url that `URI` cannot parse, such as an SFTP url whose password holds a `/`, `?` or `#`,
+or an HTTP url with a space, now raises `ArgumentError` instead of `URI::InvalidURIError`, whose message was the
+whole url, including its password. The message names the url with everything before its last `@` replaced with
+`[FILTERED]`, and without its query or fragment.
+
+Fix: rescue `ArgumentError` instead of `URI::InvalidURIError`, and supply a password that holds one of these
+characters with `password:`.
+
 ### SFTP urls without a path are the root directory
 
 `IOStreams.path("sftp://host")` is now the root directory `/`, like `sftp://host/`, so `#each_child`
@@ -4767,9 +4797,23 @@ or remove the trailing `/` that it expected.
   `s3://bucket/data/data/`, where it listed `s3://bucket/data/`. A backslash escapes the next character, so
   `each_child("a\\b.csv")` returns `ab.csv`, where S3 and SFTP looked for a name containing the backslash.
 
+* SFTP `#each_child` returns a symbolic link to a file, which it skipped, with the attributes of the file that it
+  refers to.
+* S3 and SFTP `#each_child` match an exact name ignoring case, like a pattern and a local path, unless
+  `case_sensitive: true`: when no object or file has the name, such as `README.MD`, the directory is listed, and
+  `README.md` is returned.
+
 Fix: a block that takes a single argument is unaffected by the attributes. A lambda or method that takes
 exactly one argument must accept the attributes, as it already had to for patterns. Do not use the
 return value of `#each_child` with a block; collect the children in the block, or use `#children`.
+
+### Local `each_child` raises for a directory that cannot be read
+
+Local `#each_child` now raises `Errno::EACCES`, tagged as `IOStreams::Errors::PermissionDenied`, for the directory
+that it lists within when that directory cannot be read, like SFTP, rather than return nothing, as `Dir.glob` does.
+A directory that does not exist still returns nothing.
+
+Fix: rescue `IOStreams::Errors::PermissionDenied` where an unreadable directory should be treated as empty.
 
 ### A local `~` is the home directory
 
@@ -4793,12 +4837,48 @@ Fix: none is needed in most cases. When the copy raises, the object is either un
 replaced. Code that relied on a failed copy always removing the object should call `#delete` after
 the error.
 
+### A direct S3 copy uses the options of its target
+
+`#copy_to` with `convert: false`, and `#move_to`, from one S3 path to another now make the copy with the client
+and options of the target, which the copy writes, such as its `acl:` and `storage_class:`, as `#copy_from`
+already did. Previously they used those of the source, so an `acl:` set only on the source of a move applied to
+the new object.
+
+Fix: set the options for the new object, such as `acl: "bucket-owner-full-control"`, on the target path.
+
+### S3 `exist?` is true for a directory
+
+S3 `#exist?` is now true for a path within which there are other keys, such as `s3://bucket/a` for the key
+`a/b.csv`, or a folder object, like a local or SFTP directory. When no object has the key, it makes a second
+request, which lists a key within the path. The bucket itself exists when it can be listed.
+
+Fix: use `#file?` to check for an object only, with one request.
+
+### A name joined to an S3 bucket is a key within it
+
+A name that starts with `/` joined to the bucket itself, such as `IOStreams.path("s3://bucket") / "/exports/a.csv"`,
+or `IOStreams.join("/exports/a.csv")` with the root `s3://bucket`, is now the key `exports/a.csv`. Previously it was
+the key `/exports/a.csv`, which S3 holds as another object, although its url was `s3://bucket/exports/a.csv`. A key
+that starts with `/` now keeps it in its url, such as `s3://bucket//exports/a.csv`.
+
+Fix: to read an object written with such a key by a previous version, name it in the url, such as
+`IOStreams.path("s3://bucket//exports/a.csv")`, or copy it to the key without the `/`.
+
+### A local `move_to` onto a directory raises `ArgumentError`
+
+A local `#move_to` onto an existing directory now raises `ArgumentError`, like every other path, rather than move
+the file into the directory, like `mv`, and return the directory.
+
+Fix: join the name of the file to the directory, such as
+`path.move_to(IOStreams.path("/archive").join(path.basename))`.
+
 ### S3 objects are read without a temp file
 
 Reading an S3 path now requests the object 8MB at a time, as the application reads it, instead of
 downloading the whole object into a temp file before the block is called. So the application starts on the
-data straight away, and the object no longer has to fit on the local disk. This changes when a failure can
-occur:
+data straight away, and the object no longer has to fit on the local disk. The first range is still requested
+before the block is called, so a missing object raises before the block runs, as before. This changes when a
+failure can occur:
 
 * A failure to read the object part way through, such as a network failure once the AWS SDK has retried it,
   now raises from within the block, once some of the data has been processed, as it can for any other stream.
