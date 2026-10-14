@@ -14,6 +14,9 @@ module IOStreams
     #
     # Each reader or writer has its own, see `IOStreams::Schema#columns`, since it holds the columns of its file.
     class Columns
+      # A value that no record holds, for a key that a record does not have, see #render_record.
+      MISSING = Object.new.freeze
+
       def initialize(schema)
         @schema     = schema
         # Each field of the header row, in the order of the fields, with the position of its column.
@@ -21,8 +24,9 @@ module IOStreams
         # The keys of the last record read or written, and each field that they supply, with its key.
         @read_keys  = nil
         @read_plan  = nil
-        @write_keys = nil
-        @write_plan = nil
+        @write_keys   = nil
+        @write_fields = false
+        @write_plan   = nil
       end
 
       # Matches the columns of a header row to the fields.
@@ -78,20 +82,23 @@ module IOStreams
         record
       end
 
-      # Returns [Array] the value of each field of the schema, in order, from the supplied record, whose keys are
-      # matched to the fields like columns, or row, whose values are the fields in order. A field that it does not
-      # supply is nil.
+      # Returns [Array|Hash] the value of each field of the schema, in order, in the form that the format writes it, see
+      # `IOStreams::Schema::Field#render`, from the supplied record, whose keys are matched to the fields like columns,
+      # or row, whose values are the fields in order. A field that it does not supply is nil. Returns a Hash by the
+      # names of the fields when `keyed`, for a format whose records supply their own keys, such as JSON.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when it has a key, or more values than there are fields, that the
       # schema does not skip, see `IOStreams::Schema#check_unknown`.
-      def values(row)
-        if row.is_a?(::Hash)
-          write_plan(row.keys).map { |key| key.nil? ? nil : row[key] }
-        else
-          size = @schema.fields.size
-          @schema.check_unknown(row.drop(size), noun: "value") if row.size > size
-          row
+      def render(row, form, keyed)
+        return render_values(row, form, keyed) unless row.is_a?(::Hash)
+
+        # When every key of the last record was a field, a record of the same size that has each of its keys has the
+        # same keys, so the plan of the last record applies, and is checked while the values are taken from the record.
+        if @write_fields && row.size == @write_keys.size
+          out = render_record(row, form, keyed, @write_plan)
+          return out if out
         end
+        render_record(row, form, keyed, write_plan(row))
       end
 
       private
@@ -142,15 +149,41 @@ module IOStreams
         @read_plan = @schema.fields.filter_map { |field| [field, keys[positions[field]]] if positions.key?(field) }
       end
 
-      # Returns [Array] the key of a record written that supplies each field of the schema, in order, or nil for a field
-      # that it does not supply, worked out again only when the keys change.
-      def write_plan(keys)
-        return @write_plan if keys == @write_keys
-
+      # Returns [Array<Array(IOStreams::Schema::Field, Object, Integer)>] each field of the schema, in order, with the key
+      # of a record written that supplies it, or nil when the record does not, and its position.
+      def write_plan(row)
+        keys = row.keys
         _found, unknown, positions = find_fields(keys, "key")
         @schema.check_unknown(unknown, noun: "key")
-        @write_keys = keys
-        @write_plan = @schema.fields.map { |field| positions.key?(field) ? keys[positions[field]] : nil }
+        @write_keys   = keys
+        @write_fields = unknown.empty?
+        @write_plan   = @schema.fields.each_with_index.map do |field, index|
+          [field, positions.key?(field) ? keys[positions[field]] : nil, index]
+        end
+      end
+
+      # Returns [Array|Hash] the rendered value of each field from the record, by the key that the plan gives for the
+      # field, see #render, or nil when the record does not have one of those keys.
+      def render_record(row, form, keyed, plan)
+        out = keyed ? {} : ::Array.new(plan.size)
+        plan.each do |field, key, index|
+          value = key.nil? ? nil : row.fetch(key, MISSING)
+          # Only when the keys change, so it seldom leaves the block, which JRuby does by raising an exception.
+          return nil if value.equal?(MISSING)
+
+          out[keyed ? field.name : index] = field.render(value, form)
+        end
+        out
+      end
+
+      # Returns [Array|Hash] the rendered value of each field from a row, whose values are the fields in order, see
+      # #render, once it checks its values after the last field.
+      def render_values(row, form, keyed)
+        fields = @schema.fields
+        @schema.check_unknown(row.drop(fields.size), noun: "value") if row.size > fields.size
+        out = keyed ? {} : ::Array.new(fields.size)
+        fields.each_with_index { |field, index| out[keyed ? field.name : index] = field.render(row[index], form) }
+        out
       end
     end
   end

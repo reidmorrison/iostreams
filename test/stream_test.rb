@@ -1421,6 +1421,16 @@ class StreamTest < Minitest::Test
           assert_match(/\AThe values of a row do not match the schema: 1 value after the last field/, error.message)
         end
 
+        it "matches the keys of each record written, when they change from one record to the next" do
+          records = [{"id" => 1, "name" => "Jack"}, {"name" => "Jill", "ID" => 2}, {"id" => 3}, {"id" => 4, "age" => 9}]
+          schema  = {fields: fields, fieldsMatch: "subset"}
+
+          assert_equal "id,name\n1,Jack\n2,Jill\n3,\n4,\n", write(records, schema: schema)
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write(records.first(3) + [{"id" => 4, "age" => 9}], schema: {fields: fields}) }
+          assert_match(/the key "age" is not a field/, error.message)
+          assert_raises(IOStreams::Errors::InvalidHeader) { write([{"id" => 1, "name" => "a"}, {"id" => 2, "age" => 9}], schema: {fields: fields}) }
+        end
+
         it "writes every field, even when a record does not supply it" do
           assert_equal "id,name\n1,\n", write([{"id" => 1}], schema: {fields: fields})
           assert_equal %({"id":1,"name":null}\n), write([{"id" => 1}], file_name: "people.json", schema: {fields: fields})

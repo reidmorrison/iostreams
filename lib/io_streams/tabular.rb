@@ -215,18 +215,14 @@ module IOStreams
 
     # Renders the output row. With a schema, a record or row has the value of each field in the form of its field that
     # the format writes, see `IOStreams::Schema::Field#render`, and in the order of the fields, see
-    # `IOStreams::Schema::Columns#values`.
+    # `IOStreams::Schema::Columns#render`.
     def render(row)
       return if IOStreams::Utils.blank?(row)
       return parser.render(row, header) unless @columns
 
       # The columns supplied with the deprecated format options.
-      row      = header.to_hash(row) if header.columns
-      values   = @columns.values(row)
-      form     = parser.class.value_form
-      fields   = schema.fields
-      rendered = ::Array.new(fields.size) { |index| fields[index].render(values[index], form) }
-      parser.render(parser.requires_header? ? rendered : named(rendered), @plain_header)
+      row = header.to_hash(row) if header.columns
+      parser.render(@columns.render(row, parser.class.value_form, !parser.requires_header?), @plain_header)
     end
 
     # Returns [String] the header rendered for the output format
@@ -419,13 +415,6 @@ module IOStreams
       return unless requires_header?
 
       parser.render(schema.fields.map { |field| field.name.to_s }, @plain_header)
-    end
-
-    # Returns [Hash] the values of the fields, in order, by the names of the fields.
-    def named(values)
-      record = {}
-      schema.fields.each_with_index { |field, index| record[field.name] = values[index] }
-      record
     end
 
     # Logs a warning that the column restrictions are not applied, once, since the same columns usually apply
