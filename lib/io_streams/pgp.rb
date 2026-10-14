@@ -617,6 +617,9 @@ module IOStreams
     #  sec   2048R/27D2E7FA 2016-10-05
     #  uid                  Receiver <receiver@example.org>
     #  ssb   2048R/893749EA 2016-10-05
+    #
+    # No two repetitions next to each other in a regular expression can match the same characters, such as the digits
+    # of a key length and the letters of its type, so that each line is matched in linear time.
     def self.parse_list_output(out)
       results = []
       hash    = {}
@@ -632,7 +635,7 @@ module IOStreams
               match[3]
             end)
           }
-        elsif (match = line.match(%r{\A\s*(pub|sec)\s+(\d+)([^/\s]*)/(\w+)\s+(\d+-\d+-\d+)(\s+([^<]+)<([^>]+)>)?}))
+        elsif (match = line.match(%r{\A\s*(pub|sec)\s+(\d+)((?:[^/\s\d][^/\s]*)?)/(\w+)\s+(\d+-\d+-\d+)(\s([^<]+)<([^>]+)>)?}))
           # Matches: pub  2048R/C7F9D9CB 2016-10-26
           # Or:      pub  2048R/C7F9D9CB 2016-10-26 Receiver <receiver@example.org>
           hash = {
@@ -653,7 +656,7 @@ module IOStreams
             results << hash
             hash = {}
           end
-        elsif (match = line.match(/\A\s*uid\s+(\[([^\]]+)\]\s+)?([^<]+)<([^>]+)>/))
+        elsif (match = line.match(/\A\s*uid\s(\s*\[([^\]]+)\]\s)?([^<]+)<([^>]+)>/))
           # Matches:  uid       [ unknown] Joe Bloggs <j@bloggs.net>
           # Or:       uid                  Joe Bloggs <j@bloggs.net>
           # v2.2:     uid           [ultimate] Joe Bloggs <pgp_test@iostreams.net>
