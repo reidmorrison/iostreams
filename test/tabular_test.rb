@@ -1246,6 +1246,11 @@ class TabularTest < Minitest::Test
                      IOStreams::Tabular.new(format: :psv, columns: columns).render(values)
       end
 
+      it "writes a PSV Array value as its text, rather than its items as more columns" do
+        assert_equal "[1, 2]|x", IOStreams::Tabular.new(format: :psv, columns: %w[list name]).render({"list" => [1, 2], "name" => "x"})
+        assert_equal "[1, 2]|x", IOStreams::Tabular.new(format: :psv).render([[1, 2], "x"])
+      end
+
       it "writes JSON with a BigDecimal, Date or Time as text, within a Hash or an Array too, and other values as they are" do
         record = values.merge("items" => [{"price" => BigDecimal("1.5")}, 2])
 

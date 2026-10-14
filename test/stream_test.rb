@@ -227,6 +227,20 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "removes the byte order mark at the start of a UTF-8 JSON or PSV file, as for CSV" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "data.json").write("\xEF\xBB\xBF{\"name\":\"Jos\xC3\xA9\"}\n".b)
+          IOStreams.path(dir, "data.psv").write("\xEF\xBB\xBFname|city\nJos\xC3\xA9|Z\xC3\xBCrich\n".b)
+          json = []
+          psv  = []
+          IOStreams.path(dir, "data.json").each(:hash) { |record| json << record }
+          IOStreams.path(dir, "data.psv").each(:hash) { |record| psv << record }
+
+          assert_equal [{"name" => "José"}], json
+          assert_equal [{"name" => "José", "city" => "Zürich"}], psv
+        end
+      end
+
       it "keeps the byte order mark when reading the whole file, like File.read" do
         Dir.mktmpdir do |dir|
           path = IOStreams.path(dir, "excel.csv")
@@ -748,7 +762,6 @@ class StreamTest < Minitest::Test
         end
 
         it "empty blocks" do
-          # skip "TODO"
           io = StringIO.new
           IOStreams::Stream.new(io).writer(:array) do |stream|
             stream << %w[He]
@@ -774,19 +787,17 @@ class StreamTest < Minitest::Test
           assert_equal "He\nl,lo ,World\nHe,,l,\nlo ,World\n", io.string, io.string.inspect
         end
 
-        it "empty leading array" do
-          skip "TODO"
-          io = StringIO.new
-          IOStreams::Stream.new(io).writer(:array) do |stream|
-            stream << []
-            stream << %w[He]
-            stream << ["l", "lo ", "World"]
-            stream << ["He", "", "l", ""]
-            stream << ["lo ", "World"]
-            stream << []
+        it "raises for a first row that is empty, since the first row is the header row, which needs columns" do
+          io    = StringIO.new
+          error = assert_raises(IOStreams::Errors::MissingHeader) do
+            IOStreams::Stream.new(io).writer(:array) do |stream|
+              stream << []
+              stream << %w[He]
+            end
           end
 
-          assert_equal "\nHe\n\nl\n\nlo \nWorld\n\n", io.string, io.string.inspect
+          assert_equal "Header columns must be set before attempting to render a header for format: :csv", error.message
+          assert_equal "", io.string
         end
 
         it "honors format" do
@@ -873,6 +884,19 @@ class StreamTest < Minitest::Test
           end
 
           assert_equal "first_name,last_name\nJack,Johnson\n\nAble,Smith\nAble,\n\n", io.string, io.string.inspect
+        end
+
+        it "raises for a first record that is empty, since its keys are the header row, which needs columns" do
+          io    = StringIO.new
+          error = assert_raises(IOStreams::Errors::MissingHeader) do
+            IOStreams::Stream.new(io).writer(:hash) do |stream|
+              stream << {}
+              stream << {first_name: "Jack"}
+            end
+          end
+
+          assert_equal "Header columns must be set before attempting to render a header for format: :csv", error.message
+          assert_equal "", io.string
         end
 
         it "honors format" do
