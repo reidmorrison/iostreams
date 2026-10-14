@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "csv"
 
 # The stream supplied to a reader or writer block behaves like an IO whichever streams the data uses, since a path is
 # configuration, so that code that reads or writes a `.gz` file still works when the file name changes to `.bz2`.
@@ -60,6 +61,31 @@ class StreamIOTest < Minitest::Test
           assert_equal data[offset, 70_000], block
           assert_equal data[(offset + 70_000)..], io.read
         end
+      end
+
+      it "reads lines like an IO for the #{name.inspect} stream" do
+        skip_unless_read_back(format)
+
+        read_back(name, writer_options, reader_options) do |io|
+          assert_equal "0,#{'x' * 20}\n", io.gets
+          assert_equal "1,#{'x' * 20}", io.gets(chomp: true)
+          assert_equal "2,", io.gets(",")
+
+          lines = []
+          io.each_line { |line| lines << line }
+
+          assert_equal data.lines[2..].join, "2,#{lines.join}"
+          assert_nil io.gets
+        end
+      end
+
+      it "is read by CSV for the #{name.inspect} stream, as an IO is" do
+        skip_unless_read_back(format)
+
+        rows = read_back(name, writer_options, reader_options) { |io| CSV.new(io).to_a }
+
+        assert_equal 5000, rows.size
+        assert_equal ["4999", "x" * 20], rows.last
       end
 
       it "reads the end of the data like an IO for the #{name.inspect} stream" do

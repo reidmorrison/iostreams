@@ -4,6 +4,7 @@ require_relative "../test_helper"
 require_relative "../http_server"
 require "socket"
 require "base64"
+require "csv"
 require "logger"
 require "openssl"
 
@@ -275,6 +276,15 @@ module Paths
               end
             end
             Net::HTTP.stub(:start, tracking) { yield(-> { open }) }
+          end
+
+          it "reads lines like an IO, as the response is read" do
+            start_server { |_path| TestHTTPServer.response(200, body: "a,b\n1,2\n") }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+
+            rows = path.reader { |io| CSV.new(io).to_a }
+
+            assert_equal [%w[a b], %w[1 2]], rows
           end
 
           it "keeps the connection open while the block reads, and closes it once the block returns" do

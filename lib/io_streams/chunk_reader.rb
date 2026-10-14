@@ -37,7 +37,80 @@ module IOStreams
 
     alias eof eof?
 
+    # Returns [String] the next line, ending with the separator, or the rest of the data, or nil at its end, like
+    # `IO#gets`, so that code that reads an IO a line at a time, such as `CSV.new(io)`, reads any stream.
+    #
+    # Like IO, a limit returns at most that many bytes, `chomp: true` removes the separator, the separator nil reads the
+    # rest of the data, and the separator "" reads paragraphs, which end at a blank line, skipping the line endings
+    # before each one and after the blank line that ends it.
+    def gets(separator = $/, limit = nil, chomp: false)
+      check_readable
+      if separator.is_a?(Integer)
+        limit     = separator
+        separator = $/
+      end
+      paragraph = separator == ""
+      separator = paragraph ? "\n\n".b : separator&.b
+      skip_line_endings if paragraph
+
+      line = read_line(separator, limit)
+      return if line.nil?
+
+      skip_line_endings if paragraph && line.end_with?(separator)
+      chomp && separator ? chomp_line(line, separator) : line
+    end
+
+    # Yields each line, see #gets, like `IO#each_line`. Returns self, or an Enumerator without a block.
+    def each_line(separator = $/, limit = nil, chomp: false)
+      return enum_for(__method__, separator, limit, chomp: chomp) unless block_given?
+
+      while (line = gets(separator, limit, chomp: chomp))
+        yield(line)
+      end
+      self
+    end
+
+    alias each each_line
+
     private
+
+    # Returns [String] the bytes up to and including the next separator, or up to the limit, or the rest of the data,
+    # or nil at its end, see #gets.
+    def read_line(separator, limit)
+      line = nil
+      while (limit.nil? || line.nil? || line.bytesize < limit) && available?
+        # A separator can start in the part of the line already read, and end in the chunk read now.
+        from = line ? [line.bytesize - (separator&.bytesize || 1) + 1, 0].max : 0
+        part = take(limit && (limit - (line&.bytesize || 0)))
+        line = line ? line << part : part
+        next unless separator && (index = line.byteindex(separator, from))
+
+        ending = index + separator.bytesize
+        # What follows the separator is all within the chunk read now, so it is left to be read next.
+        @chunk_offset -= line.bytesize - ending
+        return line.byteslice(0, ending)
+      end
+      line
+    end
+
+    # Returns [String] the line without the separator that ends it, like `IO#gets` with `chomp: true`, which also removes
+    # a "\r" before a "\n" separator, as `String#chomp` does.
+    def chomp_line(line, separator)
+      return line unless line.end_with?(separator)
+
+      size = separator == "\n" && line.end_with?("\r\n") ? 2 : separator.bytesize
+      line.byteslice(0, line.bytesize - size)
+    end
+
+    # Skips the line endings at the start of the rest of the data, such as the blank lines between paragraphs.
+    def skip_line_endings
+      while available?
+        start = @chunk.index(/[^\n]/n, @chunk_offset)
+        return @chunk_offset = start if start
+
+        @chunk_offset = @chunk.bytesize
+      end
+    end
 
     # Raises like an IO when it is closed, or the length is negative.
     def check_readable(length = nil)

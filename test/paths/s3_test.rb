@@ -117,6 +117,12 @@ module Paths
           assert_equal raw, existing_path.read
         end
 
+        it "reads lines like an IO, as the object is read" do
+          lines = existing_path.reader { |io| [io.gets, io.gets(chomp: true)] }
+
+          assert_equal raw.lines.first(2).map.with_index { |line, i| i.zero? ? line : line.chomp }, lines
+        end
+
         it "raises NotFound for a file that does not exist" do
           error = assert_raises(IOStreams::Errors::NotFound) { missing_path.read }
 
