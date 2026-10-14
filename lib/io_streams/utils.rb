@@ -26,6 +26,23 @@ module IOStreams
       redact_hash(options, sensitive_names.map { |name| normalize_option_name(name) })
     end
 
+    # Returns [Hash] the options of each stream, by its name, such as those supplied to `IOStreams::Stream#stream`, with
+    # the value of each sensitive option replaced with FILTERED, as the format that the block returns for the name of the
+    # stream decides, see `IOStreams::StreamFormat#redact_options`.
+    #
+    # Every value of a stream is replaced when the block returns nil, since no format can say which are sensitive, and
+    # options that are not a Hash are replaced whole, since they cannot say which of their values are sensitive. Options
+    # that are nil are kept.
+    def self.redact_streams(streams)
+      streams.to_h do |name, options|
+        next [name, options] if options.nil?
+        next [name, FILTERED] unless options.is_a?(Hash)
+
+        format = yield(name)
+        [name, format ? format.redact_options(options) : options.transform_values { FILTERED }]
+      end
+    end
+
     # Returns [true|false] whether the exception is a failure to look up a host name that does not resolve, such as a
     # mistyped host, so that the same request cannot succeed later. A temporary failure of name resolution
     # (`Socket::EAI_AGAIN`), which is how a DNS outage, or a network without DNS, is reported on Linux, is not.

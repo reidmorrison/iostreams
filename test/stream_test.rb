@@ -2446,6 +2446,38 @@ class StreamTest < Minitest::Test
         refute_includes str, "TOP-SECRET"
         assert_includes str, "a.csv.pgp"
       end
+
+      # Registers the tabular format :vault_rows, whose rows a format of its own reads and writes, as Parquet's are,
+      # with an option that holds a secret.
+      def with_vault_rows
+        reader = Class.new(IOStreams::Reader) do
+          def self.option_names = %i[api_key region]
+          def self.sensitive_option_names = %i[api_key]
+        end
+        writer = Class.new(IOStreams::Writer) { def self.option_names = %i[api_key region] }
+        format = Module.new { extend IOStreams::StreamFormat }
+        format.define_singleton_method(:reader_class) { reader }
+        format.define_singleton_method(:writer_class) { writer }
+        parser = Class.new(IOStreams::Tabular::Parser::Hash)
+        parser.define_singleton_method(:row_format) { format }
+        IOStreams::Tabular.register_format(:vault_rows, parser)
+        yield
+      ensure
+        IOStreams::Tabular.deregister_format(:vault_rows)
+      end
+
+      it "does not display an option of the rows of a tabular format that its format declares sensitive, as IOStreams.redact_stream_options does not" do
+        with_vault_rows do
+          [IOStreams.stream(StringIO.new), IOStreams.path("a.csv")].each do |stream|
+            str = stream.option(:vault_rows, api_key: "TOP-SECRET", region: "east").inspect
+
+            refute_includes str, "TOP-SECRET"
+            assert_includes str, "east"
+          end
+          assert_equal({vault_rows: {api_key: "[FILTERED]", region: "east"}},
+                       IOStreams.redact_stream_options(vault_rows: {api_key: "TOP-SECRET", region: "east"}))
+        end
+      end
     end
 
     describe "#setting" do

@@ -63,14 +63,16 @@ module IOStreams
   # Returns [Hash<Symbol:Hash>] the options of each stream, as supplied to `IOStreams::Path#stream`, with the value of
   # each sensitive option, such as a PGP passphrase, replaced with "[FILTERED]", so that they can be displayed.
   #
-  # Each stream's format decides which of its options are sensitive, see `IOStreams::StreamFormat#redact_options`.
-  # Every value of a stream whose format is not registered is replaced.
+  # Each stream's format decides which of its options are sensitive, see `IOStreams::StreamFormat#redact_options`, as
+  # it does for `#inspect`, including the format of the rows of a tabular format, such as `parquet:`, whose options
+  # `IOStreams::Path#option` also sets, see `IOStreams::Stream.stream_format`. Every value of a stream whose format is
+  # not registered is replaced.
   #
   # Example:
   #   IOStreams.redact_stream_options(pgp: {passphrase: "secret", recipient: "a@b.org"})
   #   # => {pgp: {passphrase: "[FILTERED]", recipient: "a@b.org"}}
   def self.redact_stream_options(streams)
-    Builder.redact_streams(streams)
+    Utils.redact_streams(streams) { |name| Stream.stream_format(name) }
   end
 
   # Returns [Class] the path class of the scheme of the supplied path or url, such as `IOStreams::Paths::SFTP`.

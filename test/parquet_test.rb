@@ -386,6 +386,37 @@ class ParquetTest < Minitest::Test
         assert_equal({compression: "gzip"}, copy.setting(:parquet))
       end
 
+      it "accepts the name of the format as a String, such as from configuration" do
+        assert_equal({compression: "zstd"}, path.option("parquet", compression: "zstd").setting("parquet"))
+      end
+
+      it "is set with #option_or_stream, whether or not streams were set" do
+        assert_equal({compression: "zstd"}, path.option_or_stream(:parquet, compression: "zstd").setting(:parquet))
+        assert_equal({compression: "zstd"}, path.stream(:gz).option_or_stream(:parquet, compression: "zstd").setting(:parquet))
+      end
+
+      it "is kept by #raw, which only changes how the bytes are stored" do
+        target = path.option(:parquet, compression: "zstd").raw
+
+        assert_equal({compression: "zstd"}, target.setting(:parquet))
+        assert_equal({compression: "gzip"}, target.option(:parquet, compression: "gzip").setting(:parquet))
+      end
+
+      it "cannot be changed on a frozen path, nor through the options that it returns" do
+        target = path.option(:parquet, compression: "zstd").freeze
+
+        assert_raises(FrozenError) { target.option(:parquet, compression: "gzip") }
+        assert_raises(FrozenError) { target.setting(:parquet)[:compression] = "gzip" }
+        assert_equal({compression: "zstd"}, target.setting(:parquet))
+      end
+
+      it "is cleared by #join and #directory, since it was set for the file of the original path" do
+        target = IOStreams.path(dir).option(:parquet, compression: "zstd")
+
+        assert_nil target.join("people.parquet").setting(:parquet)
+        assert_nil target.directory.setting(:parquet)
+      end
+
       it "is set with #stream as with #option, without stopping the streams taken from the file name" do
         target = path("people.parquet.gz").schema(schema).stream(:parquet, compression: "zstd")
         write(target)

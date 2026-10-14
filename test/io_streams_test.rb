@@ -702,6 +702,23 @@ module IOStreams
           assert_equal({pgp: "[FILTERED]"}, IOStreams.redact_stream_options(pgp: "secret"))
           assert_equal({pgp: "[FILTERED]"}, IOStreams.redact_stream_options(pgp: [[:passphrase, "secret"]]))
         end
+
+        it "replaces the sensitive options of the rows of a tabular format as its format decides, as #inspect does" do
+          assert_equal({parquet: {compression: "zstd"}}, IOStreams.redact_stream_options(parquet: {compression: "zstd"}))
+          assert_equal({parquet: {compression: "zstd"}, gz: {level: 1}}, IOStreams.redact_stream_options(parquet: {compression: "zstd"}, gz: {level: 1}))
+        end
+
+        it "replaces the options of a name that a registered extension takes as the extension decides, as #option does" do
+          reader = Class.new(IOStreams::Reader) do
+            def self.option_names = %i[compression]
+            def self.sensitive_option_names = %i[compression]
+          end
+          IOStreams.register_extension(:parquet, reader, nil)
+
+          assert_equal({parquet: {compression: "[FILTERED]"}}, IOStreams.redact_stream_options(parquet: {compression: "zstd"}))
+        ensure
+          IOStreams.deregister_extension(:parquet)
+        end
       end
 
       describe ".schemes" do

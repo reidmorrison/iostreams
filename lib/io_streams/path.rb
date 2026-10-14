@@ -16,13 +16,14 @@ module IOStreams
       raise(ArgumentError, "Path cannot be nil") if path.nil?
       raise(ArgumentError, "Path must be a string: #{path.inspect}, class: #{path.class}") unless path.is_a?(String)
 
-      @path           = path.frozen? ? path : path.dup.freeze
-      @io_stream      = nil
-      @builder        = nil
-      @format         = nil
-      @format_options = nil
-      @schema         = nil
-      @schema_source  = nil
+      @path             = path.frozen? ? path : path.dup.freeze
+      @io_stream        = nil
+      @builder          = nil
+      @tabular_settings = nil
+      @format           = nil
+      @format_options   = nil
+      @schema           = nil
+      @schema_source    = nil
     end
 
     # Returns [IOStreams::Path] a new path with the elements joined to this path.
@@ -374,7 +375,7 @@ module IOStreams
       str << " @builder=#{builder.streams.inspect}" if builder.streams
       str << " @options=#{builder.options.inspect}" if builder.options
       str << " @encoding=#{builder.setting(:encode).inspect}" if builder.setting(:encode)
-      str << " @row_options=#{builder.row_options.inspect}" if builder.row_options
+      str << @tabular_settings.inspect_fields if @tabular_settings
       str << " pipeline=#{builder.pipeline.inspect}>"
     end
 

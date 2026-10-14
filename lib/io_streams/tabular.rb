@@ -31,6 +31,7 @@ module IOStreams
   #   # => "1,,3"
   class Tabular
     autoload :Header, "io_streams/tabular/header"
+    autoload :Settings, "io_streams/tabular/settings"
 
     module Parser
       autoload :Array, "io_streams/tabular/parser/array"
