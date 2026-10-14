@@ -506,24 +506,12 @@ class PgpWriterTest < Minitest::Test
         Dir.mktmpdir do |dir|
           args_file       = ::File.join(dir, "args")
           passphrase_file = ::File.join(dir, "passphrase")
-          executable      = ::File.join(dir, "gpg")
-          ::File.write(executable, <<~SCRIPT)
-            #!/bin/sh
+          script          = <<~SCRIPT
             printf '%s\n' "$@" > "#{args_file}"
             cat <&#{IOStreams::Pgp::Writer::PASSPHRASE_FD} > "#{passphrase_file}"
             cat > /dev/null
           SCRIPT
-          ::File.chmod(0o700, executable)
-
-          # Resolve the version using the real gpg before swapping in the stub.
-          IOStreams::Pgp.pgp_version
-          original                  = IOStreams::Pgp.executable
-          IOStreams::Pgp.executable = executable
-          begin
-            yield(args_file, passphrase_file)
-          ensure
-            IOStreams::Pgp.executable = original
-          end
+          with_gpg_stub(script) { yield(args_file, passphrase_file) }
         end
       end
 

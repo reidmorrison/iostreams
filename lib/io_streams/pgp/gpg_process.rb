@@ -82,7 +82,7 @@ module IOStreams
         child     = child_ios(file, passphrases, captures)
 
         begin
-          @gpg = ::Process.detach(::Process.spawn(*command, child))
+          @gpg = ::Process.detach(Gpg.spawn(command, child))
         ensure
           # So that each pipe ends once gpg exits. The caller's file belongs to the caller.
           child.each_value { |io| io.close unless io.equal?(file) }

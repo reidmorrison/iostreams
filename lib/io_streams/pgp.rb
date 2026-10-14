@@ -51,7 +51,9 @@ module IOStreams
     end
 
     def self.executable=(executable)
-      @executable = executable
+      @executable  = executable
+      # The version is that of the executable, see .pgp_version.
+      @pgp_version = nil
     end
 
     @executable = "gpg"
@@ -183,7 +185,7 @@ module IOStreams
       args << "--gen-key"
       command = gpg_command(*args)
 
-      out, err, status = Open3.capture3(*command, binmode: true, stdin_data: stdin_data)
+      out, err, status = Gpg.capture3(command, binmode: true, stdin_data: stdin_data)
       # Do not log `params`, it contains the passphrase.
       IOStreams.logger&.debug { "IOStreams::Pgp.generate_key: #{command.shelljoin}\n#{err}#{out}" }
 
@@ -253,7 +255,7 @@ module IOStreams
       args += ["--", Gpg.user_id(email || key_id)] if email || key_id
       command = gpg_command(*args)
 
-      out, err, status = Open3.capture3(*command, binmode: true)
+      out, err, status = Gpg.capture3(command, binmode: true)
       IOStreams.logger&.debug { "IOStreams::Pgp.list_keys: #{command.shelljoin}\n#{err}#{out}" }
       if status.success?
         # An empty keyring lists nothing.
@@ -286,7 +288,7 @@ module IOStreams
       args << "--show-keys" if Gpg.version_at_least?("2.2.8")
       command = gpg_command(*args)
 
-      out, err, status = Open3.capture3(*command, binmode: true, stdin_data: key)
+      out, err, status = Gpg.capture3(command, binmode: true, stdin_data: key)
       IOStreams.logger&.debug { "IOStreams::Pgp.key_info: #{command.shelljoin}\n#{err}#{out}" }
 
       # Try parsing even if we get an error - some versions of GPG return non-zero status but still output key info
@@ -325,7 +327,7 @@ module IOStreams
       args += ["--", Gpg.user_id(email || key_id)]
       command = gpg_command(*args)
 
-      out, err, status = Open3.capture3(*command, binmode: true, stdin_data: passphrase.to_s)
+      out, err, status = Gpg.capture3(command, binmode: true, stdin_data: passphrase.to_s)
       IOStreams.logger&.debug { "IOStreams::Pgp.export: #{command.shelljoin}\n#{err}" }
 
       raise(Pgp::Failure, "GPG Failed reading key: #{email || key_id}: #{err}") unless status.success? && out.length.positive?
@@ -351,7 +353,7 @@ module IOStreams
     def self.import(key:)
       command = gpg_command("--batch", "--import")
 
-      out, err, status = Open3.capture3(*command, binmode: true, stdin_data: key)
+      out, err, status = Gpg.capture3(command, binmode: true, stdin_data: key)
       IOStreams.logger&.debug { "IOStreams::Pgp.import: #{command.shelljoin}\n#{err}#{out}" }
 
       # Handle both old and new versions of GPG
@@ -544,7 +546,7 @@ module IOStreams
 
       command          = gpg_command("--import-ownertrust")
       trust            = "#{fingerprint}:#{level + 1}:\n"
-      out, err, status = Open3.capture3(*command, stdin_data: trust)
+      out, err, status = Gpg.capture3(command, stdin_data: trust)
       IOStreams.logger&.debug { "IOStreams::Pgp.set_trust: #{command.shelljoin}\n#{err}#{out}" }
 
       raise(Pgp::Failure, "GPG Failed trusting key: #{err} #{out}") unless status.success?
@@ -555,28 +557,27 @@ module IOStreams
     # Internal: resolve an email address to a key fingerprint.
     # Public callers should identify keys by `key_id` (see #list_keys / #key_info).
     def self.fingerprint(email:)
-      command = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", Gpg.user_id(email))
-      Open3.popen2e(*command) do |_stdin, out, waith_thr|
-        output = out.read.chomp
-        if !waith_thr.value.success? && output !~ /(public key not found|No public key)/i
-          raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{output}")
-        end
-
-        output.each_line do |line|
-          if (match = line.match(/\Afpr.*::([^:]*):\Z/))
-            return match[1]
-          end
-        end
-        nil
+      command          = gpg_command("--list-keys", "--fingerprint", "--with-colons", "--", Gpg.user_id(email))
+      out, err, status = Gpg.capture3(command)
+      if !status.success? && err !~ /(public key not found|No public key)/i
+        raise(Pgp::Failure, "GPG Failed calling #{executable} to list keys for #{email}: #{err}#{out}".chomp)
       end
+
+      out.each_line do |line|
+        if (match = line.match(/\Afpr.*::([^:]*):\Z/))
+          return match[1]
+        end
+      end
+      nil
     end
     private_class_method :fingerprint
 
-    # Returns [String] the version of pgp currently installed
+    # Returns [String] the version of the gpg executable, see .executable, which is only found once for each executable.
+    # Raises Pgp::Failure when gpg fails, or cannot be run.
     def self.pgp_version
       @pgp_version ||= begin
         command          = gpg_command("--version")
-        out, err, status = Open3.capture3(*command)
+        out, err, status = Gpg.capture3(command)
         IOStreams.logger&.debug { "IOStreams::Pgp.version: #{command.shelljoin}\n#{err}#{out}" }
         raise(Pgp::Failure, "GPG Failed calling #{executable} --version: #{err}#{out}") unless status.success?
 
@@ -702,7 +703,7 @@ module IOStreams
         next unless key_id
 
         command          = gpg_command("--batch", "--no-tty", "--yes", "--delete-#{keys}", "--", key_id)
-        out, err, status = Open3.capture3(*command, binmode: true)
+        out, err, status = Gpg.capture3(command, binmode: true)
         IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{command.shelljoin}\n#{err}#{out}" }
 
         unless status.success?
@@ -719,7 +720,7 @@ module IOStreams
       # List the fingerprints, then delete each one. Previously this shelled out
       # to a `for` loop, which allowed shell injection via :email / :key_id.
       list_command        = gpg_command("--list-#{keys}", "--with-colons", "--fingerprint", "--", Gpg.user_id(email || key_id))
-      list_out, list_err, = Open3.capture3(*list_command, binmode: true)
+      list_out, list_err, = Gpg.capture3(list_command, binmode: true)
       IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{list_command.shelljoin}\n#{list_err}: #{list_out}" }
 
       return false if list_err =~ /(not found|no public key)/i
@@ -729,7 +730,7 @@ module IOStreams
 
       fingerprints.each do |fingerprint|
         command          = gpg_command("--batch", "--no-tty", "--yes", "--delete-#{keys}", "--", fingerprint)
-        out, err, status = Open3.capture3(*command, binmode: true)
+        out, err, status = Gpg.capture3(command, binmode: true)
         IOStreams.logger&.debug { "IOStreams::Pgp.delete_keys: #{command.shelljoin}\n#{err}: #{out}" }
 
         unless status.success?

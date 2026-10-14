@@ -126,13 +126,12 @@ end
 # Runs the block with a stub gpg executable that runs the supplied shell script instead of the real gpg.
 def with_gpg_stub(script)
   Dir.mktmpdir do |dir|
+    original   = IOStreams::Pgp.executable
     executable = File.join(dir, "gpg")
-    File.write(executable, "#!/bin/sh\n#{script}\n")
+    # The stub reports the version of the real gpg, which decides the arguments that IOStreams supplies to it.
+    File.write(executable, "#!/bin/sh\n[ \"$1\" = --version ] && exec #{original} --version\n#{script}\n")
     File.chmod(0o700, executable)
 
-    # Resolve the version using the real gpg before swapping in the stub.
-    IOStreams::Pgp.pgp_version
-    original                  = IOStreams::Pgp.executable
     IOStreams::Pgp.executable = executable
     begin
       yield

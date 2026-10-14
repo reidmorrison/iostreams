@@ -70,6 +70,25 @@ class PgpTest < Minitest::Test
         assert_match(/\A\d+\.\d+\.\d+\z/, IOStreams::Pgp.pgp_version)
       end
 
+      it "is the version of the executable that is set" do
+        installed = IOStreams::Pgp.pgp_version
+        Dir.mktmpdir do |dir|
+          executable = File.join(dir, "gpg")
+          File.write(executable, "#!/bin/sh\necho 'gpg (GnuPG) 9.8.7'\n")
+          File.chmod(0o700, executable)
+          original = IOStreams::Pgp.executable
+          begin
+            IOStreams::Pgp.executable = executable
+
+            assert_equal "9.8.7", IOStreams::Pgp.pgp_version
+          ensure
+            IOStreams::Pgp.executable = original
+          end
+        end
+
+        assert_equal installed, IOStreams::Pgp.pgp_version
+      end
+
       describe "from the output of gpg" do
         before { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
 
@@ -93,6 +112,56 @@ class PgpTest < Minitest::Test
           end
 
           assert_includes error.message, "gpg: failed"
+        end
+      end
+    end
+
+    describe "without gpg" do
+      let(:missing) { "iostreams-missing-gpg" }
+
+      # Runs the block with an executable that cannot be run. With a version, as if it had already been found, so that
+      # a call fails where it runs gpg, rather than where it finds the version of gpg.
+      def without_gpg(version = nil)
+        original                  = IOStreams::Pgp.executable
+        IOStreams::Pgp.executable = missing
+        IOStreams::Pgp.instance_variable_set(:@pgp_version, version) if version
+        yield
+      ensure
+        IOStreams::Pgp.executable = original
+      end
+
+      def assert_cannot_run(label, &block)
+        error = assert_raises(IOStreams::Pgp::Failure, label.to_s, &block)
+
+        assert_match(/\AGPG Failed to run the gpg executable "#{missing}": .+\. Install GnuPG, or set IOStreams::Pgp\.executable to the gpg executable\z/,
+                     error.message)
+        assert_kind_of SystemCallError, error.cause
+      end
+
+      it "raises Pgp::Failure for the version, naming the executable" do
+        IOStreams::Pgp.pgp_version
+
+        without_gpg { assert_cannot_run(:pgp_version) { IOStreams::Pgp.pgp_version } }
+      end
+
+      it "raises Pgp::Failure for every call that runs gpg, naming the executable" do
+        calls = {
+          generate_key:        -> { IOStreams::Pgp.generate_key(name: user_name, email: email, passphrase: nil, key_length: 1024) },
+          list_keys:           -> { IOStreams::Pgp.list_keys },
+          key?:                -> { IOStreams::Pgp.key?(email: email) },
+          key_info:            -> { IOStreams::Pgp.key_info(key: "KEY") },
+          export:              -> { IOStreams::Pgp.export(email: email) },
+          import:              -> { IOStreams::Pgp.import(key: "KEY") },
+          set_trust:           -> { IOStreams::Pgp.set_trust(email: email) },
+          set_trust_by_key_id: -> { IOStreams::Pgp.set_trust(key_id: "ABCDEF") },
+          delete_keys:         -> { IOStreams::Pgp.delete_keys(email: email) },
+          read:                -> { IOStreams.stream(StringIO.new("data")).stream(:pgp).read },
+          read_with_signer:    -> { IOStreams.stream(StringIO.new("data")).stream(:pgp, signer: email).read },
+          write:               -> { IOStreams.stream(StringIO.new(+"")).stream(:pgp, recipient: email).write("data") }
+        }
+        version = IOStreams::Pgp.pgp_version
+        without_gpg(version) do
+          calls.each_pair { |label, call| assert_cannot_run(label, &call) }
         end
       end
     end
