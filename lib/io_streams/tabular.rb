@@ -44,6 +44,10 @@ module IOStreams
 
     attr_reader :format, :header, :parser, :schema
 
+    # The default of the `cleanse_header` option of a reader, and of `cleanse:`, which cleanses the header row without a
+    # schema, see #header_cleansing. Distinct from nil, which does not cleanse it, as before.
+    CLEANSE_BY_DEFAULT = :default
+
     # Parse a delimited data source.
     #
     # Parameters
@@ -138,13 +142,14 @@ module IOStreams
     end
 
     # Returns [true|false|nil] whether a reader cleanses the header row, see `IOStreams::Tabular::Header#cleanse!`, for
-    # its `cleanse_header` option, which is deprecated: true unless it is false, or nil with a schema, whose fields
-    # name the keys of each record instead, see #field_names?.
+    # its `cleanse_header` option, which is deprecated: true when it is not supplied, otherwise whether it is truthy, or
+    # nil with a schema, whose fields name the keys of each record instead, see #field_names?.
     #
     # Raises ArgumentError when the option is supplied with a schema, since it would have no effect.
     def header_cleansing(cleanse_header)
-      return cleanse_header != false unless field_names?
-      return if cleanse_header.nil?
+      default = cleanse_header.equal?(CLEANSE_BY_DEFAULT)
+      return default || (cleanse_header ? true : false) unless field_names?
+      return if default
 
       raise(ArgumentError, "cleanse_header: cannot be supplied with a schema, since the keys of its records are the " \
                            "names of its fields, which the columns of the header row are matched to, see " \
@@ -257,8 +262,8 @@ module IOStreams
     # `IOStreams.enforce_column_restrictions?`, they are only applied to a header row that is cleansed, and otherwise
     # a warning is logged, once, when applying them would change the result.
 
-    # Parses the header row, then cleanses its columns unless `cleanse` is false, otherwise applies the column
-    # restrictions to them as they are, see #restrict_columns.
+    # Parses the header row, then cleanses its columns when `cleanse` is not supplied, or is truthy, otherwise applies the
+    # column restrictions to them as they are, see #restrict_columns.
     #
     # With a schema, matches its columns to the fields instead, see `IOStreams::Schema::Columns#match`, so `cleanse`
     # cannot be supplied.
@@ -266,11 +271,11 @@ module IOStreams
     # Returns [Array] the header row as read, before it is cleansed, or with a schema, the names of the fields of its
     # columns, in the order of the fields.
     # Returns nil when the line is blank, or the format does not have a header row.
-    def read_header(line, cleanse: nil)
+    def read_header(line, cleanse: CLEANSE_BY_DEFAULT)
       return match_header(line, cleanse) if @columns
 
       columns = parse_header(line)
-      cleanse == false ? restrict_columns(rename: false) : header.cleanse!
+      cleanse ? header.cleanse! : restrict_columns(rename: false)
       columns
     end
 
@@ -398,7 +403,8 @@ module IOStreams
 
     # Returns [Array] the names of the fields of the columns of the header row, see #read_header.
     def match_header(line, cleanse)
-      if field_names? && !cleanse.nil?
+      # A reader supplies nil, which #header_cleansing returns with a schema.
+      if field_names? && !(cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT))
         raise(ArgumentError, "cleanse: cannot be supplied with a schema, since the keys of its records are the names of " \
                              "its fields, which the columns of the header row are matched to")
       end

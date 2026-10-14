@@ -1483,6 +1483,16 @@ class StreamTest < Minitest::Test
           end
         end
 
+        it "keep cleanse_header: nil meaning not to cleanse the header row, as before it was deprecated" do
+          [[{}, "first_name"], [{cleanse_header: true}, "first_name"], [{cleanse_header: false}, "First Name"],
+           [{cleanse_header: nil}, "First Name"]].each do |options, key|
+            rows = []
+            IOStreams::Stream.new(StringIO.new("First Name\nJack\n")).file_name("a.csv").each(:hash, **options) { |row| rows << row }
+
+            assert_equal [{key => "Jack"}], rows, options.inspect
+          end
+        end
+
         it "still apply without a schema, and to the layout of the deprecated format options" do
           rows = []
           IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").each(:hash, allowed_columns: %w[id]) { |row| rows << row }

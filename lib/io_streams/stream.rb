@@ -672,7 +672,7 @@ module IOStreams
     #
     # The lines are split where the format that parses them expects, so that for example a newline within
     # a quoted CSV value stays within its row, including when CSV is the default format.
-    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: nil, **args)
+    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
@@ -683,7 +683,7 @@ module IOStreams
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: nil, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|

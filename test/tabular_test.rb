@@ -953,8 +953,9 @@ class TabularTest < Minitest::Test
         tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
 
         assert_predicate tabular, :field_names?
-        assert_nil tabular.header_cleansing(nil)
+        assert_nil tabular.header_cleansing(IOStreams::Tabular::CLEANSE_BY_DEFAULT)
         assert_raises(ArgumentError) { tabular.header_cleansing(true) }
+        assert_raises(ArgumentError) { tabular.header_cleansing(nil) }
         assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
       end
 
@@ -970,7 +971,8 @@ class TabularTest < Minitest::Test
         fixed  = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: ["id"], allowed_columns: nil, skip_unknown: false)
 
         refute_predicate fixed, :field_names?
-        assert fixed.header_cleansing(nil)
+        assert fixed.header_cleansing(IOStreams::Tabular::CLEANSE_BY_DEFAULT)
+        refute fixed.header_cleansing(nil)
         assert_equal({"id" => 7}, fixed.record_parse("07x"))
         assert_equal "07 ", fixed.render({id: 7, code: "x"})
       end

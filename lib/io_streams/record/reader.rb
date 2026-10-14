@@ -58,7 +58,7 @@ module IOStreams
       # Note:
       # * `allowed_columns`, `required_columns` and `skip_unknown` apply to every input, including JSON records,
       #   supplied `columns` and `cleanse_header: false`, unless `IOStreams.enforce_column_restrictions?` is false.
-      def self.stream(line_reader, original_file_name: nil, cleanse_header: nil, **args)
+      def self.stream(line_reader, original_file_name: nil, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
         # Pass-through if already a record reader
         return yield(line_reader) if line_reader.is_a?(self)
 
@@ -68,7 +68,8 @@ module IOStreams
 
       # When reading from a file also add the line reader stream, which splits the lines where the format expects,
       # such as within a quoted CSV value. See `.stream` for the parameters.
-      def self.file(file_name, original_file_name: file_name, delimiter: $/, cleanse_header: nil, **args)
+      def self.file(file_name, original_file_name: file_name, delimiter: $/,
+                    cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
         tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
         IOStreams::Line::Reader.file(file_name, delimiter: delimiter, embedded_within: tabular.quote_character) do |io|
           yield new(io, tabular: tabular, cleanse_header: cleanse_header)
@@ -89,7 +90,7 @@ module IOStreams
       #     keys of the records are the names of its fields instead, so it raises ArgumentError, see
       #     `IOStreams::Tabular#header_cleansing`.
       #     Default: true
-      def initialize(line_reader, tabular:, cleanse_header: nil)
+      def initialize(line_reader, tabular:, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
