@@ -284,6 +284,7 @@ module IOStreams
       # - No stream conversions are applied.
       def move_to(target_path)
         target = to_stream(target_path)
+        reject_move_onto_itself!(target)
         copy_to(target, convert: false)
         delete
         target

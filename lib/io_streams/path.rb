@@ -211,10 +211,14 @@ module IOStreams
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
     #
+    # Raises ArgumentError when the target is the same location as this path, see #same_location?, since the file
+    # would be deleted once it was copied onto itself.
+    #
     # Notes:
     # - Currently only supports moving individual files, not directories.
     def move_to(target_path)
       target = to_stream(target_path)
+      reject_move_onto_itself!(target)
       target.mkpath
       target.copy_from(self, convert: false)
       delete
@@ -388,6 +392,13 @@ module IOStreams
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
     attr_writer :path
 
+    # Returns [true|false] whether the other path is the same location as this one, such as the same file, see
+    # #move_to. Paths with the same full name are, see #==, and each path class also detects the other names of a
+    # location that it can tell without a request, such as an SFTP url with its default port.
+    def same_location?(other)
+      self == other
+    end
+
     # Returns [true|false] whether the other path is in the same store as this one, so that their names can be
     # compared, see #relative_path_from.
     def same_store?(other)
@@ -471,6 +482,13 @@ module IOStreams
         end
       end
       "/#{segments.join('/')}".force_encoding(name.encoding)
+    end
+
+    # Raises ArgumentError when the target is the same location as this path, see #same_location?.
+    def reject_move_onto_itself!(target)
+      return unless same_location?(target)
+
+      raise(ArgumentError, "Cannot move #{display_name} onto itself, as #{target.display_name}: it would delete the file")
     end
 
     # Returns [true|false] whether a child found by `#each_child` is within the allowed paths, logging it when it is not.

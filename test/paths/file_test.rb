@@ -553,6 +553,34 @@ module Paths
           end
         end
 
+        it "raises ArgumentError for a target that is the same file, by any name, and keeps the file" do
+          source = directory.join("same.txt")
+          source.write(data)
+          ::File.symlink(source.to_s, directory.join("link.txt").to_s)
+
+          Dir.chdir(directory.to_s) do
+            [source, source.to_s, directory.join(".", "same.txt"), "same.txt", directory.join("link.txt")].each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move #{source.display_name} onto itself"
+            end
+          end
+
+          assert_equal data, source.read
+        end
+
+        it "raises ArgumentError for a target that is a directory, and keeps the file" do
+          source = directory.join("file.txt")
+          source.write(data)
+          target = directory.join("archive").mkdir
+
+          error = assert_raises(ArgumentError) { source.move_to(target) }
+
+          assert_includes error.message, "Cannot move #{source.display_name} onto the directory #{target.display_name}"
+          assert_equal data, source.read
+          assert_empty target.children
+        end
+
         it "missing target directories" do
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             temp_file.write("Hello World")

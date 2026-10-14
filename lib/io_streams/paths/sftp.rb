@@ -295,6 +295,15 @@ module IOStreams
       # Paths on the same host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [hostname.to_s.downcase, port]
 
+      # Returns [true|false] whether the other path is the same file, see `IOStreams::Path#same_location?`, also by
+      # another spelling: in the same store, see #store, whatever the case of the host, or whether the default port is
+      # written, and with the same path once `.`, `..` and repeated `/` are resolved, as the server resolves them. A path
+      # within the login directory is only the same for the same user, whose login directory it is.
+      def same_location?(other)
+        other.instance_of?(self.class) && other.store == store && normalize_path(other.path) == normalize_path(path) &&
+          (!path.start_with?("~") || other.username == username)
+      end
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
       # Each `%`, `?` and `#` in the path is percent-encoded in the url, so that the path can be created again from

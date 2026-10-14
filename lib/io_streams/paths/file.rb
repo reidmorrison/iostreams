@@ -178,16 +178,22 @@ module IOStreams
         nil
       end
 
-      # Moves this file to the `target_path` by copying it to the new name and then deleting the current file.
+      # Moves this file to the `target_path`, renaming it, or copying it when the target is on another file system.
       #
-      # Notes:
-      # - Can copy across buckets.
+      # Raises ArgumentError when the target is the same file, see #same_location?, or is a directory, since another
+      # path cannot move a file onto a directory either.
       def move_to(target_path)
         target = to_stream(target_path)
         return super(target) unless target.is_a?(self.class)
 
         authorize!
         target.authorize!
+        reject_move_onto_itself!(target)
+        if ::File.directory?(target.path)
+          raise(ArgumentError, "Cannot move #{display_name} onto the directory #{target.display_name}: supply the name " \
+                               "of the file within it, such as #{target.join(basename).display_name}")
+        end
+
         target.mkpath
         # The target failed when its directory cannot be written to, otherwise this file did.
         failed = ::File.writable?(::File.dirname(target.to_s)) ? self : target
@@ -268,6 +274,14 @@ module IOStreams
         real      = dup
         real.path = tag_failure { ::File.realpath(path) }
         real
+      end
+
+      protected
+
+      # Returns [true|false] whether the other path is the same file, see `IOStreams::Path#same_location?`, also by
+      # another name, such as a relative name, one with `.` or `..`, or a symbolic link to it, when both exist.
+      def same_location?(other)
+        super || (other.instance_of?(self.class) && ::File.identical?(path, other.path))
       end
 
       private

@@ -454,6 +454,21 @@ module Paths
           end
         end
 
+        it "raises ArgumentError for a target that is the same object, and keeps it" do
+          source = root_path.join("move_test_source.txt")
+          source.write("Hello World")
+
+          # With options that S3 accepts for a copy of an object onto itself, such as another storage class.
+          [source, source.to_s, IOStreams.path(source.to_s, storage_class: "STANDARD_IA")].each do |target|
+            error = assert_raises(ArgumentError) { source.move_to(target) }
+
+            assert_includes error.message, "Cannot move #{source.display_name} onto itself"
+          end
+          assert_equal "Hello World", source.read
+        ensure
+          source&.delete
+        end
+
         it "moves to a local file" do
           source = root_path.join("move_test_source.txt")
           Dir.mktmpdir do |dir|

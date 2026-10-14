@@ -1428,6 +1428,30 @@ module Paths
             assert_equal body, request[:body]
           end
 
+          it "raises ArgumentError for a target that is the same url, by any spelling, without a request" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            source  = IOStreams.path("http://localhost:#{@server.port}/files/file.txt")
+            targets = [
+              source, source.to_s, "http://LOCALHOST:#{@server.port}/files/./a/../file.txt",
+              "http://localhost:#{@server.port}/files/file%2Etxt"
+            ]
+
+            targets.each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move #{source.display_name} onto itself"
+            end
+            assert_empty @server.requests
+          end
+
+          it "moves to the same path with another query, which can be another file" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            IOStreams.path("#{@server.base_url}/file.txt?version=1").move_to("#{@server.base_url}/file.txt?version=2")
+
+            assert_equal(%w[GET PUT DELETE], @server.requests.map { |request| request[:method] })
+          end
+
           it "downloads the file and then deletes it" do
             start_server { |_path| TestHTTPServer.response(200, body: body) }
 

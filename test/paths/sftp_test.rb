@@ -1265,6 +1265,43 @@ module Paths
         end
       end
 
+      describe "#move_to" do
+        # Runs the block with a stand-in for the sftp program, which succeeds, and for Net::SFTP, whose session deletes
+        # the supplied files. Yields the session.
+        def with_stub_sftp_and_net_sftp(files, &)
+          session   = StubDeleteSession.new(files, [], nil)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*, &block| block.call(session) }
+          status = Struct.new(:value).new(Struct.new(:success?).new(true))
+          popen  = ->(*_args, &block) { block.call(StringIO.new, StringIO.new(""), status) }
+
+          Open3.stub(:popen2e, popen) { StubNetSFTP.replace(stub_sftp) { yield(session) } }
+        end
+
+        it "raises ArgumentError for a target that is the same file, by any spelling, without connecting" do
+          source = new_path("sftp://example.org/data/a.csv", username: "jack")
+
+          Open3.stub(:popen2e, ->(*) { flunk "The sftp program must not be run" }) do
+            [source, source.to_s, "sftp://EXAMPLE.org:22/data/./in/../a.csv", "sftp://jill@example.org//data/a.csv"].each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move sftp://example.org/data/a.csv onto itself"
+            end
+          end
+        end
+
+        it "moves a file within the login directory to the same name for another user, whose login directory it is" do
+          source = new_path("sftp://example.org/~/a.csv", username: "jack")
+          target = new_path("sftp://example.org/~/a.csv", username: "jill")
+
+          with_stub_sftp_and_net_sftp(["a.csv"]) do |session|
+            assert_same target, source.move_to(target)
+            assert_equal [[:remove, "a.csv"]], session.deleted
+          end
+        end
+      end
+
       describe "#each_child" do
         # Minimal stand-in for Net::SFTP. Records the options supplied to `start`, and the directories listed.
         # Calls `on_start` with the arguments of `start`, while they are in use, such as a temp file that they name.

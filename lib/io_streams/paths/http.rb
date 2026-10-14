@@ -211,6 +211,15 @@ module IOStreams
       # Urls with the same scheme, host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [original_uri.scheme, original_uri.hostname.to_s.downcase, original_uri.port]
 
+      # Returns [true|false] whether the other url is the same file, see `IOStreams::Path#same_location?`, also by
+      # another spelling: in the same store, see #store, whatever the case of the host, or whether the default port is
+      # written, and with the same path once it is decoded and `.` and `..` resolved, as most web servers resolve them.
+      # The query must be the same, since it can name another file.
+      def same_location?(other)
+        other.instance_of?(self.class) && other.store == store && normalize_path(other.path) == normalize_path(path) &&
+          URI.parse(other.url).query == original_uri.query
+      end
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
       # Each directory or file name that is unchanged keeps its encoding from the url, so that for example the
