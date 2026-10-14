@@ -1680,12 +1680,47 @@ class StreamTest < Minitest::Test
         assert_equal [{"amount" => BigDecimal("12345678901234567.89")}], read(written, file_name: "people.json", schema: schema)
       end
 
-      it "reads a JSON line of null as nil, as rows and as records" do
+      it "reads a JSON line of null, or of a record without keys, as nil, as rows and as records" do
         schema = {fields: [{name: "id", type: "integer"}]}
-        json   = %({"id":1}\nnull\n{"id":2}\n)
+        json   = %({"id":1}\nnull\n{"id":2}\n{}\n)
 
-        assert_equal [{"id" => 1}, nil, {"id" => 2}], read(json, :array, file_name: "people.json", schema: schema)
-        assert_equal [{"id" => 1}, nil, {"id" => 2}], read(json, file_name: "people.json", schema: schema)
+        assert_equal [[1], nil, [2], nil], read(json, :array, file_name: "people.json", schema: schema)
+        assert_equal [{"id" => 1}, nil, {"id" => 2}, nil], read(json, file_name: "people.json", schema: schema)
+      end
+
+      it "reads each JSON row as the value of every field, in order, without a header row, nil for a key that its record does not have" do
+        superset = people.merge(fieldsMatch: "superset")
+        json     = %({"active":"1","id":"0042"}\n{"pay":12.5,"joined":"2026-10-13","id":7,"active":false}\n)
+
+        assert_equal [[42, nil, nil, true], [7, BigDecimal("12.5"), Date.new(2026, 10, 13), false]],
+                     read(json, :array, file_name: "people.json", schema: superset)
+        refute IOStreams::Stream.new(StringIO.new(json)).file_name("people.json").schema(superset).reader(:array, &:header?)
+      end
+
+      it "matches the keys of each JSON record read as a row to the fields, as for records" do
+        json = %({"id":1,"pay":2,"joined":"2026-10-13","active":true,"name":"Jack"}\n)
+
+        assert_equal [[1, BigDecimal("2"), Date.new(2026, 10, 13), true]], read(json, :array, file_name: "people.json", schema: people.merge(fieldsMatch: "subset"))
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { read(json, :array, file_name: "people.json") }
+        assert_match(/\AThe keys of a record do not match the schema: the key "name" is not a field/, error.message)
+
+        required = {fieldsMatch: "superset", fields: [{name: "id", type: "integer"}, {name: "name", constraints: {required: true}}]}
+        error    = assert_raises(IOStreams::Errors::InvalidHeader) { read(%({"id":1}\n), :array, file_name: "people.json", schema: required) }
+        assert_match(/missing the required field "name"/, error.message)
+      end
+
+      it "copies the rows of JSON into a file with a header row of the names of the fields, and into JSON again" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "people.json").schema(people)
+          source.write(%({"active":true,"joined":"2026-10-13","pay":12.5,"id":"0042"}\n))
+          IOStreams.path(dir, "people.csv").copy_from(source, mode: :array)
+          IOStreams.path(dir, "copy.json").schema(people).copy_from(source, mode: :array)
+          IOStreams.path(dir, "plain.json").copy_from(source, mode: :array)
+
+          assert_equal "id,pay,joined,active\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "people.csv").read
+          assert_equal %({"id":42,"pay":12.50,"joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "copy.json").read
+          assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "plain.json").read
+        end
       end
 
       it "raises for a value after the last column, such as one after a comma that is not quoted" do

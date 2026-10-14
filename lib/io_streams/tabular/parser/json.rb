@@ -55,26 +55,25 @@ module IOStreams
           @decimal_keys = {} if schema&.decimals?
         end
 
-        # Returns [Hash] the record of the line.
+        # Returns [Hash] the record of the line, or nil for a line of `null`, which is a blank line. Returns the record or
+        # row supplied, a Hash, or an Array that is already parsed, as it is, see `IOStreams::Tabular#record_parse`.
         #
         # With a schema that has a number field that keeps every digit, see `IOStreams::Schema#decimals?`, the numbers
         # of its column are read as BigDecimals, with every digit of their text, rather than through a Float, which keeps
         # about 16. Every other number is still a Float, the same as without a schema.
+        #
+        # Raises `IOStreams::Errors::TypeMismatch` for a line that is not an object, such as `[1,2]` or `5`, since only an
+        # object has the keys that name its values.
         def parse(row)
-          return row if row.is_a?(::Hash)
+          return row if row.is_a?(::Hash) || row.is_a?(::Array)
 
           raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
-          return JSON.parse(row) unless @decimal_keys
 
-          values = JSON.parse(row, decimal_class: ::BigDecimal)
-          return floats(values) unless values.is_a?(::Hash)
+          values = @decimal_keys ? parse_decimals(row) : JSON.parse(row)
+          return values if values.nil? || values.is_a?(::Hash)
 
-          values.each_pair do |key, value|
-            next unless value.is_a?(::BigDecimal) || value.is_a?(::Array) || value.is_a?(::Hash)
-
-            values[key] = floats(value) unless decimal_key?(key)
-          end
-          values
+          raise(IOStreams::Errors::TypeMismatch, "Each line of the :json format must be an object, whose keys name its " \
+                                                 "values, rather than #{values.class.name}")
         end
 
         # Returns [String] the record, by the names of its columns, as a single line JSON string.
@@ -90,6 +89,20 @@ module IOStreams
         end
 
         private
+
+        # Returns the value of the line, with the numbers of each key that is the column of a number field that keeps
+        # every digit as BigDecimals, and every other number as a Float, see #parse.
+        def parse_decimals(line)
+          values = JSON.parse(line, decimal_class: ::BigDecimal)
+          return values unless values.is_a?(::Hash)
+
+          values.each_pair do |key, value|
+            next unless value.is_a?(::BigDecimal) || value.is_a?(::Array) || value.is_a?(::Hash)
+
+            values[key] = floats(value) unless decimal_key?(key)
+          end
+          values
+        end
 
         # Returns [true|false] whether the key is the column of a number field that keeps every digit, worked out once
         # for each key, see `IOStreams::Schema#field_for`.

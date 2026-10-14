@@ -5,8 +5,9 @@ module IOStreams
     # Maps the columns of a file to the fields of its schema, see `IOStreams::Tabular::Mapping`: the columns of its header
     # row, or the keys of each record of a format of keyed records, such as JSON, are matched to the fields once, see
     # `IOStreams::Schema::Columns`, which converts the values of each row and record read to the types of the fields, by
-    # their names, and renders those written. The columns of a file without a header row are the fields, in order, see
-    # `IOStreams::Schema#header?`.
+    # their names, and renders those written. The columns of the rows of a file without a header row are the fields, in
+    # order, see `IOStreams::Schema#header?`, including those of a format whose records supply their own keys, whose rows
+    # are the values of every field of each record.
     #
     # The column options of a file without a schema do not apply, since the schema describes the columns, see
     # `IOStreams::Tabular.new`. The header keeps the header row as it was read, so that another Tabular with the same
@@ -32,11 +33,11 @@ module IOStreams
         @keyed           = parser.class.keyed?
         @form            = parser.class.value_form
         # The columns of the rows of a file without a header row are the fields, in order: of a format with one whose
-        # schema says that it has none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one whose
-        # rows are the values in order, such as fixed width.
+        # schema says that it has none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one, such
+        # as fixed width, or JSON, whose rows are the values of the fields of its records.
         if parser.requires_header?
           @columns.match_fields unless schema.header?
-        elsif !@keyed
+        else
           @columns.match_in_order
         end
       end
@@ -60,7 +61,7 @@ module IOStreams
 
       # Returns [Array<String|Symbol>] the names of the fields of a file without a header row, which are the columns of
       # its rows, see `IOStreams::Tabular#headerless_columns`.
-      # Returns nil for a file with a header row, or a format whose records supply their own keys.
+      # Returns nil for a file with a header row.
       def headerless_columns
         @columns.names if @columns.matched? && !@requires_header
       end
@@ -120,17 +121,19 @@ module IOStreams
         nil
       end
 
-      # Returns [Array] the values of the fields of the line, converted to their types, in the order of the fields, or
-      # the record of a format whose records supply their own keys, such as JSON, see `IOStreams::Schema::Columns`.
+      # Returns [Array] the values of the fields of the line, converted to their types, in the order of the fields: of
+      # its columns, or, for a format whose records supply their own keys, such as JSON, of every field, nil for a key
+      # that its record does not have, see `IOStreams::Schema::Columns#read_row`.
       # Returns nil if the line is blank.
       def row_parse(line)
         values = parse_values(line)
         return if values.nil?
 
-        values.is_a?(::Hash) ? @columns.read_hash(values) : @columns.row(values)
+        values.is_a?(::Hash) ? @columns.read_row(values) : @columns.row(values)
       end
 
-      # Returns [Hash] the record of the line, converted to the types of the fields, by the names of the fields.
+      # Returns [Hash] the record of the line, converted to the types of the fields, by the names of the fields. The
+      # record of a row already read, an Array, is by the columns of the rows, see #row_parse.
       # Returns nil if the line is blank.
       def record_parse(line)
         values = parse_values(line)
@@ -194,16 +197,11 @@ module IOStreams
         [columns, names]
       end
 
-      # Returns [Array|Hash] the values of the line, or nil when it is blank.
-      #
-      # Raises `IOStreams::Errors::TypeMismatch` when a line of a format of keyed records, such as JSON, is not a record,
-      # since the schema cannot tell which field each of its values is.
+      # Returns [Array|Hash] the values of the line, or nil when it is blank, including a record without keys, such as a
+      # JSON line of `{}`, which has no value for any field, like a JSON line of `null`.
       def parse_values(line)
         values = parse(line)
-        return values if values.nil? || values.is_a?(::Hash) || !@keyed
-
-        raise(IOStreams::Errors::TypeMismatch, "With a schema, each line of the #{@format.inspect} format must be a record, " \
-                                               "whose keys are its columns, rather than #{values.class.name}")
+        values unless IOStreams::Utils.blank?(values)
       end
     end
   end

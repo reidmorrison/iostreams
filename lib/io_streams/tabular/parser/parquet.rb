@@ -12,8 +12,10 @@ module IOStreams
           IOStreams::Parquet
         end
 
+        # Returns [Hash] the record supplied, or the row supplied, an Array that is already parsed, as it is, see
+        # `IOStreams::Tabular#record_parse`.
         def parse(row)
-          return row if row.is_a?(::Hash)
+          return row if row.is_a?(::Hash) || row.is_a?(::Array)
 
           raise(IOStreams::Errors::TypeMismatch, "Format is :parquet. Invalid input: #{row.class.name}")
         end

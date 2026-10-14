@@ -31,10 +31,14 @@ module IOStreams
         # and the number of columns of that header row.
         @written       = nil
         @written_width = nil
-        # The plans of the records read and written, by their keys, and the keys and plan of the last of each.
+        # The plans of the records read, of the rows of the records read, and of the records written, by their keys, and
+        # the keys and plan of the last of each.
         @read_plans  = {}
         @read_keys   = nil
         @read_plan   = nil
+        @row_plans   = {}
+        @row_keys    = nil
+        @row_plan    = nil
         @write_plans = {}
         @write_keys  = nil
         @write_plan  = nil
@@ -64,9 +68,10 @@ module IOStreams
         match_in_order
       end
 
-      # Matches the columns of the rows of a format without a header row, such as fixed width, which are the fields,
-      # in order, whatever `fieldsMatch` is, since it applies to the columns of the file, which the format already
-      # matches, such as by the position of each field of a fixed width file.
+      # Matches the columns of the rows of a format without a header row, such as fixed width or JSON, which are the
+      # fields, in order, whatever `fieldsMatch` is, since it applies to the columns of the file, which the format
+      # matches itself: by the position of each field of a fixed width file, or by the keys of each record of JSON,
+      # see #read_row.
       def match_in_order
         @matched = @schema.fields.each_with_index.to_a
         @width   = @matched.size
@@ -134,6 +139,18 @@ module IOStreams
         record = {}
         read_plan(hash.keys).each { |field, key| record[field.name] = field.cast(hash[key]) }
         record
+      end
+
+      # Returns [Array] the value of each field, in the order of the fields, from a record read, whose keys are its
+      # columns, converted to the type of each field, or nil for a field that it does not have, so that the record is a
+      # row of the fields, see #match_in_order. Its keys are matched to the fields as for #read_hash.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` when its keys do not match the fields, see
+      # `IOStreams::Schema#check_columns`.
+      def read_row(hash)
+        keys = hash.keys
+        plan = keys.eql?(@row_keys) ? @row_plan : row_plan(keys)
+        plan.map { |field, key| key.nil? ? nil : field.cast(hash[key]) }
       end
 
       # Returns [Array|Hash] the value of each field of the schema, in order, in the form that the format writes it, see
@@ -237,6 +254,19 @@ module IOStreams
         end
         @read_keys = keys
         @read_plan
+      end
+
+      # Returns [Array<Array(IOStreams::Schema::Field, Object)>] each field of the schema, in order, with the key of a
+      # record read that supplies it, see #read_plan, or nil when the record does not, worked out once for each list of
+      # keys. A key is never nil, since no field is the column nil, see `IOStreams::Schema#field_for`.
+      def row_plan(keys)
+        @row_plan = @row_plans.fetch(keys) do
+          supplied = read_plan(keys).to_h
+          @row_plans.clear if @row_plans.size >= PLANS
+          @row_plans[keys] = @schema.fields.map { |field| [field, supplied[field]] }
+        end
+        @row_keys = keys
+        @row_plan
       end
 
       # Returns [Array<Array(IOStreams::Schema::Field, Object, Integer)>] each field of the schema, in order, with the key

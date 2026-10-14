@@ -188,7 +188,16 @@ module Tabular
           assert_equal %({"id":1,"pay":2.50}), mapping(:json).render({"pay" => "2.5", "ID" => "1"})
 
           error = assert_raises(IOStreams::Errors::TypeMismatch) { mapping(:json).row_parse("[1,2.5]") }
-          assert_match(/\AWith a schema, each line of the :json format must be a record/, error.message)
+          assert_match(/\AEach line of the :json format must be an object/, error.message)
+        end
+
+        it "reads the row of each record of a format whose records supply their own keys as the value of every field, in order" do
+          json = mapping(:json, schema: IOStreams::Schema.new(fields: schema.fields.map { |field| {name: field.name} }, fieldsMatch: "superset"))
+
+          refute_predicate json, :header?
+          assert_equal %w[id pay], json.headerless_columns
+          assert_equal [nil, "2.5"], json.row_parse(%({"PAY":"2.5"}))
+          assert_equal({"id" => 1, "pay" => "2.5"}, json.record_parse([1, "2.5"]))
         end
       end
 

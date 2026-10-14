@@ -951,9 +951,23 @@ class TabularTest < Minitest::Test
         row   = %w[07 abc]
 
         assert_equal %w[07 ab], fixed.parse("07ab  ")
-        %i[csv psv array].map { |format| IOStreams::Tabular.parser_class(format).new }.push(fixed).each do |parser|
+        %i[csv psv array json hash parquet].map { |format| IOStreams::Tabular.parser_class(format).new }.push(fixed).each do |parser|
           assert_same row, parser.parse(row), parser.class.name
         end
+      end
+
+      it "parse each line of JSON into a record, or nil for null, and raise for a line that is not an object" do
+        json = IOStreams::Tabular::Parser::Json.new
+
+        assert_equal({"a" => 1}, json.parse(%({"a":1})))
+        assert_nil json.parse("null")
+        ["[1,2]", "5", "true", %("x")].each do |line|
+          error = assert_raises(IOStreams::Errors::TypeMismatch, line) { json.parse(line) }
+          assert_match(/\AEach line of the :json format must be an object, whose keys name its values, rather than /, error.message)
+        end
+        decimals = IOStreams::Tabular::Parser::Json.new(schema: IOStreams::Schema.new(fields: [{name: "a", type: "number"}]))
+
+        assert_raises(IOStreams::Errors::TypeMismatch) { decimals.parse("[1.5]") }
       end
     end
 
@@ -1114,21 +1128,43 @@ class TabularTest < Minitest::Test
         assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).render({"id" => "1", "pay" => "2.5"}))
       end
 
-      it "raises for a row of a format whose rows supply their own keys that is not a record" do
+      it "raises for a line of a format whose rows supply their own keys that is not a record" do
         json = IOStreams::Tabular.new(format: :json, schema: schema)
 
         ["[1,2.5]", "5", "false", %("x")].each do |line|
           error = assert_raises(IOStreams::Errors::TypeMismatch, line) { json.record_parse(line) }
-          assert_match(/\AWith a schema, each line of the :json format must be a record/, error.message)
+          assert_match(/\AEach line of the :json format must be an object/, error.message)
           assert_raises(IOStreams::Errors::TypeMismatch, line) { json.row_parse(line) }
         end
       end
 
-      it "reads a JSON line of null as nil, as a blank line is" do
+      it "reads a JSON line of null, or of a record without keys, as nil, as a blank line is" do
         json = IOStreams::Tabular.new(format: :json, schema: schema)
 
-        assert_nil json.row_parse("null")
-        assert_nil json.record_parse("null")
+        %w[null {}].each do |line|
+          assert_nil json.row_parse(line), line
+          assert_nil json.record_parse(line), line
+        end
+      end
+
+      it "reads the row of a record as the value of every field, in order, nil for a key that it does not have" do
+        superset = IOStreams::Schema.new(fields: schema.fields.map { |field| {name: field.name, type: field.type} }, fieldsMatch: "superset")
+        json     = IOStreams::Tabular.new(format: :json, schema: superset)
+
+        refute_predicate json, :header?
+        assert_equal [nil, 2], json.row_parse(%({"Pay":2}))
+        assert_equal [1, 2], json.row_parse(%({"pay":2,"id":1}))
+        assert_equal %w[id pay], json.headerless_columns
+        assert_equal [nil, 2], IOStreams::Tabular.new(format: :hash, schema: superset).row_parse({pay: 2})
+      end
+
+      it "reads the record of a row already read, whose values are the fields in order, as Rocket Job's workers do" do
+        %i[json hash parquet].each do |format|
+          tabular = IOStreams::Tabular.new(format: format, schema: schema)
+
+          assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, tabular.record_parse([1, "2.5"]), format.inspect)
+          assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, tabular.read_record([1, "2.5"], rename: true), format.inspect)
+        end
       end
 
       it "renders the names of the fields as the header row, rather than take the keys of the first record" do
