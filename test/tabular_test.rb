@@ -901,24 +901,214 @@ class TabularTest < Minitest::Test
     describe "schema" do
       let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
 
-      it "converts the values of each record, of every format" do
-        csv = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay])
+      it "converts the values of each record, of every format, by the names of its fields" do
+        csv = IOStreams::Tabular.new(format: :csv, schema: schema)
 
+        assert_equal %w[id pay], csv.read_header("ID,Pay")
         assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, csv.record_parse("1,2.5"))
-        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :json, schema: schema).record_parse(%({"id":1,"pay":2.5})))
-        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).record_parse({"id" => "1", "pay" => "2.5"}))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :json, schema: schema).record_parse(%({"Id":1,"pay":2.5})))
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).record_parse({:id => "1", "PAY" => "2.5"}))
       end
 
-      it "renders each value in the form of the format" do
-        assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id pay]).render({"id" => "1", "pay" => 2.5})
-        assert_equal %({"id":1,"pay":2.5}), IOStreams::Tabular.new(format: :json, schema: schema).render({"id" => "1", "pay" => "2.5"})
+      it "renders each value in the form of the format, in the order of the fields" do
+        assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema).render({"pay" => 2.5, "id" => "1"})
+        assert_equal %({"id":1,"pay":2.50}), IOStreams::Tabular.new(format: :json, schema: schema).render({"pay" => "2.5", "id" => "1"})
         assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).render({"id" => "1", "pay" => "2.5"}))
       end
 
-      it "converts the values of a row by the field of each column" do
-        array = IOStreams::Tabular.new(format: :array, schema: schema, columns: %w[pay id])
+      it "raises for a row of a format whose rows supply their own keys that is not a record" do
+        json = IOStreams::Tabular.new(format: :json, schema: schema)
 
-        assert_equal [BigDecimal("2.5"), 1], array.row_parse(%w[2.5 1])
+        ["[1,2.5]", "5", "false", %("x")].each do |line|
+          error = assert_raises(IOStreams::Errors::TypeMismatch, line) { json.record_parse(line) }
+          assert_match(/\AWith a schema, each line of the :json format must be a record/, error.message)
+          assert_raises(IOStreams::Errors::TypeMismatch, line) { json.row_parse(line) }
+        end
+      end
+
+      it "reads a JSON line of null as nil, as a blank line is" do
+        json = IOStreams::Tabular.new(format: :json, schema: schema)
+
+        assert_nil json.row_parse("null")
+        assert_nil json.record_parse("null")
+      end
+
+      it "renders the names of the fields as the header row, rather than take the keys of the first record" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        refute_predicate tabular, :columns_from_first_row?
+        assert_equal "id,pay", tabular.render_header
+      end
+
+      it "takes the first row written as the header row of the rows after it, whose columns it matches to the fields" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        assert_predicate tabular, :first_row_header?
+        assert_equal "id,pay", tabular.render_header(%w[Pay ID])
+        refute_predicate tabular, :first_row_header?
+        assert_equal "1,2.50", tabular.render([2.5, 1])
+      end
+
+      it "writes no value for a field that the header row written does not have" do
+        superset = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: schema.fields.map { |field| {name: field.name} }, fieldsMatch: "superset"))
+        superset.render_header(%w[pay])
+
+        assert_equal ",2.5", superset.render([2.5])
+      end
+
+      it "raises for a column of the header row written that is not a field, unless fieldsMatch skips it" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams::Tabular.new(format: :csv, schema: schema).render_header(%w[id pay zip]) }
+        assert_match(/\AThe header row does not match the schema: the column "zip" is not a field/, error.message)
+
+        subset = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "id"}], fieldsMatch: "subset"))
+        subset.render_header(%w[zip id])
+
+        assert_equal "1", subset.render(["12345", 1])
+      end
+
+      it "takes no header row from the rows written to a file without one, whose rows are the fields in order" do
+        refute_predicate IOStreams::Tabular.new(format: :json, schema: schema), :first_row_header?
+        refute_predicate IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "id"}], header: false)), :first_row_header?
+        refute_predicate IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: :id}]}), :first_row_header?
+        assert_predicate IOStreams::Tabular.new(format: :csv), :first_row_header?
+      end
+
+      it "converts the values of a row in the order of the fields" do
+        array = IOStreams::Tabular.new(format: :array, schema: IOStreams::Schema.new(fields: schema.fields.map { |field| {name: field.name} }, fieldsMatch: "equal"))
+
+        assert_equal %w[id pay], array.read_header(%w[pay id])
+        assert_equal %w[1 2.5], array.row_parse(%w[2.5 1])
+      end
+
+      it "raises for the options of the header, since the schema describes the columns" do
+        %i[columns allowed_columns required_columns].each do |name|
+          error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, name => ["id"]) }
+          assert_match(/\A#{name}: cannot be supplied with a schema/, error.message)
+        end
+        error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, allowed_columns: ["id"], skip_unknown: true) }
+        assert_match(/\Aallowed_columns: cannot be supplied with a schema/, error.message)
+      end
+
+      it "accepts the options of the header when they are nil, as Rocket Job supplies them" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil)
+
+        assert_equal "id,pay", tabular.render_header
+      end
+
+      it "accepts skip_unknown without allowed_columns, which it only applies to, as Rocket Job supplies it" do
+        [true, false].each do |skip_unknown|
+          tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: skip_unknown)
+
+          assert_equal %w[id pay], tabular.read_header("id,pay")
+          assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, tabular.record_parse("1,2.5"))
+        end
+      end
+
+      it "raises for an unknown option as an unknown keyword, with or without a schema" do
+        [{schema: schema}, {}].each do |options|
+          error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, delimitr: "\n", **options) }
+          assert_equal "unknown keyword: :delimitr", error.message
+        end
+      end
+
+      it "keeps the header row as read, so that another Tabular can match the same columns, as Rocket Job's workers do" do
+        uploader = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        assert_equal %w[id pay], uploader.read_header("ID,Pay")
+        assert_equal %w[ID Pay], uploader.header.columns
+
+        worker = IOStreams::Tabular.new(format: :csv, schema: schema)
+        worker.read_header(uploader.header.columns)
+
+        refute_predicate worker, :header?
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, worker.record_parse("1,2.5"))
+      end
+
+      it "matches the columns of a header row that is parsed, so that the records after it can be parsed" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+        records = []
+        ["ID,Pay", "1,2.5", "2,3"].each { |line| tabular.header? ? tabular.parse_header(line) : records << tabular.record_parse(line) }
+
+        assert_equal [{"id" => 1, "pay" => BigDecimal("2.5")}, {"id" => 2, "pay" => BigDecimal("3")}], records
+        assert_equal %w[ID Pay], tabular.header.columns
+        assert_equal "1,2.50", tabular.render([1, 2.5])
+      end
+
+      it "raises for a header row that does not match the schema when it is parsed" do
+        assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams::Tabular.new(format: :csv, schema: schema).parse_header("id,name") }
+      end
+
+      it "raises for a value after the last column of a row read, unless it is blank, or fieldsMatch skips it" do
+        csv = IOStreams::Tabular.new(format: :csv, schema: schema)
+        csv.read_header("id,pay")
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { csv.record_parse("1,2.5,3") }
+        assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
+        assert_raises(IOStreams::Errors::InvalidHeader) { csv.row_parse("1,2.5,3") }
+        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, csv.record_parse("1,2.5,,"))
+
+        subset = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "id", type: "integer"}], fieldsMatch: "subset"))
+        subset.read_header("id")
+
+        assert_equal({"id" => 1}, subset.record_parse("1,2.5,3"))
+      end
+
+      it "raises for a row written that is neither a Hash nor an Array, rather than write its characters" do
+        [IOStreams::Tabular.new(format: :csv, schema: schema), IOStreams::Tabular.new(format: :json, schema: schema)].each do |tabular|
+          ["N9", :ab, 42, 3.5].each do |row|
+            error = assert_raises(IOStreams::Errors::TypeMismatch, row.inspect) { tabular.render(row) }
+            assert_match(/\ADon't know how to write a #{row.class.name} with a schema/, error.message)
+          end
+        end
+      end
+
+      it "raises for a blank row written when a field is required, since it has no value for it" do
+        required = IOStreams::Schema.new(fields: [{name: "name", constraints: {required: true}}, {name: "age", type: "integer"}])
+
+        %i[csv json psv].each do |format|
+          tabular = IOStreams::Tabular.new(format: format, schema: required)
+          [{}, []].each do |row|
+            error = assert_raises(IOStreams::Errors::InvalidValue, "#{format} #{row.inspect}") { tabular.render(row) }
+            assert_equal 'Field "name" is required, but has no value', error.message
+          end
+        end
+
+        assert_nil IOStreams::Tabular.new(format: :csv, schema: schema).render({})
+      end
+
+      it "renders the records written after one that it rejects with a plan of their own keys" do
+        required = IOStreams::Schema.new(fields: [{name: "b", type: "integer", constraints: {required: true}}, {name: "a"}])
+        tabular  = IOStreams::Tabular.new(format: :csv, schema: required)
+
+        assert_raises(IOStreams::Errors::InvalidValue) { tabular.render({"a" => 1}) }
+        assert_equal "2,", tabular.render({"b" => 2})
+        assert_equal "7,", tabular.render({"b" => 7})
+        assert_raises(IOStreams::Errors::InvalidHeader) { tabular.render({"c" => 9}) }
+        assert_equal "3,4", tabular.render({"a" => 4, "b" => 3})
+      end
+
+      it "takes the value of each key as a Hash does, rather than that of a key that is only equal to it" do
+        hash = IOStreams::Tabular.new(format: :hash, schema: IOStreams::Schema.new(fields: [{name: "1"}]))
+
+        assert_equal({"1" => "x"}, hash.record_parse({1 => "x"}))
+        assert_raises(IOStreams::Errors::InvalidHeader) { hash.record_parse({1.0 => "y"}) }
+      end
+
+      it "returns a header row whose names are its own, so that changing them does not change the schema" do
+        csv = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(JSON.parse(%({"fields":[{"name":"id"},{"name":"name"}]}))))
+        csv.read_header("id,name").each(&:upcase!)
+
+        assert_equal({"id" => "1", "name" => "Jack"}, csv.record_parse("1,Jack"))
+      end
+
+      it "raises for cleansing the header row, whose columns are matched to the fields instead" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        assert_predicate tabular, :field_names?
+        assert_nil tabular.header_cleansing(IOStreams::Tabular::CLEANSE_BY_DEFAULT)
+        assert_raises(ArgumentError) { tabular.header_cleansing(true) }
+        assert_raises(ArgumentError) { tabular.header_cleansing(nil) }
+        assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
       end
 
       it "translates the format options of a fixed width file, which Rocket Job supplies" do
@@ -926,6 +1116,38 @@ class TabularTest < Minitest::Test
 
         assert_equal({"id" => 7}, fixed.record_parse("07"))
         assert_equal "07", fixed.render({"id" => 7})
+      end
+
+      it "cleanses and restricts the columns supplied for the format options when the header is read, as before they were deprecated" do
+        layout = {layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}]}
+        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: %w[ID Code])
+        fixed.read_header(%w[ID Code], cleanse: true)
+
+        assert_equal %w[id code], fixed.header.columns
+        assert_equal({"id" => 7, "code" => "abc"}, fixed.record_parse("07abc"))
+
+        restricted = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: %w[ID Bogus], allowed_columns: %w[id code], skip_unknown: false)
+        assert_raises(IOStreams::Errors::InvalidHeader) { restricted.read_header(%w[ID Bogus], cleanse: true) }
+
+        required = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: %w[ID], required_columns: %w[code])
+        assert_raises(IOStreams::Errors::InvalidHeader) { required.read_header(%w[ID], cleanse: false) }
+      end
+
+      it "raises for format options with a format other than fixed width, which the layout does not describe" do
+        error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, format_options: {layout: [{size: 2, key: "id"}]}) }
+        assert_match(/\Aformat_options: is the layout of a fixed width file, so it only applies to the :fixed format, not :csv/, error.message)
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(file_name: "data.txt", format_options: {layout: [{size: 2, key: "id"}]}) }
+      end
+
+      it "applies the options of the header to the records of the format options, as before they were deprecated" do
+        layout = {layout: [{size: 2, key: :id, type: :integer}, {size: 1, key: :code}]}
+        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: ["id"], allowed_columns: nil, skip_unknown: false)
+
+        refute_predicate fixed, :field_names?
+        assert fixed.header_cleansing(IOStreams::Tabular::CLEANSE_BY_DEFAULT)
+        refute fixed.header_cleansing(nil)
+        assert_equal({"id" => 7}, fixed.record_parse("07x"))
+        assert_equal "07 ", fixed.render({id: 7, code: "x"})
       end
     end
 
@@ -1003,42 +1225,38 @@ class TabularTest < Minitest::Test
         assert_equal values, IOStreams::Tabular.new(format: :hash).render(values)
       end
 
-      it "applies to the columns that have no field in the schema" do
-        schema = IOStreams::Schema.new(fields: [{name: "count", type: "number", decimals: 1}])
+      it "applies to the fields of a schema without a type" do
+        fields = columns.map { |name| name == "count" ? {name: name, type: "number", decimals: 1} : {name: name} }
+        schema = IOStreams::Schema.new(fields: fields)
 
         assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3.0,true,",
-                     IOStreams::Tabular.new(format: :csv, columns: columns, schema: schema).render(values)
+                     IOStreams::Tabular.new(format: :csv, schema: schema).render(values)
       end
     end
 
     describe "schema without a header row" do
       let(:schema) { IOStreams::Schema.new(header: false, fields: [{name: "name"}, {name: :age, type: "integer"}]) }
 
-      it "has the fields as its columns, and parses every line as a row" do
+      it "has the fields as its columns, and parses every line as a row, by the names of the fields as they are given" do
         tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
 
         refute_predicate tabular, :header?
         refute_predicate tabular, :requires_header?
-        assert_equal %w[name age], tabular.header.columns
-        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse("Jack,21"))
-        assert_equal "Jack,21", tabular.render({"age" => 21, "name" => "Jack"})
+        assert_equal({"name" => "Jack", :age => 21}, tabular.record_parse("Jack,21"))
+        assert_equal ["Jack", 21], tabular.row_parse("Jack,21")
+        assert_equal "Jack,21", tabular.render({age: 21, "name" => "Jack"})
+        assert_equal "Jack,21", tabular.render(%w[Jack 21])
       end
 
-      it "keeps the columns that are supplied" do
-        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[age name])
-
-        assert_equal({"age" => 21, "name" => "Jack"}, tabular.record_parse("21,Jack"))
+      it "raises for columns, which are the fields" do
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[age name]) }
       end
 
       it "has no effect on a format without a header row" do
         tabular = IOStreams::Tabular.new(format: :json, schema: schema)
 
         assert_nil tabular.header.columns
-        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse(%({"name":"Jack","age":"21"})))
-      end
-
-      it "raises without fields" do
-        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(header: false, fields: [])) }
+        assert_equal({"name" => "Jack", :age => 21}, tabular.record_parse(%({"name":"Jack","age":"21"})))
       end
     end
 
@@ -1053,30 +1271,47 @@ class TabularTest < Minitest::Test
           {size: 10, key: :weight, type: :float, decimals: 2}
         ]
         expected = {
-          fields: [
+          fields:      [
             {name: :name, type: "string", width: 23, truncate: true},
             {name: :address, type: "string", width: 40, truncate: true},
             {name: :zip, type: "integer", width: 5, start: 66},
             {name: :age, type: "integer", width: 8},
             {name: :weight, type: "number", width: 10, floatNumber: true, decimals: 2}
-          ]
+          ],
+          fieldsMatch: "subset"
         }
 
         assert_equal expected, IOStreams::Tabular::Parser::Fixed.schema(layout: layout)
       end
 
       it "translates a remainder, and a filler at the end of the line" do
-        assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}]},
+        assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}], fieldsMatch: "subset"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "rest"}], truncate: false))
-        assert_equal({fields: [{name: "id", type: "string", width: 2}], width: 5},
+        assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: 5},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: 3}], truncate: false))
-        assert_equal({fields: [{name: "id", type: "string", width: 2}], width: "remainder"},
+        assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: "remainder"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: :remainder}], truncate: false))
       end
 
       it "translates sizes and types that are strings" do
-        assert_equal({fields: [{name: "id", type: "integer", width: 5}]},
+        assert_equal({fields: [{name: "id", type: "integer", width: 5}], fieldsMatch: "subset"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: "5", key: "id", type: "integer"}]))
+      end
+
+      it "skips the keys of a record written that the layout does not have, as a layout did" do
+        layout = [{size: 10, key: :name}, {size: 3, key: :age, type: :integer}]
+        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+
+        assert_equal "Jill      022", fixed.render({name: "Jill", age: 22, id: 5})
+        assert_equal "Jill      022", IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout}, columns: %w[name age id]).render(["Jill", 22, 5])
+      end
+
+      it "takes the key of a record written that is the key of the layout, when it also has the other kind" do
+        layout = [{size: 10, key: :name}, {size: 3, key: :age, type: :integer}]
+        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+
+        assert_equal "Jill      022", fixed.render({"name" => "Jack", :name => "Jill", :age => 22})
+        assert_equal "Jill      022", fixed.render({:name => "Jill", "name" => "Jack", :age => 22})
       end
 
       it "raises for an invalid layout" do

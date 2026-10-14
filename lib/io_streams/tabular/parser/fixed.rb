@@ -10,11 +10,13 @@ module IOStreams
       # which the schema then converts to the type of its field.
       #
       # When writing, a number is right justified and zero filled, and a missing number is written as zero, as most
-      # specifications of fixed width files require. Any other value is left justified and space filled, with each
+      # specifications of fixed width files require, except a number that is not finite, such as NaN, which is space
+      # filled, so that it can be read back. Any other value is left justified and space filled, with each
       # line break replaced with a space, so that a value cannot add records. The characters that no field covers,
       # such as fillers, are spaces.
       class Fixed < Base
         LINE_BREAK = /\r\n|\r|\n/
+        DIGIT      = /\d/
 
         # Where a field is in each line: the offset of its first character, and its width, or -1 for the remainder of
         # the line.
@@ -35,6 +37,9 @@ module IOStreams
 
         # Returns [Hash] the schema of the layout of a fixed width file, supplied with `IOStreams::Stream#format_options`,
         # which is deprecated, so that the schema reads and writes the file instead, see `IOStreams::Schema`.
+        #
+        # Its `fieldsMatch` is "subset", so that writing skips the keys of a record that the layout does not have, as a
+        # layout always did. A line that is read always has every field.
         #
         # Parameters:
         #   layout: [Array<Hash>]
@@ -68,7 +73,7 @@ module IOStreams
             position += size unless size == -1
           end
 
-          schema = {fields: fields.compact}
+          schema = {fields: fields.compact, fieldsMatch: "subset"}
           # A filler at the end of the line gives the width of the line.
           schema[:width] = last == -1 ? "remainder" : position - 1 if last && fields.last.nil?
           schema
@@ -118,7 +123,6 @@ module IOStreams
           super
           @columns     = []
           @line_length = build_columns
-          @fields      = {}
         end
 
         # Returns [Hash] the text of each field of the line, without its leading and trailing spaces, by the name of
@@ -140,17 +144,14 @@ module IOStreams
           hash
         end
 
-        # Returns [String] the line for the supplied record, whose values the schema has already rendered as text,
-        # see `IOStreams::Tabular#render`.
+        # Returns [String] the line for the supplied record, by the names of its fields, whose values the schema has
+        # already rendered as text, see `IOStreams::Tabular#render`.
         def render(row, header)
-          hash   = header.to_hash(row)
-          values = nil
-          line   = +""
+          hash = header.to_hash(row)
+          line = +""
           @columns.each do |column|
-            name  = column.field.name
-            value = hash.key?(name) ? hash[name] : (values ||= values_by_field(hash))[column.field]
             line << (" " * (column.index - line.length)) if column.index > line.length
-            line << render_value(column, value)
+            line << render_value(column, hash[column.field.name])
           end
           line << (" " * (line_length - line.length)) if line_length > line.length
           line
@@ -201,19 +202,6 @@ module IOStreams
           width
         end
 
-        # Returns [Hash] the value of each field of the schema that a key of the hash applies to, see
-        # `IOStreams::Schema#field`, the first key when several do, for the fields whose name is not a key.
-        #
-        # Worked out once for the row, when a field is missing from it, rather than once for each missing field.
-        def values_by_field(hash)
-          values = {}.compare_by_identity
-          hash.each_pair do |key, value|
-            field = @fields.fetch(key) { @fields[key] = @schema.field(key) }
-            values[field] = value if field && !values.key?(field)
-          end
-          values
-        end
-
         def render_value(column, text)
           field = column.field
           return render_number(column, text.nil? ? field.render(0, :text) : text.to_s) if field.numeric?
@@ -231,7 +219,10 @@ module IOStreams
           return text if column.width == -1
 
           padded =
-            if text.start_with?("-")
+            # A number that is not finite, such as NaN or -INF, has no digits to zero fill, so that it can be read back.
+            if !DIGIT.match?(text)
+              text.rjust(column.width)
+            elsif text.start_with?("-")
               "-#{text.delete_prefix('-').rjust(column.width - 1, '0')}"
             else
               text.rjust(column.width, "0")

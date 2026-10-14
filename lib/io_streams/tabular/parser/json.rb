@@ -40,17 +40,36 @@ module IOStreams
         end
         private_class_method :build_coder
 
+        # The most keys whose fields it keeps, see #decimal_key?.
+        DECIMAL_KEYS = 1000
+
         def initialize(schema: nil)
           super
           @coder = self.class.coder
+          # Whether each key of the records is the column of a number field that keeps every digit, see #parse.
+          @decimal_keys = {} if schema&.decimals?
         end
 
+        # Returns [Hash] the record of the line.
+        #
+        # With a schema that has a number field that keeps every digit, see `IOStreams::Schema#decimals?`, the numbers
+        # of its column are read as BigDecimals, with every digit of their text, rather than through a Float, which keeps
+        # about 16. Every other number is still a Float, the same as without a schema.
         def parse(row)
           return row if row.is_a?(::Hash)
 
           raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
+          return JSON.parse(row) unless @decimal_keys
 
-          JSON.parse(row)
+          values = JSON.parse(row, decimal_class: ::BigDecimal)
+          return floats(values) unless values.is_a?(::Hash)
+
+          values.each_pair do |key, value|
+            next unless value.is_a?(::BigDecimal) || value.is_a?(::Array) || value.is_a?(::Hash)
+
+            values[key] = floats(value) unless decimal_key?(key)
+          end
+          values
         end
 
         # Return the supplied array as a single line JSON string.
@@ -64,6 +83,27 @@ module IOStreams
 
         def requires_header?
           false
+        end
+
+        private
+
+        # Returns [true|false] whether the key is the column of a number field that keeps every digit, worked out once
+        # for each key, see `IOStreams::Schema#field_for`.
+        def decimal_key?(key)
+          @decimal_keys.fetch(key) do
+            @decimal_keys.clear if @decimal_keys.size >= DECIMAL_KEYS
+            @decimal_keys[key] = @schema.field_for(key, "key")&.decimal? || false
+          end
+        end
+
+        # Returns the value, with each BigDecimal within it as a Float, as JSON reads a number without a schema.
+        def floats(value)
+          case value
+          when ::BigDecimal then value.to_f
+          when ::Array then value.map { |item| floats(item) }
+          when ::Hash then value.transform_values { |item| floats(item) }
+          else value
+          end
         end
       end
     end

@@ -8,6 +8,12 @@ module IOStreams
     #     stream << {name: 'Joe', address: 'Lost', zipcode: 32443, age: 23}
     #   end
     class Writer < IOStreams::Writer
+      # Returns [Array<Symbol>] the options that this writer accepts, see .stream: its own, and those of the
+      # `IOStreams::Tabular` that writes the records, other than the file name, which it supplies.
+      def self.option_names
+        [:original_file_name, *(IOStreams::Tabular.write_option_names - %i[file_name])]
+      end
+
       # Write a record as a Hash at a time to a stream.
       # Note:
       # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
@@ -21,18 +27,21 @@ module IOStreams
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
       #   schema: [IOStreams::Schema]
-      #     The type of each field, see `IOStreams::Tabular.new`. The `:fixed` format needs it for the position of each
-      #     field.
+      #     The fields of the file and the type of each one, see `IOStreams::Tabular.new`. The `:fixed` format needs it
+      #     for the position of each field. With a schema, `columns`, `allowed_columns`, `required_columns` and
+      #     `skip_unknown` raise ArgumentError, since it describes the columns of the file.
       #
       #   format_options: [Hash]
       #     Deprecated, use `schema:`, see `IOStreams::Tabular.new`.
       #
       #   columns [Array<String|Symbol>]
+      #     Deprecated: the fields of a schema are the columns, see `schema:`.
       #     The header columns when the file does not include a header row.
       #     Note:
       #       Column names are converted to strings.
       #
       #   allowed_columns [Array<String>]
+      #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
       #     List of columns to allow.
       #     Default: nil ( Allow all columns )
       #     Note:
@@ -40,9 +49,11 @@ module IOStreams
       #       as nil so that they can be ignored during processing.
       #
       #   required_columns [Array<String>]
+      #     Deprecated: see `constraints` in `IOStreams::Schema::Field`.
       #     List of columns that must be present, otherwise an Exception is raised.
       #
       #   skip_unknown [true|false]
+      #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
       #     true:
       #       Skip columns not present in the `allowed_columns` by cleansing them to nil.
       #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
@@ -77,15 +88,15 @@ module IOStreams
         @tabular     = tabular
         @line_writer = line_writer
 
-        # Render the header line when the columns were supplied.
-        @line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.header?
+        # Render the header line when the columns were supplied, or are the fields of a schema.
+        @line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.columns_from_first_row?
       end
 
       # Returns self, so that calls can be chained.
       def <<(hash)
         raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
 
-        if @tabular.header?
+        if @tabular.columns_from_first_row?
           # Extract header from the keys from the first row when not supplied above.
           @line_writer << @tabular.render_header(hash.keys)
         end

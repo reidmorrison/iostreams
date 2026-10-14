@@ -9,9 +9,13 @@ module IOStreams
     #
     # Properties of a field, as Frictionless defines them:
     #   name: [String|Symbol]
-    #     The key of the field in each record. Required.
-    #     A fixed width file returns records whose keys are the names as they are given, so a Symbol name returns a
-    #     Symbol key. Other formats keep the keys of the file, see `IOStreams::Schema#field`.
+    #     The key of the field in each record, and its column in the header row that is written. Required.
+    #     The records read have the names as they are given as their keys, so a Symbol name returns a Symbol key,
+    #     whatever the column of the file is, see `IOStreams::Schema#field_for`.
+    #
+    #   constraints: [Hash]
+    #     The rules that the values of the field must follow, such as `{required: true}` for a field that must have a
+    #     value, both when reading and when writing, see `IOStreams::Schema::Constraints`.
     #
     #   type: [String]
     #     "string":   a String. Any other value is written as its text, except a Hash or an Array, which raise.
@@ -38,6 +42,12 @@ module IOStreams
     #     Default: false
     #
     # Properties that IOStreams adds:
+    #   aliases: [Array<String>]
+    #     The other names of the column of this field, such as `["DOB", "Birth Date"]` for the field `date_of_birth`, for
+    #     files whose columns are not named the same way, such as spreadsheets made by hand. A column is matched to an
+    #     alias as it is to the name, see `IOStreams::Schema#field_for`. The header row that is written has the name.
+    #     Default: []
+    #
     #   decimals: [Integer]
     #     For a number, the number of digits written after the decimal point, rounding the value to them.
     #     Default: as many as the value has.
@@ -60,7 +70,7 @@ module IOStreams
     # accepted and have no effect, as are the properties of other tools, whose names include a `:`.
     #
     # Any other property raises `ArgumentError`, as does a type that IOStreams does not support yet, such as "time",
-    # and the Frictionless properties that it does not support yet, such as `constraints`, so that a schema never
+    # and the Frictionless properties that it does not support yet, such as `missingValues`, so that a schema never
     # appears to check a value that it does not.
     class Field
       # The types of field that IOStreams supports.
@@ -76,13 +86,13 @@ module IOStreams
       }.freeze
 
       # The properties that every field accepts.
-      PROPERTIES = %w[name type format width start].freeze
+      PROPERTIES = %w[name type format width start constraints aliases].freeze
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
       # The properties of a Frictionless field that IOStreams does not support yet.
-      UNSUPPORTED_PROPERTIES = %w[constraints missingValues categories categoriesOrdered decimalChar groupChar
+      UNSUPPORTED_PROPERTIES = %w[missingValues categories categoriesOrdered decimalChar groupChar
                                   bareNumber delimiter itemType].freeze
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
@@ -115,12 +125,15 @@ module IOStreams
       # Returns [Integer|nil] the position of the first character of the field in a fixed width file, counting from 1.
       attr_reader :start
 
+      # Returns [Array<String>] the other names of the column of this field, see `aliases` above.
+      attr_reader :aliases
+
       # Parameters:
       #   descriptor: [Hash]
       #     The properties of the field, see above, whose keys are Strings or Symbols.
       #
       # Raises ArgumentError when the descriptor is not a valid field.
-      def initialize(descriptor)
+      def initialize(descriptor) # rubocop:disable Metrics/AbcSize -- one check for each property of a field
         raise(ArgumentError, "A schema field must be a Hash: #{descriptor.inspect}") unless descriptor.is_a?(Hash)
 
         descriptor = descriptor.transform_keys(&:to_s)
@@ -128,6 +141,10 @@ module IOStreams
         unless @name.is_a?(String) || @name.is_a?(Symbol)
           raise(ArgumentError, "A schema field must have a name: #{descriptor.inspect}")
         end
+
+        # A frozen copy, so that changing the name supplied does not change the field, nor the field the name supplied,
+        # and a record read uses it as its key without copying it.
+        @name = -@name if @name.is_a?(String)
 
         @type = (descriptor["type"] || "any").to_s
         check_type
@@ -140,6 +157,8 @@ module IOStreams
         @decimals     = check_decimals(descriptor["decimals"])
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
+        @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
+        @constraints  = Constraints.new(descriptor["constraints"], @name)
         require_bigdecimal if @type == "number" && !@float
         freeze
       end
@@ -176,14 +195,20 @@ module IOStreams
 
       # Returns the value as JSON holds it when its type is not known, as a field of type "any" writes it: a
       # BigDecimal, Date, Time or DateTime as its text, see .any_text, so that a BigDecimal keeps all of its digits, and
-      # every other value as it is. The values within a Hash or an Array are converted too, in a copy, and the value
-      # itself is returned when none of them needs it.
+      # every other value as it is, except a `JSON::Fragment`, the text of a JSON value, such as a number that a field
+      # writes with all of its digits, see #render, which is an `IOStreams::Schema::JsonNumber`, so that a library that
+      # replaces how Ruby writes JSON, such as ActiveSupport, writes it as it is too. The values within a Hash or an
+      # Array are converted too, in a copy, and the value itself is returned when none of them needs it.
       def self.any_json(value)
         case value
         when ::Hash then json_hash(value)
         when ::Array then json_array(value)
         when String, Integer, Float, true, false, nil then value
-        else textual?(value) ? any_text(value) : value
+        else
+          return any_text(value) if textual?(value)
+          return JsonNumber.new(value.json) if defined?(::JSON::Fragment) && value.is_a?(::JSON::Fragment)
+
+          value
         end
       end
 
@@ -238,28 +263,38 @@ module IOStreams
         NUMERIC_TYPES.include?(type)
       end
 
+      # Returns [true|false] whether the values of this field are numbers that keep every digit, a BigDecimal: a number
+      # field without `floatNumber`.
+      def decimal?
+        type == "number" && !@float
+      end
+
       # Returns [true|false] whether to write only the first `width` characters of a longer string in a fixed width
       # file.
       def truncate?
         @truncate
       end
 
+      # Returns [true|false] whether the field must have a value, see `constraints` above.
+      def required? = @constraints.required?
+
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, or nil
       # when the value is nil, or is text that is empty once its leading and trailing whitespace is removed, except
       # for a string or any field, which returns the text as it is.
       #
-      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
+      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a required field has
+      # no value: nil, or empty text.
       def cast(value)
-        return if value.nil?
+        return @constraints.no_value if value.nil?
 
         case type
-        when "any" then return value
-        when "string" then return cast_string(value)
+        when "any" then return value == "" ? @constraints.no_text(value) : value
+        when "string" then return value == "" ? @constraints.no_text(value) : cast_string(value)
         end
 
         if value.is_a?(String)
           value = value.strip
-          return if value.empty?
+          return @constraints.no_value if value.empty?
         end
 
         case type
@@ -274,8 +309,8 @@ module IOStreams
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
-      #   :json   the value as JSON represents it: an integer, number or boolean as itself, a number as a Float, and
-      #           any other value as its text.
+      #   :json   the value as JSON represents it: an integer or boolean as itself, a number as its text, the same as
+      #           :text, which JSON writes as it is, see #number_json, and any other value as its text.
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
       #           `:hash`.
       #
@@ -370,11 +405,17 @@ module IOStreams
         raise(ArgumentError, "Field #{name.inspect}: decimals must be an Integer of 0 or more: #{decimals.inspect}")
       end
 
-      def check_values(property, values, default)
+      # Returns [Array<String>] the text of a property, such as the true values of a boolean, each a frozen copy. Empty
+      # text raises, since a field never compares it, see #cast, as does an empty Array, unless the property can be
+      # `empty`, such as `aliases`, whose default it is.
+      def check_values(property, values, default, empty: false)
         return default if values.nil?
-        return values.dup.freeze if values.is_a?(Array) && !values.empty? && values.all?(String)
 
-        raise(ArgumentError, "Field #{name.inspect}: #{property} must be an Array of Strings: #{values.inspect}")
+        texts = values.is_a?(Array) && (empty || !values.empty?) &&
+                values.all? { |value| value.is_a?(String) && !value.empty? }
+        return values.map(&:-@).freeze if texts
+
+        raise(ArgumentError, "Field #{name.inspect}: #{property} must be an Array of text that is not empty: #{values.inspect}")
       end
 
       # The bigdecimal gem is a default gem before Ruby 3.4, and a bundled gem since, so it is loaded only when a
@@ -406,10 +447,29 @@ module IOStreams
 
       def cast_number(value)
         return parse_number(value) if value.is_a?(String)
-        return invalid(value) unless value.is_a?(Integer) || value.is_a?(Float) || bigdecimal?(value)
+        return invalid(value) unless value.is_a?(Integer) || value.is_a?(Float) || value.is_a?(Rational) || bigdecimal?(value)
         return value.to_f if @float
+        return rational_number(value) if value.is_a?(Rational)
 
         bigdecimal?(value) ? value : BigDecimal(value.to_s)
+      end
+
+      # Returns [BigDecimal] the Rational as a decimal. A Rational whose decimal ends, since its denominator has no
+      # prime factors other than 2 and 5, such as `1234567890123456789/100r` or `1/2**70r`, keeps every digit, whatever
+      # the version of bigdecimal, whose division rounds. Any other, such as `1/3r`, is divided, which rounds it.
+      def rational_number(value)
+        denominator = value.denominator
+        twos        = (denominator & -denominator).bit_length - 1
+        rest        = denominator >> twos
+        fives       = 0
+        while (rest % 5).zero?
+          rest  /= 5
+          fives += 1
+        end
+        return BigDecimal(value.numerator) / denominator unless rest == 1
+
+        places = [twos, fives].max
+        BigDecimal("#{value.numerator * ((10**places) / denominator)}e-#{places}")
       end
 
       def parse_number(text)
@@ -495,11 +555,23 @@ module IOStreams
 
       def json(value)
         case type
-        when "number" then (@decimals ? value.round(@decimals) : value).to_f
+        when "number" then number_json(value)
         when "integer", "boolean", "string" then value
         when "any" then self.class.any_json(value)
         else text(value)
         end
+      end
+
+      # Returns the number as JSON writes it: its text, see #number_text, which JSON writes as it is, see
+      # `IOStreams::Schema::JsonNumber.fragment`, so that a BigDecimal keeps all of its digits, and the digits after the
+      # decimal point that the field gives are written, such as `12.50`, the same as in CSV. A Float without `decimals`
+      # is itself, which JSON writes with the same digits, and a number that is not finite, such as NaN, is a Float,
+      # which JSON cannot hold, so that the JSON writer raises for it.
+      def number_json(value)
+        return value.to_f unless value.finite?
+        return value if @decimals.nil? && value.is_a?(Float)
+
+        JsonNumber.fragment(number_text(value))
       end
 
       def bigdecimal?(value)

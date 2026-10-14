@@ -15,11 +15,18 @@ module IOStreams
       schema:         "path.schema(\"people.json\").each(:hash)"
     }.freeze
 
-    # The options that only apply when reading, so that a writer, and a copy, which uses its options to write its
-    # target, raise for them, rather than ignore them.
-    READ_OPTIONS = %i[cleanse_header allowed_columns required_columns skip_unknown embedded_within buffer_size].freeze
-
     attr_reader :io_stream
+
+    # Returns [Array<Symbol>] the options that only the readers of lines, rows and records accept, so that a writer, and
+    # a copy, which uses its options to write its target, raise for them, rather than ignore them. Each reader and
+    # writer declares the options that it accepts.
+    def self.read_option_names
+      @read_option_names ||= [
+        [IOStreams::Line::Reader, IOStreams::Line::Writer],
+        [IOStreams::Row::Reader, IOStreams::Row::Writer],
+        [IOStreams::Record::Reader, IOStreams::Record::Writer]
+      ].flat_map { |reader, writer| reader.option_names - writer.option_names }.uniq.freeze
+    end
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
@@ -38,7 +45,7 @@ module IOStreams
     def initialize_copy(source)
       super
       @builder        = @builder&.dup
-      @format_options = @format_options&.dup
+      @format_options = copy_layout(@format_options)
       @schema         = @schema.dup if @schema.is_a?(Hash)
     end
 
@@ -342,7 +349,7 @@ module IOStreams
         stream = to_stream(source)
         if mode
           reject_read_options!(
-            args, "but a copy uses its options to write the target", suggest_columns: %i[array hash].include?(mode)
+            args, "but a copy uses its options to write the target", suggest_schema: %i[array hash].include?(mode)
           )
           stream.reader(mode) do |rows|
             writer(mode, **args) do |target|
@@ -409,7 +416,9 @@ module IOStreams
     # Deprecated: use #schema, which gives the width of each field of a fixed width file, see docs/formats.md.
     #
     # Set/get the layout of a fixed width file, `layout:` and `truncate:`, which are translated into the schema,
-    # see `IOStreams::Tabular::Parser::Fixed.schema`, so that #schema returns the schema of the layout.
+    # see `IOStreams::Tabular::Parser::Fixed.schema`, so that #schema returns the schema of the layout. The layout is
+    # translated each time that it is read or written, as it was before it was deprecated, so that #schema and the
+    # file read always agree with the layout, even when it is changed after it is set.
     def format_options(format_options = :none)
       if format_options == :none
         @format_options
@@ -421,14 +430,16 @@ module IOStreams
 
     # Deprecated: use #schema=, see #format_options.
     #
+    # A layout replaces the schema. Empty format options are no layout, so they keep a schema set with #schema.
+    #
     # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid.
     def format_options=(format_options)
       raise_if_frozen!
-      if format_options.nil? || format_options.empty?
-        # Removes the schema of the layout set before, but not a schema set with #schema.
-        self.schema = nil if @format_options
-      else
-        self.schema = IOStreams::Tabular::Parser::Fixed.schema(**format_options)
+      if layout?(format_options)
+        # Checks the layout now, rather than when the file is read.
+        IOStreams::Tabular::Parser::Fixed.schema(**format_options)
+        @schema        = nil
+        @schema_source = nil
       end
       @format_options = format_options
     end
@@ -444,11 +455,14 @@ module IOStreams
     #     one, in any store, which is read the first time that a reader or writer needs it.
     #     nil removes the schema.
     #
-    # Returns [Hash|String|IOStreams::Path] the schema that was set, or [nil] when none was set.
+    # Returns [Hash|String|IOStreams::Path] the schema that was set, or the schema of the layout set with the deprecated
+    # #format_options, or [nil] when neither was set.
     #
     # Examples:
     #
-    #   IOStreams.path("people.csv").schema(fields: [{name: "age", type: "integer"}]).each(:hash) do |person|
+    #   # people.csv has other columns too, such as "name", which the schema skips.
+    #   path = IOStreams.path("people.csv").schema(fieldsMatch: "partial", fields: [{name: "age", type: "integer"}])
+    #   path.each(:hash) do |person|
     #     person["age"] # => 42
     #   end
     #
@@ -456,7 +470,7 @@ module IOStreams
     #   path.each(:hash) { |person| p person }
     def schema(schema = :none)
       if schema == :none
-        @schema
+        layout? ? IOStreams::Tabular::Parser::Fixed.schema(**@format_options) : @schema
       else
         self.schema = schema
         self
@@ -608,16 +622,18 @@ module IOStreams
       raise(ArgumentError, messages.join(". "))
     end
 
-    # Raises ArgumentError for an option that only applies when reading, see READ_OPTIONS, since writing would ignore it.
+    # Raises ArgumentError for an option that only applies when reading, see .read_option_names, since writing would
+    # ignore it.
     #
-    # Suggests `columns:` in place of a column restriction when `suggest_columns`, for the modes that accept it.
-    def reject_read_options!(options, reason, suggest_columns: true)
-      names = READ_OPTIONS & options.keys
+    # Suggests a schema in place of a column restriction when `suggest_schema`, for the modes that have columns.
+    def reject_read_options!(options, reason, suggest_schema: true)
+      names = self.class.read_option_names & options.keys
       return if names.empty?
 
       message = "#{names.map(&:inspect).join(', ')} only #{names.size == 1 ? 'applies' : 'apply'} when reading, #{reason}"
-      if suggest_columns && names.intersect?(%i[allowed_columns required_columns skip_unknown])
-        message << ". To choose the columns that are written, supply `columns:`"
+      restrictions = IOStreams::Tabular.read_option_names - IOStreams::Tabular.write_option_names
+      if suggest_schema && names.intersect?(restrictions)
+        message << ". To choose the columns that are written, set a schema on the path, whose fields are the columns"
       end
       raise(ArgumentError, message)
     end
@@ -672,7 +688,7 @@ module IOStreams
     #
     # The lines are split where the format that parses them expects, so that for example a newline within
     # a quoted CSV value stays within its row, including when CSV is the default format.
-    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
+    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
@@ -683,7 +699,7 @@ module IOStreams
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: true, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
       tabular         = tabular(**args)
       embedded_within = tabular.quote_character if embedded_within == :auto
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
@@ -694,9 +710,34 @@ module IOStreams
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream in the format set with #format,
     # otherwise the one detected from the file name, otherwise CSV, see `IOStreams::Tabular.new`, with the schema
     # set with #schema, reading its file the first time.
+    #
+    # The layout set with #format_options, which is deprecated, is supplied as the layout, so that the options of each
+    # call that describe its columns, such as `columns:`, still apply to it as they did before. They raise with a
+    # schema.
     def tabular(**args)
       reject_path_settings!(args)
-      IOStreams::Tabular.new(file_name: file_name, format: @format, schema: @schema_source&.schema, **args)
+      if layout?
+        IOStreams::Tabular.new(file_name: file_name, format: @format, format_options: @format_options, **args)
+      else
+        IOStreams::Tabular.new(file_name: file_name, format: @format, schema: @schema_source&.schema, **args)
+      end
+    end
+
+    # Returns [true|false] whether the format options set the layout of a fixed width file: they are neither nil nor
+    # empty, see #format_options=.
+    def layout?(format_options = @format_options)
+      !(format_options.nil? || format_options.empty?)
+    end
+
+    # Returns [Hash] a copy of the format options, whose Hashes, Arrays and Strings are copies too, so that a copy of
+    # this stream that changes its layout does not change the layout of this one.
+    def copy_layout(value)
+      case value
+      when Hash then value.to_h { |key, item| [key, copy_layout(item)] }
+      when Array then value.map { |item| copy_layout(item) }
+      when String then value.dup
+      else value
+      end
     end
 
     def stream_writer(&)
@@ -706,7 +747,7 @@ module IOStreams
     # The lines are written in the encoding of the format, see #line_reader.
     def line_writer(**args, &block)
       reject_path_settings!(args)
-      reject_read_options!(args, "not when writing", suggest_columns: false)
+      reject_read_options!(args, "not when writing", suggest_schema: false)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
       open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)

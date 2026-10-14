@@ -53,9 +53,8 @@ Notes:
   extension, such as `data.txt`, a spreadsheet, or a stream without a file name.
 * `embedded_within` chooses the lines that `each(:line)` returns: supply `embedded_within: nil` for the
   physical lines of a quoted format, or a quote character for the logical lines of a format that is not set or
-  detected. When reading rows and records, the format splits the lines, since its parser must agree with
-  where they are split, so supplying `embedded_within` to `each(:array)` or `each(:hash)` is deprecated. Set
-  the format of the file with `#format` instead.
+  detected. When reading rows and records, the format of the file splits the lines, since its parser must
+  agree with where they are split, so set the format with `#format`.
 * A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
   real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
 ~~~ruby
@@ -189,20 +188,17 @@ write the file the right way, by any code, including `#copy_from` and `#copy_to`
 | `#stream` and `#option` | The path | How the file is compressed or encrypted |
 | `#encoding` | The path | The encoding of the text of the file |
 | `#format` | The path | The tabular format of the file, such as `:json` |
-| `#schema` | The path | The fields of the file and their types, the position of each fixed width field, and whether it has a header row |
+| `#schema` | The path | The fields of the file and their types, which columns it can have and must have, the position of each fixed width field, and whether it has a header row |
 | The mode, such as `:hash` | Each call | Whether the code reads or writes blocks, lines, rows or records |
-| `cleanse_header:` | Each call, when reading | How the code wants the keys of each record named |
-| `allowed_columns:`, `required_columns:` and `skip_unknown:` | Each call, when reading | Which columns the code accepts, which can differ between two readers of the same file |
-| `columns:` | Each call | When writing, the columns to write and their order. When reading a file without a header row, its columns, which a schema with `header: false` describes on the path instead |
 | `delimiter:` and `buffer_size:` | Each call | How lines are split or ended, and how much is read at a time |
 | `embedded_within:` | Each call, in the `:line` mode | Whether the code reads the physical lines, or the logical lines of a quoted format |
 
 IOStreams checks where each setting is supplied:
 
 * A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
-  `file_name:`, `schema:`, `format_options:` and `default_format:`.
-* An option that only applies when reading, such as `allowed_columns:`, raises `ArgumentError` when it is supplied
-  to `#writer`, rather than being ignored. To choose the columns that are written, supply `columns:`.
+  `file_name:`, `schema:` and `default_format:`.
+* An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied
+  to `#writer`, rather than being ignored. To choose the columns that are written, set a schema on the path.
 * `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
   raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set
   what describes the source, such as its schema, on its path.
@@ -211,11 +207,11 @@ IOStreams checks where each setting is supplied:
 # The configuration describes the file.
 people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHEMA"])
 
-# The code says what it wants from it.
-people.each(:hash, allowed_columns: %w[name age]) { |person| p person }
+# The code says what it wants from it: records, whose columns the schema checks.
+people.each(:hash) { |person| p person }
 
-# A copy reads the source with the settings of its path, and writes the target with its own options.
-IOStreams.path("people.json").copy_from(people, mode: :hash, columns: %w[name age])
+# A copy reads the source with the settings of its path, and writes the target with the settings of its own.
+IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}]).copy_from(people, mode: :hash)
 ~~~
 
 ## Text and binary data
@@ -458,6 +454,3 @@ instead:
 ~~~ruby
 IOStreams.path("data.txt").file_name("data.csv").each(:hash) { |row| p row }
 ~~~
-
-`stream(:none)` is deprecated. It still applies no streams, but reads and writes text in its default
-encoding, see [Text and binary data](#text-and-binary-data).

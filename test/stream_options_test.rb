@@ -68,7 +68,7 @@ class StreamOptionsTest < Minitest::Test
     describe "options that only apply when reading" do
       it "raises for them when writing, rather than ignore them" do
         error = assert_raises(ArgumentError) { path("a.csv").writer(:hash, allowed_columns: %w[id]) { |io| io << {"id" => 1} } }
-        assert_equal ":allowed_columns only applies when reading, not when writing. To choose the columns that are written, supply `columns:`",
+        assert_equal ":allowed_columns only applies when reading, not when writing. To choose the columns that are written, set a schema on the path, whose fields are the columns",
                      error.message
 
         %i[array hash line].each do |mode|
@@ -81,7 +81,7 @@ class StreamOptionsTest < Minitest::Test
         refute_path_exists ::File.join(dir, "a.csv")
       end
 
-      it "only suggests columns: in the modes that accept it" do
+      it "only suggests a schema in the modes that have columns" do
         error = assert_raises(ArgumentError) { path("a.csv").writer(:line, allowed_columns: %w[id]) { |io| io << "1" } }
         assert_equal ":allowed_columns only applies when reading, not when writing", error.message
 
@@ -95,7 +95,7 @@ class StreamOptionsTest < Minitest::Test
 
         error = assert_raises(ArgumentError) { path("b.json").copy_from(path("a.csv"), mode: :hash, allowed_columns: %w[name]) }
         assert_equal ":allowed_columns only applies when reading, but a copy uses its options to write the target. " \
-                     "To choose the columns that are written, supply `columns:`", error.message
+                     "To choose the columns that are written, set a schema on the path, whose fields are the columns", error.message
         assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.json"), mode: :hash, cleanse_header: false) }
         refute_path_exists ::File.join(dir, "b.json")
       end
@@ -401,6 +401,43 @@ class StreamOptionsTest < Minitest::Test
             assert_equal keywords.sort, klass.option_names.sort
           end
         end
+      end
+    end
+
+    describe ".option_names of lines, rows and records" do
+      # Returns [Array<Symbol>] the keyword arguments of the method.
+      def keywords(method)
+        method.parameters.filter_map { |kind, name| name if %i[key keyreq].include?(kind) }
+      end
+
+      it "matches the keyword arguments of the line reader and writer" do
+        assert_equal keywords(IOStreams::Line::Reader.instance_method(:initialize)).sort, IOStreams::Line::Reader.option_names.sort
+        assert_equal keywords(IOStreams::Line::Writer.instance_method(:initialize)).sort, IOStreams::Line::Writer.option_names.sort
+      end
+
+      it "matches the keyword arguments of the tabular and its header" do
+        tabular = keywords(IOStreams::Tabular.instance_method(:initialize))
+        header  = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
+
+        assert_equal (tabular + header).sort, IOStreams::Tabular.read_option_names.sort
+        assert_equal (tabular + header - IOStreams::Tabular::Header::READ_OPTION_NAMES).sort, IOStreams::Tabular.write_option_names.sort
+      end
+
+      it "matches the keyword arguments of the readers and writers of rows and records, with those of the tabular they pass the others to" do
+        {
+          IOStreams::Row::Reader    => IOStreams::Tabular.read_option_names,
+          IOStreams::Record::Reader => IOStreams::Tabular.read_option_names,
+          IOStreams::Row::Writer    => IOStreams::Tabular.write_option_names,
+          IOStreams::Record::Writer => IOStreams::Tabular.write_option_names
+        }.each_pair do |klass, tabular|
+          # The reader or writer supplies the file name of the tabular, from its own `original_file_name`.
+          assert_equal (keywords(klass.method(:stream)) + tabular - %i[file_name]).sort, klass.option_names.sort, klass.name
+        end
+      end
+
+      it "gives the options that only apply when reading" do
+        assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns skip_unknown],
+                     IOStreams::Stream.read_option_names.sort
       end
     end
 
