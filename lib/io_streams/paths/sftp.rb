@@ -414,43 +414,22 @@ module IOStreams
       # Use the sftp executable to download to a local file, via sshpass when a password is supplied
       def sftp_download(remote_file_name, local_file_name)
         # Built first, so that a name that sftp cannot use raises before it is started.
-        command = Batch.get(remote_file_name, local_file_name)
-        with_sftp_args do |args|
-          Open3.popen2e(*args) do |writer, reader, waith_thr|
-            if password
-              # Give time for remote sftp server to get ready to accept the password.
-              sleep self.class.before_password_wait_seconds
-
-              writer.puts password
-
-              # Give time for password to be processed and stdin to be passed to sftp process.
-              sleep self.class.sshpass_wait_seconds
-            end
-
-            writer.puts command
-            writer.puts "bye"
-            writer.close
-            out = reader.read.chomp
-            raise_failure("Download", out, waith_thr.value) unless waith_thr.value.success?
-
-            out
-          rescue Errno::EPIPE
-            out = begin
-              reader.read.chomp
-            rescue StandardError
-              nil
-            end
-            raise_failure("Download", out, waith_thr.value)
-          end
-        end
+        run_sftp("Download", [Batch.get(remote_file_name, local_file_name)], wait_before_password: true)
       end
 
       def sftp_upload(local_file_name, remote_file_name)
         # Built first, so that a name that sftp cannot use raises before it is started.
-        commands = Batch.put(local_file_name, remote_file_name, mkpath: @mkdir)
+        run_sftp("Upload", Batch.put(local_file_name, remote_file_name, mkpath: @mkdir))
+      end
+
+      # Runs the sftp executable with the batch commands, via sshpass when a password is supplied.
+      # Returns [String] its output.
+      def run_sftp(action, commands, wait_before_password: false)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
             if password
+              # Give time for remote sftp server to get ready to accept the password.
+              sleep self.class.before_password_wait_seconds if wait_before_password
               writer.puts(password)
               # Give time for password to be processed and stdin to be passed to sftp process.
               sleep self.class.sshpass_wait_seconds
@@ -459,7 +438,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            raise_failure("Upload", out, waith_thr.value) unless waith_thr.value.success?
+            raise_failure(action, out, waith_thr.value) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -468,7 +447,7 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise_failure("Upload", out, waith_thr.value)
+            raise_failure(action, out, waith_thr.value)
           end
         end
       end
