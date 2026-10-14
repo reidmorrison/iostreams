@@ -569,8 +569,11 @@ module IOStreams
 
       # Returns [true|false] whether the strftime pattern of the format writes a zone, such as `%z`, `%:z` or `%Z`, so
       # that a time written with it says its own offset from UTC.
+      #
+      # A width does not start with `0`, which is a flag, so that the flags and the width never match the same
+      # characters, which would take time that grows with the square of their length.
       def format_zone?
-        @format.scan(/%(?:%|[-_0^#:]*\d*([a-zA-Z+]))/).flatten.compact.intersect?(%w[z Z +])
+        @format.scan(/%(?:%|[-_0^#:]*(?:[1-9]\d*)?([a-zA-Z+]))/).flatten.compact.intersect?(%w[z Z +])
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,

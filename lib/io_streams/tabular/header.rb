@@ -34,8 +34,9 @@ module IOStreams
       def self.cleanse_column(name)
         # Unlike `strip` and `\s`, which are only ASCII, `[[:space:]]` is whitespace of every language, such as a
         # no-break space or an ideographic space, so that it separates words like a space. Like `strip`, also
-        # removes a leading or trailing null.
-        cleansed = name.to_s.downcase.gsub(/\A[[:space:]\0]+|[[:space:]\0]+\z/, "")
+        # removes a leading or trailing null. The trailing ones are only matched from the first of them, so that it
+        # takes linear time.
+        cleansed = name.to_s.downcase.gsub(/\A[[:space:]\0]+|(?<![[:space:]\0])[[:space:]\0]+\z/, "")
         cleansed.gsub!(/[[:space:]]+/, "_")
         cleansed.gsub!(/-+/, "_")
         # Unlike `\W`, which is only ASCII, keeps the letters and digits of every language.
