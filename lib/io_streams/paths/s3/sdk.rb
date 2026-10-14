@@ -10,7 +10,7 @@ module IOStreams
         # The S3 operations that a path calls, each of which is supplied the options that it accepts.
         OPERATIONS = %i[get_object head_object put_object copy_object delete_object delete_objects list_objects_v2].freeze
         # Request parameters that the path sets itself, which cannot be supplied as options.
-        PATH_PARAMETERS = %i[bucket key body response_target copy_source prefix continuation_token delete].freeze
+        PATH_PARAMETERS = %i[bucket key body response_target copy_source prefix continuation_token delimiter delete].freeze
         # The options of an object that S3 needs to read it as the source of a direct copy, and the parameter of
         # `copy_object` that supplies each one: its customer encryption key, and that the requester pays, which a
         # bucket can require to read it.

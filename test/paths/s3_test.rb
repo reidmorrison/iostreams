@@ -822,6 +822,7 @@ module Paths
 
         it "raises for a request parameter that the path sets" do
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, bucket: "other") }
+          assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, delimiter: "/") }
         end
       end
 
@@ -1036,6 +1037,51 @@ module Paths
               assert_equal 1, calls
             end
           end
+        end
+      end
+
+      describe "listing pages of upto two objects" do
+        let(:keys) { %w[d/a.csv d/b.csv d/c.txt d/sub/d.csv d/sub/e.csv d/sub/f.csv d/sub/g.csv d/z/h.csv] }
+
+        before do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          S3Stub.install(page_size: 2)
+          keys.each { |key| IOStreams.path("s3://bucket").join(key).write("data") }
+        end
+
+        after do
+          S3Stub.uninstall
+        end
+
+        # Returns [Array<Hash>] the parameters of each listing that the block requests.
+        def listings(path)
+          path.client.api_requests.clear
+          yield
+          path.client.api_requests.filter_map { |request| request[:params] if request[:operation_name] == :list_objects_v2 }
+        end
+
+        it "returns the children from every page" do
+          directory = IOStreams.path("s3://bucket/d")
+
+          assert_equal keys.grep(/\.csv\z/), directory.children("**/*.csv").map(&:path).sort
+          assert_equal(%w[d/sub d/z], directory.children("*", directories: true).map(&:path).reject { |path| path.include?(".") })
+        end
+
+        it "lists only the keys directly within the directory for a pattern that cannot match below it" do
+          directory = IOStreams.path("s3://bucket/d")
+          children  = nil
+          requests  = listings(directory) { children = directory.children("*.csv") }
+
+          assert_equal %w[d/a.csv d/b.csv], children.map(&:path)
+          # The keys a.csv, b.csv and c.txt, and the common prefixes sub/ and z/, in pages of two.
+          assert_equal 3, requests.size
+          assert(requests.all? { |params| params[:delimiter] == "/" })
+        end
+
+        it "deletes the keys of every page" do
+          IOStreams.path("s3://bucket/d").delete_all
+
+          assert_empty IOStreams.path("s3://bucket").children("**/*", hidden: true)
         end
       end
 

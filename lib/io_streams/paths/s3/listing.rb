@@ -25,9 +25,13 @@ module IOStreams
         # With `directories` it also yields each directory within the keys that the matcher matches, such as `a` and
         # `a/b` for the key `a/b/c.csv`, along with any empty folder created with a key ending in `/`, which is yielded
         # without the `/`. The attributes of a directory are empty, unless it is such a folder.
+        #
+        # Only the keys directly within the prefix are listed, with the delimiter `/`, for a pattern that cannot match a
+        # name below it, such as `*.csv`, unless `directories` are yielded, which are found from the keys below it.
         def each(prefix, matcher, directories:)
           listed = Directories.new
-          each_page(prefix) do |page|
+          params = matcher.depth&.zero? && !directories ? {delimiter: "/"} : {}
+          each_page(prefix, **params) do |page|
             page.contents.each do |object|
               relative = object.key.delete_prefix(prefix)
               if directories
@@ -42,11 +46,12 @@ module IOStreams
           end
         end
 
-        # Yields each page of upto 1,000 objects whose keys start with the prefix.
-        def each_page(prefix)
+        # Yields each page of upto 1,000 objects whose keys start with the prefix, with the supplied parameters of the
+        # request, such as a delimiter.
+        def each_page(prefix, **params)
           token = nil
           loop do
-            page = @request.call(prefix: prefix, continuation_token: token)
+            page = @request.call(prefix: prefix, continuation_token: token, **params)
             yield(page)
             break unless (token = page.next_continuation_token)
           end

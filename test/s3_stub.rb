@@ -13,10 +13,12 @@ require "securerandom"
 #   S3Stub.install
 #   IOStreams.path("s3://bucket/test.txt").write("Hello")
 #   S3Stub.uninstall
+#
+# A listing returns pages of upto `page_size` keys and common prefixes, as S3 returns upto 1,000.
 class S3Stub
-  def self.install
+  def self.install(page_size: 1_000)
     @previous = ::Aws.config[:s3]
-    @instance = new
+    @instance = new(page_size)
     ::Aws.config[:s3] = (@previous || {}).merge(stub_responses: @instance.stub_responses)
   end
 
@@ -28,7 +30,8 @@ class S3Stub
     end
   end
 
-  def initialize
+  def initialize(page_size)
+    @page_size = page_size
     # Object data keyed by [bucket, key].
     @objects = {}
     # The parts of each multipart upload that has not completed, by part number, keyed by its upload id.
@@ -166,13 +169,39 @@ class S3Stub
     {copy_object_result: {}}
   end
 
-  # Returns every matching key in a single page.
+  # Returns a page of upto `max_keys` of the keys that start with the prefix, after the continuation token, as S3
+  # does. With a delimiter, each key with the delimiter after the prefix is within a common prefix, which is listed
+  # once, in its place, such as `a/b/` for `a/b/c.csv` within the prefix `a/`.
   def list_objects_v2(params)
-    prefix   = params[:prefix].to_s
-    contents = objects.keys.
-               select { |bucket, key| bucket == params[:bucket] && key.start_with?(prefix) }.
-               sort.
-               map { |_, key| {key: key, size: objects[[params[:bucket], key]].bytesize} }
-    {name: params[:bucket], prefix: prefix, contents: contents, key_count: contents.size, is_truncated: false}
+    entries   = listed_entries(params)
+    token     = params[:continuation_token]
+    first     = token ? entries.index { |_, name| name > token } || entries.size : 0
+    page      = entries[first, [params[:max_keys] || @page_size, @page_size].min]
+    truncated = first + page.size < entries.size
+    {
+      name:                    params[:bucket],
+      prefix:                  params[:prefix].to_s,
+      contents:                page.filter_map { |type, key| listed_object(params[:bucket], key) if type == :key },
+      common_prefixes:         page.filter_map { |type, name| {prefix: name} if type == :common_prefix },
+      key_count:               page.size,
+      is_truncated:            truncated,
+      next_continuation_token: (page.last.last if truncated)
+    }.compact
+  end
+
+  # Returns [Array] each key that starts with the prefix, in order, as `[:key, key]`, or with the delimiter after the
+  # prefix, as `[:common_prefix, prefix]` for its common prefix, once.
+  def listed_entries(params)
+    prefix    = params[:prefix].to_s
+    delimiter = params[:delimiter]
+    keys      = objects.keys.select { |bucket, key| bucket == params[:bucket] && key.start_with?(prefix) }.map(&:last)
+    keys.sort.map do |key|
+      index = delimiter && key.index(delimiter, prefix.length)
+      index ? [:common_prefix, key[0, index + delimiter.length]] : [:key, key]
+    end.uniq
+  end
+
+  def listed_object(bucket, key)
+    {key: key, size: objects[[bucket, key]].bytesize}
   end
 end
