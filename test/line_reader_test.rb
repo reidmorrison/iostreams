@@ -312,11 +312,32 @@ class LineReaderTest < Minitest::Test
           assert_equal %W[a b\nc], lines_of("a\r\nb\nc\r\n", delimiter: "\r\n")
         end
 
+        it "reads text in an encoding whose characters are wider than a byte" do
+          data  = "one\r\ntwo\nthree\r\n".encode(Encoding::UTF_16LE).b
+          lines = []
+          IOStreams.stream(StringIO.new(data)).encoding("UTF-16LE").each(:line) { |line| lines << line }
+
+          assert_equal(%w[one two three].map { |line| line.encode(Encoding::UTF_16LE) }, lines)
+        end
+
         it "reads every record of a CSV file whose lines end with \"\\r\\n\" and \"\\n\"" do
           records = []
           IOStreams.stream(StringIO.new("name,zip\r\nJack,12345\nJill,98101\r\n")).each(:hash) { |record| records << record }
 
           assert_equal [{"name" => "Jack", "zip" => "12345"}, {"name" => "Jill", "zip" => "98101"}], records
+        end
+      end
+
+      ["\r\n", "\n", "\r"].each do |delimiter|
+        it "autodetect delimiter: #{delimiter.inspect} of text in an encoding that is not ASCII compatible" do
+          lines = []
+          data  = "first\u00e9#{delimiter}second#{delimiter}".encode(Encoding::UTF_16LE).b
+          IOStreams.stream(StringIO.new(data)).encoding("UTF-16LE").reader(:line, buffer_size: 6) do |io|
+            assert_equal delimiter.encode(Encoding::UTF_16LE), io.delimiter
+            io.each { |line| lines << line }
+          end
+
+          assert_equal(%W[first\u00e9 second].map { |line| line.encode(Encoding::UTF_16LE) }, lines)
         end
       end
 

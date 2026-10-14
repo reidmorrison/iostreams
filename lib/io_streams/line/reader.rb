@@ -268,24 +268,33 @@ module IOStreams
       def auto_detect_line_endings
         return "\n" if @buffer.nil? && !read_block
 
-        # Could be "\r\n" broken in half by the block size
-        read_block if @buffer[-1] == "\r"
-
-        # Delimiter takes on the encoding from @buffer
-        delimiter = @buffer.slice(LINEFEED_REGEXP)
-        return delimiter if delimiter
-
-        while read_block
+        loop do
           # Could be "\r\n" broken in half by the block size
-          read_block if @buffer[-1] == "\r"
+          read_block if @buffer.end_with?(buffer_text("\r"))
 
-          # Delimiter takes on the encoding from @buffer
-          delimiter = @buffer.slice(LINEFEED_REGEXP)
-          return delimiter if delimiter
+          ending = first_line_ending
+          return ending if ending
+          # One line files with no delimiter
+          return "\n" unless read_block
         end
+      end
 
-        # One line files with no delimiter
-        "\n"
+      # Returns [String] the first line ending in the buffer, "\r\n", "\n" or "\r", or nil when it has none.
+      #
+      # Each ending is searched for in the encoding of the data, rather than with a Regexp, which cannot search text in
+      # an encoding that is not ASCII compatible, such as the UTF-16 of a Windows "Unicode Text" export.
+      def first_line_ending
+        return_at  = @buffer.index(buffer_text("\r"))
+        newline_at = @buffer.index(buffer_text("\n"))
+        return if return_at.nil? && newline_at.nil?
+        return "\n" if return_at.nil? || (newline_at && newline_at < return_at)
+
+        newline_at == return_at + 1 ? "\r\n" : "\r"
+      end
+
+      # Returns [String] the text in the encoding of the buffer, see #buffer_encoding.
+      def buffer_text(text)
+        text.encode(@encoding).force_encoding(@buffer.encoding)
       end
     end
   end
