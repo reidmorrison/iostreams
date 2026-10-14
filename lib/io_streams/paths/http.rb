@@ -402,6 +402,17 @@ module IOStreams
         send_request(request_class, redirect, http_redirect_count - 1, body_file_name:, allow_missing:, &block)
       end
 
+      # Returns [URI] the location of a redirect, resolved against the url that redirected.
+      #
+      # Raises [IOStreams::Errors::CommunicationsFailure] when the location is not a url, without the location in its
+      # message, which the server supplies, and which can hold a token, unlike the message of `URI::InvalidURIError`.
+      def redirect_location(uri, location)
+        uri.merge(location)
+      rescue URI::Error
+        raise(IOStreams::Errors::CommunicationsFailure, "Redirect to a location that is not a url: #{loggable(uri)}",
+              cause: nil)
+      end
+
       # Returns [Module] the kind of failure that an exception raised by a request means, see `Failure.kind`.
       def failure_kind(exception)
         Failure.kind(exception)
@@ -464,7 +475,7 @@ module IOStreams
         end
 
         # Resolve relative redirects against the current uri.
-        new_uri = uri.merge(location)
+        new_uri = redirect_location(uri, location)
 
         if uri.scheme == "https" && new_uri.scheme == "http"
           raise(

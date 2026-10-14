@@ -651,6 +651,16 @@ module Paths
           assert_includes error.message, "missing location"
         end
 
+        it "raises for a redirect to a location that is not a url, without the location" do
+          start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "http://exa mple.com/a.csv?token=secret"}) }
+
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").read
+          end
+          assert_equal "Redirect to a location that is not a url: #{@server.base_url}/redirect", error.message
+          assert_nil error.cause
+        end
+
         it "rejects a redirect to a host outside the allow list" do
           # The initial host is allowed, but the server redirects to a different
           # host name (localhost) that is not, which is the core SSRF scenario.
