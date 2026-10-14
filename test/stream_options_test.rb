@@ -394,6 +394,9 @@ class StreamOptionsTest < Minitest::Test
       # takes the same options as its `.stream`, so the declaration cannot drift from the signature. A method that takes
       # `**` passes the options on to `#initialize`, such as `IOStreams::Encode::Writer.stream`, whose keywords it takes.
       FORMATS.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
+        # A class registered with `IOStreams.register_extension` need not declare its options, which are then not checked.
+        next unless klass.respond_to?(:option_names) && klass.option_names
+
         %i[stream file check].each do |name|
           next unless klass.singleton_class.method_defined?(name, false)
 

@@ -29,9 +29,10 @@ class StreamOutcomeTest < Minitest::Test
     stream_options = {pgp: {recipient: "receiver@example.org", passphrase: "receiver_passphrase"}}
     stream_options[:gpg] = stream_options[:pgp]
 
-    # Every stream registered for a file name extension that writes, and the built-in encode stream.
+    # Every stream registered for a file name extension that writes and reads, which the outcome is read back with, and
+    # the built-in encode stream.
     IOStreams.extensions.merge(encode: IOStreams::Encode).each_pair do |name, format|
-      next unless format.writer_class
+      next unless format.reader_class && format.writer_class
 
       options = stream_options.fetch(name, {})
 
