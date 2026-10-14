@@ -198,6 +198,12 @@ classDiagram
         +read_row() read_record_line()
         +render_row() render_record()
     }
+    class Mapping {
+        <<abstract>>
+        +requires_header?() header?()
+        +read_header() row_parse() record_parse()
+        +render() render_header()
+    }
     class Schema {
         +fields
         +field_for(column)
@@ -216,7 +222,12 @@ classDiagram
     Builder ..> StreamFormat : opens each stream through
     StreamFormat ..> Reader : reader_class
     StreamFormat ..> Writer : writer_class
-    Tabular ..> Schema : types and columns
+    Tabular *-- Mapping : the columns of one file
+    HeaderMapping --|> Mapping
+    SchemaMapping --|> Mapping
+    LayoutMapping --|> HeaderMapping
+    LayoutMapping ..> SchemaMapping : the values of the layout
+    SchemaMapping ..> Schema : types and columns
 ```
 
 * **`Stream`**, and its subclass **`Path`**, are what the application holds: the settings that describe the file, and
@@ -237,8 +248,15 @@ classDiagram
   call that reads or writes rows.
 * **`Line`, `Row` and `Record`** readers and writers turn the text into lines, the lines into rows (Arrays) and
   records (Hashes), through a **`Tabular`**, which parses and renders one line of a tabular format, such as CSV or JSON,
-  with its parser, and decides which line is the header row and how it is cleansed. Each of them declares the options
-  of each call in its mode with `self.option_names`, and `Stream` rejects any other before it opens anything.
+  with its parser, and decides which line is the header row. Each of them declares the options of each call in its
+  mode with `self.option_names`, and `Stream` rejects any other before it opens anything.
+* **`Tabular::Mapping`** maps the columns of one file to the values of its rows and records, and answers the questions
+  of the header row that the `Tabular` asks, such as whether the file has one, and whether it is still to be read. The
+  `Tabular` chooses one when it is created, by what describes the columns: a `HeaderMapping` maps them by the header
+  row, or the columns supplied, with the deprecated column options, such as `allowed_columns:`, and cleanses the header
+  row; a `SchemaMapping` maps them by the fields of a schema; and a `LayoutMapping` by the deprecated layout of a fixed
+  width file, whose records the column options still apply to. It arranges each row that it renders in the form of the
+  format, so that a parser only turns a line into a row and back.
 * **`Schema`** describes the fields of the rows and records: it matches the columns of a file to its fields, and each
   field casts and renders the values of its type.
 

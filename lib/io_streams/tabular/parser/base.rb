@@ -38,8 +38,8 @@ module IOStreams
 
         # Returns [true|false] whether each row of this format is a record, a Hash whose keys name its values, such as a
         # line of JSON, rather than its values in the order of its columns, an Array, such as a line of CSV. The parser
-        # parses each line into a row of that form, and renders a row of that form, into which the row or record written
-        # is arranged first, see `IOStreams::Tabular#render`.
+        # parses each line into a row of that form, and renders a row of that form, into which the mapping of the columns
+        # arranges the row or record written, see `IOStreams::Tabular::Mapping`.
         #
         # Defined at the class level since it is a static property of the format, see `.quote_character`.
         def self.keyed?
