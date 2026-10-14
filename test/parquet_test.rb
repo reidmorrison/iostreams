@@ -359,7 +359,7 @@ class ParquetTest < Minitest::Test
       end
 
       it "is shown by #inspect" do
-        assert_includes path.option(:parquet, compression: "zstd").inspect, '@row_options={parquet: {compression: "zstd"}}'
+        assert_includes path.option(:parquet, compression: "zstd").inspect, "@row_options=#{{parquet: {compression: 'zstd'}}.inspect}"
       end
 
       it "goes to an extension registered with the same name, rather than to Parquet" do
@@ -368,7 +368,7 @@ class ParquetTest < Minitest::Test
         IOStreams.register_extension(:parquet, reader, writer)
 
         assert_equal({level: 3}, path.option(:parquet, level: 3).setting(:parquet))
-        assert_includes path.option(:parquet, level: 3).inspect, "@options={parquet: {level: 3}}"
+        assert_includes path.option(:parquet, level: 3).inspect, "@options=#{{parquet: {level: 3}}.inspect}"
       ensure
         IOStreams.deregister_extension(:parquet)
       end
