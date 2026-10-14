@@ -280,9 +280,10 @@ module IOStreams
       # The user name and password are as they are in the url, including any character that is not ASCII, or `@`,
       # rather than percent-decoded, as they always have been, so that a password such as `p%41ss` is unchanged.
       #
-      # Raises ArgumentError when the host has a space, or a character that is not ASCII.
+      # Raises ArgumentError when the host has a space, or a character that is not ASCII, or when the url cannot be
+      # parsed, see `.parse`.
       def initialize(url)
-        uri       = ::URI.parse(self.class.escape(url))
+        uri       = self.class.parse(self.class.escape(url), name: url)
         @scheme   = uri.scheme
         @hostname = uri.hostname
         # Unlike a query string, `+` in a path is not a space.
@@ -294,6 +295,41 @@ module IOStreams
 
         @query = {}
         ::URI.decode_www_form(uri.query).each { |key, value| @query[key] = value }
+      rescue ::URI::InvalidURIError
+        # Without the url, which can hold a password, as the cause, since its message is the url.
+        raise(ArgumentError, self.class.unparseable(url), cause: nil)
+      end
+
+      # Returns [::URI::Generic] the url parsed by `::URI`.
+      #
+      # Raises ArgumentError when it cannot be parsed, rather than `URI::InvalidURIError`, whose message is the whole
+      # url, which can hold a password, or the signature of a pre-signed url in its query. The message names the url,
+      # or the supplied name of it, without them, see `.redact`.
+      def self.parse(url, name: url)
+        ::URI.parse(url)
+      rescue ::URI::InvalidURIError
+        raise(ArgumentError, unparseable(name), cause: nil)
+      end
+
+      # Returns [String] the message for a url that cannot be parsed, see `.parse`.
+      def self.unparseable(url)
+        "Invalid url #{redact(url).inspect}: it cannot be parsed. Percent-encode a character that a url cannot hold, " \
+          "such as a space as '%20', and supply a user name or password that has a '/', '?' or '#' with the " \
+          "username: and password: arguments."
+      end
+
+      # Returns [String] a url that cannot be parsed without anything that could be its user name, password, query or
+      # fragment, since its parts cannot be told apart: what is before the last `@` after its scheme is replaced with
+      # `[FILTERED]`, and what follows the first `?` or `#` after that is removed. A password can hold a `/`, `?`, `#`
+      # or `@`, so they cannot end it.
+      def self.redact(url)
+        text = Utils.display_text(url.to_s)
+        scheme, separator, rest = text.partition("://")
+        return text.sub(/[?#].*\z/m, "") if separator.empty?
+
+        _userinfo, at, after = rest.rpartition("@")
+        rest = "#{Utils::FILTERED}@#{after}" unless at.empty?
+        "#{scheme}://#{rest.sub(/[?#].*\z/m, '')}"
       end
 
       # Returns [String] the url with each byte that `::URI` cannot parse percent-encoded, to be decoded again with
@@ -364,7 +400,7 @@ module IOStreams
         bytes.gsub(pattern) { |byte| format("%%%02X", byte.ord) }
       end
 
-      private_class_method :escape_authority, :percent_encode
+      private_class_method :escape_authority, :percent_encode, :redact
     end
   end
 end

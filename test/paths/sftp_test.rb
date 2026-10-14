@@ -568,6 +568,19 @@ module Paths
           end
         end
 
+        it "raises ArgumentError for a url that cannot be parsed, without its user name or password" do
+          %w[/ # ?].each do |character|
+            url   = "sftp://jack:TOP#{character}SECRET@example.org/a.csv"
+            error = assert_raises(ArgumentError, url) { IOStreams.path(url) }
+
+            assert_includes error.message, %(Invalid url "sftp://[FILTERED]@example.org/a.csv": it cannot be parsed)
+            refute_includes error.full_message, "SECRET"
+            refute_includes error.full_message, "jack"
+            assert_nil error.cause
+          end
+          assert_raises(ArgumentError) { IOStreams.each_child("sftp://jack:TOP/SECRET@example.org/*.csv") }
+        end
+
         it "raises for a host that is not ASCII, without the password" do
           error = assert_raises(ArgumentError) { new_path("sftp://jack:secret@bücher.example/a.csv") }
 

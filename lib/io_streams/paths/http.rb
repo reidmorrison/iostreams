@@ -93,7 +93,7 @@ module IOStreams
       # - Each redirect that is followed is logged at info level via `IOStreams.logger`.
       def initialize(url, username: nil, password: nil, http_redirect_count: 10, parameters: nil,
                      allow_hosts: nil, maximum_file_size: nil, headers: nil)
-        uri = URI.parse(url)
+        uri = Utils::URI.parse(url)
         unless %w[http https].include?(uri.scheme)
           raise(
             ArgumentError,

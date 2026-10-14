@@ -20,6 +20,19 @@ module Paths
           end
           assert_includes error.message, "Invalid URL"
         end
+
+        it "raises ArgumentError for a url that cannot be parsed, without its password or query" do
+          {
+            "https://jack:TOP SECRET@example.com/a.csv"    => "https://[FILTERED]@example.com/a.csv",
+            "https://example.com/my file.csv?token=SECRET" => "https://example.com/my file.csv"
+          }.each_pair do |url, name|
+            error = assert_raises(ArgumentError) { IOStreams.path(url) }
+
+            assert_includes error.message, "Invalid url #{name.inspect}: it cannot be parsed"
+            refute_includes error.full_message, "SECRET"
+            assert_nil error.cause
+          end
+        end
       end
 
       describe "#path" do
@@ -125,7 +138,7 @@ module Paths
       end
 
       it "does not support streams" do
-        assert_raises URI::InvalidURIError do
+        assert_raises ArgumentError do
           io = StringIO.new
           IOStreams::Paths::HTTP.new(io)
         end
