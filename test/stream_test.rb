@@ -962,6 +962,18 @@ class StreamTest < Minitest::Test
         assert_equal "Jack      021\n", out.string
       end
 
+      it "raises when copying rows whose header row has no key of the layout, as before it was deprecated, rather than write empty records" do
+        source = IOStreams::Stream.new(StringIO.new("Full Name,Postal\nJack,12345\n")).format(:csv)
+        layout = {layout: [{size: 6, key: :name}, {size: 5, key: :zip, type: :integer}]}
+        out    = StringIO.new
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Stream.new(out).format(:fixed).format_options(layout).copy_from(source, mode: :array)
+        end
+        assert_match(/\AThe header row does not match the schema: the columns "Full Name" and "Postal" are not fields/, error.message)
+        assert_equal "", out.string
+      end
+
       it "copies a file with more columns than the layout into it" do
         out    = StringIO.new
         source = IOStreams::Stream.new(StringIO.new("name,age,id\nJill,22,5\n")).format(:csv)
@@ -1811,6 +1823,21 @@ class StreamTest < Minitest::Test
 
           error = assert_raises(IOStreams::Errors::InvalidHeader) { write([%w[id name age], [1, "Jack", 21]], :array, schema: {fields: fields}) }
           assert_match(/\AThe header row does not match the schema: the column "age" is not a field/, error.message)
+        end
+
+        it "raises for a first row written without a column that is a field, such as a row of values, rather than write empty rows" do
+          %w[subset partial].each do |fields_match|
+            error = assert_raises(IOStreams::Errors::InvalidHeader, fields_match) do
+              write([["Jack", 21], ["Jill", 22]], :array, schema: {fields: fields, fieldsMatch: fields_match})
+            end
+            assert_equal 'The header row does not match the schema: the columns "Jack" and 21 are not fields of the schema, ' \
+                         "so the rows after it would have no value for any field. The first row written is the header row " \
+                         "of the rows after it, which names the column of each of their values, so write the names of the " \
+                         "fields, or of their columns, first", error.message
+          end
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([[], [1, "Jack"]], :array, schema: {fields: fields, fieldsMatch: "subset"}) }
+          assert_match(/\AThe header row does not match the schema: it has no columns, so the rows after it would have no value/, error.message)
+          assert_equal "id,name\n,Jack\n", write([%w[name x], %w[Jack 21]], :array, schema: {fields: fields, fieldsMatch: "subset"})
         end
 
         it "ignores a blank value after the last field or column when writing, as reading does, but not false" do

@@ -262,6 +262,37 @@ module IOStreams
       raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{problem}")
     end
 
+    # Raises `IOStreams::Errors::InvalidHeader` unless the columns of a header row that is written before its rows, see
+    # `IOStreams::Schema::Columns#match_written`, match the fields: a column that is not a field raises, unless
+    # `fieldsMatch` skips it, see #check_unknown, and so does a header row without a column that is a field, whatever
+    # `fieldsMatch` is, as reading with "partial" needs at least one, since the rows after it would have no value for
+    # any field, such as when the first row written is a row of values rather than a header row.
+    #
+    # Parameters:
+    #   found: [Array<IOStreams::Schema::Field>]
+    #     The fields of the columns, see #check_columns.
+    #
+    #   unknown: [Array]
+    #     The columns that are not fields.
+    #
+    #   fields_in_order: [true|false]
+    #     See #check_unknown.
+    def check_written_columns(found, unknown, fields_in_order: false)
+      check_unknown(unknown, noun: "column", fields_in_order: fields_in_order)
+      return unless found.empty?
+
+      columns =
+        if unknown.empty?
+          "it has no columns"
+        else
+          "#{describe(unknown, 'column')} #{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the schema"
+        end
+      raise(IOStreams::Errors::InvalidHeader, "#{subject('column')} #{columns}, so the rows after it would have no value " \
+                                              "for any field. The first row written is the header row of the rows after " \
+                                              "it, which names the column of each of their values, so write the names " \
+                                              "of the fields, or of their columns, first")
+    end
+
     # Raises ArgumentError unless the columns of a file can be the fields in order, as they are for a format with a
     # header row, such as CSV, whose file has none, see `header` above: the schema needs fields, and `fieldsMatch`
     # "exact", since a file without a header row has no names to match its columns by. A format without a header row,

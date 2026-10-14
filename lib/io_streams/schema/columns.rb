@@ -76,10 +76,11 @@ module IOStreams
       # the order of the fields, with no value for a field that the header row does not have.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when a column is not a field, unless `fieldsMatch` skips it, since a
-      # file that is written always has every field, see `IOStreams::Schema#check_unknown`.
+      # file that is written always has every field, or when no column is a field, so that the rows after it would have
+      # no value, see `IOStreams::Schema#check_written_columns`.
       def match_written(labels)
-        _found, unknown, positions = find_fields(labels, "column")
-        @schema.check_unknown(unknown, noun: "column", fields_in_order: @fields_in_order)
+        found, unknown, positions = find_fields(labels, "column")
+        @schema.check_written_columns(found, unknown, fields_in_order: @fields_in_order)
         @written       = @schema.fields.map { |field| [field, positions[field]] }
         @written_width = labels.size
       end
