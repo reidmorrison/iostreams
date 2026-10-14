@@ -19,6 +19,13 @@ module IOStreams
         [*IOStreams::Line::Writer.option_names, *IOStreams::Tabular.write_option_names]
       end
 
+      # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
+      # lines that it writes, see `IOStreams::Line::Writer.deprecated_option_names`, and of the tabular that renders them,
+      # see `IOStreams::Tabular.deprecated_option_names`.
+      def self.deprecated_option_names
+        [*IOStreams::Line::Writer.deprecated_option_names, *IOStreams::Tabular.deprecated_option_names] & option_names
+      end
+
       # Create a writer that takes individual records as hashes.
       #
       # Parameters

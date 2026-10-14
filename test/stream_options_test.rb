@@ -109,18 +109,17 @@ class StreamOptionsTest < Minitest::Test
     end
 
     describe "an option that the mode does not take" do
-      it "raises before the file is opened, naming the mode and its options" do
+      it "raises before the file is opened, naming the mode and its options that are not deprecated" do
         missing = path("missing.csv")
 
         error = assert_raises(ArgumentError) { missing.each(:hash, original_file_name: "a.json") { |row| row } }
-        assert_equal "Unknown option :original_file_name for the :hash mode. Valid options: :delimiter, :buffer_size, " \
-                     ":embedded_within, :cleanse_header, :columns, :allowed_columns, :required_columns, :skip_unknown.",
+        assert_equal "Unknown option :original_file_name for the :hash mode. Valid options: :delimiter, :buffer_size.",
                      error.message
         error = assert_raises(ArgumentError) { missing.each(:line, cleanse_header: false, bogus: 1) { |line| line } }
         assert_equal "Unknown options :cleanse_header, :bogus for the :line mode. Valid options: :delimiter, :buffer_size, " \
                      ":embedded_within.", error.message
         error = assert_raises(ArgumentError) { missing.reader(:array, bogus: 1) { |rows| rows } }
-        assert_match(/\AUnknown option :bogus for the :array mode\. Valid options: :delimiter,/, error.message)
+        assert_equal "Unknown option :bogus for the :array mode. Valid options: :delimiter, :buffer_size.", error.message
       end
 
       it "raises before the file is opened when writing, so that an existing file is kept" do
@@ -130,14 +129,14 @@ class StreamOptionsTest < Minitest::Test
         assert_equal "Unknown option :bogus for the :line mode. Valid options: :delimiter.", error.message
         %i[array hash].each do |mode|
           error = assert_raises(ArgumentError) { path("a.csv").writer(mode, bogus: 1) { |io| io } }
-          assert_equal "Unknown option :bogus for the #{mode.inspect} mode. Valid options: :delimiter, :columns.", error.message
+          assert_equal "Unknown option :bogus for the #{mode.inspect} mode. Valid options: :delimiter.", error.message
         end
         assert_equal data, path("a.csv").read
       end
 
       it "raises when copying, before the source is opened" do
         error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("missing.csv"), mode: :hash, bogus: 1) }
-        assert_equal "Unknown option :bogus for the :hash mode. Valid options: :delimiter, :columns.", error.message
+        assert_equal "Unknown option :bogus for the :hash mode. Valid options: :delimiter.", error.message
       end
     end
 
@@ -490,6 +489,59 @@ class StreamOptionsTest < Minitest::Test
       it "gives the options that only apply when reading" do
         assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns skip_unknown],
                      IOStreams::Stream.read_option_names.sort
+      end
+    end
+
+    describe ".deprecated_option_names of lines, rows and records" do
+      # A value of each option of a call, which reads or writes `data`.
+      let :sample_options do
+        {
+          delimiter:        "\n",
+          buffer_size:      1024,
+          embedded_within:  '"',
+          cleanse_header:   false,
+          columns:          %w[id name],
+          allowed_columns:  %w[id name],
+          required_columns: %w[id],
+          skip_unknown:     false
+        }
+      end
+
+      # Returns [Hash<Class, Proc>] a call in the mode of each class, with the options supplied to the Proc.
+      def calls
+        {
+          IOStreams::Line::Reader   => ->(options) { IOStreams.stream(StringIO.new(data)).each(:line, **options) { |line| line } },
+          IOStreams::Row::Reader    => ->(options) { IOStreams.stream(StringIO.new(data)).each(:array, **options) { |row| row } },
+          IOStreams::Record::Reader => ->(options) { IOStreams.stream(StringIO.new(data)).each(:hash, **options) { |record| record } },
+          IOStreams::Line::Writer   => ->(options) { IOStreams.stream(StringIO.new).writer(:line, **options) { |io| io << "1,Jack" } },
+          IOStreams::Row::Writer    => ->(options) { IOStreams.stream(StringIO.new).writer(:array, **options) { |io| io << %w[1 Jack] } },
+          IOStreams::Record::Writer => lambda do |options|
+            IOStreams.stream(StringIO.new).writer(:hash, **options) { |io| io << {"id" => 1, "name" => "Jack"} }
+          end
+        }
+      end
+
+      it "are the options of each call, which a call still accepts, but the message of an unknown option does not list" do
+        assert_empty IOStreams::Line::Reader.deprecated_option_names
+        assert_empty IOStreams::Line::Writer.deprecated_option_names
+        %w[Row Record].each do |name|
+          assert_equal %i[allowed_columns cleanse_header columns embedded_within required_columns skip_unknown],
+                       IOStreams.const_get(name)::Reader.deprecated_option_names.sort
+          assert_equal %i[columns], IOStreams.const_get(name)::Writer.deprecated_option_names
+        end
+      end
+
+      it "are the options that report a deprecation warning when a call supplies them" do
+        calls.each_pair do |klass, call|
+          klass.option_names.each do |name|
+            options = {name => sample_options.fetch(name)}
+            if klass.deprecated_option_names.include?(name)
+              assert_deprecated(/ #{name}: is deprecated/) { call.call(options) }
+            else
+              refute_deprecated { call.call(options) }
+            end
+          end
+        end
       end
     end
 

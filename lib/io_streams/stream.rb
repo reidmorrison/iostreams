@@ -702,15 +702,17 @@ module IOStreams
 
     # Options are strict: raise rather than ignore an option of a call in the mode that its reader or writer, the
     # supplied class, does not take, see the `option_names` of `IOStreams::Row::Reader` and the others, before anything
-    # is opened. A setting that describes the file raises first, see #reject_path_settings!, with an example of setting
-    # it on the path.
+    # is opened. The message lists the options that the class takes, other than those that it says are deprecated, see
+    # its `deprecated_option_names`, which it still accepts, but which the message does not suggest. A setting that
+    # describes the file raises first, see #reject_path_settings!, with an example of setting it on the path.
     def reject_unknown_options!(mode, klass, options)
       reject_path_settings!(options)
       unknown = options.keys - klass.option_names
       return if unknown.empty?
 
+      valid = klass.option_names - klass.deprecated_option_names
       raise(ArgumentError, "Unknown #{unknown.size == 1 ? 'option' : 'options'} #{unknown.map(&:inspect).join(', ')} for " \
-                           "the #{mode.inspect} mode. Valid options: #{klass.option_names.map(&:inspect).join(', ')}.")
+                           "the #{mode.inspect} mode. Valid options: #{valid.map(&:inspect).join(', ')}.")
     end
 
     # Returns [Class] the writer of the mode, whose `option_names` are the options of each call that writes in it.

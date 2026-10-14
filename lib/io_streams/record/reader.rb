@@ -15,6 +15,13 @@ module IOStreams
         [*IOStreams::Line::Reader.option_names, *IOStreams::Tabular.read_option_names]
       end
 
+      # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
+      # lines, see `IOStreams::Line::Reader.deprecated_option_names`, `embedded_within`, since the format of the file splits
+      # the lines of its records, and those of the tabular, see `IOStreams::Tabular.deprecated_option_names`.
+      def self.deprecated_option_names
+        [*IOStreams::Line::Reader.deprecated_option_names, :embedded_within, *IOStreams::Tabular.deprecated_option_names]
+      end
+
       # Create a reader to return the stream as Hash records.
       #
       # Parameters

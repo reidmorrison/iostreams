@@ -260,7 +260,11 @@ IOStreams checks where each setting is supplied:
 * An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
   `#writer`, rather than being ignored.
 * Any other option that the mode does not take, such as a misspelled `delimitr:`, raises `ArgumentError` before the
-  file is opened, naming the mode and listing the options that it takes.
+  file is opened, naming the mode and listing the options that it takes, other than those that are deprecated:
+
+  ~~~
+  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size.
+  ~~~
 * `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
   raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set what
   describes the source, such as its schema, on its path.

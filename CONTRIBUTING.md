@@ -249,7 +249,8 @@ classDiagram
 * **`Line`, `Row` and `Record`** readers and writers turn the text into lines, the lines into rows (Arrays) and
   records (Hashes), through a **`Tabular`**, which parses and renders one line of a tabular format, such as CSV or JSON,
   with its parser, and decides which line is the header row. Each of them declares the options of each call in its
-  mode with `self.option_names`, and `Stream` rejects any other before it opens anything.
+  mode with `self.option_names`, and `Stream` rejects any other before it opens anything, with a message that lists
+  them, apart from those that the class declares deprecated with `self.deprecated_option_names`.
 * **`Tabular::Mapping`** maps the columns of one file to the values of its rows and records, and answers the questions
   of the header row that the `Tabular` asks, such as whether the file has one, whether it is still to be read, and
   whether the rows read start with one, such as the keys of the first record of a JSON file without a schema. The

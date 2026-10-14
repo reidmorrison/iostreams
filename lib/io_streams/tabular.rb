@@ -81,6 +81,14 @@ module IOStreams
       Header::OPTION_NAMES - Header::READ_OPTION_NAMES
     end
 
+    # Returns [Array<Symbol>] the options of a call that reads or writes rows or records, see .read_option_names and
+    # .write_option_names, that are deprecated, since a schema describes the columns of the file instead: whether to
+    # cleanse the header row, and the options of the header, see `IOStreams::Tabular::Header`. A call still accepts them,
+    # and reports a deprecation warning, see #initialize.
+    def self.deprecated_option_names
+      [*READ_OPTION_NAMES, *Header::OPTION_NAMES]
+    end
+
     # Parse a delimited data source.
     #
     # Parameters
