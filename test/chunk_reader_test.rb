@@ -83,13 +83,20 @@ class ChunkReaderTest < Minitest::Test
 
     it "reads with a limit of 0 or a negative limit like IO" do
       results = read_like_io("one\ntwo\n") do |io|
-        [
-          io.gets(0), io.gets(-1), io.gets("\n", -2), outcome { io.each_line(0) { nil } },
-          outcome { io.each_line("\n", 0) { nil } }, outcome { io.readlines(0) }, io.gets, io.gets(0), io.readline(0)
-        ]
+        [io.gets(0), io.gets(-1), io.gets("\n", -2), io.gets, io.gets(0), io.readline(0)]
       end
 
-      assert_equal ["", "one\n", "two\n", ArgumentError, ArgumentError, ArgumentError, nil, "", ""], results
+      assert_equal ["", "one\n", "two\n", nil, "", ""], results
+    end
+
+    # Like IO on MRI. JRuby's IO loops forever instead, so this is not compared with an IO.
+    it "raises ArgumentError for a limit of 0 when it reads every line, which would never reach the end" do
+      reader = Chunks.new("one\ntwo\n", 3)
+
+      assert_raises(ArgumentError) { reader.each_line(0) { nil } }
+      assert_raises(ArgumentError) { reader.each_line("\n", 0) { nil } }
+      assert_raises(ArgumentError) { reader.readlines(0) }
+      assert_equal "one\n", reader.gets
     end
 
     it "reads lines like IO#readline" do
