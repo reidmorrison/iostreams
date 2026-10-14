@@ -60,7 +60,7 @@ module IOStreams
       #
       #   allow_hosts: [String | Array<String>]
       #     Optional allow-list of host names that may be contacted, applied to the
-      #     supplied url and to every redirect that is followed.
+      #     supplied url and to every redirect that is followed. Names are compared without case.
       #     When supplied, a request to any other host raises CommunicationsFailure.
       #     Use this to limit Server Side Request Forgery (SSRF) exposure when the url
       #     can be influenced by untrusted input.
@@ -481,7 +481,7 @@ module IOStreams
                 "Invalid redirect, only http and https are supported: #{loggable(uri)}")
         end
         authorize_location!(http_location(uri)) unless IOStreams.allowed_paths.empty?
-        return if allow_hosts.nil? || allow_hosts.include?(uri.hostname)
+        return if allow_hosts.nil? || allow_hosts.any? { |host| host.to_s.casecmp?(uri.hostname.to_s) }
 
         raise(IOStreams::Errors::CommunicationsFailure, "Host not in the allowed list of hosts: #{uri.hostname}")
       end

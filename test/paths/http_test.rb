@@ -769,6 +769,15 @@ module Paths
           assert_equal body, IOStreams::Paths::HTTP.new("#{@server.base_url}/file", allow_hosts: ["127.0.0.1"]).read
         end
 
+        it "allows a host in the allow list whatever its case, since host names are not case-sensitive" do
+          connected = Class.new(StandardError)
+
+          Net::HTTP.stub(:start, ->(*) { raise connected }) do
+            assert_raises(connected) { IOStreams::Paths::HTTP.new("https://Example.COM/file", allow_hosts: ["example.com"]).read }
+            assert_raises(connected) { IOStreams::Paths::HTTP.new("https://example.com/file", allow_hosts: "EXAMPLE.com").read }
+          end
+        end
+
         it "accepts allow_hosts supplied as a single string" do
           start_server { |_path| TestHTTPServer.response(200, body: body) }
 
