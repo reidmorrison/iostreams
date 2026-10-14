@@ -60,8 +60,6 @@ class StreamOutcomeTest < Minitest::Test
         end
 
         it "keeps what an IO was written before the block leaves early" do
-          skip("PGP writer outcomes are fixed in review-pgp") if format == IOStreams::Pgp
-
           output = StringIO.new(+"".b)
           on_io(output).writer do |io|
             io.write(data)
@@ -72,8 +70,6 @@ class StreamOutcomeTest < Minitest::Test
         end
 
         it "keeps what a local file was written before the block leaves early" do
-          skip("PGP writer outcomes are fixed in review-pgp") if format == IOStreams::Pgp
-
           path.writer do |io|
             io.write(data)
             break
