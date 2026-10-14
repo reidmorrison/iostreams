@@ -282,6 +282,16 @@ module IOStreams
           path = IOStreams.path("a/b/c")
 
           IOStreams::Path::OPERATIONS.each { |operation| assert_respond_to path, operation }
+          IOStreams::Path::DERIVED_OPERATIONS.each_key { |operation| assert_respond_to path, operation }
+        end
+
+        it "is false for an operation built on one that the path class does not implement" do
+          path = IOStreams::Path.new("a/b/c")
+
+          refute_respond_to path, :size?
+          refute_respond_to path, :children
+          refute_respond_to path, :move_to
+          assert_raises(NotImplementedError) { path.size? }
         end
       end
 

@@ -9,6 +9,9 @@ module IOStreams
     # The operations that each storage implements, when it supports them. See `#respond_to?`.
     OPERATIONS = %i[each_child mkpath mkdir exist? size mtime file? directory? empty? delete delete_all].freeze
 
+    # The operations that are built on one of the OPERATIONS, which a path only supports when it supports that one.
+    DERIVED_OPERATIONS = {children: :each_child, size?: :size, move_to: :delete}.freeze
+
     def initialize(path)
       raise(ArgumentError, "Path cannot be nil") if path.nil?
       raise(ArgumentError, "Path must be a string: #{path.inspect}, class: #{path.class}") unless path.is_a?(String)
@@ -273,9 +276,11 @@ module IOStreams
     #
     # An operation that a storage does not support, such as `#each_child` on an HTTP path, raises
     # NotImplementedError, and `respond_to?` returns false for it, as Ruby does for a method that is not
-    # implemented on the platform, such as `Process.fork` on Windows.
+    # implemented on the platform, such as `Process.fork` on Windows. So does an operation built on it, such as
+    # `#children`, see DERIVED_OPERATIONS.
     def respond_to?(name, include_all = false) # rubocop:disable Style/OptionalBooleanParameter -- the signature of Object#respond_to?
-      return false if OPERATIONS.include?(name.to_sym) && method(name).owner == IOStreams::Path
+      operation = DERIVED_OPERATIONS.fetch(name.to_sym, name.to_sym)
+      return false if OPERATIONS.include?(operation) && method(operation).owner == IOStreams::Path
 
       super
     end

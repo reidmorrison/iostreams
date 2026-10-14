@@ -120,7 +120,10 @@ module Paths
         it "does not respond to them, like a method Ruby does not implement on the platform" do
           refute_respond_to path, :delete_all
           refute_respond_to path, :each_child
+          refute_respond_to path, :children
           assert_respond_to path, :exist?
+          assert_respond_to path, :size?
+          assert_respond_to path, :move_to
           assert_respond_to path, :read
         end
       end
