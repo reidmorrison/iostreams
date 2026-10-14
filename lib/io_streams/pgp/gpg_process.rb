@@ -36,7 +36,7 @@ module IOStreams
       #   captures: [Array<Integer>]
       #     File descriptors whose output from gpg is kept, such as its status, see `#captured`.
       #
-      # The block finishes gpg, see #finish, once gpg has all of its input, including when the block leaves early,
+      # The block finishes gpg, see #finish, once it has read or written what it needs, including when it leaves early,
       # such as with `break`. Unless the block finishes gpg, such as when it raises, or its thread is killed, gpg is
       # stopped before it completes its output from partial data, and the exception is raised once gpg has exited.
       # The caller's stream is never closed, since it belongs to the caller.
