@@ -1515,6 +1515,33 @@ class StreamTest < Minitest::Test
         assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", written
       end
 
+      it "writes a header row of the names of the fields when no row is written, as writer(:hash) does" do
+        assert_equal "id,pay,joined,active\n", write([], :array)
+        assert_equal "id,pay,joined,active\n", write([], :hash)
+        assert_equal "", write([], :array, schema: people.merge(header: false))
+        assert_equal "", write([], :array, file_name: "people.json")
+
+        out = StringIO.new
+        IOStreams::Stream.new(out).file_name("people.csv").schema(people).writer(:array) { |_io| break }
+
+        assert_equal "id,pay,joined,active\n", out.string
+
+        out = StringIO.new
+        assert_raises(RuntimeError) { IOStreams::Stream.new(out).file_name("people.csv").schema(people).writer(:array) { |_io| raise "boom" } }
+
+        assert_equal "", out.string
+      end
+
+      it "copies a file without rows into a file with a header row, which still has its header row" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "empty.csv").write("")
+          target = IOStreams.path(dir, "out.csv").schema(people)
+          target.copy_from(IOStreams.path(dir, "empty.csv"), mode: :array)
+
+          assert_equal "id,pay,joined,active\n", target.read
+        end
+      end
+
       it "matches the columns of the first row written, a header row, so that the rows after it can be in any order" do
         written = write([%w[Active ID Joined Pay], ["1", "0042", Date.new(2026, 10, 13), 12.5]], :array)
 

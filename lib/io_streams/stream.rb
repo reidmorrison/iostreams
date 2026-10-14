@@ -923,14 +923,16 @@ module IOStreams
                            "which is already open, and writes with its own settings")
     end
 
-    # The delimiter is the default of the line writer unless it is supplied, see #open_rows_writer.
+    # The delimiter is the default of the line writer unless it is supplied, see #open_rows_writer. The writer of the rows
+    # finishes once the block returns, see `IOStreams::Row::Writer#finish`.
     def row_writer(delimiter: nil, **args, &block)
       reject_read_options!(args, "not when writing")
       return block.call(io_stream) if open_writer_supplied?(IOStreams::Row::Writer, {delimiter: delimiter, **args})
 
       tabular = tabular(**args)
       open_rows_writer(tabular, delimiter) do |io|
-        block.call(IOStreams::Row::Writer.new(io, tabular: tabular))
+        rows = IOStreams::Row::Writer.new(io, tabular: tabular)
+        IOStreams::Utils.finish_or_abort(finish: -> { rows.finish }) { block.call(rows) }
       end
     end
 

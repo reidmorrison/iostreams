@@ -99,6 +99,18 @@ module IOStreams
         @line_writer << (@tabular.first_row_header? ? @tabular.render_header(array) : @tabular.render(array))
         self
       end
+
+      # Writes the header row once the rows have been written, when no row was written, so that a file with a header
+      # row has one, as a writer of records writes it when it starts: the names of the fields of a schema, whose header
+      # row is otherwise written once the first row gives the columns of the rows, see #<<. Without a schema, the first
+      # row is the header row, so there is none to write without it.
+      #
+      # Called once the block that writes the rows returns, including when it leaves early, such as with `break`,
+      # rather than when it raises, see `IOStreams::Utils.finish_or_abort`.
+      def finish
+        @line_writer << @tabular.render_header if @tabular.first_row_header? && !@tabular.columns_from_first_row?
+        nil
+      end
     end
   end
 end
