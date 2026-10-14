@@ -66,6 +66,18 @@ module IOStreams
         line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.first_row_header?
       end
 
+      # Writes the header row of rows read from a file with one, see `IOStreams::Row::Reader#header?`, so that the value
+      # of each column of the rows after it is written to its column, or to its field with a schema: as the first row,
+      # see #<<, otherwise, for a format without a header row, such as JSON or Parquet, the columns of the rows after it.
+      #
+      # Returns self, so that calls can be chained.
+      def write_header(columns)
+        return self << columns if @tabular.first_row_header? || @tabular.requires_header?
+
+        @tabular.render_header(columns)
+        self
+      end
+
       # Supply a hash or an array to render
       #
       # Returns self, so that calls can be chained.

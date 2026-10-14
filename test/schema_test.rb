@@ -438,22 +438,22 @@ class SchemaTest < Minitest::Test
       end
 
       it "returns the columns of the fields, in the order of the columns, when the others are skipped" do
-        assert_equal ["id", "First Name"], schema("subset").projection(["id", "notes", "First Name"])
-        assert_equal ["First Name"], schema("partial").projection(["notes", "First Name"])
+        assert_equal(["id", "First Name"], schema("subset").projection { ["id", "notes", "First Name"] })
+        assert_equal(["First Name"], schema("partial").projection { ["notes", "First Name"] })
       end
 
-      it "returns nil when the schema checks the columns that it does not list" do
+      it "returns nil without asking for the columns when the schema checks the columns that it does not list" do
         %w[exact equal superset].each do |fields_match|
-          assert_nil schema(fields_match).projection(["id", "notes", "First Name"]), fields_match
+          assert_nil schema(fields_match).projection { flunk("Asked for the columns with #{fields_match}") }, fields_match
         end
       end
 
       it "returns nil when no column is a field" do
-        assert_nil schema("partial").projection(%w[notes])
+        assert_nil(schema("partial").projection { %w[notes] })
       end
 
       it "returns nil when two columns are the same field" do
-        assert_nil schema("subset").projection(%w[id ID first_name])
+        assert_nil(schema("subset").projection { %w[id ID first_name] })
       end
     end
 

@@ -169,6 +169,13 @@ module IOStreams
       nil
     end
 
+    # Returns [true|false] whether the current thread is being killed, such as by `Thread#kill`, so that an `ensure`
+    # block does not complete output that the block it ensures did not finish, since killing a thread raises no
+    # exception that it can rescue.
+    def self.thread_aborting?
+      Thread.current.status == "aborting"
+    end
+
     # Yields the name of a new, empty temporary file that only the current user can read or write.
     #
     # The file is created exclusively, so that an existing file, or a link planted in a shared

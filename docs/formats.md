@@ -178,7 +178,9 @@ to the fields in the same way. `writer(:array)` takes the first row written as a
 returns one, and matches its columns to the fields in the same way, so that the values of each row after it can be in
 any order, and the rows read from another file can be written as they are, such as by
 `copy_from(source, mode: :array)`. A field that the header row does not have is written as empty. A file without a
-header row, such as JSON, or a schema with `header: false`, takes rows of the values of the fields, in order.
+header row, such as JSON, or a schema with `header: false`, takes rows of the values of the fields, in order, except
+that `copy_from(source, mode: :array)` from a file with a header row, such as CSV, takes the columns of the rows from
+its header row, rather than write it as a row of values.
 
 So a file can have readable column names, while the code uses its own keys:
 
@@ -364,7 +366,8 @@ IOStreams.path("people.parquet").schema(schema).copy_from(IOStreams.path("people
 
 Set how its columns are compressed with `option(:parquet, compression: ...)`: `"none"`, `"snappy"`, the default,
 `"gzip"`, `"lz4"`, `"zstd"` or `"brotli"`. Reading finds the compression in the file, so it ignores the option, and so
-does a file that is not Parquet, as for the options of other streams.
+does a file that is not Parquet, as for the options of other streams. `stream(:parquet, ...)` sets it too, and still
+applies the streams in the file name, such as `.gz` in `people.parquet.gz`, since Parquet is not one of them.
 
 ~~~ruby
 IOStreams.path("people.parquet").schema(schema).option(:parquet, compression: "zstd").writer(:hash) do |writer|
@@ -379,10 +382,15 @@ wide file. The other values of `fieldsMatch` read every column, so that they can
 A Parquet file records its columns at its end, so it is read from a local file, and a file stored elsewhere, such as
 on S3, is first copied into a temp file. Likewise it is written to a temp file, which is then copied to the path. The
 records written before the block leaves early, such as with `break`, are kept, as for other formats, and nothing is
-written when the block raises.
+written when the block raises, or when the thread writing it is killed.
+
+A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, naming its field, when the record is
+written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its
+`decimal(38, decimals)` holds, that is `38 - decimals`.
 
 A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
-`ArgumentError`. Like JSON, each row of the `:array` mode is a `Hash` for now.
+`ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
+UTF-8. Like JSON, each row of the `:array` mode is a `Hash` for now.
 
 ## Fixed width files
 

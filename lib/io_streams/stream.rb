@@ -38,7 +38,6 @@ module IOStreams
       @format_options = nil
       @schema         = nil
       @schema_source  = nil
-      @row_options    = nil
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
@@ -46,7 +45,6 @@ module IOStreams
     def initialize_copy(source)
       super
       @builder        = @builder&.dup
-      @row_options    = @row_options&.transform_values(&:dup)
       @format_options = copy_layout(@format_options)
       @schema         = @schema.dup if @schema.is_a?(Hash)
     end
@@ -89,11 +87,9 @@ module IOStreams
     # the file name:
     #
     # IOStreams.path("people.parquet").schema("people.json").option(:parquet, compression: "zstd").writer(:hash)
-    def option(stream, **options)
+    def option(stream, **)
       raise_if_frozen!
-      return row_option(stream, options) if IOStreams::Tabular.row_format(stream)
-
-      builder.option(stream, **options)
+      builder.option(stream, **)
       self
     end
 
@@ -145,18 +141,14 @@ module IOStreams
 
     # Adds the options for the specified stream as an option,
     # but if streams have already been added it is instead added as a stream.
-    def option_or_stream(stream, **options)
+    def option_or_stream(stream, **)
       raise_if_frozen!
-      return row_option(stream, options) if IOStreams::Tabular.row_format(stream)
-
-      builder.option_or_stream(stream, **options)
+      builder.option_or_stream(stream, **)
       self
     end
 
     # Return the options already set for either a stream or option.
     def setting(stream)
-      return @row_options&.[](stream.to_sym) if IOStreams::Tabular.row_format(stream)
-
       builder.setting(stream)
     end
 
@@ -366,9 +358,7 @@ module IOStreams
             args, "but a copy uses its options to write the target", suggest_schema: %i[array hash].include?(mode)
           )
           stream.reader(mode) do |rows|
-            writer(mode, **args) do |target|
-              rows.each { |row| target << row }
-            end
+            writer(mode, **args) { |target| copy_rows(rows, target, mode) }
           end
         else
           reject_copy_options!("when copying without a `mode:`", **args)
@@ -587,7 +577,21 @@ module IOStreams
       @format_options = nil
       @schema         = nil
       @schema_source  = nil
-      @row_options    = nil
+    end
+
+    # Writes each row or record read to the target. In `:array` mode the header row of a source that has one is
+    # written as a header row, so that a target without one, such as JSON or Parquet, takes its columns from it,
+    # rather than write it as a row of values.
+    def copy_rows(rows, target, mode)
+      header = mode == :array && rows.respond_to?(:header?) && rows.header?
+      rows.each do |row|
+        if header
+          header = false
+          target.write_header(row)
+        else
+          target << row
+        end
+      end
     end
 
     # Options are strict: raise rather than ignore options that a copy cannot use.
@@ -725,11 +729,12 @@ module IOStreams
     # format that holds them in a binary layout of its own, such as Parquet, read from its bytes, see
     # `IOStreams::Tabular#read_rows`.
     #
-    # Raises ArgumentError when `delimiter` or `embedded_within` is supplied for a format without lines.
+    # Raises ArgumentError when `delimiter` or `embedded_within` is supplied, or an encoding is set, for a format without
+    # lines, see #reject_line_options!.
     def open_rows_reader(tabular, delimiter, embedded_within, &)
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter, embedded_within: (embedded_within unless embedded_within == :auto))
-        return stream_reader { |io| tabular.read_rows(io, row_options(tabular), &) }
+        return stream_reader { |io| tabular.read_rows(io, builder.row_format_options(tabular.format), &) }
       end
 
       embedded_within = tabular.quote_character if embedded_within == :auto
@@ -739,41 +744,29 @@ module IOStreams
     # Yields [#<<] the writer of the rows of the format of the tabular: a line writer, or the writer of a format that
     # holds its rows in a binary layout of its own, such as Parquet, see `IOStreams::Tabular#write_rows`.
     #
-    # Raises ArgumentError when `delimiter` is supplied for a format without lines.
+    # Raises ArgumentError when `delimiter` is supplied, or an encoding is set, for a format without lines, see
+    # #reject_line_options!.
     def open_rows_writer(tabular, delimiter, &)
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter)
-        return stream_writer { |io| tabular.write_rows(io, row_options(tabular), &) }
+        return stream_writer { |io| tabular.write_rows(io, builder.row_format_options(tabular.format), &) }
       end
 
       open_line_writer(tabular.encoding, delimiter: delimiter.nil? ? $/ : delimiter, &)
     end
 
-    # Sets the options of a tabular format whose rows are not lines of text, see #option, merging them with those
-    # already set.
-    #
-    # Raises ArgumentError for an option that neither its reader nor its writer accepts, as soon as it is set, as for
-    # a stream, see `IOStreams::Builder#option`.
-    def row_option(name, options)
-      name = name.to_sym
-      IOStreams::Tabular.row_format(name).validate_options(nil, options, name: name)
-      @row_options ||= {}
-      @row_options[name] = (@row_options[name] || {}).merge(options)
-      self
-    end
-
-    # Returns [Hash] the options set for the format of the tabular, see #option.
-    def row_options(tabular)
-      @row_options&.[](tabular.format.to_sym) || {}
-    end
-
-    # Options are strict: raise rather than ignore the options of lines for a format whose rows are not lines.
+    # Options are strict: raise rather than ignore the options of lines for a format whose rows are not lines, and
+    # an encoding, see #encoding, since its rows are not text, so that the encode stream would only change its bytes.
     def reject_line_options!(tabular, **options)
       names = options.compact.keys
-      return if names.empty?
+      unless names.empty?
+        raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used with the #{tabular.format.inspect} " \
+                             "format, whose rows are not lines of text")
+      end
+      return unless builder.setting(:encode)
 
-      raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used with the #{tabular.format.inspect} format, " \
-                           "whose rows are not lines of text")
+      raise(ArgumentError, "#encoding cannot be used with the #{tabular.format.inspect} format, whose rows are not " \
+                           "text, so that an encoding would only change the bytes of the file")
     end
 
     # Raises ArgumentError for the `:line` mode of a format whose rows are not lines of text, such as Parquet.

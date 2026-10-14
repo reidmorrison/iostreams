@@ -157,6 +157,14 @@ class ParquetTest < Minitest::Test
       assert_equal expected, read(path("copy.parquet"))
     end
 
+    it "copies the rows of a CSV file, whose first row is its header row" do
+      File.write(File.join(dir, "people.csv"), "name,id\nJack,1\nJill,2\n")
+      path.schema(fields: [{name: "id", type: "integer"}, {name: "name", type: "string"}]).
+        copy_from(path("people.csv"), mode: :array)
+
+      assert_equal [{"id" => 1, "name" => "Jack"}, {"id" => 2, "name" => "Jill"}], read
+    end
+
     it "keeps the records written before the block leaves early" do
       result = path.schema(schema).writer(:hash) do |writer|
         writer << records[0]
@@ -176,6 +184,21 @@ class ParquetTest < Minitest::Test
       end
 
       assert_equal "boom", error.message
+      refute_path_exists File.join(dir, "people.parquet")
+    end
+
+    it "writes nothing when the thread that writes the records is killed" do
+      started = Queue.new
+      thread  = Thread.new do
+        path.schema(schema).writer(:hash) do |writer|
+          writer << records[0]
+          started << true
+          sleep
+        end
+      end
+      started.pop
+      thread.kill.join
+
       refute_path_exists File.join(dir, "people.parquet")
     end
 
@@ -207,6 +230,28 @@ class ParquetTest < Minitest::Test
       assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "NaN"}]) }
     end
 
+    it "raises for an integer outside the range of an int64, naming its field, when the record is written" do
+      path.schema(schema).writer(:hash) do |writer|
+        writer << records[0]
+        error = assert_raises(IOStreams::Errors::InvalidValue) { writer << {"id" => 2**63} }
+        assert_match(/Field "id": .* outside the range of a Parquet int64/, error.message)
+        writer << {"id" => -(2**63)}
+        break
+      end
+
+      assert_equal([expected[0]["id"], -(2**63)], read.map { |record| record["id"] })
+    end
+
+    it "raises for a number with more digits before its decimal point than its decimal holds" do
+      wide = {fields: [{name: "amount", type: "number", decimals: 36}]}
+
+      error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(wide), [{"amount" => "123.5"}]) }
+      assert_match(/Field "amount": 123.5 has more than 2 digits before its decimal point/, error.message)
+      write(path.schema(wide), [{"amount" => "99.5"}])
+
+      assert_equal [{"amount" => BigDecimal("99.5")}], read
+    end
+
     it "raises for the line mode" do
       write
 
@@ -221,6 +266,14 @@ class ParquetTest < Minitest::Test
       assert_raises(ArgumentError) { path.each(:hash, delimiter: "\n") { nil } }
       assert_raises(ArgumentError) { path.each(:array, embedded_within: '"') { nil } }
       assert_raises(ArgumentError) { path("other.parquet").schema(schema).writer(:hash, delimiter: "\n") { nil } }
+    end
+
+    it "raises for an encoding, since its rows are not text" do
+      write
+
+      error = assert_raises(ArgumentError) { path.encoding("ISO-8859-1").each(:hash) { nil } }
+      assert_match(/#encoding cannot be used with the :parquet format/, error.message)
+      assert_raises(ArgumentError) { path("other.parquet").encoding("UTF-8").schema(schema).writer(:hash) { nil } }
     end
 
     describe "#option" do
@@ -294,6 +347,30 @@ class ParquetTest < Minitest::Test
 
         assert_equal({compression: "zstd"}, original.setting(:parquet))
         assert_equal({compression: "gzip"}, copy.setting(:parquet))
+      end
+
+      it "is set with #stream as with #option, without stopping the streams taken from the file name" do
+        target = path("people.parquet.gz").schema(schema).stream(:parquet, compression: "zstd")
+        write(target)
+
+        assert_equal({compression: "zstd"}, target.setting(:parquet))
+        assert_equal expected, read(path("people.parquet.gz"))
+        assert(::Zlib::GzipReader.open(File.join(dir, "people.parquet.gz"), &:read).start_with?("PAR1"))
+      end
+
+      it "is shown by #inspect" do
+        assert_includes path.option(:parquet, compression: "zstd").inspect, '@row_options={parquet: {compression: "zstd"}}'
+      end
+
+      it "goes to an extension registered with the same name, rather than to Parquet" do
+        reader = Class.new(IOStreams::Reader) { def self.option_names = %i[level] }
+        writer = Class.new(IOStreams::Writer) { def self.option_names = %i[level] }
+        IOStreams.register_extension(:parquet, reader, writer)
+
+        assert_equal({level: 3}, path.option(:parquet, level: 3).setting(:parquet))
+        assert_includes path.option(:parquet, level: 3).inspect, "@options={parquet: {level: 3}}"
+      ensure
+        IOStreams.deregister_extension(:parquet)
       end
     end
 

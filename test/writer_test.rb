@@ -54,6 +54,33 @@ class WriterTest < Minitest::Test
         assert_equal "", File.read(file_name)
       end
 
+      it "copies what was written when the block leaves early" do
+        output = StringIO.new(+"")
+        FileOnlyWriter.stream(output) do |io|
+          io.write(data)
+          break
+        end
+
+        assert_equal data, output.string
+      end
+
+      it "copies nothing when the thread writing it is killed" do
+        output  = StringIO.new(+"")
+        started = Queue.new
+        thread  = Thread.new do
+          FileOnlyWriter.stream(output) do |io|
+            io.write(data)
+            io.flush
+            started << true
+            sleep
+          end
+        end
+        started.pop
+        thread.kill.join
+
+        assert_equal "", output.string
+      end
+
       it "returns the result of the block" do
         result = File.open(file_name, "wb") { |file| FileOnlyWriter.stream(file) { |io| io.write(data) } }
 

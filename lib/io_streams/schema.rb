@@ -255,11 +255,12 @@ module IOStreams
     # list, so that they are checked, see #check_columns, or when no column, or several columns, are the same field,
     # so that reading them raises as it does without skipping any.
     #
-    # Parameters:
-    #   labels: [Array]
-    #     The columns of the file, in order.
-    def projection(labels)
+    # Yields to get the columns of the file, in order, only when some could be skipped, since a reader may have to read
+    # them from the file, such as from the end of a Parquet file.
+    def projection
       return unless skip_unknown?
+
+      labels = yield
 
       seen     = {}.compare_by_identity
       selected = labels.select do |label|

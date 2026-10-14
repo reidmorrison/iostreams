@@ -1397,6 +1397,22 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "copies the rows of a file with a header row into a format without one, taking its columns from it" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "in.csv")
+          source.write("Age,Name\n21,Jack\n")
+          target = IOStreams.path(dir, "out.json").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+          target.copy_from(source, mode: :array)
+
+          assert_equal %({"name":"Jack","age":21}\n), target.read
+
+          plain = IOStreams.path(dir, "plain.json")
+          plain.copy_from(source, mode: :array)
+
+          assert_equal %({"Age":"21","Name":"Jack"}\n), plain.read
+        end
+      end
+
       it "writes the rows read with a schema whose fields can be missing in the columns of their fields" do
         schema = {fieldsMatch: "superset", fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "score", type: "integer"}]}
         Dir.mktmpdir do |dir|

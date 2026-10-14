@@ -11,8 +11,8 @@ module IOStreams
     # within an Enumerator that the gem pulls from. A row group is written once the gem has its rows, so the memory that
     # it holds is bounded, see the `flush_threshold` of `Parquet.write_rows`.
     #
-    # A Parquet file records its columns at its end, so it is written to a temp file, then copied to its output, see
-    # `.stream`.
+    # A Parquet file records its columns at its end, so it is written to a file, and any other output is written
+    # through a temp file, see `IOStreams::Writer.stream`.
     class Writer < IOStreams::Writer
       # The number of rows that the queue holds before #<< waits for the gem to take them.
       QUEUE_SIZE = 1_000
@@ -21,19 +21,19 @@ module IOStreams
       class Abort < StandardError
       end
 
-      # The compression of the columns that the `parquet` gem writes, see `compression:` in `.stream`.
+      # The compression of the columns that the `parquet` gem writes, see `compression:` in `.file`.
       COMPRESSIONS = %w[none snappy gzip lz4 zstd brotli].freeze
 
       def self.option_names
         %i[compression]
       end
 
-      # Yields [IOStreams::Parquet::Writer] the writer of the records of the file, then writes the file to the output
-      # stream once the block returns, including when it leaves early, such as with `break`, which keeps the records
-      # written so far, as it does for a format of lines. Nothing is written when the block raises.
+      # Yields [IOStreams::Parquet::Writer] the writer of the records of the file, then completes the file once the
+      # block returns, including when it leaves early, such as with `break`, which keeps the records written so far, as
+      # it does for a format of lines. The file is not completed when the block raises, or its thread is killed.
       #
-      # The file is written to a temp file, then copied to the output stream, since a Parquet file records its columns at
-      # its end.
+      # A Parquet file records its columns at its end, so a stream is written through a temp file, see
+      # `IOStreams::Writer.stream`.
       #
       # Parameters:
       #   schema: [IOStreams::Schema]
@@ -47,7 +47,7 @@ module IOStreams
       #     Default: "snappy"
       #
       # Returns the result of the block.
-      def self.stream(output_stream, schema:, compression: "snappy")
+      def self.file(file_name, schema:, compression: "snappy")
         unless schema
           raise(ArgumentError, "Writing Parquet needs a schema, set with #schema on the path, since a Parquet file records " \
                                "the type of each of its columns")
@@ -60,21 +60,18 @@ module IOStreams
 
         columns = schema.fields.map { |field| Column.new(field) }
         Parquet.load_dependency
-        purpose = "the Parquet file, before it is copied to its output"
-        Utils.private_temp_file("iostreams_parquet", purpose: purpose) do |file_name|
-          writer = new(file_name, columns, compression)
-          failed = false
-          begin
-            yield(writer)
-          rescue Exception # rubocop:disable Lint/RescueException -- so that every error ends the thread, and is raised
-            failed = true
+        writer = new(file_name, columns, compression)
+        failed = false
+        begin
+          yield(writer)
+        rescue Exception # rubocop:disable Lint/RescueException -- so that every error ends the thread, and is raised
+          failed = true
+          raise
+        ensure
+          if failed || Utils.thread_aborting?
             writer.abort
-            raise
-          ensure
-            unless failed
-              writer.finish
-              ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) }
-            end
+          else
+            writer.finish
           end
         end
       end

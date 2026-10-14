@@ -455,7 +455,7 @@ module IOStreams
     def read_only_fields(rows)
       return unless schema && rows.respond_to?(:read_only)
 
-      labels = schema.projection(rows.labels)
+      labels = schema.projection { rows.labels }
       rows.read_only(labels) if labels
     end
 

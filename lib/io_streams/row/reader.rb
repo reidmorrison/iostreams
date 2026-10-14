@@ -67,6 +67,13 @@ module IOStreams
         @tabular.restrict_columns(rename: @cleanse_header)
       end
 
+      # Returns [true|false] whether the first row that #each yields is the header row of the file, which names the
+      # column of each value of the rows after it, so that a copy can write it as a header row, see
+      # `IOStreams::Row::Writer#write_header`. Asked before #each.
+      def header?
+        @tabular.header?
+      end
+
       # Yields the header row as it was read, followed by each row.
       #
       # The allowed and required columns are applied to the header row, or to the supplied columns,

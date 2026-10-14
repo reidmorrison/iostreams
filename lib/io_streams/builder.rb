@@ -6,6 +6,10 @@ module IOStreams
     attr_accessor :file_name
     attr_reader :streams, :options
 
+    # Returns [Hash<Symbol:Hash>|nil] the options of each tabular format whose rows are not lines of text, such as
+    # `:parquet`, see #row_format_options, or nil when none are set.
+    attr_reader :row_options
+
     # Keywords that `#option` and `#stream` give a meaning of their own, so that they cannot be registered as a
     # file name extension with `IOStreams.register_extension`:
     #   :encode
@@ -44,20 +48,33 @@ module IOStreams
       stream == :encode ? Encode : IOStreams.extensions[stream]
     end
 
+    # Returns the format that reads and writes the rows of the tabular format of the supplied name, when its rows are
+    # not lines of text, such as `IOStreams::Parquet` for `:parquet`, see `IOStreams::Tabular.row_format`, otherwise nil.
+    #
+    # A file name extension registered with `IOStreams.register_extension` takes precedence, so that its options still
+    # reach its stream.
+    def self.find_row_format(name)
+      return if name.nil? || name == :encode || IOStreams.extensions.key?(name)
+
+      IOStreams::Tabular.row_format(name)
+    end
+
     def initialize(file_name = nil)
-      @file_name = file_name
-      @streams   = nil
-      @options   = nil
-      @encoding  = nil
-      @raw       = false
+      @file_name   = file_name
+      @streams     = nil
+      @options     = nil
+      @encoding    = nil
+      @raw         = false
+      @row_options = nil
     end
 
     # A copy has its own streams and options, so that changing them does not change the original.
     def initialize_copy(source)
       super
-      @streams  = @streams&.transform_values(&:dup)
-      @options  = @options&.transform_values(&:dup)
-      @encoding = @encoding&.dup
+      @streams     = @streams&.transform_values(&:dup)
+      @options     = @options&.transform_values(&:dup)
+      @encoding    = @encoding&.dup
+      @row_options = @row_options&.transform_values(&:dup)
     end
 
     # Supply an option that is only applied once the file name extensions have been parsed.
@@ -71,9 +88,15 @@ module IOStreams
     #   runs, rather than only where the path, for example from configuration, includes the stream.
     #
     # Setting the encode stream with `option(:encode, ...)` is deprecated, see #encoding, which it calls.
+    #
+    # The options of a tabular format whose rows are not lines of text, such as `:parquet`, are those of its rows, see
+    # #row_format_options, rather than of a stream, so they need no file name, can be combined with `#stream`, and are
+    # kept by #raw, which only changes how the bytes are stored.
     def option(stream, **options)
-      raise_if_raw!("#option")
       stream = stream.to_sym unless stream.is_a?(Symbol)
+      return merge_row_options(stream, options) if self.class.find_row_format(stream)
+
+      raise_if_raw!("#option")
       return merge_encoding(options) if stream == :encode
 
       format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
@@ -94,9 +117,14 @@ module IOStreams
     # set with `#stream`, it still stops the streams being taken from the file name.
     #
     # Supplying `:none` is deprecated, see #raw.
+    #
+    # The options of a tabular format whose rows are not lines of text, such as `:parquet`, are set as with #option,
+    # since its rows are not a stream of the pipeline, so they do not stop the streams being taken from the file name.
     def stream(stream, **options)
-      raise_if_raw!("#stream")
       stream = stream.to_sym unless stream.is_a?(Symbol)
+      return merge_row_options(stream, options) if self.class.find_row_format(stream)
+
+      raise_if_raw!("#stream")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @options
 
       # To prevent any streams from being applied, including the encode stream, supply a stream named `:none`
@@ -186,9 +214,19 @@ module IOStreams
     # Return the options set for either a stream or option.
     def setting(stream)
       return @encoding if stream.to_sym == :encode
+      return @row_options&.[](stream.to_sym) if self.class.find_row_format(stream.to_sym)
       return streams[stream] if streams
 
       options[stream] if options
+    end
+
+    # Returns [Hash] the options set for the rows of the tabular format of the supplied name, such as `:parquet`,
+    # see #option, or an empty Hash when none are set, or when the format's rows are lines of text.
+    def row_format_options(format)
+      return {} if format.nil?
+
+      format = format.to_sym
+      (self.class.find_row_format(format) && @row_options&.[](format)) || {}
     end
 
     def reader(io_stream, &)
@@ -262,7 +300,8 @@ module IOStreams
     def inspect
       copy = redacted
       "#<#{self.class.name} @file_name=#{file_name.inspect}, @streams=#{copy.streams.inspect}, " \
-        "@options=#{copy.options.inspect}, @encoding=#{copy.setting(:encode).inspect}>"
+        "@options=#{copy.options.inspect}, @encoding=#{copy.setting(:encode).inspect}, " \
+        "@row_options=#{copy.row_options.inspect}>"
     end
 
     # Returns [true|false] whether a stream in the pipeline compresses the data.
@@ -281,9 +320,10 @@ module IOStreams
 
     # Replaces the value of each sensitive option of this copy, see #redacted.
     def redact!
-      @streams  = self.class.redact_streams(@streams) if @streams
-      @options  = self.class.redact_streams(@options) if @options
-      @encoding = Encode.redact_options(@encoding) if @encoding
+      @streams     = self.class.redact_streams(@streams) if @streams
+      @options     = self.class.redact_streams(@options) if @options
+      @encoding    = Encode.redact_options(@encoding) if @encoding
+      @row_options = @row_options&.to_h { |name, opts| [name, self.class.find_row_format(name).redact_options(opts)] }
     end
 
     private
@@ -308,6 +348,16 @@ module IOStreams
       end
       merged.merge!(options[stream]) if options.key?(stream)
       merged
+    end
+
+    # Validates the options of the rows of a tabular format, see #option, and merges them with those already set.
+    #
+    # Raises ArgumentError for an option that neither its reader nor its writer accepts, as soon as it is set.
+    def merge_row_options(name, options)
+      self.class.find_row_format(name).validate_options(nil, options, name: name)
+      @row_options ||= {}
+      @row_options[name] = (@row_options[name] || {}).merge(options)
+      self
     end
 
     # Validates the options of the encode stream and merges them with those already set, see #encoding.

@@ -20,6 +20,9 @@ module IOStreams
       # The precision of a Parquet decimal: the most digits that a decimal of 16 bytes holds.
       PRECISION = 38
 
+      # The range of the values of a Parquet int64.
+      INT64 = (-(2**63)...(2**63))
+
       # Parameters:
       #   field: [IOStreams::Schema::Field]
       #     The field that the column holds.
@@ -48,11 +51,14 @@ module IOStreams
       # `parquet` gem writes it: a decimal rounded to its scale, since the gem drops the digits after it, and a Date as
       # its text, since the gem only converts a String or a Time into a date32.
       #
-      # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, which a decimal cannot hold.
+      # Raises `IOStreams::Errors::InvalidValue` for a value that the column cannot hold: an integer outside the range
+      # of an int64, or a number that is not finite, or that has more digits before its decimal point than its decimal
+      # holds, so that the record that holds it raises, naming its field, rather than the gem, once it writes the row.
       def value(value)
         return value if value.nil?
 
         case @type
+        when :int64 then int64(value)
         when :decimal then decimal(value)
         when :double then @field.decimals ? value.round(@field.decimals) : value
         when :date32 then value.iso8601
@@ -92,13 +98,25 @@ module IOStreams
         :decimal
       end
 
+      def int64(value)
+        return value if INT64.cover?(value)
+
+        raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.inspect} is outside the range of a " \
+                                               "Parquet int64")
+      end
+
       def decimal(value)
         unless value.finite?
           raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.inspect} is not finite, so it " \
                                                  "cannot be written as a Parquet decimal")
         end
 
-        value.round(@field.decimals)
+        rounded = value.round(@field.decimals)
+        return rounded if rounded.abs < 10**(PRECISION - @field.decimals)
+
+        raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.to_s('F')} has more than " \
+                                               "#{PRECISION - @field.decimals} digits before its decimal point, which " \
+                                               "a Parquet decimal(#{PRECISION}, #{@field.decimals}) cannot hold")
       end
     end
   end

@@ -647,6 +647,22 @@ module Paths
           refute_path_exists new_file_path.to_s
         end
 
+        it "removes the partial file when the thread writing it is killed" do
+          new_file_path = directory.join("new.txt.gz")
+          started       = Queue.new
+          thread        = Thread.new do
+            new_file_path.writer do |io|
+              io << data
+              started << true
+              sleep
+            end
+          end
+          started.pop
+          thread.kill.join
+
+          refute_path_exists new_file_path.to_s
+        end
+
         it "keeps the file when the block returns early" do
           new_file_path = directory.join("new.txt.gz")
           write = lambda do
