@@ -357,16 +357,14 @@ module IOStreams
           refute_equal IOStreams::Path.new("a/b"), IOStreams::Path.new("a/c")
         end
 
-        it "is equal to a String of its name" do
-          path = IOStreams.path("/home/user/a.txt")
+        it "is not equal to a String, even of its name" do
+          %w[/home/user/a.txt s3://bucket/a.txt sftp://example.org/a.txt https://example.org/a.txt].each do |name|
+            path = IOStreams.path(name)
 
-          # The path must be the receiver, since `String#==` is false for anything that is not a String.
-          # rubocop:disable Minitest/AssertEqual, Minitest/RefuteEqual
-          assert_operator path, :==, "/home/user/a.txt"
-          refute_operator path, :==, "/home/user/b.txt"
-          refute_operator IOStreams.path("a.txt"), :==, "/home/user/a.txt"
-          assert_operator IOStreams.path("s3://bucket/a.txt"), :==, "s3://bucket/a.txt"
-          # rubocop:enable Minitest/AssertEqual, Minitest/RefuteEqual
+            refute_equal path, name, name
+            refute path.eql?(name), name
+            assert_nil path <=> name, name
+          end
         end
 
         it "is not equal to anything else" do
@@ -376,6 +374,17 @@ module IOStreams
           refute_equal path, 1
           refute_equal path, :"a.txt"
           assert_nil path <=> 1
+        end
+
+        it "is not equal to a path of another class with the same name" do
+          refute_equal_paths IOStreams::Path.new("a.csv"), IOStreams.path("a.csv")
+        end
+
+        it "sorts equal paths together, by the name that they compare" do
+          paths = [IOStreams.path("SFTP://example.org/a.csv"), IOStreams.path("other.csv"), IOStreams.path("sftp://example.org/a.csv")]
+
+          assert_equal ["other.csv", "SFTP://example.org/a.csv"], paths.uniq.sort.map(&:to_s)
+          assert_equal 0, paths.first <=> paths.last
         end
 
         it "is not equal to a path in another location with the same name" do

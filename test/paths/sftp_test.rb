@@ -742,6 +742,57 @@ module Paths
         end
       end
 
+      describe "comparison" do
+        it "is equal to another spelling of the url" do
+          path = new_path("sftp://example.org/data/a b.csv")
+          urls = %w[
+            sftp://EXAMPLE.org/data/a%20b.csv SFTP://example.org/data/a%20b.csv sftp://example.org:22/data/a%20b.csv
+            sftp://example.org/data/a%20b%2Ecsv sftp://jack:secret@example.org/data/a%20b.csv
+          ]
+
+          urls.each { |url| assert_equal_paths path, new_path(url), url }
+        end
+
+        it "is equal whatever the user name or password, except within the login directory, whose user it is" do
+          jack = new_path("sftp://example.org/~/a.csv", username: "jack")
+
+          assert_equal_paths new_path("sftp://example.org/a.csv", username: "jack"), new_path("sftp://jill:secret@example.org/a.csv")
+          assert_equal_paths jack, new_path("sftp://jack:secret@example.org/~/a.csv")
+          assert_equal_paths jack, new_path("sftp://jill@example.org/~/a.csv", username: "jack", password: "secret")
+          refute_equal_paths jack, new_path("sftp://example.org/~/a.csv", username: "jill")
+          refute_equal_paths jack, new_path("sftp://example.org/~/a.csv")
+        end
+
+        it "is equal whatever the ssh options" do
+          assert_equal_paths new_path(url, ssh_options: {"IdentityFile" => "~/.ssh/a"}), new_path(url)
+        end
+
+        it "decodes the path, since the server is sent the name of the file" do
+          assert_equal_paths new_path("sftp://example.org/a%2Fb.csv"), new_path("sftp://example.org/a/b.csv")
+          assert_equal_paths new_path("sftp://example.org/data").join("a#b.csv"), new_path("sftp://example.org/data/a%23b.csv")
+          refute_equal_paths new_path("sftp://example.org/data").join("a#b.csv"), new_path("sftp://example.org/data/a")
+        end
+
+        it "compares the host without its case, and the port and the path as they are" do
+          path = new_path("sftp://[FE80::1]/data/a.csv")
+          urls = %w[
+            sftp://[fe80::1]:2222/data/a.csv sftp://[fe80::1:2222]/data/a.csv sftp://example.org/data/a.csv
+            sftp://[fe80::1]/data/A.csv sftp://[fe80::1]/data/./a.csv sftp://[fe80::1]//data/a.csv sftp://[fe80::1]/data/a.csv/
+            sftp://[fe80::1]/~/data/a.csv
+          ]
+
+          assert_equal_paths path, new_path("sftp://[fe80::1]:22/data/a.csv")
+          urls.each { |url| refute_equal_paths path, new_path(url), url }
+          refute_equal_paths new_path("sftp://[fe80::1]:2222/data/a.csv"), new_path("sftp://[fe80::1:2222]/data/a.csv")
+        end
+
+        it "sorts by the url that it compares" do
+          paths = %w[sftp://B.org/a.csv sftp://a.org:2222/a.csv sftp://a.org/b.csv SFTP://A.org:22/a.csv].map { |url| new_path(url) }
+
+          assert_equal %w[SFTP://A.org:22/a.csv sftp://a.org/b.csv sftp://a.org:2222/a.csv sftp://B.org/a.csv], paths.sort.map(&:to_s)
+        end
+      end
+
       describe "#mkdir and #mkpath" do
         it "return self" do
           path = new_path(url, username: "jack", password: "secret")
@@ -1364,10 +1415,24 @@ module Paths
           source = new_path("sftp://example.org/data/a.csv", username: "jack")
 
           Open3.stub(:popen2e, ->(*) { flunk "The sftp program must not be run" }) do
-            [source, source.to_s, "sftp://EXAMPLE.org:22/data/./in/../a.csv", "sftp://jill@example.org//data/a.csv"].each do |target|
+            [source, source.to_s, "sftp://EXAMPLE.org:22/data/./in/../a.csv", "sftp://jill@example.org//data/a.csv",
+             "sftp://example.org/data/a%2Ecsv"].each do |target|
               error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
 
               assert_includes error.message, "Cannot move sftp://example.org/data/a.csv onto itself"
+            end
+          end
+        end
+
+        it "raises ArgumentError for a target within the login directory of the same user, by any spelling" do
+          source  = new_path("sftp://example.org/~/data/a.csv", username: "jack")
+          targets = [new_path("sftp://jack@EXAMPLE.org:22/~/data/in/../a.csv"), new_path("sftp://example.org/~/data/./a.csv", username: "jack")]
+
+          Open3.stub(:popen2e, ->(*) { flunk "The sftp program must not be run" }) do
+            targets.each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move sftp://example.org/~/data/a.csv onto itself"
             end
           end
         end

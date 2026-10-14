@@ -313,13 +313,23 @@ module IOStreams
       # Paths on the same host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [hostname.to_s.downcase, port]
 
+      # Returns [String] the parts of the url that identify the file, see `IOStreams::Path#identity`, as the url
+      # `sftp://host:port/path`: its store, see #store, so the host in lower case, since host names are not
+      # case-sensitive, and the port unless it is the default port 22, and its path, decoded, see #path, since the
+      # server is sent the name of the file rather than its url, so `%20` is a space. The user name is only part of it
+      # for a path within the login directory, such as `~/a.csv`, which is the login directory of that user, while the
+      # password and the ssh options never are, since they say how to connect rather than which file it is.
+      def identity
+        user = "#{::URI.encode_uri_component(username)}@" if username && path.start_with?("~")
+        name = path.start_with?("/") ? path : "/#{path}"
+        "sftp://#{user}#{Utils::URI.host_and_port(*store, 22)}#{Utils::URI.encode_path(name)}"
+      end
+
       # Returns [true|false] whether the other path is the same file, see `IOStreams::Path#same_location?`, also by
-      # another spelling: in the same store, see #store, whatever the case of the host, or whether the default port is
-      # written, and with the same path once `.`, `..` and repeated `/` are resolved, as the server resolves them. A path
-      # within the login directory is only the same for the same user, whose login directory it is.
+      # another spelling: equal, see #==, once `.`, `..` and repeated `/` are resolved, see #cleanpath, as the server
+      # resolves them, within the login directory for a path within it, such as `~/a.csv`.
       def same_location?(other)
-        other.instance_of?(self.class) && other.store == store && normalize_path(other.path) == normalize_path(path) &&
-          (!path.start_with?("~") || other.username == username)
+        other.instance_of?(self.class) && cleanpath == other.cleanpath
       end
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.

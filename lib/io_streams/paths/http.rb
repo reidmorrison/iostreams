@@ -210,13 +210,28 @@ module IOStreams
       # Urls with the same scheme, host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [original_uri.scheme, original_uri.hostname.to_s.downcase, original_uri.port]
 
+      # Returns [String] the parts of the url that identify the file, see `IOStreams::Path#identity`, as the url
+      # `scheme://host:port/path?query`: its store, see #store, so the scheme and the host in lower case, since they are
+      # not case-sensitive, and the port unless it is the default port of the scheme, 80 or 443, then its path and its
+      # query, which can name another file, with their percent-encoded characters spelled as RFC 3986 normalizes them,
+      # see `IOStreams::Utils::URI.normalize_escapes`: so `%7E` is `~`, but `%2F` is not `/`, since a server can answer
+      # them differently. The user name and password are not part of it, since they are credentials rather than part of
+      # the name of the file, nor is the fragment, which is not sent to the server.
+      def identity
+        location(Utils::URI.normalize_escapes(original_uri.path))
+      end
+
       # Returns [true|false] whether the other url is the same file, see `IOStreams::Path#same_location?`, also by
-      # another spelling: in the same store, see #store, whatever the case of the host, or whether the default port is
-      # written, and with the same path once it is decoded and `.` and `..` resolved, as most web servers resolve them.
-      # The query must be the same, since it can name another file.
+      # another spelling that most web servers answer with the same file: with the same #identity once its path is
+      # decoded, see #path, and `.`, `..`, repeated `/` and a trailing `/` are resolved. So unlike #==, a percent-encoded
+      # `/` is the same as `/`, since a server can decode it.
       def same_location?(other)
-        other.instance_of?(self.class) && other.store == store && normalize_path(other.path) == normalize_path(path) &&
-          URI.parse(other.url).query == original_uri.query
+        other.instance_of?(self.class) && other.resolved_location == resolved_location
+      end
+
+      # Returns [String] the #identity of this url with its path resolved, see #same_location?.
+      def resolved_location
+        location(Utils::URI.encode_path(normalize_path(path)))
       end
 
       # Returns [String] the path with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`, keeping a
@@ -277,6 +292,14 @@ module IOStreams
       # Returns [String] the name with each character that cannot appear in a url path as it is percent-encoded.
       def escape_path(name)
         name.each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
+      end
+
+      # Returns [String] the url of the supplied path, as a url writes it, on the server of this url, see #store, with the
+      # query of this url, in the spelling that #identity compares.
+      def location(url_path)
+        scheme, host, port = store
+        query              = "?#{Utils::URI.normalize_escapes(original_uri.query)}" if original_uri.query
+        "#{scheme}://#{Utils::URI.host_and_port(host, port, original_uri.default_port)}#{url_path}#{query}"
       end
 
       attr_reader :allow_hosts, :maximum_file_size, :headers

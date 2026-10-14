@@ -479,6 +479,23 @@ class UtilsTest < Minitest::Test
         end
       end
 
+      describe ".host_and_port" do
+        it "writes the port unless it is the default port, and an IPv6 address within [ and ]" do
+          assert_equal "example.org:2222", IOStreams::Utils::URI.host_and_port("example.org", 2222, 22)
+          assert_equal "example.org", IOStreams::Utils::URI.host_and_port("example.org", 22, 22)
+          assert_equal "[::1]:2222", IOStreams::Utils::URI.host_and_port("::1", 2222, 22)
+          assert_equal "[::1]", IOStreams::Utils::URI.host_and_port("::1", 443, 443)
+        end
+      end
+
+      describe ".normalize_escapes" do
+        it "decodes each percent-encoded unreserved character, and writes the digits of the others in upper case" do
+          assert_equal "/~a-b._c/%2F%3A%25%20%C3%A9", IOStreams::Utils::URI.normalize_escapes("/%7ea%2Db%2E%5F%63/%2f%3a%25%20%c3%a9")
+          assert_equal "a=~1&b=%2B+c", IOStreams::Utils::URI.normalize_escapes("a=%7E1&b=%2b+c")
+          assert_equal "%%2G%4", IOStreams::Utils::URI.normalize_escapes("%%2G%4")
+        end
+      end
+
       describe ".authority" do
         it "returns the scheme, user name, password, host and port" do
           assert_equal "sftp://jack:secret@[::1]:2222", IOStreams::Utils::URI.authority("sftp://jack:secret@[::1]:2222/a?b#c")

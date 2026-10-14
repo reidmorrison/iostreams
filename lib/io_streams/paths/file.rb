@@ -279,6 +279,14 @@ module IOStreams
 
       protected
 
+      # Returns [String] the name of the file, which identifies it, see `IOStreams::Path#identity`, as it is written,
+      # as `Pathname#==` compares it: a relative name is not its absolute name, and the case of each letter counts, even
+      # on a file system that ignores it, such as on macOS, since only the file system knows whether it does.
+      # A `file://` url, or a name within the home directory, `~`, is already its absolute name.
+      def identity
+        path
+      end
+
       # Returns [true|false] whether the other path is the same file, see `IOStreams::Path#same_location?`, also by
       # another name, such as a relative name, one with `.` or `..`, or a symbolic link to it, when both exist.
       def same_location?(other)

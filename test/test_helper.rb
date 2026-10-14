@@ -191,6 +191,26 @@ def skip_without_resolution_error
   skip("JRuby does not have Socket::ResolutionError") unless defined?(Socket::ResolutionError)
 end
 
+# Asserts that paths are the same path, or different paths, by every comparison that `IOStreams::Path` answers, so
+# that they agree: `==` either way, `#eql?` and `#hash` as a `Hash` key, and `<=>`.
+module PathAssertions
+  def assert_equal_paths(path, other, message = nil)
+    assert_equal path, other, message
+    assert_equal other, path, message
+    assert_equal 1, {path => 1}[other], message
+    assert_equal 0, path <=> other, message
+  end
+
+  def refute_equal_paths(path, other, message = nil)
+    refute_equal path, other, message
+    refute_equal other, path, message
+    assert_nil({path => 1}[other], message)
+    refute_equal 0, path <=> other, message
+    assert_equal(-(path <=> other), other <=> path, message)
+  end
+end
+Minitest::Test.include(PathAssertions)
+
 # Collects the deprecation warnings that IOStreams reports, see `IOStreams::Deprecation`, while a test runs, rather than
 # writing them to `$stderr`, so that a test asserts each one that it expects with #assert_deprecated, and any other one
 # fails the test, see DeprecationCheck, so that IOStreams never uses its own deprecated methods and options, and every

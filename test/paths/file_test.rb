@@ -151,6 +151,26 @@ module Paths
         end
       end
 
+      describe "comparison" do
+        it "is equal to the same name, also from a file url or within the home directory" do
+          path = IOStreams.path("/tmp/data/a b.csv")
+
+          assert_equal_paths path, IOStreams.path("file:///tmp/data/a%20b.csv")
+          assert_equal_paths path, IOStreams.path("file://localhost/tmp/data/a b.csv")
+          assert_equal_paths IOStreams.path("~/a.csv"), IOStreams.path(::File.join(Dir.home, "a.csv"))
+        end
+
+        it "compares the name as it is, as Pathname does, without accessing the file" do
+          path  = IOStreams.path("/tmp/data/a.csv")
+          names = %w[/tmp/data/A.csv tmp/data/a.csv /tmp/data/./a.csv /tmp//data/a.csv /tmp/data/a.csv/ /tmp/data/x/../a.csv]
+
+          names.each do |name|
+            refute_equal_paths path, IOStreams.path(name), name
+            refute_equal Pathname.new(path.to_s), Pathname.new(name), name
+          end
+        end
+      end
+
       describe "#each" do
         it "reads lines" do
           records = []

@@ -71,6 +71,55 @@ module Paths
         end
       end
 
+      describe "comparison" do
+        it "is equal to another spelling of the url" do
+          path = IOStreams.path("https://example.org/data/~a.csv?q=~1")
+          urls = %w[
+            https://EXAMPLE.org/data/~a.csv?q=~1 HTTPS://example.org/data/~a.csv?q=~1
+            https://example.org:443/data/~a.csv?q=~1 https://example.org:/data/~a.csv?q=~1
+            https://example.org/data/%7Ea.csv?q=%7E1 https://example.org/data/%7ea%2Ecsv?q=%7e1
+            https://jack:secret@example.org/data/~a.csv?q=~1 https://example.org/data/~a.csv?q=~1#part
+          ]
+
+          urls.each { |url| assert_equal_paths path, IOStreams.path(url), url }
+          assert_equal_paths path, IOStreams.path("https://example.org/data/~a.csv", parameters: {q: "~1"}, username: "jack")
+        end
+
+        it "is equal to the root of the host, whether its url ends with /" do
+          assert_equal_paths IOStreams.path("http://example.org"), IOStreams.path("http://example.org:80/")
+        end
+
+        it "compares a percent-encoded character that is not the same as the character, whatever the case of its digits" do
+          path = IOStreams.path("https://example.org/a%2fb%2bc.csv")
+
+          assert_equal_paths path, IOStreams.path("https://example.org/a%2Fb%2Bc.csv")
+          refute_equal_paths path, IOStreams.path("https://example.org/a/b+c.csv")
+          assert_equal_paths IOStreams.path("https://example.org/caf%c3%a9.csv"), IOStreams.path("https://example.org/caf%C3%A9.csv")
+        end
+
+        it "compares the scheme and host without their case, and the port, path and query as they are" do
+          path = IOStreams.path("https://example.org/data/a.csv?x=1")
+          urls = %w[
+            http://example.org/data/a.csv?x=1 https://example.org:8443/data/a.csv?x=1 https://example.org:80/data/a.csv?x=1
+            https://example.com/data/a.csv?x=1 https://example.org/data/A.csv?x=1 https://example.org/data/a.csv?X=1
+            https://example.org/data/a.csv https://example.org/data/a.csv?x=1& https://example.org/data/./a.csv?x=1
+            https://example.org//data/a.csv?x=1 https://example.org/data/a.csv/?x=1 https://example.org/data%2Fa.csv?x=1
+          ]
+
+          urls.each { |url| refute_equal_paths path, IOStreams.path(url), url }
+          refute_equal_paths IOStreams.path("https://example.org/a.csv?"), IOStreams.path("https://example.org/a.csv")
+          refute_equal_paths IOStreams.path("http://[fe80::1]:8080/a.csv"), IOStreams.path("http://[fe80::1:8080]/a.csv")
+        end
+
+        it "sorts by the url that it compares" do
+          urls  = %w[https://B.org/a.csv http://b.org/a.csv https://a.org:8443/a.csv HTTPS://A.org:443/b.csv https://jack@a.org/a.csv]
+          paths = urls.map { |url| IOStreams.path(url) }
+
+          assert_equal %w[http://b.org/a.csv https://jack@a.org/a.csv HTTPS://A.org:443/b.csv https://a.org:8443/a.csv https://B.org/a.csv],
+                       paths.sort.map(&:to_s)
+        end
+      end
+
       describe "#absolute?" do
         it "is always true" do
           %w[https://example.com https://example.com/a.csv].each do |url|
@@ -1446,7 +1495,8 @@ module Paths
             source  = IOStreams.path("http://localhost:#{@server.port}/files/file.txt")
             targets = [
               source, source.to_s, "http://LOCALHOST:#{@server.port}/files/./a/../file.txt",
-              "http://localhost:#{@server.port}/files/file%2Etxt"
+              "http://localhost:#{@server.port}/files/file%2Etxt", "http://localhost:#{@server.port}/files%2Ffile.txt",
+              "http://localhost:#{@server.port}/files/file.txt/"
             ]
 
             targets.each do |target|
@@ -1454,6 +1504,16 @@ module Paths
 
               assert_includes error.message, "Cannot move #{source.display_name} onto itself"
             end
+            assert_empty @server.requests
+          end
+
+          it "raises ArgumentError for a target with another spelling of the same query, without a request" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            source = IOStreams.path("http://localhost:#{@server.port}/file.txt?v=~1")
+
+            error = assert_raises(ArgumentError) { source.move_to("http://localhost:#{@server.port}/file.txt?v=%7e1") }
+
+            assert_includes error.message, "Cannot move #{source.display_name} onto itself"
             assert_empty @server.requests
           end
 

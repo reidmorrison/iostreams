@@ -309,44 +309,31 @@ module IOStreams
       true
     end
 
-    # Paths are sortable by their full name, see #to_s.
-    # Returns [nil] when compared with anything other than a path or a String.
+    # Paths sort by their full name in the spelling that #== compares, see #identity, so that equal paths compare
+    # as 0, and then by the name of their class, so that paths of different classes never do.
+    # Returns [nil] when compared with anything other than a path.
     def <=>(other)
-      case other
-      when Path
-        to_s <=> other.to_s
-      when String
-        to_s <=> other
-      end
+      sort_key <=> other.sort_key if other.is_a?(Path)
     end
 
-    # Returns [true|false] whether this path is the same location as the other path, or the String.
+    # Returns [true|false] whether the other is a path of the same class that names the same file, whatever the
+    # spelling of its name, see #identity, such as the case of the host of an SFTP or HTTP url, so that paths in
+    # different locations are never equal. The streams and options are ignored, as are the arguments of the path that
+    # do not identify the file, such as a password.
     #
-    # The full name of the path is compared, see #to_s, including the bucket of an S3 path and the
-    # host of an SFTP or HTTP path, so that paths in different locations are never equal.
-    # The streams and options are ignored.
-    #
-    # Names are compared exactly as given, so a relative path never equals an absolute path:
-    #   IOStreams.path("/home/user/a.txt") == "/home/user/a.txt"   # => true
-    #   IOStreams.path("a.txt") == "/home/user/a.txt"              # => false
+    # Like `Pathname#==`, `.` and `..` are not resolved, and a path is never equal to a String, even its name, since only
+    # a path knows which parts of its name identify it. Compare #to_s to compare the names as they are written.
+    #   IOStreams.path("sftp://Example.org:22/a.csv") == IOStreams.path("sftp://example.org/a.csv")   # => true
+    #   IOStreams.path("a.txt") == IOStreams.path("/home/user/a.txt")                               # => false
     def ==(other)
-      case other
-      when Path
-        other.instance_of?(self.class) && other.to_s == to_s
-      when String
-        to_s == other
-      else
-        false
-      end
+      other.instance_of?(self.class) && other.identity == identity
     end
 
-    # Paths are equal hash keys when they are the same location, see #==.
-    def eql?(other)
-      other.instance_of?(self.class) && other.to_s == to_s
-    end
+    # Paths are equal hash keys when they are equal, see #==.
+    alias eql? ==
 
     def hash
-      [self.class, to_s].hash
+      [self.class, identity].hash
     end
 
     # Returns [Array<Symbol>] the options for creating a path of this class whose values must not be displayed,
@@ -403,9 +390,26 @@ module IOStreams
       contains?(name) ? name : ::File.join(path, name)
     end
 
+    # Returns [String] the name that identifies the file of this path, including its store, which #==, #eql?, #hash and
+    # #<=> compare: its full name, see #to_s, as it is written, as `Pathname#==` compares names. A path class whose
+    # names can spell the same file in other ways, such as a url whose host can be written in any case, returns its name
+    # in one spelling, without the parts of its name that do not identify the file, such as a password.
+    #
+    # It never makes a request of the store, and never resolves `.` or `..`, see #same_location?.
+    def identity
+      to_s
+    end
+
+    # Returns [Array(String, String)] what a path sorts by, see #<=>: its #identity, then the name of its class.
+    # Defined only here, rather than by each path class, so that a path can ask a path of any other class for it: Ruby
+    # only lets a path of the class that defines a protected method, such as `IOStreams::Paths::SFTP#identity`, call it.
+    def sort_key
+      [identity, self.class.to_s]
+    end
+
     # Returns [true|false] whether the other path is the same location as this one, such as the same file, see
-    # #move_to. Paths with the same full name are, see #==, and each path class also detects the other names of a
-    # location that it can tell without a request, such as an SFTP url with its default port.
+    # #move_to. Equal paths are, see #==, and each path class also detects the other names of a location that it can
+    # tell without a request, such as a name with `.` or `..`.
     def same_location?(other)
       self == other
     end

@@ -849,6 +849,29 @@ module Paths
         end
       end
 
+      describe "comparison" do
+        it "is equal to the same key in the same bucket, whatever its options or client" do
+          path  = IOStreams.path("s3://bucket/data/a b.csv")
+          other = [
+            IOStreams.path("s3://bucket/data/a%20b.csv"), IOStreams.path("S3://bucket/data/a b.csv"),
+            IOStreams.path("s3://bucket/data/a b.csv?acl=bucket-owner-full-control&version_id=1"),
+            IOStreams::Paths::S3.new("s3://bucket/data/a b.csv", client: client, request_payer: "requester")
+          ]
+
+          other.each { |other_path| assert_equal_paths path, other_path, other_path.inspect }
+        end
+
+        it "compares the bucket and the key as they are, since S3 compares every character" do
+          path = IOStreams.path("s3://bucket/data/a.csv")
+          urls = %w[
+            s3://Bucket/data/a.csv s3://other/data/a.csv s3://bucket/data/A.csv s3://bucket/data/./a.csv
+            s3://bucket//data/a.csv s3://bucket/data/a.csv/ s3://bucket/data%2Fa.csv%2F
+          ]
+
+          urls.each { |url| refute_equal_paths path, IOStreams.path(url), url }
+        end
+      end
+
       describe "#absolute?" do
         it "is always true" do
           %w[s3://bucket s3://bucket/a.csv s3://bucket/a/b.csv].each do |url|

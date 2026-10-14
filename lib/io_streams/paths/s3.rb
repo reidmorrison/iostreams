@@ -513,6 +513,15 @@ module IOStreams
       # Paths in the same bucket are in the same store, see `IOStreams::Path#same_store?`.
       def store = bucket_name
 
+      # Returns [String] the bucket and the key, which identify the object, see `IOStreams::Path#identity`, as the url
+      # `s3://bucket/key`, see #to_s. Both are compared as they are, since S3 tells them apart by every character: by the
+      # case of each letter, which the name of a bucket created before March 2018 can have, and by a `.`, `..` or
+      # repeated `/` in a key. The key is decoded from the url, so `%20` is a space. The options of the path, including
+      # those in the query of its url, such as `version_id`, are not part of it, since they are options of the requests.
+      def identity
+        to_s
+      end
+
       # Copies the source object into this object within S3, see `#copy_from`. A missing object is a failure of the
       # source, and any other failure is one of this path, since the size of the source is read before the copy, which
       # raises when the source cannot be read.

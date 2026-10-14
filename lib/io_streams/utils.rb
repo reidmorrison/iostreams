@@ -293,8 +293,10 @@ module IOStreams
       AUTHORITY                  = %r{\A(?<scheme>[^:/?#]+://)(?:(?<userinfo>[^/?#]*)@)?(?<host>[^/?#]*)}n
       # The characters that `.new` reads in a path as an escape, the query or a fragment, see `.encode_path`.
       PATH_DELIMITER             = /[%?#]/n
+      # The characters that RFC 3986 calls unreserved, which a url can hold anywhere as they are, see `.normalize_escapes`.
+      UNRESERVED                 = /\A[A-Za-z0-9\-._~]\z/n
       private_constant :UNPARSEABLE_BYTE, :UNPARSEABLE_PATH_CHARACTER, :UNPARSEABLE_USERINFO_BYTE, :AUTHORITY,
-                       :PATH_DELIMITER
+                       :PATH_DELIMITER, :UNRESERVED
 
       # The user name and password are as they are in the url, including any character that is not ASCII, or `@`,
       # rather than percent-decoded, as they always have been, so that a password such as `p%41ss` is unchanged.
@@ -420,6 +422,26 @@ module IOStreams
       # Every other character is as it is, see `.escape`.
       def self.encode_path(name)
         percent_encode(name.b, PATH_DELIMITER).force_encoding(name.encoding)
+      end
+
+      # Returns [String] the host and port as a url writes them, such as `example.org:2222`: an IPv6 address within `[`
+      # and `]`, such as `[::1]:2222`, so that the port is not read as part of it, and without the port when it is the
+      # supplied default port.
+      def self.host_and_port(hostname, port, default_port)
+        host = hostname.include?(":") ? "[#{hostname}]" : hostname
+        port == default_port ? host : "#{host}:#{port}"
+      end
+
+      # Returns [String] the supplied part of a url, such as its path or query, with each percent-encoded character
+      # spelled as RFC 3986 normalizes it: a letter, digit, `-`, `.`, `_` or `~`, which a url can hold anywhere as it is,
+      # is decoded, since it is the same as its percent-encoding, so `%7E` is `~`, and the hexadecimal digits of any
+      # other are in upper case, so `%2f` is `%2F`. Any other character is not the same as its percent-encoding, such as
+      # `/` and `%2F`, so they are kept apart.
+      def self.normalize_escapes(text)
+        text.gsub(/%\h\h/) do |escape|
+          character = escape.delete_prefix("%").hex.chr
+          character.match?(UNRESERVED) ? character : escape.upcase
+        end
       end
 
       # Returns [String] the scheme, user name, password, host and port of the url that `::URI` can parse.
