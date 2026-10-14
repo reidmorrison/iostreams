@@ -5,6 +5,8 @@ require "csv"
 module IOStreams
   module Xlsx
     class Writer < IOStreams::Writer
+      include Writable
+
       def self.option_names
         %i[sheet_name auto_format use_shared_strings]
       end
@@ -33,8 +35,8 @@ module IOStreams
       #     smaller when values repeat, but holds every distinct value in memory until the workbook is complete.
       #     Default: false
       #
-      # The stream supplied to the block responds to #write and #<<, and expects CSV text in UTF-8.
-      # Each CSV record is parsed into a row, so a quoted value can contain a newline.
+      # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`, and
+      # expects CSV text in UTF-8. Each CSV record is parsed into a row, so a quoted value can contain a newline.
       #
       # A workbook is written even when nothing is, with an empty worksheet.
       #
@@ -65,10 +67,18 @@ module IOStreams
         @quotes  = 0
       end
 
+      # Writes the last record, when it does not end with a newline.
+      # Raises [CSV::MalformedCSVError] when it ends within a quoted value.
+      def finish
+        add_row(@buffer) unless @buffer.empty?
+        @buffer = String.new(encoding: Encoding::BINARY)
+      end
+
+      private
+
       # Write CSV text, which can end part way through a record, since the rest of the record is written next.
       # Returns [Integer] the number of bytes written.
-      def write(data)
-        data = data.to_s
+      def write_data(data)
         @buffer << data.b
 
         record_start = 0
@@ -88,20 +98,6 @@ module IOStreams
         end
         data.bytesize
       end
-
-      def <<(data)
-        write(data)
-        self
-      end
-
-      # Writes the last record, when it does not end with a newline.
-      # Raises [CSV::MalformedCSVError] when it ends within a quoted value.
-      def finish
-        add_row(@buffer) unless @buffer.empty?
-        @buffer = String.new(encoding: Encoding::BINARY)
-      end
-
-      private
 
       def add_row(record)
         output_stream << (CSV.parse_line(record.force_encoding(Encoding::UTF_8)) || [])

@@ -15,6 +15,8 @@ module IOStreams
       #     or a negative level for even faster compression.
       #     Default: 3
       #
+      # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`.
+      #
       # The output stream is not closed, since it belongs to the caller.
       #
       # The end of the zstd frame is written when the block returns, including when it leaves early, such as with
@@ -27,22 +29,20 @@ module IOStreams
         end
       end
 
-      # Writes data to an encoder of the zstd library, as an IO.
+      # Writes data to an encoder of the zstd library, as an IO, see `IOStreams::Writable`.
       class Compressor
+        include Writable
+
         def initialize(encoder)
           @encoder = encoder
         end
 
+        private
+
         # Returns [Integer] the number of bytes written, before compression.
-        def write(data)
-          data = data.to_s
+        def write_data(data)
           @encoder.write(data) unless data.empty?
           data.bytesize
-        end
-
-        def <<(data)
-          write(data)
-          self
         end
       end
     end

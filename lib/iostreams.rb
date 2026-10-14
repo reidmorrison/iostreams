@@ -14,6 +14,7 @@ module IOStreams
   autoload :StreamFormat,        "io_streams/stream_format"
   autoload :Tabular,             "io_streams/tabular"
   autoload :Utils,               "io_streams/utils"
+  autoload :Writable,            "io_streams/writable"
   autoload :Writer,              "io_streams/writer"
 
   # Formats registered with `IOStreams.register_extension`. Each one autoloads its own reader and writer.

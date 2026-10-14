@@ -33,7 +33,7 @@ module IOStreams
       #     Name of the file entry within the Zip file.
       #     Default: The file name without the `.zip` extension, otherwise "file"
       #
-      # The stream supplied to the block responds to #write and #<<.
+      # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`.
       #
       # The zip file is ended when the block returns, including when it leaves early, such as with `break`, so that
       # what was written is a complete zip file. It is not ended when the block raises, or its thread is killed, so
@@ -59,7 +59,9 @@ module IOStreams
           io.close
           zip.close
         end
-        Utils.finish_or_abort(finish: finish, abort: -> { io.release_resources_on_failure! }) { yield(io) }
+        Utils.finish_or_abort(finish: finish, abort: -> { io.release_resources_on_failure! }) do
+          yield(Writable::Adapter.new(io))
+        end
       end
     end
   end

@@ -23,6 +23,8 @@ module IOStreams
       #     to a slower algorithm, from 0 to 250. 0 uses the libbz2 default.
       #     Default: 0
       #
+      # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`.
+      #
       # The end of the bzip2 data is written when the block returns, including when it leaves early, such as with
       # `break`. It is not written when the block raises, or its thread is killed, so that the output does not look like
       # a complete file of the partial data, see `IOStreams::AbortableOutput`.
@@ -37,7 +39,7 @@ module IOStreams
           output.discard
           finish.call
         end
-        Utils.finish_or_abort(finish: finish, abort: abort) { yield(io) }
+        Utils.finish_or_abort(finish: finish, abort: abort) { yield(Writable::Adapter.new(io)) }
       end
     end
   end

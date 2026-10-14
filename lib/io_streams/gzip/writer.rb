@@ -16,6 +16,9 @@ module IOStreams
       #     Compression level, from 0 (no compression) to 9 (best compression).
       #     Default: Zlib::DEFAULT_COMPRESSION
       #
+      # The stream supplied to the block is the `Zlib::GzipWriter`, with the methods of an IO that write, see
+      # `IOStreams::Writable`, since on JRuby its `#write` takes only one argument.
+      #
       # The output stream is not closed, since it belongs to the caller.
       #
       # The gzip trailer is written when the block returns, including when it leaves early, such as with `break`, so
@@ -30,7 +33,7 @@ module IOStreams
           output.discard
           finish.call
         end
-        Utils.finish_or_abort(finish: finish, abort: abort) { yield(io) }
+        Utils.finish_or_abort(finish: finish, abort: abort) { yield(Writable::Adapter.new(io)) }
       end
     end
   end
