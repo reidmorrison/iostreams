@@ -201,7 +201,7 @@ require_jar "com.github.luben", "zstd-jni", "1.5.7-3"
 
 | Option | When | Default | Description |
 |--------|------|---------|-------------|
-| `level` | Writing | 3, zstd's default | The compression level, from 1, the fastest, to 22, the best compression, or a negative level, down to -131072, for faster compression still. 0 is the default. |
+| `level` | Writing | 3, zstd's default | The compression level, from 1, the fastest, to 22, the best compression, or a negative level, down to -131072, for faster compression still. 0 selects the default. |
 
 ~~~ruby
 IOStreams.path("example.csv.zst").option(:zst, level: 19).writer(:hash) do |io|
