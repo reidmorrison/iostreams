@@ -2,7 +2,6 @@
 
 require "net/http"
 require "uri"
-require "cgi"
 # For Time.httpdate, see #mtime.
 require "time"
 module IOStreams
