@@ -168,6 +168,37 @@ module Paths
           assert_equal body, IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
         end
 
+        describe "the encoding of the response" do
+          let(:csv) { "a,b\n1,2\n" }
+          let(:gzipped) { Zlib.gzip(csv) }
+
+          # A server that serves a .gz file with `Content-Encoding: gzip` whenever the client accepts it, as many do.
+          def start_gzip_server
+            start_server do |_path, request|
+              gzip = request[:headers]["accept-encoding"].to_s.include?("gzip")
+              TestHTTPServer.response(200, body: gzipped, headers: gzip ? {"Content-Encoding" => "gzip"} : {})
+            end
+          end
+
+          it "requests the file as it is stored" do
+            start_gzip_server
+            url = "#{@server.base_url}/data.csv.gz"
+
+            assert_equal gzipped, IOStreams.path(url).raw.read.b
+            assert_equal csv, IOStreams.path(url).read
+            assert_equal(%w[identity identity], @server.requests.map { |request| request[:headers]["accept-encoding"] })
+          end
+
+          it "accepts the encodings supplied with headers:, and reads the body as it is sent" do
+            start_gzip_server
+            path = IOStreams.path("#{@server.base_url}/data.csv", headers: {"Accept-Encoding" => "gzip"})
+
+            assert_equal gzipped, IOStreams.path(path).raw.read.b
+            assert_equal csv, IOStreams.path(path).stream(:gz).read
+            assert_equal "gzip", @server.requests.first[:headers]["accept-encoding"]
+          end
+        end
+
         it "raises when the server returns 404 Not Found" do
           start_server { |_path| TestHTTPServer.response(404) }
 

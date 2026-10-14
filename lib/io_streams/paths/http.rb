@@ -353,9 +353,7 @@ module IOStreams
         tag_failure do
           Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https") do |http|
             request = build_request(request_class, uri)
-            # So that the Content-Length is the size of the file, not of a compressed response.
-            request["Accept-Encoding"] = "identity" if request_class == Net::HTTP::Head
-            body = body_file_name ? ::File.open(body_file_name, "rb") : nil
+            body    = body_file_name ? ::File.open(body_file_name, "rb") : nil
             if body
               request.body_stream    = body
               request.content_length = body.size
@@ -413,13 +411,21 @@ module IOStreams
 
       # Returns [Net::HTTPRequest] the request, with the supplied headers and credentials
       # when it is sent to the original host.
+      #
+      # A HEAD only accepts the identity encoding, so that the Content-Length is the size of the file, rather than of a
+      # compressed response, and so does a GET, so that the file is read as it is stored, rather than decoded by
+      # Net::HTTP, which a `.gz` file served with `Content-Encoding: gzip` would then be decoded twice. A GET with an
+      # Accept-Encoding supplied with `headers:` sends that instead, and reads the body as it is sent.
       def build_request(request_class, uri)
-        request = request_class.new(uri)
         # Only send headers and credentials to the original host to avoid leaking them via a redirect.
-        if same_origin?(uri)
-          headers.each { |name, value| request[name] = value }
-          request.basic_auth(username, password) if username
-        end
+        original = same_origin?(uri)
+        supplied = original ? headers : {}
+        identity = request_class == Net::HTTP::Head ||
+                   (request_class == Net::HTTP::Get && supplied.keys.none? { |name| name.casecmp?("accept-encoding") })
+        # Supplied when the request is created, so that Net::HTTP does not decode the body.
+        request = request_class.new(uri, identity ? {"Accept-Encoding" => "identity"} : nil)
+        supplied.each { |name, value| request[name] = value unless identity && name.casecmp?("accept-encoding") }
+        request.basic_auth(username, password) if original && username
         request
       end
 
