@@ -51,8 +51,10 @@ end
 ~~~
 
 `#reader` and `#writer` return the result of the block. Within the block, an S3 object or an HTTP response is read as
-the block reads it, so the IO is not a `File`, and has no `#gets`, `#rewind` or `#size`. Read lines with `#each`, or
-copy the file to a local file first, see [Copying and moving](copy_files).
+the block reads it, so the IO is not a `File`. Like the IO of every stream, such as of a `.gz` file, it has the methods
+of an IO that read, such as `#read`, `#gets` and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`,
+reads it, but not `#rewind`, `#pos`, `#size` or `#path`. Where the code needs a `File`, copy the file to a local file
+first, see [Copying and moving](copy_files).
 
 `#read` returns the whole file, which is only suitable for a small one, since all of it is held in memory:
 

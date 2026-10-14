@@ -274,8 +274,9 @@ Every option of the AWS SDK's `get_object`, `head_object`, `put_object`, `copy_o
 
 The options are strict: an option that no S3 request accepts, such as a misspelled `acll:`, raises `ArgumentError`
 when the path is created, rather than when a request is made, so that the mistake is reported wherever the code runs.
-So does a request parameter that the path sets itself, such as `bucket:`, `key:`, `prefix:` or `delimiter:`. The
-options are checked against the AWS SDK, so a process without the `aws-sdk-s3` gem cannot check them, but it cannot
+So does a request parameter that the path sets itself, such as `bucket:`, `key:`, `prefix:` or `delimiter:`, and
+`encoding_type:` and `start_after:`, which would change which keys every listing returns, or how. The options are
+checked against the AWS SDK, so a process without the `aws-sdk-s3` gem cannot check them, but it cannot
 make a request either.
 
 ~~~ruby
@@ -330,7 +331,8 @@ of bytes copied, like any other copy, and `#move_to` returns the target.
 
 The copy writes the target, so it is requested with the client and options of the target, such as its `acl:` and
 `storage_class:`, along with the source's `sse_customer_algorithm:`, `sse_customer_key:` and `sse_customer_key_md5:`,
-which S3 needs to read the source, and its `request_payer:`. So the client of the target must be able to read the
+which S3 needs to read the source, its `request_payer:`, and its `version_id:`, so that the version of the source
+that it names is copied. So the client of the target must be able to read the
 source, and the new object does not keep the options of the source, such as its `storage_class:`, unless they are set
 on the target too:
 
@@ -356,7 +358,8 @@ key ends with `/`, such as the folders that the S3 console creates:
 * The bucket itself, `s3://my-bucket/`, exists, and is a directory, when it exists and can be listed. It is not an
   object, so `#size` and `#mtime` raise `Errno::EISDIR`, tagged as `IOStreams::Errors::NotFound`, and `#size?`
   returns nil.
-* `#delete` deletes the object, so it does nothing for a directory, since no object has its key. `#delete_all`
+* `#delete` deletes the object, so it does nothing for a directory, including the bucket itself, since no object has
+  its key. `#delete_all`
   deletes the object, and every key within the path, in batches of up to 1,000, but not a key that only starts with
   the same characters, such as `a.csv` for `s3://my-bucket/a`.
 * `#mkpath` and `#mkdir` do nothing, since a key needs no directories.
@@ -529,8 +532,8 @@ IOStreams.path("https://example.com/files/my%20data.csv").path
 | `maximum_file_size:` | The most bytes to read. A larger body raises `IOStreams::Errors::CommunicationsFailure` from within the block. Writing a path with it raises `ArgumentError` | No limit |
 
 The credentials and the `headers:` are only sent to the scheme, host and port of the url, and never after a redirect
-to another one, since any header can hold a credential. A path answers `#url`, which is `#to_s`, `#username`,
-`#password` and `#http_redirect_count`.
+to another one, since any header can hold a credential. A path answers `#url`, which is `#to_s`, `#username` and
+`#http_redirect_count`.
 
 ### Reading a url {#http-reading}
 
@@ -588,6 +591,8 @@ Reading, and the HEAD requests, follow up to `http_redirect_count:` redirects:
 
 * A redirect from `https` to `http` is not followed, and raises `IOStreams::Errors::CommunicationsFailure`, so that the
   data cannot be read or changed in transit.
+* A redirect to a location that is not a url raises `IOStreams::Errors::CommunicationsFailure`, whose message names
+  the url that redirected, rather than the location, which the server supplies, and which can hold a token.
 * The location of each redirect is checked against `allow_hosts:`, and against the allowed paths, see
   [Allowed paths](#restricting-access-with-allowed-paths).
 * Each redirect that is followed is logged at info level via `IOStreams.logger`, without any user name, password or

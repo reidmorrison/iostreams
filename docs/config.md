@@ -125,8 +125,10 @@ IOStreams.root(:downloads).to_s
 ~~~
 
 A root is shared by the whole process, so `IOStreams.add_root` freezes it, and returns it frozen. `IOStreams.root`,
-`IOStreams.roots` and `IOStreams.join` return copies of it, which can be changed without changing the root. Set the
-streams and options that every file of a root needs on the root itself, and they are kept by every path joined to it:
+`IOStreams.roots` and `IOStreams.join` return copies of it, which can be changed without changing the root. A path
+joined to a root keeps the arguments of the root, such as its credentials, S3 options or ssh options, but not the
+streams, options, encoding, format or schema set on the root, which describe the file that the root names, so set
+those on each path:
 
 ~~~ruby
 IOStreams.add_root(:partner, IOStreams.path("sftp://sftp.example.org/outbound", username: "jack", password: "secret"))
