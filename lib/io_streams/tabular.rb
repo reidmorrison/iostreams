@@ -7,7 +7,7 @@ module IOStreams
   # Tabular consists of a table of data where the first row is usually the header, and subsequent
   # rows are the data elements.
   #
-  # Tabular applies the header information to every row of data when #as_hash is called.
+  # Tabular applies the header information to every row of data when #record_parse is called.
   #
   # Example using the default CSV parser:
   #
@@ -68,7 +68,7 @@ module IOStreams
     #
     # Parameters
     #   format: [Symbol]
-    #     :csv, :hash, :array, :json, :psv, :fixed
+    #     A registered format, see .registered_formats: :csv, :hash, :array, :json, :psv, :fixed or :parquet
     #
     #   file_name: [IOStreams::Path | String]
     #     When `:format` is not supplied the file name can be used to infer the required format.
@@ -100,8 +100,9 @@ module IOStreams
     #     List of columns to allow.
     #     Default: nil ( Allow all columns )
     #     Note:
-    #       When supplied any columns that are rejected will be returned in the cleansed columns
-    #       as nil so that they can be ignored during processing.
+    #       When supplied, a column that it rejects is prefixed with `__rejected__`, see
+    #       `IOStreams::Tabular::Header::IGNORE_PREFIX`, in the cleansed columns, so that it can be ignored during
+    #       processing.
     #
     #   required_columns [Array<String>]
     #     Deprecated: see `constraints` in `IOStreams::Schema::Field`.
@@ -110,10 +111,10 @@ module IOStreams
     #   skip_unknown [true|false]
     #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
     #     true:
-    #       Skip columns not present in the `allowed_columns` by cleansing them to nil.
-    #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
+    #       Skip the columns that are not in `allowed_columns`, by prefixing them with `__rejected__`, so that the
+    #       records read, see #record_parse, skip them entirely, as if they were not in the file at all.
     #     false:
-    #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
+    #       Raises IOStreams::Errors::InvalidHeader for a column that is not in `allowed_columns`.
     #
     #   default_format: [Symbol]
     #     When the format is not supplied, and the format cannot be inferred from the supplied file name
@@ -208,7 +209,7 @@ module IOStreams
                            "IOStreams::Schema#field_for")
     end
 
-    # Returns [true|false] whether a header row show be rendered on output: when the format has one, unless the
+    # Returns [true|false] whether a header row should be rendered on output: when the format has one, unless the
     # schema says that the file has none, see `IOStreams::Schema#header?`.
     def requires_header?
       parser.requires_header? && (schema.nil? || schema.header?)

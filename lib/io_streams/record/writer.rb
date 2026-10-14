@@ -24,12 +24,12 @@ module IOStreams
       #     Optional. Default: nil
       #
       #   format: [Symbol]
-      #     :csv, :hash, :array, :json, :psv, :fixed
+      #     :csv, :hash, :array, :json, :psv, :fixed or :parquet, see `IOStreams::Tabular.new`.
       #
       #   schema: [IOStreams::Schema]
       #     The fields of the file and the type of each one, see `IOStreams::Tabular.new`. The `:fixed` format needs it
-      #     for the position of each field. With a schema, `columns`, `allowed_columns`, `required_columns` and
-      #     `skip_unknown` raise ArgumentError, since it describes the columns of the file.
+      #     for the position of each field. With a schema, `columns` raises ArgumentError, since the schema describes the
+      #     columns of the file.
       #
       #   format_options: [Hash]
       #     Deprecated, use `schema:`, see `IOStreams::Tabular.new`.
@@ -40,25 +40,9 @@ module IOStreams
       #     Note:
       #       Column names are converted to strings.
       #
-      #   allowed_columns [Array<String>]
-      #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
-      #     List of columns to allow.
-      #     Default: nil ( Allow all columns )
-      #     Note:
-      #       When supplied any columns that are rejected will be returned in the cleansed columns
-      #       as nil so that they can be ignored during processing.
-      #
-      #   required_columns [Array<String>]
-      #     Deprecated: see `constraints` in `IOStreams::Schema::Field`.
-      #     List of columns that must be present, otherwise an Exception is raised.
-      #
-      #   skip_unknown [true|false]
-      #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
-      #     true:
-      #       Skip columns not present in the `allowed_columns` by cleansing them to nil.
-      #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
-      #     false:
-      #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
+      # The options that restrict the columns read, `allowed_columns`, `required_columns` and `skip_unknown`, only apply
+      # when reading, so they are not options of this writer, see .option_names, and `IOStreams::Stream#writer` raises
+      # ArgumentError for them.
       def self.stream(line_writer, original_file_name: nil, **args)
         # Pass-through if already a record writer
         return yield(line_writer) if line_writer.is_a?(self)

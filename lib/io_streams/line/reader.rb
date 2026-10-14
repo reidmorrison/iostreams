@@ -40,8 +40,8 @@ module IOStreams
       #       This delimiter is removed from each line when `#each` or `#readline` is called.
       #     Default: nil
       #       Automatically detect line endings and break up by line
-      #       Searches for the first "\r\n" or "\n" and then uses that as the
-      #       delimiter for all subsequent records.
+      #       Searches for the first "\r\n", "\n" or "\r", such as of a file written on an old Mac, and then uses
+      #       that as the delimiter for all subsequent records.
       #
       #   buffer_size: [Integer]
       #     Size of blocks to read from the input stream at a time.
@@ -71,7 +71,7 @@ module IOStreams
         @delimiter         = delimiter
 
         read_block
-        # Auto-detect windows/linux line endings if not supplied. \n or \r\n
+        # Auto-detect windows, linux or old Mac line endings if not supplied: \r\n, \n or \r
         @delimiter ||= auto_detect_line_endings
 
         return unless @buffer

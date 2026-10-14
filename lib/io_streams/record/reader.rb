@@ -25,12 +25,13 @@ module IOStreams
       #     See #initialize.
       #
       #   format: [Symbol]
-      #     :csv, :hash, :array, :json, :psv, :fixed
+      #     :csv, :hash, :array, :json, :psv, :fixed or :parquet, see `IOStreams::Tabular.new`.
       #
       #   schema: [IOStreams::Schema]
       #     The fields of the file and the type of each one, see `IOStreams::Tabular.new`. The `:fixed` format needs it
-      #     for the position of each field. With a schema, `columns`, `allowed_columns`, `required_columns` and
-      #     `skip_unknown` raise ArgumentError, since it describes the columns of the file.
+      #     for the position of each field. With a schema, `columns`, `allowed_columns` and `required_columns` raise
+      #     ArgumentError unless they are nil, since it describes the columns of the file, while `skip_unknown`, which
+      #     only applies to `allowed_columns`, is accepted.
       #
       #   format_options: [Hash]
       #     Deprecated, use `schema:`, see `IOStreams::Tabular.new`.
@@ -46,8 +47,9 @@ module IOStreams
       #     List of columns to allow.
       #     Default: nil ( Allow all columns )
       #     Note:
-      #       When supplied any columns that are rejected will be returned in the cleansed columns
-      #       as nil so that they can be ignored during processing.
+      #       When supplied, a column that it rejects is prefixed with `__rejected__`, see
+      #       `IOStreams::Tabular::Header::IGNORE_PREFIX`, in the cleansed columns, so that it can be ignored during
+      #       processing.
       #
       #   required_columns [Array<String>]
       #     Deprecated: see `constraints` in `IOStreams::Schema::Field`.
@@ -56,10 +58,10 @@ module IOStreams
       #   skip_unknown [true|false]
       #     Deprecated: see `fieldsMatch` in `IOStreams::Schema`.
       #     true:
-      #       Skip columns not present in the `allowed_columns` by cleansing them to nil.
-      #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
+      #       Skip the columns that are not in `allowed_columns`, by prefixing them with `__rejected__`, so that the
+      #       records read skip them entirely, as if they were not in the file at all.
       #     false:
-      #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
+      #       Raises IOStreams::Errors::InvalidHeader for a column that is not in `allowed_columns`.
       #
       # Note:
       # * `allowed_columns`, `required_columns` and `skip_unknown` apply to every input, including JSON records,

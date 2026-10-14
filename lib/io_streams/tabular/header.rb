@@ -63,10 +63,10 @@ module IOStreams
       #
       #   skip_unknown [true|false]
       #     true:
-      #       Skip columns not present in the whitelist by cleansing them to nil.
-      #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
+      #       Skip the columns that are not in `allowed_columns`, by prefixing them with `__rejected__`, so that
+      #       #to_hash skips them entirely, as if they were not in the file at all.
       #     false:
-      #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
+      #       Raises IOStreams::Errors::InvalidHeader for a column that is not in `allowed_columns`, see #cleanse!.
       def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
         @columns          = stringify(columns)
         @required_columns = required_columns
@@ -125,7 +125,8 @@ module IOStreams
       # Notes:
       # * So that rejected columns can be identified in subsequent steps, they will be prefixed with `__rejected__`.
       #   For example, `Unknown Column` would be cleansed as `__rejected__Unknown Column`.
-      # * Raises Tabular::InvalidHeader when there are no rejected columns left after cleansing.
+      # * Raises IOStreams::Errors::InvalidHeader when every column is rejected, so that none is left after cleansing,
+      #   when a column is rejected and `skip_unknown` is false, or when a required column is missing.
       def cleanse!(rename: true)
         return [] if columns.nil? || columns.empty?
 
