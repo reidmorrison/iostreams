@@ -219,8 +219,9 @@ module IOStreams
     def move_to(target_path)
       target = to_stream(target_path)
       reject_move_onto_itself!(target)
-      target.mkpath
-      target.copy_from(self, convert: false)
+      # Through a copy of the target, so that the directories that #mkpath creates when a file is next written, as on
+      # SFTP, are not a lasting change to the target supplied.
+      target.dup.mkpath.copy_from(self, convert: false)
       delete
       target
     end

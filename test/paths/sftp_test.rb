@@ -713,12 +713,24 @@ module Paths
         end
       end
 
-      describe "#mkdir" do
-        it "sets the flag and returns self" do
+      describe "#mkdir and #mkpath" do
+        it "return self" do
           path = new_path(url, username: "jack", password: "secret")
 
           assert_same path, path.mkdir
-          assert path.instance_variable_get(:@mkdir)
+          assert_same path, path.mkpath
+        end
+
+        it "return a copy of a frozen path, such as a root path, which cannot be changed" do
+          path = new_path(url, username: "jack", password: "secret").freeze
+
+          %i[mkdir mkpath].each do |operation|
+            copy = path.public_send(operation)
+
+            refute_same path, copy
+            assert_equal path, copy
+            refute_predicate copy, :frozen?
+          end
         end
       end
 
@@ -1249,7 +1261,7 @@ module Paths
           end
         end
 
-        it "is the target of a move" do
+        it "is the target of a move, which creates its directories, without changing the target supplied" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "file.csv")
             source.write("data")
@@ -1257,10 +1269,24 @@ module Paths
 
             with_stub_sftp do |calls|
               assert_equal target, source.move_to(target)
+              target.write("data")
 
               assert_match(%r{-mkdir "/data/in"}, calls.first.last.string)
+              refute_match(/mkdir/, calls.last.last.string)
             end
             refute_predicate source, :exist?
+          end
+        end
+
+        it "creates the directories of a frozen path, such as a root path, through the copy that #mkpath returns" do
+          root = new_path("sftp://example.org/data/in/file.csv", username: "jack").freeze
+
+          with_stub_sftp do |calls|
+            root.mkpath.write("data")
+            root.write("data")
+
+            assert_match(%r{-mkdir "/data/in"}, calls.first.last.string)
+            refute_match(/mkdir/, calls.last.last.string)
           end
         end
       end

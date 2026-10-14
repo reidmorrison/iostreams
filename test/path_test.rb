@@ -144,6 +144,23 @@ module IOStreams
           end
         end
 
+        it "creates its directories with #mkpath and #mkdir, or returns a copy that creates them, on every scheme" do
+          Dir.mktmpdir do |dir|
+            [::File.join(dir, "data"), "s3://bucket/data", "sftp://example.org/data", "https://example.org/data"].each do |name|
+              root = IOStreams.path(name).freeze
+
+              %i[mkpath mkdir].each do |operation|
+                created = root.public_send(operation)
+
+                assert_equal root, created, "#{name} #{operation}"
+                assert_predicate root, :frozen?
+              end
+            end
+
+            assert_predicate IOStreams.path(dir, "data"), :directory?
+          end
+        end
+
         it "explains a change in the error" do
           root  = IOStreams.path("/data").freeze
           error = assert_raises(FrozenError) { root.stream(:gz) }

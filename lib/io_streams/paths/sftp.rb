@@ -163,15 +163,22 @@ module IOStreams
 
       # Creates the directories of this path, when a file is next written to this path, or to a path
       # joined to it, since each write connects to the server separately.
-      # Returns self
+      #
+      # Returns self, or a copy of this path that creates them when it is frozen, such as a root path, which cannot be
+      # changed.
       def mkdir
+        return dup.mkdir if frozen?
+
         @mkdir = true
         self
       end
 
       # Creates the directories of this file, excluding the file name, when the file is next written.
-      # Returns self
+      #
+      # Returns self, or a copy of this path that creates them when it is frozen, see #mkdir.
       def mkpath
+        return dup.mkpath if frozen?
+
         @mkdir = true
         self
       end
