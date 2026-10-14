@@ -9,10 +9,11 @@ module IOStreams
         []
       end
 
-      # Returns [Array<Symbol>] the options of the writer that are ignored when reading, since the workbook
-      # records them. Not `sheet_name`, since a caller could expect it to read that worksheet, which it does not.
-      def self.valid_option_names
-        %i[auto_format use_shared_strings]
+      # Returns [Array<Symbol>] the options of the writer that reading raises for: `sheet_name`, since a caller could
+      # expect it to read that worksheet, which it does not, since it reads the first. The other options of the writer
+      # are ignored, since the workbook records them.
+      def self.unsupported_option_names
+        %i[sheet_name]
       end
 
       # Convert a xlsx, or xlsm file into CSV format.

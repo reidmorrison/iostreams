@@ -10,20 +10,17 @@ module IOStreams
       nil
     end
 
-    # Returns [Array<Symbol>] the names of the options that are valid when writing the stream,
-    # or [nil] to accept the options of both the reader and the writer of its format,
-    # see `IOStreams::StreamFormat#valid_option_names`.
-    #
-    # `IOStreams::Builder` rejects any other option before the writer is opened, naming the direction
-    # an option belongs to when it is only valid for the other direction.
+    # Returns [Array<Symbol>] the options of the reader of its format that this writer does not support, so that
+    # `IOStreams::StreamFormat#validate_options` raises for them when writing, with a message that names the
+    # direction that they belong to, rather than ignoring them.
     #
     # One option hash is shared by the reader and the writer for a stream, so that the same path can be
     # written and then read. So by default the reader's options are also valid when writing, and are
-    # ignored, since only `option_names` are passed to the writer. Override this to exclude an option of
-    # the reader that a caller could expect to have an effect when writing, which must raise until the
-    # writer supports it.
-    def self.valid_option_names
-      nil
+    # ignored, since only `option_names` are passed to the writer. List an option of the reader here when a
+    # caller could expect it to have an effect when writing, such as the name of the worksheet to write, which
+    # must raise until the writer supports it.
+    def self.unsupported_option_names
+      []
     end
 
     # Returns [Array<Symbol>] the names of the options whose values must not be displayed, such as a passphrase,

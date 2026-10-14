@@ -3,8 +3,8 @@
 require_relative "test_helper"
 
 # Options supplied via `#option` / `#stream` are strict: an option that is not valid for the stream
-# raises instead of being silently ignored. An option for the other direction is only ignored
-# when it is in the `valid_option_names` of the reader or writer being used.
+# raises instead of being silently ignored. An option for the other direction is ignored,
+# unless it is in the `unsupported_option_names` of the reader or writer being used.
 class StreamOptionsTest < Minitest::Test
   # The format of each stream, those registered for a file name extension and the built-in encode stream.
   FORMATS = [*IOStreams.extensions.each_value, IOStreams::Encode].uniq.freeze
@@ -161,7 +161,7 @@ class StreamOptionsTest < Minitest::Test
       def with_direction_stream
         reader = Class.new(IOStreams::Reader) do
           def self.option_names = %i[size]
-          def self.valid_option_names = option_names
+          def self.unsupported_option_names = %i[level]
           def self.stream(io, **) = yield(io)
         end
         writer = Class.new(IOStreams::Writer) do
@@ -174,7 +174,7 @@ class StreamOptionsTest < Minitest::Test
         IOStreams.deregister_extension(:direction_test)
       end
 
-      it "accepts the options of the other direction unless the class overrides valid_option_names" do
+      it "accepts the options of the other direction that the class does not list as unsupported" do
         with_direction_stream do
           io = StringIO.new
           IOStreams.stream(io).stream(:direction_test, size: 1).write(data)
@@ -335,8 +335,8 @@ class StreamOptionsTest < Minitest::Test
       it "is not validated by the base classes" do
         assert_nil IOStreams::Reader.option_names
         assert_nil IOStreams::Writer.option_names
-        assert_nil IOStreams::Reader.valid_option_names
-        assert_nil IOStreams::Writer.valid_option_names
+        assert_empty IOStreams::Reader.unsupported_option_names
+        assert_empty IOStreams::Writer.unsupported_option_names
       end
 
       it "validates a reader that declares its options when its writer does not" do
@@ -452,22 +452,22 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
-    describe ".valid_option_names" do
-      it "accepts the options of both directions unless a class overrides it" do
-        assert_nil IOStreams::Pgp::Reader.valid_option_names
-        assert_nil IOStreams::Pgp::Writer.valid_option_names
+    describe ".unsupported_option_names" do
+      it "accepts the options of both directions unless a class lists them" do
+        assert_empty IOStreams::Pgp::Reader.unsupported_option_names
+        assert_empty IOStreams::Pgp::Writer.unsupported_option_names
       end
 
-      # A class that overrides it must accept its own options, and can only add those of the other direction.
+      # A class can only list options of the other direction, which it does not take itself.
       FORMATS.map { |ext| [ext.reader_class, ext.writer_class] }.uniq.each do |pair|
         [pair, pair.reverse].each do |klass, other|
-          next unless klass.respond_to?(:valid_option_names) && klass.valid_option_names
+          next unless klass.respond_to?(:unsupported_option_names) && klass.unsupported_option_names.any?
 
-          it "#{klass} includes its options, and only adds those of the other direction" do
+          it "#{klass} only lists options of the other direction" do
             other_names = other.respond_to?(:option_names) ? other.option_names.to_a : []
 
-            assert_empty klass.option_names - klass.valid_option_names
-            assert_empty klass.valid_option_names - klass.option_names - other_names
+            assert_empty klass.unsupported_option_names - other_names
+            assert_empty klass.unsupported_option_names & klass.option_names
           end
         end
       end
