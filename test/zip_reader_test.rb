@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "rbconfig"
 require "zip"
 
 class ZipReaderTest < Minitest::Test
@@ -42,6 +43,33 @@ class ZipReaderTest < Minitest::Test
         result = IOStreams::Zip::Reader.file(file_name, &:read)
 
         assert_equal decompressed, result
+      end
+
+      it "raises LoadError asking to install rubyzip when it is not installed" do
+        skip "JRuby reads zip files with java.util.zip" if defined?(JRuby)
+
+        # A new process, since the tests have already loaded rubyzip, which hides it, as if it were not installed.
+        script = <<~'RUBY'
+          module Kernel
+            alias_method :require_installed, :require
+
+            def require(name)
+              raise(LoadError, "cannot load such file -- #{name}") if name == "zip"
+
+              require_installed(name)
+            end
+          end
+          require "iostreams"
+          begin
+            IOStreams.path(ARGV.first).read
+          rescue LoadError => e
+            print e.message
+          end
+        RUBY
+        lib     = File.expand_path("../lib", __dir__)
+        message = IO.popen([RbConfig.ruby, "-I", lib, "-e", script, file_name], err: File::NULL, &:read)
+
+        assert_equal "Please install the gem 'rubyzip' to support Zip. cannot load such file -- zip", message
       end
 
       it "reads entry within zip file" do

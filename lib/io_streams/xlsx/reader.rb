@@ -31,19 +31,32 @@ module IOStreams
       # formula results, returns gap rows as rows of nil, and pads every row to the sheet's width. It has no option to
       # return raw values. Revisit once xsv resolves these type conversion issues.
       def initialize(file_name)
-        begin
-          require "creek" unless defined?(Creek::Book)
-        rescue LoadError => e
-          raise(LoadError, "Please install the 'creek' gem for xlsx streaming support. #{e.message}")
-        end
+        Utils.load_soft_dependency("creek", "Xlsx") unless defined?(Creek::Book)
 
         workbook   = Creek::Book.new(file_name, check_file_extension: false)
         @worksheet = workbook.sheets[0]
       end
 
-      # Returns each [Array] row from the spreadsheet
+      # Returns each [Array] row from the spreadsheet, with the text of each value, see .cell_text.
       def each
-        @worksheet.rows.each { |row| yield row.values }
+        @worksheet.rows.each { |row| yield(row.values.map { |value| self.class.cell_text(value) }) }
+      end
+
+      # Returns [String|nil] the text of the value of a cell, as a field of type "any" writes it, see
+      # `IOStreams::Schema::Field.any_text`, so that a field of type date or datetime can read it: a Date in ISO 8601,
+      # such as "2026-01-02", and a BigDecimal as a plain decimal, such as "12.5", where `Array#to_csv` wrote "0.125e2".
+      #
+      # A time is written as its time of day in UTC, such as "2026-01-02T09:30:00Z", since Excel holds it without a
+      # time zone, so that the text is the same in every process, while creek returns it in the local time zone of the
+      # process that reads it, such as "2026-01-02 09:30:00 -0500".
+      #
+      # An empty cell is nil, and any other value, such as a String, an Integer or a Float, has the text that
+      # `Array#to_csv` gives it.
+      def self.cell_text(value)
+        return if value.nil?
+        return Schema::Field.any_text(value) unless value.is_a?(Time)
+
+        Schema::Field.any_text(Time.utc(value.year, value.month, value.day, value.hour, value.min, value.sec + value.subsec))
       end
     end
   end
