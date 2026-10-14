@@ -277,11 +277,28 @@ module IOStreams
       copy
     end
 
-    # Does not display the values of sensitive options, see #redacted.
+    # Does not display the values of sensitive options, see #inspect_fields.
     def inspect
+      "#<#{self.class.name} @file_name=#{file_name.inspect}#{inspect_fields}#{inspect_pipeline}>"
+    end
+
+    # Returns [String] the streams, options and encoding that are set, each one only when it is set, for #inspect, and
+    # for `#inspect` on a path, see `IOStreams::Path#inspect`, which shows them before the settings of its rows. The
+    # value of each sensitive option is replaced, see #redacted. The streams set with #stream are shown as `@builder`, as
+    # a path has always shown them.
+    def inspect_fields
       copy = redacted
-      "#<#{self.class.name} @file_name=#{file_name.inspect}, @streams=#{copy.streams.inspect}, " \
-        "@options=#{copy.options.inspect}, @encoding=#{copy.setting(:encode).inspect}>"
+      str  = +""
+      str << " @builder=#{copy.streams.inspect}" if copy.streams
+      str << " @options=#{copy.options.inspect}" if copy.options
+      str << " @encoding=#{copy.setting(:encode).inspect}" if copy.setting(:encode)
+      str
+    end
+
+    # Returns [String] the pipeline, see #pipeline, for #inspect, and for `#inspect` on a path, which shows it last, with
+    # the value of each sensitive option replaced, see #redacted.
+    def inspect_pipeline
+      " pipeline=#{redacted.pipeline.inspect}"
     end
 
     # Returns [Symbol|nil] the tabular format of the text that the stream closest to the application reads and writes,

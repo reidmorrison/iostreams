@@ -363,15 +363,12 @@ module IOStreams
     end
 
     # Does not create the builder, so that a frozen path can be inspected, for example in a `FrozenError` message.
-    # Does not display the values of sensitive options, such as a passphrase, see `IOStreams::Builder#redacted`.
+    # The builder and the tabular settings each display their own fields, see `IOStreams::Builder#inspect_fields` and
+    # `IOStreams::Tabular::Settings#inspect_fields`, without the values of sensitive options, such as a passphrase.
     def inspect
-      builder = (@builder || IOStreams::Builder.new(path)).redacted
-      str     = "#<#{self.class.name}:#{display_name}"
-      str << " @builder=#{builder.streams.inspect}" if builder.streams
-      str << " @options=#{builder.options.inspect}" if builder.options
-      str << " @encoding=#{builder.setting(:encode).inspect}" if builder.setting(:encode)
-      str << @tabular_settings.inspect_fields if @tabular_settings
-      str << " pipeline=#{builder.pipeline.inspect}>"
+      builder = @builder || IOStreams::Builder.new(path)
+      "#<#{self.class.name}:#{display_name}#{builder.inspect_fields}#{@tabular_settings&.inspect_fields}" \
+        "#{builder.inspect_pipeline}>"
     end
 
     # Returns [String] the full name of this path, see #to_s, without any credentials, so that it can be logged

@@ -554,6 +554,15 @@ class BuilderTest < Minitest::Test
         refute_includes str, "TOP-SECRET"
         assert_includes str, file_name
       end
+
+      it "shows the fields that are set, and then the pipeline, as #inspect on a path does" do
+        builder = IOStreams::Builder.new("a.csv.gz").option(:gz, level: 1).encoding("UTF-8")
+
+        assert_equal "#<IOStreams::Builder @file_name=#{'a.csv.gz'.inspect} @options=#{{gz: {level: 1}}.inspect} " \
+                     "@encoding=#{{encoding: 'UTF-8'}.inspect} pipeline=#{{encode: {encoding: 'UTF-8'}, gz: {level: 1}}.inspect}>",
+                     builder.inspect
+        assert_includes IOStreams.path("a.csv.gz").option(:gz, level: 1).encoding("UTF-8").inspect, builder.inspect_fields
+      end
     end
 
     describe "#remove_from_pipeline" do

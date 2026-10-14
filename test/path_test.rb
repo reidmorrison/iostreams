@@ -460,6 +460,17 @@ module IOStreams
           assert_includes IOStreams.path("s3://bucket/a.csv").directory.join("b.csv").inspect, "S3:s3://bucket/b.csv "
         end
 
+        it "shows the streams, options, encoding and options of the rows that are set, and then the pipeline" do
+          options = IOStreams.path("/data/a.parquet.gz").option(:gz, level: 1).encoding("UTF-8").option(:parquet, compression: "zstd")
+          streams = IOStreams.path("/data/a").stream(:gz, level: 1)
+
+          assert_equal "#<IOStreams::Paths::File:/data/a.parquet.gz @options=#{{gz: {level: 1}}.inspect} " \
+                       "@encoding=#{{encoding: 'UTF-8'}.inspect} @row_options=#{{parquet: {compression: 'zstd'}}.inspect} " \
+                       "pipeline=#{{encode: {encoding: 'UTF-8'}, gz: {level: 1}}.inspect}>", options.inspect
+          assert_equal "#<IOStreams::Paths::File:/data/a @builder=#{{gz: {level: 1}}.inspect} pipeline=#{{gz: {level: 1}}.inspect}>",
+                       streams.inspect
+        end
+
         it "does not display credentials in the url" do
           {
             "sftp://jack:TOP-SECRET@example.org/a.csv"                     => "SFTP:sftp://example.org/a.csv ",
