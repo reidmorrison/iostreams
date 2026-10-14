@@ -176,6 +176,21 @@ module IOStreams
       Thread.current.status == "aborting"
     end
 
+    # Yields, then calls `finish`, such as to copy or upload what the block wrote, once the block returns, including
+    # when it leaves early, such as with `break`, which keeps what was written so far, but not when it raises, or its
+    # thread is killed, see .thread_aborting?, since what it wrote is not complete. Returns the result of the block.
+    def self.finish_after(finish)
+      failed = false
+      begin
+        yield
+      rescue Exception # rubocop:disable Lint/RescueException -- so that no error finishes what the block did not
+        failed = true
+        raise
+      ensure
+        finish.call unless failed || thread_aborting?
+      end
+    end
+
     # Yields the name of a new, empty temporary file that only the current user can read or write.
     #
     # The file is created exclusively, so that an existing file, or a link planted in a shared

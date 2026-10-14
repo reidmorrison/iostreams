@@ -195,6 +195,33 @@ module Paths
           assert_empty S3Stub.pending_uploads
         end
 
+        it "aborts the upload when the thread writing it is killed" do
+          started = Queue.new
+          thread  = Thread.new do
+            path.writer do |io|
+              io.write(data)
+              started << true
+              sleep
+            end
+          end
+          started.pop
+          thread.kill.join
+
+          assert_includes operations(path), :abort_multipart_upload
+          assert_empty S3Stub.pending_uploads
+          refute_predicate path, :exist?
+        end
+
+        it "stores the data written when the block leaves early" do
+          path.writer do |io|
+            io.write(data)
+            break
+          end
+
+          assert_empty S3Stub.pending_uploads
+          assert_data data, path.read
+        end
+
         it "makes no request when the block raises before writing a part" do
           assert_raises(IOError) { path.writer { |_io| raise(IOError, "failed") } }
 

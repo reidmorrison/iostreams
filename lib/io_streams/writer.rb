@@ -41,19 +41,8 @@ module IOStreams
     def self.stream(output_stream, **args, &block)
       purpose = "the output of #{self}, which only writes files"
       Utils.private_temp_file("iostreams_writer", purpose: purpose) do |file_name|
-        failed = false
-        begin
-          file(file_name, **args, &block)
-        rescue Exception # rubocop:disable Lint/RescueException -- so that no error copies the partial output
-          failed = true
-          raise
-        ensure
-          unless failed || Utils.thread_aborting?
-            ::File.open(file_name, "rb") do |source|
-              ::IO.copy_stream(source, output_stream)
-            end
-          end
-        end
+        copy = -> { ::File.open(file_name, "rb") { |source| ::IO.copy_stream(source, output_stream) } }
+        Utils.finish_after(copy) { file(file_name, **args, &block) }
       end
     end
 

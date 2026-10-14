@@ -9,8 +9,8 @@ module IOStreams
       # Less than one part is stored with a single `put_object` request once the block completes. Otherwise the data is
       # uploaded in parts, a few at a time in other threads while the block writes the next part, and the object is
       # stored once the block completes. S3 only stores an object once its upload completes, so a partial object is
-      # never visible. When the block raises, or a request fails, the upload is aborted, so that S3 discards the parts
-      # already uploaded, and the exception is raised unchanged.
+      # never visible. When the block raises, or its thread is killed, or a request fails, the upload is aborted, so that
+      # S3 discards the parts already uploaded, and the exception is raised unchanged.
       #
       # S3 accepts at most 10,000 parts, so the size of a part starts at `PART_SIZE`, and doubles after every
       # `PARTS_PER_SIZE` parts, upto the largest part that S3 accepts. So an object of any size that S3 accepts, upto
@@ -46,7 +46,12 @@ module IOStreams
         private_class_method :checksum_value?
 
         # Yields an uploader to the block, which it writes the object to, and stores the object once the block
-        # completes. Returns the result of the block.
+        # completes, including when it leaves early, such as with `break`, which keeps the data written so far, as a
+        # local file does. Returns the result of the block.
+        #
+        # The upload is aborted when the block raises, including `Interrupt`, and the exception that `Timeout` raises
+        # within its block, or its thread is killed, or completing the upload fails, so that S3 does not keep the parts
+        # already uploaded.
         #
         # Parameters:
         #   request: [Proc]
@@ -54,15 +59,30 @@ module IOStreams
         #     response.
         def self.upload(request)
           uploader = new(request)
-          result   = yield(uploader)
-          uploader.complete
-          result
-        rescue Exception # rubocop:disable Lint/RescueException
-          # Including `Interrupt`, and the exception that `Timeout` raises within its block, so that S3 does not keep the
-          # parts already uploaded.
-          uploader&.abort
-          raise
+          failed   = false
+          begin
+            yield(uploader)
+          rescue Exception # rubocop:disable Lint/RescueException
+            failed = true
+            uploader.abort
+            raise
+          ensure
+            finish(uploader) unless failed
+          end
         end
+
+        # Completes the upload, or aborts it when the thread is being killed, or completing it fails.
+        def self.finish(uploader)
+          return uploader.abort if Utils.thread_aborting?
+
+          begin
+            uploader.complete
+          rescue Exception # rubocop:disable Lint/RescueException
+            uploader.abort
+            raise
+          end
+        end
+        private_class_method :finish
 
         def initialize(request)
           @request    = request
