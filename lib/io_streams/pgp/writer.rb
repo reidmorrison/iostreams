@@ -119,12 +119,7 @@ module IOStreams
                       compress: :zip,
                       compress_level: 6,
                       &block)
-        if encrypt
-          raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
-        elsif !signer
-          raise(ArgumentError, "Requires a :signer when encrypt is false")
-        end
-
+        check(encrypt: encrypt, recipient: recipient, import_and_trust_key: import_and_trust_key, signer: signer)
         compress_level = 0 if compress == :none
 
         recipients, imported = encrypt ? collect_recipients(recipient, import_and_trust_key, import_and_trust_level) : [[], []]
@@ -141,6 +136,33 @@ module IOStreams
           )
           run(output_stream, args, signer_passphrase, &block)
         end
+      end
+
+      # Raises ArgumentError for the options that .stream cannot write with, which it raises for too, so that a path
+      # raises before it opens its output, which would replace an existing file, see
+      # `IOStreams::StreamFormat#check_stream`: no recipient when encrypting, including an empty list, a blank
+      # recipient, key or signer, and no signer when not encrypting.
+      #
+      # Takes the same options as .stream. Only gpg can check the others, such as whether a key exists.
+      def self.check(encrypt: true, recipient: nil, import_and_trust_key: nil, signer: default_signer, **)
+        if encrypt
+          recipients = Array(recipient)
+          keys       = Array(import_and_trust_key)
+          # Supplying neither raises, even with an audit recipient, as it always has. An empty list leaves gpg without
+          # any recipient, unless there is an audit recipient, which is then the only one, as before.
+          if !(recipient || import_and_trust_key) || (recipients.empty? && keys.empty? && !audit_recipient)
+            raise(ArgumentError, "Requires either :recipient or :import_and_trust_key")
+          end
+          if recipients.any? { |value| Utils.blank?(value) }
+            raise(ArgumentError, ":recipient cannot be blank: #{recipient.inspect}")
+          end
+          raise(ArgumentError, ":import_and_trust_key cannot be blank") if keys.any? { |key| Utils.blank?(key) }
+        elsif !signer
+          raise(ArgumentError, "Requires a :signer when encrypt is false")
+        end
+        raise(ArgumentError, ":signer cannot be blank: #{signer.inspect}") if signer && Utils.blank?(signer)
+
+        nil
       end
 
       # Runs gpg with the supplied arguments, yielding the stream that it encrypts, and returns the result of the block.

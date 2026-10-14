@@ -138,6 +138,38 @@ class PgpWriterTest < Minitest::Test
         assert_equal "Requires either :recipient or :import_and_trust_key", error.message
       end
 
+      it "raises for options that it cannot write with before a path opens its file, so that the file is kept" do
+        File.write(file_name, "existing")
+        {
+          {}                                              => "Requires either :recipient or :import_and_trust_key",
+          {recipient: []}                                 => "Requires either :recipient or :import_and_trust_key",
+          {recipient: [], import_and_trust_key: []}       => "Requires either :recipient or :import_and_trust_key",
+          {recipient: ["receiver@example.org", " "]}      => ':recipient cannot be blank: ["receiver@example.org", " "]',
+          {recipient: [nil]}                              => ":recipient cannot be blank: [nil]",
+          {import_and_trust_key: ""}                      => ":import_and_trust_key cannot be blank",
+          {encrypt: false}                                => "Requires a :signer when encrypt is false",
+          {recipient: "receiver@example.org", signer: ""} => ':signer cannot be blank: ""'
+        }.each_pair do |options, message|
+          path  = IOStreams.path(file_name).stream(:pgp, **options)
+          error = assert_raises(ArgumentError, options.inspect) { path.write("new") }
+
+          assert_equal message, error.message
+          assert_equal "existing", File.read(file_name), options.inspect
+        end
+      end
+
+      it "encrypts for just the audit recipient with an empty list of recipients, but requires a recipient" do
+        IOStreams::Pgp::Writer.stub(:audit_recipient, "receiver2@example.org") do
+          error = assert_raises(ArgumentError) { IOStreams::Pgp::Writer.file(file_name) { |io| io.write(decrypted) } }
+
+          assert_equal "Requires either :recipient or :import_and_trust_key", error.message
+
+          IOStreams::Pgp::Writer.file(file_name, recipient: []) { |io| io.write(decrypted) }
+        end
+
+        assert_equal decrypted, IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+      end
+
       it "supports multiple recipients" do
         IOStreams::Pgp::Writer.file(file_name, recipient: %w[receiver@example.org receiver2@example.org], signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
           io.write(decrypted)
