@@ -203,15 +203,18 @@ module IOStreams
       # Returns [Array<String>] the keys of the record of the line, or of the row of keys supplied, such as the header row
       # that the rows read start with, as they are, which become the columns of the rows, and of the records. Returns
       # nil when it is blank, such as a JSON line of `null` or `{}`, which gives no columns.
+      #
+      # The columns of the rows are its own, and so is the header row returned, so that a caller that changes one does not
+      # change the columns that the rows after it are read by.
       def parse_keys(line)
         values = parse(line)
         return if IOStreams::Utils.blank?(values)
 
         header.columns = values.is_a?(::Hash) ? values.keys : values
-        @keys          = header.columns.dup
+        @keys          = header.columns.map { |key| key.frozen? ? key : key.dup.freeze }
         @rows          = nil
         clear_row_plans
-        @keys.dup
+        @keys.map(&:dup)
       end
 
       # Returns [Array] the value of each column of the rows from a record, see #row_parse: for the columns supplied, the

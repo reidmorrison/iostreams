@@ -75,6 +75,16 @@ class RowReaderTest < Minitest::Test
         assert_equal [%w[name age], ["Jack", 21], ["Jill", nil]], read_json(%({"name":"Jack","age":21}\n{"name":"Jill"}\n))
       end
 
+      it "start with a header row of its own, so that changing it does not change the columns of the rows after it" do
+        rows = []
+        IOStreams.stream(StringIO.new(%({"name":"Jack"}\n{"name":"Jill"}\n))).format(:json).each(:array) do |row|
+          rows << row.map(&:dup)
+          row.each(&:upcase!)
+        end
+
+        assert_equal [%w[name], %w[Jack], %w[Jill]], rows
+      end
+
       it "are nil for a blank line, a line of null, or a record without keys, which do not give the columns" do
         assert_equal [nil, nil, nil, %w[a], [1], nil], read_json(%(\nnull\n{}\n{"a":1}\n{}\n))
       end
