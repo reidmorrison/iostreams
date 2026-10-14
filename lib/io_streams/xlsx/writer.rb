@@ -10,6 +10,11 @@ module IOStreams
       # The characters that Excel does not allow in the name of a worksheet.
       INVALID_SHEET_NAME_CHARACTERS = %r{[\[\]:*?/\\]}
 
+      # The bytes that can end a CSV record.
+      LINE_BREAK      = /[\r\n]/n
+      CARRIAGE_RETURN = "\r".ord
+      NEWLINE         = "\n".ord
+
       def self.option_names
         %i[sheet_name auto_format use_shared_strings]
       end
@@ -98,10 +103,15 @@ module IOStreams
         @quotes  = 0
       end
 
-      # Writes the last record, when it does not end with a newline.
+      # Writes the last record, when it does not end with a line break.
       # Raises [CSV::MalformedCSVError] when it ends within a quoted value.
       def finish
-        add_row(@buffer) unless @buffer.empty?
+        unless @buffer.empty?
+          # A carriage return that ends the data, outside a quoted value, which an even number of quotes leaves closed,
+          # ends the last record, see #write_data.
+          ends = @buffer.end_with?("\r") && @buffer.count('"').even?
+          add_row(ends ? @buffer.byteslice(0, @buffer.bytesize - 1) : @buffer)
+        end
         @buffer = String.new(encoding: Encoding::BINARY)
       end
 
@@ -109,18 +119,31 @@ module IOStreams
 
       # Write CSV text, which can end part way through a record, since the rest of the record is written next.
       # Returns [Integer] the number of bytes written.
+      #
+      # A record ends with a line break, "\r\n", "\n" or "\r", outside a quoted value, whichever line ending the CSV
+      # was written with, such as with `writer(:line, delimiter: "\r")`.
       def write_data(data)
         @buffer << data.b
 
         record_start = 0
-        while (newline = @buffer.index("\n", @scanned))
-          @quotes += @buffer.byteslice(@scanned, newline - @scanned).count('"')
-          @scanned = newline + 1
-          # A newline within a quoted value, which an odd number of quotes so far leaves open, does not end the record.
-          next if @quotes.odd?
+        while (line_break = @buffer.index(LINE_BREAK, @scanned))
+          @quotes += @buffer.byteslice(@scanned, line_break - @scanned).count('"')
+          @scanned = line_break
+          # A line break within a quoted value, which an odd number of quotes so far leaves open, does not end the record.
+          if @quotes.odd?
+            @scanned += 1
+            next
+          end
 
-          add_row(@buffer.byteslice(record_start, @scanned - record_start))
-          record_start = @scanned
+          record_end = line_break + 1
+          if @buffer.getbyte(line_break) == CARRIAGE_RETURN
+            # Until the next byte is written, a carriage return could be the start of "\r\n".
+            break if record_end == @buffer.bytesize
+
+            record_end += 1 if @buffer.getbyte(record_end) == NEWLINE
+          end
+          add_row(@buffer.byteslice(record_start, line_break - record_start))
+          record_start = @scanned = record_end
           @quotes      = 0
         end
         if record_start.positive?
@@ -130,6 +153,8 @@ module IOStreams
         data.bytesize
       end
 
+      # Writes the row of the CSV record, without its line break, so that a line break within a quoted value is read
+      # as part of the value, whichever line ending the record has.
       def add_row(record)
         output_stream << (CSV.parse_line(record.force_encoding(Encoding::UTF_8)) || [])
       end

@@ -80,6 +80,43 @@ class XlsxWriterTest < Minitest::Test
         assert_equal [%w[a b], %w[c d]], read_rows(data)
       end
 
+      it "writes records ending with a carriage return" do
+        data = write { |io| io.write("a,b\rc,d\re,f") }
+
+        assert_equal [%w[a b], %w[c d], %w[e f]], read_rows(data)
+      end
+
+      it "writes the last record ending with a carriage return" do
+        data = write { |io| io.write("a,b\rc,d\r") }
+
+        assert_equal [%w[a b], %w[c d]], read_rows(data)
+      end
+
+      it "writes a carriage return and newline that are split across writes" do
+        data = write do |io|
+          io.write("a,b\r")
+          io.write("\nc,d\r")
+          io.write("\n")
+        end
+
+        assert_equal [%w[a b], %w[c d]], read_rows(data)
+      end
+
+      it "writes a newline within a quoted value of a record that ends with a carriage return and newline" do
+        skip "creek on JRuby reads an inline string only up to its first newline" if defined?(JRuby)
+
+        data = write { |io| io.write("a,\"multi\nline\"\r\nb,c\r\n") }
+
+        assert_equal [%W[a multi\nline], %w[b c]], read_rows(data)
+      end
+
+      it "writes a carriage return within a quoted value of a record that ends with a carriage return" do
+        data = write(use_shared_strings: true) { |io| io.write("a,\"multi\rline\"\rb,c\r") }
+
+        # XML reads a line break within a value as a newline.
+        assert_equal [%W[a multi\nline], %w[b c]], read_rows(data)
+      end
+
       it "writes binary text as UTF-8" do
         data = write { |io| io.write("Zoë,é\n".b) }
 
@@ -233,6 +270,44 @@ class XlsxWriterTest < Minitest::Test
           IOStreams.path(file_name).option(:xlsx, sheet_name: "Totals").each(:array) { |_row| nil }
         end
         assert_match(/:sheet_name only applies when writing a :xlsx stream/, error.message)
+      end
+
+      it "writes lines delimited by a carriage return" do
+        IOStreams.path(file_name).writer(:line, delimiter: "\r") do |io|
+          io << "a,b"
+          io << "c,d"
+          io << "e,f"
+        end
+
+        rows = []
+        IOStreams.path(file_name).each(:array) { |row| rows << row }
+
+        assert_equal [%w[a b], %w[c d], %w[e f]], rows
+      end
+
+      it "writes rows delimited by a carriage return and newline, or a carriage return" do
+        ["\r\n", "\r"].each do |delimiter|
+          IOStreams.path(file_name).writer(:array, delimiter: delimiter) do |io|
+            io << %w[a b]
+            io << %w[c d]
+          end
+
+          rows = []
+          IOStreams.path(file_name).each(:array) { |row| rows << row }
+
+          assert_equal [%w[a b], %w[c d]], rows, delimiter.inspect
+        end
+      end
+
+      it "reads empty cells as empty values, without those at the end of a row" do
+        IOStreams.path(file_name).writer(:array) do |io|
+          io << ["a", "", "c"]
+          io << ["", "", ""]
+          io << ["x", "", ""]
+          io << ["", "y"]
+        end
+
+        assert_equal "a,,c\n\nx\n,y\n", IOStreams.path(file_name).read
       end
 
       it "writes within another stream" do
