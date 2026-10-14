@@ -1813,6 +1813,33 @@ class StreamTest < Minitest::Test
           assert_match(/\AThe header row does not match the schema: the column "age" is not a field/, error.message)
         end
 
+        it "ignores a blank value after the last field or column when writing, as reading does, but not false" do
+          schema = {fields: fields}
+
+          assert_equal "id,name\n1,Jack\n2,Jill\n", write([%w[id name], [1, "Jack", nil], [2, "Jill", " "]], :array, schema: schema)
+          assert_equal "1,Jack\n", write([[1, "Jack", ""]], :array, schema: schema.merge(header: false))
+          assert_equal %({"id":1,"name":"Jack"}\n), write([[1, "Jack", nil]], :array, file_name: "people.json", schema: schema)
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([%w[id name], [1, "Jack", false]], :array, schema: schema) }
+          assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
+        end
+
+        it "copies the rows of a file with a delimiter at the end of each line into a schema that accepts no other values" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "in.csv")
+            source.write("id,name,\n1,Jack,\n")
+            target = IOStreams.path(dir, "out.csv").schema(fields: fields, fieldsMatch: "subset")
+            target.copy_from(IOStreams.path(dir, "in.csv"), mode: :array)
+
+            assert_equal "id,name\n1,Jack\n", target.read
+
+            source.write("id,name\n1,Jack,\n")
+            target = IOStreams.path(dir, "out.csv").schema(fields: fields)
+            target.copy_from(source, mode: :array)
+
+            assert_equal "id,name\n1,Jack\n", target.read
+          end
+        end
+
         it "matches the keys of each record written, when they change from one record to the next" do
           records = [{"id" => 1, "name" => "Jack"}, {"name" => "Jill", "ID" => 2}, {"id" => 3}, {"id" => 4, "age" => 9}]
           schema  = {fields: fields, fieldsMatch: "subset"}

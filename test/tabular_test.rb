@@ -1113,6 +1113,16 @@ class TabularTest < Minitest::Test
         assert_equal({"id" => 1}, subset.record_parse("1,2.5,3"))
       end
 
+      it "takes only nil and blank text after the last column for no value, so that false raises, as it does when written" do
+        array = IOStreams::Tabular.new(format: :array, schema: schema)
+        array.read_header(%w[id pay])
+
+        assert_equal [1, BigDecimal("2.5")], array.row_parse([1, "2.5", nil, " "])
+        [false, [], 0].each do |value|
+          assert_raises(IOStreams::Errors::InvalidHeader, value.inspect) { array.row_parse([1, "2.5", value]) }
+        end
+      end
+
       it "raises for a row written that is neither a Hash nor an Array, rather than write its characters" do
         [IOStreams::Tabular.new(format: :csv, schema: schema), IOStreams::Tabular.new(format: :json, schema: schema)].each do |tabular|
           ["N9", :ab, 42, 3.5].each do |row|

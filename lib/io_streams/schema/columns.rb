@@ -101,7 +101,7 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
       def row(values)
         columns = matched
-        check_extra(values)
+        check_extra(values, @width, "column")
         columns.map { |field, index| field.cast(values[index]) }
       end
 
@@ -111,7 +111,7 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
       def record(values)
         columns = matched
-        check_extra(values)
+        check_extra(values, @width, "column")
         record = {}
         columns.each { |field, index| record[field.name] = field.cast(values[index]) }
         record
@@ -167,15 +167,18 @@ module IOStreams
         @matched || raise(IOStreams::Errors::MissingHeader, "The columns must be known before a row can be read by them")
       end
 
-      # Raises `IOStreams::Errors::InvalidHeader` when a row read has values after the last column of its header row, or
-      # after the last field of a file without one, unless `fieldsMatch` skips them, since they are not the value of any
-      # field, such as when a value holds a delimiter that is not quoted. A blank value there is not data, such as one
-      # after a delimiter at the end of a line, so it is ignored.
-      def check_extra(values)
-        return unless values.size > @width
+      # Raises `IOStreams::Errors::InvalidHeader` when a row read or written has values after its `width`, the last column
+      # of its header row, or the last field of a file without one, which `last` names, unless `fieldsMatch` skips them,
+      # since they are not the value of any field, such as when a value read holds a delimiter that is not quoted.
+      #
+      # A value there that is nil, or text that is blank, is not data, such as the empty value after a delimiter at the
+      # end of a line, so it is ignored, both when reading and when writing, so that the rows read can be written. Any
+      # other value, such as `false`, is data, so it raises.
+      def check_extra(values, width, last)
+        return unless values.size > width
 
-        extra = values.drop(@width).reject { |value| IOStreams::Utils.blank?(value) }
-        @schema.check_unknown(extra, noun: "value", last: "column", fields_in_order: @fields_in_order)
+        extra = values.drop(width).reject { |value| value.nil? || (value.is_a?(String) && IOStreams::Utils.blank?(value)) }
+        @schema.check_unknown(extra, noun: "value", last: last, fields_in_order: @fields_in_order)
       end
 
       # Returns [Array] the field of each label that is one, in the order of the labels, the labels that are not
@@ -260,12 +263,12 @@ module IOStreams
 
       # Returns [Array|Hash] the rendered value of each field from a row, whose values are the fields in order, or are
       # in the columns of the header row written, see #render, once it checks its values after the last field or
-      # column.
+      # column, see #check_extra.
       def render_values(row, form, keyed)
         return render_columns(row, form, keyed) if @written
 
         fields = @schema.fields
-        @schema.check_unknown(row.drop(fields.size), noun: "value", fields_in_order: @fields_in_order) if row.size > fields.size
+        check_extra(row, fields.size, "field")
         out = keyed ? {} : ::Array.new(fields.size)
         fields.each_with_index { |field, index| out[keyed ? field.name : index] = field.render(row[index], form) }
         out
@@ -274,9 +277,7 @@ module IOStreams
       # Returns [Array|Hash] the rendered value of each field from a row whose values are in the columns of the header
       # row written, see #match_written.
       def render_columns(row, form, keyed)
-        if row.size > @written_width
-          @schema.check_unknown(row.drop(@written_width), noun: "value", last: "column", fields_in_order: @fields_in_order)
-        end
+        check_extra(row, @written_width, "column")
         out = keyed ? {} : ::Array.new(@written.size)
         @written.each_with_index do |(field, position), index|
           out[keyed ? field.name : index] = field.render(position.nil? ? nil : row[position], form)
