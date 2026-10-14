@@ -5,7 +5,7 @@ require "bigdecimal"
 require "csv"
 require "rbconfig"
 
-class XlsxReaderTest
+class XlsxReaderTest < Minitest::Test
   describe IOStreams::Xlsx::Reader do
     let :file_name do
       File.join(File.dirname(__FILE__), "files", "spreadsheet.xlsx")

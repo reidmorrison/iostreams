@@ -13,13 +13,15 @@ class ZstdReaderTest < Minitest::Test
     end
 
     describe ".file" do
-      it "file" do
+      it "decompresses the file of the supplied name" do
         result = IOStreams::Zstd::Reader.file(file_name, &:read)
 
         assert_equal decompressed, result
       end
+    end
 
-      it "stream" do
+    describe ".stream" do
+      it "decompresses the supplied stream" do
         result = File.open(file_name) do |file|
           IOStreams::Zstd::Reader.stream(file, &:read)
         end

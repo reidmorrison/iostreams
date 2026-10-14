@@ -60,6 +60,35 @@ class SymmetricEncryptionReaderTest < Minitest::Test
       end
     end
 
+    describe "the :stream mode" do
+      # Like `Zlib::GzipReader`, which returned the data of a compressed file in the default external encoding.
+      def read_with_external_encoding(data, encoding, **options)
+        original = Encoding.default_external
+        Encoding.default_external = encoding
+        output = StringIO.new(+"".b)
+        IOStreams.stream(output).stream(:enc, **options).write(data)
+        IOStreams.stream(StringIO.new(output.string)).stream(:enc).reader { |io| [io.read(3), io.read] }
+      ensure
+        Encoding.default_external = original
+      end
+
+      it "returns bytes from compressed data, with or without a length, whatever the default external encoding" do
+        start, rest = read_with_external_encoding("José\n", "Windows-1252")
+
+        assert_equal "Jos".b, start
+        assert_equal Encoding::BINARY, start.encoding
+        assert_equal "\xC3\xA9\n".b, rest
+        assert_equal Encoding::BINARY, rest.encoding
+      end
+
+      it "returns bytes from data that is not compressed" do
+        start, rest = read_with_external_encoding("José\n", "Windows-1252", compress: false)
+
+        assert_equal [Encoding::BINARY, Encoding::BINARY], [start.encoding, rest.encoding]
+        assert_equal "José\n".b, start + rest
+      end
+    end
+
     describe ".enc extension" do
       let :path do
         IOStreams.join("symmetric_encryption_reader_test.enc")

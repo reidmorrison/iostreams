@@ -12,14 +12,16 @@ class GzipReaderTest < Minitest::Test
       Zlib::GzipReader.open(file_name, &:read)
     end
 
-    describe ".open" do
-      it "file" do
+    describe ".file" do
+      it "decompresses the file of the supplied name" do
         result = IOStreams::Gzip::Reader.file(file_name, &:read)
 
         assert_equal decompressed, result
       end
+    end
 
-      it "stream" do
+    describe ".stream" do
+      it "decompresses the supplied stream" do
         result = File.open(file_name) do |file|
           IOStreams::Gzip::Reader.stream(file, &:read)
         end
