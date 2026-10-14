@@ -174,7 +174,7 @@ module IOStreams
         results.each do |full_path|
           next if !directories && ::File.directory?(full_path)
 
-          child = self.class.new(full_path)
+          child = self.class.new(full_path, create_path: create_path)
           yield(child) if allowed_child?(child)
         end
         nil

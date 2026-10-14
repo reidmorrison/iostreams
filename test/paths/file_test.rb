@@ -336,6 +336,14 @@ module Paths
           assert_nil(root.each_child("**/*") { |child| child })
         end
 
+        it "keeps create_path in the children, as #join does" do
+          file_path
+          path = IOStreams.path(directory.to_s, create_path: false)
+
+          assert_equal [false], path.children("*.txt").collect(&:create_path)
+          assert_equal [true], directory.children("*.txt").collect(&:create_path)
+        end
+
         it "raises PermissionDenied for a directory that cannot be read, like SFTP" do
           skip "Every directory can be read as root" if Process.uid.zero?
 
