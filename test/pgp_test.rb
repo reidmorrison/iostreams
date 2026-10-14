@@ -567,9 +567,18 @@ class PgpTest < Minitest::Test
 
     describe ".list_keys on an empty keyring" do
       it "returns no keys" do
-        with_gpg_output("") do
-          assert_equal [], IOStreams::Pgp.list_keys
-        end
+        original = IOStreams::Pgp.executable
+        # At a short path, since the socket of gpg-agent is limited to about 104 bytes on macOS.
+        home     = File.expand_path("../tmp/gnupg-empty", __dir__)
+        FileUtils.rm_rf(home)
+        FileUtils.mkdir_p(home, mode: 0o700)
+        IOStreams::Pgp.executable = "#{original} --homedir #{Shellwords.escape(home)}"
+
+        assert_equal [], IOStreams::Pgp.list_keys
+      ensure
+        IOStreams::Pgp.executable = original
+        system("gpgconf", "--homedir", home, "--kill", "all", out: File::NULL, err: File::NULL)
+        FileUtils.rm_rf(home)
       end
     end
 

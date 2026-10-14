@@ -39,6 +39,11 @@ class PgpWriterTest < Minitest::Test
       File.read(file_name)
     end
 
+    let :large_data do
+      # Random bytes, which gpg cannot compress, so that the encrypted data fills the pipes to and from gpg.
+      Random.new(42).bytes(2_000_000)
+    end
+
     after do
       temp_file.delete
     end
@@ -224,12 +229,12 @@ class PgpWriterTest < Minitest::Test
       end
 
       it "fails with bad recipient" do
-        error = assert_raises(IOStreams::Pgp::Failure) do
-          IOStreams::Pgp::Writer.file(file_name, recipient: "BAD@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
-            io.write(decrypted)
-            # Allow process to terminate
-            sleep 1
-            io.write(decrypted)
+        error = Timeout.timeout(30) do
+          assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Writer.file(file_name, recipient: "BAD@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+              # More than a pipe holds, since gpg stops without reading any of it.
+              io.write(large_data)
+            end
           end
         end
 
@@ -264,11 +269,6 @@ class PgpWriterTest < Minitest::Test
     end
 
     describe ".stream" do
-      let :large_data do
-        # Random bytes, which gpg cannot compress, so that the encrypted data fills the pipes to and from gpg.
-        Random.new(42).bytes(2_000_000)
-      end
-
       def decrypt(data)
         IOStreams::Pgp::Reader.stream(StringIO.new(data), passphrase: "receiver_passphrase", &:read)
       end
@@ -300,12 +300,10 @@ class PgpWriterTest < Minitest::Test
       end
 
       it "raises when gpg fails, naming the stream" do
-        error = assert_raises(IOStreams::Pgp::Failure) do
-          IOStreams::Pgp::Writer.stream(StringIO.new("".b), recipient: "BAD@example.org") do |io|
-            io.write(decrypted)
-            # Allow process to terminate
-            sleep 1
-            io.write(decrypted)
+        error = Timeout.timeout(30) do
+          assert_raises(IOStreams::Pgp::Failure) do
+            # More than a pipe holds, since gpg stops without reading any of it.
+            IOStreams::Pgp::Writer.stream(StringIO.new("".b), recipient: "BAD@example.org") { |io| io.write(large_data) }
           end
         end
 
@@ -358,12 +356,10 @@ class PgpWriterTest < Minitest::Test
 
       it "leaves a local file that belongs to the caller in place when gpg fails" do
         File.open(file_name, "wb") do |file|
-          error = assert_raises(IOStreams::Pgp::Failure) do
-            IOStreams::Pgp::Writer.stream(file, recipient: "BAD@example.org") do |io|
-              io.write(decrypted)
-              # Allow process to terminate
-              sleep 1
-              io.write(decrypted)
+          error = Timeout.timeout(30) do
+            assert_raises(IOStreams::Pgp::Failure) do
+              # More than a pipe holds, since gpg stops without reading any of it.
+              IOStreams::Pgp::Writer.stream(file, recipient: "BAD@example.org") { |io| io.write(large_data) }
             end
           end
 
