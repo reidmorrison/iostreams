@@ -98,6 +98,14 @@ module IOStreams
         line_count
       end
 
+      # Writes each line to the writer, see `IOStreams::Line::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,
+      # including a blank line, which is a line of its own.
+      #
+      # Returns [Integer] the number of lines read, see #each.
+      def copy_to(writer)
+        each { |line| writer << line }
+      end
+
       # Reads each line per the `delimeter`.
       # Accounts for lines that contain the `delimiter` when the `delimeter` is within the `embedded_within` delimiter.
       # For Example, CSV files can contain newlines embedded within double quotes.

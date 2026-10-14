@@ -129,6 +129,7 @@ module IOStreams
 
       @schema      = legacy_schema(format_options, schema) || schema
       @field_names = !schema.nil?
+      @supplied    = !header.columns.nil?
       @parser      = self.class.parser_class(@format).new(schema: @schema)
       @columns     = @schema&.columns
       # A Header without columns, through which the parsers render the rows that the schema has already arranged.
@@ -169,6 +170,21 @@ module IOStreams
     # supplied, which it does not replace, so that it is written as a row, as before.
     def columns_from_header_row?
       !(first_row_header? || requires_header? || legacy_columns?)
+    end
+
+    # Returns [true|false] whether the columns were supplied, see `columns:` in #initialize, which give the column of
+    # each value of the rows written, so that the columns of the file that is copied do not replace them, see
+    # `IOStreams::Row::Writer#write_columns`.
+    def columns_supplied?
+      @supplied
+    end
+
+    # Returns [Array<String|Symbol>] the names of the fields of a file without a header row, whose schema gives its
+    # columns, see `IOStreams::Schema#header?`, which are the columns of the rows that #row_parse returns, so that a
+    # copy can give them to the target, see `IOStreams::Row::Reader#copy_to`.
+    # Returns nil for any other file, whose rows start with its header row, see #header?, or supply their own keys.
+    def headerless_columns
+      @columns.names if @columns&.matched? && !requires_header?
     end
 
     # Returns [true|false] whether the keys of the records read are the names of the fields of a schema, rather than the

@@ -2022,6 +2022,39 @@ class StreamTest < Minitest::Test
           assert_match(/\AA schema with header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
         end
 
+        it "copies its rows into a file with a header row, whose columns are the fields, whatever fieldsMatch the target has" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.csv").schema(headerless)
+            source.write("0042,12.5,2026-10-13,true\n")
+            %w[exact equal subset superset partial].each do |fields_match|
+              target = IOStreams.path(dir, "out.csv").schema(people.merge(fieldsMatch: fields_match))
+              target.copy_from(source, mode: :array)
+
+              assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", target.read, fields_match
+            end
+
+            IOStreams.path(dir, "plain.csv").copy_from(source, mode: :array)
+            IOStreams.path(dir, "plain.json").copy_from(source, mode: :array)
+            IOStreams.path(dir, "copy.csv").schema(headerless).copy_from(source, mode: :array)
+
+            assert_equal "id,pay,joined,active\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "plain.csv").read
+            assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "plain.json").read
+            assert_equal "42,12.50,2026-10-13,true\n", IOStreams.path(dir, "copy.csv").read
+          end
+        end
+
+        it "copies its rows into a file whose columns are supplied, which give the columns of the rows instead" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.csv").schema(headerless)
+            source.write("0042,12.5,2026-10-13,true\n")
+            IOStreams.path(dir, "out.csv").copy_from(source, mode: :array, columns: %w[a b c d])
+            IOStreams.path(dir, "out.json").copy_from(source, mode: :array, columns: %w[a b])
+
+            assert_equal "a,b,c,d\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "out.csv").read
+            assert_equal %({"a":42,"b":"12.5"}\n), IOStreams.path(dir, "out.json").read
+          end
+        end
+
         it "copies typed values into a target without a schema as their usual text" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "people.csv").schema(headerless)
@@ -2656,6 +2689,28 @@ class StreamTest < Minitest::Test
         target_path.copy_from(source_path, mode: :hash)
 
         assert_equal "name,zip\nJack,12345\n", target_path.read
+      end
+
+      it "skips a blank line, which is neither a row nor a record, when copying rows or records, and returns the lines read" do
+        source_path.write("\nname,zip\n\nJack,12345\n\n")
+        %i[array hash].each do |mode|
+          assert_equal 5, target_path.copy_from(source_path, mode: mode), mode
+
+          assert_equal "name,zip\nJack,12345\n", target_path.read, mode
+        end
+        target_path.copy_from(source_path, mode: :line)
+
+        assert_equal "\nname,zip\n\nJack,12345\n\n", target_path.read
+      end
+
+      it "skips a JSON record of null, which is read as nil, as a blank line is" do
+        source = IOStreams.join("copy_test", "source.json")
+        source.write(%({"name":"Jack"}\nnull\n{"name":"Jill"}\n))
+        target_path.copy_from(source, mode: :hash)
+
+        assert_equal "name\nJack\nJill\n", target_path.read
+      ensure
+        source&.delete
       end
 
       describe "when the source cannot be read" do

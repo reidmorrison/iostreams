@@ -377,7 +377,7 @@ module IOStreams
             args, "but a copy uses its options to write the target", suggest_schema: %i[array hash].include?(mode)
           )
           stream.reader(mode) do |rows|
-            writer(mode, **args) { |target| copy_rows(rows, target, mode) }
+            writer(mode, **args) { |target| rows.copy_to(target) }
           end
         else
           reject_copy_options!("when copying without a `mode:`", **args)
@@ -612,21 +612,6 @@ module IOStreams
       @format_options = nil
       @schema         = nil
       @schema_source  = nil
-    end
-
-    # Writes each row or record read to the target. In `:array` mode the header row of a source that has one is
-    # written as a header row, so that a target without one, such as JSON or Parquet, takes its columns from it,
-    # rather than write it as a row of values.
-    def copy_rows(rows, target, mode)
-      header = mode == :array && rows.respond_to?(:header?) && rows.header?
-      rows.each do |row|
-        if header
-          header = false
-          target.write_header(row)
-        else
-          target << row
-        end
-      end
     end
 
     # Options are strict: raise rather than ignore options that a copy cannot use, whatever their value, apart from a

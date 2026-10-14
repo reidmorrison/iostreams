@@ -93,6 +93,30 @@ module IOStreams
           end
         end
       end
+
+      # Writes each row to the writer, see `IOStreams::Row::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,
+      # telling it the column of each value of the rows: it writes the header row of the file as their header row, see
+      # `IOStreams::Row::Writer#write_header`, so that a format without one, such as JSON, takes their columns from it,
+      # rather than write it as a row of values, or, for a file without a header row whose schema gives its columns,
+      # the names of the fields as their columns, see `IOStreams::Row::Writer#write_columns`, before the first row. A
+      # blank line, which #each yields as nil, is not a row, so it is not written.
+      #
+      # Returns the result of #each.
+      def copy_to(writer)
+        columns = @tabular.headerless_columns
+        writer.write_columns(columns) if columns
+        header = header?
+        each do |row|
+          next if row.nil?
+
+          if header
+            header = false
+            writer.write_header(row)
+          else
+            writer << row
+          end
+        end
+      end
     end
   end
 end

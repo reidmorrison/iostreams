@@ -79,6 +79,16 @@ module IOStreams
         self
       end
 
+      # Takes the columns of the rows written after it, which are not a row of the file that they are read from, such as
+      # the fields of a file without a header row, see `IOStreams::Row::Reader#copy_to`: like its header row, see
+      # #write_header, they name the column, or with a schema the field, of each value of the rows, unless the columns
+      # were supplied, which name them instead, so that they are not written as a row of values.
+      #
+      # Returns self, so that calls can be chained.
+      def write_columns(columns)
+        @tabular.columns_supplied? ? self : write_header(columns)
+      end
+
       # Supply a hash or an array to render
       #
       # Returns self, so that calls can be chained.

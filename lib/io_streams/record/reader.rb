@@ -118,6 +118,15 @@ module IOStreams
           end
         end
       end
+
+      # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy does, see
+      # `IOStreams::Stream#copy_from`. A blank line, or a JSON line of null, which #each yields as nil, is not a record,
+      # so it is not written.
+      #
+      # Returns the result of #each.
+      def copy_to(writer)
+        each { |record| writer << record unless record.nil? }
+      end
     end
   end
 end
