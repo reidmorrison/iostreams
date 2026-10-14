@@ -592,9 +592,8 @@ module IOStreams
         #           CAMELLIA128, CAMELLIA192, CAMELLIA256
         #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
         #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
-        if (match = out.lines.first.match(/(\d+\.\d+.\d+)/))
-          match[1]
-        end
+        version = out.lines.first&.[](/(\d+\.\d+.\d+)/, 1)
+        version || raise(Pgp::Failure, "GPG Failed to find the version of #{executable} in its --version output: #{out}")
       end
     end
 

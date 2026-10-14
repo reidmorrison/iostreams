@@ -97,6 +97,17 @@ class PgpTest < Minitest::Test
 
         after { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
 
+        it "raises Pgp::Failure when the output has no version" do
+          ["", "gpg (GnuPG)\n"].each do |output|
+            IOStreams::Pgp.instance_variable_set(:@pgp_version, nil)
+            error = assert_raises(IOStreams::Pgp::Failure) do
+              Open3.stub(:capture3, [output, "", Struct.new(:success?).new(true)]) { IOStreams::Pgp.pgp_version }
+            end
+
+            assert_includes error.message, "in its --version output"
+          end
+        end
+
         it "returns the version on its first line" do
           {
             "gpg (GnuPG) 2.4.7\nlibgcrypt 1.10.3\n"          => "2.4.7",
