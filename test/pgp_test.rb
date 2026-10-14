@@ -61,7 +61,10 @@ class PgpTest < Minitest::Test
                             reject_newlines! delete_public_or_private_keys delete_public_or_private_keys_v1
                             reader_class writer_class compressed? encrypted?]
 
-        assert_equal public_methods.sort, IOStreams::Pgp.singleton_methods(false).sort
+        # JRuby also lists the methods that were undefined, such as a stub that minitest has removed.
+        defined = IOStreams::Pgp.singleton_methods(false).select { |name| IOStreams::Pgp.respond_to?(name) }
+
+        assert_equal public_methods.sort, defined.sort
       end
     end
 
