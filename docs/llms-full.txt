@@ -4205,6 +4205,33 @@ to read: `option(:zip, entry_file_name: "a.csv")`.
 `IOStreams::Pgp.export(email: nil)` without a `key_id:` now raises `ArgumentError`, instead of
 `IOStreams::Pgp::Failure`.
 
+### PGP writer options raise `ArgumentError` before the file is opened
+
+Writing PGP without a `recipient` or `import_and_trust_key`, with an empty list of recipients, with a blank
+recipient, key or signer, or with `encrypt: false` without a `signer`, now raises `ArgumentError` before the file is
+opened, so that an existing file is kept. Previously a local file was emptied and deleted first, and an empty list or
+a blank value raised `IOStreams::Pgp::Failure` from gpg. An empty list with an `audit_recipient` still writes a file
+for the audit recipient alone.
+
+Fix: rescue `ArgumentError` rather than `IOStreams::Pgp::Failure` for these, or supply a recipient.
+
+### Leaving a PGP reader block early checks the whole file
+
+When the block of a PGP reader leaves early, such as with `break` after the first line, the rest of the file is now
+decrypted and checked, so a file that fails gpg's checks, such as one changed after it was written, or not signed by
+the `signer`, raises `IOStreams::Pgp::Failure`, where it was accepted. Checking the rest takes as long as reading the
+whole file.
+
+Fix: none is needed to keep the checks. To stop reading without checking the file, raise an exception from the block
+instead of leaving it with `break`.
+
+### A missing gpg raises `IOStreams::Pgp::Failure`
+
+When the `gpg` program cannot be run, every PGP call now raises `IOStreams::Pgp::Failure`, which names the executable,
+instead of `Errno::ENOENT`, which is its `#cause`.
+
+Fix: rescue `IOStreams::Pgp::Failure` rather than `Errno::ENOENT` or `SystemCallError`.
+
 ### PGP email addresses match exactly
 
 An email address supplied as a PGP `recipient` or `signer`, or as the `email:` of
@@ -4359,7 +4386,8 @@ Fix: if you need the size, return it from the block, for example the total of wh
 Writing to an S3, SFTP or HTTP(S) path now stores what was written when the block leaves early, such as
 with `break` or `return`, as writing to a local file always has, so the same code behaves the same
 whichever file store the path refers to. Previously nothing was stored. A stream registered with
-`IOStreams.register_extension` whose writer only writes files likewise keeps its output. Nothing is
+`IOStreams.register_extension` whose writer only writes files likewise keeps its output. Writing PGP
+completes the PGP message with what was written, where a local `.pgp` file was left empty. Nothing is
 stored when the block raises an exception, or when the thread writing it is killed.
 
 Fix: to abandon a write, such as on a bad record, raise an exception from the block rather than leave it
@@ -4898,6 +4926,15 @@ already did in an application that had loaded the `date` library, as `yaml` and 
 `String`, such as `"2017-10-24"`, in an application that had not.
 
 Fix: compare the date with a `Date`, such as `Date.new(2017, 10, 24)`, or call `to_s` on it for the `String`.
+
+### PGP elliptic curve key types
+
+`IOStreams::Pgp.list_keys` and `IOStreams::Pgp.key_info` now return the curve of an elliptic curve key as its
+`key_type`, such as `"ed25519"`, and the size of the curve in bits as its `key_length`, such as `255`. Previously an
+`ed25519` key had the `key_type` `"ed"` and the `key_length` `25519`, and a `brainpoolP256r1` or `secp256k1` key had
+no type, length or date at all. RSA, DSA and ElGamal keys are unchanged.
+
+Fix: compare `key_type` with the curve, such as `"ed25519"`, rather than `"ed"`.
 
 ### `format:` and `format_options:` are set on the path
 
