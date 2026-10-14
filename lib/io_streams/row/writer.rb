@@ -72,7 +72,7 @@ module IOStreams
       def <<(array)
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
 
-        @line_writer << @tabular.render_row(array)
+        @tabular.render_row(array) { |line| @line_writer << line }
         self
       end
 

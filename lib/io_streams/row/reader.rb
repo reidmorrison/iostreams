@@ -50,8 +50,8 @@ module IOStreams
       #
       # With a schema, the header row is the names of the fields of its columns, and each row is the values of those
       # fields, in the order of the fields, without the columns that the schema skips, see `IOStreams::Tabular#row_parse`.
-      def each
-        @line_reader.each { |line| yield @tabular.read_row(line) }
+      def each(&block)
+        @line_reader.each { |line| @tabular.read_row(line, &block) }
       end
 
       # Writes each row to the writer, see `IOStreams::Row::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,

@@ -784,19 +784,25 @@ class TabularTest < Minitest::Test
       end
 
       describe "#read_row" do
-        it "returns the header row as read, and then each row" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
-
-          assert_equal ["Name", "Secret Code"], tabular.read_row("Name,Secret Code")
-          assert_equal ["name", "__rejected__Secret Code"], tabular.header.columns
-          assert_equal %w[Jack x], tabular.read_row("Jack,x")
-          assert_nil tabular.read_row("")
+        # Returns [Array] what the lines yield.
+        def rows(tabular, *lines)
+          list = []
+          lines.each { |line| tabular.read_row(line) { |row| list << row } }
+          list
         end
 
-        it "returns every line as a row when the columns were supplied" do
+        it "yields the header row as read, and then each row" do
+          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+
+          assert_equal [["Name", "Secret Code"]], rows(tabular, "Name,Secret Code")
+          assert_equal ["name", "__rejected__Secret Code"], tabular.header.columns
+          assert_equal [%w[Jack x], nil], rows(tabular, "Jack,x", "")
+        end
+
+        it "yields every line as a row when the columns were supplied" do
           tabular = IOStreams::Tabular.new(format: :csv, columns: %w[name code])
 
-          assert_equal %w[Name Code], tabular.read_row("Name,Code")
+          assert_equal [%w[Name Code]], rows(tabular, "Name,Code")
         end
       end
 
@@ -1076,6 +1082,13 @@ class TabularTest < Minitest::Test
     describe "schema" do
       let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
 
+      # Returns [Array] the lines that rendering the rows yields, see IOStreams::Tabular#render_row.
+      def rendered_rows(tabular, *rows)
+        lines = []
+        rows.each { |row| tabular.render_row(row) { |line| lines << line } }
+        lines
+      end
+
       it "converts the values of each record, of every format, by the names of its fields" do
         csv = IOStreams::Tabular.new(format: :csv, schema: schema)
 
@@ -1124,8 +1137,7 @@ class TabularTest < Minitest::Test
         tabular.start_rows { |line| lines << line }
 
         assert_empty lines
-        assert_equal "id,pay", tabular.render_row(%w[Pay ID])
-        assert_equal "1,2.50", tabular.render_row([2.5, 1])
+        assert_equal ["id,pay", "1,2.50"], rendered_rows(tabular, %w[Pay ID], [2.5, 1])
         tabular.finish_rows { |line| lines << line }
 
         assert_empty lines
@@ -1157,13 +1169,13 @@ class TabularTest < Minitest::Test
       end
 
       it "takes no header row from the rows written to a file without one, whose rows are the fields in order" do
-        assert_equal %({"id":1,"pay":2.50}), IOStreams::Tabular.new(format: :json, schema: schema).render_row([1, 2.5])
-        assert_equal "7", IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "id"}], header: false)).render_row(["7"])
-        assert_equal "7 ", IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: :id}]}).render_row(["7"])
+        assert_equal [%({"id":1,"pay":2.50})], rendered_rows(IOStreams::Tabular.new(format: :json, schema: schema), [1, 2.5])
+        assert_equal ["7"], rendered_rows(IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "id"}], header: false)), ["7"])
+        assert_equal ["7 "], rendered_rows(IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: :id}]}), ["7"])
 
         csv = IOStreams::Tabular.new(format: :csv)
 
-        assert_equal "a,b", csv.render_row(%w[a b])
+        assert_equal ["a,b"], rendered_rows(csv, %w[a b])
         assert_equal %w[a b], csv.header.columns
       end
 

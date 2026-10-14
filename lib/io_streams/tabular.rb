@@ -355,10 +355,12 @@ module IOStreams
     # others, hands each line or value to these, which decide whether it is the header row, as the mapping of the
     # columns answers, see `IOStreams::Tabular::Mapping`, so that the reader or writer only iterates.
 
-    # Returns [Array|nil] what the line of a file of rows holds: the header row, while it is expected, see #header?,
+    # Yields [Array|nil] what the line of a file of rows holds: the header row, while it is expected, see #header?,
     # which it reads, see #read_header, otherwise the row, see #row_parse, or nil for a blank line.
+    #
+    # Returns the result of the block.
     def read_row(line)
-      @mapping.header? ? @mapping.read_header(line) : @mapping.row_parse(line)
+      yield(@mapping.header? ? @mapping.read_header(line) : @mapping.row_parse(line))
     end
 
     # Yields [Hash|nil] the record of the line of a file of records, see #read_record, or nil for a blank line, unless
@@ -379,19 +381,21 @@ module IOStreams
       yield render_header if @mapping.requires_header? && !@mapping.first_row_header?
     end
 
-    # Returns [String|nil] the line that a writer of rows writes for the row: the header line, when it is the first row
+    # Yields [String|nil] the line that a writer of rows writes for the row: the header line, when it is the first row
     # of a format with a header row, see `IOStreams::Tabular::Mapping#first_row_header?`, whose columns it gives,
     # otherwise the line of the row, see #render, or nil for a blank row, which is written as a blank line.
+    #
+    # Returns the result of the block.
     def render_row(row)
-      @mapping.first_row_header? ? @mapping.render_header(row) : @mapping.render(row)
+      yield(@mapping.first_row_header? ? @mapping.render_header(row) : @mapping.render(row))
     end
 
     # Yields [String|nil] the line that a writer of rows writes for the header row of the rows after it, which were read
     # from a file with one, such as the file that is copied, see `IOStreams::Row::Reader#copy_to`: as the first row, see
     # #render_row, unless the header row gives the columns of the rows instead, for a format without a header row, such
     # as JSON or Parquet, see `IOStreams::Tabular::Mapping#columns_from_header_row?`, when it yields nothing.
-    def render_header_row(columns)
-      return yield(render_row(columns)) unless @mapping.columns_from_header_row?
+    def render_header_row(columns, &)
+      return render_row(columns, &) unless @mapping.columns_from_header_row?
 
       render_header(columns)
       nil
