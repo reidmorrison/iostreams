@@ -119,6 +119,21 @@ class EncodeWriterTest < Minitest::Test
       end
     end
 
+    describe "the methods of an IO that write" do
+      it "writes with write, <<, print, puts and printf, as the other streams do" do
+        io = StringIO.new(+"")
+        IOStreams.stream(io).encoding("UTF-8").writer do |stream|
+          assert_equal 2, stream.write("a", "b")
+          stream << "c" << "d"
+          stream.print("e", "f")
+          stream.puts("g", ["h"])
+          stream.printf("%03d", 7)
+        end
+
+        assert_equal "abcdefg\nh\n007", io.string
+      end
+    end
+
     describe "valid multi-byte characters" do
       let(:text) { "Jos\u00e9, M\u00fcnchen \u{1F600}" }
 

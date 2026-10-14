@@ -3,6 +3,8 @@
 module IOStreams
   module Encode
     class Writer < IOStreams::Writer
+      include IOStreams::Writable
+
       def self.option_names
         %i[encoding cleaner replace]
       end
@@ -60,36 +62,6 @@ module IOStreams
         @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
       end
 
-      # Write a line to the output stream
-      #
-      # Example:
-      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
-      #     stream << 'first line' << 'second line'
-      #   end
-      def <<(record)
-        write(record)
-        self
-      end
-
-      # Encode data and write it to the output stream.
-      # Returns [Integer] the number of bytes written.
-      #
-      # Example:
-      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
-      #     count = stream.write('first line')
-      #     puts "Wrote #{count} bytes to the output file"
-      #   end
-      #
-      # Binary data, for example when copying a file, is treated as already being in the requested encoding.
-      # A multi-byte character that is split across two writes is written by the second write.
-      def write(data)
-        return 0 if data.nil?
-
-        block = @converter.convert(data.to_s)
-        @converter.raise_invalid
-        write_block(block)
-      end
-
       # Writes a multi-byte character still held back at the end of the data, after replacing it when it is incomplete.
       # Raises IOStreams::Errors::InvalidEncoding for an incomplete character without `replace`.
       def finish
@@ -98,6 +70,17 @@ module IOStreams
       end
 
       private
+
+      # Encodes the data and writes it to the output stream, see `IOStreams::Writable`, which writes `#write`, `#<<`,
+      # `#print`, `#puts` and `#printf` through it. Returns [Integer] the number of bytes written to the output stream.
+      #
+      # Binary data, for example when copying a file, is treated as already being in the requested encoding.
+      # A multi-byte character that is split across two writes is written by the second write.
+      def write_data(data)
+        block = @converter.convert(data)
+        @converter.raise_invalid
+        write_block(block)
+      end
 
       def write_block(block)
         block = @cleaner.call(block) if @cleaner
