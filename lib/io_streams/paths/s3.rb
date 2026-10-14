@@ -196,7 +196,7 @@ module IOStreams
                                                 region: region)
 
         # A copy of each option, so that a Hash supplied as an option, such as `metadata:`, is not shared, see #options.
-        @options = deep_copy(args)
+        @options = Utils.deep_copy(args)
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
         Sdk.check_options(options.keys)
 
@@ -205,7 +205,7 @@ module IOStreams
 
       # Freezes the options too, see #options and `IOStreams::Path#freeze`.
       def freeze
-        deep_freeze(@options)
+        @options = Utils.frozen_copy(@options)
         super
       end
 
@@ -455,7 +455,7 @@ module IOStreams
       # A copy has its own options, so that changing them does not change this path, see #options.
       def initialize_copy(source)
         super
-        @options = deep_copy(@options)
+        @options = Utils.deep_copy(@options)
       end
 
       # Sets the key, for example when called by `#join` or `#directory`.

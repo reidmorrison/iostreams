@@ -132,7 +132,7 @@ module IOStreams
         @password = password || uri.password
         @port     = uri.port || 22
         # A copy of each option, so that a String supplied as an option is not shared, see #ssh_options.
-        @ssh_options = deep_copy(ssh_options.transform_keys(&:to_s))
+        @ssh_options = Utils.deep_copy(ssh_options.transform_keys(&:to_s))
         validate_username!
 
         super(self.class.url_path(uri.path))
@@ -292,7 +292,7 @@ module IOStreams
 
       # Freezes the ssh options too, see #ssh_options and `IOStreams::Path#freeze`.
       def freeze
-        deep_freeze(@ssh_options)
+        @ssh_options = Utils.frozen_copy(@ssh_options)
         super
       end
 
@@ -307,7 +307,7 @@ module IOStreams
       # A copy has its own ssh options, so that changing them does not change this path, see #ssh_options.
       def initialize_copy(source)
         super
-        @ssh_options = deep_copy(@ssh_options)
+        @ssh_options = Utils.deep_copy(@ssh_options)
       end
 
       # Paths on the same host and port are in the same store, see `IOStreams::Path#same_store?`.

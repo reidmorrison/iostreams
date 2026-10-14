@@ -509,28 +509,6 @@ module IOStreams
       raise(ArgumentError, "Cannot move #{display_name} onto itself, as #{target.display_name}: it would delete the file")
     end
 
-    # Returns a copy of the value, and of each Hash, Array and String within it, such as the options of a path, so that
-    # changing the copy, such as the options of a copy of the path, does not change the value.
-    def deep_copy(value)
-      case value
-      when Hash then value.to_h { |key, item| [key, deep_copy(item)] }
-      when Array then value.map { |item| deep_copy(item) }
-      when String then value.dup
-      else value
-      end
-    end
-
-    # Returns the value, such as the options of a frozen path, frozen, with each Hash, Array and String within it, so
-    # that they cannot be changed. Any other object is left as it is, since it can need to change itself.
-    def deep_freeze(value)
-      case value
-      when Hash then value.each_value { |item| deep_freeze(item) }.freeze
-      when Array then value.each { |item| deep_freeze(item) }.freeze
-      when String then value.freeze
-      else value
-      end
-    end
-
     # Returns [true|false] whether a child found by `#each_child` is within the allowed paths, logging it when it is not.
     def allowed_child?(child)
       return true if child.allowed?

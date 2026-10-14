@@ -157,6 +157,18 @@ module IOStreams
       value.is_a?(String) || (defined?(::Pathname) && value.is_a?(::Pathname)) || false
     end
 
+    # Returns a copy of the value, whose Hashes, Arrays and Strings are copies too, so that changing the copy, such as
+    # the options of a copy of a path, does not change the value. Any other value, such as a Proc or a Symbol, is
+    # returned as it is.
+    def self.deep_copy(value)
+      case value
+      when Hash then value.to_h { |key, item| [key, deep_copy(item)] }
+      when Array then value.map { |item| deep_copy(item) }
+      when String then value.dup
+      else value
+      end
+    end
+
     # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that freezing an
     # object that holds options does not freeze the objects that the caller supplied. Any other value, such as a Proc
     # or a Symbol, is returned as it is.

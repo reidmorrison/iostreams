@@ -55,6 +55,46 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".deep_copy" do
+      it "copies each Hash, Array and String within the value" do
+        value = {name: +"jack", list: [+"a", {key: +"b"}], count: 1, block: -> {}}
+        copy  = IOStreams::Utils.deep_copy(value)
+
+        assert_equal value, copy
+        refute_same value, copy
+        refute_same value[:name], copy[:name]
+        refute_same value[:list], copy[:list]
+        refute_same value[:list][1][:key], copy[:list][1][:key]
+        assert_same value[:block], copy[:block]
+      end
+
+      it "returns a copy that can be changed of a frozen value" do
+        copy = IOStreams::Utils.deep_copy({name: "jack", list: ["a"].freeze}.freeze)
+
+        refute_predicate copy, :frozen?
+        refute_predicate copy[:name], :frozen?
+        refute_predicate copy[:list], :frozen?
+        refute_predicate copy[:list].first, :frozen?
+      end
+    end
+
+    describe ".frozen_copy" do
+      it "returns a frozen copy, leaving the value as it is" do
+        value = {name: +"jack", list: [+"a", {key: +"b"}], block: -> {}}
+        copy  = IOStreams::Utils.frozen_copy(value)
+
+        assert_equal value, copy
+        assert_predicate copy, :frozen?
+        assert_predicate copy[:name], :frozen?
+        assert_predicate copy[:list], :frozen?
+        assert_predicate copy[:list][1][:key], :frozen?
+        refute_predicate value, :frozen?
+        refute_predicate value[:name], :frozen?
+        refute_predicate value[:list][1], :frozen?
+        assert_same value[:block], copy[:block]
+      end
+    end
+
     describe ".matchable" do
       it "returns a string that is valid in its encoding" do
         name = "café.csv"
