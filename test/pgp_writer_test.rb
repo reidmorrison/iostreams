@@ -168,6 +168,19 @@ class PgpWriterTest < Minitest::Test
         assert_equal decrypted, result
       end
 
+      it "adds the audit recipient without changing the recipients supplied, which can be frozen" do
+        recipients = ["receiver@example.org"]
+        IOStreams::Pgp::Writer.stub(:audit_recipient, "receiver2@example.org") do
+          IOStreams::Pgp::Writer.file(file_name, recipient: recipients) { |io| io.write(decrypted) }
+
+          assert_equal ["receiver@example.org"], recipients
+
+          IOStreams::Pgp::Writer.file(file_name, recipient: recipients.freeze) { |io| io.write(decrypted) }
+        end
+
+        assert_equal decrypted, IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+      end
+
       it "fails with bad signer passphrase" do
         error = assert_raises(IOStreams::Pgp::Failure) do
           IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "BAD") do |io|

@@ -177,8 +177,8 @@ module IOStreams
       # Returns [Array<Array<String>>] the recipients, and the fingerprints of the keys imported via
       # `import_and_trust_key`, or other recipients for them when gpg does not supply a fingerprint.
       def self.collect_recipients(recipient, import_and_trust_key, import_and_trust_level)
-        recipients = Array(recipient)
-        recipients << audit_recipient if audit_recipient
+        # A new Array, since `Array` returns the caller's own Array of recipients, which can be frozen.
+        recipients = Array(recipient) + Array(audit_recipient)
 
         imported = Array(import_and_trust_key).map do |key|
           IOStreams::Pgp.import_and_trust_recipient(key: key, trust_level: import_and_trust_level)
