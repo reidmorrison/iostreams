@@ -68,7 +68,7 @@ module IOStreams
     end
     private_class_method :input_file_name
 
-    # When a Writer supports streams, also allow it to simply support a file
+    # When a Reader supports streams, also allow it to simply support a file
     def self.file(file_name, **args, &block)
       ::File.open(file_name, "rb") { |file| stream(file, **args, &block) }
     end

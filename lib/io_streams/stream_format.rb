@@ -71,8 +71,8 @@ module IOStreams
     # they can be displayed, for example by `#inspect`.
     #
     # Sensitive options are those that the reader or the writer declares, see #sensitive_option_names, and,
-    # as a precaution, any option whose name contains `passphrase`, `password`, `secret`, `token` or `credential`,
-    # see `IOStreams::Utils.redact_options`.
+    # as a precaution, any option whose name suggests a secret, such as one that contains `password` or `token`, see
+    # `IOStreams::Utils.redact_options`, which owns that list.
     def redact_options(options)
       Utils.redact_options(options, sensitive_option_names)
     end

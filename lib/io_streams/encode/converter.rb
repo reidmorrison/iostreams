@@ -15,7 +15,7 @@ module IOStreams
     # invalid bytes within all of the data converted. Unless it is in the final data, the valid data before it is
     # returned first, so that for example every whole line before it can be read, and the next call raises.
     class Converter
-      # Returns [Encoding] the encoding converted to, or nil when the data is returned unchanged.
+      # Returns [Encoding|nil] the encoding converted to; with nil or binary, the data is returned unchanged.
       attr_reader :encoding
 
       # Parameters

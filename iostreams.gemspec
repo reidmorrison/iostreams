@@ -20,7 +20,9 @@ Gem::Specification.new do |s|
                             "transparent to your application code. " \
                             "Files of any size are read and written one block at a time, without loading the entire " \
                             "file into memory."
-  s.files                 = Dir["lib/**/*", "bin/*", "docs/*.md", "LICENSE", "Rakefile", "README.md"]
+  # The documentation pages, but not the notes for the agents that maintain them (docs/CLAUDE.md).
+  s.files                 = Dir["lib/**/*.rb", "docs/*.md", "CHANGELOG.md", "LICENSE", "Rakefile", "README.md"] -
+                            ["docs/CLAUDE.md"]
   s.license               = "Apache-2.0"
   s.metadata              = {
     "bug_tracker_uri"       => "https://github.com/reidmorrison/iostreams/issues",

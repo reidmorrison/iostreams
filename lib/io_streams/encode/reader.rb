@@ -15,7 +15,7 @@ module IOStreams
         Encode.check(**)
       end
 
-      # Read a line at a time from a file or stream
+      # Yields a reader that decodes the data read from the supplied input stream, see #initialize.
       def self.stream(input_stream, **args)
         yield new(input_stream, **args)
       end

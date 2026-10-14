@@ -571,7 +571,7 @@ module IOStreams
     #   IOStreams.path("test.rb").extname         #=> ".rb"
     #   IOStreams.path("a/b/d/test.rb").extname   #=> ".rb"
     #   IOStreams.path(".a/b/d/test.rb").extname  #=> ".rb"
-    #   IOStreams.path("foo.").extname            #=> ""
+    #   IOStreams.path("foo.").extname            #=> "."
     #   IOStreams.path("test").extname            #=> ""
     #   IOStreams.path(".profile").extname        #=> ""
     #   IOStreams.path(".profile.sh").extname     #=> ".sh"
@@ -586,7 +586,7 @@ module IOStreams
     # If `path` is a dotfile, or starts with a period, then the starting
     # dot is not considered part of the extension.
     #
-    # An empty string will also be returned when the period is the last character in the `path`.
+    # An empty string is also returned when the period is the last character in the `path`.
     #
     #   IOStreams.path("test.rb").extension         #=> "rb"
     #   IOStreams.path("a/b/d/test.rb").extension   #=> "rb"
