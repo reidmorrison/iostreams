@@ -4851,9 +4851,19 @@ Fix: strip the file name before creating the path, for example when it comes fro
 ### `#each` without a block raises `ArgumentError`
 
 `#each` reads the file within the block, so that it is closed when the block returns, and does not return an
-`Enumerator`. Without a block it now raises `ArgumentError`, instead of `LocalJumpError`.
+`Enumerator`. Without a block it now raises `ArgumentError`, instead of `LocalJumpError`. So do `#reader` and
+`#writer`, before the file is opened, where `#writer` raised once it was opened, which removed an existing local file.
 
 Fix: supply a block, for example `path.each(:line) { |line| lines << line }`.
+
+### A writer supplied to `IOStreams.stream` raises for what it cannot apply
+
+A line, row or record writer that is already open, such as the one that `writer(:line)` yields, can still be handed to
+code that calls `IOStreams.stream(io).writer(:line)`, which then writes into it. Options of that call, such as
+`delimiter:` or `columns:`, streams, an encoding, and for lines, a format or a schema, now raise `ArgumentError`, since
+the open writer writes with its own settings. Previously they were ignored.
+
+Fix: set them where the writer is opened, or open a new writer for the data that needs them.
 
 ### A pattern that is not a String raises `ArgumentError`
 
@@ -5158,6 +5168,17 @@ written as zeros.
 
 Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, or `type: :string` in the
 layout, and convert it in the application.
+
+### The rows of a spreadsheet are CSV
+
+A spreadsheet is read as CSV, one line for each row of its worksheet, so its rows and records are now always parsed
+as CSV, and `#format` returns `:csv` for a `.xlsx` or `.xlsm` path, where it returned `nil`. Previously the format was
+taken from the rest of the file name, so `report.json.xlsx` raised, and `report.psv.xlsx` joined the cells of each
+row into one value. Setting another format with `#format`, such as `format(:psv)`, now raises `ArgumentError` when
+the rows, records or lines are read or written.
+
+Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
+`nil` for a spreadsheet.
 
 ## Upgrading to v2.1
 
