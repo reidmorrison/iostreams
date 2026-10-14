@@ -1318,6 +1318,27 @@ class TabularTest < Minitest::Test
         assert_nil tabular.header.columns
         assert_equal({"name" => "Jack", :age => 21}, tabular.record_parse(%({"name":"Jack","age":"21"})))
       end
+
+      it "raises for a fieldsMatch other than exact for a format with a header row, but not for one without" do
+        subset = IOStreams::Schema.new(header: false, fieldsMatch: "subset", fields: [{name: "name"}])
+
+        %i[csv psv].each do |format|
+          error = assert_raises(ArgumentError, format.inspect) { IOStreams::Tabular.new(format: format, schema: subset) }
+          assert_match(/\AA schema with header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
+        end
+        assert_equal({"name" => "Jack"}, IOStreams::Tabular.new(format: :json, schema: subset).record_parse(%({"name":"Jack","age":21})))
+        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(header: false, fields: [])) }
+      end
+
+      it "names fieldsMatch, rather than header: false, for the keys of a format without a header row" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Tabular.new(format: :json, schema: schema).record_parse(%({"name":"Jack","age":21,"zip":1}))
+        end
+        assert_match(/the key "zip" is not a field of the schema, which fieldsMatch "exact" does not accept; "subset"/, error.message)
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams::Tabular.new(format: :csv, schema: schema).record_parse("Jack,21,1") }
+        assert_match(/1 value after the last column, which a schema with header: false does not accept/, error.message)
+      end
     end
 
     describe "IOStreams::Tabular::Parser::Fixed.schema" do

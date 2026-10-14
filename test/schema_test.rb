@@ -139,10 +139,9 @@ class SchemaTest < Minitest::Test
                      error.message
       end
 
-      it "raises for a fieldsMatch other than exact without a header row, whose columns are the fields in order" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal") }
-        assert_match(/header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
-        assert_equal "exact", IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "exact").fields_match
+      it "accepts any fieldsMatch without a header row, which a format without a header row, such as JSON, ignores" do
+        assert_equal "equal", IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal").fields_match
+        assert_equal "exact", IOStreams::Schema.new(fields: [{name: "id"}], header: false).fields_match
       end
 
       it "raises for a property of another type of field" do
@@ -184,8 +183,8 @@ class SchemaTest < Minitest::Test
         assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: "no") }
       end
 
-      it "raises without fields when there is no header row, since the fields are the columns" do
-        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: false) }
+      it "accepts no fields without a header row, which a format without a header row, such as JSON, ignores" do
+        refute_predicate IOStreams::Schema.new(fields: [], header: false), :header?
       end
 
       it "accepts a width of remainder" do
@@ -433,12 +432,31 @@ class SchemaTest < Minitest::Test
         assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
       end
 
-      it "does not suggest a fieldsMatch that skips them without a header row, which only accepts exact" do
+      it "does not suggest a fieldsMatch that skips them when the columns are the fields in order, which only accepts exact" do
         error = assert_raises(IOStreams::Errors::InvalidHeader) do
-          IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown([1], noun: "value")
+          IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown([1], noun: "value", fields_in_order: true)
         end
         assert_equal "The values of a row do not match the schema: 1 value after the last field, which a schema with " \
                      "header: false does not accept, since its columns are the fields in order", error.message
+      end
+
+      it "suggests a fieldsMatch that skips them without a header row, for a format whose columns are not the fields in order" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown(["age"], noun: "key")
+        end
+        assert_equal "The keys of a record do not match the schema: the key \"age\" is not a field of the schema, which " \
+                     "fieldsMatch \"exact\" does not accept; \"subset\" and \"partial\" skip them", error.message
+      end
+    end
+
+    describe "#check_fields_in_order" do
+      it "raises for a fieldsMatch other than exact, or no fields, since the columns are the fields in order" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal").check_fields_in_order }
+        assert_equal 'A schema with header: false has the fields in order, so fieldsMatch must be "exact": "equal"', error.message
+
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: false).check_fields_in_order }
+        assert_equal "A schema with header: false needs fields, which are the columns of the file", error.message
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_fields_in_order
       end
     end
 

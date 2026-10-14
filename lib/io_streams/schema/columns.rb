@@ -25,6 +25,8 @@ module IOStreams
         # number of columns of the header row.
         @matched      = nil
         @width        = nil
+        # Whether the columns are the fields in order, for a file without a header row, see #match_fields.
+        @fields_in_order = false
         # Each field, in order, with the position of its column in the header row written, or nil, see #match_written,
         # and the number of columns of that header row.
         @written       = nil
@@ -52,10 +54,15 @@ module IOStreams
         names
       end
 
-      # Matches the columns of a file without a header row, which are the fields, in order.
+      # Matches the columns of a file without a header row, of a format that has one, such as CSV, which are the
+      # fields, in order, see `IOStreams::Schema#header?`.
+      #
+      # Raises ArgumentError when the schema cannot describe such a file, see `IOStreams::Schema#check_fields_in_order`.
       def match_fields
-        @matched = @schema.fields.each_with_index.to_a
-        @width   = @matched.size
+        @schema.check_fields_in_order
+        @fields_in_order = true
+        @matched         = @schema.fields.each_with_index.to_a
+        @width           = @matched.size
       end
 
       # Returns [true|false] whether the columns of the file read are known, see #match.
@@ -72,7 +79,7 @@ module IOStreams
       # file that is written always has every field, see `IOStreams::Schema#check_unknown`.
       def match_written(labels)
         _found, unknown, positions = find_fields(labels, "column")
-        @schema.check_unknown(unknown, noun: "column")
+        @schema.check_unknown(unknown, noun: "column", fields_in_order: @fields_in_order)
         @written       = @schema.fields.map { |field| [field, positions[field]] }
         @written_width = labels.size
       end
@@ -168,7 +175,7 @@ module IOStreams
         return unless values.size > @width
 
         extra = values.drop(@width).reject { |value| IOStreams::Utils.blank?(value) }
-        @schema.check_unknown(extra, noun: "value", last: "column")
+        @schema.check_unknown(extra, noun: "value", last: "column", fields_in_order: @fields_in_order)
       end
 
       # Returns [Array] the field of each label that is one, in the order of the labels, the labels that are not
@@ -231,7 +238,7 @@ module IOStreams
       def write_plan(keys)
         @write_plan = @write_plans.fetch(keys) do
           _found, unknown, positions = find_fields(keys, "key", by_name: @schema.skip_unknown?)
-          @schema.check_unknown(unknown, noun: "key")
+          @schema.check_unknown(unknown, noun: "key", fields_in_order: @fields_in_order)
           @write_plans.clear if @write_plans.size >= PLANS
           @write_plans[keys] = @schema.fields.each_with_index.map do |field, index|
             [field, positions.key?(field) ? keys[positions[field]] : nil, index]
@@ -258,7 +265,7 @@ module IOStreams
         return render_columns(row, form, keyed) if @written
 
         fields = @schema.fields
-        @schema.check_unknown(row.drop(fields.size), noun: "value") if row.size > fields.size
+        @schema.check_unknown(row.drop(fields.size), noun: "value", fields_in_order: @fields_in_order) if row.size > fields.size
         out = keyed ? {} : ::Array.new(fields.size)
         fields.each_with_index { |field, index| out[keyed ? field.name : index] = field.render(row[index], form) }
         out
@@ -267,7 +274,9 @@ module IOStreams
       # Returns [Array|Hash] the rendered value of each field from a row whose values are in the columns of the header
       # row written, see #match_written.
       def render_columns(row, form, keyed)
-        @schema.check_unknown(row.drop(@written_width), noun: "value", last: "column") if row.size > @written_width
+        if row.size > @written_width
+          @schema.check_unknown(row.drop(@written_width), noun: "value", last: "column", fields_in_order: @fields_in_order)
+        end
         out = keyed ? {} : ::Array.new(@written.size)
         @written.each_with_index do |(field, position), index|
           out[keyed ? field.name : index] = field.render(position.nil? ? nil : row[position], form)

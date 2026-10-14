@@ -1959,6 +1959,15 @@ class StreamTest < Minitest::Test
           assert_equal "42,12.50,2026-10-13,true\n", written
         end
 
+        it "is ignored by a format without a header row, such as JSON, whose fieldsMatch can then be any of them" do
+          partial = headerless.merge(fieldsMatch: "partial")
+
+          assert_equal [{"id" => 42}], read(%({"id":"0042","notes":"x"}\n), file_name: "people.json", schema: partial)
+          assert_equal %({"id":42,"pay":null,"joined":null,"active":null}\n), write([{"id" => 42, "notes" => "x"}], file_name: "people.json", schema: partial)
+          error = assert_raises(ArgumentError) { read("0042\n", schema: partial) }
+          assert_match(/\AA schema with header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
+        end
+
         it "copies typed values into a target without a schema as their usual text" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "people.csv").schema(headerless)
