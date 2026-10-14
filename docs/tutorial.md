@@ -33,6 +33,9 @@ Install the gem:
 gem install iostreams
 ~~~
 
+In an application, add `gem "iostreams"` to its Gemfile instead, with the gems of the features that it uses, see
+[Installation](index.html#installation).
+
 To follow the S3 steps below, also install the AWS SDK, and configure its credentials as described in
 [Configuring the AWS SDK for Ruby](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html):
 
@@ -148,6 +151,10 @@ Output:
 {"name" => "Jill Smith", "login" => "jsmith"}
 ~~~
 
+`:line`, `:array` and `:hash` are the **modes** of `#each`, which say what your code reads: a line is a String, a
+**row** an Array of the values of a line, and a **record** a Hash of those values, keyed by the names in the header
+row. `#writer` takes the same modes. See [Reading and writing](streams).
+
 As the file grows to millions of rows, this code does not change, and its memory use stays about the same, since the
 file is read, decompressed and parsed one block at a time.
 
@@ -184,7 +191,9 @@ with `each(:hash)` returns the same records.
 ## Describe the file with a schema
 
 Every value of a CSV file is text. A [schema](formats#schema) gives each column a name and a type, so that reading
-returns each value as its type, and writing writes each value in the text form of its type:
+returns each value as its type, and writing writes each value in the text form of its type. A `number` field, such
+as `salary` below, needs the `bigdecimal` gem: with Bundler on Ruby 3.4 or later, add `gem "bigdecimal"` to the
+Gemfile, since it is a bundled gem.
 
 ~~~ruby
 path = IOStreams.path("sample/people.csv").schema(
@@ -205,8 +214,6 @@ path.read
 path.each(:hash) { |person| p person }
 # => {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
 ~~~
-
-A `number` field needs the `bigdecimal` gem, so `require "bigdecimal"` first.
 
 The schema also checks the columns of the file, so that a file with other columns raises
 `IOStreams::Errors::InvalidHeader`, rather than being read wrongly. A schema can accept extra columns, match columns
@@ -240,7 +247,9 @@ end
 ~~~
 
 Use them with a plain file, a compressed file, and a file encrypted with PGP. A PGP file needs the recipient that can
-decrypt it, so set its option on the path, and pass the path to the method:
+decrypt it, so set its option on the path, and pass the path to the method. The PGP lines need GnuPG and a key for
+`receiver@example.org`, which [Create the keys](pgp#create-the-keys) in the PGP tutorial creates. Without them, skip
+the PGP lines.
 
 ~~~ruby
 write_lines("sample/example.csv")
@@ -263,8 +272,6 @@ methods do not need to know about PGP at all. Each file displays the same lines:
 [3] Jill Smith,jsmith
 ~~~
 
-The PGP steps need GnuPG, and a key for `receiver@example.org`. See [PGP](pgp) to create one.
-
 ## Same code, any storage
 
 The same unchanged methods read and write files on S3, by prefixing the names with the bucket:
@@ -279,7 +286,9 @@ show_lines("s3://my-iostreams-bucket/sample/example.csv.gz")
 
 They also work with SFTP, `sftp://host/path`, and HTTP, `https://host/path`. S3 objects and HTTP files are read as
 the code reads them, and S3 objects are uploaded as they are written, so a large file never has to fit in memory or on
-local disk.
+local disk. A zip file or a spreadsheet is the exception: one stored elsewhere is copied into a temp file first, since
+it is read from a local file, so prefer gzip or Zstandard for large files, see
+[When temp files are used](config#when-temp-files-are-used).
 
 ### Configure storage once, not in every call
 
@@ -352,26 +361,13 @@ IOStreams.path("sample/people.json").copy_from("sample/example.csv.gz", mode: :h
 
 See [Copying and moving](copy_files).
 
-## Files that must be on local disk
-
-A few formats can only be read from a local file, since they are not read from start to end. A zip file lists its
-contents at its end, so reading one from S3 or a web server first copies it into a temp file, for example:
-
-~~~ruby
-IOStreams.path("https://example.com/files/offices.zip").
-  option(:zip, entry_file_name: "OFFICES.CSV").
-  each(:hash) do |office|
-    p office
-    break
-  end
-~~~
-
-Gzip and Zstandard compressed files are read without a temp file, so prefer them for large files. See
-[When temp files are used](config#when-temp-files-are-used).
-
 ## Next steps
 
-* [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
-* [Reading and writing](streams): every way to read and write a path.
+* [Reading and writing](streams): every way to read and write a path, and text encodings.
 * [Tabular formats](formats): CSV, JSON, fixed width, Excel and Parquet, and schemas.
-* [PGP](pgp): encrypting, decrypting and signing files with PGP.
+* [Compression and encryption](extensions): the options of each stream.
+* [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
+* [Copying and moving](copy_files): copying files between stores, and converting them on the way.
+* [Errors](errors): rescuing failures the same way wherever a file is stored.
+* [PGP](pgp): encrypting, decrypting and signing files with PGP, and managing keys.
+* [Configuration](config) and [Security](security): roots, temp files, logging and allowed paths.
