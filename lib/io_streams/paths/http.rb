@@ -3,6 +3,8 @@
 require "net/http"
 require "uri"
 require "cgi"
+# For Time.httpdate, see #mtime.
+require "time"
 module IOStreams
   module Paths
     class HTTP < IOStreams::Path
@@ -158,13 +160,10 @@ module IOStreams
       end
 
       # Returns [Time] when the file was last modified, from the Last-Modified header of an HTTP HEAD,
-      # or nil when the server does not supply it.
+      # or nil when the server does not supply it, or supplies a value that is not a time, which is logged.
       def mtime
         authorize!
-        send_request(Net::HTTP::Head, url, http_redirect_count) do |response|
-          modified = response["last-modified"]
-          modified && Time.httpdate(modified)
-        end
+        send_request(Net::HTTP::Head, url, http_redirect_count) { |response| last_modified(response["last-modified"]) }
       end
 
       # Returns [true|false] whether the file exists, see `#exist?`. HTTP has no directories, so every url that
@@ -267,6 +266,15 @@ module IOStreams
       end
 
       attr_reader :allow_hosts, :maximum_file_size, :headers
+
+      # Returns [Time] the time of the Last-Modified header, or nil when it is not supplied, or is not a time, which is
+      # logged as a warning via `IOStreams.logger`, since the file can still be read.
+      def last_modified(header)
+        header && Time.httpdate(header)
+      rescue ArgumentError
+        IOStreams.logger&.warn("Ignoring the Last-Modified header of #{display_name}, which is not a time: #{header.inspect}")
+        nil
+      end
 
       # Returns [Hash<String, String>] the supplied headers, frozen.
       def validate_headers(headers)

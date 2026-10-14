@@ -6,7 +6,9 @@ require "socket"
 require "base64"
 require "csv"
 require "logger"
+require "open3"
 require "openssl"
+require "rbconfig"
 
 module Paths
   class HTTPTest < Minitest::Test
@@ -1156,10 +1158,35 @@ module Paths
             assert_equal "HEAD", @server.requests.first[:method]
           end
 
+          it "returns the time in a process that has only required iostreams" do
+            start_server do |_path|
+              "HTTP/1.1 200 OK\r\nLast-Modified: Wed, 21 Oct 2015 07:28:00 GMT\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            end
+            # The test helper requires `time`, which defines Time.httpdate, so the time is read in a new process.
+            script = %(require "iostreams"; print IOStreams.path("#{@server.base_url}/file.txt").mtime.to_i)
+            output, = Open3.capture2e(RbConfig.ruby, "-I", File.expand_path("../../lib", __dir__), "-e", script)
+
+            assert_equal Time.utc(2015, 10, 21, 7, 28, 0).to_i.to_s, output
+          end
+
           it "returns nil when the server does not supply it" do
             start_server { |_path| "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
 
             assert_nil IOStreams.path("#{@server.base_url}/file.txt").mtime
+          end
+
+          it "returns nil, and logs a warning, when the Last-Modified header is not a time" do
+            start_server { |_path| "HTTP/1.1 200 OK\r\nLast-Modified: yesterday\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
+            output   = StringIO.new
+            original = IOStreams.logger
+            IOStreams.logger = Logger.new(output, level: :warn)
+            path = IOStreams.path("#{@server.base_url}/file.txt?token=SECRET")
+
+            assert_nil path.mtime
+            assert_includes output.string, "Ignoring the Last-Modified header of #{@server.base_url}/file.txt, which is not a time: \"yesterday\""
+            refute_includes output.string, "SECRET"
+          ensure
+            IOStreams.logger = original
           end
 
           it "raises NotFound when the file is not found" do
