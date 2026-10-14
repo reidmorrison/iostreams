@@ -245,6 +245,17 @@ module IOStreams
       execute(:reader, pipeline, io_stream, &)
     end
 
+    # Raises what writing through the pipeline would raise before anything is written, such as an option value that a
+    # stream does not accept, or the gem of a stream that is not installed, as each stream's format answers, see
+    # `IOStreams::StreamFormat#check_stream`. So that a path can check before it opens its output, which would replace
+    # an existing file, see `IOStreams::Stream#open_writer`.
+    def check_writer
+      pipeline.each_pair do |stream, opts|
+        stream_format(stream).check_stream(:writer, opts, name: stream, file_name: file_name)
+      end
+      nil
+    end
+
     def writer(io_stream, &)
       execute(:writer, pipeline, io_stream, &)
     end
@@ -381,10 +392,15 @@ module IOStreams
     end
 
     # Validates the options of the encode stream and merges them with those already set, see #encoding.
+    #
+    # Raises ArgumentError for the name or the value of an option that the encode stream does not accept, such as an
+    # encoding that Ruby does not know, see `IOStreams::Encode.check`, as soon as it is set.
     def merge_encoding(options)
       raise_if_raw!("#encoding")
       Encode.validate_options(nil, options, name: :encode)
-      @encoding = (@encoding || {}).merge(options)
+      encoding = (@encoding || {}).merge(options)
+      Encode.check(**encoding)
+      @encoding = encoding
       self
     end
 

@@ -434,6 +434,37 @@ class BuilderTest < Minitest::Test
         assert_equal({encode: {encoding: "BINARY"}}, IOStreams::Builder.new.encoding("BINARY").pipeline)
       end
 
+      it "raises for an encoding that Ruby does not know, when it is set" do
+        error = assert_raises(ArgumentError) { streams.encoding("UTF-9") }
+
+        assert_equal "unknown encoding name - UTF-9", error.message
+        assert_raises(ArgumentError) { streams.encoding("Windows-1252:UTF-9") }
+        assert_nil streams.setting(:encode)
+      end
+
+      it "raises for an encoding that is neither a String nor an Encoding, when it is set" do
+        error = assert_raises(ArgumentError) { streams.encoding(:utf8) }
+
+        assert_match(/\AInvalid encoding :utf8: supply the name of an encoding/, error.message)
+        assert_equal({encode: {encoding: Encoding::UTF_8}}, IOStreams::Builder.new.encoding(Encoding::UTF_8).pipeline)
+      end
+
+      it "raises for a cleaner or a replace that the encode stream cannot use, when it is set" do
+        error = assert_raises(ArgumentError) { streams.encoding("UTF-8", cleaner: "printable") }
+        assert_includes error.message, %(Invalid cleaner "printable")
+
+        error = assert_raises(ArgumentError) { streams.encoding("UTF-8", replace: 5) }
+        assert_equal "Invalid replace 5: supply the String that replaces each invalid character", error.message
+        assert_nil streams.setting(:encode)
+      end
+
+      it "checks the options merged with those already set" do
+        streams.encoding("UTF-8", replace: "?")
+
+        assert_raises(ArgumentError) { streams.encoding(cleaner: :bogus) }
+        assert_equal({encoding: "UTF-8", replace: "?"}, streams.setting(:encode))
+      end
+
       it "is set by the deprecated option(:encode)" do
         streams.option(:encode, encoding: "BINARY").encoding(replace: "")
 

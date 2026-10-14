@@ -10,6 +10,11 @@ module IOStreams
         %i[encoding cleaner replace]
       end
 
+      # Raises ArgumentError for options that #initialize would raise for, see `IOStreams::Encode.check`.
+      def self.check(**)
+        Encode.check(**)
+      end
+
       attr_reader :cleaner
 
       # Read a line at a time from a file or stream

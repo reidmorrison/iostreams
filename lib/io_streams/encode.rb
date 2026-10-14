@@ -43,6 +43,27 @@ module IOStreams
       [Encoding.find(external), Encoding.find(internal)]
     end
 
+    # Raises ArgumentError for the options that the reader or writer of the encode stream would raise for once the
+    # text is read or written: an encoding that Ruby does not know, or that is neither a String nor an Encoding, a
+    # `replace` that is not a String, or a cleaner that is neither the name of a built-in rule nor a Proc, see
+    # `IOStreams::Encode::Cleaner`. So that they raise when they are set, see `IOStreams::Builder#encoding`, and
+    # before a writer opens its output, see `IOStreams::StreamFormat#check_stream`, which would replace an existing
+    # file, rather than once the data is read or written.
+    def self.check(encoding: default_encoding, cleaner: nil, replace: nil)
+      unless encoding.nil? || encoding.is_a?(String) || encoding.is_a?(Encoding)
+        raise(ArgumentError, "Invalid encoding #{encoding.inspect}: supply the name of an encoding, such as " \
+                             "\"UTF-8\" or \"Windows-1252:UTF-8\", or an Encoding")
+      end
+      unless replace.nil? || replace.is_a?(String)
+        raise(ArgumentError, "Invalid replace #{replace.inspect}: supply the String that replaces each invalid character")
+      end
+
+      external, _internal = external_and_internal(encoding)
+      Encoding.find(external) if external.is_a?(String)
+      Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+      nil
+    end
+
     # Returns [true|false] whether data in this format is compressed.
     def self.compressed?
       false

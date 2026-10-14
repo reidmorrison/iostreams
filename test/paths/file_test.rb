@@ -605,6 +605,24 @@ module Paths
           assert_equal data.size, new_file_path.size
         end
 
+        it "keeps an existing file when a stream cannot write with its options, without opening it" do
+          writer = Class.new(IOStreams::Writer) do
+            def self.option_names = %i[level]
+            def self.check(level: 1) = (raise(ArgumentError, "level must be 1 to 9") unless (1..9).cover?(level))
+            def self.stream(io, **) = yield(io)
+          end
+          IOStreams.register_extension(:check_test, Class.new(IOStreams::Reader), writer)
+          path = directory.join("existing.txt.check_test").mkpath
+          File.write(path.to_s, "existing")
+
+          error = assert_raises(ArgumentError) { path.option(:check_test, level: 99).writer { |io| io << data } }
+
+          assert_equal "level must be 1 to 9", error.message
+          assert_equal "existing", File.read(path.to_s)
+        ensure
+          IOStreams.deregister_extension(:check_test)
+        end
+
         it "removes the partial file when the block raises" do
           new_file_path = directory.join("new.txt")
           assert_raises(ArgumentError) do

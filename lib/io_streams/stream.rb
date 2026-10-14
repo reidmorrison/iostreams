@@ -295,7 +295,7 @@ module IOStreams
       case mode
       when :stream
         reject_stream_mode_options!(args)
-        stream_writer(&)
+        open_writer(&)
       when :line
         line_writer(**args, &)
       when :array
@@ -615,7 +615,7 @@ module IOStreams
 
     # Yields a stream that writes text through the streams. Protected, see #text_reader.
     def text_writer(&)
-      stream_writer(&)
+      open_writer(&)
     end
 
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
@@ -757,7 +757,7 @@ module IOStreams
         reject_line_options!(tabular, delimiter: delimiter)
         options = builder.row_format_options(tabular.format)
         tabular.check_write_rows(options)
-        return stream_writer { |io| tabular.write_rows(io, options, &) }
+        return open_writer { |io| tabular.write_rows(io, options, &) }
       end
 
       open_line_writer(tabular.encoding, delimiter: delimiter.nil? ? $/ : delimiter, &)
@@ -833,6 +833,14 @@ module IOStreams
 
     def stream_writer(&)
       builder.writer(io_stream, &)
+    end
+
+    # Yields the stream that writes the data through the streams, see #stream_writer, once each stream has checked its
+    # options, see `IOStreams::Builder#check_writer`, so that a value that a stream cannot write with, such as a gzip
+    # level of 99, raises before a path opens its output, which would replace an existing file.
+    def open_writer(&)
+      builder.check_writer
+      stream_writer(&)
     end
 
     # The lines are written in the encoding of the format, see #line_reader.
