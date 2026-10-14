@@ -12,7 +12,7 @@ module IOStreams
       # as it reads, such as corrupt compressed data, a `Timeout` interrupts a read of an input that stalls, and an
       # input backed by an Enumerator can be read.
       #
-      # Responds to the methods of IO that read: `read`, `readpartial`, `gets`, `each_line`, `each` and `eof?`.
+      # Responds to the methods of IO that read: `read`, `readpartial`, `gets`, `readline`, `each_line`, `each` and `eof?`.
       class StdoutReader
         def initialize(stdout, stdin, input)
           @stdout  = stdout
@@ -73,6 +73,11 @@ module IOStreams
           line = take(size)
           skip_line_endings if paragraph && line.end_with?(separator)
           chomp_line(line, separator, chomp)
+        end
+
+        # Like IO#readline: returns the next line, see #gets, raising EOFError at the end.
+        def readline(...)
+          gets(...) || raise(EOFError, "end of file reached")
         end
 
         # Like IO#each_line: yields each line.

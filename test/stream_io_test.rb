@@ -76,6 +76,7 @@ class StreamIOTest < Minitest::Test
 
           assert_equal data.lines[2..].join, "2,#{lines.join}"
           assert_nil io.gets
+          assert_raises(EOFError) { io.readline }
         end
       end
 

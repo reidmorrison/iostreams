@@ -60,6 +60,11 @@ module IOStreams
       chomp && separator ? chomp_line(line, separator) : line
     end
 
+    # Returns [String] the next line, see #gets, like `IO#readline`, which raises EOFError at the end of the data.
+    def readline(...)
+      gets(...) || raise(EOFError, "end of file reached")
+    end
+
     # Yields each line, see #gets, like `IO#each_line`. Returns self, or an Enumerator without a block.
     def each_line(separator = $/, limit = nil, chomp: false)
       return enum_for(__method__, separator, limit, chomp: chomp) unless block_given?
