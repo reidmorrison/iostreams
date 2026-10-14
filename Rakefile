@@ -58,7 +58,13 @@ task :llms_full do
                    first.to_s.strip.delete_prefix('"').delete_suffix('"')
     heading      = title if heading.empty?
 
-    body = raw.sub(/\A---\n.*?\n---\n/m, "").strip
+    # Each page opens with a Contents card, a kramdown table of contents that
+    # the theme renders from the page's headings, so in plain text it is only
+    # noise: strip it, and any other kramdown attribute line, such as `{:toc}`.
+    body = raw.sub(/\A---\n.*?\n---\n/m, "").
+           sub(/^\*\*Contents\*\*\n+\* TOC\n/, "").
+           gsub(/^\{:.*\}\n/, "").
+           strip
     "# #{heading}\n\n#{body}"
   end
 

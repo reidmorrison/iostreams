@@ -7,6 +7,11 @@ description: >-
   moving and deleting files.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 A path names a file, and the store that holds it: the local file system, AWS S3, an SFTP server, or a web server.
 Every path has the same methods, so the code that reads, writes, lists or deletes a file does not change when the file
 moves to another store.

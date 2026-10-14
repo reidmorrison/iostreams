@@ -7,6 +7,11 @@ description: >-
   its file name implies.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 Once you have a [path](path), read it and write it with a small set of methods, a block, a line, a row or a record at
 a time, so that memory use stays low however large the file is. Each method takes a mode, which says what your code
 reads or writes:

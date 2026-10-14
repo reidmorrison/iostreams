@@ -6,6 +6,11 @@ description: >-
   path class for a url scheme, such as another cloud store.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 An application uses IOStreams through `IOStreams.path` and `IOStreams.stream`, and never calls the classes of the
 built-in formats and stores directly, since they are internal and can change. To add a format or a store of your own,
 register it with `IOStreams.register_extension` or `IOStreams.register_scheme`, which use the interfaces on this page.

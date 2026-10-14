@@ -7,6 +7,11 @@ description: >-
   compressed file to reading typed records from S3.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 When a file is small it can simply be read into memory. A file of many gigabytes cannot. On Linux, pipes stream the
 data between programs instead, a block at a time:
 

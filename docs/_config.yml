@@ -8,8 +8,8 @@ remote_theme: reidmorrison/rm-docs-theme@v1
 
 markdown: kramdown
 kramdown:
-  # Matches the other doc sites. These pages carry no {:toc} block today, so
-  # this only takes effect if one is added.
+  # Matches the other doc sites: the {:toc} block at the top of each page,
+  # which the theme styles as its Contents card, lists the h2 and h3 headings.
   toc_levels: "2..3"
 
 plugins:

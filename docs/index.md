@@ -3,6 +3,11 @@ layout: default
 heading: What is IOStreams?
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 IOStreams is a streaming library for Ruby that makes the format, compression, encryption and storage location of a
 file transparent to your code. Read and write files of any size, one block at a time, whether they are CSV, JSON,
 Excel or Parquet, compressed with gzip, zip, bzip2 or Zstandard, encrypted with PGP, and whether they are stored on

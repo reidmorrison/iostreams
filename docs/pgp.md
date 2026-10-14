@@ -7,6 +7,11 @@ description: >-
   and managing keys with the IOStreams::Pgp module methods.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 IOStreams encrypts, decrypts, signs and verifies PGP files with the `gpg` program of [GnuPG](https://gnupg.org). Name
 the file `.pgp` or `.gpg`, and set the recipient to encrypt it for when writing, and the passphrase of the recipient's
 private key when reading:

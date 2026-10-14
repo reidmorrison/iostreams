@@ -7,6 +7,11 @@ description: >-
   settings to review in your application when upgrading.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 This page covers the changes that may need updates to your application when upgrading IOStreams,
 and the security issues to check. For every change in each release, see the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md).

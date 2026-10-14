@@ -6,6 +6,11 @@ description: >-
   move_to, converting their compression, encryption and format on the way.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 `#copy_from` copies a file into the path, and `#copy_to` copies the path into another file. Both read the source a
 block at a time while they write the target, so a file of any size can be copied, and both apply the streams of each
 file name, so a copy can also convert the file:

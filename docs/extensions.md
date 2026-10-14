@@ -6,6 +6,11 @@ description: >-
   .zip, .zst, .pgp or .enc, the gems that each one needs, and their options.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 The extensions at the end of a file name say how the file is compressed or encrypted, and IOStreams reads and writes
 the file through the stream of each one, a block at a time. `example.csv.gz.pgp` is compressed with gzip and then
 encrypted with PGP, so reading it decrypts it, and then decompresses it. How a file name becomes a pipeline of streams,

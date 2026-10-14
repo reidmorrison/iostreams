@@ -8,6 +8,11 @@ description: >-
   other exceptions that IOStreams raises.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 When a path's storage fails, for example because the file does not exist, the path raises the exception that its
 storage raised, such as `Errno::ENOENT` for a local file or `Aws::S3::Errors::NoSuchKey` for S3. It tags that
 exception with the kind of failure: `IOStreams::Errors::NotFound`, `PermissionDenied` or `Unavailable`.

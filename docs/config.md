@@ -7,6 +7,11 @@ description: >-
   files are used, the logger, and every process-wide setting.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 ## Paths are configuration
 
 A path or url is configuration, not code. Keep it in an environment variable or a centralized configuration

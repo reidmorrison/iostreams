@@ -6,6 +6,11 @@ description: >-
   Parquet files, how the format is chosen, and typed values with a schema.
 ---
 
+**Contents**
+
+* TOC
+{:toc}
+
 When reading or writing rows (`:array`) or records (`:hash`), IOStreams converts each line of the file to or from its
 tabular format:
 
