@@ -887,6 +887,22 @@ module Paths
 
             assert_equal [{request_payer: "requester"}], children.map(&:options)
           end
+
+          it "raises the exception that the block raises for an exact name, and yields it once" do
+            missing = IOStreams.path("s3://bucket/missing.csv")
+            [false, true].each do |directories|
+              calls = 0
+              error = assert_raises(IOStreams::Errors::NotFound) do
+                IOStreams.path("s3://bucket/reports").each_child("a.csv", directories: directories) do |_child|
+                  calls += 1
+                  missing.size
+                end
+              end
+
+              assert_equal missing.display_name, error.display_name
+              assert_equal 1, calls
+            end
+          end
         end
       end
 

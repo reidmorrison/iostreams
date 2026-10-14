@@ -496,6 +496,16 @@ module IOStreams
         nil
       end
 
+      # Returns [Hash] the attributes of this object, in the same form as those of a listed object, see `#each_child`,
+      # or nil when it does not exist. Load the AWS SDK first, see `Sdk.load`.
+      def object_attributes
+        response = unless_not_found(nil) { request(:head_object, bucket: bucket_name, key: path) }
+        return unless response
+
+        {key: path, last_modified: response.last_modified, etag: response.etag, size: response.content_length,
+         storage_class: response.storage_class}.compact
+      end
+
       # Paths in the same bucket are in the same store, see `IOStreams::Path#same_store?`.
       def store = bucket_name
 
@@ -588,27 +598,15 @@ module IOStreams
 
       # Yields the child, when it is an object, or a directory and `directories`, with its attributes,
       # in the same form as those of a listed object. Load the AWS SDK first, see `Sdk.load`.
+      #
+      # Only the requests of the child are rescued, see `#object_attributes`, so that an exception raised by the block,
+      # such as `Aws::S3::Errors::NotFound` for another path, is raised as it is.
       def each_exact_child(child, directories)
         return unless allowed_child?(child)
 
-        response = tag_failure(child) do
-          client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: child.path))
-        end
-        yield(child,
-              {key:           child.path,
-               last_modified: response.last_modified,
-               etag:          response.etag,
-               size:          response.content_length,
-               storage_class: response.storage_class}.compact)
-      rescue Aws::S3::Errors::NotFound
-        return unless directories
-
-        resp = tag_failure(child) do
-          client.list_objects_v2(
-            options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: "#{child.path}/", max_keys: 1)
-          )
-        end
-        yield(child, {}) if resp.contents.any?
+        attributes   = child.object_attributes
+        attributes ||= {} if directories && child.directory?
+        yield(child, attributes) if attributes
       end
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
