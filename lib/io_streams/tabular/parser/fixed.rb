@@ -22,6 +22,12 @@ module IOStreams
         # the line.
         Column = Struct.new(:field, :index, :width)
 
+        # Returns [true] each line is read into a Hash by the names of the fields of the schema, see #parse, and written
+        # from one, see #render.
+        def self.keyed?
+          true
+        end
+
         # Returns [String] the encoding of fixed width files, ASCII, read as UTF-8 strings.
         #
         # The sizes of the columns in a fixed width file count bytes, since the programs that write them, such as
@@ -194,13 +200,12 @@ module IOStreams
         end
 
         # Returns [String] the line for the supplied record, by the names of its fields, whose values the schema has
-        # already rendered as text, see `IOStreams::Tabular#render`.
-        def render(row, header)
-          hash = header.to_hash(row)
+        # already rendered as text, see `IOStreams::Tabular::SchemaMapping#render`.
+        def render(row)
           line = +""
           @columns.each do |column|
             line << (" " * (column.index - line.length)) if column.index > line.length
-            line << render_value(column, hash[column.field.name])
+            line << render_value(column, row[column.field.name])
           end
           line << (" " * (line_length - line.length)) if line_length > line.length
           line

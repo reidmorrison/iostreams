@@ -17,8 +17,9 @@ module IOStreams
           row
         end
 
-        def render(row, header)
-          header.to_array(row)
+        # Returns [Array] the values of the row, in the order of its columns, as they are.
+        def render(row)
+          row
         end
       end
     end

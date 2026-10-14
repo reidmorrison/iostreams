@@ -10,14 +10,20 @@ module IOStreams
           :typed
         end
 
+        # Returns [true] each row is a Hash, whose keys name its values.
+        def self.keyed?
+          true
+        end
+
         def parse(row)
           raise(IOStreams::Errors::TypeMismatch, "Format is :hash. Invalid input: #{row.class.name}") unless row.is_a?(::Hash)
 
           row
         end
 
-        def render(row, header)
-          header.to_hash(row)
+        # Returns [Hash] the record, by the names of its columns, as it is.
+        def render(row)
+          row
         end
 
         def requires_header?

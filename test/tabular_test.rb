@@ -925,6 +925,22 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "the parsers" do
+      it "render a row in the form of the rows of their format: a record for a format of keyed records, otherwise the values in order" do
+        keyed = %i[csv psv array json hash fixed parquet].to_h { |format| [format, IOStreams::Tabular.parser_class(format).keyed?] }
+
+        assert_equal({csv: false, psv: false, array: false, json: true, hash: true, fixed: true, parquet: true}, keyed)
+        assert_equal "a,b", IOStreams::Tabular::Parser::Csv.new.render(%w[a b])
+        assert_equal "a|b", IOStreams::Tabular::Parser::Psv.new.render(%w[a b])
+        assert_equal %w[a b], IOStreams::Tabular::Parser::Array.new.render(%w[a b])
+        assert_equal %({"a":1}), IOStreams::Tabular::Parser::Json.new.render({"a" => 1})
+        assert_equal({"a" => 1}, IOStreams::Tabular::Parser::Hash.new.render({"a" => 1}))
+        fixed = IOStreams::Schema.new(fields: [{name: "id", width: 2}, {name: "code", width: 3}])
+
+        assert_equal "07abc", IOStreams::Tabular::Parser::Fixed.new(schema: fixed).render({"id" => "07", "code" => "abc"})
+      end
+    end
+
     describe ".format_from_file_name" do
       it "detects the format from the file name" do
         assert_equal :csv, IOStreams::Tabular.format_from_file_name("sample.csv.gz")

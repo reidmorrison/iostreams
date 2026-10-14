@@ -168,9 +168,7 @@ module IOStreams
       @supplied           = !header.columns.nil?
       @parser             = self.class.parser_class(@format).new(schema: @schema)
       @columns            = @schema&.columns
-      # A Header without columns, through which the parsers render the rows that the schema has already arranged.
-      @plain_header = Header.new if @columns
-      @warned       = false
+      @warned             = false
       # The columns of a file without a header row are the fields, in order.
       @columns.match_fields if @columns && parser.requires_header? && !@schema.header?
       warn_deprecated_options(args, cleanse_header)
@@ -291,9 +289,11 @@ module IOStreams
       row.is_a?(::Hash) ? @columns.read_hash(row) : @columns.row(row)
     end
 
-    # Renders the output row. With a schema, a record or row has the value of each field in the form of its field that
-    # the format writes, see `IOStreams::Schema::Field#render`, and in the order of the fields, see
-    # `IOStreams::Schema::Columns#render`.
+    # Renders the output row, once it is arranged in the form of the rows of the format, see
+    # `IOStreams::Tabular::Parser::Base.keyed?`: a record by the columns, see `IOStreams::Tabular::Header#to_hash`, or the
+    # values in the order of the columns, see `IOStreams::Tabular::Header#to_array`. With a schema, a record or row has
+    # the value of each field in the form of its field that the format writes, see `IOStreams::Schema::Field#render`,
+    # and in the order of the fields, see `IOStreams::Schema::Columns#render`.
     #
     # Returns nil for a blank row, which is written as a blank line, unless the schema has a field that is required,
     # which raises `IOStreams::Errors::InvalidValue`, since the row has no value for it.
@@ -301,12 +301,12 @@ module IOStreams
       unless @columns
         return if IOStreams::Utils.blank?(row)
 
-        return parser.render(row, header)
+        return parser.render(parser.class.keyed? ? header.to_hash(row) : header.to_array(row))
       end
       return @columns.render_blank if IOStreams::Utils.blank?(row)
 
       row = header.to_hash(row) if legacy_columns?
-      parser.render(@columns.render(row, parser.class.value_form, !parser.requires_header?), @plain_header)
+      parser.render(@columns.render(row, parser.class.value_form, parser.class.keyed?))
     end
 
     # Returns [String] the header rendered for the output format
@@ -329,7 +329,7 @@ module IOStreams
         )
       end
 
-      parser.render(header.columns, header)
+      parser.render(header.columns)
     end
 
     # Returns [Array<String>] the cleansed columns
@@ -636,7 +636,7 @@ module IOStreams
       return if IOStreams::Utils.blank?(line)
 
       values = parser.parse(line)
-      return values if values.nil? || values.is_a?(::Hash) || !@columns || parser.requires_header?
+      return values if values.nil? || values.is_a?(::Hash) || !@columns || !parser.class.keyed?
 
       raise(IOStreams::Errors::TypeMismatch, "With a schema, each line of the #{format.inspect} format must be a record, " \
                                              "whose keys are its columns, rather than #{values.class.name}")
@@ -672,7 +672,7 @@ module IOStreams
       @columns.match_written(columns) if columns
       return unless requires_header?
 
-      parser.render(schema.fields.map { |field| field.name.to_s }, @plain_header)
+      parser.render(schema.fields.map { |field| field.name.to_s })
     end
 
     # Logs a warning that the column restrictions are not applied, once, since the same columns usually apply

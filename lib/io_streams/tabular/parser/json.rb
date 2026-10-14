@@ -11,6 +11,11 @@ module IOStreams
           :json
         end
 
+        # Returns [true] each line is a JSON object, whose keys name its values.
+        def self.keyed?
+          true
+        end
+
         # Returns [JSON::Coder|nil] a coder that writes a record as `IOStreams::Schema::Field.any_json(record).to_json`
         # does, in one pass over its values in the json gem, rather than one pass in Ruby, then another to write them.
         #
@@ -72,13 +77,12 @@ module IOStreams
           values
         end
 
-        # Return the supplied array as a single line JSON string.
+        # Returns [String] the record, by the names of its columns, as a single line JSON string.
         #
         # A BigDecimal, Date or Time is written as its text, see `IOStreams::Schema::Field.any_json`, such as "12.5"
         # rather than "0.125e2", so that a BigDecimal keeps all of its digits.
-        def render(row, header)
-          hash = header.to_hash(row)
-          @coder ? @coder.dump(hash) : IOStreams::Schema::Field.any_json(hash).to_json
+        def render(row)
+          @coder ? @coder.dump(row) : IOStreams::Schema::Field.any_json(row).to_json
         end
 
         def requires_header?
