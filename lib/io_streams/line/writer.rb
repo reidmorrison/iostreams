@@ -11,11 +11,21 @@ module IOStreams
       end
 
       # Write a line at a time to a stream.
-      def self.stream(output_stream, **args)
-        # Pass-through if already a line writer
-        return yield(output_stream) if output_stream.is_a?(self)
+      def self.stream(output_stream, **)
+        yield new(output_stream, **)
+      end
 
-        yield new(output_stream, **args)
+      # Returns [String] the delimiter written after every line when none is supplied.
+      def self.default_delimiter
+        $/
+      end
+
+      # Raises ArgumentError for an option that #initialize does not accept, or a delimiter that is not a String, so that
+      # the caller can check before it opens its output, which would replace an existing file.
+      def self.check(delimiter: nil)
+        return if delimiter.nil? || delimiter.is_a?(String)
+
+        raise(ArgumentError, "Invalid delimiter #{delimiter.inspect}: supply the String written after every line")
       end
 
       # A delimited stream writer that will write to the supplied output stream.
@@ -30,10 +40,11 @@ module IOStreams
       #   delimiter: [String]
       #     Add the specified delimiter after every record when writing it
       #     to the output stream
-      #     Default: OS Specific. Linux: "\n"
-      def initialize(output_stream, delimiter: $/)
+      #     Default: nil, which writes `.default_delimiter`, "\n".
+      def initialize(output_stream, delimiter: nil)
         super(output_stream)
-        @delimiter = delimiter
+        self.class.check(delimiter: delimiter)
+        @delimiter = delimiter.nil? ? self.class.default_delimiter : delimiter
       end
 
       # Write a line to the output stream

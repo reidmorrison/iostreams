@@ -738,9 +738,19 @@ Fix: strip the file name before creating the path, for example when it comes fro
 ### `#each` without a block raises `ArgumentError`
 
 `#each` reads the file within the block, so that it is closed when the block returns, and does not return an
-`Enumerator`. Without a block it now raises `ArgumentError`, instead of `LocalJumpError`.
+`Enumerator`. Without a block it now raises `ArgumentError`, instead of `LocalJumpError`. So do `#reader` and
+`#writer`, before the file is opened, where `#writer` raised once it was opened, which removed an existing local file.
 
 Fix: supply a block, for example `path.each(:line) { |line| lines << line }`.
+
+### A writer supplied to `IOStreams.stream` raises for what it cannot apply
+
+A line, row or record writer that is already open, such as the one that `writer(:line)` yields, can still be handed to
+code that calls `IOStreams.stream(io).writer(:line)`, which then writes into it. Options of that call, such as
+`delimiter:` or `columns:`, streams, an encoding, and for lines, a format or a schema, now raise `ArgumentError`, since
+the open writer writes with its own settings. Previously they were ignored.
+
+Fix: set them where the writer is opened, or open a new writer for the data that needs them.
 
 ### A pattern that is not a String raises `ArgumentError`
 

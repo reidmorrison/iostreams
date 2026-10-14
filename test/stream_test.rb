@@ -483,7 +483,109 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "without a block" do
+      let(:path) { IOStreams.join("block_test", "existing.csv") }
+
+      after do
+        path.delete
+      end
+
+      it "#writer raises in every mode, before the file is opened" do
+        path.write("existing")
+
+        %i[stream line array hash].each do |mode|
+          error = assert_raises(ArgumentError) { path.writer(mode) }
+
+          assert_equal "#writer requires a block, so that the file is closed once it has been written.", error.message
+        end
+        assert_equal "existing", path.read
+      end
+
+      it "#reader raises in every mode" do
+        path.write("existing")
+
+        %i[stream line array hash].each do |mode|
+          error = assert_raises(ArgumentError) { path.reader(mode) }
+
+          assert_equal "#reader requires a block, so that the file is closed once it has been read.", error.message
+        end
+      end
+    end
+
+    describe "a writer supplied to IOStreams.stream" do
+      it "writes lines into a line writer, rather than through another one" do
+        io = StringIO.new
+        IOStreams.stream(io).writer(:line) do |lines|
+          IOStreams.stream(lines).writer(:line) do |inner|
+            assert_same lines, inner
+            inner << "first"
+          end
+        end
+
+        assert_equal "first\n", io.string
+      end
+
+      it "writes records into the lines of a line writer" do
+        io = StringIO.new
+        IOStreams.stream(io).writer(:line) do |lines|
+          IOStreams.stream(lines).format(:psv).writer(:hash) { |records| records << {"a" => 1, "b" => 2} }
+        end
+
+        assert_equal "a|b\n1|2\n", io.string
+      end
+
+      it "writes records into a record writer" do
+        io = StringIO.new
+        IOStreams.stream(io).writer(:hash) do |records|
+          IOStreams.stream(records).writer(:hash) do |inner|
+            assert_same records, inner
+            inner << {"a" => 1}
+          end
+        end
+
+        assert_equal "a\n1\n", io.string
+      end
+
+      it "raises for anything that the open writer cannot apply" do
+        io = StringIO.new
+        IOStreams.stream(io).writer(:line) do |lines|
+          error = assert_raises(ArgumentError) { IOStreams.stream(lines).writer(:line, delimiter: "|") { |_| flunk } }
+          assert_equal ":delimiter cannot be applied to the IOStreams::Line::Writer supplied to IOStreams.stream, " \
+                       "which is already open, and writes with its own settings", error.message
+
+          assert_raises(ArgumentError) { IOStreams.stream(lines).stream(:gz).writer(:line) { |_| flunk } }
+          assert_raises(ArgumentError) { IOStreams.stream(lines).encoding("BINARY").writer(:line) { |_| flunk } }
+          assert_raises(ArgumentError) { IOStreams.stream(lines).format(:psv).writer(:line) { |_| flunk } }
+          assert_raises(ArgumentError) { IOStreams.stream(lines).writer(:hash, delimiter: "|") { |_| flunk } }
+        end
+        IOStreams.stream(StringIO.new).writer(:hash) do |records|
+          assert_raises(ArgumentError) { IOStreams.stream(records).writer(:hash, columns: ["a"]) { |_| flunk } }
+          assert_raises(ArgumentError) { IOStreams.stream(records).format(:json).writer(:hash) { |_| flunk } }
+        end
+      end
+    end
+
     describe "#writer(:line)" do
+      it "raises for an option that the line writer does not accept, before the file is opened" do
+        path = IOStreams.join("line_writer_test", "existing.txt")
+        path.write("existing")
+
+        assert_raises(ArgumentError) { path.writer(:line, bogus: 1) { |io| io << "a" } }
+        error = assert_raises(ArgumentError) { path.writer(:line, delimiter: 5) { |io| io << "a" } }
+
+        assert_equal "Invalid delimiter 5: supply the String written after every line", error.message
+        assert_equal "existing", path.read
+      ensure
+        path.delete
+      end
+
+      it "writes a newline after each line for a delimiter of nil, as the row and record writers do" do
+        io = StringIO.new
+        IOStreams.stream(io).writer(:line, delimiter: nil) { |lines| lines << "a" << "b" }
+
+        assert_equal "a\nb\n", io.string
+      end
+
       describe "#write" do
         it "one block" do
           io = StringIO.new
@@ -2300,6 +2402,26 @@ class StreamTest < Minitest::Test
         target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"))
 
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
+      end
+
+      it "raises for a mode that a copy does not convert with, before the target is opened" do
+        source_path.write("Hello World")
+        target_path.write("existing")
+
+        error = assert_raises(ArgumentError) { target_path.copy_from(source_path, mode: :stream) }
+
+        assert_match(/\AInvalid mode: :stream\. A copy converts lines, rows or records with mode: :line/, error.message)
+        assert_equal "existing", target_path.read
+      end
+
+      it "raises for an option that a copy without a mode cannot use, whatever its value" do
+        source_path.write("Hello World")
+
+        error = assert_raises(ArgumentError) { target_path.copy_from(source_path, bogus: nil) }
+        assert_equal ":bogus cannot be used when copying without a `mode:`", error.message
+
+        error = assert_raises(ArgumentError) { target_path.copy_from(source_path, convert: false, bogus: nil) }
+        assert_equal ":bogus cannot be used with `convert: false`, which copies the data as-is", error.message
       end
 
       it "copies a file name without conversions" do

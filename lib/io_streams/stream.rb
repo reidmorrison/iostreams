@@ -5,6 +5,9 @@ module IOStreams
     # Why a copy with `convert: false` cannot accept options.
     UNCONVERTED_COPY = "with `convert: false`, which copies the data as-is"
 
+    # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
+    COPY_MODES = %i[line array hash].freeze
+
     # The settings of rows and records that describe the file, so that they are set on the path, rather than supplied
     # to each call of a reader or writer, with an example of setting each one.
     PATH_SETTINGS = {
@@ -243,10 +246,7 @@ module IOStreams
       # A Fiber-backed Enumerator (e.g. `to_enum(__method__, mode, **args)`) would leave that block
       # suspended; if the caller abandons a partially-consumed enumerator, none of the cleanup runs
       # until GC collects the Fiber, leaking file descriptors, gpg processes, and temp files.
-      unless block
-        raise(ArgumentError, "#each requires a block, so that the file is closed once it has been read. " \
-                             "To collect every #{mode}, call it with a block that adds each one to an Array.")
-      end
+      require_block!(:each, block, "To collect every #{mode}, call it with a block that adds each one to an Array.")
 
       reader(mode, **args) { |stream| stream.each(&block) }
     end
@@ -255,17 +255,18 @@ module IOStreams
     #
     # The `:stream` mode reads bytes, so for example `read(1024)` on the stream it yields returns binary data, unless
     # an encode stream is set. The `:line`, `:array` and `:hash` modes read UTF-8 text, see #each.
-    def reader(mode = :stream, **args, &)
+    def reader(mode = :stream, **args, &block)
+      require_block!(:reader, block)
       case mode
       when :stream
         reject_stream_mode_options!(args)
-        stream_reader(&)
+        stream_reader(&block)
       when :line
-        line_reader(**args, &)
+        line_reader(**args, &block)
       when :array
-        row_reader(**args, &)
+        row_reader(**args, &block)
       when :hash
-        record_reader(**args, &)
+        record_reader(**args, &block)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
       end
@@ -291,17 +292,18 @@ module IOStreams
     end
 
     # Returns a Writer for writing to a file / stream
-    def writer(mode = :stream, **args, &)
+    def writer(mode = :stream, **args, &block)
+      require_block!(:writer, block)
       case mode
       when :stream
         reject_stream_mode_options!(args)
-        open_writer(&)
+        open_writer(&block)
       when :line
-        line_writer(**args, &)
+        line_writer(**args, &block)
       when :array
-        row_writer(**args, &)
+        row_writer(**args, &block)
       when :hash
-        record_writer(**args, &)
+        record_writer(**args, &block)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
       end
@@ -351,6 +353,11 @@ module IOStreams
     # - The source is opened before the target, so that the target is not changed when the source
     #   cannot be read, for example when it does not exist.
     def copy_from(source, convert: true, mode: nil, **args)
+      unless mode.nil? || COPY_MODES.include?(mode)
+        raise(ArgumentError, "Invalid mode: #{mode.inspect}. A copy converts lines, rows or records with mode: " \
+                             "#{COPY_MODES.map(&:inspect).join(', ')}, or copies the data, as bytes, without a mode")
+      end
+
       if convert
         stream = to_stream(source)
         if mode
@@ -598,9 +605,11 @@ module IOStreams
       end
     end
 
-    # Options are strict: raise rather than ignore options that a copy cannot use.
+    # Options are strict: raise rather than ignore options that a copy cannot use, whatever their value, apart from a
+    # `mode:` of nil, which is the same as not supplying it.
     def reject_copy_options!(reason, **options)
-      names = options.compact.keys
+      names = options.keys
+      names.delete(:mode) if options[:mode].nil?
       return if names.empty?
 
       raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used #{reason}")
@@ -659,6 +668,16 @@ module IOStreams
         message << ". To choose the columns that are written, set a schema on the path, whose fields are the columns"
       end
       raise(ArgumentError, message)
+    end
+
+    # Raises ArgumentError when no block is supplied, rather than open the file and raise from within the streams,
+    # which would replace an existing file before raising, since a file is only open within the block.
+    def require_block!(method, block, hint = nil)
+      return if block
+
+      message = "##{method} requires a block, so that the file is closed once it has been " \
+                "#{method == :writer ? 'written' : 'read'}."
+      raise(ArgumentError, hint ? "#{message} #{hint}" : message)
     end
 
     # Options are strict: raise rather than ignore options that the :stream mode cannot use.
@@ -760,7 +779,8 @@ module IOStreams
         return open_writer { |io| tabular.write_rows(io, options, &) }
       end
 
-      open_line_writer(tabular.encoding, delimiter: delimiter.nil? ? $/ : delimiter, &)
+      IOStreams::Line::Writer.check(delimiter: delimiter)
+      open_line_writer(tabular.encoding, delimiter: delimiter, &)
     end
 
     # Options are strict: raise rather than ignore the options of lines for a format whose rows are not lines, and
@@ -847,27 +867,49 @@ module IOStreams
     def line_writer(**args, &block)
       reject_path_settings!(args)
       reject_read_options!(args, "not when writing", suggest_schema: false)
-      return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
+      return block.call(io_stream) if open_writer_supplied?(IOStreams::Line::Writer, args)
 
       format = rows_format
       reject_unlined_format!(format)
+      IOStreams::Line::Writer.check(**args)
       open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)
     end
 
     # Yields a line writer of the text written in the supplied encoding, unless an encoding is set on the encode
     # stream. When the encoding is nil the text is written as it is, unless the encode stream is set.
+    #
+    # A line writer supplied to `IOStreams.stream` writes the rows and records of the format of this stream, see
+    # #open_rows_writer, in its own lines.
     def open_line_writer(encoding, **args, &block)
-      return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
+      return block.call(io_stream) if open_writer_supplied?(IOStreams::Line::Writer, args, format_applies: true)
 
       with_default_encoding(encoding).text_writer do |io|
         IOStreams::Line::Writer.stream(io, **args, &block)
       end
     end
 
-    # The delimiter is `$/` unless it is supplied, see #open_rows_writer.
+    # Returns [true|false] whether the IO of this stream is already a writer of the supplied class, such as a line
+    # writer handed to code that writes lines with `IOStreams.stream(io).writer(:line)`, which then writes into it.
+    #
+    # Raises ArgumentError when anything is supplied or set that the open writer cannot apply, since it writes with its
+    # own settings: options of the call, streams, an encoding or a file name that implies streams, and, unless
+    # `format_applies`, a format or a schema.
+    def open_writer_supplied?(klass, options, format_applies: false)
+      return false unless io_stream.is_a?(klass)
+
+      names  = options.compact.keys.map(&:inspect)
+      names << "#stream, #option or #encoding" unless builder.pipeline.empty?
+      names << "#format, #schema or #format_options" unless format_applies || (@format.nil? && @schema.nil? && !layout?)
+      return true if names.empty?
+
+      raise(ArgumentError, "#{names.join(', ')} cannot be applied to the #{klass.name} supplied to IOStreams.stream, " \
+                           "which is already open, and writes with its own settings")
+    end
+
+    # The delimiter is the default of the line writer unless it is supplied, see #open_rows_writer.
     def row_writer(delimiter: nil, **args, &block)
       reject_read_options!(args, "not when writing")
-      return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
+      return block.call(io_stream) if open_writer_supplied?(IOStreams::Row::Writer, {delimiter: delimiter, **args})
 
       tabular = tabular(**args)
       open_rows_writer(tabular, delimiter) do |io|
@@ -875,10 +917,10 @@ module IOStreams
       end
     end
 
-    # The delimiter is `$/` unless it is supplied, see #open_rows_writer.
+    # The delimiter is the default of the line writer unless it is supplied, see #open_rows_writer.
     def record_writer(delimiter: nil, **args, &block)
       reject_read_options!(args, "not when writing")
-      return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
+      return block.call(io_stream) if open_writer_supplied?(IOStreams::Record::Writer, {delimiter: delimiter, **args})
 
       tabular = tabular(**args)
       open_rows_writer(tabular, delimiter) do |io|
