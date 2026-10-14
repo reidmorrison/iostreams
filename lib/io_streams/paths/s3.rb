@@ -406,7 +406,8 @@ module IOStreams
       # see `Listing#each`.
       #
       # Notes:
-      # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
+      # - S3 lists every key below the directory, unless the pattern cannot match a name below it, such as `*.csv`,
+      #   when it only lists the keys directly within it, see `Listing#each`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false, &)
         unless block_given?
           return to_enum(__method__, pattern,

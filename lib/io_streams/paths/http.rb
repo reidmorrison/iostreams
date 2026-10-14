@@ -429,7 +429,7 @@ module IOStreams
       #
       # A HEAD only accepts the identity encoding, so that the Content-Length is the size of the file, rather than of a
       # compressed response, and so does a GET, so that the file is read as it is stored, rather than decoded by
-      # Net::HTTP, which a `.gz` file served with `Content-Encoding: gzip` would then be decoded twice. A GET with an
+      # Net::HTTP, since a `.gz` file served with `Content-Encoding: gzip` would then be decoded twice. A GET with an
       # Accept-Encoding supplied with `headers:` sends that instead, and reads the body as it is sent.
       def build_request(request_class, uri)
         # Only send headers and credentials to the original host to avoid leaking them via a redirect.
