@@ -214,6 +214,16 @@ class SchemaTest < Minitest::Test
         end
       end
 
+      it "ignores the byte order mark that some editors write at the start of a UTF-8 file, as reading rows does" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.json")
+          path.write("\xEF\xBB\xBF#{JSON.generate(fields: [{name: 'id', type: 'integer'}])}".b)
+
+          assert_equal ["id"], IOStreams::Schema.read(path.to_s).fields.map(&:name)
+          assert_equal ["id"], IOStreams::Schema.read(IOStreams.path(path.to_s).raw).fields.map(&:name)
+        end
+      end
+
       it "names the file when it is not JSON, or not a valid schema" do
         Dir.mktmpdir do |dir|
           path = IOStreams.path(dir, "people.json")

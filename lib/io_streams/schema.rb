@@ -78,6 +78,9 @@ module IOStreams
     UNMATCHED_ASCII  = /[^a-z0-9]/
     UNMATCHED_BINARY = /[^a-z0-9]/n
 
+    # The bytes of the byte order mark that some editors, such as Notepad, write at the start of UTF-8 text.
+    BYTE_ORDER_MARK = "\xEF\xBB\xBF".b
+
     # Returns [Array<IOStreams::Schema::Field>] the fields, in the order of the columns of the file.
     attr_reader :fields
 
@@ -98,10 +101,15 @@ module IOStreams
     # Returns [IOStreams::Schema] the schema of the descriptor read from the supplied path or url, a String or a
     # path, such as `"s3://bucket/schemas/people.json"`, whose text is JSON.
     #
+    # A byte order mark at the start of the text is ignored, as reading lines, rows and records removes it from their
+    # data, since it is not part of the JSON.
+    #
     # Raises ArgumentError when the file is not JSON, or is not a valid schema.
     def self.read(location)
       path = location.is_a?(IOStreams::Stream) ? location : IOStreams.path(location)
       text = path.read
+      # Compared as bytes, since the text is binary when the path is read as it is stored, see IOStreams::Stream#raw.
+      text = text.byteslice(BYTE_ORDER_MARK.bytesize..) if text.byteslice(0, BYTE_ORDER_MARK.bytesize).b == BYTE_ORDER_MARK
       begin
         new(JSON.parse(text))
       rescue JSON::ParserError, ArgumentError => e
