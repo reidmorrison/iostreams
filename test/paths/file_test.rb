@@ -385,8 +385,11 @@ module Paths
           locked.join("b.csv").write(data)
           begin
             ::File.chmod(0o000, locked.to_s)
+            children = nil
+            # Dir.glob warns that it cannot read the directory, when Ruby shows warnings.
+            capture_io { children = root.children("**/*.csv").collect(&:to_s) }
 
-            assert_equal [root.join("a.csv").to_s], root.children("**/*.csv").collect(&:to_s)
+            assert_equal [root.join("a.csv").to_s], children
           ensure
             ::File.chmod(0o755, locked.to_s)
           end
