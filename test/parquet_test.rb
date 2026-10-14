@@ -140,6 +140,15 @@ class ParquetTest < Minitest::Test
                    File.read(File.join(dir, "people.csv"))
     end
 
+    it "writes the rows that it reads into a file with the same records" do
+      write
+      rows = []
+      path.schema(schema).each(:array) { |row| rows << row }
+      path("copy.parquet").schema(schema).writer(:array) { |writer| rows.each { |row| writer << row } }
+
+      assert_equal expected, read(path("copy.parquet"))
+    end
+
     it "copies its rows into a CSV file, with a header row of the names of the fields" do
       write
       subset = {fieldsMatch: "subset", fields: [{name: "name", type: "string"}, {name: "id", type: "integer"}]}

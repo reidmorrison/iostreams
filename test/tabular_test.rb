@@ -732,6 +732,15 @@ class TabularTest < Minitest::Test
           assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.read_record(%w[Jack 12345], rename: true))
         end
 
+        it "reads the record of a row already read after its header row, whatever the format, as Rocket Job's workers do" do
+          %i[csv psv array json hash parquet].each do |format|
+            tabular = IOStreams::Tabular.new(format: format, cleanse_header: false)
+            tabular.read_header(%w[Name age])
+
+            assert_equal({"Name" => "Jack", "age" => 21}, tabular.record_parse(["Jack", 21]), format.inspect)
+          end
+        end
+
         it "cleanses and restricts the keys of a format of keyed records only when the columns are restricted, as for its records" do
           restricted = IOStreams::Tabular.new(format: :json, allowed_columns: %w[name])
 
