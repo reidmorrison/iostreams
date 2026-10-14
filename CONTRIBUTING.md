@@ -273,10 +273,12 @@ classDiagram
   `#inspect` does not show them.
 * **A stream never closes the IO supplied to it.** Whoever opens an IO closes it, so a reader or writer closes only
   what it opened itself.
-* **A failed write never leaves a partial file, and never destroys an existing one.** Leaving a writer block early,
-  such as with `break`, keeps what was written; an exception, or the thread being killed, discards it, see
-  `IOStreams::Utils.finish_or_abort`. A writer checks its options with `.check` before a path opens its output, so that
-  a write that cannot succeed leaves an existing file as it is.
+* **A write that fails is discarded, rather than completed.** Leaving a writer block early, such as with `break`,
+  keeps what was written; an exception, or the thread being killed, discards it, see `IOStreams::Utils.finish_or_abort`.
+  A local file is written in place, so a write that fails part way removes the file, including an existing file that
+  it was replacing. S3 and HTTP only store a file once it is complete, so an existing file is kept, while an SFTP upload
+  that fails part way leaves part of the file on the server. A writer checks its options with `.check` before a path
+  opens its output, so that a write that cannot succeed leaves an existing file as it is.
 * **Paths are configuration, not code.** A path held in configuration can move between local files, S3, SFTP and
   HTTP, so every operation behaves the same on each store, wherever that makes sense.
 
