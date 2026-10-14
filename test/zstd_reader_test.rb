@@ -98,6 +98,24 @@ class ZstdReaderTest < Minitest::Test
       end
     end
 
+    describe "the decoder" do
+      it "returns at most one block of zstd at a time, however well the data compresses" do
+        data       = "\0" * 8_000_000
+        decoder    = IOStreams::Zstd.library.decoder(StringIO.new(ZstdLibrary.compress(data)))
+        block_size = 0
+        size       = 0
+        while (block = decoder.read_block)
+          block_size = [block_size, block.bytesize].max
+          size      += block.bytesize
+        end
+
+        assert_operator block_size, :<=, 128 * 1024
+        assert_equal data.bytesize, size
+      ensure
+        decoder&.close
+      end
+    end
+
     describe "#readpartial" do
       it "raises EOFError at the end of the stream" do
         IOStreams::Zstd::Reader.stream(StringIO.new(ZstdLibrary.compress("abc"))) do |io|
