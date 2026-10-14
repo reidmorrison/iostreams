@@ -35,6 +35,15 @@ class SymmetricEncryptionReaderTest < Minitest::Test
       end
     end
 
+    describe "an option" do
+      it "raises for an option that it does not take" do
+        error = assert_raises(ArgumentError) do
+          File.open(file_name, "rb") { |file| IOStreams::SymmetricEncryption::Reader.stream(file, bogus: 1, &:read) }
+        end
+        assert_equal "unknown keyword: :bogus", error.message
+      end
+    end
+
     describe ".file" do
       it "reads an encrypted file" do
         result = IOStreams::SymmetricEncryption::Reader.file(file_name, &:read)

@@ -22,6 +22,11 @@ class SymmetricEncryptionWriterTest < Minitest::Test
         assert_equal [true, true], header_and_compression(io_string.string)
       end
 
+      it "raises for an option that it does not take" do
+        error = assert_raises(ArgumentError) { IOStreams::SymmetricEncryption::Writer.stream(StringIO.new, bogus: 1) { |io| io.write(decrypted) } }
+        assert_equal "unknown keyword: :bogus", error.message
+      end
+
       it "writes an uncompressed encrypted stream" do
         io_string = StringIO.new("".b)
         IOStreams::SymmetricEncryption::Writer.stream(io_string, compress: false) do |io|

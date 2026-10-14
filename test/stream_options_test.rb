@@ -390,19 +390,18 @@ class StreamOptionsTest < Minitest::Test
     end
 
     describe ".option_names" do
-      # Every class whose entry points take explicit keywords must declare exactly those keywords,
-      # so the declaration cannot drift from the signature.
+      # Every class must declare exactly the keywords that its entry points take, and the `.check` of a writer, which
+      # takes the same options as its `.stream`, so the declaration cannot drift from the signature. A method that takes
+      # `**` passes the options on to `#initialize`, such as `IOStreams::Encode::Writer.stream`, whose keywords it takes.
       FORMATS.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
-        methods = %i[stream file].select { |name| klass.singleton_class.method_defined?(name, false) }
-        next if methods.empty?
+        %i[stream file check].each do |name|
+          next unless klass.singleton_class.method_defined?(name, false)
 
-        methods.each do |name|
           params = klass.method(name).parameters
-          next if params.any? { |kind, _| kind == :keyrest }
+          params = klass.instance_method(:initialize).parameters if params.any? { |kind, _| kind == :keyrest }
 
           it "#{klass}.#{name} matches its keyword arguments" do
-            # rubocop:disable-next Style/HashSlice
-            keywords = params.select { |kind, _| %i[key keyreq].include?(kind) }.map(&:last)
+            keywords = params.filter_map { |kind, keyword| keyword if %i[key keyreq].include?(kind) }
 
             assert_equal keywords.sort, klass.option_names.sort
           end
