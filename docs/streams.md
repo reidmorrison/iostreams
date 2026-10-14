@@ -1,186 +1,236 @@
 ---
 layout: default
-title: Streams
+title: Reading and Writing
 description: >-
-  Reading and writing a path a block, line, row or record at a time, and the
-  pipeline of compression, encryption and format streams applied to it.
+  Reading and writing a path a block, line, row or record at a time, the encoding
+  of its text, and the pipeline of compression, encryption and format streams that
+  its file name implies.
 ---
 
-Once you have a [path](path), you read from and write to it with a small, consistent set of methods.
-Reading and writing always happen a block, line, or record at a time, so memory use stays low no
-matter how large the file is. Choose how each chunk is delivered by passing a mode: the default
-streams raw data, `:line` yields one line at a time, `:array` yields each row as an array, and
-`:hash` yields each record as a hash keyed by the header row.
+Once you have a [path](path), read it and write it with a small set of methods, a block, a line, a row or a record at
+a time, so that memory use stays low however large the file is. Each method takes a mode, which says what your code
+reads or writes:
 
-Read 128 bytes at a time from the file:
-~~~ruby
-IOStreams.path("example.csv").reader do |io|
-  while (data = io.read(128))
-    p data 
-  end
-end
-~~~
+| Mode | Reads or writes | Read with | Write with |
+|------|-----------------|-----------|------------|
+| `:stream`, the default for `#reader` and `#writer` | Bytes, a block at a time | `reader { \|io\| io.read(1024) }` | `writer { \|io\| io << data }` |
+| `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
+| `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
+| `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
 
-Read one line at a time from the file:
+The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
+lines, see [Tabular formats](formats).
+
+## Reading
+
+`#each` yields each line, row or record:
+
 ~~~ruby
 IOStreams.path("example.csv").each do |line|
   puts line
 end
-~~~
 
-By default the line delimiter is auto-detected from the file, handling both Windows (`\r\n`)
-and Linux (`\n`) line endings. To break the file up by something other than its line endings,
-supply `delimiter`:
-~~~ruby
-IOStreams.path("example.txt").each(:line, delimiter: "|") do |line|
-  puts line
+IOStreams.path("example.csv").each(:hash) do |record|
+  p record
 end
 ~~~
 
-When a line can contain embedded newlines, such as a CSV field wrapped in double quotes that
-spans multiple lines, supply `embedded_within` so those newlines are not treated as line endings:
-~~~ruby
-IOStreams.path("example.csv").each(:line, embedded_within: '"') do |line|
-  puts line
-end
-~~~
+`#each` requires a block, so that the file is closed once it has been read, rather than returning an Enumerator,
+which could leave the file open if it was not read to its end. To collect the records, add each one to an Array within
+the block.
 
-Notes:
-* Newlines embedded within quoted fields are kept on the same line automatically when the
-  tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)` or detected
-  from a `.csv` file name. Rows read with `each(:array)` and records read with `each(:hash)` are CSV
-  unless another format applies, so this also applies to them for a file name without a tabular
-  extension, such as `data.txt`, a spreadsheet, or a stream without a file name.
-* `embedded_within` chooses the lines that `each(:line)` returns: supply `embedded_within: nil` for the
-  physical lines of a quoted format, or a quote character for the logical lines of a format that is not set or
-  detected. When reading rows and records, the format of the file splits the lines, since its parser must
-  agree with where they are split, so set the format with `#format`.
-* A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
-  real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
-~~~ruby
-IOStreams.path("pipe_delimited.csv").format(:psv).each(:line) do |line|
-  puts line
-end
-~~~
-
-Display each row from the csv file as an array:
-~~~ruby
-IOStreams.path("example.csv").each(:array) do |array|
-  p array
-end
-~~~
-
-Display each row from the csv file as a hash, where the first line in the CSV file is the header:
-~~~ruby
-IOStreams.path("example.csv").each(:hash) do |hash|
-  p hash
-end
-~~~
-
-Write data to the file.
-~~~ruby
-IOStreams.path("abc.txt").writer do |io|
-  io << "This"
-  io << " is "
-  io << " one line\n"
-end
-~~~
-
-Write lines to the file. By adding `:line` to `writer`, each write appends a new line character. 
-~~~ruby
-IOStreams.path("example.csv").writer(:line) do |file|
-  file << "these"
-  file << "are"
-  file << "all"
-  file << "separate"
-  file << "lines"
-end
-~~~
-
-Write an array (row) at a time to the file.
-Each array is converted to csv before being compressed with zip.
+`#reader` yields the stream itself, for the code that reads it: in the `:stream` mode, an IO that responds to
+`#read(length = nil, outbuf = nil)`, `#readpartial` and `#eof?`. This reads 128 bytes at a time:
 
 ~~~ruby
-IOStreams.path("example.csv").writer(:array) do |io|
-  io << ["name", "address", "zip_code"]
-  io << ["Jack", "There", "1234"]
-  io << ["Joe", "Over There somewhere", 1234]
-end
-~~~
-
-Write a hash (record) at a time to the file.
-Each hash is converted to csv before being compressed with zip.
-The header row is extracted from the first hash write that is performed. 
-
-~~~ruby
-IOStreams.path("example.csv").writer(:hash) do |stream|
-  stream << {name: "Jack", address: "There", zip_code: 1234}
-  stream << {zip_code: 1234, address: "Over There somewhere", name: "Joe"}
-end
-~~~
-
-Notes
-* Any additional keys supplied during subsequent write operations will be ignored
-  since the header row has already been written to the file. 
-* The order of the header and values is determined by the order of the keys supplied 
-  during the first write.
-* The order of keys in the subsequent writes does not matter. 
-
-Stream into an in-memory buffer, useful for testing. 
-The original filename still needs to be supplied so that the streaming pipeline can still be inferred.
-
-~~~ruby
-io = StringIO.new
-IOStreams.stream(io).file_name("example.csv.gz").writer(:hash) do |stream|
-  stream << {name: "Jack", address: "There", zip_code: 1234}
-  stream << {name: "Joe", zip_code: 1234, address: "Over There somewhere"}
-end
-puts io.string
-~~~
-
-Read a CSV file and write the output to an encrypted file in JSON format.
-
-~~~ruby
-IOStreams.path("sample.json.enc").writer(:hash) do |output|
-  IOStreams.path("sample.csv").each(:hash) do |record|
-    output << record
+IOStreams.path("example.csv").reader do |io|
+  while (data = io.read(128))
+    p data
   end
 end
 ~~~
 
-Read a zip file hosted on a HTTP Web Server, returning each row as a hash:
+`#reader` and `#writer` return the result of the block. Within the block, an S3 object or an HTTP response is read as
+the block reads it, so the IO is not a `File`, and has no `#gets`, `#rewind` or `#size`. Read lines with `#each`, or
+copy the file to a local file first, see [Copying and moving](copy_files).
+
+`#read` returns the whole file, which is only suitable for a small one, since all of it is held in memory:
+
 ~~~ruby
-IOStreams.
-  path("https://www5.fdic.gov/idasp/Offices2.zip").
-  option(:zip, entry_file_name: "OFFICES2_ALL.CSV").
-  each(:hash) do |row|
-    p row
-  end
+IOStreams.path("example.csv.gz").read
+# => "name,login\nJack Jones,jjones\n"
 ~~~
 
-Notes:
-* By default IOStreams will read the first file in the zip file. 
-* To choose a specific file name within the zip file, supply: `entry_file_name` 
+## Writing
 
-## Notes
+`#writer` yields the stream to write to:
 
-* Reading a Zip file requires the entire file to be available locally. A local zip file is
-  read directly, as is the temp file that an SFTP path downloads it into. A zip file
-  within another stream, such as `data.csv.zip.pgp`, or in an IO that is not a `File`, is first
-  copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
-  Writing Zip is fully streamed, no temp file is required.
-* When writing, `entry_file_name` sets the name of the file entry within the zip file.
-  It defaults to the file name without the `.zip` extension, so writing to
-  `example.csv.zip` creates an entry named `example.csv`.
-* Gzip is still recommended over Zip for very large files, since Zip files can only
-  be read via a local file.
+~~~ruby
+IOStreams.path("example.txt").writer do |io|
+  io << "This is "
+  io << "one line\n"
+end
+~~~
+
+In the `:line` mode, each value written is followed by a newline:
+
+~~~ruby
+IOStreams.path("example.txt").writer(:line) do |io|
+  io << "these"
+  io << "are separate"
+  io << "lines"
+end
+~~~
+
+`#write` writes a whole String:
+
+~~~ruby
+IOStreams.path("example.txt").write("Hello World\n")
+~~~
+
+The streams that the file name implies are applied as the data is written, so writing `example.csv.gz` compresses it,
+and writing a path on S3 uploads it, see [Paths](path). The block decides what is kept:
+
+* When the block returns, or leaves early, such as with `break` or `return`, everything written is kept, and the file is
+  complete, whichever streams and store it uses.
+* When the block raises, or its thread is killed, nothing is kept: a local file is removed, an S3 upload is aborted,
+  and a file is not uploaded to SFTP or HTTP. An IO supplied to `IOStreams.stream` keeps what was written to it, but a
+  compressed or encrypted stream does not end its data, so that it cannot be mistaken for a complete file.
+* A write that cannot succeed raises before the file is opened, so that an existing file is kept: an option that a
+  stream cannot write with, such as a compression level that is out of range, an encoding that Ruby does not know, or
+  a gem that a stream needs and that is not installed.
+
+## Lines
+
+Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line
+ending is removed from each line. Every line of a file is split at that same ending, so in a file whose lines end in
+different ways, such as `\r\n` and then `\n`, the other endings stay within a line, and two rows would be read as one.
+Supply `delimiter: "\n"` for such a file: its rows and records are then read correctly, while the lines that ended
+with `\r\n` keep their `\r` in the `:line` mode.
+
+~~~ruby
+IOStreams.path("mixed_endings.csv").each(:hash, delimiter: "\n") do |record|
+  p record
+end
+~~~
+
+`delimiter:` splits the file at any other String too, such as `delimiter: "|"`. When writing, it is written after
+each line, `"\n"` by default.
+
+A quoted value of a CSV file can contain a line break, which must not end the line. Lines are split where the format
+of the file expects, so `each(:array)` and `each(:hash)` keep a quoted line break within its row. So does `each(:line)`,
+for a format that quotes its values, such as CSV, whether it is set with `#format` or comes from a `.csv` file name.
+Supply `embedded_within:` to the `:line` mode to choose: `nil` for the physical lines of the file, or the quote
+character, such as `'"'`, for the lines of a file whose format is not set:
+
+~~~ruby
+IOStreams.path("example.csv").each(:line, embedded_within: nil) do |line|
+  puts line
+end
+~~~
+
+Other notes:
+
+* A blank line is yielded as an empty String by `each(:line)`, and as `nil` by `each(:array)` and `each(:hash)`.
+* Lines are read 64KB at a time, which `buffer_size:` changes, such as `each(:hash, buffer_size: 1_048_576)`.
+* A line without a delimiter within 100 blocks, 6.4MB by default, raises `IOStreams::Errors::DelimiterNotFound`, rather
+  than reading the whole of a file that has no line endings into memory.
+
+## Text and binary data
+
+Lines, rows and records are read as UTF-8 text, whichever streams the file is read through, such as gzip or PGP,
+apart from [fixed width files](formats#fixed-width-files), which are read as ASCII. Data that is not valid UTF-8 raises
+`IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, whose message gives the invalid bytes,
+their byte offset, and the line that they are on, once the lines before them have been read:
+
+~~~
+IOStreams::Errors::InvalidEncoding: "\xE9" is not valid UTF-8 at byte offset 1043 on line 12
+~~~
+
+The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that the
+first column name of a CSV file is read as it appears.
+
+`#read` returns the whole file as UTF-8 without checking it, like `File.read`, so that it can also read a binary
+file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`
+returns up to 128 bytes of binary data, whether the file is plain, compressed or encrypted.
+
+Writing writes the bytes of each String as they are, unless an encoding is set. Fixed width files are the exception:
+they are written as ASCII.
+
+### Character encoding
+
+To read or write text in another encoding, set it on the path with `#encoding`, which describes the file, whichever
+streams it has. Name the encoding of the file, and the encoding that your code reads, in Ruby's `"external:internal"`
+form, as `File.read` does:
+
+~~~ruby
+# Read a Windows-1252 file as UTF-8 strings.
+IOStreams.path("export.csv").encoding("Windows-1252:UTF-8").each(:hash) do |record|
+  p record
+end
+
+# Write UTF-8 strings as a Windows-1252 file, with the same setting.
+IOStreams.path("export.csv").encoding("Windows-1252:UTF-8").writer(:hash) do |io|
+  io << {"name" => "José"}
+end
+~~~
+
+With just one encoding, such as `encoding("Windows-1252")`, the strings read are in that encoding, rather than
+converted to UTF-8, and cannot be combined with UTF-8 text. `encoding("BINARY")` reads lines, rows and records as
+binary strings, as IOStreams did before v3.0.
+
+`#encoding` also takes the other options of the encode stream, which converts the text:
+
+* `replace:` replaces each character that is not valid, or that the target encoding does not have, rather than raising,
+  such as `encoding("UTF-8", replace: "?")`. With `replace: ""` such characters are removed.
+* `cleaner:` cleans the text as it is read or written: `:printable` removes the characters that are not printable,
+  apart from line endings, `:replace_non_printable` replaces them with `replace:`, and a Proc is called with the text
+  and the `replace:` value, and returns the cleaned text.
+
+~~~ruby
+# Remove the characters that are not printable, and replace those that are not valid UTF-8 with a space.
+IOStreams.path("upload.csv").encoding("UTF-8", cleaner: :printable, replace: " ").each(:hash) do |record|
+  p record
+end
+~~~
+
+Each call to `#encoding` merges its options with those already set, and `#encoding` without arguments returns the
+encoding that was set. An encoding that Ruby does not know, or a cleaner that is neither a built-in rule nor a Proc,
+raises `ArgumentError` when it is set.
+
+The encoding of the text is converted closest to your code, after the file is decompressed or decrypted, so
+`IOStreams.path("data.csv.gz").encoding("BINARY")` still decompresses the file, and reads its text as bytes.
+`read(length)` through an encode stream returns whole characters, which can be a few bytes more or fewer than the
+length.
+
+### Data as it is stored
+
+`#raw` reads and writes the data as it is stored, without the streams that the file name implies, and without any
+encoding, so that text is read and written as bytes. For example, to checksum a compressed file as it is stored, or to
+write data that is already compressed:
+
+~~~ruby
+require "digest"
+
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+
+IOStreams.path("data.csv.gz").raw.write(gzipped_data)
+~~~
+
+`#raw` changes the path that it is called on, so that reading it afterwards also reads the stored bytes. To keep the
+path as it is, call it on a copy, such as `IOStreams.path(path).raw.read`. Setting a stream, option or encoding after
+`#raw` raises `ArgumentError`, and `#raw?` returns whether it was called.
+
+To copy a file as it is stored, such as to download a zip file without unzipping it, use
+`copy_to(target, convert: false)`, since `#raw` on the source would still apply the streams of the target, see
+[Copying and moving](copy_files).
 
 ## Settings on the path, options for each call
 
-A setting that describes the file is set on the path, and an option that says what your code wants from
-the file is supplied to each call. A path is configuration: it can be held in a configuration system and
-handed to code that only calls `each(:hash)`, so the settings of the path are all that it takes to read or
-write the file the right way, by any code, including `#copy_from` and `#copy_to`.
+A setting that describes the file is set on the path, and an option that says what your code wants from the file is
+supplied to each call. A path is configuration: it can be held in a configuration system and handed to code that only
+calls `each(:hash)`, so the settings of the path are all that it takes to read or write the file the right way, by
+any code, including `#copy_from` and `#copy_to`.
 
 | Setting | Where | Because it says |
 |---------|-------|-----------------|
@@ -196,12 +246,12 @@ write the file the right way, by any code, including `#copy_from` and `#copy_to`
 IOStreams checks where each setting is supplied:
 
 * A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
-  `file_name:`, `schema:` and `default_format:`.
-* An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied
-  to `#writer`, rather than being ignored. To choose the columns that are written, set a schema on the path.
+  `file_name:`, `schema:`, `format_options:` and `default_format:`.
+* An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
+  `#writer`, rather than being ignored.
 * `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
-  raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set
-  what describes the source, such as its schema, on its path.
+  raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set what
+  describes the source, such as its schema, on its path.
 
 ~~~ruby
 # The configuration describes the file.
@@ -214,49 +264,23 @@ people.each(:hash) { |person| p person }
 IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}]).copy_from(people, mode: :hash)
 ~~~
 
-## Text and binary data
+## Streams from the file name
 
-Lines, rows and records are read as UTF-8 text, whichever streams the file is read through, such as
-gzip or PGP, apart from [fixed width files](formats#fixed-width-files), which are ASCII. Data that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, an
-`Encoding::UndefinedConversionError`, whose message gives the byte offset and line number of the invalid data. The byte
-order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that
-the first column name of a CSV file is read as it appears. `read` returns the whole file as UTF-8
-without checking it or removing a byte order mark, like `File.read`, so that it can also read a
-binary file, such as an image, whose bytes are unchanged. The default `:stream` mode of `reader`
-reads bytes from every stream, so `io.read(128)` above returns up to 128 bytes of binary data, and `io.read`
-returns the rest of the data as bytes, whether the file is plain, compressed or encrypted.
-
-To read a file in another encoding, set it with [`#encoding`](extensions#character-encoding),
-whose strings are then in that encoding:
-~~~ruby
-IOStreams.path("export.csv").encoding("Windows-1252").each(:hash) do |hash|
-  p hash
-end
-~~~
-
-To read lines, rows or records as binary strings, as IOStreams did before v3.0, supply
-`encoding("BINARY")`, and to replace invalid characters instead of raising, supply
-`replace:`, for example `encoding("UTF-8", replace: "?")`.
-
-Writing does not change the data, unless an encoding is set: the bytes of each string are
-written as they are. Fixed width files are the exception: they are written as ASCII.
-
-## Pipeline
-
-If the file is compressed, the pipeline will infer the necessary streams that need to be applied to it:
+The extensions at the end of the file name name its streams, and IOStreams applies them in order: `example.csv.gz.pgp`
+is decrypted with PGP, then decompressed with gzip. Only the registered extensions at the end of the name count, so
+`data.gz.csv` and `report.csv.bak` have no streams. `#pipeline` lists them, from the one closest to your code to the
+one closest to the stored data:
 
 ~~~ruby
-path = IOStreams.path("somewhere/example.csv.gz")
-# => #<IOStreams::Paths::File:somewhere/example.csv.gz pipeline={:gz=>{}}>
- 
+path = IOStreams.path("somewhere/example.csv.gz.pgp")
+# => #<IOStreams::Paths::File:somewhere/example.csv.gz.pgp pipeline={gz: {}, pgp: {}}>
+
 path.pipeline
-# => {:gz=>{}} 
+# => {gz: {}, pgp: {}}
 ~~~
 
-The `pipeline` above includes `:gz` to indicate that the file should compressed / decompressed with GZip.
-
-`compressed?` and `encrypted?` report whether a stream in the pipeline compresses or encrypts the file,
-whether it was inferred from the file name or set with `stream`:
+`#compressed?` and `#encrypted?` say whether a stream in the pipeline compresses or encrypts the data, whether it comes
+from the file name or is set with `#stream`:
 
 ~~~ruby
 IOStreams.path("example.csv.gz.pgp").compressed?
@@ -264,80 +288,46 @@ IOStreams.path("example.csv.gz.pgp").compressed?
 
 IOStreams.path("example.csv.gz.pgp").encrypted?
 # => true
-
-IOStreams.path("tempfile2527").stream(:gz).compressed?
-# => true
 ~~~
 
-Compression within an encrypted file, such as PGP or Symmetric Encryption, is not reported, since only the
-encrypted data records whether it was compressed.
+Compression within an encrypted file, such as PGP or Symmetric Encryption, is not reported, since only the encrypted
+data records whether it was compressed.
 
-#### Option
+### Option
 
-Each path supports several options which can be supplied using the `option` method. 
+`#option` sets the options of a stream, for when the file name includes it:
 
-Set the options for a stream in the pipeline for this file. Each stream can only be applied once and is uniquely
-identified by its symbolic name.
-
-To see the pipeline of streams that IOStreams would infer: 
 ~~~ruby
-IOStreams.path("example.pgp").pipeline
-# => {:pgp=>{}}
- 
-IOStreams.path("example.gz").pipeline
-# => {:gz=>{}}
- 
-IOStreams.path("example.gz.pgp").pipeline
-# => {:gz=>{}, :pgp=>{}}
+IOStreams.path("example.csv.pgp").option(:pgp, passphrase: "receiver_passphrase").read
 ~~~
 
-If the relevant stream is not found for this file it is ignored.
-For example, if the file does not have a pgp extension then the pgp option is ignored.
-The names of the options are still checked, so a misspelled option raises an `ArgumentError` for any file,
-see [Options for reading and writing](#options-for-reading-and-writing).
+An option for a stream that the file name does not include has no effect, so the same code can supply the options of
+every stream that a file might use, and read a PGP file, a Symmetric Encryption file, or a plain file, whichever the
+configured path names:
+
 ~~~ruby
-IOStreams.path("example.csv.gz").
-  option(:pgp, passphrase: "receiver_passphrase").
-  read
+IOStreams.path(ENV.fetch("IMPORT_PATH")).option(:pgp, passphrase: "receiver_passphrase").read
 ~~~
 
-This is great way to pass in stream specific options for when they are required, and to still support
-paths that do not use that stream. For example, the same code can support pgp encrypted, Symmetric Encryption encrypted,
-and plain text files.
+An option for a format applies to each of its extensions, so `option(:pgp, ...)` also applies to a `.gpg` file,
+`option(:gz, ...)` to a `.gzip` file, and `option(:xlsx, ...)` to a `.xlsm` file. So a file name held in configuration
+can change from one extension to the other without changing the code. When options are set for more than one
+extension of a format, those for the extension in the file name take precedence.
+
+`#setting` returns the options set for a stream:
+
 ~~~ruby
-IOStreams.path("example.csv.enc").
-  option(:pgp, passphrase: "receiver_passphrase").
-  read
-~~~
-
-An option for a format applies to each of its file name extensions, so `option(:pgp, ...)` also applies to
-a `.gpg` file, `option(:gz, ...)` to a `.gzip` file, and `option(:xlsx, ...)` to a `.xlsm` file. So a file
-name held in configuration can change from one extension to the other without changing the code. When
-options are set for more than one extension of a format, those for the extension in the file name take
-precedence.
-~~~ruby
-IOStreams.path("example.csv.gpg").
-  option(:pgp, passphrase: "receiver_passphrase").
-  read
-~~~
-
-To see the what value was previously set for a particular option:
-~~~ruby 
-path = IOStreams.path("example.pgp")
-path.option(:pgp, passphrase: "receiver_passphrase")
-
+path = IOStreams.path("example.pgp").option(:pgp, passphrase: "receiver_passphrase")
 path.setting(:pgp)
-# => {:passphrase=>"receiver_passphrase"}
+# => {passphrase: "receiver_passphrase"}
 ~~~
 
-#### Options for reading and writing
+### Options for reading and writing
 
-The options for a stream are passed to its reader when reading and to its writer when writing,
-and the two directions usually accept different options. For example, the PGP writer needs
-the `recipient` to encrypt for, while the PGP reader needs the `passphrase` for the private key.
-
-So that a path can be written and then read with the same options, each direction ignores the
-options of the other direction that it does not need:
+The options of a stream are passed to its reader when reading, and to its writer when writing, and the two directions
+usually take different options: the PGP writer needs the `recipient` to encrypt for, while the PGP reader needs the
+`passphrase` of the private key. So that a path can be written and then read with the same options, each direction
+ignores the options of the other that it does not need:
 
 ~~~ruby
 path = IOStreams.path("example.csv.pgp").
@@ -347,20 +337,19 @@ path.write("name,login\nJack Jones,jjones\n")
 path.read
 ~~~
 
-Reading ignores the options that only say how to write the file, such as the gzip compression `level`,
-or `compress` for `.enc`, whose header records whether the file was compressed. Writing ignores
-the options that only say how to read the file, such as the PGP `passphrase`.
+Reading ignores the options that only say how to write the file, such as the gzip compression `level`, or `compress`
+for `.enc`, whose header records whether the file was compressed. Writing ignores the options that only say how to
+read the file, such as the PGP `passphrase`.
 
-Some options apply to both: `entry_file_name` names the file within a zip file when writing, and
-chooses the file to read. The PGP `signer` signs the file when writing, and when reading requires
-that the file was signed by that key, while `import_and_trust_key` imports the recipient's key to
-encrypt for when writing, and when reading imports the sender's key and requires that the file was
-signed by it, see [PGP](pgp).
+Some options apply to both: `entry_file_name` names the file within a zip file when writing, and chooses the file to
+read. The PGP `signer` signs the file when writing, and when reading requires that the file was signed by that key. An
+option of one direction that the other could seem to use, but does not, such as the `sheet_name` of a spreadsheet,
+which names the worksheet that is written, while reading always reads the first, raises `ArgumentError` in that
+direction.
 
-An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError` that lists
-the valid options as soon as it is set, even when the file name does not include that stream. So the same
-code reports it wherever it runs, rather than only where the path, for example from configuration,
-includes that extension:
+An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError` that lists the valid
+options as soon as it is set, even when the file name does not include that stream. So the same code reports it
+wherever it runs, rather than only where the path, for example from configuration, includes that extension:
 
 ~~~ruby
 IOStreams.path("example.csv").option(:enc, compres: false)
@@ -368,89 +357,45 @@ IOStreams.path("example.csv").option(:enc, compres: false)
 #   Valid options: :buffer_size, :version, :compress, :cipher_name, :header, :random_key, :random_iv.
 ~~~
 
-#### Stream
+### Stream
 
-The `stream` method stops IOStreams from inferring the streams for this path and only uses the specified streams.
+`#stream` replaces the streams that the file name implies, for example for a file whose name has none:
 
-For example when using a filename that does not have the necessary file extensions. 
-In this case the file was compressed with Zip, so tell IOStreams to unzip it:  
-~~~ruby 
-path = IOStreams.path("tempfile2527")
-path.stream(:zip)
-path.read
-~~~
-
-The above example could also be written as:
-~~~ruby 
-IOStreams.path("tempfile2527").
-  stream(:zip).
-  read
-~~~
-
-Multiple streams can also be specified:
-
-~~~ruby 
-IOStreams.path("tempfile2527").
-  stream(:zip).
-  stream(:pgp, passphrase: "receiver_passphrase").
-  read
-~~~
-
-Now that IOStreams is not inferring the pipeline from the filename, we can still see the above streams: 
-~~~ruby 
-IOStreams.path("tempfile2527").
-  stream(:zip).
-  stream(:pgp, passphrase: "receiver_passphrase").
-  pipeline
-# => {:zip=>{}, :pgp=>{:passphrase=>"receiver_passphrase"}}
-~~~
-
-
-In this example the file contains JSON data that was compressed with Zip, and since we want to read each row as a hash:
-~~~ruby 
-IOStreams.path("tempfile2527").
-  stream(:zip).
-  format(:json).
-  each(:hash) do |row|
-    p row
-  end
-~~~
-
-Alternatively if the original file name is available it can also be supplied allowing IOStreams to infer the above streams:
-~~~ruby 
-IOStreams.path("tempfile2527").
-  file_name("file.json.zip").
-  each(:hash) do |row|
-    p row
-  end
-~~~
-
-To see the what value was previously set for a particular stream:
-~~~ruby 
-path = IOStreams.path("tempfile2527")
-path.stream(:zip)
-path.stream(:pgp, passphrase: "receiver_passphrase")
-
-path.setting(:pgp)
-# => {:passphrase=>"receiver_passphrase"}
-~~~
-
-To read or write the data as it is stored, use `#raw`. It applies no streams, neither those that the
-file name implies nor any set with `#stream` or `#option`, and no encoding, so the data, including
-lines, rows and records, is read and written as bytes. For example, to checksum a compressed file as
-it is stored, or to write data that is already compressed:
 ~~~ruby
-Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
-
-IOStreams.path("data.csv.gz").raw.write(gzipped_data)
+IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
 ~~~
 
-To copy a file as it is stored, such as downloading a zip file without unzipping it, use
-`copy_to(target, convert: false)`, since the target applies the streams of its own file name.
+The first stream set is the one closest to your code, so the file above is decrypted, and then unzipped:
 
-Setting a stream, option or encoding after `#raw` raises `ArgumentError`. To read a file that is not
-named for its format, such as a CSV file named `data.txt`, set the file name that names its format
-instead:
 ~~~ruby
-IOStreams.path("data.txt").file_name("data.csv").each(:hash) { |row| p row }
+IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").pipeline
+# => {zip: {}, pgp: {passphrase: "receiver_passphrase"}}
 ~~~
+
+`#stream` and `#option` cannot both be used on the same path. When the original file name is known, set it with
+`#file_name` instead, so that IOStreams takes the streams and the format from it:
+
+~~~ruby
+IOStreams.path("tempfile2527").file_name("file.json.zip").each(:hash) do |record|
+  p record
+end
+~~~
+
+## Streams of an IO
+
+`IOStreams.stream(io)` reads or writes an IO that you supply, such as a `StringIO` or a socket, with the same methods
+as a path. Set its file name, or its streams, since an IO has no name to take them from:
+
+~~~ruby
+io = StringIO.new
+IOStreams.stream(io).file_name("example.csv.gz").writer(:hash) do |stream|
+  stream << {name: "Jack", address: "There", zip_code: 1234}
+  stream << {name: "Joe", zip_code: 1234, address: "Over There somewhere"}
+end
+~~~
+
+IOStreams never closes an IO that you supply, so close it yourself when you are done with it.
+
+A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
+that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with
+its own settings, options, streams or an encoding supplied to that call raise `ArgumentError`.
