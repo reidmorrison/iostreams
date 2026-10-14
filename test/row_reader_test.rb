@@ -55,6 +55,8 @@ class RowReaderTest < Minitest::Test
     end
 
     describe "allowed and required columns" do
+      allow_deprecation(/describe the columns of the file with #schema instead/)
+
       let(:csv) { "Name,Secret\nJack,x\n" }
 
       def read_rows(**args)

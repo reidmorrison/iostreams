@@ -179,8 +179,9 @@ module IOStreams
         end
 
         it "array writer detects json format from file name" do
-          path = IOStreams.path(json_file_name)
-          path.writer(:array, columns: %w[name login]) do |io|
+          # A schema gives the columns of the rows of a format without a header row.
+          path = IOStreams.path(json_file_name).schema(fields: [{name: "name"}, {name: "login"}])
+          path.writer(:array) do |io|
             io << ["Jack Jones", "jjones"]
             io << ["Jill Smith", "jsmith"]
           end

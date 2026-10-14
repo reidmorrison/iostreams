@@ -5896,9 +5896,7 @@ Fix: register the stream under another name.
 ### Deprecated, and still working
 
 These still work as before, so nothing needs to change when upgrading. Each section shows the replacement to move to.
-Each of `option(:encode, ...)`, `stream(:encode, ...)`, `stream(:none)`, `#format_options` and `embedded_within:`
-when reading rows or records reports a deprecation warning when it is used, see
-[Seeing deprecation warnings](#seeing-deprecation-warnings).
+Each one reports a deprecation warning when it is used, see [Seeing deprecation warnings](#seeing-deprecation-warnings).
 
 #### Seeing deprecation warnings
 

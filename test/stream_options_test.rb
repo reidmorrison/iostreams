@@ -50,7 +50,7 @@ class StreamOptionsTest < Minitest::Test
 
       it "passes options to the writer when copying with a mode" do
         path("a.csv").write(data)
-        path("b.csv").copy_from(path("a.csv"), mode: :hash, columns: %w[name])
+        assert_deprecated(/describe the columns of the file with #schema instead/) { path("b.csv").copy_from(path("a.csv"), mode: :hash, columns: %w[name]) }
 
         assert_equal "name\nJack\n", path("b.csv").read
       end
@@ -102,7 +102,7 @@ class StreamOptionsTest < Minitest::Test
 
       it "copies the columns supplied with columns:" do
         path("a.csv").write("id,name,secret\n1,Jack,x\n")
-        path("a.csv").copy_to(path("b.json"), mode: :hash, columns: %w[name])
+        assert_deprecated(/describe the columns of the file with #schema instead/) { path("a.csv").copy_to(path("b.json"), mode: :hash, columns: %w[name]) }
 
         assert_equal %({"name":"Jack"}\n), path("b.json").read
       end

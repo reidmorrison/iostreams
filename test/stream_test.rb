@@ -814,10 +814,12 @@ class StreamTest < Minitest::Test
 
         it "writes the header from the supplied columns before any rows" do
           io = StringIO.new
-          IOStreams::Stream.new(io).writer(:array, columns: %w[first_name last_name]) do |stream|
-            assert_equal "first_name,last_name\n", io.string
+          assert_deprecated(/describe the columns of the file with #schema instead/) do
+            IOStreams::Stream.new(io).writer(:array, columns: %w[first_name last_name]) do |stream|
+              assert_equal "first_name,last_name\n", io.string
 
-            stream << %w[Jack Johnson]
+              stream << %w[Jack Johnson]
+            end
           end
 
           assert_equal "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
@@ -825,8 +827,10 @@ class StreamTest < Minitest::Test
 
         it "does not write a header from the supplied columns for a format without one" do
           io = StringIO.new
-          IOStreams::Stream.new(io).format(:json).writer(:hash, columns: %w[first_name last_name]) do |stream|
-            stream << {"first_name" => "Jack", "last_name" => "Johnson"}
+          assert_deprecated(/describe the columns of the file with #schema instead/) do
+            IOStreams::Stream.new(io).format(:json).writer(:hash, columns: %w[first_name last_name]) do |stream|
+              stream << {"first_name" => "Jack", "last_name" => "Johnson"}
+            end
           end
 
           assert_equal %({"first_name":"Jack","last_name":"Johnson"}\n), io.string, io.string.inspect
@@ -969,7 +973,8 @@ class StreamTest < Minitest::Test
     end
 
     describe "#format_options" do
-      allow_deprecation(/#format_options is deprecated/)
+      # The options of each call that describe the columns still apply to the records of a layout, and are tested here.
+      allow_deprecation(/#format_options is deprecated/, /describe the columns of the file with #schema instead/)
 
       it "reports a deprecation warning when it is set or read" do
         stream = IOStreams::Stream.new(StringIO.new)
@@ -1723,12 +1728,12 @@ class StreamTest < Minitest::Test
           source.write("Age,Name\n21,Jack\n")
 
           json = IOStreams.path(dir, "out.json")
-          json.copy_from(source, mode: :array, columns: %w[age name])
+          assert_deprecated(/describe the columns of the file with #schema instead/) { json.copy_from(source, mode: :array, columns: %w[age name]) }
 
           assert_equal %({"age":"Age","name":"Name"}\n{"age":"21","name":"Jack"}\n), json.read
 
           csv = IOStreams.path(dir, "out.csv")
-          csv.copy_from(source, mode: :array, columns: %w[age name])
+          assert_deprecated(/describe the columns of the file with #schema instead/) { csv.copy_from(source, mode: :array, columns: %w[age name]) }
 
           assert_equal "age,name\nAge,Name\n21,Jack\n", csv.read
         end
@@ -2025,6 +2030,16 @@ class StreamTest < Minitest::Test
       end
 
       describe "the options of each call that describe the columns" do
+        allow_deprecation(/describe the columns of the file with #schema instead/)
+
+        it "report a deprecation warning that names the line that supplied them" do
+          stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv")
+          line   = __LINE__ + 2
+          assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: allowed_columns: is deprecated, /) do
+            stream.each(:hash, allowed_columns: %w[id]) { |row| row }
+          end
+        end
+
         it "raise with a schema, which describes the columns instead" do
           stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
           {columns: %w[id], allowed_columns: %w[id], required_columns: %w[id]}.each_pair do |name, value|
@@ -2150,8 +2165,10 @@ class StreamTest < Minitest::Test
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "people.csv").schema(headerless)
             source.write("0042,12.5,2026-10-13,true\n")
-            IOStreams.path(dir, "out.csv").copy_from(source, mode: :array, columns: %w[a b c d])
-            IOStreams.path(dir, "out.json").copy_from(source, mode: :array, columns: %w[a b])
+            assert_deprecated(/describe the columns of the file with #schema instead/) do
+              IOStreams.path(dir, "out.csv").copy_from(source, mode: :array, columns: %w[a b c d])
+              IOStreams.path(dir, "out.json").copy_from(source, mode: :array, columns: %w[a b])
+            end
 
             assert_equal "a,b,c,d\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "out.csv").read
             assert_equal %({"a":42,"b":"12.5"}\n), IOStreams.path(dir, "out.json").read

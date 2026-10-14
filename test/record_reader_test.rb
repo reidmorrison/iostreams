@@ -24,6 +24,8 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "#each" do
+      allow_deprecation(/cleanse_header: is deprecated/)
+
       it "csv file" do
         records = []
         IOStreams.path(file_name).reader(:hash, cleanse_header: false) do |io|
@@ -65,6 +67,8 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "allowed_columns" do
+      allow_deprecation(/describe the columns of the file with #schema instead/)
+
       def read(input, format: nil, **args)
         records = []
         IOStreams.stream(StringIO.new(input)).format(format).each(:hash, **args) { |record| records << record }
@@ -136,6 +140,8 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "allowed_columns when enforce_column_restrictions is false" do
+      allow_deprecation(/describe the columns of the file with #schema instead/)
+
       def read(input, format: nil, **args)
         records = []
         IOStreams.stream(StringIO.new(input)).format(format).each(:hash, **args) { |record| records << record }

@@ -6,8 +6,31 @@ require "logger"
 
 class TabularTest < Minitest::Test
   describe IOStreams::Tabular do
+    # The options that describe the columns without a schema, and cleanse_header, are deprecated, and tested here.
+    allow_deprecation(/describe the columns of the file with #schema instead/)
+
     let :format do
       :csv
+    end
+
+    describe "the options that describe the columns without a schema, and cleanse_header" do
+      it "report a deprecation warning that names each one that is supplied" do
+        assert_deprecated(/IOStreams: columns: is deprecated, describe the columns of the file with #schema instead\n\z/) do
+          IOStreams::Tabular.new(columns: %w[name])
+        end
+        assert_deprecated(/IOStreams: allowed_columns:, required_columns:, skip_unknown: are deprecated, /) do
+          IOStreams::Tabular.new(allowed_columns: %w[name], required_columns: %w[name], skip_unknown: false)
+        end
+        assert_deprecated(/IOStreams: cleanse_header: is deprecated, /) { IOStreams::Tabular.new(cleanse_header: false) }
+        assert_deprecated(/IOStreams: cleanse_header: is deprecated, /) { IOStreams::Tabular.new(cleanse_header: nil) }
+      end
+
+      it "report no deprecation warning when they are nil, which is not supplied, or not supplied" do
+        refute_deprecated do
+          IOStreams::Tabular.new(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil)
+          IOStreams::Tabular.new(format: :csv)
+        end
+      end
     end
 
     let :tabular do

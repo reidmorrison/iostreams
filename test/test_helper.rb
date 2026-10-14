@@ -270,18 +270,10 @@ module DeprecationCheck
   # none of them, with deprecation warnings turned on while it runs.
   #
   # Returns the result of the block.
-  def assert_deprecated(*patterns)
+  def assert_deprecated(*patterns, &)
     raise(ArgumentError, "Supply the pattern of each deprecation warning that the block reports") if patterns.empty?
 
-    result   = nil
-    enabled  = Warning[:deprecated]
-    warnings =
-      begin
-        Warning[:deprecated] = true
-        DeprecationCollector.collect { result = yield }
-      ensure
-        Warning[:deprecated] = enabled
-      end
+    result, warnings = deprecations_of(&)
 
     patterns.each do |pattern|
       assert(warnings.any? { |warning| warning.match?(pattern) },
@@ -291,6 +283,31 @@ module DeprecationCheck
 
     assert_empty(unexpected, "Unexpected IOStreams deprecation warnings")
     result
+  end
+
+  # Asserts that the block reports no IOStreams deprecation warning, even in a class that allows some, see
+  # ClassMethods#allow_deprecation, with deprecation warnings turned on while it runs.
+  #
+  # Returns the result of the block.
+  def refute_deprecated(&)
+    result, warnings = deprecations_of(&)
+
+    assert_empty(warnings, "Unexpected IOStreams deprecation warnings")
+    result
+  end
+
+  private
+
+  # Returns [Array] the result of the block, and the IOStreams deprecation warnings that it reported, with deprecation
+  # warnings turned on while it runs.
+  def deprecations_of
+    result  = nil
+    enabled = Warning[:deprecated]
+    Warning[:deprecated] = true
+    warnings = DeprecationCollector.collect { result = yield }
+    [result, warnings]
+  ensure
+    Warning[:deprecated] = enabled
   end
 end
 Minitest::Test.prepend(DeprecationCheck)

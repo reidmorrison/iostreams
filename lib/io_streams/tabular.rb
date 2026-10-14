@@ -137,6 +137,9 @@ module IOStreams
     #
     #   cleanse_header: [true|false|nil]
     #     Deprecated: a schema names the keys of the records read instead, see `schema:`.
+    #     Like `columns`, `allowed_columns`, `required_columns` and `skip_unknown`, it reports a deprecation warning when
+    #     it is supplied, see `IOStreams::Deprecation`, unless it is nil, which is not supplied, apart from
+    #     `cleanse_header: nil`, which does not cleanse the header row.
     #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, which #read_header,
     #     #read_record and #restrict_columns apply unless they are told otherwise. nil does not cleanse it, as before it
     #     was deprecated. With a schema it raises ArgumentError, including for nil, since it would have no effect.
@@ -170,6 +173,7 @@ module IOStreams
       @warned       = false
       # The columns of a file without a header row are the fields, in order.
       @columns.match_fields if @columns && parser.requires_header? && !@schema.header?
+      warn_deprecated_options(args, cleanse_header)
     end
 
     # Returns [true|false] whether a header is still required in order to parse or render the current format: until
@@ -563,6 +567,18 @@ module IOStreams
       raise(ArgumentError, "cleanse_header: cannot be supplied with a schema, since the keys of its records are the " \
                            "names of its fields, which the columns of the header row are matched to, see " \
                            "IOStreams::Schema#field_for")
+    end
+
+    # Reports a deprecation warning, see `IOStreams::Deprecation`, for the options of the header that are supplied, which
+    # are not nil, and `cleanse_header:`, including nil, which does not cleanse the header row, since a schema describes
+    # the columns of the file instead, and names the keys of the records read.
+    def warn_deprecated_options(args, cleanse_header)
+      names = args.compact.keys & Header::OPTION_NAMES
+      names << :cleanse_header unless cleanse_header.equal?(CLEANSE_BY_DEFAULT)
+      return if names.empty?
+
+      Deprecation.warn("#{names.map { |name| "#{name}:" }.join(', ')} #{names.size == 1 ? 'is' : 'are'} deprecated, " \
+                       "describe the columns of the file with #schema instead")
     end
 
     # Returns [true|false] whether a writer takes the columns of the file from the first row or record written, since
