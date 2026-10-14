@@ -518,10 +518,20 @@ class SchemaTest < Minitest::Test
           assert_equal "12.50", field(type: "number", floatNumber: true, decimals: 2).render(12.5, :text)
         end
 
-        it "renders a JSON number as a Float" do
-          assert_in_delta 12.5, number.render("12.50", :json)
-          assert_kind_of Float, number.render("12.50", :json)
+        it "renders a JSON number with all of its digits" do
+          long = "12345678901234567.890123"
+
+          assert_equal IOStreams::Schema::JsonNumber.new(long), number.render(long, :json)
+          assert_equal long, JSON.generate([number.render(long, :json)])[1..-2]
+          assert_equal IOStreams::Schema::JsonNumber.new("12.50"), field(type: "number", decimals: 2).render("12.5", :json)
           assert_equal BigDecimal("12.5"), number.render("12.50", :typed)
+        end
+
+        it "renders a JSON number as a Float with floatNumber, and one that is not finite as a Float" do
+          assert_kind_of Float, field(type: "number", floatNumber: true).render("12.50", :json)
+          assert_in_delta 12.35, field(type: "number", floatNumber: true, decimals: 2).render("12.345", :json)
+          assert_predicate number.render("NaN", :json), :nan?
+          assert_equal Float::INFINITY, number.render("INF", :json)
         end
       end
 

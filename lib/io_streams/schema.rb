@@ -51,6 +51,7 @@ module IOStreams
     autoload :Columns,     "io_streams/schema/columns"
     autoload :Constraints, "io_streams/schema/constraints"
     autoload :Field,       "io_streams/schema/field"
+    autoload :JsonNumber,  "io_streams/schema/json_number"
     autoload :Source,      "io_streams/schema/source"
 
     # The properties of a schema that IOStreams supports.

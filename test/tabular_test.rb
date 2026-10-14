@@ -912,7 +912,7 @@ class TabularTest < Minitest::Test
 
       it "renders each value in the form of the format, in the order of the fields" do
         assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema).render({"pay" => 2.5, "id" => "1"})
-        assert_equal %({"id":1,"pay":2.5}), IOStreams::Tabular.new(format: :json, schema: schema).render({"pay" => "2.5", "id" => "1"})
+        assert_equal %({"id":1,"pay":2.50}), IOStreams::Tabular.new(format: :json, schema: schema).render({"pay" => "2.5", "id" => "1"})
         assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).render({"id" => "1", "pay" => "2.5"}))
       end
 

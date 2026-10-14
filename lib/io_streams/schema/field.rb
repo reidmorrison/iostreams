@@ -293,8 +293,9 @@ module IOStreams
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
-      #   :json   the value as JSON represents it: an integer, number or boolean as itself, a number as a Float, and
-      #           any other value as its text.
+      #   :json   the value as JSON represents it: an integer or boolean as itself, a number as a JSON number with
+      #           all of its digits, see `IOStreams::Schema::JsonNumber`, or a Float with `floatNumber`, and any other
+      #           value as its text.
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
       #           `:hash`.
       #
@@ -518,7 +519,7 @@ module IOStreams
 
       def json(value)
         case type
-        when "number" then (@decimals ? value.round(@decimals) : value).to_f
+        when "number" then JsonNumber.of(value, @decimals) { number_text(value) }
         when "integer", "boolean", "string" then value
         when "any" then self.class.any_json(value)
         else text(value)

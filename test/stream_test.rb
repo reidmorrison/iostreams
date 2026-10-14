@@ -1254,8 +1254,18 @@ class StreamTest < Minitest::Test
       it "writes JSON numbers and booleans as themselves" do
         written = write([record], file_name: "people.json")
 
-        assert_equal %({"id":42,"pay":12.5,"joined":"2026-10-13","active":true}\n), written
+        assert_equal %({"id":42,"pay":12.50,"joined":"2026-10-13","active":true}\n), written
         assert_equal [record], read(written, file_name: "people.json")
+      end
+
+      it "writes every digit of a JSON number, with and without JSON::Coder" do
+        schema = {fields: [{name: "pay", type: "number"}]}
+        long   = BigDecimal("12345678901234567.890123")
+
+        assert_equal %({"pay":12345678901234567.890123}\n), write([{"pay" => long}], file_name: "people.json", schema: schema)
+        IOStreams::Tabular::Parser::Json.stub(:coder, nil) do
+          assert_equal %({"pay":12345678901234567.890123}\n), write([{"pay" => long}], file_name: "people.json", schema: schema)
+        end
       end
 
       it "raises when writing a value that is not of the type of its field" do
@@ -1549,7 +1559,7 @@ class StreamTest < Minitest::Test
             IOStreams.path(dir, "people.json").schema(people).copy_from(source, mode: :hash)
             source.copy_to(IOStreams.path(dir, "copy.json").schema(people), mode: :hash)
 
-            expected = %({"id":42,"pay":12.5,"joined":"2026-10-13","active":true}\n)
+            expected = %({"id":42,"pay":12.50,"joined":"2026-10-13","active":true}\n)
 
             assert_equal expected, IOStreams.path(dir, "people.json").read
             assert_equal expected, IOStreams.path(dir, "copy.json").read

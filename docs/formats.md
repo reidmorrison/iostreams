@@ -134,7 +134,8 @@ A value that is not one of the type of its field, such as `N/A` for an `integer`
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
 or `datetime` that does not exist, such as `2026-02-30`.
 
-JSON writes integers, numbers and booleans as JSON numbers and booleans, and every other value as text, such as a
+JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
+digits after the decimal point that its `decimals` give, such as `12.50`, and every other value as text, such as a
 date. The `:hash` and `:array` formats keep the values themselves.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
