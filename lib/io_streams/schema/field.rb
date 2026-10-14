@@ -318,9 +318,10 @@ module IOStreams
       end
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
-      # written, see #render: a BigDecimal half up, and a Float as Ruby's `format` rounds it, to the nearest of its
-      # binary value, so that a format that holds the number itself, such as Parquet, holds the number that CSV
-      # writes. A number that is not finite, and a number without decimals, is returned as it is.
+      # written, see #render: a BigDecimal half up, which is an Integer with no decimals, and a Float as Ruby's `format`
+      # rounds it, to the nearest of its binary value, so that a format that holds the number itself, such as Parquet,
+      # holds the number that CSV writes. A number that is not finite, or of a field without decimals, is returned as it
+      # is.
       def round(number)
         return number if @decimals.nil? || !number.finite?
 

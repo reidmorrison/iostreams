@@ -324,12 +324,13 @@ module IOStreams
       # Forgets the plans of the records restricted and matched to the columns, see #restrict_plan and #cleanse_plan,
       # when the columns or their restrictions change.
       def clear_plans
-        @cleanse_plans  = {}
-        @cleanse_keys   = nil
-        @cleanse_plan   = nil
-        @restrict_plans = {}
-        @restrict_keys  = nil
-        @restrict_plan  = nil
+        @cleanse_plans   = {}
+        @cleanse_keys    = nil
+        @cleanse_plan    = nil
+        @restrict_plans  = {}
+        @restrict_keys   = nil
+        @restrict_rename = nil
+        @restrict_plan   = nil
       end
 
       def cleanse_column(name)
