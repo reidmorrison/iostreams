@@ -848,6 +848,19 @@ class StreamTest < Minitest::Test
           assert_equal "", io.string
         end
 
+        it "raises for a first row written to JSON that is empty, since the header row needs columns, as for CSV" do
+          io    = StringIO.new
+          error = assert_raises(IOStreams::Errors::MissingHeader) do
+            IOStreams::Stream.new(io).format(:json).writer(:array) do |stream|
+              stream << []
+              stream << %w[He]
+            end
+          end
+
+          assert_equal "Header columns must be set before attempting to render a header for format: :json", error.message
+          assert_equal "", io.string
+        end
+
         it "does not write a header from the supplied columns for a format without one" do
           io = StringIO.new
           assert_deprecated(/describe the columns of the file with #schema instead/) do

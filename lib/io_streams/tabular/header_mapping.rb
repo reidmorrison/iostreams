@@ -177,12 +177,14 @@ module IOStreams
 
       # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
       # as the first row written when the columns were not supplied in place of a header row.
-      # Returns nil when the format has no header row.
+      # Returns nil when the format has no header row, once a format of keyed records takes the columns supplied, such as
+      # the first row written, which name the keys of the rows after it.
       #
-      # Raises `IOStreams::Errors::MissingHeader` when the columns are not known.
+      # Raises `IOStreams::Errors::MissingHeader` when the columns are not known, or the columns supplied to a format of
+      # keyed records are empty.
       def render_header(columns = nil)
         header.columns = columns if columns
-        return unless @requires_header
+        return unless @requires_header || (@keyed && columns)
 
         if IOStreams::Utils.blank?(header.columns)
           raise(
@@ -191,7 +193,7 @@ module IOStreams
           )
         end
 
-        @parser.render(header.columns)
+        @parser.render(header.columns) if @requires_header
       end
 
       private
