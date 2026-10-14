@@ -15,7 +15,7 @@ module IOStreams
       # The byte order mark that some programs, such as Excel, write at the start of UTF-8 text.
       BYTE_ORDER_MARK = "\uFEFF"
 
-      # The number of bytes read from the input stream at a time, until a length is read, see #read.
+      # The number of bytes read from the input stream at a time, apart from a read with a length, see #read.
       BLOCK_SIZE = 65_536
 
       def self.option_names
@@ -88,11 +88,13 @@ module IOStreams
 
       # Returns [String] the text of upto `length` bytes, or the rest of the text, see `IOStreams::ChunkReader#read`.
       #
-      # The input stream is then read in blocks of that length, so that the data of the lines that
+      # A read with a length reads the input stream in blocks of that length, so that the data of the lines that
       # `IOStreams::Line::Reader` reads in blocks of its `buffer_size` is read in blocks of that size.
       def read(length = nil, outbuf = nil)
         @block_size = length if length.is_a?(Integer) && length.positive?
         super
+      ensure
+        @block_size = BLOCK_SIZE
       end
 
       # Returns [true|false] whether the input stream has been closed, such as the file that a path reads once the block

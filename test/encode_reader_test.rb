@@ -640,6 +640,21 @@ class EncodeReaderTest < Minitest::Test
         end
       end
 
+      it "reads the data in blocks of the length of a read, and otherwise in blocks of 64KB" do
+        sizes = []
+        input = StringIO.new("x" * 70_000)
+        input.define_singleton_method(:read) do |*args|
+          sizes << args.first
+          super(*args)
+        end
+        IOStreams.stream(input).encoding("UTF-8").reader do |io|
+          assert_equal "x" * 10, io.read(10)
+          assert_equal 69_990, io.gets.bytesize
+        end
+
+        assert_equal [10, 65_536, 65_536, 65_536], sizes
+      end
+
       it "raises IOError once the file that it reads is closed, rather than read the text already converted" do
         Tempfile.create(%w[iostreams .csv]) do |file|
           file.write("name\nJack\n")
