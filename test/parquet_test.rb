@@ -269,6 +269,8 @@ class ParquetTest < Minitest::Test
 
       assert_raises(ArgumentError) { path.each(:hash, delimiter: "\n") { nil } }
       assert_raises(ArgumentError) { path.each(:array, embedded_within: '"') { nil } }
+      error = assert_raises(ArgumentError) { path.each(:hash, buffer_size: 4096) { nil } }
+      assert_equal ":buffer_size cannot be used with the :parquet format, whose rows are not lines of text", error.message
       assert_raises(ArgumentError) { path("other.parquet").schema(schema).writer(:hash, delimiter: "\n") { nil } }
     end
 

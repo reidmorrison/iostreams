@@ -352,6 +352,26 @@ class StreamTest < Minitest::Test
           assert_equal expected_rows, output
         end
       end
+
+      it "reads the lines of the rows and records in blocks of the buffer_size supplied, as the :line mode does" do
+        sizes   = []
+        reading = lambda do
+          io = StringIO.new("name,zip\nJack,12345\n")
+          io.define_singleton_method(:read) do |*args|
+            sizes << args.first
+            super(*args)
+          end
+          IOStreams.stream(io)
+        end
+        rows    = []
+        records = []
+        reading.call.each(:array, buffer_size: 4) { |row| rows << row }
+        reading.call.each(:hash, buffer_size: 4) { |record| records << record }
+
+        assert_equal [%w[name zip], %w[Jack 12345]], rows
+        assert_equal [{"name" => "Jack", "zip" => "12345"}], records
+        assert_equal [4], sizes.uniq
+      end
     end
 
     describe ".each hash" do

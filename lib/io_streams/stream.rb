@@ -755,10 +755,12 @@ module IOStreams
     # Iterate over a file / stream returning each line as an array, one at a time.
     #
     # The lines are split where the format that parses them expects, so that for example a newline within
-    # a quoted CSV value stays within its row, including when CSV is the default format.
-    def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
+    # a quoted CSV value stays within its row, including when CSV is the default format. They are read in blocks of
+    # `buffer_size` bytes, when it is supplied, as in the `:line` mode.
+    def row_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil,
+                   cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
       tabular = tabular(**args)
-      open_rows_reader(tabular, delimiter, embedded_within) do |io|
+      open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
         yield IOStreams::Row::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
@@ -766,9 +768,10 @@ module IOStreams
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil,
+                      cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
       tabular = tabular(**args)
-      open_rows_reader(tabular, delimiter, embedded_within) do |io|
+      open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
@@ -777,16 +780,21 @@ module IOStreams
     # format that holds them in a binary layout of its own, such as Parquet, read from its bytes, see
     # `IOStreams::Tabular#read_rows`.
     #
-    # Raises ArgumentError when `delimiter` or `embedded_within` is supplied, or an encoding is set, for a format without
-    # lines, see #reject_line_options!.
-    def open_rows_reader(tabular, delimiter, embedded_within, &)
+    # The line reader reads in blocks of `buffer_size` bytes, unless it is nil, which keeps its own default.
+    #
+    # Raises ArgumentError when `delimiter`, `embedded_within` or `buffer_size` is supplied, or an encoding is set, for a
+    # format without lines, see #reject_line_options!.
+    def open_rows_reader(tabular, delimiter, embedded_within, buffer_size, &)
       unless tabular.lines?
-        reject_line_options!(tabular, delimiter: delimiter, embedded_within: (embedded_within unless embedded_within == :auto))
+        reject_line_options!(tabular, delimiter: delimiter, embedded_within: (embedded_within unless embedded_within == :auto),
+                                      buffer_size: buffer_size)
         return stream_reader { |io| tabular.read_rows(io, builder.row_format_options(tabular.format), &) }
       end
 
       embedded_within = tabular.quote_character if embedded_within == :auto
-      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within, &)
+      options         = {delimiter: delimiter, embedded_within: embedded_within}
+      options[:buffer_size] = buffer_size unless buffer_size.nil?
+      open_line_reader(tabular.encoding, **options, &)
     end
 
     # Yields [#<<] the writer of the rows of the format of the tabular: a line writer, or the writer of a format that
