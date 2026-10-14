@@ -96,9 +96,28 @@ class SchemaTest < Minitest::Test
       it "accepts aliases, which are names" do
         assert_equal ["DOB", "Birth Date"], field(aliases: ["DOB", "Birth Date"]).aliases
         assert_empty field.aliases
+        assert_empty field(aliases: []).aliases
         assert_raises(ArgumentError) { field(aliases: "DOB") }
         assert_raises(ArgumentError) { field(aliases: [""]) }
         assert_raises(ArgumentError) { field(aliases: [:dob]) }
+      end
+
+      it "raises for empty true and false values, whose first value it writes" do
+        assert_raises(ArgumentError) { field(type: "boolean", trueValues: []) }
+        assert_raises(ArgumentError) { field(type: "boolean", falseValues: []) }
+      end
+
+      it "keeps its own copy of each name, so that changing the name supplied does not change the field" do
+        name       = +"first_name"
+        alias_name = +"First"
+        field      = IOStreams::Schema.new(fields: [{name: name, aliases: [alias_name]}]).fields.first
+        name.upcase!
+        alias_name.upcase!
+
+        assert_equal "first_name", field.name
+        assert_predicate field.name, :frozen?
+        assert_equal ["First"], field.aliases
+        assert_equal :id, IOStreams::Schema.new(fields: [{name: :id}]).fields.first.name
       end
 
       it "raises for an alias that is the name or alias of another field, since either could be meant" do
@@ -115,7 +134,9 @@ class SchemaTest < Minitest::Test
           assert_equal fields_match, IOStreams::Schema.new(fields: [], fieldsMatch: fields_match).fields_match
         end
         assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: "any") }
-        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: :equal) }
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: :equal) }
+        assert_equal 'The schema fieldsMatch must be one of "exact", "equal", "subset", "superset" and "partial": :equal',
+                     error.message
       end
 
       it "raises for a fieldsMatch other than exact without a header row, whose columns are the fields in order" do
@@ -292,6 +313,23 @@ class SchemaTest < Minitest::Test
         assert_nil schema.field_for("")
         assert_nil schema.field_for(nil)
       end
+
+      it "finds the field named as the column once cleansed, whose characters that Unicode makes digits it drops" do
+        cleansed = IOStreams::Schema.new(fields: [{name: "area_m"}, {name: "score"}, {name: "Rate (½)"}])
+
+        assert_equal "area_m", cleansed.field_for("Area (m²)").name
+        assert_equal "score", cleansed.field_for("Score ①").name
+        assert_equal "Rate (½)", cleansed.field_for("rate_").name
+        assert_equal "Rate (½)", cleansed.field_for("rate").name
+      end
+
+      it "finds the field whose name keeps the digits that Unicode makes of such characters first" do
+        both = IOStreams::Schema.new(fields: [{name: "area_m2"}, {name: "area_m"}])
+
+        assert_equal "area_m2", both.field_for("Area (m²)").name
+        assert_equal "area_m", both.field_for("Area (m)").name
+        assert_equal "area_m2", IOStreams::Schema.new(fields: [{name: "area_m2"}]).field_for("Area (m²)").name
+      end
     end
 
     describe "#check_columns" do
@@ -376,6 +414,21 @@ class SchemaTest < Minitest::Test
 
         assert_nil IOStreams::Schema.new(fields: [{name: "id"}], fieldsMatch: "subset").check_unknown(["x"], noun: "key")
         assert_nil IOStreams::Schema.new(fields: [{name: "id"}]).check_unknown([], noun: "key")
+      end
+
+      it "names what the values of a row come after" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "id"}]).check_unknown([1], noun: "value", last: "column")
+        end
+        assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
+      end
+
+      it "does not suggest a fieldsMatch that skips them without a header row, which only accepts exact" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown([1], noun: "value")
+        end
+        assert_equal "The values of a row do not match the schema: 1 value after the last field, which a schema with " \
+                     "header: false does not accept, since its columns are the fields in order", error.message
       end
     end
 
@@ -494,9 +547,16 @@ class SchemaTest < Minitest::Test
         it "converts a Rational, keeping every digit of a decimal that ends" do
           assert_equal BigDecimal("12345678901234567.89"), number.cast(1_234_567_890_123_456_789/100r)
           assert_equal BigDecimal("-0.875"), number.cast(-7/8r)
+          assert_equal BigDecimal(7), number.cast(7r)
           assert_in_delta 0.333333, number.cast(1/3r), 1e-6
           assert_in_delta 0.25, field(type: "number", floatNumber: true).cast(1/4r)
           assert_equal "0.33", field(type: "number", decimals: 2).render(1/3r, :text)
+        end
+
+        it "keeps every digit of a Rational whose decimal has more digits than bigdecimal divides to" do
+          [Rational(1, 2**70), -Rational(3, 2**46), 0.1.to_r, (1 + (5/100r))**30, Rational(9_999_999_999_999_999, 2**23)].each do |rational|
+            assert_equal rational, number.cast(rational).to_r, rational.inspect
+          end
         end
 
         it "raises for a value that is not a number" do
@@ -526,20 +586,59 @@ class SchemaTest < Minitest::Test
           assert_equal "12.50", field(type: "number", floatNumber: true, decimals: 2).render(12.5, :text)
         end
 
+        # Returns [String] the JSON that the json gem writes for the value of the field.
+        def json(field, value)
+          JSON.generate([field.render(value, :json)])[1..-2]
+        end
+
         it "renders a JSON number with all of its digits" do
           long = "12345678901234567.890123"
 
-          assert_equal IOStreams::Schema::JsonNumber.new(long), number.render(long, :json)
-          assert_equal long, JSON.generate([number.render(long, :json)])[1..-2]
-          assert_equal IOStreams::Schema::JsonNumber.new("12.50"), field(type: "number", decimals: 2).render("12.5", :json)
+          assert_equal long, json(number, long)
+          assert_equal "12.50", json(field(type: "number", decimals: 2), "12.5")
+          assert_equal "1234567890123456789.0", json(number, 1_234_567_890_123_456_789)
+          assert_equal number.render(1_234_567_890_123_456_789, :text), json(number, 1_234_567_890_123_456_789)
           assert_equal BigDecimal("12.5"), number.render("12.50", :typed)
         end
 
-        it "renders a JSON number as a Float with floatNumber, and one that is not finite as a Float" do
+        it "renders a JSON number as a JSON::Fragment, which the coder of the json gem writes as it is" do
+          assert_equal JSON::Fragment.new("12.50"), field(type: "number", decimals: 2).render("12.5", :json)
+        end
+
+        it "converts a JSON::Fragment into a JsonNumber, for a writer of JSON other than the coder of the json gem" do
+          assert_equal IOStreams::Schema::JsonNumber.new("12.50"), IOStreams::Schema::Field.any_json(JSON::Fragment.new("12.50"))
+          assert_equal({"a" => IOStreams::Schema::JsonNumber.new("1.0")}, IOStreams::Schema::Field.any_json({"a" => JSON::Fragment.new("1.0")}))
+          assert_equal %({"a":12.50}), IOStreams::Schema::Field.any_json({"a" => JSON::Fragment.new("12.50")}).to_json
+        end
+
+        it "writes a JsonNumber as its text, as a Numeric whose as_json is itself, which ActiveSupport writes with to_json" do
+          number = IOStreams::Schema::JsonNumber.new("12.50")
+
+          assert_kind_of Numeric, number
+          assert_same number, number.as_json
+          assert_equal "12.50", number.to_json
+          assert_equal "12.50", number.to_s
+          assert_equal %({"a":12.50}), JSON.generate({"a" => number})
+          assert_equal [number], [IOStreams::Schema::JsonNumber.new("12.50")]
+        end
+
+        it "renders a JSON number as the text of a Float with floatNumber and decimals, the same as CSV" do
+          float = field(type: "number", floatNumber: true, decimals: 2)
+
           assert_kind_of Float, field(type: "number", floatNumber: true).render("12.50", :json)
-          assert_in_delta 12.35, field(type: "number", floatNumber: true, decimals: 2).render("12.345", :json)
+          assert_equal "12.50", json(float, 12.5)
+          ["12.345", 0.125, 1.005, 2.675].each do |value|
+            assert_equal float.render(value, :text), json(float, value), value.inspect
+          end
+          assert_equal field(type: "number", floatNumber: true, decimals: 0).render(12.5, :text),
+                       json(field(type: "number", floatNumber: true, decimals: 0), 12.5)
+        end
+
+        it "renders a JSON number that is not finite as a Float, which JSON cannot hold" do
           assert_predicate number.render("NaN", :json), :nan?
           assert_equal Float::INFINITY, number.render("INF", :json)
+          assert_predicate field(type: "number", decimals: 0).render("NaN", :json), :nan?
+          assert_raises(JSON::GeneratorError) { json(field(type: "number", decimals: 2), "NaN") }
         end
       end
 

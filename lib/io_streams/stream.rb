@@ -45,7 +45,7 @@ module IOStreams
     def initialize_copy(source)
       super
       @builder        = @builder&.dup
-      @format_options = @format_options&.dup
+      @format_options = copy_layout(@format_options)
       @schema         = @schema.dup if @schema.is_a?(Hash)
     end
 
@@ -416,7 +416,9 @@ module IOStreams
     # Deprecated: use #schema, which gives the width of each field of a fixed width file, see docs/formats.md.
     #
     # Set/get the layout of a fixed width file, `layout:` and `truncate:`, which are translated into the schema,
-    # see `IOStreams::Tabular::Parser::Fixed.schema`, so that #schema returns the schema of the layout.
+    # see `IOStreams::Tabular::Parser::Fixed.schema`, so that #schema returns the schema of the layout. The layout is
+    # translated each time that it is read or written, as it was before it was deprecated, so that #schema and the
+    # file read always agree with the layout, even when it is changed after it is set.
     def format_options(format_options = :none)
       if format_options == :none
         @format_options
@@ -428,14 +430,16 @@ module IOStreams
 
     # Deprecated: use #schema=, see #format_options.
     #
+    # A layout replaces the schema. Empty format options are no layout, so they keep a schema set with #schema.
+    #
     # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid.
     def format_options=(format_options)
       raise_if_frozen!
-      if format_options.nil? || format_options.empty?
-        # Removes the schema of the layout set before, but not a schema set with #schema.
-        self.schema = nil if @format_options
-      else
-        self.schema = IOStreams::Tabular::Parser::Fixed.schema(**format_options)
+      if layout?(format_options)
+        # Checks the layout now, rather than when the file is read.
+        IOStreams::Tabular::Parser::Fixed.schema(**format_options)
+        @schema        = nil
+        @schema_source = nil
       end
       @format_options = format_options
     end
@@ -451,11 +455,14 @@ module IOStreams
     #     one, in any store, which is read the first time that a reader or writer needs it.
     #     nil removes the schema.
     #
-    # Returns [Hash|String|IOStreams::Path] the schema that was set, or [nil] when none was set.
+    # Returns [Hash|String|IOStreams::Path] the schema that was set, or the schema of the layout set with the deprecated
+    # #format_options, or [nil] when neither was set.
     #
     # Examples:
     #
-    #   IOStreams.path("people.csv").schema(fields: [{name: "age", type: "integer"}]).each(:hash) do |person|
+    #   # people.csv has other columns too, such as "name", which the schema skips.
+    #   path = IOStreams.path("people.csv").schema(fieldsMatch: "partial", fields: [{name: "age", type: "integer"}])
+    #   path.each(:hash) do |person|
     #     person["age"] # => 42
     #   end
     #
@@ -463,7 +470,7 @@ module IOStreams
     #   path.each(:hash) { |person| p person }
     def schema(schema = :none)
       if schema == :none
-        @schema
+        layout? ? IOStreams::Tabular::Parser::Fixed.schema(**@format_options) : @schema
       else
         self.schema = schema
         self
@@ -709,10 +716,27 @@ module IOStreams
     # schema.
     def tabular(**args)
       reject_path_settings!(args)
-      if @format_options
+      if layout?
         IOStreams::Tabular.new(file_name: file_name, format: @format, format_options: @format_options, **args)
       else
         IOStreams::Tabular.new(file_name: file_name, format: @format, schema: @schema_source&.schema, **args)
+      end
+    end
+
+    # Returns [true|false] whether the format options set the layout of a fixed width file: they are neither nil nor
+    # empty, see #format_options=.
+    def layout?(format_options = @format_options)
+      !(format_options.nil? || format_options.empty?)
+    end
+
+    # Returns [Hash] a copy of the format options, whose Hashes, Arrays and Strings are copies too, so that a copy of
+    # this stream that changes its layout does not change the layout of this one.
+    def copy_layout(value)
+      case value
+      when Hash then value.to_h { |key, item| [key, copy_layout(item)] }
+      when Array then value.map { |item| copy_layout(item) }
+      when String then value.dup
+      else value
       end
     end
 

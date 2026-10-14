@@ -415,20 +415,24 @@ class StreamOptionsTest < Minitest::Test
         assert_equal keywords(IOStreams::Line::Writer.instance_method(:initialize)).sort, IOStreams::Line::Writer.option_names.sort
       end
 
-      it "matches the keyword arguments of the header" do
-        assert_equal keywords(IOStreams::Tabular::Header.instance_method(:initialize)).sort, IOStreams::Tabular.read_option_names.sort
+      it "matches the keyword arguments of the tabular and its header" do
+        tabular = keywords(IOStreams::Tabular.instance_method(:initialize))
+        header  = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
+
+        assert_equal (tabular + header).sort, IOStreams::Tabular.read_option_names.sort
+        assert_equal (tabular + header - IOStreams::Tabular::Header::READ_OPTION_NAMES).sort, IOStreams::Tabular.write_option_names.sort
       end
 
-      it "matches the options that each mode of a stream takes, with those of the header" do
-        header = IOStreams::Tabular.read_option_names
-        stream = IOStreams::Stream
-
-        assert_equal (keywords(stream.instance_method(:row_reader)) + header).sort, IOStreams::Row::Reader.option_names.sort
-        assert_equal (keywords(stream.instance_method(:record_reader)) + header).sort, IOStreams::Record::Reader.option_names.sort
-        assert_equal (keywords(stream.instance_method(:row_writer)) + IOStreams::Tabular.write_option_names).sort,
-                     IOStreams::Row::Writer.option_names.sort
-        assert_equal (keywords(stream.instance_method(:record_writer)) + IOStreams::Tabular.write_option_names).sort,
-                     IOStreams::Record::Writer.option_names.sort
+      it "matches the keyword arguments of the readers and writers of rows and records, with those of the tabular they pass the others to" do
+        {
+          IOStreams::Row::Reader    => IOStreams::Tabular.read_option_names,
+          IOStreams::Record::Reader => IOStreams::Tabular.read_option_names,
+          IOStreams::Row::Writer    => IOStreams::Tabular.write_option_names,
+          IOStreams::Record::Writer => IOStreams::Tabular.write_option_names
+        }.each_pair do |klass, tabular|
+          # The reader or writer supplies the file name of the tabular, from its own `original_file_name`.
+          assert_equal (keywords(klass.method(:stream)) + tabular - %i[file_name]).sort, klass.option_names.sort, klass.name
+        end
       end
 
       it "gives the options that only apply when reading" do

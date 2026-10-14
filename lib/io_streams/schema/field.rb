@@ -142,6 +142,10 @@ module IOStreams
           raise(ArgumentError, "A schema field must have a name: #{descriptor.inspect}")
         end
 
+        # A frozen copy, so that changing the name supplied does not change the field, nor the field the name supplied,
+        # and a record read uses it as its key without copying it.
+        @name = -@name if @name.is_a?(String)
+
         @type = (descriptor["type"] || "any").to_s
         check_type
         check_properties(descriptor)
@@ -153,7 +157,7 @@ module IOStreams
         @decimals     = check_decimals(descriptor["decimals"])
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
-        @aliases      = check_values("aliases", descriptor["aliases"], [].freeze)
+        @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
         @constraints  = Constraints.new(descriptor["constraints"], @name)
         require_bigdecimal if @type == "number" && !@float
         freeze
@@ -191,14 +195,20 @@ module IOStreams
 
       # Returns the value as JSON holds it when its type is not known, as a field of type "any" writes it: a
       # BigDecimal, Date, Time or DateTime as its text, see .any_text, so that a BigDecimal keeps all of its digits, and
-      # every other value as it is. The values within a Hash or an Array are converted too, in a copy, and the value
-      # itself is returned when none of them needs it.
+      # every other value as it is, except a `JSON::Fragment`, the text of a JSON value, such as a number that a field
+      # writes with all of its digits, see #render, which is an `IOStreams::Schema::JsonNumber`, so that a library that
+      # replaces how Ruby writes JSON, such as ActiveSupport, writes it as it is too. The values within a Hash or an
+      # Array are converted too, in a copy, and the value itself is returned when none of them needs it.
       def self.any_json(value)
         case value
         when ::Hash then json_hash(value)
         when ::Array then json_array(value)
         when String, Integer, Float, true, false, nil then value
-        else textual?(value) ? any_text(value) : value
+        else
+          return any_text(value) if textual?(value)
+          return JsonNumber.new(value.json) if defined?(::JSON::Fragment) && value.is_a?(::JSON::Fragment)
+
+          value
         end
       end
 
@@ -253,6 +263,12 @@ module IOStreams
         NUMERIC_TYPES.include?(type)
       end
 
+      # Returns [true|false] whether the values of this field are numbers that keep every digit, a BigDecimal: a number
+      # field without `floatNumber`.
+      def decimal?
+        type == "number" && !@float
+      end
+
       # Returns [true|false] whether to write only the first `width` characters of a longer string in a fixed width
       # file.
       def truncate?
@@ -293,9 +309,8 @@ module IOStreams
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
-      #   :json   the value as JSON represents it: an integer or boolean as itself, a number as a JSON number with
-      #           all of its digits, see `IOStreams::Schema::JsonNumber`, or a Float with `floatNumber`, and any other
-      #           value as its text.
+      #   :json   the value as JSON represents it: an integer or boolean as itself, a number as its text, the same as
+      #           :text, which JSON writes as it is, see #number_json, and any other value as its text.
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
       #           `:hash`.
       #
@@ -390,13 +405,15 @@ module IOStreams
         raise(ArgumentError, "Field #{name.inspect}: decimals must be an Integer of 0 or more: #{decimals.inspect}")
       end
 
-      # Returns [Array<String>] the text of a property, such as the true values of a boolean. Empty text raises, since a
-      # field never compares it, see #cast.
-      def check_values(property, values, default)
+      # Returns [Array<String>] the text of a property, such as the true values of a boolean, each a frozen copy. Empty
+      # text raises, since a field never compares it, see #cast, as does an empty Array, unless the property can be
+      # `empty`, such as `aliases`, whose default it is.
+      def check_values(property, values, default, empty: false)
         return default if values.nil?
 
-        texts = values.is_a?(Array) && !values.empty? && values.all? { |value| value.is_a?(String) && !value.empty? }
-        return values.dup.freeze if texts
+        texts = values.is_a?(Array) && (empty || !values.empty?) &&
+                values.all? { |value| value.is_a?(String) && !value.empty? }
+        return values.map(&:-@).freeze if texts
 
         raise(ArgumentError, "Field #{name.inspect}: #{property} must be an Array of text that is not empty: #{values.inspect}")
       end
@@ -428,14 +445,31 @@ module IOStreams
         end
       end
 
-      # A Rational is divided, so that a decimal that ends keeps every digit, such as `1234567890123456789/100r`.
       def cast_number(value)
         return parse_number(value) if value.is_a?(String)
         return invalid(value) unless value.is_a?(Integer) || value.is_a?(Float) || value.is_a?(Rational) || bigdecimal?(value)
         return value.to_f if @float
-        return BigDecimal(value.numerator) / value.denominator if value.is_a?(Rational)
+        return rational_number(value) if value.is_a?(Rational)
 
         bigdecimal?(value) ? value : BigDecimal(value.to_s)
+      end
+
+      # Returns [BigDecimal] the Rational as a decimal. A Rational whose decimal ends, since its denominator has no
+      # prime factors other than 2 and 5, such as `1234567890123456789/100r` or `1/2**70r`, keeps every digit, whatever
+      # the version of bigdecimal, whose division rounds. Any other, such as `1/3r`, is divided, which rounds it.
+      def rational_number(value)
+        denominator = value.denominator
+        twos        = (denominator & -denominator).bit_length - 1
+        rest        = denominator >> twos
+        fives       = 0
+        while (rest % 5).zero?
+          rest  /= 5
+          fives += 1
+        end
+        return BigDecimal(value.numerator) / denominator unless rest == 1
+
+        places = [twos, fives].max
+        BigDecimal("#{value.numerator * ((10**places) / denominator)}e-#{places}")
       end
 
       def parse_number(text)
@@ -521,11 +555,23 @@ module IOStreams
 
       def json(value)
         case type
-        when "number" then JsonNumber.of(value, @decimals) { number_text(value) }
+        when "number" then number_json(value)
         when "integer", "boolean", "string" then value
         when "any" then self.class.any_json(value)
         else text(value)
         end
+      end
+
+      # Returns the number as JSON writes it: its text, see #number_text, which JSON writes as it is, see
+      # `IOStreams::Schema::JsonNumber.fragment`, so that a BigDecimal keeps all of its digits, and the digits after the
+      # decimal point that the field gives are written, such as `12.50`, the same as in CSV. A Float without `decimals`
+      # is itself, which JSON writes with the same digits, and a number that is not finite, such as NaN, is a Float,
+      # which JSON cannot hold, so that the JSON writer raises for it.
+      def number_json(value)
+        return value.to_f unless value.finite?
+        return value if @decimals.nil? && value.is_a?(Float)
+
+        JsonNumber.fragment(number_text(value))
       end
 
       def bigdecimal?(value)

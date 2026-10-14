@@ -4,10 +4,10 @@ module IOStreams
   module Row
     # Converts each line of an input stream into an array for every line
     class Reader < IOStreams::Reader
-      # Returns [Array<Symbol>] the options of each call that read with this reader, see `IOStreams::Stream#each`: those
-      # of its lines, except their buffer size, `cleanse_header`, and those of `IOStreams::Tabular`.
+      # Returns [Array<Symbol>] the options that this reader accepts, see .stream: its own, and those of the
+      # `IOStreams::Tabular` that reads the rows, other than the file name, which it supplies.
       def self.option_names
-        [*(IOStreams::Line::Reader.option_names - %i[buffer_size]), :cleanse_header, *IOStreams::Tabular.read_option_names]
+        [:original_file_name, :cleanse_header, *(IOStreams::Tabular.read_option_names - %i[file_name])]
       end
 
       # Read a line as an Array at a time from a stream.
@@ -72,6 +72,9 @@ module IOStreams
       # The allowed and required columns are applied to the header row, or to the supplied columns,
       # even when `cleanse_header` is false, unless `IOStreams.enforce_column_restrictions?` is false.
       # Each row still contains every value.
+      #
+      # With a schema, the header row is the names of the fields of its columns, and each row is the values of those
+      # fields, in the order of the fields, without the columns that the schema skips, see `IOStreams::Tabular#row_parse`.
       def each
         @line_reader.each do |line|
           if @tabular.header?

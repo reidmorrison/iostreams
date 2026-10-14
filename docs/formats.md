@@ -135,8 +135,11 @@ A value that is not one of the type of its field, such as `N/A` for an `integer`
 or `datetime` that does not exist, such as `2026-02-30`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
-digits after the decimal point that its `decimals` give, such as `12.50`, and every other value as text, such as a
-date. The `:hash` and `:array` formats keep the values themselves.
+digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, and every other value as
+text, such as a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby
+writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
+the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
+values themselves.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
@@ -151,21 +154,32 @@ Each column of the header row, or key of a JSON record, is matched to the field:
    punctuation, and with the forms of a character that Unicode treats as the same made the same. So the field
    `first_name` matches the columns `First Name`, `FIRST.NAME` and `firstname`, the field `email` matches `E-mail`,
    and `id` matches the full width `ＩＤ` that some spreadsheets have.
+4. Whose name or alias is the same as the column once both are cleansed as `cleanse_header` cleansed a header row, and
+   then compared the same way. Cleansing drops the characters that Unicode otherwise makes digits, such as `²`, `½`
+   and `①`, so that a field named as `cleanse_header` named its column, such as `area_m` for `Area (m²)`, matches
+   it, as `area_m2` does.
 
-The columns are matched once, when the header row is read, or once for the keys of the JSON records, which are
-usually the same for every record, rather than for each value.
+The columns are matched once, when the header row is read, or once for each set of keys of the JSON records, which
+are usually the same for every record, rather than for each value.
 
 The keys of the records read are the names of their fields as they are given, so a field named with a Symbol, such as
-`name: :id`, returns the key `:id`, whatever the column of the file is called. `each(:array)` returns the values of the
-fields in the order of the fields, after a header row of their names. A column that the schema does not list is
-skipped, or raises, see [fieldsMatch](#fieldsmatch).
+`name: :id`, returns the key `:id`, whatever the column of the file is called. For a format with a header row, such
+as CSV, `each(:array)` returns a header row of the names of the fields of its columns, and then the values of those
+fields of each row, in the order of the fields. JSON and fixed width return each record as a Hash, as they do without
+a schema. A column that the schema does not list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
 
 A column that could be either of two fields raises `IOStreams::Errors::InvalidHeader`, rather than guess, such as
 `amount` for the fields `Amount ($)` and `Amount (€)`, which match their own columns exactly. So do two columns that
 are the same field, such as `email` and `Email`, rather than lose the value of one of them.
 
 When writing, the header row is the names of the fields, in order, and the keys of each record written are matched
-to the fields in the same way. So a file can have readable column names, while the code uses its own keys:
+to the fields in the same way. `writer(:array)` takes the first row written as a header row, as `each(:array)`
+returns one, and matches its columns to the fields in the same way, so that the values of each row after it can be in
+any order, and the rows read from another file can be written as they are, such as by
+`copy_from(source, mode: :array)`. A field that the header row does not have is written as empty. A file without a
+header row, such as JSON, or a schema with `header: false`, takes rows of the values of the fields, in order.
+
+So a file can have readable column names, while the code uses its own keys:
 
 ~~~ruby
 report = IOStreams.path("report.csv").schema(fields: [{name: "First Name"}, {name: "Date of Birth", type: "date"}])
@@ -199,17 +213,23 @@ columns than the code needs, and `equal` or `exact` accept only the columns that
 The keys of each JSON record are checked the same way, in any order. The columns of a file without a header row are
 the fields in order, so `header: false` only accepts `exact`, and a fixed width file always has every field.
 
-A file that is written always has every field, so writing only checks the keys of each record, or the values of each
-row after the last field: `subset` and `partial` skip them, and the others raise `IOStreams::Errors::InvalidHeader`.
-A field that a record does not supply is written as empty, or as `null` in JSON.
+A row read that has a value after the last column of its header row, or after the last field of a file without one,
+such as when a value has a comma that is not quoted, raises `IOStreams::Errors::InvalidHeader` too, unless
+`fieldsMatch` skips it, rather than lose the value. A blank value there, such as after a comma at the end of each
+line, is not data, so it is ignored.
+
+A file that is written always has every field, so writing only checks the keys of each record, the columns of the
+header row of the rows written, and the values of each row after the last field or column: `subset` and `partial`
+skip them, and the others raise `IOStreams::Errors::InvalidHeader`. A field that a record does not supply is written
+as empty, or as `null` in JSON.
 
 ### Required fields
 
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
 record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
-`nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing. Text that is only
-spaces is a value for a `string` field, as in Frictionless, but not for a type that reads it as `nil`, such as an
-`integer`.
+`nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
+record or row written, such as `{}`, which is otherwise written as a blank line. Text that is only spaces is a value
+for a `string` field, as in Frictionless, but not for a type that reads it as `nil`, such as an `integer`.
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
@@ -262,8 +282,9 @@ and `#copy_to`, whose options only apply to the target.
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
-* `decimals` For a `number`, the number of digits to write after the decimal point, rounding half up. IOStreams adds
-  this property.
+* `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
+  and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
+  of fixed width files always have. IOStreams adds this property.
 * `width`, `start` and `truncate` The position of the field in a fixed width file, see
   [Fixed width files](#fixed-width-files). IOStreams adds these properties. The other formats ignore them, so that
   one schema can describe both a fixed width file and the CSV file that it is converted to.

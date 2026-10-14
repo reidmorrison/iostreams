@@ -60,12 +60,18 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::CommunicationsFailure`: an SFTP or HTTP request failed. It is also tagged with the kind
     of failure when the failure is known, such as a `404 Not Found` response.
   * `IOStreams::Errors::UnknownFormat`: the tabular format cannot be inferred from the file name.
-  * `IOStreams::Errors::MissingHeader`: the header columns are needed to write the header, but are not set.
-  * `IOStreams::Errors::InvalidHeader`: the header has columns that are not allowed, or is missing required columns.
-  * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format.
+  * `IOStreams::Errors::MissingHeader`: the columns are needed, but are not known: to write a header row when they
+    are not set, or, with a schema, to read a row of a file with a header row before the header row is read.
+  * `IOStreams::Errors::InvalidHeader`: the columns do not match what is allowed: when reading, a header row, or the
+    keys of a JSON record, has columns that are not allowed, or is missing required columns, see `allowed_columns`
+    and `required_columns`, or the `fieldsMatch` and required fields of a [schema](formats#fieldsmatch), or a row has
+    values after its last column that the schema does not skip. With a schema, writing raises it too, for the keys of
+    a record, or the columns or values of a row, that the schema does not skip.
+  * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format, such as, with a schema, a
+    row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
-  * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, see
-    [Schema](formats#schema).
+  * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, or a field that is
+    required has no value, see [Schema](formats#schema).
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`

@@ -38,6 +38,9 @@ module IOStreams
         # Returns [Hash] the schema of the layout of a fixed width file, supplied with `IOStreams::Stream#format_options`,
         # which is deprecated, so that the schema reads and writes the file instead, see `IOStreams::Schema`.
         #
+        # Its `fieldsMatch` is "subset", so that writing skips the keys of a record that the layout does not have, as a
+        # layout always did. A line that is read always has every field.
+        #
         # Parameters:
         #   layout: [Array<Hash>]
         #     Each column of the file, in order:
@@ -70,7 +73,7 @@ module IOStreams
             position += size unless size == -1
           end
 
-          schema = {fields: fields.compact}
+          schema = {fields: fields.compact, fieldsMatch: "subset"}
           # A filler at the end of the line gives the width of the line.
           schema[:width] = last == -1 ? "remainder" : position - 1 if last && fields.last.nil?
           schema

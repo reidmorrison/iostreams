@@ -10,12 +10,17 @@ module IOStreams
     #     stream << ['Joe', 'Lost', 32443]
     #   end
     #
-    # With a schema, the header row is the names of its fields, so every row is the values of the fields, in order.
+    # The first row is the header row, as `each(:array)` returns it, unless the columns are supplied. With a schema, the
+    # header row of the file is the names of its fields, and the first row is still the header row of the rows after
+    # it, whose columns are matched to the fields, so that a row is written in the order of the fields, and the rows
+    # read from another file can be written as they are, see `IOStreams::Schema::Columns#match_written`. Unless the file
+    # has no header row, such as JSON or a schema with `header: false`, whose rows are the values of the fields, in
+    # order.
     class Writer < IOStreams::Writer
-      # Returns [Array<Symbol>] the options of each call that write with this writer, see `IOStreams::Stream#writer`:
-      # those of its lines, and those of `IOStreams::Tabular`.
+      # Returns [Array<Symbol>] the options that this writer accepts, see .stream: its own, and those of the
+      # `IOStreams::Tabular` that writes the rows, other than the file name, which it supplies.
       def self.option_names
-        [*IOStreams::Line::Writer.option_names, *IOStreams::Tabular.write_option_names]
+        [:original_file_name, *(IOStreams::Tabular.write_option_names - %i[file_name])]
       end
 
       # Write a record from an Array at a time to a stream.
@@ -57,8 +62,8 @@ module IOStreams
         @tabular     = tabular
         @line_writer = line_writer
 
-        # Render the header line when the columns were supplied, or are the fields of a schema.
-        line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.columns_from_first_row?
+        # Render the header line when the columns were supplied.
+        line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.first_row_header?
       end
 
       # Supply a hash or an array to render
@@ -68,7 +73,7 @@ module IOStreams
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
 
         # If header (columns) was not supplied as an argument, assume first line is the header.
-        @line_writer << (@tabular.columns_from_first_row? ? @tabular.render_header(array) : @tabular.render(array))
+        @line_writer << (@tabular.first_row_header? ? @tabular.render_header(array) : @tabular.render(array))
         self
       end
     end

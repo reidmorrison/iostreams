@@ -88,6 +88,13 @@ module IOStreams
     # field.
     attr_reader :width
 
+    # Returns [String] the text of the label once it is cleansed as a header row was cleansed without a schema, see
+    # `IOStreams::Tabular::Header.cleanse_column`, so that a field named as the cleansing named its column, such as
+    # `area_m` for the column `Area (m²)`, matches the column, see #field_for.
+    def self.cleansed(label)
+      IOStreams::Tabular::Header.cleanse_column(label)
+    end
+
     # Returns [IOStreams::Schema] the schema of the descriptor read from the supplied path or url, a String or a
     # path, such as `"s3://bucket/schemas/people.json"`, whose text is JSON.
     #
@@ -142,8 +149,16 @@ module IOStreams
       @fields_match = check_fields_match(descriptor["fieldsMatch"])
       @width        = check_width(descriptor["width"])
       @named        = build_named
-      @loose        = build_loose
+      @loose        = build_loose { |name| self.class.match_key(name) }
+      @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
+      @decimals     = @fields.any?(&:decimal?)
       freeze
+    end
+
+    # Returns [true|false] whether a field is a number that keeps every digit, see `IOStreams::Schema::Field#decimal?`,
+    # so that a format that reads numbers itself, such as JSON, reads them without rounding them.
+    def decimals?
+      @decimals
     end
 
     # Returns [true|false] whether the file has a header row, see `header` above.
@@ -160,7 +175,10 @@ module IOStreams
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:
     # the field whose name or alias it is, whether it is a String or a Symbol, otherwise the field whose name or alias
     # is the same once both are compared loosely, see .match_key, so that the field `first_name` is the column
-    # `First Name`, and the field `E-mail` is the key `email`.
+    # `First Name`, and the field `E-mail` is the key `email`, otherwise the field whose name or alias is the same once
+    # both are cleansed, see .cleansed, and then compared loosely. Cleansing drops the characters that Unicode makes
+    # digits when it compares them loosely, such as `²`, `½` and `①`, so that the field `area_m`, named as
+    # `cleanse_header` named the column, is still the column `Area (m²)`, and the field `area_m2` is too.
     #
     # Returns nil when no field is the column.
     #
@@ -211,26 +229,31 @@ module IOStreams
 
     # Raises `IOStreams::Errors::InvalidHeader` when a record or row that is written has columns, keys or values that
     # are not fields, unless `fieldsMatch` skips them. A file that is written always has every field, so this is the
-    # only part of `fieldsMatch` that applies to writing.
+    # only part of `fieldsMatch` that applies to writing. Reading also applies it to the values of a row after its
+    # last column, see `IOStreams::Schema::Columns#row`.
     #
     # Parameters:
     #   unknown: [Array]
-    #     The keys that are not fields, or the values after the last field of a row.
+    #     The keys or columns that are not fields, or the values after the last field or column of a row.
     #
     #   noun: [String]
-    #     What they are, "key" or "value", for the message.
-    def check_unknown(unknown, noun:)
+    #     What they are, "key", "column" or "value", for the message.
+    #
+    #   last: [String]
+    #     What the values of a row come after, "field" or "column", for the message.
+    def check_unknown(unknown, noun:, last: "field")
       return if unknown.empty? || skip_unknown?
 
-      raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{unknown_problem(unknown, noun)}")
+      raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{unknown_problem(unknown, noun, last)}")
     end
 
-    private
-
-    # Returns [true|false] whether the columns that the schema does not list are skipped, rather than raise.
+    # Returns [true|false] whether the columns that the schema does not list are skipped, rather than raise, see
+    # `fieldsMatch` above.
     def skip_unknown?
       SKIPS_UNKNOWN.include?(fields_match)
     end
+
+    private
 
     # Returns [true|false] whether every field must be one of the columns.
     def every_field?
@@ -245,13 +268,19 @@ module IOStreams
       end
     end
 
-    def unknown_problem(unknown, noun)
+    # Returns [String] why the columns, keys or values are not accepted, and the values of `fieldsMatch` that skip them,
+    # unless the schema has no header row, whose columns are the fields in order, so that it only accepts "exact".
+    def unknown_problem(unknown, noun, last = "field")
       text =
         if noun == "value"
-          "#{unknown.size} #{plural('value', unknown)} after the last field"
+          "#{unknown.size} #{plural('value', unknown)} after the last #{last}"
         else
           "#{describe(unknown, noun)} #{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the schema"
         end
+      unless @header
+        return "#{text}, which a schema with header: false does not accept, since its columns are the fields in order"
+      end
+
       "#{text}, which fieldsMatch #{fields_match.inspect} does not accept; \"subset\" and \"partial\" skip them"
     end
 
@@ -276,11 +305,13 @@ module IOStreams
       parts.size <= 2 ? parts.join(" and ") : "#{parts[0..-2].join(', ')} and #{parts.last}"
     end
 
+    # Returns [IOStreams::Schema::Field] the field whose name or alias is the label once both are compared loosely, or
+    # else once both are cleansed and compared loosely, see #field_for.
     def loose_field(label, noun)
       key = self.class.match_key(label)
       return unless key
 
-      fields = @loose[key]
+      fields = @loose[key] || @cleansed[self.class.match_key(self.class.cleansed(label))]
       return if fields.nil?
       return fields.first if fields.size == 1
 
@@ -334,13 +365,13 @@ module IOStreams
     end
 
     # Returns [Hash<String, Array<IOStreams::Schema::Field>>] the fields whose names or aliases are the same when compared
-    # loosely, see .match_key, by the text compared. Several fields can share one, such as `Amount ($)` and
-    # `Amount (€)`, whose names are still matched exactly.
+    # loosely, by the text that the block returns for each name or alias, see .match_key. Several fields can share one,
+    # such as `Amount ($)` and `Amount (€)`, whose names are still matched exactly.
     def build_loose
       loose = {}
       @fields.each do |field|
         [field.name, *field.aliases].each do |name|
-          key = self.class.match_key(name)
+          key = yield(name)
           next unless key
 
           list = (loose[key] ||= [])
@@ -364,7 +395,8 @@ module IOStreams
       return "exact" if fields_match.nil?
 
       unless FIELDS_MATCH.include?(fields_match)
-        raise(ArgumentError, "The schema fieldsMatch must be one of #{FIELDS_MATCH.join(', ')}: #{fields_match.inspect}")
+        raise(ArgumentError, "The schema fieldsMatch must be one of #{sentence(FIELDS_MATCH.map(&:inspect))}: " \
+                             "#{fields_match.inspect}")
       end
       if !@header && fields_match != "exact"
         raise(ArgumentError, "A schema with header: false has the fields in order, so fieldsMatch must be \"exact\": " \

@@ -801,6 +801,7 @@ A schema gives the type of each field of every format, and can be held in a JSON
 | `type: :string` | `type: "string"`, with `truncate: true` unless the layout has `truncate: false` |
 | `type: :integer` | `type: "integer"` |
 | `type: :float` and `decimals:` | `type: "number"`, with `floatNumber: true` and `decimals:` |
+| A record written with keys that the layout does not have, which are skipped | `fieldsMatch: "subset"` |
 
 ~~~ruby
 # Before (deprecated)
@@ -808,16 +809,22 @@ path.format(:fixed).format_options(layout: [{size: 23, key: "name"}, {size: 2}, 
 
 # After
 path.format(:fixed).schema(
-  fields: [
+  fieldsMatch: "subset",
+  fields:      [
     {name: "name", type: "string",  width: 23, truncate: true},
     {name: "zip",  type: "integer", width: 5,  start: 26}
   ]
 )
 ~~~
 
+Without `fieldsMatch: "subset"`, a schema has `"exact"`, so that writing a record with a key that is not a field raises
+`IOStreams::Errors::InvalidHeader`, rather than skip it as a layout does.
+
 To see the schema of a layout, set the layout with `#format_options` and call `#schema`. Saved as a JSON file, the
 names of its fields are strings, so the keys of the records read are strings too, where a layout with Symbol keys
-returns Symbol keys.
+returns Symbol keys. The layout is translated each time that the file is read or written, as it was used before, so
+`#schema` and the file read agree with the layout, even when it is changed after it is set. A layout only describes a
+fixed width file, so it raises `ArgumentError` for any other format, as it did before.
 
 Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
 for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema of a layout sets
@@ -880,8 +887,10 @@ and punctuation, or to one of the `aliases` of a field, see [Matching columns to
 So the keys no longer depend on how the cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which
 are both `amount_`.
 
-With a schema, the options raise `ArgumentError`. The layout of a fixed width file set with the deprecated
-`#format_options` still accepts them, as it did before. The property of a schema that replaces each one:
+With a schema, the options raise `ArgumentError`, unless they are nil. `skip_unknown:` only applies to
+`allowed_columns:`, so it is accepted, so that code can supply the same options with and without a schema. The layout
+of a fixed width file set with the deprecated `#format_options` still accepts them, as it did before. The property of
+a schema that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|

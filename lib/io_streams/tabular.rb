@@ -48,16 +48,19 @@ module IOStreams
     # schema, see #header_cleansing. Distinct from nil, which does not cleanse it, as before.
     CLEANSE_BY_DEFAULT = :default
 
-    # Returns [Array<Symbol>] the options of the header that a reader of rows or records supplies to each call,
-    # see #initialize.
+    # The options of #initialize that describe the format of the file, which reading and writing both accept.
+    FORMAT_OPTION_NAMES = %i[format file_name schema format_options default_format].freeze
+
+    # Returns [Array<Symbol>] the options of a Tabular that reads rows or records, see #initialize: those of the format
+    # of the file, and those of its header, see `IOStreams::Tabular::Header`.
     def self.read_option_names
-      Header::OPTION_NAMES
+      [*FORMAT_OPTION_NAMES, *Header::OPTION_NAMES]
     end
 
-    # Returns [Array<Symbol>] the options of the header that a writer of rows or records supplies to each call: all but
-    # the restrictions of the columns read, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`.
+    # Returns [Array<Symbol>] the options of a Tabular that writes rows or records: all but the restrictions of the
+    # columns read, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`.
     def self.write_option_names
-      Header::OPTION_NAMES - Header::READ_OPTION_NAMES
+      [*FORMAT_OPTION_NAMES, *(Header::OPTION_NAMES - Header::READ_OPTION_NAMES)]
     end
 
     # Parse a delimited data source.
@@ -76,13 +79,14 @@ module IOStreams
     #     file are matched to the fields, see `IOStreams::Schema::Columns`. A fixed width file needs it for the position
     #     of each field.
     #     Since the schema describes the columns of the file, the options below that describe them without one,
-    #     `columns`, `allowed_columns`, `required_columns` and `skip_unknown`, raise ArgumentError with it.
+    #     `columns`, `allowed_columns` and `required_columns`, raise ArgumentError with it, unless they are nil.
+    #     `skip_unknown` only applies to `allowed_columns`, so it does not.
     #     Optional. Default: nil
     #
     #   format_options: [Hash]
     #     Deprecated, use `schema:`. The layout and truncate option of a fixed width file, which are translated into
-    #     the schema, see `IOStreams::Tabular::Parser::Fixed.schema`. The options below still apply to its records, as
-    #     they did before it was deprecated.
+    #     the schema, see `IOStreams::Tabular::Parser::Fixed.schema`, so it raises ArgumentError for any other format.
+    #     The options below still apply to its records, as they did before it was deprecated.
     #
     #   columns [Array<String|Symbol>]
     #     Deprecated: the fields of a schema are the columns, see `schema:`.
@@ -147,6 +151,17 @@ module IOStreams
       @columns ? false : header?
     end
 
+    # Returns [true|false] whether the next row written is a header row, which names the column of each value of the
+    # rows after it, see `IOStreams::Row::Writer`: without a schema, when the columns are not known yet, see
+    # #columns_from_first_row?, and with one, for a file with a header row, see #requires_header?, until it is written,
+    # so that the rows read from a file with a header row, which start with it, can be written, see
+    # `IOStreams::Schema::Columns#match_written`.
+    def first_row_header?
+      return columns_from_first_row? unless field_names?
+
+      requires_header? && !@columns.written?
+    end
+
     # Returns [true|false] whether the keys of the records read are the names of the fields of a schema, rather than the
     # columns of the file, so that cleansing the header row does not apply, see `IOStreams::Schema::Columns`.
     def field_names?
@@ -189,16 +204,19 @@ module IOStreams
       parser.class.encoding
     end
 
-    # Returns [Array] the header row/line after parsing and cleansing.
+    # Returns [Array] the header row/line after parsing.
     # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
     #
     # Notes:
     # * Call `header?` first to determine if the header should be parsed first.
     # * The header columns are set after parsing the row, but the header is not cleansed.
+    # * With a schema, its columns are matched to the fields, see `IOStreams::Schema::Columns#match`.
     def parse_header(line)
       return if IOStreams::Utils.blank?(line) || !parser.requires_header?
 
-      header.columns = parser.parse(line)
+      columns = parser.parse(line)
+      @columns.match(columns) if field_names?
+      header.columns = columns
     end
 
     # Returns [Hash<String,Object>] the line as a hash.
@@ -217,10 +235,8 @@ module IOStreams
     # JSON, see `IOStreams::Schema::Columns`.
     # Returns nil if the row/line is blank.
     def row_parse(line)
-      return if IOStreams::Utils.blank?(line)
-
-      row = parser.parse(line)
-      return row unless @columns
+      row = parse_values(line)
+      return row if row.nil? || !@columns
 
       row.is_a?(::Hash) ? @columns.read_hash(row) : @columns.row(row)
     end
@@ -228,12 +244,18 @@ module IOStreams
     # Renders the output row. With a schema, a record or row has the value of each field in the form of its field that
     # the format writes, see `IOStreams::Schema::Field#render`, and in the order of the fields, see
     # `IOStreams::Schema::Columns#render`.
+    #
+    # Returns nil for a blank row, which is written as a blank line, unless the schema has a field that is required,
+    # which raises `IOStreams::Errors::InvalidValue`, since the row has no value for it.
     def render(row)
-      return if IOStreams::Utils.blank?(row)
-      return parser.render(row, header) unless @columns
+      unless @columns
+        return if IOStreams::Utils.blank?(row)
 
-      # The columns supplied with the deprecated format options.
-      row = header.to_hash(row) if header.columns
+        return parser.render(row, header)
+      end
+      return @columns.render_blank if IOStreams::Utils.blank?(row)
+
+      row = header.to_hash(row) if legacy_columns?
       parser.render(@columns.render(row, parser.class.value_form, !parser.requires_header?), @plain_header)
     end
 
@@ -241,8 +263,9 @@ module IOStreams
     # Return nil if no header is required.
     #
     # When columns are supplied they become the header columns first, such as the first row written
-    # when the columns were not supplied. With a schema, the header row is the names of its fields, so columns cannot
-    # be supplied.
+    # when the columns were not supplied. With a schema, the header row is the names of its fields, and the columns
+    # supplied are matched to the fields instead, so that the value of each field is taken from its column of the rows
+    # rendered after it, see `IOStreams::Schema::Columns#match_written`.
     def render_header(columns = nil)
       return render_field_names(columns) if @columns
 
@@ -271,16 +294,19 @@ module IOStreams
     # a warning is logged, once, when applying them would change the result.
 
     # Parses the header row, then cleanses its columns when `cleanse` is not supplied, or is truthy, otherwise applies the
-    # column restrictions to them as they are, see #restrict_columns.
+    # column restrictions to them as they are, see #restrict_columns. For a format without a header row, such as the
+    # layout of a fixed width file, they apply to the columns supplied.
     #
     # With a schema, matches its columns to the fields instead, see `IOStreams::Schema::Columns#match`, so `cleanse`
-    # cannot be supplied.
+    # cannot be supplied. The header columns are the header row as it was read, so that another Tabular with the same
+    # schema, such as one that reads the rest of the file elsewhere, matches the same columns with
+    # `read_header(header.columns)`.
     #
     # Returns [Array] the header row as read, before it is cleansed, or with a schema, the names of the fields of its
     # columns, in the order of the fields.
     # Returns nil when the line is blank, or the format does not have a header row.
     def read_header(line, cleanse: CLEANSE_BY_DEFAULT)
-      return match_header(line, cleanse) if @columns
+      return match_header(line, cleanse) if field_names?
 
       columns = parse_header(line)
       cleanse ? header.cleanse! : restrict_columns(rename: false)
@@ -375,9 +401,11 @@ module IOStreams
 
     # Raises ArgumentError for the options of the header, such as `columns:` and `allowed_columns:`, which describe the
     # columns of a file without a schema, since the schema describes them, see `IOStreams::Schema`, rather than apply one
-    # and ignore the other. An option that is nil is not supplied.
+    # and ignore the other. An option that is nil is not supplied, and an option of the header that does not describe
+    # the columns on its own is accepted, see `IOStreams::Tabular::Header.column_option_names`, so that a caller, such
+    # as Rocket Job, can supply its options whether or not there is a schema.
     def reject_header_options(args)
-      names = args.compact.keys
+      names = Header.column_option_names(args)
       return if names.empty?
 
       raise(
@@ -390,40 +418,69 @@ module IOStreams
 
     # Returns [IOStreams::Schema] the schema of the fixed width layout supplied as format options, which are deprecated,
     # or nil when there are none.
+    #
+    # Raises ArgumentError for a format other than fixed width, which a layout does not describe, as before it was
+    # deprecated, when its parser raised for the options that it did not take.
     def legacy_schema(format_options, schema)
       return if format_options.nil? || format_options.empty?
       raise(ArgumentError, "Supply either schema: or format_options:, not both") if schema
+      unless @format.to_s == "fixed"
+        raise(ArgumentError, "format_options: is the layout of a fixed width file, so it only applies to the :fixed " \
+                             "format, not #{@format.inspect}. Set the format with #format, or use a schema, see " \
+                             "IOStreams::Stream#schema")
+      end
 
       IOStreams::Schema.new(Parser::Fixed.schema(**format_options))
     end
 
-    # Returns [Hash] the record of the line, by the names of its fields, see #record_parse, or nil when it is blank.
-    def parse_record(line)
+    # Returns [true|false] whether the columns supplied apply to the records, as they do to those of the layout of a
+    # fixed width file supplied as format options, which are deprecated, see #legacy_schema.
+    def legacy_columns?
+      !field_names? && !header.columns.nil?
+    end
+
+    # Returns [Array|Hash] the values of the line, see #row_parse, or nil when it is blank.
+    #
+    # Raises `IOStreams::Errors::TypeMismatch` with a schema when a line of a format whose records supply their own keys,
+    # such as JSON, is not a record, since the schema cannot tell which field each of its values is.
+    def parse_values(line)
       return if IOStreams::Utils.blank?(line)
 
       values = parser.parse(line)
+      return values if values.nil? || values.is_a?(::Hash) || !@columns || parser.requires_header?
+
+      raise(IOStreams::Errors::TypeMismatch, "With a schema, each line of the #{format.inspect} format must be a record, " \
+                                             "whose keys are its columns, rather than #{values.class.name}")
+    end
+
+    # Returns [Hash] the record of the line, by the names of its fields, see #record_parse, or nil when it is blank.
+    def parse_record(line)
+      values = parse_values(line)
       return if values.nil?
 
       record = values.is_a?(::Hash) ? @columns.read_hash(values) : @columns.record(values)
-      # The columns supplied with the deprecated format options.
-      header.columns ? header.to_hash(record) : record
+      legacy_columns? ? header.to_hash(record) : record
     end
 
     # Returns [Array] the names of the fields of the columns of the header row, see #read_header.
     def match_header(line, cleanse)
       # A reader supplies nil, which #header_cleansing returns with a schema.
-      if field_names? && !(cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT))
+      unless cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT)
         raise(ArgumentError, "cleanse: cannot be supplied with a schema, since the keys of its records are the names of " \
                              "its fields, which the columns of the header row are matched to")
       end
       return if IOStreams::Utils.blank?(line) || !parser.requires_header?
 
-      @columns.match(parser.parse(line))
+      columns = parser.parse(line)
+      names   = @columns.match(columns)
+      header.columns = columns
+      names
     end
 
-    # Returns [String] the header row of a file with a schema: the names of its fields, see #render_header.
+    # Returns [String] the header row of a file with a schema: the names of its fields, see #render_header, once the
+    # columns supplied, if any, are matched to the fields.
     def render_field_names(columns)
-      raise(ArgumentError, "The header row of a file with a schema is the names of its fields") if columns
+      @columns.match_written(columns) if columns
       return unless requires_header?
 
       parser.render(schema.fields.map { |field| field.name.to_s }, @plain_header)
