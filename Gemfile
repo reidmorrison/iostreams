@@ -22,6 +22,7 @@ gem "net-sftp"
 gem "bcrypt_pbkdf", platform: :ruby # Not needed on JRuby.
 gem "ed25519"
 gem "nokogiri"
+gem "parquet", platform: :ruby # A Rust extension, which JRuby cannot load.
 gem "rubyzip"
 gem "symmetric-encryption"
 gem "xlsxtream"

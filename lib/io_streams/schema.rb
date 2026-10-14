@@ -247,6 +247,31 @@ module IOStreams
       raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{unknown_problem(unknown, noun, last)}")
     end
 
+    # Returns [Array] the columns of a file that its fields are read from, in the order of the columns, for a reader that
+    # can read only some of the columns of a file, such as Parquet, so that it skips the others. A column is matched to
+    # its field as by #field_for.
+    #
+    # Returns nil when every column must be read: when `fieldsMatch` does not skip the columns that the schema does not
+    # list, so that they are checked, see #check_columns, or when no column, or several columns, are the same field,
+    # so that reading them raises as it does without skipping any.
+    #
+    # Parameters:
+    #   labels: [Array]
+    #     The columns of the file, in order.
+    def projection(labels)
+      return unless skip_unknown?
+
+      seen     = {}.compare_by_identity
+      selected = labels.select do |label|
+        field = field_for(label)
+        next false unless field
+        return nil if seen.key?(field)
+
+        seen[field] = true
+      end
+      selected unless selected.empty?
+    end
+
     # Returns [true|false] whether the columns that the schema does not list are skipped, rather than raise, see
     # `fieldsMatch` above.
     def skip_unknown?

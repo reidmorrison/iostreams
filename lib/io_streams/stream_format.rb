@@ -88,12 +88,18 @@ module IOStreams
     #
     #   file_name: [String]
     #     The name of the file being read or written, when known.
-    def open_stream(type, io_stream, options, name:, file_name: nil, &)
+    #
+    #   arguments: [Hash]
+    #     The keyword arguments that the caller supplies, rather than the options set on the stream, so that they are
+    #     neither validated nor sliced as options are, such as the schema of the records of a Parquet file, which is set
+    #     on the path, see `IOStreams::Tabular#write_rows`.
+    def open_stream(type, io_stream, options, name:, file_name: nil, arguments: nil, &)
       klass = stream_class(type) || raise(ArgumentError, "No #{type} registered for Stream type: #{name.inspect}")
       validate_options(type, options, name: name)
       accepted = option_names(type)
       options  = options.slice(*accepted) if accepted
       options  = klass.file_name_options(file_name, **options) if file_name && klass.respond_to?(:file_name_options)
+      options  = options.merge(arguments) if arguments
       klass.open(io_stream, **options, &)
     end
 

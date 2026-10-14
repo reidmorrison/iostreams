@@ -125,6 +125,9 @@ module IOStreams
       # Returns [Integer|nil] the position of the first character of the field in a fixed width file, counting from 1.
       attr_reader :start
 
+      # Returns [Integer|nil] for a number, the number of digits written after the decimal point, see `decimals` above.
+      attr_reader :decimals
+
       # Returns [Array<String>] the other names of the column of this field, see `aliases` above.
       attr_reader :aliases
 
@@ -274,6 +277,9 @@ module IOStreams
       def truncate?
         @truncate
       end
+
+      # Returns [true|false] whether a number is a Float rather than a BigDecimal, see `floatNumber` above.
+      def float? = @float
 
       # Returns [true|false] whether the field must have a value, see `constraints` above.
       def required? = @constraints.required?

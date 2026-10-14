@@ -36,6 +36,15 @@ module IOStreams
           nil
         end
 
+        # Returns [Module|nil] the format, see `IOStreams::StreamFormat`, whose reader and writer read and write the rows of a
+        # format that holds them in a binary layout of its own, rather than as lines of text, such as `IOStreams::Parquet`,
+        # see `IOStreams::Tabular#read_rows`, or nil for a format of lines, which a line reader splits.
+        #
+        # Defined at the class level since it is a static property of the format, see `.quote_character`.
+        def self.row_format
+          nil
+        end
+
         # Returns [true|false] whether a header row is required for this format.
         def requires_header?
           true

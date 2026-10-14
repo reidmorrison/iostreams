@@ -2,7 +2,7 @@
 layout: default
 title: File Formats
 description: >-
-  Converting rows and records to and from CSV, PSV, JSON and fixed width files,
+  Converting rows and records to and from CSV, PSV, JSON, Parquet and fixed width files,
   including format inference, typed values with a schema, and header handling.
 ---
 
@@ -12,6 +12,7 @@ to or from the file's tabular format. The following formats are supported:
 * `:csv`   Comma Separated Values
 * `:psv`   Pipe Separated Values
 * `:json`  One JSON document per line
+* `:parquet` Apache Parquet, whose records are typed values, see [Parquet files](#parquet-files)
 * `:fixed` Fixed width columns
 * `:array` Each line is already an array of values
 * `:hash`  Each line is already a hash
@@ -309,6 +310,79 @@ JSON writes a `BigDecimal`, `Date` or `Time` as that text, within an object or a
 keeps all of its digits, and writes every other value as itself, such as a number or `true`. The `:hash` and `:array`
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
+
+## Parquet files
+
+[Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
+values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema. A `.parquet` file name selects the
+format, and it can also be compressed or encrypted, such as `data.parquet.pgp`. Install the
+[parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on JRuby.
+
+~~~ruby
+IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
+  p record
+  # => {"id" => 1, "name" => "Jack", "amount" => 0.1235e2, "born" => #<Date: 2000-02-29>}
+end
+~~~
+
+With a schema, the columns are matched to its fields, and each value is converted to the type of its field, as for any
+other format, see [Schema](#schema).
+
+Writing needs a schema, since a Parquet file records the type of each of its columns. Its fields are the columns, and
+each type is written as:
+
+| Type | Parquet type |
+|------|--------------|
+| `string` | `string` |
+| `integer` | `int64` |
+| `number` | `decimal(38, decimals)`, rounding each value to its `decimals`, or `double` with `floatNumber: true` |
+| `boolean` | `boolean` |
+| `date` | `date32` |
+| `datetime` | `timestamp_micros`, adjusted to UTC, so it is read back in UTC |
+
+A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
+its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
+`required` is written as a column that cannot be null.
+
+~~~ruby
+schema = {
+  fields: [
+    {name: "id", type: "integer", constraints: {required: true}},
+    {name: "name", type: "string"},
+    {name: "amount", type: "number", decimals: 2},
+    {name: "born", type: "date"}
+  ]
+}
+
+IOStreams.path("people.parquet").schema(schema).writer(:hash) do |writer|
+  writer << {"id" => 1, "name" => "Jack", "amount" => BigDecimal("12.35"), "born" => Date.new(2000, 2, 29)}
+end
+
+# Convert a CSV file into Parquet
+IOStreams.path("people.parquet").schema(schema).copy_from(IOStreams.path("people.csv").schema(schema), mode: :hash)
+~~~
+
+Set how its columns are compressed with `option(:parquet, compression: ...)`: `"none"`, `"snappy"`, the default,
+`"gzip"`, `"lz4"`, `"zstd"` or `"brotli"`. Reading finds the compression in the file, so it ignores the option, and so
+does a file that is not Parquet, as for the options of other streams.
+
+~~~ruby
+IOStreams.path("people.parquet").schema(schema).option(:parquet, compression: "zstd").writer(:hash) do |writer|
+  writer << {"id" => 1, "name" => "Jack"}
+end
+~~~
+
+A Parquet file stores each column on its own, so with a schema whose `fieldsMatch` is `"subset"` or `"partial"`, which
+skip the columns that it does not list, only the columns of its fields are read and decoded, which is faster for a
+wide file. The other values of `fieldsMatch` read every column, so that they can check the others.
+
+A Parquet file records its columns at its end, so it is read from a local file, and a file stored elsewhere, such as
+on S3, is first copied into a temp file. Likewise it is written to a temp file, which is then copied to the path. The
+records written before the block leaves early, such as with `break`, are kept, as for other formats, and nothing is
+written when the block raises.
+
+A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
+`ArgumentError`. Like JSON, each row of the `:array` mode is a `Hash` for now.
 
 ## Fixed width files
 

@@ -39,6 +39,7 @@ module IOStreams
       autoload :Fixed, "io_streams/tabular/parser/fixed"
       autoload :Hash, "io_streams/tabular/parser/hash"
       autoload :Json, "io_streams/tabular/parser/json"
+      autoload :Parquet, "io_streams/tabular/parser/parquet"
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
 
@@ -195,6 +196,43 @@ module IOStreams
     # So that the lines of the data are split where this format, which parses them, expects.
     def quote_character
       parser.class.quote_character
+    end
+
+    # Returns [true|false] whether the rows of the format are lines of text, which a line reader splits and a line writer
+    # writes, rather than a binary layout of its own, such as Parquet, see #read_rows.
+    def lines?
+      parser.class.row_format.nil?
+    end
+
+    # Yields [#each] the rows of the binary layout of a format whose rows are not lines, see #lines?, read from the
+    # supplied stream of its bytes, in the form that #row_parse and #record_parse accept.
+    #
+    # With a schema whose `fieldsMatch` skips the columns that it does not list, a reader that can read only some of the
+    # columns of a file, such as Parquet, reads only those of its fields, see `IOStreams::Schema#projection`.
+    #
+    # Parameters:
+    #   options: [Hash]
+    #     The options of the format, set with `IOStreams::Stream#option`, such as `option(:parquet, ...)`.
+    #
+    # Returns the result of the block.
+    def read_rows(io, options)
+      parser.class.row_format.open_stream(:reader, io, options, name: format) do |rows|
+        read_only_fields(rows)
+        yield(rows)
+      end
+    end
+
+    # Yields [#<<] the writer of the rows of a format whose rows are not lines, see #lines?, to the supplied stream of
+    # its bytes, which takes the rows that #render returns. It writes the fields of the schema, which give the type of
+    # each column.
+    #
+    # Parameters:
+    #   options: [Hash]
+    #     The options of the format, see #read_rows.
+    #
+    # Returns the result of the block.
+    def write_rows(io, options, &)
+      parser.class.row_format.open_stream(:writer, io, options, name: format, arguments: {schema: schema}, &)
     end
 
     # Returns [String] the encoding that the format reads and writes text in when the caller does not set one on
@@ -384,6 +422,19 @@ module IOStreams
       parser_class(format).quote_character unless format.nil?
     end
 
+    # Returns [true|false] whether the rows of the registered format are lines of text, see #lines?, which they are when
+    # the format is nil.
+    def self.lines?(format)
+      format.nil? || parser_class(format).row_format.nil?
+    end
+
+    # Returns [Module|nil] the format whose reader and writer read and write the rows of the registered format of the
+    # supplied name, when its rows are not lines, see `IOStreams::Tabular::Parser::Base.row_format`, such as
+    # `IOStreams::Parquet` for `:parquet`, otherwise nil, including when no format has that name.
+    def self.row_format(format)
+      @formats[format.to_sym]&.row_format if format.respond_to?(:to_sym)
+    end
+
     # Returns [String] the encoding of the registered format, see #encoding,
     # or [nil] for the default encoding of the encode stream, or when the format is nil.
     def self.encoding(format)
@@ -395,9 +446,18 @@ module IOStreams
     register_format(:fixed, IOStreams::Tabular::Parser::Fixed)
     register_format(:hash, IOStreams::Tabular::Parser::Hash)
     register_format(:json, IOStreams::Tabular::Parser::Json)
+    register_format(:parquet, IOStreams::Tabular::Parser::Parquet)
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 
     private
+
+    # Reads only the columns of the fields of the schema, when the reader of the rows can, see #read_rows.
+    def read_only_fields(rows)
+      return unless schema && rows.respond_to?(:read_only)
+
+      labels = schema.projection(rows.labels)
+      rows.read_only(labels) if labels
+    end
 
     # Raises ArgumentError for the options of the header, such as `columns:` and `allowed_columns:`, which describe the
     # columns of a file without a schema, since the schema describes them, see `IOStreams::Schema`, rather than apply one
