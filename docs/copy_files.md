@@ -72,11 +72,19 @@ The mode is one of:
 
 * `:line`, which copies each line;
 * `:array`, which copies each row, after the header row of the source, which gives the target the columns of its
-  rows;
+  rows: the header row of a file with one, such as CSV, the keys of the first record of a JSON or Parquet file without
+  a schema, or the names of the fields of a file without a header row, such as fixed width;
 * `:hash`, which copies each record, so that the target writes the value of each key in its column.
 
-Use `:hash` to copy between formats whose records are keyed, such as JSON and Parquet, and those with a header row,
-such as CSV. A blank line of the source is skipped.
+Both copy between any of the formats, such as JSON into CSV:
+
+~~~ruby
+IOStreams.path("people.csv").copy_from("people.json", mode: :array)
+~~~
+
+Use `:hash` for JSON whose records do not all have the same keys, since a row has no column for a key that the first
+record does not have, so the `:array` mode raises `IOStreams::Errors::InvalidHeader` for it. A blank line of the
+source is skipped.
 
 ## Choosing the columns
 

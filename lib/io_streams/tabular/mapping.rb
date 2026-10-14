@@ -22,10 +22,16 @@ module IOStreams
     #   such as JSON, otherwise the values in the order of the columns, such as for CSV.
     # * Answers the questions of the header-row protocol of the readers and writers, see `IOStreams::Tabular#read_row`
     #   and the others: whether the file has a header row, `#requires_header?`, whether it is still to be read,
-    #   `#header?`, whether the next row written is the header row, `#first_row_header?`, and where the columns of the
-    #   rows written come from, `#columns_from_first_row?`, `#columns_from_header_row?` and `#columns_supplied?`.
-    # * Answers whether the keys of the records read are the names of fields, `#field_names?`, and the columns of a file
-    #   without a header row, `#headerless_columns`.
+    #   `#header?`, whether the rows read start with a header row, `#rows_header?`, such as the keys of the first record
+    #   of JSON without a schema, whether the next row written is the header row, `#first_row_header?`, and where the
+    #   columns of the rows written come from, `#columns_from_first_row?`, `#columns_from_header_row?` and
+    #   `#columns_supplied?`.
+    # * Answers whether the keys of the records read are the names of fields, `#field_names?`, and the columns of the
+    #   rows of a file without a header row, `#headerless_columns`.
+    #
+    # Each row is an Array, whatever the format: the values of the columns of the rows, in order, which a parser of
+    # keyed records, such as JSON, gives by their keys. A row already read, an Array, is read as such, see
+    # `IOStreams::Tabular#record_parse`.
     #
     # Each reader and writer has its own, through its Tabular, since it holds the columns of one file.
     class Mapping

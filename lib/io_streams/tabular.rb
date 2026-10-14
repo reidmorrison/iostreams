@@ -263,8 +263,10 @@ module IOStreams
       parser.class.encoding
     end
 
-    # Returns [Array] the header row/line after parsing.
-    # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
+    # Returns [Array] the header row/line after parsing. Without a schema, for a format of keyed records, such as JSON,
+    # the keys of the record of the line, or the row of keys supplied, which become the columns of its rows, see
+    # #rows_header?.
+    # Returns `nil` if the row/line is blank, or the format has no header row, such as fixed width, or JSON with a schema.
     #
     # Notes:
     # * Call `header?` first to determine if the header should be parsed first.
@@ -274,7 +276,8 @@ module IOStreams
       @mapping.parse_header(line)
     end
 
-    # Returns [Hash<String,Object>] the line as a hash.
+    # Returns [Hash<String,Object>] the line as a hash, or a row already read, an Array, such as one that #read_row
+    # yielded, by the columns of the rows, whatever the format, as Rocket Job's workers parse the rows uploaded.
     # With a schema, the keys are the names of the fields, and the values are converted to their types, see
     # `IOStreams::Schema::Columns`.
     # Returns nil if the line is blank.
@@ -283,12 +286,13 @@ module IOStreams
     end
 
     # Returns [Array] the row/line as a parsed Array of values. With a schema, the values of its fields, in the order of
-    # the fields, converted to their types, or the record of a format whose records supply their own keys, such as
-    # JSON, see `IOStreams::Schema::Columns`.
-    # Returns nil if the row/line is blank.
+    # the fields, converted to their types, see `IOStreams::Schema::Columns`. For a format whose records supply their own
+    # keys, such as JSON, the values of the record in the order of the columns of the rows: every field of a schema,
+    # nil for a key that the record does not have, or without one, the keys of the first record, see #read_header.
+    # Returns nil if the row/line is blank, or a record without keys, such as a JSON line of `{}`.
     #
-    # Raises `IOStreams::Errors::TypeMismatch` with a schema when a line of a format whose records supply their own keys,
-    # such as JSON, is not a record, since the schema cannot tell which field each of its values is.
+    # Raises `IOStreams::Errors::TypeMismatch` when a line of JSON is not an object, since only a record has keys.
+    # Raises `IOStreams::Errors::InvalidHeader` for a key of a record that is not a column of the rows, see #read_row.
     def row_parse(line)
       @mapping.row_parse(line)
     end
@@ -335,6 +339,10 @@ module IOStreams
     # cannot be supplied. The header columns are the header row as it was read, so that another Tabular with the same
     # schema, such as one that reads the rest of the file elsewhere, matches the same columns with
     # `read_header(header.columns)`.
+    #
+    # Without a schema, the header row of a format of keyed records, such as JSON, is the keys of the record of the line,
+    # or the row of keys supplied, such as the header row that #read_row yielded, as they are, which are only cleansed
+    # when the columns are restricted, as its records are.
     #
     # Returns [Array] the header row as read, before it is cleansed, or with a schema, the names of the fields of its
     # columns, in the order of the fields.

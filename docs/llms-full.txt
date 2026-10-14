@@ -2120,10 +2120,13 @@ Without a [schema](#schema), every value is read as text, and written as its tex
   replaced with `_`, and other punctuation removed, while letters and digits of any language are kept. So the column
   `First Name` is the key `first_name`, `Zip-Code` is `zip_code`, `Amount ($)` is `amount_`, and `Prénom` is `prénom`.
   A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are.
-* `each(:array)` yields the header row as it is, then each row of values.
+* `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
+  its first row is a header row of the keys of its first record, and each row after it the values of a record in
+  that order, see [JSON files](#json-files).
 * `writer(:hash)` takes the header row from the keys of the first record, so the values of a key that only a later
   record has are not written, except in JSON, where each record is written with its own keys.
-* `writer(:array)` takes the first row written as the header row.
+* `writer(:array)` takes the first row written as the header row, which JSON writes no line for, since it only names
+  the key of each value of the rows after it.
 * A blank line is yielded as `nil`.
 
 A schema names the columns, gives each its type, and says which columns a file can have and must have, so that the
@@ -2242,8 +2245,9 @@ are usually the same for every record, rather than for each value.
 The keys of the records read are the names of their fields as they are given, so a field named with a Symbol, such as
 `name: :id`, returns the key `:id`, whatever the column of the file is called. For a format with a header row, such
 as CSV, `each(:array)` returns a header row of the names of the fields of its columns, and then the values of those
-fields of each row, in the order of the fields. JSON and fixed width return each record as a Hash, as they do without
-a schema. A column that the schema does not list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
+fields of each row, in the order of the fields. A file without a header row, such as JSON, Parquet or fixed width,
+returns no header row: each row is the values of every field, in order, `nil` for a key that a JSON record does not
+have. A column that the schema does not list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
 
 A column that could be either of two fields raises `IOStreams::Errors::InvalidHeader`, rather than guess, such as
 `amount` for the fields `Amount ($)` and `Amount (€)`, which match their own columns exactly. So do two columns that
@@ -2416,12 +2420,40 @@ A JSON file holds one JSON object on each line, the format called JSON Lines, so
 time. A file that holds one JSON array of every record is not supported, since it would have to be read whole.
 
 Each record is read with its own keys, as they are in the file, and its values keep their JSON types: a number is an
-Integer or a Float, and `true`, `false` and `null` are `true`, `false` and `nil`. A line that is not an object raises
-`IOStreams::Errors::TypeMismatch` with a schema. Writing writes each record as a JSON object, with a `BigDecimal`, `Date`
-or `Time` as its usual text, see [Values without a field](#values-without-a-field).
+Integer or a Float, and `true`, `false` and `null` are `true`, `false` and `nil`. A line that is not an object, such
+as `[1, 2]`, raises `IOStreams::Errors::TypeMismatch`, and a line of `null` or `{}` is read as `nil`, like a blank
+line. Writing writes each record as a JSON object, with a `BigDecimal`, `Date` or `Time` as its usual text, see
+[Values without a field](#values-without-a-field).
 
-`each(:array)` yields each record as a Hash, as `each(:hash)` does, for now, so copy JSON to another format with
-`mode: :hash`, see [Copying and moving](copy_files).
+A JSON file has no header row, so the first row that `each(:array)` yields is a header row of the keys of its first
+record, and each row after it holds the values of a record in that order, `nil` for a key that it does not have:
+
+~~~ruby
+# people.json holds:
+# {"name":"Jack","age":21}
+# {"name":"Jill"}
+IOStreams.path("people.json").each(:array) { |row| p row }
+# ["name", "age"]
+# ["Jack", 21]
+# ["Jill", nil]
+~~~
+
+A record with a key that the first record does not have raises `IOStreams::Errors::InvalidHeader`, since no row has a
+column for it, so read records whose keys vary with `each(:hash)`, or describe them with a schema whose
+`fieldsMatch` is `"superset"`. With a schema, each row is the values of its fields, in order, without a header row.
+`writer(:array)` takes the first row written as the header row, which names the key of each value of the rows after
+it, without a line of its own, so that the rows read can be written again, or copied into another format, see
+[Copying and moving](copy_files):
+
+~~~ruby
+IOStreams.path("people.json").writer(:array) do |io|
+  io << ["name", "age"]
+  io << ["Jack", 21]
+end
+
+IOStreams.path("people.json").read
+# => "{\"name\":\"Jack\",\"age\":21}\n"
+~~~
 
 ## Excel spreadsheets
 
@@ -2560,7 +2592,14 @@ written: an integer outside the range of an `int64`, or a number with more digit
 
 A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
-UTF-8. Like JSON, each row of the `:array` mode is a `Hash` for now.
+UTF-8. Like JSON, it has no header row, so without a schema the first row that `each(:array)` yields is a header row
+of its columns, and with a schema each row is the values of its fields, in order, without a header row:
+
+~~~ruby
+IOStreams.path("s3://bucket/people.parquet").each(:array) { |row| p row }
+# ["id", "name", "amount", "born"]
+# [1, "Jack", 0.1235e2, #<Date: 2000-02-29 ((2451604j,0s,0n),+0s,2299161j)>]
+~~~
 
 ## Fixed width files
 
@@ -2584,6 +2623,14 @@ Writing a fixed width file uses the same schema to render each record:
 path.writer(:hash) do |io|
   io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
 end
+~~~
+
+A fixed width file has no header row, so each row that `each(:array)` yields is the values of the fields, in order,
+and `writer(:array)` takes rows the same way:
+
+~~~ruby
+path.each(:array) { |row| p row }
+# ["Jack Jones", "Somewhere", 12345]
 ~~~
 
 The schema can be held in a file, such as this `people.schema.json`:
@@ -3131,11 +3178,19 @@ The mode is one of:
 
 * `:line`, which copies each line;
 * `:array`, which copies each row, after the header row of the source, which gives the target the columns of its
-  rows;
+  rows: the header row of a file with one, such as CSV, the keys of the first record of a JSON or Parquet file without
+  a schema, or the names of the fields of a file without a header row, such as fixed width;
 * `:hash`, which copies each record, so that the target writes the value of each key in its column.
 
-Use `:hash` to copy between formats whose records are keyed, such as JSON and Parquet, and those with a header row,
-such as CSV. A blank line of the source is skipped.
+Both copy between any of the formats, such as JSON into CSV:
+
+~~~ruby
+IOStreams.path("people.csv").copy_from("people.json", mode: :array)
+~~~
+
+Use `:hash` for JSON whose records do not all have the same keys, since a row has no column for a key that the first
+record does not have, so the `:array` mode raises `IOStreams::Errors::InvalidHeader` for it. A blank line of the
+source is skipped.
 
 ## Choosing the columns
 
@@ -4924,6 +4979,7 @@ Start with the changes that apply to your application:
 | Reads text files that are not UTF-8, such as Windows-1252 exports, or depends on binary strings | [Text is read as UTF-8](#text-is-read-as-utf-8) |
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Uses `allowed_columns`, `required_columns`, `columns:` or `cleanse_header:` | [Column restrictions apply to every input](#column-restrictions-apply-to-every-input), and [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated) |
+| Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) |
 | Writes to an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
@@ -5068,7 +5124,10 @@ Reading and writing rows and records, with the `:array` and `:hash` modes.
 When reading records, `allowed_columns`, `required_columns` and `skip_unknown` now apply to every
 input. Previously they were ignored for JSON and `:hash` input, when `columns:` was supplied, and
 with `cleanse_header: false`. When reading rows with `each(:array)`, they now also apply to the
-supplied `columns:`, and to the header row with `cleanse_header: false`.
+supplied `columns:`, to the header row with `cleanse_header: false`, and to the keys of the first record of a JSON
+file, which are its header row, see
+[Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays).
+They never change a row.
 
 When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
 as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
@@ -5082,6 +5141,50 @@ Fix: check that the JSON files you read with these options have the expected key
 previous behavior, set `IOStreams.enforce_column_restrictions = false` in an initializer, which defaulted to false in
 v2.1.
 Renaming an uploaded file from `.csv` to `.json` then bypasses the restrictions.
+
+#### Rows of JSON, fixed width and Parquet files are Arrays
+
+`each(:array)` and `reader(:array)` now yield each row of every format as an Array, as they already did for CSV and
+spreadsheets, so that the rows can be written with `writer(:array)`, and copied with
+`copy_from(source, mode: :array)`. Previously the rows of JSON and fixed width files were the Hashes that
+`each(:hash)` reads, which neither could take.
+
+A fixed width file, and a JSON or Parquet file with a schema, have no header row to yield, so each row is the values
+of the fields, in order, with `nil` for a key that a JSON record does not have. Without a schema, the first row of a
+JSON or Parquet file is a header row of the keys of its first record, and each row after it holds the values of a
+record in that order:
+
+~~~ruby
+# people.json holds:
+# {"name":"Jack","age":21}
+# {"age":22,"name":"Jill"}
+IOStreams.path("people.json").each(:array) { |row| p row }
+# ["name", "age"]
+# ["Jack", 21]
+# ["Jill", 22]
+~~~
+
+A record with a key that the first record does not have raises `IOStreams::Errors::InvalidHeader`, since no row has a
+column for it. A JSON line that is not an object, such as `[1, 2]`, raises `IOStreams::Errors::TypeMismatch`, also
+with `each(:hash)`, and a line of `{}` is read as `nil`, like a blank line. `writer(:array)` takes the first row
+written to JSON as its header row, as it does for CSV, without writing a line for it.
+
+Rocket Job uploads the rows of a JSON file in its `:array` mode after reading this header row, so upgrade Rocket Job
+with IOStreams.
+
+Fix: read Hashes with `each(:hash)`. For JSON records that leave out keys, describe them with a schema whose
+`fieldsMatch` is `"superset"`, so that every row has the same columns, the fields:
+
+~~~ruby
+IOStreams.path("people.json").each(:hash) { |record| p record }
+# {"name" => "Jack", "age" => 21}
+# {"age" => 22, "name" => "Jill"}
+
+schema = {fieldsMatch: "superset", fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "zip"}]}
+IOStreams.path("people.json").schema(schema).each(:array) { |row| p row }
+# ["Jack", 21, nil]
+# ["Jill", 22, nil]
+~~~
 
 #### Hash keys match columns once cleansed
 

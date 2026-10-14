@@ -200,7 +200,7 @@ classDiagram
     }
     class Mapping {
         <<abstract>>
-        +requires_header?() header?()
+        +requires_header?() header?() rows_header?()
         +read_header() row_parse() record_parse()
         +render() render_header()
     }
@@ -251,7 +251,8 @@ classDiagram
   with its parser, and decides which line is the header row. Each of them declares the options of each call in its
   mode with `self.option_names`, and `Stream` rejects any other before it opens anything.
 * **`Tabular::Mapping`** maps the columns of one file to the values of its rows and records, and answers the questions
-  of the header row that the `Tabular` asks, such as whether the file has one, and whether it is still to be read. The
+  of the header row that the `Tabular` asks, such as whether the file has one, whether it is still to be read, and
+  whether the rows read start with one, such as the keys of the first record of a JSON file without a schema. The
   `Tabular` chooses one when it is created, by what describes the columns: a `HeaderMapping` maps them by the header
   row, or the columns supplied, with the deprecated column options, such as `allowed_columns:`, and cleanses the header
   row; a `SchemaMapping` maps them by the fields of a schema; and a `LayoutMapping` by the deprecated layout of a fixed
