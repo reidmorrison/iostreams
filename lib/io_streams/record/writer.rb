@@ -72,19 +72,18 @@ module IOStreams
         @tabular     = tabular
         @line_writer = line_writer
 
-        # Render the header line when the columns were supplied, or are the fields of a schema.
-        @line_writer << @tabular.render_header if @tabular.requires_header? && !@tabular.columns_from_first_row?
+        # The header line of the columns supplied, or of the fields of a schema, see `IOStreams::Tabular#start_records`.
+        @tabular.start_records { |line| @line_writer << line }
       end
 
+      # Writes the record, after the header line that the keys of the first record give, when neither the columns
+      # supplied nor a schema give it, see `IOStreams::Tabular#render_record`.
+      #
       # Returns self, so that calls can be chained.
       def <<(hash)
         raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
 
-        if @tabular.columns_from_first_row?
-          # Extract header from the keys from the first row when not supplied above.
-          @line_writer << @tabular.render_header(hash.keys)
-        end
-        @line_writer << @tabular.render(hash)
+        @tabular.render_record(hash) { |line| @line_writer << line }
         self
       end
     end

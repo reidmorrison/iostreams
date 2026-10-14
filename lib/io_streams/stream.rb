@@ -697,8 +697,7 @@ module IOStreams
       return if names.empty?
 
       message = "#{names.map(&:inspect).join(', ')} only #{names.size == 1 ? 'applies' : 'apply'} when reading, #{reason}"
-      restrictions = IOStreams::Tabular.read_option_names - IOStreams::Tabular.write_option_names
-      if suggest_schema && names.intersect?(restrictions)
+      if suggest_schema && names.intersect?(IOStreams::Tabular::Header::READ_OPTION_NAMES)
         message << ". To choose the columns that are written, set a schema on the path, whose fields are the columns"
       end
       raise(ArgumentError, message)
@@ -778,22 +777,23 @@ module IOStreams
     # The lines are split where the format that parses them expects, so that for example a newline within
     # a quoted CSV value stays within its row, including when CSV is the default format. They are read in blocks of
     # `buffer_size` bytes, when it is supplied, as in the `:line` mode.
-    def row_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil,
-                   cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
+    #
+    # The other options, such as `cleanse_header:` and `columns:`, are those of the tabular that reads the rows, see
+    # `IOStreams::Tabular.new`.
+    def row_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
-        yield IOStreams::Row::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
+        yield IOStreams::Row::Reader.new(io, tabular: tabular)
       end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil,
-                      cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
-        yield IOStreams::Record::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
+        yield IOStreams::Record::Reader.new(io, tabular: tabular)
       end
     end
 

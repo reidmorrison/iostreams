@@ -9,7 +9,7 @@ module IOStreams
       # Returns [Array<Symbol>] the options that this reader accepts, see .stream: its own, and those of the
       # `IOStreams::Tabular` that reads the records, other than the file name, which it supplies.
       def self.option_names
-        [:original_file_name, :cleanse_header, *(IOStreams::Tabular.read_option_names - %i[file_name])]
+        [:original_file_name, *(IOStreams::Tabular.read_option_names - %i[file_name])]
       end
 
       # Read a record at a time from a line stream
@@ -21,8 +21,8 @@ module IOStreams
       #     When `:format` is not supplied the file name can be used to infer the required format.
       #     Optional. Default: nil
       #
-      #   cleanse_header: [true|false]
-      #     See #initialize.
+      #   cleanse_header: [true|false|nil]
+      #     Deprecated. Whether to cleanse the header row, see `IOStreams::Tabular.new`.
       #
       #   format: [Symbol]
       #     :csv, :hash, :array, :json, :psv, :fixed or :parquet, see `IOStreams::Tabular.new`.
@@ -66,21 +66,19 @@ module IOStreams
       # Note:
       # * `allowed_columns`, `required_columns` and `skip_unknown` apply to every input, including JSON records,
       #   supplied `columns` and `cleanse_header: false`, unless `IOStreams.enforce_column_restrictions?` is false.
-      def self.stream(line_reader, original_file_name: nil, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
+      def self.stream(line_reader, original_file_name: nil, **args)
         # Pass-through if already a record reader
         return yield(line_reader) if line_reader.is_a?(self)
 
-        tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
-        yield new(line_reader, tabular: tabular, cleanse_header: cleanse_header)
+        yield new(line_reader, tabular: IOStreams::Tabular.new(file_name: original_file_name, **args))
       end
 
       # When reading from a file also add the line reader stream, which splits the lines where the format expects,
       # such as within a quoted CSV value. See `.stream` for the parameters.
-      def self.file(file_name, original_file_name: file_name, delimiter: $/,
-                    cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
+      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
         tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
         IOStreams::Line::Reader.file(file_name, delimiter: delimiter, embedded_within: tabular.quote_character) do |io|
-          yield new(io, tabular: tabular, cleanse_header: cleanse_header)
+          yield new(io, tabular: tabular)
         end
       end
 
@@ -91,34 +89,23 @@ module IOStreams
       #     Anything that returns one line / record at a time when #each is called on it.
       #
       #   tabular: [IOStreams::Tabular]
-      #     Parses each line in its format, and holds the header.
-      #
-      #   cleanse_header: [true|false]
-      #     Deprecated. Whether to cleanse the header row, see `IOStreams::Tabular::Header#cleanse!`. With a schema, the
-      #     keys of the records are the names of its fields instead, so it raises ArgumentError, see
-      #     `IOStreams::Tabular#header_cleansing`.
-      #     Default: true
-      def initialize(line_reader, tabular:, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT)
+      #     Parses each line in its format, holds the header, and cleanses the header row as its `cleanse_header`
+      #     option says, see `IOStreams::Tabular.new`.
+      def initialize(line_reader, tabular:)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
 
-        @tabular        = tabular
-        @line_reader    = line_reader
-        @cleanse_header = tabular.header_cleansing(cleanse_header)
+        @tabular     = tabular
+        @line_reader = line_reader
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
-        @tabular.restrict_columns(rename: @cleanse_header)
+        @tabular.restrict_columns
       end
 
-      def each
-        @line_reader.each do |line|
-          if @tabular.header?
-            @tabular.read_header(line, cleanse: @cleanse_header)
-          else
-            yield @tabular.read_record(line, rename: @cleanse_header)
-          end
-        end
+      # Yields each record, after the header row, which names their keys, see `IOStreams::Tabular#read_record_line`.
+      def each(&block)
+        @line_reader.each { |line| @tabular.read_record_line(line, &block) }
       end
 
       # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy does, see

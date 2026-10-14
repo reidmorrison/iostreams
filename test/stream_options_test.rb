@@ -428,7 +428,9 @@ class StreamOptionsTest < Minitest::Test
         header  = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
 
         assert_equal (tabular + header).sort, IOStreams::Tabular.read_option_names.sort
-        assert_equal (tabular + header - IOStreams::Tabular::Header::READ_OPTION_NAMES).sort, IOStreams::Tabular.write_option_names.sort
+        read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
+
+        assert_equal (tabular + header - read_only).sort, IOStreams::Tabular.write_option_names.sort
       end
 
       it "matches the keyword arguments of the readers and writers of rows and records, with those of the tabular they pass the others to" do

@@ -2047,6 +2047,13 @@ class StreamTest < Minitest::Test
           end
         end
 
+        it "raise for cleanse_header with a schema before the file is opened" do
+          path = IOStreams.path("/does/not/exist/people.csv").schema(people)
+
+          error = assert_raises(ArgumentError) { path.each(:hash, cleanse_header: false) { |row| row } }
+          assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
+        end
+
         it "raise when writing with a schema, or copying to a target with one" do
           out = IOStreams::Stream.new(StringIO.new).file_name("people.csv").schema(people)
           assert_raises(ArgumentError) { out.writer(:hash, columns: %w[id]) { |io| io } }
