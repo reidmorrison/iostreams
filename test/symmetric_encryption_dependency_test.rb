@@ -37,7 +37,7 @@ class SymmetricEncryptionDependencyTest < Minitest::Test
         file_name = File.join(dir, "data.enc")
 
         assert_equal "loaded", run_without_gem(
-          "IOStreams::SymmetricEncryption::Writer.file(#{file_name.inspect}) { |io| io << 'data' }"
+          "IOStreams.path(#{file_name.inspect}).write('data')"
         )
       end
     end

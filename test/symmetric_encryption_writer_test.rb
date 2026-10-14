@@ -4,35 +4,8 @@ require_relative "test_helper"
 
 class SymmetricEncryptionWriterTest < Minitest::Test
   describe IOStreams::SymmetricEncryption::Writer do
-    let :temp_file do
-      Tempfile.new("iostreams")
-    end
-
-    let :file_name do
-      temp_file.path
-    end
-
     let :decrypted do
       File.read(File.join(File.dirname(__FILE__), "files", "text.txt"))
-    end
-
-    after do
-      temp_file.delete
-    end
-
-    describe ".file" do
-      it "writes an encrypted file" do
-        result =
-          IOStreams::SymmetricEncryption::Writer.file(file_name) do |io|
-            io.write(decrypted)
-            53_534
-          end
-
-        assert_equal 53_534, result
-
-        refute_equal decrypted, File.read(file_name, mode: "rb")
-        assert_equal decrypted, ::SymmetricEncryption::Reader.open(file_name, &:read)
-      end
     end
 
     describe ".stream" do

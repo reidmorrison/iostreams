@@ -7,12 +7,6 @@ module IOStreams
         %i[entry_file_name]
       end
 
-      # When writing to a file, default the entry name within the zip to the file name
-      # without the `.zip` extension, unless an entry name was explicitly supplied.
-      def self.file(file_name, **, &)
-        super(file_name, **file_name_options(file_name, **), &)
-      end
-
       # Returns [Hash] the options with the entry name within the zip defaulted to the name of the file
       # being written, without its directory or `.zip` extension, unless an entry name was supplied.
       # For example `"example.csv"` for `"reports/example.csv.zip.pgp"`.

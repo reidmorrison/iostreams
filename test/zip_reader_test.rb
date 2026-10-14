@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
-require_relative "minimal_file_reader"
 require "zip"
 
 class ZipReaderTest < Minitest::Test
@@ -133,15 +132,6 @@ class ZipReaderTest < Minitest::Test
           assert_equal "The zip file #{zip_file_name} does not contain the file \"folder/\"", error.message
         end
       end
-
-      # it 'reads from a stream' do
-      #   result = MinimalFileReader.open(file_name) do |file|
-      #     IOStreams::Zip::Reader.stream(file) do |io|
-      #       io.read
-      #     end
-      #   end
-      #   assert_equal decompressed, result
-      # end
     end
   end
 end
