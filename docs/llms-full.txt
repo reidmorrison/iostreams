@@ -55,9 +55,10 @@ IOStreams.path("s3://my-bucket/data.csv.gz").each(:hash) do |record|
 end
 ~~~
 
-IOStreams reads the file name, `data.csv.gz`, infers that it is a gzip compressed CSV file, and builds the pipeline
-of streams that reads it from S3, decompresses it, and parses it. Point the same code at `data.csv`, `data.csv.pgp`,
-`data.xlsx` or a local file instead, and nothing else changes.
+IOStreams reads the file name, `data.csv.gz`, infers that it is a gzip compressed CSV file, and builds the
+[pipeline of streams](#how-it-works) that reads it from S3, decompresses it, and parses it. Point the same code at
+`data.csv`, `data.xlsx`, a local file, or `data.csv.pgp` with its passphrase set on the path, and nothing else
+changes.
 
 ### One API, whatever the format, compression or encryption
 
@@ -85,33 +86,57 @@ location is set once, at startup. See [Paths are configuration](config#paths-are
 
 ## A quick tour
 
-Read each record of a compressed CSV file on S3, as a Hash:
+Write a CSV file, compressed with gzip, a record at a time:
 
 ~~~ruby
-IOStreams.path("s3://my-bucket/people.csv.gz").each(:hash) do |person|
-  p person
-  # => {"name" => "Jack", "born" => "1990-02-01"}
+IOStreams.path("people.csv.gz").writer(:hash) do |io|
+  io << {"name" => "Jack", "born" => "1990-02-01"}
+  io << {"name" => "Jill", "born" => "1992-07-14"}
 end
 ~~~
+
+Read it back a record at a time, as a Hash, while it is decompressed:
+
+~~~ruby
+IOStreams.path("people.csv.gz").each(:hash) { |person| p person }
+# {"name" => "Jack", "born" => "1990-02-01"}
+# {"name" => "Jill", "born" => "1992-07-14"}
+~~~
+
+The same code reads `s3://my-bucket/people.csv.gz` or `sftp://sftp.example.org/people.csv.gz` instead: only the name
+changes. See [Paths](path) for the gems and credentials of each store.
 
 Describe the columns of the file with a [schema](formats#schema), so that each value is read as its type:
 
 ~~~ruby
-people = IOStreams.path("s3://my-bucket/people.csv.gz").schema(
+people = IOStreams.path("people.csv.gz").schema(
   fields: [{name: "name", type: "string"}, {name: "born", type: "date"}]
 )
 people.each(:hash) { |person| p person }
-# => {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
+# {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
+# {"name" => "Jill", "born" => #<Date: 1992-07-14 ((2448818j,0s,0n),+0s,2299161j)>}
 ~~~
 
-Convert it to JSON, compressed and encrypted, by copying it to a path whose name says so:
+Convert it to another format by copying it to a path whose name says so:
 
 ~~~ruby
-target = IOStreams.path("exports/people.json.gz.pgp").option(:pgp, recipient: "partner@example.org")
-target.copy_from(people, mode: :hash)
+IOStreams.path("people.json").copy_from(people, mode: :hash)
+
+IOStreams.path("people.json").read
+# => "{\"name\":\"Jack\",\"born\":\"1990-02-01\"}\n{\"name\":\"Jill\",\"born\":\"1992-07-14\"}\n"
 ~~~
 
-Write an Excel spreadsheet, or a Parquet file, from records:
+The target can be anywhere, compressed and encrypted, such as JSON on S3, encrypted with PGP for a partner whose public
+key is in your keyring, see [PGP](pgp):
+
+~~~ruby
+IOStreams.path("s3://my-bucket/exports/people.json.gz.pgp").
+  option(:pgp, recipient: "partner@example.org").
+  copy_from(people, mode: :hash)
+~~~
+
+Write an Excel spreadsheet from records. A Parquet file is written the same way, with a schema that gives the type of
+each column, see [Parquet files](formats#parquet-files):
 
 ~~~ruby
 IOStreams.path("report.xlsx").writer(:hash) do |io|
@@ -120,42 +145,89 @@ IOStreams.path("report.xlsx").writer(:hash) do |io|
 end
 ~~~
 
-Rescue a missing file the same way wherever it is stored:
+Rescue a missing file the same way wherever it is stored, so that the path can come from configuration:
 
 ~~~ruby
 begin
-  IOStreams.path(ENV.fetch("UPLOAD_PATH")).each(:hash) { |record| p record }
+  IOStreams.path("missing.csv").each(:hash) { |record| p record }
 rescue IOStreams::Errors::NotFound => e
   puts "Nothing to process: #{e.message}"
 end
+# Nothing to process: No such file or directory @ rb_sysopen - missing.csv
 ~~~
+
+## How it works
+
+* A **path** names a file and the store that holds it, such as `IOStreams.path("s3://my-bucket/people.csv.gz")`.
+  `IOStreams.stream(io)` reads or writes an IO that you already have, such as a `StringIO`, the same way. See
+  [Paths](path).
+* Each extension at the end of the file name, such as `.gz` or `.pgp`, names a **stream** that the data passes
+  through, a block at a time. In order, they are the **pipeline** of the path: reading `people.csv.gz.pgp` decrypts the
+  data and then decompresses it, and writing it compresses the data and then encrypts it. See
+  [Streams from the file name](streams#streams-from-the-file-name).
+* The **tabular format** of the file, such as `.csv`, `.json` or `.xlsx`, says how its rows and records are stored.
+  See [Tabular formats](formats).
+* The **mode** says what your code reads or writes: blocks of bytes (`:stream`), lines of text (`:line`), **rows**,
+  each an Array of the values of a line (`:array`), or **records**, each a Hash of those values by column name
+  (`:hash`). For a CSV file, the names of the columns come from its **header row**, its first line. See
+  [Reading and writing](streams).
+* A **schema** names the columns of a file, gives the type of each one, such as a `Date`, and says which columns a
+  file can have. See [Schema](formats#schema).
+
+## Common tasks
+
+* **Read a CSV, JSON or Excel file a record at a time:**
+  `IOStreams.path("people.csv").each(:hash) { |record| p record }`, see [Reading](streams#reading).
+* **Write a file compressed with gzip:** `IOStreams.path("people.csv.gz").writer(:hash) { |io| io << record }`, see
+  [gzip](extensions#gzip).
+* **Convert CSV to JSON:** `IOStreams.path("people.json").copy_from("people.csv", mode: :hash)`, see
+  [Converting rows and records](copy_files#converting-rows-and-records).
+* **Upload a file to S3:** `IOStreams.path("s3://my-bucket/people.csv").copy_from("people.csv")`, see
+  [Copying and moving](copy_files).
+* **Encrypt a file with PGP:**
+  `IOStreams.path("people.csv.pgp").option(:pgp, recipient: "partner@example.org").copy_from("people.csv")`, see
+  [PGP](pgp).
+* **Decrypt a PGP file:** `IOStreams.path("people.csv.pgp").option(:pgp, passphrase: ENV.fetch("PGP_PASSPHRASE")).read`,
+  see [PGP](pgp).
+* **Read numbers and dates as their types, and skip the other columns:**
+  `path.schema(fieldsMatch: "partial", fields: [{name: "born", type: "date"}])`, see [Schema](formats#schema).
+* **Read a Windows-1252 file as UTF-8:** `path.encoding("Windows-1252:UTF-8")`, see
+  [Character encoding](streams#character-encoding).
+* **List the CSV files in a directory or bucket:**
+  `IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }`, see
+  [Listing files](path#listing-files).
+* **Keep the location of the files in configuration:** `IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))` at
+  startup, then `IOStreams.join("people.csv")`, see [Configuration](config#add_root).
+* **Handle a missing file wherever it is stored:** `rescue IOStreams::Errors::NotFound`, see [Errors](errors).
+* **Keep untrusted file names within a directory:** `IOStreams.add_allowed_path("/var/my_app/uploads")`, see
+  [Security](security#allowed-paths).
 
 ## What IOStreams supports
 
 | Storage | Url |
 |---------|-----|
-| Local files | `/data/file.csv`, `~/data/file.csv`, `file:///data/file.csv` |
-| AWS S3, and S3 compatible stores | `s3://bucket/key` |
-| SFTP | `sftp://host/path`, `sftp://host/~/path` within the login directory |
-| HTTP and HTTPS | `https://host/path`, read with GET and written with PUT |
+| [Local files](path#file) | `/data/file.csv`, `~/data/file.csv`, `file:///data/file.csv` |
+| [AWS S3](path#aws-s3-s3), and S3 compatible stores | `s3://bucket/key` |
+| [SFTP](path#sftp-sftp) | `sftp://host/path`, `sftp://host/~/path` within the login directory |
+| [HTTP and HTTPS](path#http-http-https) | `https://host/path`, read with GET and written with PUT |
 
 | Tabular format | Extension | Read | Write |
 |----------------|-----------|------|-------|
-| CSV | `.csv` | yes | yes |
-| Pipe separated values | `.psv` | yes | yes |
-| JSON Lines, one JSON object on each line | `.json` | yes | yes |
-| Fixed width | `.fixed`, or `format(:fixed)` | yes | yes |
-| Excel spreadsheet | `.xlsx`, `.xlsm` | yes | yes |
-| Apache Parquet | `.parquet` | yes | yes |
+| [CSV](formats#csv-and-psv-files) | `.csv` | yes | yes |
+| [Pipe separated values](formats#csv-and-psv-files) | `.psv` | yes | yes |
+| [JSON Lines](formats#json-files), one JSON object on each line | `.json` | yes | yes |
+| [Fixed width](formats#fixed-width-files) | `.fixed`, or `format(:fixed)` | yes | yes |
+| [Excel spreadsheet](formats#excel-spreadsheets) | `.xlsx`, `.xlsm` | yes | yes |
+| [Apache Parquet](formats#parquet-files) | `.parquet` | yes | yes |
 
 | Compression and encryption | Extension |
 |----------------------------|-----------|
-| gzip | `.gz`, `.gzip` |
-| bzip2 | `.bz2` |
-| Zip | `.zip` |
-| Zstandard | `.zst` |
-| PGP, with GnuPG | `.pgp`, `.gpg` |
-| [Symmetric Encryption](https://encryption.reidmorrison.com/) | `.enc` |
+| [gzip](extensions#gzip) | `.gz`, `.gzip` |
+| [bzip2](extensions#bzip2) | `.bz2` |
+| [Zip](extensions#zip) | `.zip` |
+| [Zstandard](extensions#zstandard) | `.zst` |
+| [PGP](pgp), with GnuPG | `.pgp`, `.gpg` |
+| [Symmetric Encryption](extensions#symmetric-encryption) | `.enc` |
 
 ## Installation
 
@@ -186,10 +258,16 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 ## Next steps
 
 * The [tutorial](tutorial) walks through reading and writing files, step by step.
-* [Paths](path) explains where files can be stored, and the operations on a path.
-* [Reading and writing](streams) explains lines, rows, records and text encodings.
-* [Tabular formats](formats) explains CSV, JSON, fixed width and Parquet files, and schemas.
-* [Upgrading](upgrading) lists what changed in v3.0, and what to check when upgrading.
+* [Reading and writing](streams): lines, rows, records and text encodings.
+* [Tabular formats](formats): CSV, JSON, Excel, fixed width and Parquet files, and schemas.
+* [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
+* [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
+* [Copying and moving](copy_files): copying files between stores, and converting them on the way.
+* [Errors](errors): rescuing a missing file the same way wherever it is stored.
+* [PGP](pgp): encrypting, decrypting, signing and verifying files, and managing keys.
+* [Configuration](config): roots, temp files and logging.
+* [Security](security): allowed paths, untrusted urls and credentials.
+* [Upgrading](upgrading): what changed in v3.0, for applications that use an earlier version.
 
 ---
 
@@ -215,6 +293,9 @@ Install the gem:
 ~~~
 gem install iostreams
 ~~~
+
+In an application, add `gem "iostreams"` to its Gemfile instead, with the gems of the features that it uses, see
+[Installation](index.html#installation).
 
 To follow the S3 steps below, also install the AWS SDK, and configure its credentials as described in
 [Configuring the AWS SDK for Ruby](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html):
@@ -331,6 +412,10 @@ Output:
 {"name" => "Jill Smith", "login" => "jsmith"}
 ~~~
 
+`:line`, `:array` and `:hash` are the **modes** of `#each`, which say what your code reads: a line is a String, a
+**row** an Array of the values of a line, and a **record** a Hash of those values, keyed by the names in the header
+row. `#writer` takes the same modes. See [Reading and writing](streams).
+
 As the file grows to millions of rows, this code does not change, and its memory use stays about the same, since the
 file is read, decompressed and parsed one block at a time.
 
@@ -367,7 +452,9 @@ with `each(:hash)` returns the same records.
 ## Describe the file with a schema
 
 Every value of a CSV file is text. A [schema](formats#schema) gives each column a name and a type, so that reading
-returns each value as its type, and writing writes each value in the text form of its type:
+returns each value as its type, and writing writes each value in the text form of its type. A `number` field, such
+as `salary` below, needs the `bigdecimal` gem: with Bundler on Ruby 3.4 or later, add `gem "bigdecimal"` to the
+Gemfile, since it is a bundled gem.
 
 ~~~ruby
 path = IOStreams.path("sample/people.csv").schema(
@@ -388,8 +475,6 @@ path.read
 path.each(:hash) { |person| p person }
 # => {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
 ~~~
-
-A `number` field needs the `bigdecimal` gem, so `require "bigdecimal"` first.
 
 The schema also checks the columns of the file, so that a file with other columns raises
 `IOStreams::Errors::InvalidHeader`, rather than being read wrongly. A schema can accept extra columns, match columns
@@ -423,7 +508,9 @@ end
 ~~~
 
 Use them with a plain file, a compressed file, and a file encrypted with PGP. A PGP file needs the recipient that can
-decrypt it, so set its option on the path, and pass the path to the method:
+decrypt it, so set its option on the path, and pass the path to the method. The PGP lines need GnuPG and a key for
+`receiver@example.org`, which [Create the keys](pgp#create-the-keys) in the PGP tutorial creates. Without them, skip
+the PGP lines.
 
 ~~~ruby
 write_lines("sample/example.csv")
@@ -446,8 +533,6 @@ methods do not need to know about PGP at all. Each file displays the same lines:
 [3] Jill Smith,jsmith
 ~~~
 
-The PGP steps need GnuPG, and a key for `receiver@example.org`. See [PGP](pgp) to create one.
-
 ## Same code, any storage
 
 The same unchanged methods read and write files on S3, by prefixing the names with the bucket:
@@ -462,7 +547,9 @@ show_lines("s3://my-iostreams-bucket/sample/example.csv.gz")
 
 They also work with SFTP, `sftp://host/path`, and HTTP, `https://host/path`. S3 objects and HTTP files are read as
 the code reads them, and S3 objects are uploaded as they are written, so a large file never has to fit in memory or on
-local disk.
+local disk. A zip file or a spreadsheet is the exception: one stored elsewhere is copied into a temp file first, since
+it is read from a local file, so prefer gzip or Zstandard for large files, see
+[When temp files are used](config#when-temp-files-are-used).
 
 ### Configure storage once, not in every call
 
@@ -535,29 +622,16 @@ IOStreams.path("sample/people.json").copy_from("sample/example.csv.gz", mode: :h
 
 See [Copying and moving](copy_files).
 
-## Files that must be on local disk
-
-A few formats can only be read from a local file, since they are not read from start to end. A zip file lists its
-contents at its end, so reading one from S3 or a web server first copies it into a temp file, for example:
-
-~~~ruby
-IOStreams.path("https://example.com/files/offices.zip").
-  option(:zip, entry_file_name: "OFFICES.CSV").
-  each(:hash) do |office|
-    p office
-    break
-  end
-~~~
-
-Gzip and Zstandard compressed files are read without a temp file, so prefer them for large files. See
-[When temp files are used](config#when-temp-files-are-used).
-
 ## Next steps
 
-* [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
-* [Reading and writing](streams): every way to read and write a path.
+* [Reading and writing](streams): every way to read and write a path, and text encodings.
 * [Tabular formats](formats): CSV, JSON, fixed width, Excel and Parquet, and schemas.
-* [PGP](pgp): encrypting, decrypting and signing files with PGP.
+* [Compression and encryption](extensions): the options of each stream.
+* [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
+* [Copying and moving](copy_files): copying files between stores, and converting them on the way.
+* [Errors](errors): rescuing failures the same way wherever a file is stored.
+* [PGP](pgp): encrypting, decrypting and signing files with PGP, and managing keys.
+* [Configuration](config) and [Security](security): roots, temp files, logging and allowed paths.
 
 ---
 
@@ -636,29 +710,6 @@ can, it gives a name the meaning that it has in the others: `~/exports` is withi
 store, use the methods of the path, rather than passing `#to_s` to `File` or `Dir`, which only work with local files,
 and rescue the kind of failure, such as `IOStreams::Errors::NotFound`, rather than the exception of one store, see
 [Errors](errors). See [Paths are configuration](config#paths-are-configuration).
-
-### Paths are copied, not shared
-
-`IOStreams.path` returns a copy of a path that is supplied on its own, with its arguments, streams and options, so that
-changing the copy, for example with `#option`, does not change the original:
-
-~~~ruby
-path = IOStreams.path("example.csv.pgp")
-copy = IOStreams.path(path).option(:pgp, passphrase: "secret")
-
-path.setting(:pgp)
-# => nil
-
-copy == path
-# => true
-~~~
-
-The copy is equal to the original, see [Comparing paths](#comparing-paths), but it is a different object.
-`IOStreams.stream` returns a copy of a stream the same way, `IOStreams.root` and `IOStreams.roots` return copies of
-the root paths, and `IOStreams.join` and `#join` without any elements return a copy of the root or the path. Each copy
-of an S3 or SFTP path holds its own copy of its request options or ssh options, so that changing them, such as
-`copy.options[:acl] = "private"`, does not change the original. A root path is frozen, so that it cannot be changed
-for the whole process, see [Using root paths](#using-root-paths).
 
 ## Local files {#file}
 
@@ -746,6 +797,17 @@ An `s3://` url names an object, by its bucket and its key:
 
 ~~~ruby
 path = IOStreams.path("s3://my-bucket/exports/daily.csv")
+~~~
+
+Read it, write it and list it like any other path. The AWS SDK finds the credentials and the region, such as in its
+environment variables or credential files, or from the instance profile, unless they are supplied as
+[arguments](#optional-arguments-1):
+
+~~~ruby
+path.write("name,login\nJack Jones,jjones\n")
+path.each(:hash) { |record| p record }
+
+IOStreams.path("s3://my-bucket/exports").each_child("*.csv") { |child| puts child }
 ~~~
 
 S3 needs the `aws-sdk-s3` gem, which IOStreams loads when it is first needed. So a process without the gem, such as a
@@ -1439,6 +1501,29 @@ starts its query. A pattern without a directory, such as `*.csv`, lists the curr
 
 ## Joining and comparing
 
+### Paths are copied, not shared
+
+`IOStreams.path` returns a copy of a path that is supplied on its own, with its arguments, streams and options, so that
+changing the copy, for example with `#option`, does not change the original:
+
+~~~ruby
+path = IOStreams.path("example.csv.pgp")
+copy = IOStreams.path(path).option(:pgp, passphrase: "secret")
+
+path.setting(:pgp)
+# => nil
+
+copy == path
+# => true
+~~~
+
+The copy is equal to the original, see [Comparing paths](#comparing-paths), but it is a different object.
+`IOStreams.stream` returns a copy of a stream the same way, `IOStreams.root` and `IOStreams.roots` return copies of
+the root paths, and `IOStreams.join` and `#join` without any elements return a copy of the root or the path. Each copy
+of an S3 or SFTP path holds its own copy of its request options or ssh options, so that changing them, such as
+`copy.options[:acl] = "private"`, does not change the original. A root path is frozen, so that it cannot be changed
+for the whole process, see [Using root paths](#using-root-paths).
+
 ### Joining paths
 
 `#join` returns a new path with the elements joined to the path, in the same store, and `/` joins one element:
@@ -1562,26 +1647,6 @@ IOStreams.path("/var/exports/daily.csv").to_s == "/var/exports/daily.csv"
 
 `#move_to` also detects other spellings of the same location, see [Operations on the store](#operations-on-the-store).
 
-### Coming from Pathname
-
-IOStreams paths are modeled on Ruby's `Pathname`, and most methods with the same name do the same thing. These are the
-differences, each of which keeps a path working the same way wherever the file is stored:
-
-| Pathname | IOStreams | Why |
-|----------|-----------|-----|
-| `Pathname("/a").join("/b")` is `/b` | `IOStreams.path("/a").join("/b")` is `/a/b`, and so is `IOStreams.path("/a") / "/b"` | An absolute name, such as one from configuration, is joined to the path, such as a root, rather than replacing it. A name can still leave the path with `..`, so restrict untrusted names with [allowed paths](#restricting-access-with-allowed-paths) |
-| `join("..")` returns the parent | `join("..")` keeps `..`; use `cleanpath` or `directory` | Joining never accesses or resolves anything |
-| `Pathname("a/b").join("a/b/c")` is `a/b/a/b/c` | `IOStreams.path("a/b").join("a/b/c")` is `a/b/c` | An element that is already within the path is used as it is, so a name that includes its root is not doubled |
-| `mkpath` creates the whole path | `mkpath` creates the directories of a file, and `mkdir` creates the whole path | A path usually names a file, and writing a local file creates its directories anyway |
-| `children` and `each_child` list every entry | `children("*.csv")` and `each_child` take a pattern like `glob`, skip directories and hidden files, and ignore case by default | The same pattern lists local, S3 and SFTP paths |
-| `children` raises for a missing directory | Returns nothing for a missing path, or a file | S3 has no directories that could be missing |
-| `delete` raises for a missing file | Does nothing, and returns the path | The same on every store, where checking first would be a separate request |
-| `basename`, `dirname` and `relative_path_from` return a `Pathname` | They return a String; `directory` returns the directory as a path | A name on its own has no store; `basename` uses `file_name` when it is set |
-| `read(length, offset)` | `read(length)` reads bytes from the start, after any decompression or decryption | A compressed or encrypted stream cannot seek |
-| `each_line` without a block returns an Enumerator | `each` requires a block | The file, any temp file and any gpg process are closed when the block returns |
-| Paths sort with `/` first | Paths sort by their full name, spelled as `==` compares it, see [Comparing paths](#comparing-paths) | Names include the scheme, bucket or host |
-| `to_path`, so `File.exist?(pathname)` works | No `to_path`; use the methods of the path, such as `exist?` and `reader` | `File` and `Dir` only work with local files, so code that passes a path to them breaks when the configured path moves to S3 or SFTP |
-
 ## Using root paths
 
 A root path names a location once, at startup, such as the directory or bucket that an application writes its exports
@@ -1663,6 +1728,26 @@ IOStreams.path("/etc/passwd").allowed?
 
 See [Allowed paths](security#allowed-paths) for how the paths of each store are compared with them.
 
+## Coming from Pathname
+
+IOStreams paths are modeled on Ruby's `Pathname`, and most methods with the same name do the same thing. These are the
+differences, each of which keeps a path working the same way wherever the file is stored:
+
+| Pathname | IOStreams | Why |
+|----------|-----------|-----|
+| `Pathname("/a").join("/b")` is `/b` | `IOStreams.path("/a").join("/b")` is `/a/b`, and so is `IOStreams.path("/a") / "/b"` | An absolute name, such as one from configuration, is joined to the path, such as a root, rather than replacing it. A name can still leave the path with `..`, so restrict untrusted names with [allowed paths](#restricting-access-with-allowed-paths) |
+| `join("..")` returns the parent | `join("..")` keeps `..`; use `cleanpath` or `directory` | Joining never accesses or resolves anything |
+| `Pathname("a/b").join("a/b/c")` is `a/b/a/b/c` | `IOStreams.path("a/b").join("a/b/c")` is `a/b/c` | An element that is already within the path is used as it is, so a name that includes its root is not doubled |
+| `mkpath` creates the whole path | `mkpath` creates the directories of a file, and `mkdir` creates the whole path | A path usually names a file, and writing a local file creates its directories anyway |
+| `children` and `each_child` list every entry | `children("*.csv")` and `each_child` take a pattern like `glob`, skip directories and hidden files, and ignore case by default | The same pattern lists local, S3 and SFTP paths |
+| `children` raises for a missing directory | Returns nothing for a missing path, or a file | S3 has no directories that could be missing |
+| `delete` raises for a missing file | Does nothing, and returns the path | The same on every store, where checking first would be a separate request |
+| `basename`, `dirname` and `relative_path_from` return a `Pathname` | They return a String; `directory` returns the directory as a path | A name on its own has no store; `basename` uses `file_name` when it is set |
+| `read(length, offset)` | `read(length)` reads bytes from the start, after any decompression or decryption | A compressed or encrypted stream cannot seek |
+| `each_line` without a block returns an Enumerator | `each` requires a block | The file, any temp file and any gpg process are closed when the block returns |
+| Paths sort with `/` first | Paths sort by their full name, spelled as `==` compares it, see [Comparing paths](#comparing-paths) | Names include the scheme, bucket or host |
+| `to_path`, so `File.exist?(pathname)` works | No `to_path`; use the methods of the path, such as `exist?` and `reader` | `File` and `Dir` only work with local files, so code that passes a path to them breaks when the configured path moves to S3 or SFTP |
+
 ---
 
 # Reading and Writing
@@ -1679,7 +1764,9 @@ reads or writes:
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
-lines, see [Tabular formats](formats).
+lines, see [Tabular formats](formats). The extensions of the file name also say how the file is compressed or
+encrypted, which IOStreams applies as the data is read or written, see
+[Streams from the file name](#streams-from-the-file-name).
 
 ## Reading
 
@@ -1710,11 +1797,7 @@ IOStreams.path("example.csv").reader do |io|
 end
 ~~~
 
-`#reader` and `#writer` return the result of the block. Within the block, an S3 object or an HTTP response is read as
-the block reads it, so the IO is not a `File`. Like the IO of every stream, such as of a `.gz` file, it has the methods
-of an IO that read, such as `#read`, `#gets` and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`,
-reads it, but not `#rewind`, `#pos`, `#size` or `#path`. Where the code needs a `File`, copy the file to a local file
-first, see [Copying and moving](copy_files).
+`#reader` and `#writer` return the result of the block.
 
 `#read` returns the whole file, which is only suitable for a small one, since all of it is held in memory:
 
@@ -1722,6 +1805,11 @@ first, see [Copying and moving](copy_files).
 IOStreams.path("example.csv.gz").read
 # => "name,login\nJack Jones,jjones\n"
 ~~~
+
+Within a `#reader` block, an S3 object or an HTTP response is read as the block reads it, so the IO is not a `File`.
+Like the IO of every stream, such as of a `.gz` file, it has the methods of an IO that read, such as `#read`, `#gets`
+and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`, reads it, but not `#rewind`, `#pos`, `#size`
+or `#path`. Where the code needs a `File`, copy the file to a local file first, see [Copying and moving](copy_files).
 
 ## Writing
 
@@ -1833,9 +1921,9 @@ end
 
 With just one encoding, such as `encoding("Windows-1252")`, the strings read are in that encoding, rather than
 converted to UTF-8, and cannot be combined with UTF-8 text. `encoding("BINARY")` reads lines, rows and records as
-binary strings, as IOStreams did before v3.0.
+binary strings.
 
-`#encoding` also takes the other options of the encode stream, which converts the text:
+`#encoding` also takes these options, which change how the text is converted:
 
 * `replace:` replaces each character that is not valid, or that the target encoding does not have, rather than raising,
   such as `encoding("UTF-8", replace: "?")`. With `replace: ""` such characters are removed.
@@ -1916,11 +2004,15 @@ any code, including `#copy_from` and `#copy_to`.
 IOStreams checks where each setting is supplied:
 
 * A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
-  `file_name:`, `schema:`, `format_options:` and `default_format:`.
+  `file_name:` and `schema:`.
 * An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
   `#writer`, rather than being ignored.
 * Any other option that the mode does not take, such as a misspelled `delimitr:`, raises `ArgumentError` before the
-  file is opened, naming the mode and listing the options that it takes.
+  file is opened, naming the mode and listing the options that it takes, other than those that are deprecated:
+
+  ~~~
+  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size.
+  ~~~
 * `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
   raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set what
   describes the source, such as its schema, on its path.
@@ -1981,10 +2073,10 @@ configured path names:
 IOStreams.path(ENV.fetch("IMPORT_PATH")).option(:pgp, passphrase: "receiver_passphrase").read
 ~~~
 
-An option for a format applies to each of its extensions, so `option(:pgp, ...)` also applies to a `.gpg` file,
+An option for a stream applies to each of its extensions, so `option(:pgp, ...)` also applies to a `.gpg` file,
 `option(:gz, ...)` to a `.gzip` file, and `option(:xlsx, ...)` to a `.xlsm` file. So a file name held in configuration
 can change from one extension to the other without changing the code. When options are set for more than one
-extension of a format, those for the extension in the file name take precedence.
+extension of a stream, those for the extension in the file name take precedence.
 
 `#setting` returns the options set for a stream:
 
@@ -2081,15 +2173,14 @@ tabular format:
 
 | Format | File name | Each row is |
 |--------|-----------|-------------|
-| `:csv` | `.csv` | Comma separated values, quoted as needed. The default |
-| `:psv` | `.psv` | Pipe separated values, without quoting |
-| `:json` | `.json` | A JSON object on its own line, also called JSON Lines |
+| `:csv` | `.csv` | Comma separated values, quoted as needed. The default, see [CSV and PSV files](#csv-and-psv-files) |
+| `:psv` | `.psv` | Pipe separated values, without quoting, see [CSV and PSV files](#csv-and-psv-files) |
+| `:json` | `.json` | A JSON object on its own line, also called JSON Lines, see [JSON files](#json-files) |
 | `:fixed` | `.fixed`, or `format(:fixed)` | Fields at fixed positions in the line, see [Fixed width files](#fixed-width-files) |
 | `:parquet` | `.parquet` | A row of an Apache Parquet file, which has no lines, see [Parquet files](#parquet-files) |
 
 A spreadsheet, `.xlsx` or `.xlsm`, is read and written as CSV, one line for each row of its worksheet, see
-[Excel spreadsheets](#excel-spreadsheets). Two more formats, `:array` and `:hash`, are for rows and records that are
-already Ruby objects rather than text, such as those that another library passes, so they are not used for files.
+[Excel spreadsheets](#excel-spreadsheets).
 
 ## How the format is chosen {#format-inference}
 
@@ -2117,7 +2208,8 @@ IOStreams.path(ENV.fetch("PEOPLE_PATH")).format(ENV.fetch("PEOPLE_FORMAT", "csv"
 ~~~
 
 The format describes the file, so it is set on the path, rather than supplied to each call of `#each`, `#reader` or
-`#writer`, which raises `ArgumentError` for `format:`. `#format` without an argument returns the format of the path.
+`#writer`, which raises `ArgumentError` for `format:`. `#format` without an argument returns the format of the path,
+or nil when neither the file name nor `#format` names one, and the file is read as CSV.
 
 ## Records and rows without a schema
 
@@ -2136,15 +2228,135 @@ Without a [schema](#schema), every value is read as text, and written as its tex
   the key of each value of the rows after it.
 * A blank line is yielded as `nil`.
 
-A schema names the columns, gives each its type, and says which columns a file can have and must have, so that the
-keys no longer depend on how the cleansing changes a column, such as `Amount ($)` and `Amount (€)`, which both cleanse
-to `amount_`.
+## CSV and PSV files
+
+CSV values are quoted when they hold a comma, a quote or a line break, so a quoted value can hold a line break, which
+stays within its row, see [Lines](streams#lines). `each(:array)` and `each(:hash)` read CSV a line at a time, and
+parse each line directly, which is several times faster than `CSV.parse_line`, while giving the same values.
+
+PSV separates values with `|`, and has no quoting, so it is simpler and a little faster to parse. Since a value cannot
+hold a `|` or a line break, writing PSV replaces a `|` within a value with `:`, and a line break with a space, so that a
+value cannot add columns or records:
+
+~~~ruby
+IOStreams.path("example.psv").writer(:hash) do |io|
+  io << {"name" => "Jack", "note" => "a|b\nc"}
+end
+
+IOStreams.path("example.psv").read
+# => "name|note\nJack|a:b c\n"
+~~~
+
+In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String.
+
+## JSON files
+
+A JSON file holds one JSON object on each line, the format called JSON Lines, so that it can be read a record at a
+time. A file that holds one JSON array of every record is not supported, since it would have to be read whole.
+
+Each record is read with its own keys, as they are in the file, and its values keep their JSON types: a number is an
+Integer or a Float, and `true`, `false` and `null` are `true`, `false` and `nil`. A line that is not an object, such
+as `[1, 2]`, raises `IOStreams::Errors::TypeMismatch`, and a line of `null` or `{}` is read as `nil`, like a blank
+line. Writing writes each record as a JSON object, with a `BigDecimal`, `Date` or `Time` as its usual text, see
+[Values without a field](#values-without-a-field).
+
+A JSON file has no header row, so the first row that `each(:array)` yields is a header row of the keys of its first
+record, and each row after it holds the values of a record in that order, `nil` for a key that it does not have:
+
+~~~ruby
+# people.json holds:
+# {"name":"Jack","age":21}
+# {"name":"Jill"}
+IOStreams.path("people.json").each(:array) { |row| p row }
+# ["name", "age"]
+# ["Jack", 21]
+# ["Jill", nil]
+~~~
+
+A record with a key that the first record does not have raises `IOStreams::Errors::InvalidHeader`, since no row has a
+column for it, so read records whose keys vary with `each(:hash)`, or describe them with a [schema](#schema) whose
+[`fieldsMatch`](#fieldsmatch) is `"superset"`. With a schema, each row is the values of its fields, in order, without
+a header row.
+`writer(:array)` takes the first row written as the header row, which names the key of each value of the rows after
+it, without a line of its own, so that the rows read can be written again, or copied into another format, see
+[Copying and moving](copy_files):
+
+~~~ruby
+IOStreams.path("people.json").writer(:array) do |io|
+  io << ["name", "age"]
+  io << ["Jack", 21]
+end
+
+IOStreams.path("people.json").read
+# => "{\"name\":\"Jack\",\"age\":21}\n"
+~~~
+
+## Excel spreadsheets
+
+A spreadsheet is read as CSV, one line for each row of its first worksheet, so the `:line`, `:array` and `:hash` modes
+apply, and a [schema](#schema) can give the type of each column:
+
+~~~ruby
+IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
+  p record
+end
+~~~
+
+Each cell is read as its text: a date as `2026-01-02`, a time as its time of day in UTC, such as
+`2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, and a number as Excel stores it, as a decimal,
+such as `1.0` or `12.5`, which an `integer` field reads as `1`. A date in a custom number format, such as one written
+with `auto_format: true`, reads as a time, such as `2026-01-02T00:00:00Z`, which a `date` field does not read: only
+Excel's built-in date formats read as a date. Reading needs the `creek` gem.
+
+Writing writes the CSV text of each row into the cells of a workbook with one worksheet, with the `xlsxtream` gem:
+
+~~~ruby
+IOStreams.path("report.xlsx").writer(:hash) do |io|
+  io << {"name" => "Jack", "zip" => "01234"}
+  io << {"name" => "Jill", "zip" => "98101"}
+end
+~~~
+
+Every cell is written as text by default, so that reading the spreadsheet returns the same values, such as the leading
+zero of `"01234"`, with these exceptions:
+
+* Empty cells at the end of a row are not stored, so they read back as missing values, which are nil, as for CSV.
+* A row of only empty cells reads back as an empty line, which `each(:array)` and `each(:hash)` yield as nil.
+* A carriage return within a value reads back as a newline, since XML reads a line break within text as a newline.
+
+The writer accepts these options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
+| `auto_format` | `false` | Write values that look like numbers, dates, times or booleans, such as `"1.5"`, `"2026-10-09"` or `"true"`, as Excel numbers, dates and booleans. Such values may then read back differently, such as `"01234"` as `"1234.0"`. |
+| `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
+
+~~~ruby
+IOStreams.path("report.xlsx").option(:xlsx, sheet_name: "Totals", auto_format: true).writer(:array) do |io|
+  io << ["region", "total"]
+  io << ["West", 1250.75]
+end
+~~~
+
+Notes:
+
+* Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
+  since it always reads the first worksheet.
+* Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
+  file first, and its rows are converted into CSV in a second temp file, since the `creek` gem returns them to a
+  block. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
+* On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
+  with `use_shared_strings: true`, as Excel does.
 
 ## Schema
 
 A schema gives the fields of the rows and records of a file, and the type of each one, so that reading them returns
 each value as its type, such as an `Integer` or a `Date`, rather than as text, and writing them writes each value in
 the text form of its type. It applies to every format, and gives the position of each field of a fixed width file.
+Its fields name the keys of the records read, and say which columns a file can have and must have, so that the keys
+do not depend on how cleansing changes a column, such as `Amount ($)` and `Amount (€)`, which both cleanse to
+`amount_`.
 
 A schema is a [Frictionless Table Schema](https://datapackage.org/standard/table-schema/), set on the path with
 `#schema`, either as a Hash:
@@ -2241,10 +2453,10 @@ Each column of the header row, or key of a JSON record, is matched to the field:
    punctuation, and with the forms of a character that Unicode treats as the same made the same. So the field
    `first_name` matches the columns `First Name`, `FIRST.NAME` and `firstname`, the field `email` matches `E-mail`,
    and `id` matches the full width `ＩＤ` that some spreadsheets have.
-4. Whose name or alias is the same as the column once both are cleansed as `cleanse_header` cleansed a header row, and
-   then compared the same way. Cleansing drops the characters that Unicode otherwise makes digits, such as `²`, `½`
-   and `①`, so that a field named as `cleanse_header` named its column, such as `area_m` for `Area (m²)`, matches
-   it, as `area_m2` does.
+4. Whose name or alias is the same as the column once both are cleansed as a header row is cleansed without a
+   schema, see [Records and rows without a schema](#records-and-rows-without-a-schema), and then compared the same
+   way. Cleansing drops the characters that Unicode otherwise makes digits, such as `²`, `½` and `①`, so that a
+   field named as the cleansed column, such as `area_m` for `Area (m²)`, matches it, as `area_m2` does.
 
 The columns are matched once, when the header row is read, or once for each set of keys of the JSON records, which
 are usually the same for every record, rather than for each value.
@@ -2399,126 +2611,6 @@ JSON writes a `BigDecimal`, `Date` or `Time` as that text, within an object or a
 keeps all of its digits, and writes every other value as itself, such as a number or `true`. The `:hash` and `:array`
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
-
-## CSV and PSV files
-
-CSV values are quoted when they hold a comma, a quote or a line break, so a quoted value can hold a line break, which
-stays within its row, see [Lines](streams#lines). `each(:array)` and `each(:hash)` read CSV a line at a time, and
-parse each line directly, which is several times faster than `CSV.parse_line`, while giving the same values.
-
-PSV separates values with `|`, and has no quoting, so it is simpler and a little faster to parse. Since a value cannot
-hold a `|` or a line break, writing PSV replaces a `|` within a value with `:`, and a line break with a space, so that a
-value cannot add columns or records:
-
-~~~ruby
-IOStreams.path("example.psv").writer(:hash) do |io|
-  io << {"name" => "Jack", "note" => "a|b\nc"}
-end
-
-IOStreams.path("example.psv").read
-# => "name|note\nJack|a:b c\n"
-~~~
-
-In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String.
-
-## JSON files
-
-A JSON file holds one JSON object on each line, the format called JSON Lines, so that it can be read a record at a
-time. A file that holds one JSON array of every record is not supported, since it would have to be read whole.
-
-Each record is read with its own keys, as they are in the file, and its values keep their JSON types: a number is an
-Integer or a Float, and `true`, `false` and `null` are `true`, `false` and `nil`. A line that is not an object, such
-as `[1, 2]`, raises `IOStreams::Errors::TypeMismatch`, and a line of `null` or `{}` is read as `nil`, like a blank
-line. Writing writes each record as a JSON object, with a `BigDecimal`, `Date` or `Time` as its usual text, see
-[Values without a field](#values-without-a-field).
-
-A JSON file has no header row, so the first row that `each(:array)` yields is a header row of the keys of its first
-record, and each row after it holds the values of a record in that order, `nil` for a key that it does not have:
-
-~~~ruby
-# people.json holds:
-# {"name":"Jack","age":21}
-# {"name":"Jill"}
-IOStreams.path("people.json").each(:array) { |row| p row }
-# ["name", "age"]
-# ["Jack", 21]
-# ["Jill", nil]
-~~~
-
-A record with a key that the first record does not have raises `IOStreams::Errors::InvalidHeader`, since no row has a
-column for it, so read records whose keys vary with `each(:hash)`, or describe them with a schema whose
-`fieldsMatch` is `"superset"`. With a schema, each row is the values of its fields, in order, without a header row.
-`writer(:array)` takes the first row written as the header row, which names the key of each value of the rows after
-it, without a line of its own, so that the rows read can be written again, or copied into another format, see
-[Copying and moving](copy_files):
-
-~~~ruby
-IOStreams.path("people.json").writer(:array) do |io|
-  io << ["name", "age"]
-  io << ["Jack", 21]
-end
-
-IOStreams.path("people.json").read
-# => "{\"name\":\"Jack\",\"age\":21}\n"
-~~~
-
-## Excel spreadsheets
-
-A spreadsheet is read as CSV, one line for each row of its first worksheet, so the `:line`, `:array` and `:hash` modes
-apply, and a schema can give the type of each column:
-
-~~~ruby
-IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
-  p record
-end
-~~~
-
-Each cell is read as its text: a date as `2026-01-02`, a time as its time of day in UTC, such as
-`2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, and a number as Excel stores it, as a decimal,
-such as `1.0` or `12.5`, which an `integer` field reads as `1`. A date in a custom number format, such as one written
-with `auto_format: true`, reads as a time, such as `2026-01-02T00:00:00Z`, which a `date` field does not read: only
-Excel's built-in date formats read as a date. Reading needs the `creek` gem.
-
-Writing writes the CSV text of each row into the cells of a workbook with one worksheet, with the `xlsxtream` gem:
-
-~~~ruby
-IOStreams.path("report.xlsx").writer(:hash) do |io|
-  io << {"name" => "Jack", "zip" => "01234"}
-  io << {"name" => "Jill", "zip" => "98101"}
-end
-~~~
-
-Every cell is written as text by default, so that reading the spreadsheet returns the same values, such as the leading
-zero of `"01234"`, with these exceptions:
-
-* Empty cells at the end of a row are not stored, so they read back as missing values, which are nil, as for CSV.
-* A row of only empty cells reads back as an empty line, which `each(:array)` and `each(:hash)` yield as nil.
-* A carriage return within a value reads back as a newline, since XML reads a line break within text as a newline.
-
-The writer accepts these options:
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
-| `auto_format` | `false` | Write values that look like numbers, dates, times or booleans, such as `"1.5"`, `"2026-10-09"` or `"true"`, as Excel numbers, dates and booleans. Such values may then read back differently, such as `"01234"` as `"1234.0"`. |
-| `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
-
-~~~ruby
-IOStreams.path("report.xlsx").option(:xlsx, sheet_name: "Totals", auto_format: true).writer(:array) do |io|
-  io << ["region", "total"]
-  io << ["West", 1250.75]
-end
-~~~
-
-Notes:
-
-* Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
-  since it always reads the first worksheet.
-* Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
-  file first, and its rows are converted into CSV in a second temp file, since the `creek` gem returns them to a
-  block. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
-* On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
-  with `use_shared_strings: true`, as Excel does.
 
 ## Parquet files
 
@@ -2746,6 +2838,11 @@ The `:printable` cleaner removes non-printable characters rather than replacing 
 `replace:`, which only replaces invalid characters. So each one it removes moves every column that
 follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 
+## Rows and records in memory
+
+Two more formats, `:array` and `:hash`, are for rows and records that are already Ruby objects rather than text,
+such as those that another library passes, so they are not used for files.
+
 ---
 
 # Compression and Encryption
@@ -2792,7 +2889,7 @@ IOStreams.path("example.csv.gz").option(:gz, level: 9).write("name,login\nJack J
 
 * An option for a stream that the file name does not include has no effect, so the same code can set the options of
   every stream that a path held in configuration might use.
-* An option for a format applies to each of its extensions: `option(:gz, ...)` to a `.gzip` file, `option(:pgp, ...)`
+* An option for a stream applies to each of its extensions: `option(:gz, ...)` to a `.gzip` file, `option(:pgp, ...)`
   to a `.gpg` file, and `option(:xlsx, ...)` to a `.xlsm` file.
 * For a file whose name does not name its streams, set them with `#stream`, which takes the same options, such as
   `IOStreams.path("tempfile2527").stream(:gz, level: 9)`, see [Stream](streams#stream).
@@ -2930,14 +3027,10 @@ IOStreams.path("export.zip").option(:zip, entry_file_name: "people.csv").writer(
 end
 ~~~
 
-`zip_file_name`, which earlier versions took when writing, raises `ArgumentError`: use `entry_file_name`.
-
 ### Zstandard
 
 Zstandard uses the `zstd-ruby` gem, 2.0.0 or later, which decompresses one zstd block, 128KB, at a time, however well
-the data compresses. IOStreams uses its `Zstd::StreamingCompress` and `Zstd::StreamingDecompress`, rather than its
-`Zstd::StreamWriter` and `Zstd::StreamReader`, which the
-[zstd-ruby README marks as experimental](https://github.com/SpringMT/zstd-ruby#stream-writer-and-reader-wrapper).
+the data compresses.
 
 JRuby cannot load `zstd-ruby`, which is a C extension, so on JRuby IOStreams uses the
 [zstd-jni](https://github.com/luben/zstd-jni) jar instead, which the application adds to the classpath, for example
@@ -3232,9 +3325,9 @@ IOStreams.path("uploads/orders.csv.pgp").move_to("s3://my-bucket/archive/orders.
 
 It creates the directories of the target first, and moving onto the same file, by any name, raises `ArgumentError`,
 rather than deleting it. So does moving a local file onto an existing directory, rather than into it, as `mv` would:
-join the name of the file to the directory, such as `path.move_to(IOStreams.path("archive").join(path.basename))`. A move within S3 copies the object
-within S3, with the client and options of the target, such as its `acl:`, and a move between local files renames the
-file.
+join the name of the file to the directory, such as `path.move_to(IOStreams.path("archive").join(path.basename))`.
+A move within S3 copies the object within S3, with the client and options of the target, such as its `acl:`, and a
+move between local files renames the file.
 
 ## When a copy fails
 
@@ -3268,13 +3361,13 @@ storage raised, such as `Errno::ENOENT` for a local file or `Aws::S3::Errors::No
 exception with the kind of failure: `IOStreams::Errors::NotFound`, `PermissionDenied` or `Unavailable`.
 
 Likewise, when a stream cannot read the data of a file, for example because a file named `.gz` is not gzip data, or a
-zip file does not contain the file to read, the stream raises the exception of the gem that reads the format, such as
+zip file does not contain the file to read, the stream raises the exception of its gem, such as
 `Zlib::GzipFile::Error`, tagged with the kind of failure: `IOStreams::Errors::Corrupt` or `MissingEntry`.
 
 Rescue the kind of failure, rather than the exception from one storage or one gem, so that the same code keeps working
 when the path changes, for example from a local file in development to S3 in production, or from `.gz` to `.zip`. See
 [Paths are configuration](config#paths-are-configuration). It also keeps working when IOStreams replaces the gem that
-reads a format with a newer or better one, or reads it with another library on another platform, as JRuby reads zip
+reads a stream with a newer or better one, or reads it with another library on another platform, as JRuby reads zip
 files with Java.
 
 ## Rescue the kind of failure
@@ -3303,7 +3396,7 @@ rescue Errno::ENOENT
 rescue Errno::ENOENT, Aws::S3::Errors::NoSuchKey, IOStreams::Errors::CommunicationsFailure
 ~~~
 
-## Rescue a file that cannot be read, whatever its format
+## Rescue a file that cannot be read, whatever its streams
 
 ~~~ruby
 path = IOStreams.path(ENV.fetch("IMPORT_PATH"))
@@ -3315,10 +3408,10 @@ rescue IOStreams::Errors::Corrupt => e
 end
 ~~~
 
-The same rescue handles a file that is damaged, cut short, or not in its format at all, whether `IMPORT_PATH` is
+The same rescue handles a file that is damaged, cut short, or not what its file name says at all, whether `IMPORT_PATH` is
 `orders.csv.gz`, `orders.csv.bz2`, `orders.csv.zst`, `orders.zip`, `orders.csv.enc` or `orders.xlsx`.
 
-Rescuing the exception of one gem only works for that format:
+Rescuing the exception of one gem only works for that stream:
 
 ~~~ruby
 # Avoid: misses a corrupt file once the file name changes to .bz2 or .zip.
@@ -3327,7 +3420,7 @@ rescue Zlib::GzipFile::Error
 
 ## The exception tree
 
-The kinds of failure are modules that tag the exception that the storage, or the gem that reads a format, raised:
+The kinds of failure are modules that tag the exception that the storage, or the gem of a stream, raised:
 
 * `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure of the storage includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
@@ -3361,8 +3454,7 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidHeader`: the columns of a file do not match its [schema](formats#fieldsmatch): when
     reading, a header row, or the keys of a JSON record, has columns that `fieldsMatch` does not allow, or is missing
     a required field, or a row has values after its last column that the schema does not skip, and when writing, the
-    keys of a record, or the columns or values of a row, that the schema does not skip. It is also raised for the
-    deprecated `allowed_columns:` and `required_columns:`.
+    keys of a record, or the columns or values of a row, that the schema does not skip.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format, such as, with a schema, a
     row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
@@ -3371,16 +3463,17 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width file, set with the deprecated `#format_options`,
-    is not valid. It is raised when the layout is set.
+    is not valid. It is raised when the layout is set, see
+    [Upgrading](upgrading#format_options-is-replaced-by-schema).
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
   encoding that it is read or written in, such as UTF-8. Its `#byte_offset` is the offset of the first invalid byte
   within the data after any decompression or decryption, and its `#line_number` is the line that it is on, when it
   is read a line at a time, such as with `each(:line)` or `each(:hash)`, where the lines before it are read first.
-  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. Like the `Encoding::UndefinedConversionError`
-  that was raised before it, its `#error_char` is the invalid bytes, and its `#source_encoding` and
-  `#destination_encoding` the encodings that they were read and checked as.
+  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. As an `Encoding::UndefinedConversionError`,
+  its `#error_char` is the invalid bytes, and its `#source_encoding` and `#destination_encoding` the encodings that
+  they were read and checked as.
 * `IOStreams::Pgp::Failure`, a `StandardError`: gpg failed, for example to decrypt a file or to check its signature,
   or could not be run.
 
@@ -3394,14 +3487,7 @@ The exception that each storage raises, which is tagged with the kind of failure
 | `PermissionDenied` | `Errno::EACCES` or `Errno::EPERM` | `Aws::S3::Errors::AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken` and the like, `Forbidden` from a HEAD request, or `Aws::Errors::MissingCredentialsError` | `IOStreams::Errors::CommunicationsFailure` when reading or writing, `Net::SFTP::StatusException`, or `Net::SSH::AuthenticationFailed` | `IOStreams::Errors::CommunicationsFailure` for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required` |
 | `Unavailable` | Never | `Seahorse::Client::NetworkingError` when S3 cannot be reached, or `Aws::S3::Errors::SlowDown`, `InternalError`, `ServiceUnavailable`, `RequestTimeout`, or a `429`, `500`, `502`, `503` or `504` response, once the AWS SDK has retried the request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, a connection error such as `Errno::ECONNREFUSED` or `SocketError`, or `Net::SSH::Disconnect` | A connection error such as `Errno::ECONNREFUSED`, `SocketError` or `Net::ReadTimeout`, or `IOStreams::Errors::CommunicationsFailure` for `408`, `429`, `500`, `502`, `503` or `504` |
 
-A host name that does not resolve, such as a mistyped host, is not `Unavailable`, since the same request will fail
-again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
-when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
-or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
-`ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
-musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
-that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
-not `Unavailable` then either.
+A host name that does not resolve, such as a mistyped host, is not `Unavailable`, see [Notes](#notes).
 
 SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem for everything else, such as
 `#each_child`, `#exist?` and `#delete`.
@@ -3425,7 +3511,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 `.pgp` and `.gpg` do not tag their failures yet: gpg raises `IOStreams::Pgp::Failure`, whose message gives the
 reason, since gpg does not always tell a key that is missing or wrong apart from corrupt data.
 
-Rescue the kind of failure rather than these exceptions: they belong to the gem that reads the format, which a newer
+Rescue the kind of failure rather than these exceptions: they belong to the gem of the stream, which a newer
 version of IOStreams can replace with another, and the zip stream already raises different ones on MRI and JRuby.
 
 ## The exception is kept
@@ -3445,9 +3531,9 @@ end
 ~~~
 
 * `#display_name` is the path that failed, without any user name, password or query, which can hold credentials,
-  see `IOStreams::Path#display_name`. For a failure of a stream, it is the file whose data the stream could not
-  read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the other streams,
-  whose message is that of the gem, such as `not in gzip format`.
+  see [Operations on the name](path#operations-on-the-name). For a failure of a stream, it is the file whose data the
+  stream could not read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the
+  other streams, whose message is that of the gem, such as `not in gzip format`.
 * The message starts with the display name, unless it already includes it, so that a log of the exception names
   the file. For example the message from S3 does not name the key, while that of `Errno::ENOENT` already names the file.
 
@@ -3558,6 +3644,14 @@ also rescue an attempt to access a path that the application does not allow, suc
   directory cannot be written to, the failure is tagged with the display name of the target.
 * A local file is never `Unavailable`.
 * The AWS SDK retries a request that S3 could not handle, or that could not reach it, before it raises `Unavailable`.
+* A host name that does not resolve, such as a mistyped host, is not `Unavailable`, since the same request will fail
+  again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
+  when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
+  or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
+  `ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
+  musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
+  that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
+  not `Unavailable` then either.
 * Reading an HTTP path reads the response as the block reads it, so a connection that fails part way through raises
   from within the block, once some of the data has been processed. A connection that closes before the whole body
   has been received raises `IOStreams::Errors::CommunicationsFailure` tagged as `Unavailable`, as does a body that is
@@ -3566,13 +3660,13 @@ also rescue an attempt to access a path that the application does not allow, suc
   `IOStreams::Errors::CommunicationsFailure` without a tag, since the whole response was received, so sending the
   request again returns the same response.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
-* Likewise a stream tags only the exceptions of the gem that reads its format. An exception raised by the block that
+* Likewise a stream tags only the exceptions of its gem. An exception raised by the block that
   you supply, such as a `Zlib::GzipFile::Error` from another gzip file that it reads, is not tagged.
 * The failure of a stream that reads another stream keeps its tag. For example, data that cannot be decrypted within
   `orders.csv.gz.enc` raises the exception of `.enc`, which the gzip stream reading it does not tag again.
 * A key for `.enc` that is not the one that the data was encrypted with also raises `Corrupt`, since the cipher
   cannot tell it apart from corrupt data.
-* A stream can only report the corruption that its format, or the gem that reads it, detects. A frame of `.zst`
+* A stream can only report the corruption that it, or its gem, detects. A frame of `.zst`
   data that is cut short is not detected on MRI, where `zstd-ruby` does not report it, nor is a damaged frame without
   the checksum of its content, which `.zst` written on MRI does not have. An empty `.bz2` or `.enc` file reads as
   empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
@@ -3655,7 +3749,16 @@ A few features need a later version than 2.1:
 ## Tutorial
 
 This tutorial creates a key for a sender and one for a receiver, in your own keyring, and then encrypts, decrypts,
-signs and verifies a file with them. Open an interactive Ruby console, such as `irb`, and load IOStreams:
+signs and verifies a file with them. [Cleanup](#cleanup) removes them afterwards. To keep them apart from your own keys
+instead, use a new keyring of its own, in a directory with a short path, since gpg-agent creates its socket there, and a
+long path fails with `File name too long`:
+
+~~~
+mkdir -m 700 /tmp/iostreams-pgp
+export GNUPGHOME=/tmp/iostreams-pgp
+~~~
+
+Open an interactive Ruby console, such as `irb`, and load IOStreams:
 
 ~~~ruby
 require "iostreams"
@@ -3852,7 +3955,19 @@ IOStreams.path("sample/example.csv.pgp").read
 # => "name,login\nJack Jones,jjones\n"
 ~~~
 
-To remove the keys and the settings of this tutorial, see [Cleanup](#cleanup).
+### Cleanup
+
+To remove the settings and the keys that the tutorial created:
+
+~~~ruby
+IOStreams::Pgp::Writer.default_signer            = nil
+IOStreams::Pgp::Writer.default_signer_passphrase = nil
+IOStreams::Pgp::Writer.audit_recipient           = nil
+IOStreams::Pgp::Reader.default_passphrase        = nil
+
+IOStreams::Pgp.delete_keys(email: "sender@example.org", private: true)
+IOStreams::Pgp.delete_keys(email: "receiver@example.org", private: true)
+~~~
 
 ## Reader options
 
@@ -4216,23 +4331,13 @@ That of the user that runs the process, in `~/.gnupg`, or the directory that the
 * Writing cannot encrypt a file with a passphrase alone, as `gpg --symmetric` does, while reading such a file works,
   with its `passphrase`.
 
-## Cleanup
-
-To remove the settings and the keys that the tutorial created:
-
-~~~ruby
-IOStreams::Pgp::Writer.default_signer            = nil
-IOStreams::Pgp::Writer.default_signer_passphrase = nil
-IOStreams::Pgp::Writer.audit_recipient           = nil
-IOStreams::Pgp::Reader.default_passphrase        = nil
-
-IOStreams::Pgp.delete_keys(email: "sender@example.org", private: true)
-IOStreams::Pgp.delete_keys(email: "receiver@example.org", private: true)
-~~~
-
 ---
 
 # Configuring IOStreams
+
+Most applications set up IOStreams once, at startup, in an initializer: where their files are stored, with
+[roots](#add_root), where temp files go, with [temp_dir](#temp_dir), and where IOStreams logs, with [logger](#logger).
+[Process-wide settings](#process-wide-settings) lists them all.
 
 ## Paths are configuration
 
@@ -4274,82 +4379,32 @@ IOStreams.join("exports", "daily.csv").write(report)
 
 ## add_root
 
-Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
-Their primary purpose is to allow the exact same code to run in production and development, yet use completely
-different data sources in each. For example, in production a root can point to an S3 bucket, while in
-development it points to the local file system.
+A root names a location once, at startup, such as the directory or bucket that the application keeps its files in,
+so that the code joins file names to it, and never names the store. Add the roots in an initializer:
 
-Roots are configured via an initializer at startup. `IOStreams.join` then joins the supplied path
-elements onto the named root, using the `:default` root whenever a root is not supplied.
-
-Set the default root for this environment in an initializer:
 ~~~ruby
+# config/initializers/iostreams.rb
 IOStreams.add_root(:default, "/var/my_app/files")
-~~~
-
-Now the default root path is available:
-~~~ruby
-IOStreams.root
-# => #<IOStreams::Paths::File:/var/my_app/files pipeline={}>
- 
-IOStreams.root.to_s
-# => "/var/my_app/files"
-~~~
-
-Comparing the final path using `path` and then `join` that uses a root path:
-~~~ruby
-IOStreams.path("/var/my_app/files", "my_test_file.txt").to_s
-# => "/var/my_app/files/my_test_file.txt"
-
-IOStreams.join("my_test_file.txt").to_s
-# => "/var/my_app/files/my_test_file.txt"
-~~~
-
-
-Using `path`:
-~~~ruby
-IOStreams.path("/var/my_app/files", "my_test_file.txt").write("Hello World")
-~~~
-
-With the default root path configured the above code can be simplified by using `join` since it resolves to the same path.
-~~~ruby
-IOStreams.join("my_test_file.txt").write("Hello World")
-~~~
-
-Multiple roots can be setup, for example one for input files, another for output files, another for
-reports, etc. During development the roots can all point to a common location, while in production
-they could be completely different S3 buckets.
-
-For example add special paths for `downloads` and `uploads`.
-~~~ruby
-IOStreams.add_root(:downloads, "/var/my_app/downloads")
 IOStreams.add_root(:uploads, "/var/my_app/uploads")
 ~~~
 
-An example that writes a file into the `/var/my_app/downloads` directory:
+`IOStreams.join` joins names to the `:default` root, or to the root that `root:` names:
+
 ~~~ruby
-IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
+IOStreams.join("exports", "daily.csv").to_s
+# => "/var/my_app/files/exports/daily.csv"
+
+IOStreams.join("orders.csv", root: :uploads).to_s
+# => "/var/my_app/uploads/orders.csv"
+
+IOStreams.root(:uploads).to_s
+# => "/var/my_app/uploads"
 ~~~
 
-The other benefit is that the root paths used in an application are externalized from the code base. That way the
-roots can be changed to different locations depending on the environment.
-
-We can also change the storage mechanism by changing the root:
-~~~ruby
-IOStreams.add_root(:downloads, "s3://my-app-bucket-name/downloads")
-IOStreams.add_root(:uploads, "s3://my-app-bucket-name/uploads")
-~~~
-
-Now the application will write to S3 and the code does not change at all.
-~~~ruby
-IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
-~~~
-
-To use or query a configured root path:
-~~~ruby
-IOStreams.root(:downloads).to_s
-# => "s3://my-app-bucket-name/downloads"
-~~~
+In production the same initializer can name S3 buckets instead, such as `"s3://my-app-bucket/uploads"`, or read each
+location from configuration, such as `ENV.fetch("UPLOADS_ROOT")`, so that the code that reads and writes the files does
+not change. In development the roots can all point to one local directory. See
+[Using root paths](path#using-root-paths).
 
 A root is shared by the whole process, so `IOStreams.add_root` freezes it, and returns it frozen. `IOStreams.root`,
 `IOStreams.roots` and `IOStreams.join` return copies of it, which can be changed without changing the root. A path
@@ -4450,8 +4505,8 @@ Deleting temp file /tmp/iostreams-sftp-reader20261008-41-1x5yq2, which held 5251
 Notes:
 * `#copy_from` and `#copy_to` read the source while they write the target, so copying from SFTP to SFTP or
   HTTP holds two temp files at once, each holding the whole file: the download and the upload. S3 copies an
-  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
-  than 5GB.
+  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for
+  an object smaller than 5GB.
 * An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp
   files, since `sftp` and `gpg` read them from files.
 * Only the current user can read a temp file, and it is deleted when the block returns or raises. A temp file can
@@ -4514,7 +4569,6 @@ Each of these applies to the whole process, so set them once, in an initializer,
 | `IOStreams::Pgp::Writer.default_signer = email` and `.default_signer_passphrase = passphrase` | Signs every PGP file written | [PGP](pgp) |
 | `IOStreams::Pgp::Writer.audit_recipient = email` | Also encrypts every PGP file written for this recipient | [PGP](pgp) |
 | `IOStreams::Pgp::Reader.default_passphrase = passphrase` | The passphrase of the private key when a read supplies none | [PGP](pgp) |
-| `IOStreams.enforce_column_restrictions = false` | Keeps the behavior of v2 for the deprecated column options | [Upgrading](upgrading#enforce_column_restrictions) |
 
 ---
 
@@ -4522,13 +4576,13 @@ Each of these applies to the whole process, so set them once, in an initializer,
 
 IOStreams reads and writes whatever its paths name, with the access of the process. When any part of a path, url or
 file comes from outside the application, such as from a user, a partner, or a job's configuration, review the
-settings on this page. Each one depends on how the application uses IOStreams, so upgrading alone does not apply them.
+settings on this page. None of them is on by default, since each one depends on how the application uses IOStreams.
 
 ## Allowed paths
 
 If a user, a job, or any other untrusted input can supply a file name, it can also supply `..` or an absolute path,
-and read or overwrite any file that the process can access. Roots, see `IOStreams.join`, make paths easy to build,
-but they do not stop a path from leaving the root, for example `IOStreams.join("../../etc/passwd")`.
+and read or overwrite any file that the process can access. [Root paths](path#using-root-paths) make paths easy to
+build, but they do not stop a path from leaving the root, for example `IOStreams.join("../../etc/passwd")`.
 
 Add the allowed paths in an initializer, where untrusted input cannot change them:
 
@@ -4548,7 +4602,7 @@ IOStreams.path("/var/my_app/uploads/file.csv").read
 # => "..."
 
 IOStreams.path("/var/my_app/uploads/../secrets.yml").read
-# => IOStreams::Errors::AccessDenied
+# raises IOStreams::Errors::AccessDenied
 
 # Check without raising:
 IOStreams.path("/etc/passwd").allowed?
@@ -5514,7 +5568,7 @@ exactly that email address, ignoring case. gpg treats a bare email address as a 
 that contains it, so previously `bob@example.com` also matched `jimbob@example.com`.
 
 Fix: supply the exact email address of each key. To search the way gpg does, supply a value that is not
-just an email address, such as `*example.com`.
+just an email address, such as `*@example.com`.
 
 #### PGP writer options raise `ArgumentError` before the file is opened
 
@@ -5611,7 +5665,7 @@ path.read
 ```
 
 To change the streams of a root, supply them each time the root is used, for example
-`IOStreams.join("a.csv").stream(:none)`. Code that compares with `equal?` should compare with `==`.
+`IOStreams.join("a.csv").stream(:gz)`. Code that compares with `equal?` should compare with `==`.
 
 #### `IOStreams.add_root` returns a frozen path
 
@@ -6370,7 +6424,7 @@ strings, and the keys of the hashes written may be strings or symbols.
   Default: nil (allow all columns)
 
 * `required_columns: [Array<String>]`
-  List of columns that must be present, otherwise an exception is raised.
+  List of columns that must be present, otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
 
 * `skip_unknown: [true|false]`
   When true, any columns not present in `allowed_columns` are skipped entirely as if they
