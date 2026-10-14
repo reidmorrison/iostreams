@@ -515,6 +515,72 @@ class PgpWriterTest < Minitest::Test
       end
     end
 
+    describe "when the block leaves early" do
+      let(:path) { IOStreams.path(file_name).stream(:pgp, recipient: "receiver@example.org") }
+
+      let(:output) { StringIO.new("".b) }
+
+      let(:stream) { IOStreams.stream(output).stream(:pgp, recipient: "receiver@example.org") }
+
+      def decrypt(data)
+        IOStreams::Pgp::Reader.stream(StringIO.new(data), passphrase: "receiver_passphrase", &:read)
+      end
+
+      it "completes the file with what was written before a break" do
+        path.writer(:line) do |io|
+          io << "first"
+          break
+        end
+
+        assert_equal "first\n", decrypt(File.binread(file_name))
+      end
+
+      it "completes the PGP message in a stream with what was written before a break" do
+        stream.writer do |io|
+          io.write("first")
+          break
+        end
+
+        assert_equal "first", decrypt(output.string)
+      end
+
+      it "removes the file when the block raises" do
+        assert_raises(ArgumentError) do
+          path.writer(:line) do |io|
+            io << "first"
+            raise(ArgumentError, "from the block")
+          end
+        end
+
+        refute_path_exists file_name
+      end
+
+      it "leaves nothing that can be read when its thread is killed" do
+        written = Queue.new
+        threads = [
+          Thread.new do
+            path.writer(:line) do |io|
+              io << "first"
+              written << true
+              sleep
+            end
+          end,
+          Thread.new do
+            stream.writer do |io|
+              io.write("first")
+              written << true
+              sleep
+            end
+          end
+        ]
+        2.times { written.pop }
+        threads.each(&:kill).each(&:join)
+
+        refute_path_exists file_name
+        assert_raises(IOStreams::Pgp::Failure) { decrypt(output.string) }
+      end
+    end
+
     describe "compress" do
       # Returns [Array<String>] the compressed packets of a file that is signed and not encrypted, so that gpg lists
       # them without decrypting it, such as ":compressed packet: algo=1" for zip.

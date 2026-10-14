@@ -45,10 +45,14 @@ module IOStreams
       # is never written to a temp file, see `IOStreams::Pgp::GpgProcess`. The output stream is not closed, since it
       # belongs to the caller.
       #
+      # Once the block returns, including when it leaves early, such as with `break`, gpg completes the PGP message
+      # with what the block wrote, as any other stream keeps what was written.
+      #
       # Since the data is streamed, when gpg fails part way, or when the block raises, the output stream holds what
-      # gpg wrote until then, which is not a valid PGP message: when the block raises, gpg is stopped, so that it never
-      # completes a PGP message from partial data, and `IOStreams::Pgp::Reader` raises for the start of a message.
-      # As with any other stream, discard the output after a failure; a local path does so already.
+      # gpg wrote until then, which is not a valid PGP message: when the block raises, or its thread is killed, gpg is
+      # stopped, so that it never completes a PGP message from partial data, and `IOStreams::Pgp::Reader` raises for
+      # the start of a message. As with any other stream, discard the output after a failure; a local path does so
+      # already.
       #
       # output_stream: [IO]
       #   The stream to write the PGP data to.
@@ -176,9 +180,9 @@ module IOStreams
         passphrases = signer_passphrase ? {PASSPHRASE_FD => signer_passphrase} : {}
         IOStreams::Pgp::GpgProcess.run(command, failure: "GPG Failed to create encrypted", output: output_stream,
                                                 passphrases: passphrases) do |gpg|
-          result = yield(gpg.writer)
-          gpg.finish
-          result
+          # Also when the block leaves early, such as with `break`, which keeps what was written, as for any other
+          # stream. When the block raises, or its thread is killed, gpg is stopped instead, see GpgProcess.run.
+          Utils.finish_or_abort(finish: -> { gpg.finish }) { yield(gpg.writer) }
         end
       end
       private_class_method :run

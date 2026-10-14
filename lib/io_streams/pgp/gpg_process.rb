@@ -36,8 +36,10 @@ module IOStreams
       #   captures: [Array<Integer>]
       #     File descriptors whose output from gpg is kept, such as its status, see `#captured`.
       #
-      # When the block raises, gpg is stopped before it completes its output from partial data, and the exception
-      # is raised once gpg has exited. The caller's stream is never closed, since it belongs to the caller.
+      # The block finishes gpg, see #finish, once gpg has all of its input, including when the block leaves early,
+      # such as with `break`. Unless the block finishes gpg, such as when it raises, or its thread is killed, gpg is
+      # stopped before it completes its output from partial data, and the exception is raised once gpg has exited.
+      # The caller's stream is never closed, since it belongs to the caller.
       def self.run(command, failure:, input: nil, output: nil, passphrases: {}, captures: [])
         gpg = new(command, failure: failure, input: input, output: output, passphrases: passphrases, captures: captures)
         begin
