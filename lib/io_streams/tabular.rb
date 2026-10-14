@@ -195,8 +195,9 @@ module IOStreams
 
     # Returns [Array<String|Symbol>] the columns of the rows that #row_parse returns of a file without a header row,
     # so that a copy can give them to the target, see `IOStreams::Row::Reader#copy_to`: the names of the fields of a
-    # schema, see `IOStreams::Schema#header?`, or the keys of the layout of a fixed width file.
-    # Returns nil for any other file, whose rows start with its header row, see #header?, or supply their own keys.
+    # schema, see `IOStreams::Schema#header?`, such as of fixed width or JSON, or the keys of the layout of a fixed width
+    # file, or the columns supplied for it.
+    # Returns nil for any other file, such as one whose rows start with a header row, see #rows_header?.
     def headerless_columns
       @mapping.headerless_columns
     end
