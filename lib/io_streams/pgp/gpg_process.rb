@@ -111,12 +111,16 @@ module IOStreams
         @writer ||= StdinWriter.new(@stdin, @stdout, @output, self)
       end
 
-      # Ends gpg's input, passes the rest of its output on to the caller's output, and waits for gpg to exit.
-      # Raises Pgp::Failure when gpg fails.
+      # Ends gpg's input, and waits for gpg to exit. Raises Pgp::Failure when gpg fails.
+      #
+      # When encrypting, passes the rest of what gpg writes on to the caller's output. When decrypting, reads the rest of
+      # what gpg decrypts, which the block did not read, and discards it, since gpg only exits once all that it writes
+      # has been read, and only checks the integrity and the signature of the data once it has read all of it.
       def finish
-        if @writer
-          @writer.finish
+        if @output
+          writer.finish
         else
+          ::IO.copy_stream(reader, ::File::NULL)
           @stdin&.close
         end
         wait

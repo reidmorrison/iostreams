@@ -188,6 +188,17 @@ class PgpReaderTest < Minitest::Test
           assert_includes error.message, "--ignore-mdc-error"
         end
 
+        it "is required when the block leaves early" do
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.file(without_mdc, passphrase: "legacy") do |io|
+              io.read(1)
+              break
+            end
+          end
+
+          assert_includes error.message, "--ignore-mdc-error"
+        end
+
         it "decrypts a file without integrity protection" do
           result = IOStreams::Pgp::Reader.file(without_mdc, passphrase: "legacy", ignore_mdc_error: true, &:read)
 
@@ -271,6 +282,40 @@ class PgpReaderTest < Minitest::Test
         assert_equal "from the block", error.message
         assert_operator input.pos, :<, input.size
         refute_predicate input, :closed?
+      end
+
+      it "stops reading the stream when its thread is killed" do
+        input  = StringIO.new(encrypt(large_data))
+        read   = Queue.new
+        thread = Thread.new do
+          IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase") do |io|
+            io.read(10)
+            read << true
+            sleep
+          end
+        end
+        read.pop
+        thread.kill.join
+
+        assert_operator input.pos, :<, input.size
+      end
+
+      it "raises when the rest of the stream was changed, when the block leaves early" do
+        encrypted = encrypt(large_data)
+        index     = encrypted.bytesize * 9 / 10
+        encrypted.setbyte(index, encrypted.getbyte(index) ^ 1)
+        received  = nil
+        error     = Timeout.timeout(30) do
+          assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.stream(StringIO.new(encrypted), passphrase: "receiver_passphrase") do |io|
+              received = io.read(10)
+              break
+            end
+          end
+        end
+
+        assert_equal large_data.byteslice(0, 10), received
+        assert_match(/\AGPG Failed to decrypt stream: /, error.message)
       end
 
       it "does not stop part way through reading the stream when the block raises" do
@@ -745,6 +790,31 @@ class PgpReaderTest < Minitest::Test
         path = IOStreams.path(signed_by_sender).stream(:pgp, passphrase: "receiver_passphrase", signer: "sender@example.org")
 
         assert_equal decrypted, path.read
+      end
+
+      describe "when the block leaves early" do
+        # Returns [String] the first line of the file, leaving the block that reads the lines with `break`.
+        def first_line(file_name, **options)
+          path = IOStreams.path(file_name).stream(:pgp, passphrase: "receiver_passphrase", **options)
+          path.each(:line) { |line| break line } # rubocop:disable Lint/UnreachableLoop -- leaves on its first line on purpose
+        end
+
+        it "reads a file signed by the signer" do
+          assert_equal "Hello World", first_line(signed_by_sender, signer: "sender@example.org")
+        end
+
+        it "raises for a file signed by someone else" do
+          file_name = write(signer: "receiver2@example.org", signer_passphrase: "receiver2_passphrase")
+          error     = assert_raises(IOStreams::Pgp::Failure) { first_line(file_name, signer: "sender@example.org") }
+
+          assert_match(/\APGP file was not signed by sender@example.org: /, error.message)
+        end
+
+        it "raises for a file that was not signed" do
+          error = assert_raises(IOStreams::Pgp::Failure) { first_line(write, signer: "sender@example.org") }
+
+          assert_match(/\APGP file was not signed by sender@example.org: /, error.message)
+        end
       end
 
       describe "import_and_trust_key" do

@@ -49,8 +49,8 @@ module IOStreams
       #   Do not commit any side effects, such as database updates, until the block returns
       #   without raising, for example by processing the file within a database transaction.
       #   Otherwise supply `verify_first: true`.
-      #   When the block returns before reading the whole file, the rest is still decrypted and checked
-      #   before the block's result is returned.
+      #   When the block returns before reading the whole file, including when it leaves early, such as with
+      #   `break`, the rest is still decrypted and checked before the block's result is returned.
       #
       # input_stream: [IO]
       #   The stream to read the PGP data from.
@@ -126,20 +126,8 @@ module IOStreams
         IOStreams.logger&.debug { "IOStreams::Pgp::Reader.open: #{command.shelljoin}" }
 
         decrypt = ->(&block) { run(command, input_stream, passphrase, signers, &block) }
-        verify_first ? decrypt_then_read(decrypt, &) : read_decrypted(decrypt, &)
+        verify_first ? decrypt_then_read(decrypt, &) : decrypt.call(&)
       end
-
-      # Yields the decrypted contents, and returns the result of the block.
-      def self.read_decrypted(decrypt)
-        decrypt.call do |decrypted|
-          value = yield(decrypted)
-          # When the block does not read to the end, gpg waits to write the rest, so it would never finish.
-          # Read the rest so that gpg finishes, and checks the integrity and signature of the whole file.
-          ::IO.copy_stream(decrypted, ::File::NULL)
-          value
-        end
-      end
-      private_class_method :read_decrypted
 
       # Decrypts the file into a temporary file, and only yields it once gpg has succeeded.
       def self.decrypt_then_read(decrypt, &block)
@@ -151,22 +139,31 @@ module IOStreams
       end
       private_class_method :decrypt_then_read
 
-      # Runs gpg, yielding the decrypted contents, and returns the result of the block.
-      # Raises Pgp::Failure once gpg finishes when it fails, when it found no PGP data, or when the data was not
-      # signed by one of the signers.
+      # Runs gpg, yielding the decrypted contents, and returns the result of the block, once gpg has checked the data,
+      # see .verify.
+      #
+      # The data is checked once the block returns, including when it leaves early, such as with `break` after it reads
+      # the first line, so that the rest of the data is still decrypted and checked, as when the block reads all of it.
+      # When the block raises, or its thread is killed, gpg is stopped instead, see GpgProcess.run.
       def self.run(command, input_stream, passphrase, signers)
         passphrases = passphrase ? {PASSPHRASE_FD => passphrase} : {}
         IOStreams::Pgp::GpgProcess.run(command, failure: "GPG Failed to decrypt", input: input_stream,
                                                 passphrases: passphrases, captures: [STATUS_FD]) do |gpg|
-          result = yield(gpg.reader)
-          gpg.finish
-          status = gpg.captured(STATUS_FD)
-          verify_plaintext(gpg, status)
-          verify_signers(gpg, signers, status) unless signers.empty?
-          result
+          Utils.finish_or_abort(finish: -> { verify(gpg, signers) }) { yield(gpg.reader) }
         end
       end
       private_class_method :run
+
+      # Finishes gpg, which decrypts the rest of the data, see GpgProcess#finish.
+      # Raises Pgp::Failure when gpg fails, when it found no PGP data, or when the data was not signed by one of the
+      # signers.
+      def self.verify(gpg, signers)
+        gpg.finish
+        status = gpg.captured(STATUS_FD)
+        verify_plaintext(gpg, status)
+        verify_signers(gpg, signers, status) unless signers.empty?
+      end
+      private_class_method :verify
 
       # Raises Pgp::Failure unless gpg found the data, which it reports with `PLAINTEXT`, whether or not the data
       # is encrypted or signed.
