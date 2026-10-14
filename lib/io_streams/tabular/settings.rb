@@ -28,8 +28,8 @@ module IOStreams
       # frozen.
       def initialize_copy(source)
         super
-        @format_options = copy_layout(@format_options)
-        @row_options    = @row_options&.transform_values(&:dup)
+        @format_options = Utils.deep_copy(@format_options)
+        @row_options    = Utils.deep_copy(@row_options)
       end
 
       # Freezes these settings, holding frozen copies of their layout and options, so that neither their methods nor a
@@ -190,17 +190,6 @@ module IOStreams
       # empty, see #format_options=.
       def layout?(format_options = @format_options)
         !(format_options.nil? || format_options.empty?)
-      end
-
-      # Returns [Hash] a copy of the format options, whose Hashes, Arrays and Strings are copies too, so that a copy of
-      # these settings that changes its layout does not change the layout of these.
-      def copy_layout(value)
-        case value
-        when Hash then value.to_h { |key, item| [key, copy_layout(item)] }
-        when Array then value.map { |item| copy_layout(item) }
-        when String then value.dup
-        else value
-        end
       end
     end
   end
