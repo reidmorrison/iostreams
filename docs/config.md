@@ -3,8 +3,8 @@ layout: default
 title: Configuring IOStreams
 description: >-
   Keeping paths in configuration so the same code targets different storage per
-  environment, named roots via IOStreams.add_root, plus the temp directory, when
-  temp files are used, and logger settings.
+  environment, named roots via IOStreams.add_root, the temp directory, when temp
+  files are used, the logger, and every process-wide setting.
 ---
 
 ## Paths are configuration
@@ -124,6 +124,16 @@ IOStreams.root(:downloads).to_s
 # => "s3://my-app-bucket-name/downloads"
 ~~~
 
+A root is shared by the whole process, so `IOStreams.add_root` freezes it, and returns it frozen. `IOStreams.root`,
+`IOStreams.roots` and `IOStreams.join` return copies of it, which can be changed without changing the root. Set the
+streams and options that every file of a root needs on the root itself, and they are kept by every path joined to it:
+
+~~~ruby
+IOStreams.add_root(:partner, IOStreams.path("sftp://sftp.example.org/outbound", username: "jack", password: "secret"))
+
+IOStreams.join("daily.csv.pgp", root: :partner).option(:pgp, recipient: "partner@example.org").write(report)
+~~~
+
 ## temp_dir
 
 IOStreams reads and writes files of any size a block at a time, and most streams never touch the disk.
@@ -140,7 +150,7 @@ By default IOStreams looks up the location to store temp files in the following 
 * `/tmp` (if it exists)
 * Otherwise `.`
 
-To explicity set the temp file location the following config option can be used:
+To set the temp file location explicitly:
 
 ~~~ruby
 IOStreams.temp_dir = "/var/really_big_temp"
@@ -167,10 +177,11 @@ supplied in a `StringIO`.
 
 | Format | Reading | Writing | Why |
 | --- | --- | --- | --- |
-| `.gz`, `.gzip`, `.bz2`, `.enc` | No temp file | No temp file | Streamed |
+| `.gz`, `.gzip`, `.bz2`, `.zst`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
 | `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | No temp file | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read. Writing streams the spreadsheet with `xlsxtream` |
 | `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads a local file itself, and any other stream through its stdin, and writes through its stdout |
+| `.parquet` | No temp file for a local file, otherwise a temp file holding the Parquet file | A temp file holding the Parquet file, which is copied to the path once the block completes | A Parquet file records its columns at its end, and the `parquet` gem writes the whole file before it can be copied |
 
 So a zip or spreadsheet stream only has a local file when it is the stream closest to the stored data: the
 last extension in the file name, or the last stream set with `#stream`. `#pipeline` lists the streams in order
@@ -241,8 +252,8 @@ implies are applied, so writing to a temp file with the extension `.csv.gz` comp
 IOStreams can log debug information, such as the external commands it runs for PGP and SFTP, and each temp
 file that it uses, see [When temp files are used](#when-temp-files-are-used).
 
-When [Semantic Logger](https://logger.reidmorrison.com) is loaded it is detected automatically, and IOStreams
-logs to it without any additional configuration.
+When [Semantic Logger](https://logger.reidmorrison.com) is loaded before IOStreams, IOStreams logs to it without
+any additional configuration.
 
 To use a different logger, or to log when Semantic Logger is not present, assign any logger that
 responds to the standard logging methods:
@@ -257,3 +268,21 @@ To disable logging entirely, set the logger to `nil`:
 ~~~ruby
 IOStreams.logger = nil
 ~~~
+
+## Process-wide settings
+
+Each of these applies to the whole process, so set them once, in an initializer, at startup:
+
+| Setting | What it does | See |
+|---------|--------------|-----|
+| `IOStreams.add_root(name, path)` | Names a location that `IOStreams.join` joins paths onto | [add_root](#add_root) |
+| `IOStreams.add_allowed_path(path)` | Restricts IOStreams to the allowed paths | [Allowed paths](security#allowed-paths) |
+| `IOStreams.temp_dir = dir` | Where IOStreams creates its temp files | [temp_dir](#temp_dir) |
+| `IOStreams.logger = logger` | Where IOStreams logs | [logger](#logger) |
+| `IOStreams.register_extension(extension, format)` | Reads and writes a file name extension with a format | [Extending IOStreams](extending#registering-a-format) |
+| `IOStreams.register_scheme(scheme, path_class)` | Reads and writes the urls of a scheme with a path class | [Extending IOStreams](extending#registering-a-storage-scheme) |
+| `IOStreams::Pgp.executable = "gpg2"` | The name or path of the `gpg` program | [PGP](pgp) |
+| `IOStreams::Pgp::Writer.default_signer = email` and `.default_signer_passphrase = passphrase` | Signs every PGP file written | [PGP](pgp) |
+| `IOStreams::Pgp::Writer.audit_recipient = email` | Also encrypts every PGP file written for this recipient | [PGP](pgp) |
+| `IOStreams::Pgp::Reader.default_passphrase = passphrase` | The passphrase of the private key when a read supplies none | [PGP](pgp) |
+| `IOStreams.enforce_column_restrictions = false` | Keeps the behavior of v2 for the deprecated column options | [Upgrading](upgrading#enforce_column_restrictions) |
