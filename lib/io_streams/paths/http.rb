@@ -392,7 +392,7 @@ module IOStreams
         message =
           case response
           when Net::HTTPNotFound
-            "Invalid URL: #{without_credentials(uri)}"
+            "Invalid URL: #{loggable(uri)}"
           when Net::HTTPUnauthorized
             "Authorization Required: Invalid :username or :password."
           else
@@ -424,14 +424,14 @@ module IOStreams
           raise(
             IOStreams::Errors::CommunicationsFailure,
             "Only a 307 or 308 redirect can be followed when writing or deleting, " \
-            "received #{response.code}: #{without_credentials(uri)}"
+            "received #{response.code}: #{loggable(uri)}"
           )
         end
 
         location = response["location"]
         unless location
           raise(IOStreams::Errors::CommunicationsFailure,
-                "Redirect missing location header: #{without_credentials(uri)}")
+                "Redirect missing location header: #{loggable(uri)}")
         end
 
         # Resolve relative redirects against the current uri.
@@ -440,7 +440,7 @@ module IOStreams
         if uri.scheme == "https" && new_uri.scheme == "http"
           raise(
             IOStreams::Errors::CommunicationsFailure,
-            "Redirect from https to http is not followed: #{without_credentials(uri)} to #{without_credentials(new_uri)}"
+            "Redirect from https to http is not followed: #{loggable(uri)} to #{loggable(new_uri)}"
           )
         end
 
@@ -449,7 +449,7 @@ module IOStreams
           raise(
             IOStreams::Errors::CommunicationsFailure,
             "Only a redirect to the same scheme, host and port can be followed when writing or deleting: " \
-            "#{without_credentials(uri)} to #{without_credentials(new_uri)}"
+            "#{loggable(uri)} to #{loggable(new_uri)}"
           )
         end
 
@@ -464,7 +464,7 @@ module IOStreams
       def validate_uri!(uri)
         unless %w[http https].include?(uri.scheme)
           raise(IOStreams::Errors::CommunicationsFailure,
-                "Invalid redirect, only http and https are supported: #{without_credentials(uri)}")
+                "Invalid redirect, only http and https are supported: #{loggable(uri)}")
         end
         authorize_location!(http_location(uri)) unless IOStreams.allowed_paths.empty?
         return if allow_hosts.nil? || allow_hosts.include?(uri.hostname)
@@ -482,25 +482,17 @@ module IOStreams
       # The path is decoded and `.` and `..` resolved, the way most web servers resolve them, so that for
       # example `%2e%2e` cannot be used to leave an allowed path. A backslash is treated as a `/`.
       def http_location(uri)
-        raise(Errors::AccessDenied, "Access denied: #{without_credentials(uri)} has no host") if uri.host.to_s.empty?
+        raise(Errors::AccessDenied, "Access denied: #{loggable(uri)} has no host") if uri.host.to_s.empty?
 
         path = URI.decode_uri_component(uri.path).tr("\\", "/")
         "#{uri.scheme}://#{uri.host.downcase}:#{uri.port}#{normalize_path(path)}".chomp("/")
       rescue ArgumentError => e
-        raise(Errors::AccessDenied, "Access denied to #{without_credentials(uri)}: #{e.message}")
+        raise(Errors::AccessDenied, "Access denied to #{loggable(uri)}: #{e.message}")
       end
 
-      # Returns [String] the uri without any user name or password, for use in error messages.
-      def without_credentials(uri)
-        return uri.to_s unless uri.user
-
-        uri      = uri.dup
-        uri.user = nil
-        uri.to_s
-      end
-
-      # Returns [String] the uri without any user name, password, query or fragment, for logging.
-      # The query is removed since it can hold credentials, such as the signature of a pre-signed url.
+      # Returns [String] the uri without any user name, password, query or fragment, for logging, and for the message
+      # of an error. The query is removed since it can hold credentials, such as the signature of a pre-signed url, or
+      # the `parameters:` supplied to this path.
       def loggable(uri)
         uri          = uri.dup
         uri.user     = nil

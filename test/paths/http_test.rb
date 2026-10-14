@@ -186,13 +186,38 @@ module Paths
           assert_equal "#{@server.base_url}/gone.csv: Invalid response code: 410", error.message
         end
 
-        it "raises NotFound with the display name of the path, without its credentials or query" do
+        it "raises NotFound with the display name of the path, without its credentials, query or parameters" do
           start_server { |_path| TestHTTPServer.response(404) }
           url = "http://jack:TOP-SECRET@127.0.0.1:#{@server.port}/missing.csv?token=SECRET"
 
-          error = assert_raises(IOStreams::Errors::NotFound) { IOStreams::Paths::HTTP.new(url).read }
+          error = assert_raises(IOStreams::Errors::NotFound) do
+            IOStreams::Paths::HTTP.new(url, parameters: {api_key: "PARAMETER-SECRET"}).read
+          end
           assert_equal "http://127.0.0.1:#{@server.port}/missing.csv", error.display_name
-          refute_includes error.message, "TOP-SECRET"
+          refute_includes error.message, "SECRET"
+          refute_includes error.message, "jack"
+        end
+
+        it "does not include credentials or the query in the message of a redirect that is not followed" do
+          start_server do |path|
+            case path
+            when %r{\A/ftp} then TestHTTPServer.response(302, headers: {"Location" => "ftp://127.0.0.1/x?token=LOCATION-SECRET"})
+            when %r{\A/nowhere} then TestHTTPServer.response(302)
+            else TestHTTPServer.response(301, headers: {"Location" => "/other?token=LOCATION-SECRET"})
+            end
+          end
+          base = "http://jack:TOP-SECRET@127.0.0.1:#{@server.port}"
+
+          [
+            -> { IOStreams.path("#{base}/ftp?token=SECRET").read },
+            -> { IOStreams.path("#{base}/nowhere?token=SECRET").read },
+            -> { IOStreams.path("#{base}/upload?token=SECRET").write("data") }
+          ].each do |request|
+            error = assert_raises(IOStreams::Errors::CommunicationsFailure, &request)
+
+            refute_includes error.message, "SECRET"
+            refute_includes error.message, "jack"
+          end
         end
 
         it "does not tag any other unsuccessful response" do
@@ -1340,6 +1365,17 @@ module Paths
               path.send(:redirect_uri, URI.parse(path.url), redirect_to("http://example.com/file"), 1, Net::HTTP::Get)
             end
             assert_includes error.message, "from https to http"
+          end
+
+          it "does not include credentials or the query of either url in the message" do
+            path     = IOStreams::Paths::HTTP.new("https://jack:TOP-SECRET@example.com/file?token=SECRET")
+            redirect = redirect_to("http://example.com/file?token=LOCATION-SECRET")
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              path.send(:redirect_uri, URI.parse(path.url), redirect, 1, Net::HTTP::Get)
+            end
+            assert_equal "Redirect from https to http is not followed: https://example.com/file to http://example.com/file",
+                         error.message
           end
 
           it "follows a redirect from http to https when reading" do
