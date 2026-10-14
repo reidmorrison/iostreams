@@ -258,7 +258,8 @@ module IOStreams
     # Parses an S3, SFTP or other url whose path is the name of an object or file as it is, see `.escape`.
     #
     # Also answers the parts of such a url, by its bytes, so that a url with a name that is not valid UTF-8 can be
-    # taken apart and put together again, see `.authority`, `.root`, `.without_userinfo_or_query` and `.encode_path`.
+    # taken apart and put together again, see `.authority`, `.split`, `.root`, `.without_userinfo_or_query` and
+    # `.encode_path`.
     class URI
       attr_reader :scheme, :hostname, :path, :user, :password, :port, :query, :fragment
 
