@@ -531,6 +531,8 @@ module IOStreams
     #   key at this level allows that attacker to impersonate other recipients.
     #   When the key cannot be fully verified, supply a lower `level`.
     def self.set_trust(email: nil, key_id: nil, level: 5)
+      raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
+
       # The key_id is written into gpg's ownertrust input, where any other character, such as a newline,
       # could add trust lines for other keys.
       if key_id && !key_id.to_s.match?(/\A\h+\z/)
@@ -708,7 +710,11 @@ module IOStreams
       end
     end
 
+    # Deletes the keys of the email address or key id, see .delete_keys, which calls it on GnuPG 2.1 and later.
+    # Raises ArgumentError when neither is supplied, as .delete_keys does, rather than delete every key that it lists.
     def self.delete_public_or_private_keys(email: nil, key_id: nil, private: false)
+      raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
+
       keys = private ? "secret-keys" : "keys"
 
       list = email ? list_keys(email: email, private: private) : list_keys(key_id: key_id)
@@ -730,7 +736,10 @@ module IOStreams
       true
     end
 
+    # Deletes the keys of the email address or key id before GnuPG 2.1, see .delete_public_or_private_keys.
     def self.delete_public_or_private_keys_v1(email: nil, key_id: nil, private: false)
+      raise(ArgumentError, "Either :email, or :key_id must be supplied") if email.nil? && key_id.nil?
+
       keys = private ? "secret-keys" : "keys"
 
       # List the fingerprints, then delete each one. Previously this shelled out

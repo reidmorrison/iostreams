@@ -438,6 +438,20 @@ class PgpTest < Minitest::Test
         assert IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
       end
 
+      it "raises for the methods that it calls when neither email nor key_id is supplied, rather than delete every key" do
+        generated_key_id
+
+        %i[delete_public_or_private_keys delete_public_or_private_keys_v1].each do |name|
+          [true, false].each do |private|
+            error = assert_raises(ArgumentError) { IOStreams::Pgp.public_send(name, private: private) }
+            assert_includes error.message, "Either :email, or :key_id must be supplied"
+          end
+        end
+
+        assert IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
+        assert IOStreams::Pgp.key?(key_id: generated_key_id)
+      end
+
       it "handles no keys" do
         refute IOStreams::Pgp.delete_keys(email: "random@iostreams.net", public: true, private: true)
       end
@@ -1004,6 +1018,11 @@ class PgpTest < Minitest::Test
 
       it "returns nil when the key is not found" do
         assert_nil IOStreams::Pgp.set_trust(email: "random@iostreams.net")
+      end
+
+      it "raises when neither email nor key_id is supplied" do
+        error = assert_raises(ArgumentError) { IOStreams::Pgp.set_trust(level: 5) }
+        assert_includes error.message, "Either :email, or :key_id must be supplied"
       end
 
       it "trusts an existing key" do
