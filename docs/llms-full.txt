@@ -4172,7 +4172,9 @@ supplied `columns:`, and to the header row with `cleanse_header: false`.
 When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
 as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
 `IOStreams::Errors::InvalidHeader` when `skip_unknown: false`, and a record that is missing a
-required column raises `IOStreams::Errors::InvalidHeader`.
+required column raises `IOStreams::Errors::InvalidHeader`. The keys of the columns that are kept stay as they are
+when they are already the names of their columns, such as the Symbol keys of a fixed width layout, so that
+`{name: "Jack", zip: 12}` read with `allowed_columns: ["name"]` is `{name: "Jack"}`.
 
 Fix: check that the JSON files you read with these options have the expected keys. See
 [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated). To keep the
@@ -4934,7 +4936,7 @@ A schema gives the type of each field of every format, and can be held in a JSON
 | A column without a `key:`, a filler | `start` on the field after it, or the `width` of the schema at the end of the line |
 | `type: :string` | `type: "string"`, with `truncate: true` unless the layout has `truncate: false` |
 | `type: :integer` | `type: "integer"` |
-| `type: :float` and `decimals:` | `type: "number"`, with `floatNumber: true` and `decimals:` |
+| `type: :float` and `decimals:` | `type: "number"`, with `floatNumber: true` and `decimals:`, without `decimals` for a column with `size: :remainder`, which writes the digits that the value has |
 | A record written with keys that the layout does not have, which are skipped | `fieldsMatch: "subset"` |
 
 ~~~ruby
@@ -4967,8 +4969,13 @@ both, so that it reads and writes as the layout did, except as described in
 
 An invalid layout now raises when it is set with `#format_options`, rather than when the file is read:
 `IOStreams::Errors::InvalidLayout` for a column without a `size:`, with a `size:` that is not positive, with an
-unknown `type:`, or after a column with the size `:remainder`, which was ignored when reading, and `ArgumentError`
-for any other key or option.
+unknown `type:` or `type: nil`, after a column with the size `:remainder`, which was ignored when reading, for two
+columns with the same key, including `:a` and `"a"`, for a key that is neither a String nor a Symbol, such as `1`, for
+negative `decimals:` on a `:float` column, and for a layout that is not an Array of Hashes, and `ArgumentError` for
+any other key or option.
+
+Fix: remove the `key:` of each filler, which needs none, such as two columns keyed `:filler`, give every other column
+a key of its own, such as `"1"` for `1`, and give a `:float` column `decimals:` of 0 or more.
 
 Writing a fixed width file now accepts string and symbol keys, whichever the layout uses. Previously a key of the
 other kind was ignored, and its column written as spaces, or as zeros for a number.
@@ -5163,8 +5170,9 @@ Reading an `:integer` or `:float` column of a fixed width file that holds no num
 raises `IOStreams::Errors::InvalidValue`, which names the field and the value. Previously the column was converted
 with `to_i` or `to_f`, to `0`, or to the number that its leading digits make, such as `12` for `12-`, so that a
 corrupt file was read without an error. Writing such a value also raises, as does writing a fraction to an
-`:integer` column, which was truncated. A blank column is still read as `nil`, and a missing number is still
-written as zeros.
+`:integer` column, which was truncated. An `:integer` column still reads a whole number with a decimal point, such
+as `12.0`, as `12`, as `to_i` did, but a fraction, such as `12.5`, raises. A blank column is still read as `nil`,
+and a missing number is still written as zeros.
 
 Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, or `type: :string` in the
 layout, and convert it in the application.
