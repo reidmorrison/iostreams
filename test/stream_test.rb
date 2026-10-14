@@ -1143,6 +1143,20 @@ class StreamTest < Minitest::Test
         assert_equal 'Field "id": "N/A" is not a valid integer', error.message
       end
 
+      it "keeps the Symbol keys of the layout in the records that allowed_columns or required_columns restrict, as before" do
+        layout = {layout: [{size: 6, key: :name}, {size: 5, key: :zip, type: :integer}]}
+        read   = lambda do |**options|
+          rows = []
+          IOStreams::Stream.new(StringIO.new("Jack  00012\n")).format(:fixed).format_options(layout).each(:hash, **options) { |row| rows << row }
+          rows
+        end
+
+        assert_equal [{name: "Jack"}], read.call(allowed_columns: %w[name])
+        assert_equal [{name: "Jack", zip: 12}], read.call(required_columns: %w[zip])
+        assert_equal [{name: "Jack"}], read.call(allowed_columns: %w[name], cleanse_header: false)
+        assert_raises(IOStreams::Errors::InvalidHeader) { read.call(required_columns: %w[missing]) }
+      end
+
       it "reads an integer column of a whole number with a decimal point, as before it was deprecated, but not a fraction" do
         layout = {layout: [{size: 4, key: "id", type: :integer}]}
         rows   = []

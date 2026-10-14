@@ -734,6 +734,16 @@ class TabularTest < Minitest::Test
           assert_equal({"Name" => "x", "admin" => true}, IOStreams::Tabular.new(format: :json).read_record(json))
         end
 
+        it "keeps a key that is the name of its column once cleansed, such as a Symbol, and renames the others" do
+          tabular = IOStreams::Tabular.new(format: :hash, allowed_columns: %w[name zip])
+          record  = tabular.read_record({:name => "Jack", "Zip" => 1, :age => 3})
+
+          assert_equal({name: "Jack", "zip" => 1}, record)
+          # Not renamed, so `:Zip` is not the column "zip".
+          assert_equal({name: "Jack"}, tabular.read_record({name: "Jack", Zip: 1}, rename: false))
+          assert_equal({1 => "a"}, IOStreams::Tabular.new(format: :hash, required_columns: %w[1]).read_record({1 => "a"}))
+        end
+
         describe "when enforce_column_restrictions is false" do
           before { IOStreams.enforce_column_restrictions = false }
           after { IOStreams.enforce_column_restrictions = true }

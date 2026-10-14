@@ -292,9 +292,13 @@ module IOStreams
         @cleanse_plan
       end
 
-      # Returns [Array<Array(Object, String)>|nil] each key of a record that #restrict_hash keeps, with the column whose
-      # value it is, worked out once for each set of keys, or nil for a record without keys, whose restricted hash is
-      # blank. Like the plans of #cleanse_hash, it is worked out from the position of each key.
+      # Returns [Array<Array(Object, Object)>|nil] each key of a record that #restrict_hash keeps, with its key in the
+      # record returned, worked out once for each set of keys, or nil for a record without keys, whose restricted hash
+      # is blank. Like the plans of #cleanse_hash, it is worked out from the position of each key.
+      #
+      # A key that is already the name of its column is kept as it is, such as the Symbol key `:zip` of a fixed width
+      # layout, so that restricting the columns does not change the keys of the columns that it keeps. A key that
+      # cleansing renames, such as `"First Name"`, is the name of its column, `"first_name"`.
       #
       # Raises `IOStreams::Errors::InvalidHeader` each time for keys that the restrictions do not accept, see #cleanse!.
       def restrict_plan(keys, rename)
@@ -304,9 +308,12 @@ module IOStreams
         plan  = plans.fetch(keys) do
           header = self.class.new(columns: keys, allowed_columns: allowed_columns, required_columns: required_columns,
                                   skip_unknown: skip_unknown)
+          names  = header.columns
           header.cleanse!(rename: rename)
           plans.clear if plans.size >= PLANS
-          plans[keys] = header.to_hash((0...keys.size).to_a)&.map { |column, index| [keys[index], column] }
+          plans[keys] = header.to_hash((0...keys.size).to_a)&.map do |column, index|
+            [keys[index], column == names[index] ? keys[index] : column]
+          end
         end
         @restrict_keys   = keys
         @restrict_rename = rename
