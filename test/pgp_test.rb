@@ -313,8 +313,12 @@ class PgpTest < Minitest::Test
           )
           key = IOStreams::Pgp.list_keys(email: email).first
 
-          # gpg lists the curve as the type of the key, such as "ed25519".
-          assert_equal "ed25519", "#{key[:key_type]}#{key[:key_length]}"
+          # gpg lists the curve as the type of the key, which gives the size of the curve.
+          assert_equal "ed25519", key[:key_type]
+          assert_equal 255, key[:key_length]
+          assert_equal email, key[:email]
+          assert_equal Date.today, key[:date]
+          refute key[:private]
         ensure
           IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if key_id
         end
@@ -1239,6 +1243,52 @@ class PgpTest < Minitest::Test
       assert_equal "Receiver", key[:name]
       assert_equal "receiver@example.org", key[:email]
       refute key.key?(:trust)
+    end
+
+    it "parses the curve of an Elliptic Curve key as its type, and its size as its length" do
+      {
+        "ed25519"         => 255,
+        "cv25519"         => 255,
+        "ed448"           => 448,
+        "cv448"           => 448,
+        "nistp256"        => 256,
+        "nistp384"        => 384,
+        "nistp521"        => 521,
+        "brainpoolP256r1" => 256,
+        "brainpoolP384r1" => 384,
+        "brainpoolP512r1" => 512,
+        "secp256k1"       => 256
+      }.each_pair do |curve, length|
+        output = <<~OUTPUT
+          sec   #{curve} 2026-10-14 [SC]
+                ABCDEF0123456789ABCDEF0123456789ABCDEF01
+          uid           [ultimate] Jack Jones <jack@example.org>
+        OUTPUT
+        key = IOStreams::Pgp.parse_list_output(output).first
+
+        assert_equal curve, key[:key_type]
+        assert_equal length, key[:key_length], curve
+        assert key[:private], curve
+        assert_equal Date.new(2026, 10, 14), key[:date]
+        assert_equal "ABCDEF0123456789ABCDEF0123456789ABCDEF01", key[:key_id]
+        assert_equal "jack@example.org", key[:email]
+      end
+    end
+
+    it "parses the algorithm and the length of a key that is not on an Elliptic Curve" do
+      {"rsa4096" => ["rsa", 4096], "dsa2048" => ["dsa", 2048], "elg1024" => ["elg", 1024]}.each_pair do |name, type_and_length|
+        key = IOStreams::Pgp.parse_list_output("pub   #{name} 2026-10-14 [SC]\nuid           [ultimate] Jack Jones\n").first
+
+        assert_equal type_and_length, [key[:key_type], key[:key_length]]
+      end
+    end
+
+    it "parses a curve that it does not know as the type of the key, without a length" do
+      key = IOStreams::Pgp.parse_list_output("pub   E_1.3.6.1.4.1.99999 2026-10-14 [SC]\nuid           [ultimate] Jack Jones\n").first
+
+      assert_equal "E_1.3.6.1.4.1.99999", key[:key_type]
+      assert_nil key[:key_length]
+      assert_equal Date.new(2026, 10, 14), key[:date]
     end
 
     it "parses a uid that has a name but no email" do

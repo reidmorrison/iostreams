@@ -620,16 +620,15 @@ module IOStreams
       results = []
       hash    = {}
       out.each_line do |line|
-        if (match = line.match(/(pub|sec)\s+(\D+)(\d+)\s+(\d+-\d+-\d+)(\s+\[.*\])?(.*)/))
-          # v2.2/v2.4:    pub   rsa1024 2017-10-24 [SCEA]
+        if (match = line.match(%r{(pub|sec)\s+([A-Za-z][^\s/]*)\s+(\d+-\d+-\d+)(\s+\[.*\])?(.*)}))
+          # v2.2/v2.4:    pub   rsa1024 2017-10-24 [SCEA], or the curve of the key, such as ed25519
           hash = {
-            private:    match[1] == "sec",
-            key_length: match[3].to_s.to_i,
-            key_type:   match[2],
-            date:       (begin
-              Date.parse(match[4].to_s)
+            private: match[1] == "sec",
+            **key_type_and_length(match[2]),
+            date:    (begin
+              Date.parse(match[3].to_s)
             rescue StandardError
-              match[4]
+              match[3]
             end)
           }
         elsif (match = line.match(%r{(pub|sec)\s+(\d+)(.*)/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?}))
@@ -680,6 +679,28 @@ module IOStreams
       end
       results
     end
+
+    # Returns [Hash] the length in bits and the type of a key, from the name of its algorithm that gpg lists, such as
+    # `{key_length: 4096, key_type: "rsa"}` for "rsa4096".
+    #
+    # For a key on an elliptic curve, gpg lists the name of the curve, such as "ed25519" or "nistp256", which is its type,
+    # and the length is the size of the curve, such as 255 or 256, so that the lengths of keys can still be compared.
+    # The length is nil for a curve that gpg does not know, which it lists as "E_" and the curve's OID.
+    def self.key_type_and_length(name)
+      case name
+      when /\A(?:ed|cv)25519\z/
+        {key_length: 255, key_type: name}
+      when /\A(?:ed|cv)448\z/
+        {key_length: 448, key_type: name}
+      when /\A(?:nistp(\d+)|brainpoolP(\d+)[rt]1|secp(\d+)k1)\z/
+        {key_length: Integer(Regexp.last_match.captures.compact.first), key_type: name}
+      when /\A([a-z]+)(\d+)\z/
+        {key_length: Integer(Regexp.last_match(2)), key_type: Regexp.last_match(1)}
+      else
+        {key_length: nil, key_type: name}
+      end
+    end
+    private_class_method :key_type_and_length
 
     def self.reject_newlines!(**fields)
       fields.each_pair do |field, value|
