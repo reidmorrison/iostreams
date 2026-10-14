@@ -158,6 +158,7 @@ module IOStreams
         check_type
         check_properties(descriptor)
         @format       = check_format(descriptor["format"])
+        @utc          = @type == "datetime" && !@format.nil? && !format_zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
@@ -353,9 +354,16 @@ module IOStreams
         case type
         when "number" then number_text(value)
         when "boolean" then value ? @true_values.first : @false_values.first
-        when "date", "datetime" then @format ? value.strftime(@format) : self.class.any_text(value)
+        when "date" then @format ? value.strftime(@format) : self.class.any_text(value)
+        when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
         else self.class.any_text(value)
         end
+      end
+
+      # Returns [String] the time in the format of this field. Text without a zone is read as UTC, see #parse_time, so a
+      # time is written in UTC with a format without a zone, so that it reads back as the same time.
+      def datetime_text(time)
+        (@utc ? time.getutc : time).strftime(@format)
       end
 
       def check_type
@@ -557,6 +565,12 @@ module IOStreams
         Time.iso8601(OFFSET.match?(value) ? value : "#{value}Z")
       rescue ArgumentError
         invalid(value)
+      end
+
+      # Returns [true|false] whether the strftime pattern of the format writes a zone, such as `%z`, `%:z` or `%Z`, so
+      # that a time written with it says its own offset from UTC.
+      def format_zone?
+        @format.scan(/%(?:%|[-_0^#:]*\d*([a-zA-Z+]))/).flatten.compact.intersect?(%w[z Z +])
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,

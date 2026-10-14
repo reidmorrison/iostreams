@@ -859,6 +859,22 @@ class SchemaTest < Minitest::Test
           assert_equal Time.utc(2026, 10, 13, 9, 30), pattern.cast("20261013093000+0000")
           assert_equal "20261013093000+0000", pattern.render(Time.utc(2026, 10, 13, 9, 30), :text)
         end
+
+        it "writes a time in UTC with a format without a zone, which reads it back as UTC, as the same time" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M")
+          time    = Time.new(2026, 10, 13, 9, 30, 0, "-04:00")
+
+          assert_equal "2026-10-13 13:30", pattern.render(time, :text)
+          assert_equal time, pattern.cast(pattern.render(time, :text))
+        end
+
+        it "writes a time at its own offset with a format that has a zone" do
+          time = Time.new(2026, 10, 13, 9, 30, 0, "-04:00")
+
+          assert_equal "2026-10-13 09:30 -0400", field(type: "datetime", format: "%Y-%m-%d %H:%M %z").render(time, :text)
+          assert_equal "2026-10-13 09:30 -04:00", field(type: "datetime", format: "%Y-%m-%d %H:%M %:z").render(time, :text)
+          assert_equal "100% 2026-10-13 13:30", field(type: "datetime", format: "100%% %Y-%m-%d %H:%M").render(time, :text)
+        end
       end
 
       describe "any" do
