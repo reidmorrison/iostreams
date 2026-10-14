@@ -11,6 +11,13 @@ module IOStreams
         %i[sheet_name auto_format use_shared_strings]
       end
 
+      # Raises LoadError when the `xlsxtream` gem is not installed, so that it raises before a path opens its output,
+      # which would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
+      def self.check(sheet_name: "Sheet1", auto_format: false, use_shared_strings: false) # rubocop:disable Lint/UnusedMethodArgument
+        Utils.load_soft_dependency("xlsxtream", "Xlsx") unless defined?(Xlsxtream::Workbook)
+        nil
+      end
+
       # Write CSV text as the rows of a workbook with one worksheet, to the supplied output stream.
       #
       # The workbook is streamed with `xlsxtream`, which is built on `zip_kit`, so it is written straight to
@@ -44,7 +51,7 @@ module IOStreams
       # what was written is a complete workbook. It is not ended when the block raises, or its thread is killed, so
       # that the output is not a workbook that can be read.
       def self.stream(output_stream, sheet_name: "Sheet1", auto_format: false, use_shared_strings: false)
-        Utils.load_soft_dependency("xlsxtream", "Xlsx") unless defined?(Xlsxtream::Workbook)
+        check(sheet_name: sheet_name, auto_format: auto_format, use_shared_strings: use_shared_strings)
 
         workbook  = Xlsxtream::Workbook.new(output_stream, auto_format: auto_format, use_shared_strings: use_shared_strings)
         # Rather than the block form, which ends the worksheet after its block without an `ensure`.

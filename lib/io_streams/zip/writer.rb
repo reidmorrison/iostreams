@@ -7,6 +7,17 @@ module IOStreams
         %i[entry_file_name]
       end
 
+      # Raises ArgumentError for an entry name that is not a String with a name, and LoadError when the `zip_kit` gem
+      # is not installed, so that they raise before a path opens its output, which would replace an existing file, see
+      # `IOStreams::StreamFormat#check_stream`.
+      def self.check(entry_file_name: nil)
+        Utils.load_soft_dependency("zip_kit", "Zip") unless defined?(ZipKit::Streamer)
+        return if entry_file_name.nil? || (entry_file_name.is_a?(String) && !entry_file_name.empty?)
+
+        raise(ArgumentError, "Invalid entry_file_name #{entry_file_name.inspect}: supply the name of the file within the " \
+                             "zip file")
+      end
+
       # Returns [Hash] the options with the entry name within the zip defaulted to the name of the file
       # being written, without its directory or `.zip` extension, unless an entry name was supplied.
       # For example `"example.csv"` for `"reports/example.csv.zip.pgp"`.
@@ -43,7 +54,7 @@ module IOStreams
       #   data descriptors instead, so we can write straight to the output stream and
       #   avoid the temp file round-trip.
       def self.stream(output_stream, entry_file_name: nil)
-        Utils.load_soft_dependency("zip_kit", "Zip") unless defined?(ZipKit::Streamer)
+        check(entry_file_name: entry_file_name)
 
         zip = ZipKit::Streamer.new(output_stream)
         io  = zip.write_deflated_file(entry_file_name || "file")

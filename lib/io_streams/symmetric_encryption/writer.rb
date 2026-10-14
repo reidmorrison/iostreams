@@ -1,10 +1,29 @@
 # frozen_string_literal: true
 
+require "stringio"
+
 module IOStreams
   module SymmetricEncryption
     class Writer < IOStreams::Writer
       def self.option_names
         %i[compress version cipher_name header random_key random_iv]
+      end
+
+      # Raises what .stream would raise before it writes anything, such as when no cipher is configured, for a `version`
+      # of a cipher that is not, or a `cipher_name` without a random key and IV, and LoadError when the
+      # `symmetric-encryption` gem is not installed, so that they raise before a path opens its output, which would
+      # replace an existing file, see `IOStreams::StreamFormat#check_stream`.
+      #
+      # The gem checks them as it creates its writer, so one is created on an output that is discarded.
+      def self.check(compress: true, version: nil, cipher_name: nil, header: true, random_key: true, random_iv: true)
+        Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(::SymmetricEncryption)
+
+        ::SymmetricEncryption::Writer.new(
+          ::StringIO.new,
+          compress: compress, version: version, cipher_name: cipher_name, header: header, random_key: random_key,
+          random_iv: random_iv
+        )
+        nil
       end
 
       # Write to stream using Symmetric Encryption

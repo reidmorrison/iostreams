@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "open3"
+require "rbconfig"
 
 # What a writer keeps depends on how its block ends, whichever streams the data uses, see
 # `IOStreams::Utils.finish_or_abort`: when the block returns, including when it leaves early with `break`, what it wrote
@@ -129,6 +131,52 @@ class StreamOutcomeTest < Minitest::Test
           refute_equal data, read_back(output.string)
         end
       end
+    end
+  end
+
+  describe "a writer whose gem is not installed" do
+    # The test helper loads the gems, so the writers run in a new process, which hides them, as if they were not
+    # installed. The zstd library of JRuby is a jar, which cannot be hidden this way.
+    let :gems do
+      gems = {bz2: "bzip2-ffi", enc: "symmetric-encryption", xlsx: "xlsxtream", zip: "zip_kit"}
+      gems[:zst] = "zstd-ruby" unless defined?(JRuby)
+      gems
+    end
+
+    it "raises LoadError before a local path opens its output, so that an existing file is kept" do
+      script = <<~'RUBY'
+        HIDDEN = %w[bzip2/ffi symmetric-encryption xlsxtream zip_kit zstd-ruby].freeze
+
+        module Kernel
+          alias_method :require_installed, :require
+
+          def require(name)
+            raise(LoadError, "cannot load such file -- #{name}") if HIDDEN.include?(name)
+
+            require_installed(name)
+          end
+        end
+        require "iostreams"
+
+        dir = ARGV.shift
+        ARGV.each do |extension|
+          file_name = File.join(dir, "existing.csv.#{extension}")
+          File.write(file_name, "precious")
+          begin
+            IOStreams.path(file_name).write("new")
+          rescue LoadError => e
+            kept = File.exist?(file_name) ? File.read(file_name) : "removed"
+            puts "#{extension}: #{e.message[/\APlease install the gem '[^']+'/]}, #{kept}"
+          end
+        end
+      RUBY
+      output = Dir.mktmpdir("iostreams") do |dir|
+        lib = File.expand_path("../lib", __dir__)
+        Open3.capture2e(RbConfig.ruby, "-I", lib, "-e", script, dir, *gems.keys.map(&:to_s)).first
+      end
+      expected = gems.map { |extension, gem| "#{extension}: Please install the gem '#{gem}', precious" }
+
+      assert_equal expected, output.lines(chomp: true).grep(/\A\w+: /)
     end
   end
 end

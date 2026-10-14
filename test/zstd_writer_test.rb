@@ -97,5 +97,31 @@ class ZstdWriterTest < Minitest::Test
         assert_equal data, ZstdLibrary.decompress(compress(data, level: 19))
       end
     end
+
+    describe ".check" do
+      it "accepts the levels of zstd, including negative levels" do
+        [nil, -131_072, -5, 0, 1, 22].each { |level| assert_nil IOStreams::Zstd::Writer.check(level: level) }
+      end
+
+      it "raises for a level that zstd cannot compress with" do
+        [23, -131_073, "19", 1.5].each do |level|
+          error = assert_raises(ArgumentError) { IOStreams::Zstd::Writer.check(level: level) }
+          assert_equal "Invalid zstd level #{level.inspect}: supply an Integer from 1, the fastest, to 22, the best " \
+                       "compression, 0 for the default, or a negative level, down to -131072, for faster compression",
+                       error.message
+        end
+      end
+
+      it "raises from .stream too" do
+        assert_raises(ArgumentError) { IOStreams::Zstd::Writer.stream(StringIO.new("".b), level: 99) { |io| io.write(decompressed) } }
+      end
+
+      it "keeps an existing local file" do
+        File.write(file_name, "precious")
+
+        assert_raises(ArgumentError) { IOStreams.path(file_name).stream(:zst, level: "19").write(decompressed) }
+        assert_equal "precious", File.read(file_name)
+      end
+    end
   end
 end

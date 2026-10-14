@@ -75,5 +75,32 @@ class ZipWriterTest < Minitest::Test
         assert_equal({entry_file_name: "a.csv"}, IOStreams::Zip::Writer.file_name_options("b.csv.zip", entry_file_name: "a.csv"))
       end
     end
+
+    describe ".check" do
+      it "accepts an entry name" do
+        assert_nil IOStreams::Zip::Writer.check
+        assert_nil IOStreams::Zip::Writer.check(entry_file_name: "data.csv")
+      end
+
+      it "raises for an entry name that is not the name of a file" do
+        ["", :data].each do |entry_file_name|
+          error = assert_raises(ArgumentError) { IOStreams::Zip::Writer.check(entry_file_name: entry_file_name) }
+          assert_equal "Invalid entry_file_name #{entry_file_name.inspect}: supply the name of the file within the zip file",
+                       error.message
+        end
+      end
+
+      it "raises from .stream too" do
+        assert_raises(ArgumentError) { IOStreams::Zip::Writer.stream(StringIO.new("".b), entry_file_name: "") { |io| io.write(decompressed) } }
+      end
+
+      it "keeps an existing local file" do
+        file_name = File.join(dir, "example.csv.zip")
+        File.write(file_name, "precious")
+
+        assert_raises(ArgumentError) { IOStreams.path(file_name).option(:zip, entry_file_name: "").write(decompressed) }
+        assert_equal "precious", File.read(file_name)
+      end
+    end
   end
 end

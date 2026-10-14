@@ -63,5 +63,27 @@ class SymmetricEncryptionWriterTest < Minitest::Test
         assert_equal decrypted, IOStreams.path(path.to_s).read
       end
     end
+
+    describe ".check" do
+      it "accepts the options of the configured cipher" do
+        assert_nil IOStreams::SymmetricEncryption::Writer.check
+        assert_nil IOStreams::SymmetricEncryption::Writer.check(compress: false, header: false)
+      end
+
+      it "raises what the writer of the gem raises" do
+        assert_raises(::SymmetricEncryption::CipherError) { IOStreams::SymmetricEncryption::Writer.check(version: 99) }
+        assert_raises(ArgumentError) { IOStreams::SymmetricEncryption::Writer.check(random_iv: false) }
+      end
+
+      it "keeps an existing local file" do
+        Dir.mktmpdir do |dir|
+          file_name = File.join(dir, "data.csv.enc")
+          File.write(file_name, "precious")
+
+          assert_raises(::SymmetricEncryption::CipherError) { IOStreams.path(file_name).option(:enc, version: 99).write(decrypted) }
+          assert_equal "precious", File.read(file_name)
+        end
+      end
+    end
   end
 end

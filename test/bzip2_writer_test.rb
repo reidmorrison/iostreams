@@ -58,5 +58,39 @@ class Bzip2WriterTest < Minitest::Test
         assert_equal decompressed + decompressed, data
       end
     end
+
+    describe ".check" do
+      it "accepts the block sizes and work factors of libbz2" do
+        assert_nil IOStreams::Bzip2::Writer.check
+        assert_nil IOStreams::Bzip2::Writer.check(autoclose: true, block_size: 1, work_factor: 0)
+        assert_nil IOStreams::Bzip2::Writer.check(block_size: 9, work_factor: 250)
+      end
+
+      it "raises for a block size that libbz2 cannot compress with" do
+        [0, 10, "9"].each do |block_size|
+          error = assert_raises(ArgumentError) { IOStreams::Bzip2::Writer.check(block_size: block_size) }
+          assert_equal "Invalid bzip2 block_size #{block_size.inspect}: supply an Integer from 1 (100k) to 9 (900k)", error.message
+        end
+      end
+
+      it "raises for a work factor that libbz2 cannot compress with" do
+        [-1, 251, 1.5].each do |work_factor|
+          error = assert_raises(ArgumentError) { IOStreams::Bzip2::Writer.check(work_factor: work_factor) }
+          assert_equal "Invalid bzip2 work_factor #{work_factor.inspect}: supply an Integer from 0 to 250, where 0 uses " \
+                       "the default of libbz2", error.message
+        end
+      end
+
+      it "raises from .stream too" do
+        assert_raises(ArgumentError) { IOStreams::Bzip2::Writer.stream(StringIO.new("".b), block_size: 10) { |io| io.write(decompressed) } }
+      end
+
+      it "keeps an existing local file" do
+        File.write(file_name, "precious")
+
+        assert_raises(ArgumentError) { IOStreams.path(file_name).stream(:bz2, block_size: 10).write(decompressed) }
+        assert_equal "precious", File.read(file_name)
+      end
+    end
   end
 end

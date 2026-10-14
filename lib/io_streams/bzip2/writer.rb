@@ -3,8 +3,29 @@
 module IOStreams
   module Bzip2
     class Writer < IOStreams::Writer
+      # The block sizes of libbz2, in units of 100k.
+      BLOCK_SIZES = (1..9)
+
+      # The work factors of libbz2, where 0 uses its default, 30.
+      WORK_FACTORS = (0..250)
+
       def self.option_names
         %i[autoclose block_size work_factor]
+      end
+
+      # Raises ArgumentError for a block size or work factor that libbz2 cannot compress with, such as a block size of 10,
+      # and LoadError when the `bzip2-ffi` gem is not installed, so that they raise before a path opens its output, which
+      # would replace an existing file, see `IOStreams::StreamFormat#check_stream`. Any `autoclose` can be written with.
+      def self.check(autoclose: false, block_size: nil, work_factor: nil) # rubocop:disable Lint/UnusedMethodArgument
+        Utils.load_soft_dependency("bzip2-ffi", "Bzip2", "bzip2/ffi") unless defined?(::Bzip2::FFI)
+
+        unless block_size.nil? || (block_size.is_a?(Integer) && BLOCK_SIZES.cover?(block_size))
+          raise(ArgumentError, "Invalid bzip2 block_size #{block_size.inspect}: supply an Integer from 1 (100k) to 9 (900k)")
+        end
+        return if work_factor.nil? || (work_factor.is_a?(Integer) && WORK_FACTORS.cover?(work_factor))
+
+        raise(ArgumentError, "Invalid bzip2 work_factor #{work_factor.inspect}: supply an Integer from 0 to 250, where 0 " \
+                             "uses the default of libbz2")
       end
 
       # Write to a stream, compressing with Bzip2
@@ -29,7 +50,7 @@ module IOStreams
       # `break`. It is not written when the block raises, or its thread is killed, so that the output does not look like
       # a complete file of the partial data, see `IOStreams::AbortableOutput`.
       def self.stream(output_stream, autoclose: false, block_size: nil, work_factor: nil)
-        Utils.load_soft_dependency("bzip2-ffi", "Bzip2", "bzip2/ffi") unless defined?(::Bzip2::FFI)
+        check(autoclose: autoclose, block_size: block_size, work_factor: work_factor)
 
         output = AbortableOutput.new(output_stream)
         io     = ::Bzip2::FFI::Writer.new(output, autoclose: autoclose, block_size: block_size, work_factor: work_factor)

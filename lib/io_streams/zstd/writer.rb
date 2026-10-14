@@ -3,8 +3,23 @@
 module IOStreams
   module Zstd
     class Writer < IOStreams::Writer
+      # The compression levels of zstd: from 1, the fastest, to 22, the best compression, 0 for its default, 3, and
+      # negative levels, down to -131072, for even faster compression.
+      LEVELS = (-131_072..22)
+
       def self.option_names
         %i[level]
+      end
+
+      # Raises ArgumentError for a level that zstd cannot compress with, such as 23, which zstd would silently lower, or
+      # "19", and LoadError when the zstd library is not installed, see `IOStreams::Zstd.library`, so that they raise
+      # before a path opens its output, which would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
+      def self.check(level: nil)
+        Zstd.library.load_dependency
+        return if level.nil? || (level.is_a?(Integer) && LEVELS.cover?(level))
+
+        raise(ArgumentError, "Invalid zstd level #{level.inspect}: supply an Integer from 1, the fastest, to 22, the best " \
+                             "compression, 0 for the default, or a negative level, down to -131072, for faster compression")
       end
 
       # Write to a stream, compressing with Zstandard.
@@ -23,6 +38,8 @@ module IOStreams
       # `break`. It is not written when the block raises, or its thread is killed, so that the output does not look like
       # a complete file of the partial data.
       def self.stream(output_stream, level: nil)
+        check(level: level)
+
         encoder = Zstd.library.encoder(output_stream, level: level)
         Utils.finish_or_abort(finish: -> { encoder.finish }, abort: -> { encoder.close }) do
           yield Compressor.new(encoder)
