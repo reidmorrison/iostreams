@@ -553,10 +553,10 @@ answers `#url`, which is `#to_s`, `#username` and `#http_redirect_count`.
   can: the request accepts `gzip`, and IOStreams decompresses the response as the block reads it. A compressed or
   encrypted file, such as `data.csv.gz`, and a file read with `#raw`, are requested as they are stored, as is a file
   read with a `Range` in `headers:`, since a part of a compressed response cannot be decompressed.
-* A response that IOStreams cannot decompress, such as one with the `Content-Encoding` `br`, raises
-  `IOStreams::Errors::CommunicationsFailure` before the block is called, and so does a gzip response that is
-  truncated or corrupt. To read the response as the server sends it, without decompressing it, supply an
-  `Accept-Encoding` with `headers:`, which is sent instead, such as `{"Accept-Encoding" => "identity"}`.
+* When the request accepts `gzip`, a response that IOStreams cannot decompress, such as one with the
+  `Content-Encoding` `br`, raises `IOStreams::Errors::CommunicationsFailure` before the block is called, and so does
+  a gzip response that is truncated or corrupt. To read the response as the server sends it, without decompressing
+  it, supply an `Accept-Encoding` with `headers:`, which is sent instead, such as `{"Accept-Encoding" => "identity"}`.
 
 ~~~ruby
 # Read the response as the server sends it.

@@ -1086,9 +1086,9 @@ every request accepted gzip and deflate, and Net::HTTP decompressed the response
 as `data.csv.gz`, and `#raw`, ask for the file as it is stored, so a `.gz` file that the server sends with
 `Content-Encoding: gzip` is decompressed once, where it raised. This changes:
 
-* A response with a `Content-Encoding` that IOStreams cannot decompress, such as `br`, `zstd` or `deflate`, raises
-  `IOStreams::Errors::CommunicationsFailure` before the block is called. Previously its encoded data was read as the
-  file, apart from `deflate`, which Net::HTTP decompressed.
+* For such a file, a response with a `Content-Encoding` that IOStreams cannot decompress, such as `br`, `zstd` or
+  `deflate`, raises `IOStreams::Errors::CommunicationsFailure` before the block is called. Previously its encoded data
+  was read as the file, apart from `deflate`, which Net::HTTP decompressed.
 * A gzip response that is truncated or corrupt raises `IOStreams::Errors::CommunicationsFailure`, where the data
   before the damage was read without an error, and a response of several gzip members is read to its end, where only
   its first member was read.
