@@ -16,6 +16,35 @@ class StorageErrorsTest < Minitest::Test
     raise(Errno::ENOENT, "missing.csv")
   end
 
+  # Net::SFTP::StatusException, with the SFTP status code.
+  class StubStatusException < StandardError
+    attr_reader :code
+
+    def initialize(code)
+      super("SFTP status #{code}")
+      @code = code
+    end
+  end
+
+  # A stand-in for a Net::SFTP session, whose every directory holds the file `a.csv`.
+  class StubSFTPSession
+    Attributes = Struct.new(:directory) do
+      def attributes = {size: 4}
+      def directory? = directory
+      def file? = !directory
+      def symlink? = false
+    end
+    Entry = Struct.new(:name, :attributes) do
+      def directory? = attributes.directory?
+      def file? = attributes.file?
+      def symlink? = attributes.symlink?
+    end
+
+    def stat!(name) = Attributes.new(!name.end_with?(".csv"))
+    def dir = self
+    def entries(_name) = [Entry.new("a.csv", Attributes.new(false))]
+  end
+
   describe IOStreams::Errors::StorageError do
     let(:not_found) { IOStreams::Errors::NotFound }
 
@@ -156,6 +185,31 @@ class StorageErrorsTest < Minitest::Test
       status = Struct.new(:success?).new(success)
       popen  = ->(*_args, &block) { block.call(StringIO.new, StringIO.new(output), Struct.new(:value).new(status)) }
       Open3.stub(:popen2e, popen, &)
+    end
+
+    # Runs the block with a stand-in for Net::SFTP, whose session is a StubSFTPSession, then restores Net::SFTP.
+    def with_net_sftp
+      stub_sftp = Module.new
+      stub_sftp.const_set(:StatusException, StubStatusException)
+      stub_sftp.define_singleton_method(:start) { |*_args, &block| block.call(StubSFTPSession.new) }
+      original = Net.send(:remove_const, :SFTP) if defined?(Net::SFTP)
+      Net.const_set(:SFTP, stub_sftp)
+      yield
+    ensure
+      Net.send(:remove_const, :SFTP)
+      Net.const_set(:SFTP, original) if original
+    end
+
+    # Asserts that each exception raised by the block supplied to #each_child is raised as it is, without tagging it
+    # as a failure of the path, such as the failure of a request that the block makes of its own server.
+    def assert_each_child_failure_not_tagged(path, pattern, errors)
+      errors.each do |error|
+        failing = proc { raise(error) }
+        raised  = assert_raises(error.class) { path.each_child(pattern, &failing) }
+
+        assert_same error, raised
+        refute_kind_of IOStreams::Errors::StorageError, raised
+      end
     end
 
     # Yields the url of a server that responds to every request with the status.
@@ -446,6 +500,44 @@ class StorageErrorsTest < Minitest::Test
       it "is not tagged for HTTP" do
         with_http(200, body: "data") do |url|
           assert_block_failure_not_tagged(IOStreams.path("#{url}/a.csv"))
+        end
+      end
+    end
+
+    describe "an exception raised by the block of #each_child" do
+      it "is not tagged for a local file" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "a.csv").write("data")
+
+          %w[*.csv a.csv].each do |pattern|
+            assert_each_child_failure_not_tagged(IOStreams.path(dir), pattern, [Errno::ENOENT.new("config")])
+          end
+        end
+      end
+
+      it "is not tagged for S3" do
+        with_s3 do
+          directory = IOStreams.path("s3://iostreams-test/each_child")
+          directory.join("a.csv").write("data")
+
+          %w[*.csv a.csv].each do |pattern|
+            errors = [Errno::ENOENT.new("config"), Errno::ECONNREFUSED.new("database"), Aws::S3::Errors::NotFound.new(nil, "other")]
+
+            assert_each_child_failure_not_tagged(directory, pattern, errors)
+          end
+        end
+      end
+
+      it "is not tagged for SFTP, even when it is a failure of the block's own SFTP request" do
+        require "net/ssh"
+        directory = IOStreams.path("sftp://example.org/data", username: "jack")
+
+        with_net_sftp do
+          %w[*.csv a.csv].each do |pattern|
+            errors = [StubStatusException.new(2), Net::SSH::Disconnect.new("closed"), Errno::ECONNREFUSED.new("database")]
+
+            assert_each_child_failure_not_tagged(directory, pattern, errors)
+          end
         end
       end
     end

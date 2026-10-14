@@ -265,22 +265,20 @@ module IOStreams
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
-        matcher   = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
-        directory = matcher.directory.empty? ? self : child_path(matcher.directory)
+        matcher = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
+        # An exception that the block raises is raised once the session has closed, outside `#with_net_sftp`, so that
+        # it is not tagged as a failure of this path, such as the failure of a request that the block makes itself.
+        failure = nil
         with_net_sftp("SFTP glob capability") do |sftp|
-          if matcher.exact?
-            # When the pattern is an exact file name without any pattern characters
-            child      = child_path(matcher.pattern, directory.path)
-            attributes = Listing.remote_attributes(sftp, child.remote_path)
-            found      = attributes && (attributes.file? || (directories && attributes.directory?))
-            yield(child, attributes.attributes) if found && allowed_child?(child)
-          else
-            Listing.each(sftp, directory.remote_path, matcher, directories: directories) do |name, attributes|
-              child = child_path(name, directory.path)
-              yield(child, attributes) if allowed_child?(child)
-            end
+          each_match(sftp, matcher, directories) do |child, attributes|
+            yield(child, attributes)
+          rescue StandardError => e
+            failure = e
+            break
           end
         end
+        raise(failure) if failure
+
         nil
       end
 
@@ -359,6 +357,24 @@ module IOStreams
           raise unless Listing::NOT_FOUND.include?(e.code)
         end
         self
+      end
+
+      # Yields each child within this path that the matcher matches, and its attributes, see `#each_child`.
+      def each_match(sftp, matcher, directories)
+        directory = matcher.directory.empty? ? self : child_path(matcher.directory)
+        if matcher.exact?
+          # When the pattern is an exact file name without any pattern characters
+          child      = child_path(matcher.pattern, directory.path)
+          attributes = Listing.remote_attributes(sftp, child.remote_path)
+          found      = attributes && (attributes.file? || (directories && attributes.directory?))
+          yield(child, attributes.attributes) if found && allowed_child?(child)
+          return
+        end
+
+        Listing.each(sftp, directory.remote_path, matcher, directories: directories) do |name, attributes|
+          child = child_path(name, directory.path)
+          yield(child, attributes) if allowed_child?(child)
+        end
       end
 
       # Returns the attributes of this path on the server, or nil when it does not exist.
