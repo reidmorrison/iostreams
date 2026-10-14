@@ -27,6 +27,11 @@ module IOStreams
         # another name for `gzip`.
         FORMATS = {"gzip" => IOStreams::Gzip, "x-gzip" => IOStreams::Gzip}.freeze
 
+        # The errors that the format raises for a body that it cannot decode: those of Zlib, and on JRuby, whose zlib
+        # raises some of them as an `IOError`, such as `footer is not found`, or as `Errno::EPIPE` for data that ends
+        # early, those too.
+        DECODE_ERRORS = [Zlib::Error, IOError, Errno::EPIPE].freeze
+
         # The number of bytes read at a time from the format that decodes the body.
         BLOCK_SIZE = 65_536
 
@@ -77,7 +82,7 @@ module IOStreams
         # coding and the display name of the path, with the failure of the format as its cause.
         def decoding
           yield
-        rescue Zlib::Error => e
+        rescue *DECODE_ERRORS => e
           raise(failure(e))
         end
 
@@ -88,16 +93,20 @@ module IOStreams
 
         private
 
-        # Yields the body decoded by the format, see #reader.
+        # Yields the body decoded by the format, see #reader. The reader that it yields is closed once the block returns,
+        # like the body, while the format closes its own reader.
         def decode(body, maximum_size)
           in_block = false
           @format.open_stream(:reader, body, {}, name: @name.to_sym) do |decoded|
+            reader   = Decoded.new(decoded, self, maximum_size)
             in_block = true
-            result   = yield(Decoded.new(decoded, self, maximum_size))
+            result   = yield(reader)
             in_block = false
             result
+          ensure
+            reader&.close
           end
-        rescue Zlib::Error => e
+        rescue *DECODE_ERRORS => e
           # A failure that the block raises is its own. The format raises one as it starts to read the body, such as a
           # body that is not gzip, and as it finishes reading it.
           raise if in_block
@@ -105,12 +114,17 @@ module IOStreams
           raise(failure(e))
         end
 
-        # Returns [IOStreams::Errors::CommunicationsFailure] for the failure of the format to decode the body.
+        # Returns [Exception] the failure to decode the body: an `IOStreams::Errors::CommunicationsFailure` for the
+        # error of the format, unless the error is a failure of the request that the body raised as it was read, such
+        # as `Errno::EPIPE` for a connection that failed, which the request tags with its kind of failure, see
+        # `IOStreams::Errors::StorageError`, and which is then returned as it is.
         #
-        # It is not tagged with a kind of failure, such as `IOStreams::Errors::Unavailable`, since the whole body was
-        # received, so the server sent a body that cannot be decoded, which sending the request again does not change.
-        # A connection that closes before the whole body was received raises `Unavailable` as the body is read.
+        # The failure to decode is not tagged with a kind of failure, such as `IOStreams::Errors::Unavailable`, since the
+        # whole body was received, so the server sent a body that cannot be decoded, which sending the request again
+        # does not change. A connection that closes before the whole body was received raises `Unavailable`.
         def failure(error)
+          return error if error.is_a?(Errors::StorageError)
+
           Errors::CommunicationsFailure.new(
             "Cannot decode the Content-Encoding #{@name.inspect} of #{@display_name}: #{error.message}"
           )
@@ -127,11 +141,18 @@ module IOStreams
             @coding       = coding
             @maximum_size = maximum_size
             @size         = 0
+            @closed       = false
           end
 
-          # Closed once the reader of the format that decodes the body is closed.
+          # Closes this reader, after which every read raises IOError, without closing the reader of the format, which the
+          # format closes. Returns nil.
+          def close
+            @closed = true
+            nil
+          end
+
           def closed?
-            @input.closed?
+            @closed
           end
 
           private
