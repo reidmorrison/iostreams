@@ -836,6 +836,8 @@ module Paths
         it "raises for a request parameter that the path sets" do
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, bucket: "other") }
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, delimiter: "/") }
+          assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, encoding_type: "url") }
+          assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, start_after: "b") }
         end
       end
 
