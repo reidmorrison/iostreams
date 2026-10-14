@@ -287,26 +287,7 @@ module IOStreams
         target
       end
 
-      # Make S3 perform direct copies within S3 itself, with the client and options of the target, see `#copy_from`.
-      #
-      # Returns [Integer] the number of bytes copied, like any other copy.
-      def copy_to(target_path, convert: true, **args)
-        return super if convert
-
-        bytes = object_size.to_i
-        return super if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
-
-        target = to_stream(target_path)
-        return super(target, convert: convert, **args) unless target.is_a?(self.class)
-
-        reject_copy_options!(UNCONVERTED_COPY, **args)
-        authorize!
-        target.authorize!
-        target.copy_object_from(self)
-        bytes
-      end
-
-      # Make S3 perform direct copies within S3 itself.
+      # Make S3 perform direct copies within S3 itself, also for `#copy_to` another S3 path, which asks it.
       #
       # The copy writes this object, so it is requested with the client and options of this path, such as its `acl`,
       # and the source supplies what S3 needs to read it, such as its customer encryption key, see
