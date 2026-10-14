@@ -1054,8 +1054,51 @@ class StreamTest < Minitest::Test
       it "raises for an invalid layout when it is set" do
         assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{key: "id"}]) }
         assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 2, key: "id", type: :money}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 2, key: "id", type: nil}]) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: {size: 2, key: "id"}) }
+        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [[2, "id"]]) }
         assert_raises(ArgumentError) { stream.format_options(layout: [{size: 2, key: "id", width: 3}]) }
         assert_raises(ArgumentError) { stream.format_options(layout: [], compress: true) }
+        assert_nil stream.format_options
+      end
+
+      it "raises when it is set for two columns with the same key, rather than when the file is read" do
+        error = assert_raises(IOStreams::Errors::InvalidLayout) do
+          stream.format_options(layout: [{size: 1, key: :filler}, {size: 2, key: :id}, {size: 3, key: :filler}])
+        end
+        assert_equal "More than one column of the layout has the key :filler, but each column needs a key of its own, " \
+                     "its key in each record. A column without a key is a filler, which is skipped when reading and " \
+                     "written as spaces, so remove the key of a filler.", error.message
+
+        error = assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 2, key: :id}, {size: 2, key: "id"}]) }
+        assert_match(/\AThe columns of the layout with the keys :id and "id" have the same key/, error.message)
+        assert_nil stream.format_options
+      end
+
+      it "raises when it is set for a key that is neither a String nor a Symbol, or a float with negative decimals" do
+        error = assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 4, key: 1}]) }
+        assert_equal "The key of a column of the layout must be a String or a Symbol, such as \"1\", or none for a " \
+                     "filler: 1", error.message
+
+        error = assert_raises(IOStreams::Errors::InvalidLayout) do
+          stream.format_options(layout: [{size: 6, key: :pay, type: :float, decimals: -1}])
+        end
+        assert_equal "The decimals of the column :pay of the layout must be 0 or more: -1", error.message
+        assert_nil stream.format_options
+      end
+
+      it "writes a float column that takes the remainder of the line with the digits that it has, as before it was deprecated" do
+        layout = {layout: [{size: 2, key: :id}, {size: :remainder, key: :pay, type: :float}]}
+        out    = StringIO.new
+        IOStreams::Stream.new(out).format(:fixed).format_options(layout).writer(:hash) do |io|
+          io << {id: "a", pay: 1.5} << {id: "b"} << {id: "c", pay: BigDecimal("2.255")} << {id: "d", pay: 3}
+        end
+
+        assert_equal "a 1.5\nb 0.0\nc 2.255\nd 3.0\n", out.string
+        pays = []
+        IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout).each(:hash) { |row| pays << row[:pay] }
+
+        assert_equal [1.5, 0.0, 2.255, 3.0], pays
       end
 
       it "is replaced by #schema" do

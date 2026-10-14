@@ -464,8 +464,8 @@ module IOStreams
     def format_options=(format_options)
       raise_if_frozen!
       if layout?(format_options)
-        # Checks the layout now, rather than when the file is read.
-        IOStreams::Tabular::Parser::Fixed.schema(**format_options)
+        # Checks the layout now, and the schema that it is translated into, rather than when the file is read.
+        IOStreams::Schema.new(IOStreams::Tabular::Parser::Fixed.schema(**format_options))
         @schema        = nil
         @schema_source = nil
       end

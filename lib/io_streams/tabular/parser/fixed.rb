@@ -46,28 +46,39 @@ module IOStreams
         #     Each column of the file, in order:
         #       size:     [Integer|:remainder] The number of characters of the column, or `:remainder` to take the
         #                 rest of the line, for the last column only. Required.
-        #       key:      [String|Symbol] The key of the column in each record. A column without a key is a filler,
-        #                 which is skipped when reading and is spaces when writing.
+        #       key:      [String|Symbol] The key of the column in each record, which must be its own. A column without
+        #                 a key is a filler, which is skipped when reading and is spaces when writing.
         #       type:     [:string|:integer|:float] Default: :string
-        #       decimals: [Integer] The number of decimals of a :float column. Default: 2
+        #       decimals: [Integer] The number of decimals of a :float column, 0 or more. A float that takes the
+        #                 remainder of the line is written with the digits that it has, as before the layout was
+        #                 deprecated, so it ignores them. Default: 2
         #
         #   truncate: [true|false]
         #     Whether to truncate a string that is longer than its column, rather than raise
         #     `IOStreams::Errors::ValueTooLong`.
         #     Default: true
         #
-        # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid.
+        # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, including when its schema could not
+        # hold it, such as for two columns with the same key, which the records read could not hold either.
         def self.schema(layout:, truncate: true)
+          raise(Errors::InvalidLayout, "The layout must be an Array of columns: #{layout.inspect}") unless layout.is_a?(::Array)
+
           fields   = []
+          keys     = {}
           position = 1
           last     = nil
           layout.each do |column|
+            unless column.is_a?(::Hash)
+              raise(Errors::InvalidLayout, "Each column of the layout must be a Hash, such as {size: 10, key: :name}: " \
+                                           "#{column.inspect}")
+            end
             raise(Errors::InvalidLayout, "Missing required :size in: #{column.inspect}") unless column.key?(:size)
             raise(Errors::InvalidLayout, "Only the last :size can be '-1' or :remainder in: #{column.inspect}") if last == -1
 
             # A column after a filler starts after the filler.
             filler      = last && fields.last.nil?
             size, field = layout_field(column, filler ? position : nil, truncate)
+            check_key(field[:name], keys) if field
             fields << field
             last = size
             position += size unless size == -1
@@ -87,15 +98,25 @@ module IOStreams
           unless width.positive? || width == -1
             raise(Errors::InvalidLayout, "Size #{size.inspect} must be positive or :remainder")
           end
-          raise(Errors::InvalidLayout, "Unknown type: #{type.inspect}") unless %i[string integer float].include?(type.to_sym)
+          unless type.respond_to?(:to_sym) && %i[string integer float].include?(type.to_sym)
+            raise(Errors::InvalidLayout, "Unknown type: #{type.inspect}")
+          end
           return [width, nil] unless key
+
+          unless key.is_a?(String) || key.is_a?(Symbol)
+            raise(Errors::InvalidLayout, "The key of a column of the layout must be a String or a Symbol, such as " \
+                                         "#{key.to_s.inspect}, or none for a filler: #{key.inspect}")
+          end
 
           field = {name: key, type: {string: "string", integer: "integer", float: "number"}[type.to_sym]}
           field[:width] = width == -1 ? "remainder" : width
           field[:start] = start if start
           case type.to_sym
           when :string then field[:truncate] = true if truncate
-          when :float then field.merge!(floatNumber: true, decimals: decimals.to_i)
+          when :float
+            field[:floatNumber] = true
+            # The layout wrote a float that takes the remainder of the line with the digits that it has.
+            field[:decimals] = layout_decimals(key, decimals) unless width == -1
           end
           [width, field]
         end
@@ -104,7 +125,35 @@ module IOStreams
         def self.layout_column(size:, key: nil, type: :string, decimals: 2)
           [size, key, type, decimals]
         end
-        private_class_method :layout_field, :layout_column
+
+        # Returns [Integer] the decimals of a :float column of a layout, see .schema.
+        def self.layout_decimals(key, decimals)
+          digits = decimals.to_i
+          return digits unless digits.negative?
+
+          raise(Errors::InvalidLayout, "The decimals of the column #{key.inspect} of the layout must be 0 or more: " \
+                                       "#{decimals.inspect}")
+        end
+
+        # Raises `IOStreams::Errors::InvalidLayout` when another column of the layout has the same key as text, see
+        # .schema, since the key of each column is its key in each record, and the name of its field. Adds the key to
+        # the keys of the columns before it, by their text.
+        def self.check_key(key, keys)
+          other = keys[key.to_s]
+          keys[key.to_s] = key
+          return if other.nil?
+
+          subject =
+            if other.eql?(key)
+              "More than one column of the layout has the key #{key.inspect}"
+            else
+              "The columns of the layout with the keys #{other.inspect} and #{key.inspect} have the same key"
+            end
+          raise(Errors::InvalidLayout, "#{subject}, but each column needs a key of its own, its key in each record. A " \
+                                       "column without a key is a filler, which is skipped when reading and written as " \
+                                       "spaces, so remove the key of a filler.")
+        end
+        private_class_method :layout_field, :layout_column, :layout_decimals, :check_key
 
         # Returns [Integer] the length of every line, or -1 when a line can be any length, after a field or a schema
         # width of "remainder", or 0 when there are no fields.

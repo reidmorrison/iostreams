@@ -1287,6 +1287,9 @@ class TabularTest < Minitest::Test
       it "translates a remainder, and a filler at the end of the line" do
         assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}], fieldsMatch: "subset"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "rest"}], truncate: false))
+        # A float that takes the remainder of the line was written with all of its digits, whatever its decimals.
+        assert_equal({fields: [{name: :pay, type: "number", width: "remainder", floatNumber: true}], fieldsMatch: "subset"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: :pay, type: :float, decimals: -1}]))
         assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: 5},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: 3}], truncate: false))
         assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: "remainder"},
@@ -1321,6 +1324,21 @@ class TabularTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidLayout) do
           IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: 2, key: "b"}])
         end
+      end
+
+      it "raises for a layout that its schema cannot hold: two columns with one key, a key of another kind, or negative decimals" do
+        [
+          [{size: 2, key: :filler}, {size: 2, key: :filler}],
+          [{size: 2, key: :a}, {size: 2, key: "a"}],
+          [{size: 2, key: 1}],
+          [{size: 2, key: :pay, type: :float, decimals: -1}],
+          [{size: 2, key: :pay, type: :float, decimals: "-2"}]
+        ].each do |layout|
+          assert_raises(IOStreams::Errors::InvalidLayout, layout.inspect) { IOStreams::Tabular::Parser::Fixed.schema(layout: layout) }
+        end
+        # The decimals of a column that is not a float, which have no effect, as before it was deprecated.
+        assert_equal [{name: :id, type: "integer", width: 2}],
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: :id, type: :integer, decimals: -1}])[:fields]
       end
     end
   end
