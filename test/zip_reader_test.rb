@@ -207,12 +207,44 @@ class ZipReaderTest < Minitest::Test
         end
 
         it "raises MissingEntry naming the file and the zip file when the zip file does not contain the file to read" do
-          zip_file_name = File.expand_path(multiple_zip_file_name)
+          # Named as the path names it, see #display_name.
+          zip_file_name = multiple_zip_file_name
 
           error = assert_stream_failure(IOStreams::Errors::MissingEntry, zip_file_name) do
             IOStreams.path(multiple_zip_file_name).option(:zip, entry_file_name: "missing.csv").read
           end
           assert_equal "The zip file #{zip_file_name} does not contain the file \"missing.csv\"", error.message
+        end
+
+        it "names the zip file that is read, rather than the temp file that it is copied into" do
+          zip_file_name = File.join(dir, "folders.zip")
+          Zip::File.open(zip_file_name, create: true) { |zip| zip.mkdir("folder") }
+          stream = IOStreams.stream(StringIO.new(File.binread(zip_file_name))).file_name("archive/folders.zip")
+
+          error = assert_stream_failure(IOStreams::Errors::MissingEntry, "archive/folders.zip") { stream.read }
+          assert_equal "The zip file archive/folders.zip does not contain a file", error.message
+        end
+
+        it "names the zip file of a corrupt file that is read from a stream" do
+          stream = IOStreams.stream(StringIO.new(File.binread(corrupt_zip(Zip::Entry::STORED)))).file_name("archive/corrupt.zip")
+
+          error = assert_stream_failure(IOStreams::Errors::Corrupt, "archive/corrupt.zip") { stream.read }
+          assert_match(%r{\AThe file "data.csv" within the zip file archive/corrupt.zip is corrupt: }, error.message)
+        end
+
+        it "names the zip file that is read when it is not a zip file" do
+          stream = IOStreams.stream(StringIO.new("not a zip file")).file_name("archive/bad.zip")
+
+          error = assert_raises(IOStreams::Errors::Corrupt) { stream.read }
+          if defined?(JRuby)
+            assert_instance_of IOStreams::Errors::StreamFailure, error
+            assert_equal "The file archive/bad.zip is not a zip file", error.message
+          else
+            assert_instance_of Zip::Error, error
+            assert_equal "archive/bad.zip: Zip end of central directory signature not found", error.message
+          end
+
+          assert_equal "archive/bad.zip", error.display_name
         end
 
         it "raises MissingEntry when the file to read is a folder" do

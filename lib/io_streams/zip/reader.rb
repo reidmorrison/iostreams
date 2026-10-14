@@ -24,6 +24,13 @@ module IOStreams
         kind.tag(Errors::StreamFailure.new(message), file_name)
       end
 
+      # Returns [Hash] the options with the name of the zip file that is read, as the path, or the stream, names it,
+      # see `IOStreams::StreamFormat#open_stream`, so that its errors name it, rather than the temp file that a zip file
+      # that is not a local file is copied into, see `IOStreams::Reader.stream`.
+      def self.file_name_options(file_name, **options)
+        options.merge(display_name: file_name)
+      end
+
       # Returns [String] the message for a zip file that does not contain the file to read.
       def self.missing_message(entry_file_name, file_name)
         if entry_file_name
@@ -54,7 +61,9 @@ module IOStreams
       # `IOStreams::Errors::Corrupt` once the whole file has been read, when its data is corrupt: its size, or its
       # CRC32, is not the one that the zip file records. A file that is not a zip file, or data that cannot be
       # decompressed, also raises an exception tagged as `IOStreams::Errors::Corrupt`: rubyzip's `Zip::Error` on MRI,
-      # and the StreamFailure on JRuby, which reads zip files with `java.util.zip`.
+      # and the StreamFailure on JRuby, which reads zip files with `java.util.zip`. Each one names the zip file by its
+      # `display_name`, the name of the file that is read, see .file_name_options, otherwise by the name of the local
+      # file.
       #
       # Example:
       #   IOStreams::Zip::Reader.open('abc.zip') do |io_stream|
@@ -65,11 +74,12 @@ module IOStreams
       #   end
       if defined?(JRuby)
         # Java has built-in support for Zip files, which checks the size and CRC32 of each file.
-        def self.file(file_name, entry_file_name: nil)
+        def self.file(file_name, entry_file_name: nil, display_name: nil)
+          name  = display_name || file_name
           fin   = Java::JavaIo::FileInputStream.new(file_name)
           zin   = Java::JavaUtilZip::ZipInputStream.new(fin)
-          entry = find_entry(zin, entry_file_name, file_name)
-          yield Entry.new(zin, entry.name, file_name)
+          entry = find_entry(zin, entry_file_name, file_name, name)
+          yield Entry.new(zin, entry.name, name)
         ensure
           zin&.close
           fin&.close
@@ -79,20 +89,19 @@ module IOStreams
         # when a file before it is corrupt, which `java.util.zip` finds as it reads past it.
         #
         # `java.util.zip` finds no entries in a file that is not a zip file, rather than raising, so it is told apart
-        # from a zip file without any entries by how it starts, see .empty_zip?.
-        def self.find_entry(zin, entry_file_name, file_name)
+        # from a zip file without any entries by how it starts, see .empty_zip?. The local file is read by its
+        # `file_name`, and named by its display `name`.
+        def self.find_entry(zin, entry_file_name, file_name, name)
           entries = false
           while (entry = zin.get_next_entry)
             entries = true
             return entry if !entry.directory? && (entry_file_name.nil? || entry.name == entry_file_name)
           end
-          unless entries || empty_zip?(file_name)
-            raise(failure(Errors::Corrupt, "The file #{file_name} is not a zip file", file_name))
-          end
+          raise(failure(Errors::Corrupt, "The file #{name} is not a zip file", name)) unless entries || empty_zip?(file_name)
 
-          raise(failure(Errors::MissingEntry, missing_message(entry_file_name, file_name), file_name))
+          raise(failure(Errors::MissingEntry, missing_message(entry_file_name, name), name))
         rescue Java::JavaUtilZip::ZipException, Java::JavaIo::EOFException => e
-          raise(failure(Errors::Corrupt, "The zip file #{file_name} is corrupt: #{e.message}", file_name))
+          raise(failure(Errors::Corrupt, "The zip file #{name} is corrupt: #{e.message}", name))
         end
 
         # Returns [true|false] whether the file is a zip file without any entries, which holds only the end of its
@@ -140,16 +149,17 @@ module IOStreams
         # to the supplied block
         #
         # rubyzip is called within `.tag_failure`, but not the block, see `IOStreams::Reader.tag_failure`.
-        def self.file(file_name, entry_file_name: nil, &block)
+        def self.file(file_name, entry_file_name: nil, display_name: nil, &block)
           Utils.load_soft_dependency("rubyzip", "Zip", "zip") unless defined?(::Zip::File)
 
-          zip_file = tag_failure(file_name) { ::Zip::File.open(file_name) }
+          name     = display_name || file_name
+          zip_file = tag_failure(name) { ::Zip::File.open(file_name) }
           entry    = find_entry(zip_file, entry_file_name)
-          raise(failure(Errors::MissingEntry, missing_message(entry_file_name, file_name), file_name)) unless entry
+          raise(failure(Errors::MissingEntry, missing_message(entry_file_name, name), name)) unless entry
 
-          input = tag_failure(file_name) { entry.get_input_stream }
+          input = tag_failure(name) { entry.get_input_stream }
           begin
-            block.call(Entry.new(input, entry, file_name))
+            block.call(Entry.new(input, entry, name))
           ensure
             input.close
           end

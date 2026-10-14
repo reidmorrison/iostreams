@@ -2799,9 +2799,9 @@ A zip file lists its contents at its end, so it is read from a local file. A loc
 SFTP path downloads into, are read where they are, while a zip file on S3 or HTTP, or within another stream, such as
 `example.csv.zip.pgp`, is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
-Reading raises `IOStreams::Errors::StreamFailure`, naming the local file that it read, which is the temp file for a
-zip file that was copied, tagged with the kind of failure, which is the same on every platform, see
-[Errors](errors#what-each-stream-raises):
+Reading raises `IOStreams::Errors::StreamFailure`, naming the zip file by the name of the file that is read, such as
+its path, the key of an S3 object or the path of a url, tagged with the kind of failure, which is the same on every
+platform, see [Errors](errors#what-each-stream-raises):
 
 * `IOStreams::Errors::MissingEntry` when the zip file does not contain the file to read: one of only folders, or one
   without the file that `entry_file_name` names, or where it names a folder:
@@ -2818,7 +2818,8 @@ zip file that was copied, tagged with the kind of failure, which is the same on 
   IOStreams::Errors::StreamFailure: The file "data.csv" within the zip file /data/a.zip is corrupt: invalid entry CRC (expected 0x9d0b854a but got 0x1e367632)
   ~~~
 
-A file that is not a zip file, or data that cannot be decompressed, also raises `IOStreams::Errors::Corrupt`.
+A file that is not a zip file, or data that cannot be decompressed, also raises an exception tagged as
+`IOStreams::Errors::Corrupt`, naming the zip file too.
 
 Writing uses the `zip_kit` gem, which streams the zip file as it is written, without a temp file, even to S3, or into
 another stream, such as `example.csv.zip.pgp`. The zip file holds one file, which is named after the path, without the
