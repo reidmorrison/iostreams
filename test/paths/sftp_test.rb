@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require "logger"
+require "socket"
 
 module Paths
   class SFTPTest < Minitest::Test
@@ -876,12 +878,38 @@ module Paths
           end
         end
 
-        it "passes IOStreams.logger through to net-ssh" do
-          logger = logger_stub(:info)
+        it "gives net-ssh a logger of its own, which forwards the messages at its level to IOStreams.logger" do
+          output = StringIO.new
+          logger = Logger.new(output, level: :info)
 
           with_io_streams_logger(logger) do
-            assert_same logger, net_ssh_options[:logger]
+            net_ssh_logger = net_ssh_options[:logger]
+
+            refute_same logger, net_ssh_logger
+
+            net_ssh_logger.add(Logger::INFO, nil, "net.ssh") { "connected" }
+            net_ssh_logger.add(Logger::DEBUG, nil, "net.ssh") { "below the level of IOStreams.logger" }
+            # As net-ssh does for the LogLevel ssh option.
+            net_ssh_logger.level = Logger::ERROR
+            net_ssh_logger.add(Logger::WARN, nil, "net.ssh") { "below the level of the LogLevel ssh option" }
           end
+
+          assert_includes output.string, "connected"
+          refute_includes output.string, "below the level"
+          assert_equal Logger::INFO, logger.level
+        end
+
+        it "does not change the level of IOStreams.logger for the LogLevel ssh option" do
+          server = TCPServer.new("127.0.0.1", 0)
+          port   = server.addr[1]
+          server.close
+          logger = Logger.new(StringIO.new, level: :warn)
+          path   = new_path("sftp://127.0.0.1:#{port}/a.csv", username: "jack", ssh_options: {"LogLevel" => "DEBUG"})
+
+          with_io_streams_logger(logger) do
+            assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+          end
+          assert_equal Logger::WARN, logger.level
         end
       end
 
