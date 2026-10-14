@@ -231,7 +231,36 @@ class ParquetTest < Minitest::Test
     end
 
     it "raises for a number that a decimal cannot hold" do
-      assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "NaN"}]) }
+      error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "NaN"}]) }
+      assert_match(/\AField "amount": .* is not finite, so it cannot be written as a Parquet decimal/, error.message)
+    end
+
+    it "rounds a number to its decimals as CSV writes it" do
+      numbers = {
+        fields: [
+          {name: "pay", type: "number", floatNumber: true, decimals: 2},
+          {name: "whole", type: "number", floatNumber: true, decimals: 0},
+          {name: "amount", type: "number", decimals: 2}
+        ]
+      }
+      values  = [0.125, 0.375, 2.675, 2.5]
+      list    = values.map { |value| {"pay" => value, "whole" => value, "amount" => value} }
+      write(path.schema(numbers), list)
+      write(path("people.csv").schema(numbers), list)
+      csv = read(path("people.csv").schema(numbers))
+
+      assert_equal csv, read
+      assert_equal(values.map { |value| Float(format("%.2f", value)) }, read.map { |record| record["pay"] })
+      assert_equal(values.map { |value| Float(format("%.0f", value)) }, read.map { |record| record["whole"] })
+    end
+
+    it "writes a double that is not finite, whatever its decimals" do
+      doubles = {fields: [{name: "ratio", type: "number", floatNumber: true, decimals: 0}]}
+      write(path.schema(doubles), [{"ratio" => Float::NAN}, {"ratio" => -Float::INFINITY}])
+      ratios = read.map { |record| record["ratio"] }
+
+      assert_predicate ratios.first, :nan?
+      assert_equal(-Float::INFINITY, ratios.last)
     end
 
     it "raises for an integer outside the range of an int64, naming its field, when the record is written" do

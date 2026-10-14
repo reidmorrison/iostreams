@@ -628,6 +628,26 @@ class SchemaTest < Minitest::Test
           assert_equal "12.50", field(type: "number", floatNumber: true, decimals: 2).render(12.5, :text)
         end
 
+        it "rounds a number to its decimals as it writes its text, for a format that holds the number itself" do
+          float   = field(type: "number", floatNumber: true, decimals: 2)
+          whole   = field(type: "number", floatNumber: true, decimals: 0)
+          decimal = field(type: "number", decimals: 2)
+
+          [0.125, 0.375, 2.675, 1.005, 12.5, 2.5].each do |value|
+            assert_equal Float(float.render(value, :text)), float.round(value), value.inspect
+            assert_equal Float(whole.render(value, :text)), whole.round(value), value.inspect
+            assert_equal BigDecimal(decimal.render(value, :text)), decimal.round(decimal.cast(value)), value.inspect
+          end
+          assert_equal 3, field(type: "number", decimals: 0).round(BigDecimal("2.5"))
+          assert_same 0.125, field(type: "number", floatNumber: true).round(0.125)
+        end
+
+        it "rounds a number that is not finite to itself" do
+          assert_predicate field(type: "number", floatNumber: true, decimals: 0).round(Float::NAN), :nan?
+          assert_equal(-Float::INFINITY, field(type: "number", floatNumber: true, decimals: 0).round(-Float::INFINITY))
+          assert_predicate field(type: "number", decimals: 2).round(BigDecimal("NaN")), :nan?
+        end
+
         # Returns [String] the JSON that the json gem writes for the value of the field.
         def json(field, value)
           JSON.generate([field.render(value, :json)])[1..-2]

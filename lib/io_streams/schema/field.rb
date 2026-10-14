@@ -317,6 +317,16 @@ module IOStreams
         end
       end
 
+      # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
+      # written, see #render: a BigDecimal half up, and a Float as Ruby's `format` rounds it, to the nearest of its
+      # binary value, so that a format that holds the number itself, such as Parquet, holds the number that CSV
+      # writes. A number that is not finite, and a number without decimals, is returned as it is.
+      def round(number)
+        return number if @decimals.nil? || !number.finite?
+
+        number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals)
+      end
+
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
@@ -573,15 +583,21 @@ module IOStreams
       def number_text(value)
         return "NaN" if value.nan?
         return value.positive? ? "INF" : "-INF" if value.infinite?
-        return (@decimals ? format("%.#{@decimals}f", value) : value.to_s) if value.is_a?(Float)
+        return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
         return value.to_s("F") unless @decimals
 
         # Rounding to no decimals returns an Integer.
-        rounded = value.round(@decimals)
+        rounded = round(value)
         return rounded.to_s if rounded.is_a?(Integer)
 
         whole, fraction = rounded.to_s("F").split(".")
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
+      end
+
+      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds to the nearest
+      # of its binary value.
+      def float_text(value)
+        format("%.#{@decimals}f", value)
       end
 
       def json(value)
