@@ -184,7 +184,7 @@ module IOStreams
         end
       end
 
-      describe "#relatve?" do
+      describe "#relative?" do
         it "true on relative" do
           assert_equal true, IOStreams::Path.new("a/b/c/d").relative?
         end
@@ -535,11 +535,13 @@ module IOStreams
       end
 
       describe "abstract methods" do
-        it "raise NotImplementedError" do
+        it "raise NotImplementedError for every operation that a storage implements" do
           path = IOStreams::Path.new("a/b/c")
 
-          %i[mkpath mkdir exist? size delete delete_all each_child].each do |method|
-            assert_raises(NotImplementedError, method.to_s) { path.public_send(method) }
+          IOStreams::Path::OPERATIONS.each do |method|
+            error = assert_raises(NotImplementedError, method.to_s) { path.public_send(method) }
+
+            assert_equal "IOStreams::Path does not support ##{method}: a/b/c", error.message
           end
         end
       end

@@ -54,16 +54,18 @@ module Paths
           assert_equal raw, existing_path.read
         end
 
-        it "fails when the file does not exist" do
-          assert_raises IOStreams::Errors::CommunicationsFailure do
-            missing_file_path.read
-          end
+        it "raises NotFound when the file does not exist" do
+          error = assert_raises(IOStreams::Errors::NotFound) { missing_file_path.read }
+
+          assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          assert_equal missing_file_path.display_name, error.display_name
         end
 
-        it "fails when the directory does not exist" do
-          assert_raises IOStreams::Errors::CommunicationsFailure do
-            missing_path.read
-          end
+        it "raises NotFound when the directory does not exist" do
+          error = assert_raises(IOStreams::Errors::NotFound) { missing_path.read }
+
+          assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          assert_equal missing_path.display_name, error.display_name
         end
       end
 
@@ -547,11 +549,11 @@ module Paths
         it "percent-encodes each %, ? and # in a name in its url, so that it can be created again from its url" do
           directory = new_path("sftp://example.org/in")
           {"a#b.csv" => "a%23b.csv", "q?.csv" => "q%3F.csv", "caf%E9.csv" => "caf%25E9.csv"}.each_pair do |name, encoded|
-            [directory.join(name), directory.send(:child_path, name)].each do |path|
-              assert_equal "sftp://example.org/in/#{encoded}", path.to_s
-              assert_equal "sftp://example.org/in/#{encoded}", path.display_name
-              assert_equal "/in/#{name}", new_path(path.to_s).path
-            end
+            path = directory.join(name)
+
+            assert_equal "sftp://example.org/in/#{encoded}", path.to_s
+            assert_equal "sftp://example.org/in/#{encoded}", path.display_name
+            assert_equal "/in/#{name}", new_path(path.to_s).path
           end
         end
 
@@ -591,11 +593,10 @@ module Paths
           refute_includes error.message, "secret"
         end
 
-        it "lists the children of a host that is an IPv6 address" do
+        it "joins a name to a host that is an IPv6 address" do
           path = new_path("sftp://[::1]:2222/data")
 
           assert_equal "::1", path.hostname
-          assert_equal "sftp://[::1]:2222/data/a.csv", path.send(:child_path, "a.csv").to_s
           assert_equal "sftp://[::1]:2222/data/a.csv", path.join("a.csv").to_s
         end
 
@@ -1392,8 +1393,14 @@ module Paths
                                                        ssh_options: {"ServerAliveInterval" => 60})
 
           children = nil
-          with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do
+          started  = []
+          with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do |stub_sftp|
             children = path.each_child("**/*").to_a.map(&:first)
+            # Each child connects with the credentials and options of the path.
+            children.each do |child|
+              assert_predicate child, :exist?
+              started << stub_sftp.instance_variable_get(:@started)
+            end
           end
 
           assert_equal ["/data/inbox/a+b.csv?acl=public-read", "/data/inbox/c%41#d.csv"], children.map(&:path)
@@ -1402,10 +1409,9 @@ module Paths
           assert_equal(children.map(&:path), children.map { |child| IOStreams.path(child.to_s).path })
           children.each do |child|
             assert_instance_of IOStreams::Paths::SFTP, child
-            assert_equal "jack", child.username
-            assert_equal "secret", child.send(:password)
             assert_equal({"ServerAliveInterval" => 60}, child.ssh_options)
           end
+          assert_equal([["example.org", "jack", "secret"]] * 2, started.map { |host, user, options| [host, user, options[:password]] })
         end
 
         it "labels the names of remote files UTF-8" do

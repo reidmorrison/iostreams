@@ -43,12 +43,16 @@ module Paths
       end
 
       describe "#delete" do
-        it "existing file" do
-          assert_kind_of IOStreams::Paths::S3, existing_path.delete
+        it "deletes an existing file, and returns the path" do
+          path = existing_path
+
+          assert_same path, path.delete
+          refute_predicate path, :exist?
         end
 
-        it "missing file" do
-          assert_kind_of IOStreams::Paths::S3, missing_path.delete
+        it "does nothing for a file that does not exist, and returns the path" do
+          assert_same missing_path, missing_path.delete
+          refute_predicate missing_path, :exist?
         end
       end
 
@@ -92,23 +96,13 @@ module Paths
         end
       end
 
-      describe "#mkpath" do
-        it "returns self for non-existant path" do
-          assert_kind_of IOStreams::Paths::S3, existing_path.mkpath
-        end
-
-        it "checks for lack of existence" do
-          assert_kind_of IOStreams::Paths::S3, missing_path.mkpath
-        end
-      end
-
-      describe "#mkdir" do
-        it "returns self for non-existant path" do
-          assert_kind_of IOStreams::Paths::S3, existing_path.mkdir
-        end
-
-        it "checks for lack of existence" do
-          assert_kind_of IOStreams::Paths::S3, missing_path.mkdir
+      describe "#mkpath and #mkdir" do
+        it "return the path, without creating anything, since S3 has no directories" do
+          %i[mkpath mkdir].each do |operation|
+            assert_same existing_path, existing_path.public_send(operation)
+            assert_same missing_path, missing_path.public_send(operation)
+          end
+          refute_predicate missing_path, :exist?
         end
       end
 
@@ -584,8 +578,16 @@ module Paths
       end
 
       describe "#partial_files_visible?" do
-        it "visible only after upload" do
-          refute_predicate root_path, :partial_files_visible?
+        it "is false, since an object is only visible once its upload completes" do
+          path = write_path
+          path.writer do |io|
+            io.write(raw)
+
+            refute_predicate path, :exist?
+          end
+
+          refute_predicate path, :partial_files_visible?
+          assert_predicate path, :exist?
         end
       end
     end
@@ -1107,16 +1109,15 @@ module Paths
           assert_instance_of Aws::S3::Errors::InternalError, error
         end
 
-        it "raises NotFound for an upload in parts to a bucket that does not exist" do
+        it "is NotFound for an upload in parts to a bucket that does not exist, which the AWS SDK raises" do
           client = stub_client(upload_part: "NoSuchBucket")
-          path   = IOStreams::Paths::S3.new("s3://missing-bucket/a.csv", client: client)
           # The AWS SDK only sets the code of an error that it raised for a response.
           part   = assert_raises(Aws::S3::Errors::NoSuchBucket) do
             client.upload_part(bucket: "missing-bucket", key: "a.csv", upload_id: "1", part_number: 1, body: "data")
           end
           parts = Aws::S3::MultipartUploadError.new("multipart upload failed", [part])
 
-          assert_equal IOStreams::Errors::NotFound, path.send(:failure_kind, parts)
+          assert_equal IOStreams::Errors::NotFound, IOStreams::Paths::S3::Failure.kind(parts)
         end
 
         it "does not tag any other failure" do
