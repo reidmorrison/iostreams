@@ -189,9 +189,14 @@ classDiagram
         +compressed?() encrypted?() text_format()
         +validate_options() open_stream()
     }
+    class Settings {
+        +format() schema()
+        +merge_row_options()
+        +tabular()
+    }
     class Tabular {
-        +record_parse() row_parse()
-        +render() render_header()
+        +read_row() read_record_line()
+        +render_row() render_record()
     }
     class Schema {
         +fields
@@ -206,7 +211,8 @@ classDiagram
     Paths_SFTP --|> Path
     Paths_HTTP --|> Path
     Stream *-- Builder : the streams of the bytes
-    Stream ..> Tabular : rows and records
+    Stream *-- Settings : the description of the rows
+    Settings ..> Tabular : builds for each call
     Builder ..> StreamFormat : opens each stream through
     StreamFormat ..> Reader : reader_class
     StreamFormat ..> Writer : writer_class
@@ -222,12 +228,17 @@ classDiagram
 * **A format**, such as `IOStreams::Gzip`, is a module that extends `IOStreams::StreamFormat`. It answers the facts
   about its data, such as whether it is compressed, and opens its `Reader` and `Writer` classes with the options that
   each one takes. `IOStreams.register_extension` registers a format for a file name extension.
-* **A `Reader` or `Writer`** of a format reads or writes one stream: `.stream(io)` yields an object that reads with
-  `#read` or writes with `#write`. The base classes copy the data to a temp file for a format that only reads or writes
-  files, such as zip.
+* **A `Reader` or `Writer`** of a format reads or writes one stream: `.stream(io)` yields an object that reads like an
+  IO, by including `IOStreams::ChunkReader`, or writes like one, by including `IOStreams::Writable`, whichever format
+  it is, so that the code that reads a `.gz` file still works when the file name changes to `.bz2`. The base classes
+  copy the data to a temp file for a format that only reads or writes files, such as zip.
+* **`Tabular::Settings`** holds the settings that describe the rows of a stream: its format, its schema, and the
+  options of the rows of a format such as Parquet. It checks each one when it is set, and builds the `Tabular` of each
+  call that reads or writes rows.
 * **`Line`, `Row` and `Record`** readers and writers turn the text into lines, the lines into rows (Arrays) and
   records (Hashes), through a **`Tabular`**, which parses and renders one line of a tabular format, such as CSV or JSON,
-  with its parser.
+  with its parser, and decides which line is the header row and how it is cleansed. Each of them declares the options
+  of each call in its mode with `self.option_names`, and `Stream` rejects any other before it opens anything.
 * **`Schema`** describes the fields of the rows and records: it matches the columns of a file to its fields, and each
   field casts and renders the values of its type.
 

@@ -192,7 +192,8 @@ Fix: if a column must stay empty, remove the matching key from the hash before w
 `ArgumentError` for them. They were the only way to set the format before v1.6, which added `#format` to the path.
 Like its file name, the format describes the file, so it is set on the path, where it also applies to the `:line`
 mode, which splits and decodes the lines for the format. They also raise for `file_name:` and `default_format:`,
-which set the format of one call by another name, see
+which set the format of one call by another name, and for `original_file_name:`, which was never documented, and
+which set the format of a stream without one in the `:array` and `:hash` modes, see
 [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 
 Fix: set the format on the path with `#format`, and the layout of a fixed width file with `#schema`, see
@@ -202,10 +203,12 @@ Fix: set the format on the path with `#format`, and the layout of a fixed width 
 # Before
 path.each(:hash, format: :json) { |row| p row }
 path.each(:hash, format: :fixed, format_options: {layout: layout}) { |row| p row }
+IOStreams.stream(io).each(:hash, original_file_name: "data.json") { |row| p row }
 
 # After
 path.format(:json).each(:hash) { |row| p row }
 path.format(:fixed).schema(fields: fields).each(:hash) { |row| p row }
+IOStreams.stream(io).file_name("data.json").each(:hash) { |row| p row }
 ~~~
 
 #### Options that only apply when reading raise when writing or copying
