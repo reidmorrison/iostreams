@@ -7,35 +7,13 @@ module IOStreams
   module Paths
     class HTTP < IOStreams::Path
       autoload :BodyReader, "io_streams/paths/http/body_reader"
+      autoload :Failure, "io_streams/paths/http/failure"
 
       attr_reader :username, :password, :http_redirect_count, :url
 
       # Requests that do not change the file, so that they can follow a redirect to another host.
       SAFE_REQUESTS = [Net::HTTP::Get, Net::HTTP::Head].freeze
       private_constant :SAFE_REQUESTS
-
-      # The kind of failure that each unsuccessful response means, see `IOStreams::Errors::StorageError`.
-      RESPONSE_FAILURES = {
-        Net::HTTPNotFound                    => Errors::NotFound,
-        Net::HTTPGone                        => Errors::NotFound,
-        Net::HTTPUnauthorized                => Errors::PermissionDenied,
-        Net::HTTPForbidden                   => Errors::PermissionDenied,
-        Net::HTTPProxyAuthenticationRequired => Errors::PermissionDenied,
-        Net::HTTPRequestTimeout              => Errors::Unavailable,
-        Net::HTTPTooManyRequests             => Errors::Unavailable,
-        Net::HTTPInternalServerError         => Errors::Unavailable,
-        Net::HTTPBadGateway                  => Errors::Unavailable,
-        Net::HTTPServiceUnavailable          => Errors::Unavailable,
-        Net::HTTPGatewayTimeout              => Errors::Unavailable
-      }.freeze
-      private_constant :RESPONSE_FAILURES
-
-      # The exceptions that a request raises when the server cannot be reached, or the connection to it fails.
-      NETWORK_ERRORS = [
-        EOFError, SocketError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, Errno::ECONNABORTED,
-        Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::EPIPE, Errno::ETIMEDOUT
-      ].freeze
-      private_constant :NETWORK_ERRORS
 
       # The password, the query `parameters`, which can hold an access key, and the cookie headers, see
       # IOStreams::Path.redact_options. The authentication headers, such as "Authorization", "Proxy-Authorization",
@@ -403,17 +381,13 @@ module IOStreams
         send_request(request_class, redirect, http_redirect_count - 1, body_file_name:, allow_missing:, &block)
       end
 
-      # Returns [Module] the kind of failure that an exception raised by a request means, see `IOStreams::Path#failure_kind`.
-      #
-      # A host that does not resolve is not unavailable, since the same request cannot succeed later.
+      # Returns [Module] the kind of failure that an exception raised by a request means, see `Failure.kind`.
       def failure_kind(exception)
-        return if Utils.unknown_host?(exception)
-
-        Errors::Unavailable if NETWORK_ERRORS.any? { |error_class| exception.is_a?(error_class) }
+        Failure.kind(exception)
       end
 
       # Raises [IOStreams::Errors::CommunicationsFailure] for the unsuccessful response, tagged with the kind of failure
-      # that it means, see `RESPONSE_FAILURES`.
+      # that it means, see `Failure.response_kind`.
       def raise_failure(response, uri)
         message =
           case response
@@ -425,7 +399,7 @@ module IOStreams
             "Invalid response code: #{response.code}"
           end
         error = Errors::CommunicationsFailure.new(message)
-        kind  = RESPONSE_FAILURES.find { |response_class, _kind| response.is_a?(response_class) }&.last
+        kind  = Failure.response_kind(response)
         raise(kind ? kind.tag(error, display_name) : error)
       end
 
