@@ -21,6 +21,13 @@ module Tabular
         IOStreams::Tabular.parser_class(format).new(schema: schema)
       end
 
+      # A parser of rows that are the values in the order of the columns, of a format without a header row.
+      let(:positional) do
+        Class.new(IOStreams::Tabular::Parser::Hash) do
+          def self.keyed? = false
+        end
+      end
+
       describe "IOStreams::Tabular.new" do
         it "maps the columns by the header without a schema, by the fields of a schema, or by the layout of a fixed width file" do
           assert_instance_of IOStreams::Tabular::HeaderMapping, IOStreams::Tabular.new(format: :csv).mapping
@@ -97,6 +104,13 @@ module Tabular
           refute_predicate csv, :columns_supplied?
         end
 
+        it "arranges each row that it renders by whether the rows of the format are keyed, whether or not it has a header row" do
+          values = IOStreams::Tabular::HeaderMapping.new(header: header(columns: %w[a b]), parser: positional.new, format: :values)
+
+          refute_predicate values, :requires_header?
+          assert_equal [1, 2], values.render({"b" => 2, "A" => 1})
+        end
+
         it "takes the columns of the rows written after a header row from it, for a format without one" do
           json = mapping(:json)
 
@@ -140,6 +154,13 @@ module Tabular
           refute_predicate csv, :first_row_header?
           assert_equal "1,2.50", csv.render([2.5, 1])
           refute_predicate csv, :columns_supplied?
+        end
+
+        it "arranges each row that it renders by whether the rows of the format are keyed, whether or not it has a header row" do
+          values = IOStreams::Tabular::SchemaMapping.new(schema, header: header, parser: positional.new(schema: schema), format: :values)
+
+          refute_predicate values, :requires_header?
+          assert_equal [1, BigDecimal("2.5")], values.render({"pay" => "2.5", "ID" => "1"})
         end
 
         it "has the fields as the columns of a file without a header row, in order" do

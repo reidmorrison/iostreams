@@ -3,8 +3,7 @@
 module IOStreams
   class Tabular
     # Maps the columns of a file without a schema, see `IOStreams::Tabular::Mapping`, by its header: the columns of its
-    # header row, or the columns supplied in place of one, which a format whose records supply their own keys, such as
-    # JSON, does not need.
+    # header row, or the columns supplied in place of one, which a format of keyed records, such as JSON, does not need.
     #
     # Applies the column options of the header, `allowed_columns`, `required_columns` and `skip_unknown`, which are
     # deprecated, to every input when reading: the header row, the columns supplied, and the keys of each record of a
@@ -28,8 +27,7 @@ module IOStreams
         @warned          = false
       end
 
-      # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, whose rows are the
-      # values in the order of its columns.
+      # Returns [true|false] whether the file has a header row: when its format has one, such as CSV.
       def requires_header?
         @requires_header
       end
@@ -45,7 +43,8 @@ module IOStreams
         false
       end
 
-      # Returns [nil] without a schema, the columns of a file without a header row are only those supplied.
+      # Returns [nil] only the fields of a schema are the columns of a file without a header row, see
+      # `IOStreams::Tabular#headerless_columns`.
       def headerless_columns
         nil
       end
@@ -142,8 +141,8 @@ module IOStreams
         @parser.render(@keyed ? header.to_hash(row) : header.to_array(row))
       end
 
-      # Returns [String] the header row of the columns, which the columns supplied become first, such as the first row
-      # written when the columns were not supplied.
+      # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
+      # as the first row written when the columns were not supplied in place of a header row.
       # Returns nil when the format has no header row.
       #
       # Raises `IOStreams::Errors::MissingHeader` when the columns are not known.
