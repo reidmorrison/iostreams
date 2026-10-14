@@ -95,20 +95,19 @@ IOStreams raises these classes itself:
 
 * `IOStreams::Errors::Error`, a `StandardError`:
   * `IOStreams::Errors::AccessDenied`: the path is not within the allowed paths, see
-    [allowed paths](path#restricting-access-with-allowed-paths). It is not a `PermissionDenied`, see below.
+    [Allowed paths](security#allowed-paths). It is not a `PermissionDenied`, see below.
   * `IOStreams::Errors::CommunicationsFailure`: an SFTP or HTTP request failed. It is also tagged with the kind
     of failure when the failure is known, such as a `404 Not Found` response.
   * `IOStreams::Errors::StreamFailure`: a stream found that it cannot read the data, such as a zip file that does not
     contain the file to read, or a file within a zip file whose CRC32 is not the one that the zip file records. It is
     tagged with the kind of failure, `Corrupt` or `MissingEntry`.
-  * `IOStreams::Errors::UnknownFormat`: the tabular format cannot be inferred from the file name.
   * `IOStreams::Errors::MissingHeader`: the columns are needed, but are not known: to write a header row when they
     are not set, or, with a schema, to read a row of a file with a header row before the header row is read.
-  * `IOStreams::Errors::InvalidHeader`: the columns do not match what is allowed: when reading, a header row, or the
-    keys of a JSON record, has columns that are not allowed, or is missing required columns, see `allowed_columns`
-    and `required_columns`, or the `fieldsMatch` and required fields of a [schema](formats#fieldsmatch), or a row has
-    values after its last column that the schema does not skip. With a schema, writing raises it too, for the keys of
-    a record, or the columns or values of a row, that the schema does not skip.
+  * `IOStreams::Errors::InvalidHeader`: the columns of a file do not match its [schema](formats#fieldsmatch): when
+    reading, a header row, or the keys of a JSON record, has columns that `fieldsMatch` does not allow, or is missing
+    a required field, or a row has values after its last column that the schema does not skip, and when writing, the
+    keys of a record, or the columns or values of a row, that the schema does not skip. It is also raised for the
+    deprecated `allowed_columns:` and `required_columns:`.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format, such as, with a schema, a
     row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
@@ -116,14 +115,19 @@ IOStreams raises these classes itself:
     required has no value, see [Schema](formats#schema).
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
+  * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width file, set with the deprecated `#format_options`,
+    is not valid. It is raised when the layout is set.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
   encoding that it is read or written in, such as UTF-8. Its `#byte_offset` is the offset of the first invalid byte
   within the data after any decompression or decryption, and its `#line_number` is the line that it is on, when it
   is read a line at a time, such as with `each(:line)` or `each(:hash)`, where the lines before it are read first.
-  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`.
-* `IOStreams::Pgp::Failure`, a `StandardError`: gpg failed, for example to decrypt a file or to check its signature.
+  For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. Like the `Encoding::UndefinedConversionError`
+  that was raised before it, its `#error_char` is the invalid bytes, and its `#source_encoding` and
+  `#destination_encoding` the encodings that they were read and checked as.
+* `IOStreams::Pgp::Failure`, a `StandardError`: gpg failed, for example to decrypt a file or to check its signature,
+  or could not be run.
 
 ## What each storage raises
 
@@ -259,9 +263,10 @@ rescue IOStreams::Errors::Unavailable => e
 end
 ~~~
 
-Writing again is safe, since S3, SFTP and HTTP only store a file once it has been written completely, and a local
-file that fails part way is removed. Retry only on `Unavailable`, and not on `NotFound` or `PermissionDenied`,
-which retrying will not fix, or on a host name that does not resolve, which is not `Unavailable`.
+Writing again is safe: S3 and HTTP only store a file once it has been written completely, a local file that fails
+part way is removed, and SFTP uploads the whole file again, replacing the part that an interrupted upload left on the
+server. Retry only on `Unavailable`, and not on `NotFound` or `PermissionDenied`, which retrying will not fix, or on a
+host name that does not resolve, which is not `Unavailable`.
 
 Log any failure of the storage, with the path that failed:
 
@@ -277,7 +282,7 @@ end
 ## AccessDenied is not a PermissionDenied
 
 IOStreams raises `IOStreams::Errors::AccessDenied` itself, before it accesses the storage, when a path is not within
-the allowed paths of the application, see [allowed paths](path#restricting-access-with-allowed-paths).
+the allowed paths of the application, see [Allowed paths](security#allowed-paths).
 `IOStreams::Errors::PermissionDenied` is a failure of the storage, such as a file that the credentials cannot read.
 
 They are kept apart, so that rescuing `PermissionDenied`, for example to report a configuration problem, does not
@@ -316,55 +321,10 @@ also rescue an attempt to access a path that the application does not allow, suc
 
 ## Storage registered with `IOStreams.register_scheme`
 
-A path class registered with `IOStreams.register_scheme` tags the failures of its storage the same way. Implement
-the private method `#failure_kind`, which returns the kind of failure that an exception from the storage means, or
-`nil`, and make each request of the storage within the private method `#tag_failure`:
-
-~~~ruby
-class MyStoragePath < IOStreams::Path
-  def exist?
-    tag_failure { MyStorage.exist?(path) }
-  end
-
-  private
-
-  def failure_kind(exception)
-    case exception
-    when MyStorage::NoSuchFile
-      IOStreams::Errors::NotFound
-    when MyStorage::Forbidden
-      IOStreams::Errors::PermissionDenied
-    end
-  end
-end
-~~~
-
-Never call the block that the caller supplied within `#tag_failure`, since an exception that it raises is not a
-failure of the path. To tag an exception directly, such as one that the path raises itself, call
-`IOStreams::Errors::NotFound.tag(exception, display_name)`.
+A path class registered with `IOStreams.register_scheme` can tag the failures of its storage the same way, see
+[Failures of the store](extending#failures-of-the-store).
 
 ## Formats registered with `IOStreams.register_extension`
 
-A reader registered with `IOStreams.register_extension` tags the failures of the gem that reads its format the same
-way. Implement the class method `.failure_kind`, which returns the kind of failure that an exception from the gem
-means, or `nil`, and make each call of the gem within the class method `.tag_failure`, including each read, which
-`IOStreams::BlockReader` makes within it when it is supplied the reader:
-
-~~~ruby
-class MyXz::Reader < IOStreams::Reader
-  def self.failure_kind(exception)
-    IOStreams::Errors::Corrupt if exception.is_a?(XzLibrary::DataError)
-  end
-
-  def self.stream(input_stream)
-    xz = tag_failure { XzLibrary::Reader.new(input_stream) }
-    yield IOStreams::BlockReader.new(xz, failures: self)
-  ensure
-    xz&.finish
-  end
-end
-~~~
-
-Never call the block that the caller supplied within `.tag_failure`, since an exception that it raises is not a
-failure of the stream. For a failure that the reader finds itself, raise `IOStreams::Errors::StreamFailure` tagged
-with the kind, such as `IOStreams::Errors::MissingEntry.tag(IOStreams::Errors::StreamFailure.new(message))`.
+A reader registered with `IOStreams.register_extension` can tag the failures of the library that reads its format the
+same way, see [Failures of the format](extending#failures-of-the-format).

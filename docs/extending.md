@@ -124,6 +124,35 @@ first, or write to a temp file and copy it to the stream once the block returns.
 A writer can take a default for its options from the name of the file, as the zip writer names the file within a zip
 file after it, by answering `self.file_name_options(file_name, **options)`, which returns the options to use.
 
+### Failures of the format
+
+Tag each exception that the library raises for data that it cannot read with the kind of failure that it means, see
+[Errors](errors), so that the code that rescues `IOStreams::Errors::Corrupt` works for this format too, whichever
+library reads it. Implement the class method `.failure_kind` of the reader, which returns the kind of failure that an
+exception from the library means, or nil, and make each call of the library within the class method `.tag_failure`,
+including each read, which `IOStreams::BlockReader` makes within it when it is given the reader:
+
+~~~ruby
+module MyXz
+  class Reader < IOStreams::Reader
+    def self.failure_kind(exception)
+      IOStreams::Errors::Corrupt if exception.is_a?(MyXzLibrary::DataError)
+    end
+
+    def self.stream(input_stream, buffer_size: 65_536)
+      decompressor = tag_failure { MyXzLibrary::Decompressor.new(input_stream, buffer_size: buffer_size) }
+      yield IOStreams::BlockReader.new(decompressor, failures: self)
+    end
+  end
+end
+~~~
+
+The tag keeps the exception of the library, so that code that rescues it by its class still works. Never call the
+block that the caller supplied within `.tag_failure`, since an exception that it raises is not a failure of the
+stream. For a failure that the reader finds itself, such as a file within an archive that is not there, raise
+`IOStreams::Errors::StreamFailure` tagged with the kind of failure, such as
+`raise(IOStreams::Errors::MissingEntry.tag(IOStreams::Errors::StreamFailure.new(message)))`.
+
 ### Registering just the reader and writer
 
 A format that is neither compressed nor encrypted can be registered with just its reader and writer classes:

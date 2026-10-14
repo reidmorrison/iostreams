@@ -37,30 +37,33 @@ project:
     IOStreams: stream files of any size in Ruby, with compression, encryption,
     file format, and storage location transparent to your code.
 
-# The sidebar, replacing the row of nine header buttons. Order within a group
-# is reading order, not alphabetical.
+# The sidebar. Order within a group is reading order, not alphabetical. The page
+# names (and so their urls) stay as they were when the labels changed, so that
+# links from elsewhere keep working.
 nav:
   - group: Start here
     items:
       - { page: index.html,      label: Overview }
       - { page: tutorial.html,   label: Tutorial }
 
-  - group: Core API
+  - group: Using IOStreams
     items:
-      - { page: path.html,       label: Path }
-      - { page: streams.html,    label: Streams }
-      - { page: copy_files.html, label: Copy Files }
+      - { page: path.html,       label: Paths }
+      - { page: streams.html,    label: Reading and writing }
+      - { page: formats.html,    label: Tabular formats }
+      - { page: extensions.html, label: Compression and encryption }
+      - { page: copy_files.html, label: Copying and moving }
       - { page: errors.html,     label: Errors }
 
-  - group: Formats
-    items:
-      - { page: extensions.html, label: Extensions }
-      - { page: formats.html,    label: Formats }
-
-  - group: Reference
+  - group: Guides
     items:
       - { page: pgp.html,        label: PGP }
       - { page: config.html,     label: Configuration }
+      - { page: security.html,   label: Security }
+
+  - group: Reference
+    items:
+      - { page: extending.html,  label: Extending IOStreams }
       - { page: upgrading.html,  label: Upgrading }
 
 exclude:
