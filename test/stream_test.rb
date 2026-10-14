@@ -1470,6 +1470,39 @@ class StreamTest < Minitest::Test
         assert_nil stream.schema
       end
 
+      it "keeps the schema as it was set, when the Hash supplied is changed afterwards" do
+        supplied = {fields: [{name: "id", type: "integer"}]}
+        stream.schema(supplied)
+        supplied[:fields] << {name: "name"}
+        supplied[:fields].first[:type] = "string"
+
+        assert_equal({fields: [{name: "id", type: "integer"}]}, stream.schema)
+        assert_equal [{"id" => 42}], read("id\n0042\n", schema: stream.schema)
+        refute_predicate supplied, :frozen?
+      end
+
+      it "cannot be changed through the schema that it returns" do
+        stream.schema(people)
+
+        assert_raises(FrozenError) { stream.schema[:fields] << {name: "name"} }
+        assert_raises(FrozenError) { stream.schema[:fields].first[:type] = "string" }
+        assert_equal people, stream.schema
+      end
+
+      it "keeps the path of a schema file as it was set, when the path supplied is changed afterwards" do
+        Dir.mktmpdir do |dir|
+          supplied = IOStreams.path(dir, "people.json")
+          supplied.write(JSON.generate(people))
+          stream.schema(supplied)
+          supplied.stream(:gz)
+
+          assert_equal supplied, stream.schema
+          assert_equal({}, stream.schema.pipeline)
+          assert_raises(FrozenError) { stream.schema.stream(:gz) }
+          assert_equal [record], read(csv, schema: stream.schema)
+        end
+      end
+
       it "checks a schema in a Hash when it is set" do
         assert_raises(ArgumentError) { stream.schema(fields: [{name: "id", type: "money"}]) }
         assert_nil stream.schema

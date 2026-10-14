@@ -51,7 +51,7 @@ module IOStreams
     CLEANSE_BY_DEFAULT = :default
 
     # The options of #initialize that describe the format of the file, which reading and writing both accept.
-    FORMAT_OPTION_NAMES = %i[format file_name schema format_options default_format].freeze
+    FORMAT_OPTION_NAMES = %i[format file_name schema format_options default_format row_format_options].freeze
 
     # Returns [Array<Symbol>] the options of a Tabular that reads rows or records, see #initialize: those of the format
     # of the file, and those of its header, see `IOStreams::Tabular::Header`.
@@ -122,18 +122,25 @@ module IOStreams
     #     then this default format will be used.
     #     Default: :csv
     #     Set to nil to force it to raise an exception when the format is undefined.
-    def initialize(format: nil, file_name: nil, schema: nil, format_options: nil, default_format: :csv, **args)
+    #
+    #   row_format_options: [Hash]
+    #     The options of the format that reads and writes the rows of a format whose rows are not lines, see #read_rows,
+    #     such as those set with `option(:parquet, compression: "zstd")`, see `IOStreams::Tabular::Settings`.
+    #     Default: none
+    def initialize(format: nil, file_name: nil, schema: nil, format_options: nil, default_format: :csv,
+                   row_format_options: nil, **args)
       reject_header_options(args) if schema
       @header = Header.new(**args)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
 
-      @schema      = legacy_schema(format_options, schema) || schema
-      @field_names = !schema.nil?
-      @supplied    = !header.columns.nil?
-      @parser      = self.class.parser_class(@format).new(schema: @schema)
-      @columns     = @schema&.columns
+      @schema             = legacy_schema(format_options, schema) || schema
+      @row_format_options = row_format_options || {}
+      @field_names        = !schema.nil?
+      @supplied           = !header.columns.nil?
+      @parser             = self.class.parser_class(@format).new(schema: @schema)
+      @columns            = @schema&.columns
       # A Header without columns, through which the parsers render the rows that the schema has already arranged.
       @plain_header = Header.new if @columns
       @warned       = false
@@ -231,41 +238,34 @@ module IOStreams
     end
 
     # Yields [#each] the rows of the binary layout of a format whose rows are not lines, see #lines?, read from the
-    # supplied stream of its bytes, in the form that #row_parse and #record_parse accept.
+    # supplied stream of its bytes, in the form that #row_parse and #record_parse accept, by the format of the rows,
+    # with the options of the rows supplied to #initialize, such as those set with `option(:parquet, ...)`.
     #
     # With a schema whose `fieldsMatch` skips the columns that it does not list, a reader that can read only some of the
     # columns of a file, such as Parquet, reads only those of its fields, see `IOStreams::Schema#projection`.
     #
-    # Parameters:
-    #   options: [Hash]
-    #     The options of the format, set with `IOStreams::Stream#option`, such as `option(:parquet, ...)`.
-    #
     # Returns the result of the block.
-    def read_rows(io, options)
-      parser.class.row_format.open_stream(:reader, io, options, name: format) do |rows|
+    def read_rows(io)
+      parser.class.row_format.open_stream(:reader, io, @row_format_options, name: format) do |rows|
         read_only_fields(rows)
         yield(rows)
       end
     end
 
     # Yields [#<<] the writer of the rows of a format whose rows are not lines, see #lines?, to the supplied stream of
-    # its bytes, which takes the rows that #render returns. It writes the fields of the schema, which give the type of
-    # each column.
-    #
-    # Parameters:
-    #   options: [Hash]
-    #     The options of the format, see #read_rows.
+    # its bytes, which takes the rows that #render returns, with the options of the rows, see #read_rows. It writes the
+    # fields of the schema, which give the type of each column.
     #
     # Returns the result of the block.
-    def write_rows(io, options, &)
-      parser.class.row_format.open_stream(:writer, io, options, name: format, arguments: {schema: schema}, &)
+    def write_rows(io, &)
+      parser.class.row_format.open_stream(:writer, io, @row_format_options, name: format, arguments: {schema: schema}, &)
     end
 
     # Raises what #write_rows would raise before it writes anything, such as for a schema whose fields the format cannot
     # write, or an option value that it does not accept, so that the caller can check before it opens the output, which
-    # would replace an existing file, see `IOStreams::StreamFormat#check_stream`. See #read_rows for the options.
-    def check_write_rows(options)
-      parser.class.row_format.check_stream(:writer, options, name: format, arguments: {schema: schema})
+    # would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
+    def check_write_rows
+      parser.class.row_format.check_stream(:writer, @row_format_options, name: format, arguments: {schema: schema})
     end
 
     # Returns [String] the encoding that the format reads and writes text in when the caller does not set one on
