@@ -31,7 +31,7 @@ module IOStreams
       #   url: [String]
       #      URI of the file to download.
       #     Example:
-      #       https://www5.fdic.gov/idasp/Offices2.zip
+      #       https://example.com/files/data.zip
       #       http://hostname/path/file_name
       #
       #     Full url showing all the optional elements that can be set via the url:
@@ -302,10 +302,10 @@ module IOStreams
       # Read a file using an http get.
       #
       # For example:
-      #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').reader {|file| puts file.read}
+      #   IOStreams.path('https://example.com/files/data.zip').reader {|file| puts file.read}
       #
       # Read the file without unzipping and streaming the first file in the zip:
-      #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').raw.reader {|file| puts file.read}
+      #   IOStreams.path('https://example.com/files/data.zip').raw.reader {|file| puts file.read}
       #
       # Notes:
       # * The body is read one chunk at a time as the block reads it, see `BodyReader`, so the connection stays open

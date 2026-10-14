@@ -5,8 +5,9 @@ require "logger"
 module IOStreams
   module Paths
     class SFTP < IOStreams::Path
-      # Translates the ssh options supplied for the sftp executable into options for net-ssh,
-      # which `SFTP#each_child` uses to list files instead of the sftp executable.
+      # Translates the ssh options supplied for the sftp executable into options for net-ssh, which SFTP uses to
+      # list, check and delete files, such as with `SFTP#each_child`, `#exist?` and `#delete`, instead of the sftp
+      # executable, which only reads and writes them.
       #
       # The net-ssh options match those that SFTP passes to the sftp executable.
       module NetSSH
@@ -87,7 +88,8 @@ module IOStreams
             options[:verbose] = log_level(value)
           else
             raise(ArgumentError,
-                  "SFTP #each_child does not support the ssh option #{key.inspect}. It supports: #{OPTIONS.join(', ')}")
+                  "net-ssh, which lists, checks and deletes SFTP files, such as with #each_child, #exist? and #delete, " \
+                  "does not support the ssh option #{key.inspect}. It supports: #{OPTIONS.join(', ')}")
           end
         end
 

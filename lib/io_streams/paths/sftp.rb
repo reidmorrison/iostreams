@@ -87,11 +87,11 @@ module IOStreams
       #   - Any other options supported by ssh_config.
       #     `man ssh_config` to see all available options.
       #
-      #   `#each_child` lists files with the net-sftp gem instead of the sftp executable, so it only supports
-      #   these ssh options: HostKey, IdentityKey, IdentityFile, UserKnownHostsFile, StrictHostKeyChecking,
-      #   ConnectTimeout, ServerAliveInterval, ServerAliveCountMax and LogLevel. Any other option raises
-      #   ArgumentError.
-      #   It also needs the ed25519 gem, and the bcrypt_pbkdf gem except on JRuby, when the host key or the
+      #   `#each_child`, `#exist?`, `#size`, `#mtime`, `#file?`, `#directory?`, `#empty?`, `#delete` and `#delete_all`
+      #   use the net-sftp gem instead of the sftp executable, so they only support these ssh options: HostKey,
+      #   IdentityKey, IdentityFile, UserKnownHostsFile, StrictHostKeyChecking, ConnectTimeout, ServerAliveInterval,
+      #   ServerAliveCountMax and LogLevel. Any other option raises ArgumentError for them.
+      #   They also need the ed25519 gem, and the bcrypt_pbkdf gem except on JRuby, when the host key or the
       #   identity key is an ed25519 key. Reading and writing do not, since the sftp executable supports them.
       #
       # Examples:
@@ -528,7 +528,7 @@ module IOStreams
       # When the server does not prompt for a password, sftp reads the password line as a command
       # and echoes it in its output, so remove it before the output is included in the error.
       def raise_failure(action, out, status = nil)
-        out   = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
+        out   = out.gsub(password.to_s, Utils::FILTERED) if out && !password.to_s.empty?
         error = Errors::CommunicationsFailure.new(
           "#{action} failed calling #{self.class.sftp_bin}#{" via #{self.class.sshpass_bin}" if password}: #{out}"
         )
