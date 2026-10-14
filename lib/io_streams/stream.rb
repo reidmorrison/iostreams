@@ -81,6 +81,12 @@ module IOStreams
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
     #
     # Setting the encode stream with `option(:encode, ...)` is deprecated, use #encoding instead.
+    #
+    # The options of a tabular format whose rows are not lines of text, such as Parquet, apply when its rows or records
+    # are read or written, see `IOStreams::Tabular#read_rows`, whether the format is set with #format or detected from
+    # the file name:
+    #
+    # IOStreams.path("people.parquet").schema("people.json").option(:parquet, compression: "zstd").writer(:hash)
     def option(stream, **)
       raise_if_frozen!
       builder.option(stream, **)
@@ -352,9 +358,7 @@ module IOStreams
             args, "but a copy uses its options to write the target", suggest_schema: %i[array hash].include?(mode)
           )
           stream.reader(mode) do |rows|
-            writer(mode, **args) do |target|
-              rows.each { |row| target << row }
-            end
+            writer(mode, **args) { |target| copy_rows(rows, target, mode) }
           end
         else
           reject_copy_options!("when copying without a `mode:`", **args)
@@ -575,6 +579,21 @@ module IOStreams
       @schema_source  = nil
     end
 
+    # Writes each row or record read to the target. In `:array` mode the header row of a source that has one is
+    # written as a header row, so that a target without one, such as JSON or Parquet, takes its columns from it,
+    # rather than write it as a row of values.
+    def copy_rows(rows, target, mode)
+      header = mode == :array && rows.respond_to?(:header?) && rows.header?
+      rows.each do |row|
+        if header
+          header = false
+          target.write_header(row)
+        else
+          target << row
+        end
+      end
+    end
+
     # Options are strict: raise rather than ignore options that a copy cannot use.
     def reject_copy_options!(reason, **options)
       names = options.compact.keys
@@ -669,6 +688,7 @@ module IOStreams
     # `IOStreams::Tabular#encoding`, unless an encoding is set on the encode stream.
     def line_reader(embedded_within: :auto, **args, &)
       reject_path_settings!(args)
+      reject_unlined_format!
       # `:auto` uses the quote character of the format, set with #format or detected from the file name,
       # such as `"` for CSV, while distinguishing "not supplied" from an explicit value such as `nil`
       # (disable) or `'"'` (force).
@@ -689,9 +709,8 @@ module IOStreams
     # The lines are split where the format that parses them expects, so that for example a newline within
     # a quoted CSV value stays within its row, including when CSV is the default format.
     def row_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
-      tabular         = tabular(**args)
-      embedded_within = tabular.quote_character if embedded_within == :auto
-      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
+      tabular = tabular(**args)
+      open_rows_reader(tabular, delimiter, embedded_within) do |io|
         yield IOStreams::Row::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
     end
@@ -700,11 +719,62 @@ module IOStreams
     #
     # The lines are split where the format that parses them expects, see #row_reader.
     def record_reader(delimiter: nil, embedded_within: :auto, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
-      tabular         = tabular(**args)
-      embedded_within = tabular.quote_character if embedded_within == :auto
-      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within) do |io|
+      tabular = tabular(**args)
+      open_rows_reader(tabular, delimiter, embedded_within) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, cleanse_header: cleanse_header)
       end
+    end
+
+    # Yields [#each] the rows of the format of the tabular: its lines, split where the format expects, or the rows of a
+    # format that holds them in a binary layout of its own, such as Parquet, read from its bytes, see
+    # `IOStreams::Tabular#read_rows`.
+    #
+    # Raises ArgumentError when `delimiter` or `embedded_within` is supplied, or an encoding is set, for a format without
+    # lines, see #reject_line_options!.
+    def open_rows_reader(tabular, delimiter, embedded_within, &)
+      unless tabular.lines?
+        reject_line_options!(tabular, delimiter: delimiter, embedded_within: (embedded_within unless embedded_within == :auto))
+        return stream_reader { |io| tabular.read_rows(io, builder.row_format_options(tabular.format), &) }
+      end
+
+      embedded_within = tabular.quote_character if embedded_within == :auto
+      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within, &)
+    end
+
+    # Yields [#<<] the writer of the rows of the format of the tabular: a line writer, or the writer of a format that
+    # holds its rows in a binary layout of its own, such as Parquet, see `IOStreams::Tabular#write_rows`.
+    #
+    # Raises ArgumentError when `delimiter` is supplied, or an encoding is set, for a format without lines, see
+    # #reject_line_options!.
+    def open_rows_writer(tabular, delimiter, &)
+      unless tabular.lines?
+        reject_line_options!(tabular, delimiter: delimiter)
+        return stream_writer { |io| tabular.write_rows(io, builder.row_format_options(tabular.format), &) }
+      end
+
+      open_line_writer(tabular.encoding, delimiter: delimiter.nil? ? $/ : delimiter, &)
+    end
+
+    # Options are strict: raise rather than ignore the options of lines for a format whose rows are not lines, and
+    # an encoding, see #encoding, since its rows are not text, so that the encode stream would only change its bytes.
+    def reject_line_options!(tabular, **options)
+      names = options.compact.keys
+      unless names.empty?
+        raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used with the #{tabular.format.inspect} " \
+                             "format, whose rows are not lines of text")
+      end
+      return unless builder.setting(:encode)
+
+      raise(ArgumentError, "#encoding cannot be used with the #{tabular.format.inspect} format, whose rows are not " \
+                           "text, so that an encoding would only change the bytes of the file")
+    end
+
+    # Raises ArgumentError for the `:line` mode of a format whose rows are not lines of text, such as Parquet.
+    def reject_unlined_format!
+      return if IOStreams::Tabular.lines?(format)
+
+      raise(ArgumentError, "The #{format.inspect} format has no lines, so read and write its rows with the :array or " \
+                           ":hash mode, or its bytes with the :stream mode")
     end
 
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream in the format set with #format,
@@ -750,6 +820,7 @@ module IOStreams
       reject_read_options!(args, "not when writing", suggest_schema: false)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Line::Writer)
 
+      reject_unlined_format!
       open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)
     end
 
@@ -763,22 +834,24 @@ module IOStreams
       end
     end
 
-    def row_writer(delimiter: $/, **args, &block)
+    # The delimiter is `$/` unless it is supplied, see #open_rows_writer.
+    def row_writer(delimiter: nil, **args, &block)
       reject_read_options!(args, "not when writing")
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
       tabular = tabular(**args)
-      open_line_writer(tabular.encoding, delimiter: delimiter) do |io|
+      open_rows_writer(tabular, delimiter) do |io|
         block.call(IOStreams::Row::Writer.new(io, tabular: tabular))
       end
     end
 
-    def record_writer(delimiter: $/, **args, &block)
+    # The delimiter is `$/` unless it is supplied, see #open_rows_writer.
+    def record_writer(delimiter: nil, **args, &block)
       reject_read_options!(args, "not when writing")
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
       tabular = tabular(**args)
-      open_line_writer(tabular.encoding, delimiter: delimiter) do |io|
+      open_rows_writer(tabular, delimiter) do |io|
         block.call(IOStreams::Record::Writer.new(io, tabular: tabular))
       end
     end

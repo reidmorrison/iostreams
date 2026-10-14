@@ -381,12 +381,12 @@ module IOStreams
         end
 
         # Since S3 upload only supports a pull stream, write it to a tempfile first.
+        # Uploads the file only once all data has been written to it, including when the block leaves early, such as
+        # with `break`, as a local file keeps what was written, see `IOStreams::Utils.finish_after`.
         Utils.private_temp_file("iostreams_s3", purpose: "the upload to #{display_name}") do |file_name|
-          result = ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-
-          # Upload file only once all data has been written to it
-          write_file(file_name)
-          result
+          Utils.finish_after(-> { write_file(file_name) }) do
+            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+          end
         end
       end
 

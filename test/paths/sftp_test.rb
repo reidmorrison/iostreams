@@ -273,6 +273,36 @@ module Paths
             assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
             assert_equal raw, write_path.read
           end
+
+          it "uploads what was written when the block leaves early" do
+            skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
+
+            path = write_path.delete
+            path.writer do |io|
+              io.write(raw)
+              break
+            end
+
+            assert_equal raw, path.read
+          end
+
+          it "uploads nothing when the thread writing it is killed" do
+            skip "No identity file env var set: SFTP_IDENTITY_FILE" unless ENV["SFTP_IDENTITY_FILE"]
+
+            path    = write_path.delete
+            started = Queue.new
+            thread  = Thread.new do
+              path.writer do |io|
+                io.write(raw)
+                started << true
+                sleep
+              end
+            end
+            started.pop
+            thread.kill.join
+
+            refute_predicate path, :exist?
+          end
         end
 
         describe "use identity key instead of password" do

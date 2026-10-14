@@ -24,6 +24,9 @@ module IOStreams
   autoload :Zip,                 "io_streams/zip"
   autoload :Zstd,                "io_streams/zstd"
 
+  # Parquet is a tabular format, see `IOStreams::Tabular::Parser::Parquet`, rather than a registered extension.
+  autoload :Parquet,             "io_streams/parquet"
+
   module Paths
     autoload :ChunkReader, "io_streams/paths/chunk_reader"
     autoload :File,        "io_streams/paths/file"

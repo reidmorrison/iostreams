@@ -228,6 +228,32 @@ module Paths
           assert_equal raw, path.read
         end
 
+        it "uploads the temp file when the block leaves early" do
+          path = IOStreams::Paths::S3.new(write_path.to_s, content_md5: Digest::MD5.base64digest(raw))
+          path.writer do |io|
+            io.write(raw)
+            break
+          end
+
+          assert_equal raw, path.read
+        end
+
+        it "uploads nothing when the thread writing the temp file is killed" do
+          path    = IOStreams::Paths::S3.new(write_path.to_s, content_md5: Digest::MD5.base64digest(raw))
+          started = Queue.new
+          thread  = Thread.new do
+            path.writer do |io|
+              io.write(raw)
+              started << true
+              sleep
+            end
+          end
+          started.pop
+          thread.kill.join
+
+          refute_predicate path, :exist?
+        end
+
         it "downloads into a temp file when the range option chooses the bytes to read" do
           existing_path
           path   = IOStreams::Paths::S3.new(existing_path.to_s, range: "bytes=0-3")
