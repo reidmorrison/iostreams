@@ -621,7 +621,7 @@ module IOStreams
       results = []
       hash    = {}
       out.each_line do |line|
-        if (match = line.match(%r{(pub|sec)\s+([A-Za-z][^\s/]*)\s+(\d+-\d+-\d+)(\s+\[.*\])?(.*)}))
+        if (match = line.match(%r{\A\s*(pub|sec)\s+([A-Za-z][^\s/]*)\s+(\d+-\d+-\d+)}))
           # v2.2/v2.4:    pub   rsa1024 2017-10-24 [SCEA], or the curve of the key, such as ed25519
           hash = {
             private: match[1] == "sec",
@@ -632,7 +632,7 @@ module IOStreams
               match[3]
             end)
           }
-        elsif (match = line.match(%r{(pub|sec)\s+(\d+)(.*)/(\w+)\s+(\d+-\d+-\d+)(\s+(.+)<(.+)>)?}))
+        elsif (match = line.match(%r{\A\s*(pub|sec)\s+(\d+)([^/\s]*)/(\w+)\s+(\d+-\d+-\d+)(\s+([^<]+)<([^>]+)>)?}))
           # Matches: pub  2048R/C7F9D9CB 2016-10-26
           # Or:      pub  2048R/C7F9D9CB 2016-10-26 Receiver <receiver@example.org>
           hash = {
@@ -653,7 +653,7 @@ module IOStreams
             results << hash
             hash = {}
           end
-        elsif (match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)<(.+)>/))
+        elsif (match = line.match(/\A\s*uid\s+(\[([^\]]+)\]\s+)?([^<]+)<([^>]+)>/))
           # Matches:  uid       [ unknown] Joe Bloggs <j@bloggs.net>
           # Or:       uid                  Joe Bloggs <j@bloggs.net>
           # v2.2:     uid           [ultimate] Joe Bloggs <pgp_test@iostreams.net>
@@ -662,7 +662,7 @@ module IOStreams
           hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
           hash = {}
-        elsif (match = line.match(/uid\s+(\[(.+)\]\s+)?(.+)/))
+        elsif (match = line.match(/\A\s*uid\s+(\[([^\]]+)\]\s+)?(.+)/))
           # Matches:  uid       [ unknown] Joe Bloggs
           # Or:       uid                  Joe Bloggs
           # v2.2:     uid           [ultimate] Joe Bloggs
@@ -670,7 +670,7 @@ module IOStreams
           hash[:trust] = match[2].to_s.strip if match[1]
           results << hash
           hash = {}
-        elsif (match = line.match(/\s+([A-Z0-9]{16,64})/))
+        elsif (match = line.match(/\A\s+([A-Z0-9]{16,64})/))
           # v2.2/v2.4 key id on separate line:
           # 18A0FC1C09C0D8AE34CE659257DC4AE323C7368C
           # Or shorter format: 7932AB23D7238F6B
