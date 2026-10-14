@@ -534,9 +534,12 @@ module IOStreams
       end
 
       # Returns [Hash] the parameters of a copy that name this object as its source, which S3 requires to be url-encoded,
-      # with the options of this path that S3 needs to read it, see `Sdk.copy_source_options`.
+      # with the version of this path, when it has a `version_id`, and the options that S3 needs to read it, see
+      # `Sdk.copy_source_options`.
       def copy_source_parameters
-        {copy_source: "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}", **Sdk.copy_source_options(options)}
+        source = "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
+        source = "#{source}?versionId=#{::URI.encode_www_form_component(options[:version_id])}" if options[:version_id]
+        {copy_source: source, **Sdk.copy_source_options(options)}
       end
 
       private

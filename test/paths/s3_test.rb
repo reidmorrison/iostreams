@@ -814,6 +814,19 @@ module Paths
           assert(target_requests[:copy_object].none? { |params| params.key?(:sse_customer_key) })
         end
 
+        it "copies directly the version of the source that its version_id names" do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          client   = Aws::S3::Client.new(stub_responses: {head_object: {content_length: 4}}, region: "us-east-1",
+                                         credentials: Aws::Credentials.new("id", "secret"))
+          source   = IOStreams::Paths::S3.new("s3://bucket-a/x.csv", client: client, version_id: "3/L4kqtJlcpXro=")
+          requests = capture_requests(client)
+
+          source.copy_to(IOStreams::Paths::S3.new("s3://bucket-b/y.csv", client: client), convert: false)
+
+          assert_equal(["3/L4kqtJlcpXro="], requests[:head_object].map { |params| params[:version_id] })
+          assert_equal(["bucket-a/x.csv?versionId=3%2FL4kqtJlcpXro%3D"], requests[:copy_object].map { |params| params[:copy_source] })
+        end
+
         it "raises for an option that no request accepts" do
           error = assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, acll: "public-read") }
           assert_equal "Unknown S3 option: :acll", error.message
