@@ -104,6 +104,50 @@ class GzipReaderTest < Minitest::Test
         end
       end
 
+      # Each member after the first is read through a buffer, which must not lose the data after the member's end.
+      describe "members larger than a block, or many small ones" do
+        let :large_members do
+          Array.new(4) { |i| Array.new(3_000) { |j| "#{i},#{j},#{Random.new(i * j).bytes(8).unpack1('H*')}\n" }.join }
+        end
+
+        let :small_members do
+          Array.new(2_000) { |i| "#{i},#{'x' * (i % 250)}\n" }
+        end
+
+        it "reads every member larger than a block" do
+          result = IOStreams::Gzip::Reader.stream(StringIO.new(large_members.map { |data| Zlib.gzip(data) }.join), &:read)
+
+          assert_equal large_members.join, result
+        end
+
+        it "reads every one of many small members from a file" do
+          Tempfile.create(%w[iostreams .txt.gz]) do |file|
+            file.binmode
+            file.write(small_members.map { |data| Zlib.gzip(data) }.join)
+            file.close
+
+            assert_equal small_members.join, IOStreams.path(file.path).read
+          end
+        end
+
+        # The data after padding longer than a read of the gzip reader is read in blocks, which the members after it
+        # are read from.
+        it "reads every member after zero bytes longer than a read" do
+          data   = small_members.map { |member| Zlib.gzip(member) }
+          result = IOStreams::Gzip::Reader.stream(StringIO.new(data.first + ("\0" * 5_000) + data.drop(1).join), &:read)
+
+          assert_equal small_members.join, result
+        end
+
+        it "reads every one of many small members from a pipe" do
+          result = read_from_pipe(small_members.map { |data| Zlib.gzip(data) }.join) do |pipe|
+            IOStreams::Gzip::Reader.stream(pipe, &:read)
+          end
+
+          assert_equal small_members.join, result
+        end
+      end
+
       it "reads the requested length across the end of a member" do
         IOStreams::Gzip::Reader.stream(StringIO.new(Zlib.gzip("abc") + Zlib.gzip("defgh"))) do |io|
           assert_equal "abcde", io.read(5)

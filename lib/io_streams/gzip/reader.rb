@@ -27,14 +27,14 @@ module IOStreams
 
       # Reads every member of a gzip stream in turn.
       #
-      # `Zlib::GzipReader` stops at the end of the first member, and returns any data it read past it
-      # from `#unused`, so the next member is read from that data followed by the rest of the input.
+      # `Zlib::GzipReader` stops at the end of the first member, and returns any data it read past it from `#unused`,
+      # so the next member is read from that data followed by the rest of the input, see Source.
       class Members
         include ChunkReader
 
         def initialize(input_stream)
-          @input_stream = input_stream
-          @gzip         = gzip_reader(input_stream)
+          @source = Source.new(input_stream)
+          @gzip   = gzip_reader
         end
 
         # Finishes the gzip reader, without closing the input stream, which belongs to the caller.
@@ -66,50 +66,79 @@ module IOStreams
         end
 
         # Starts reading the next member, returning [false] when there are no more members.
-        # Zero bytes after the last member are ignored, as some tools pad gzip files with them.
         def next_member?
           return true unless @gzip.eof?
 
-          remaining = @gzip.unused.to_s.b.sub(/\A\0+/n, "")
-          while remaining.empty?
-            block = @input_stream.read(BLOCK_SIZE)
-            return false if block.nil?
-
-            remaining = block.b.sub(/\A\0+/n, "")
-          end
+          @source.unread(@gzip.unused)
+          return false unless skip_padding
 
           # Finish the current member without closing the input stream, which the next member reads from.
           @gzip.finish
-          @gzip = gzip_reader(Prefixed.new(remaining, @input_stream))
+          @gzip = gzip_reader
           true
         end
 
+        # Skips any zero bytes before the next member, which some tools pad gzip files with, returning [false] when the
+        # input ends without another member.
+        def skip_padding
+          loop do
+            data = @source.read(BLOCK_SIZE)
+            return false if data.nil?
+
+            data = data.b.sub(/\A\0+/n, "")
+            next if data.empty?
+
+            @source.unread(data)
+            return true
+          end
+        end
+
         # Bytes, like every other stream, rather than the external encoding, which `#readpartial` returns on JRuby.
-        def gzip_reader(input_stream)
-          ::Zlib::GzipReader.new(input_stream, external_encoding: Encoding::BINARY)
+        def gzip_reader
+          ::Zlib::GzipReader.new(@source, external_encoding: Encoding::BINARY)
         end
       end
 
-      # An input stream that returns the supplied data before reading from the input stream.
-      class Prefixed
-        include ChunkReader
-
-        def initialize(data, input_stream)
-          @data         = data
+      # The input of the gzip reader of each member: the data that the gzip reader of the previous member read past its
+      # end, see #unread, and then the rest of the input stream.
+      #
+      # It never reads more of the input stream than it is asked for, so that it holds no data that a gzip reader has not
+      # seen, which would be lost when the gzip reader of the next member starts.
+      class Source
+        def initialize(input_stream)
           @input_stream = input_stream
+          @unread       = nil
         end
 
-        def closed?
-          false
+        # Returns the supplied data before the rest of the input.
+        def unread(data)
+          return if data.nil? || data.empty?
+
+          @unread = @unread ? data.b + @unread : data.b
+        end
+
+        # Returns [String] the next data, of at most `length` bytes, or nil at the end of the input. With a buffer, the
+        # data replaces its contents, as `IO#read` does.
+        def read(length, buffer = nil)
+          data = @unread ? take_unread(length) : @input_stream.read(length)
+          return data unless buffer
+
+          data ? buffer.replace(data) : buffer.clear
+          buffer if data
+        end
+
+        # Returns [String] the next data, like #read, but raises EOFError at the end of the input, like `IO#readpartial`,
+        # which `Zlib::GzipReader` reads its input with.
+        def readpartial(length, buffer = nil)
+          read(length, buffer) || raise(EOFError, "end of file reached")
         end
 
         private
 
-        # Returns [String] the supplied data, and then each block of the input stream, see `IOStreams::ChunkReader`.
-        def next_chunk
-          data  = @data
-          @data = nil
-          data || @input_stream.read(BLOCK_SIZE)
+        def take_unread(length)
+          data    = @unread.byteslice(0, length)
+          @unread = @unread.bytesize > length ? @unread.byteslice(length..) : nil
+          data
         end
       end
     end
