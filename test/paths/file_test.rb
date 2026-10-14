@@ -12,7 +12,9 @@ module Paths
     end
 
     describe IOStreams::Paths::File do
-      let(:root) { IOStreams::Paths::File.new("/tmp/iostreams").delete_all }
+      # A directory of its own for each test, rather than one shared by every test run on the machine, which another
+      # checkout running its tests at the same time would delete.
+      let(:root) { IOStreams::Paths::File.new(::File.realpath(Dir.mktmpdir("iostreams_file_test"))) }
       let(:directory) { root.join("/some_test_dir") }
       let(:data) { "Hello World\nHow are you doing?\nOn this fine day" }
       let(:file_path) do
@@ -24,6 +26,10 @@ module Paths
         path = root.join("some_test_dir/test_file2.txt")
         path.writer { |io| io << "Hello World2" }
         path
+      end
+
+      after do
+        FileUtils.rm_rf(root.to_s)
       end
 
       describe "home directory" do

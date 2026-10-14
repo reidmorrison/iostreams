@@ -18,8 +18,14 @@ module IOStreams
         "#{records.collect(&:to_json).join("\n")}\n"
       end
 
+      let(:dir) { Dir.mktmpdir("iostreams_test") }
+
       let :json_file_name do
-        "/tmp/iostreams_abc.json"
+        ::File.join(dir, "abc.json")
+      end
+
+      after do
+        FileUtils.rm_rf(dir)
       end
 
       describe ".root" do
@@ -146,7 +152,7 @@ module IOStreams
         end
 
         it "hash writer detects json format from file name" do
-          path = IOStreams.path("/tmp/io_streams/abc.json")
+          path = IOStreams.path(json_file_name)
           path.writer(:hash) do |io|
             records.each { |hash| io << hash }
           end
@@ -170,7 +176,7 @@ module IOStreams
         end
 
         it "array writer detects json format from file name" do
-          path = IOStreams.path("/tmp/io_streams/abc.json")
+          path = IOStreams.path(json_file_name)
           path.writer(:array, columns: %w[name login]) do |io|
             io << ["Jack Jones", "jjones"]
             io << ["Jill Smith", "jsmith"]
