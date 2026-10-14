@@ -14,8 +14,8 @@ module IOStreams
     class Matcher
       # Characters that make a pattern element match names, rather than be a name.
       PATTERN_CHARACTERS = /[*?\[{\\]/
-      # A brace whose alternatives contain a directory, such as `{a,b/c}`.
-      BRACE_WITH_SLASH   = /\{[^}]*\/[^}]*\}/
+      # A `/` after a `{`, with no other brace between them, see #brace_with_slash?.
+      OPEN_BRACE_SLASH   = %r{\{[^{}]*/}
       # A pattern element that names a hidden file, such as `.env`.
       HIDDEN_ELEMENT     = /(?:\A|[\/{,])\./
 
@@ -71,7 +71,7 @@ module IOStreams
       # Returns [Integer] how many levels of sub-directories within the #directory the pattern can match names in,
       # or [nil] when it can match names at any level, such as with `**`.
       def depth
-        return if pattern.include?("**") || pattern.match?(BRACE_WITH_SLASH)
+        return if pattern.include?("**") || brace_with_slash?
 
         pattern.count("/")
       end
@@ -83,6 +83,16 @@ module IOStreams
       end
 
       private
+
+      # Returns [true|false] whether a brace of the pattern has an alternative that contains a directory, such as
+      # `{a,b/c}`, so that the pattern can match names at more than one level.
+      #
+      # Only looks before the last `}`, rather than match the `{`, `/` and `}` with one regular expression, whose time
+      # grows with the square of the length of a pattern of many braces without a `}`.
+      def brace_with_slash?
+        close = pattern.rindex("}")
+        close ? pattern[0, close].match?(OPEN_BRACE_SLASH) : false
+      end
 
       # Returns [String, String] the directory, and the pattern within it.
       # The last element is the pattern when no element has pattern characters, so that it is matched within its
