@@ -502,6 +502,27 @@ class ParquetTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidHeader) { read_columns(path.schema(partial)) }
       end
 
+      it "is decided by the reader, which is given the schema as the writer is" do
+        write
+        subset    = IOStreams::Schema.new(fieldsMatch: "subset", fields: [{name: "Name", type: "string"}])
+        requested = []
+        each_row  = ::Parquet.method(:each_row)
+        rows      = []
+        ::Parquet.stub(:each_row, lambda { |file, **options, &block|
+          requested << options[:columns]
+          each_row.call(file, **options, &block)
+        }) do
+          IOStreams::Parquet::Reader.file(File.join(dir, "people.parquet"), schema: subset) do |reader|
+            refute_respond_to reader, :read_only
+            refute_respond_to reader, :labels
+            reader.each { |row| rows << row }
+          end
+        end
+
+        assert_equal [%w[name]], requested
+        assert_equal [{"name" => "Jack"}, {"name" => nil}], rows
+      end
+
       it "reads every column when two columns are the same field, so that reading raises" do
         target = path("twice.parquet").schema(fields: [{name: "id", type: "integer"}, {name: "ID", type: "integer"}])
         write(target, [{"id" => 1, "ID" => 2}])

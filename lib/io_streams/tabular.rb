@@ -218,15 +218,13 @@ module IOStreams
     # supplied stream of its bytes, in the form that #row_parse and #record_parse accept, by the format of the rows,
     # with the options of the rows supplied to #initialize, such as those set with `option(:parquet, ...)`.
     #
-    # With a schema whose `fieldsMatch` skips the columns that it does not list, a reader that can read only some of the
-    # columns of a file, such as Parquet, reads only those of its fields, see `IOStreams::Schema#projection`.
+    # The reader is given the schema, as the writer is, see #write_rows, so that a reader that can read only some of the
+    # columns of a file, such as Parquet, reads only those of its fields when the schema skips the others, see
+    # `IOStreams::Parquet::Reader.file`.
     #
     # Returns the result of the block.
-    def read_rows(io)
-      parser.class.row_format.open_stream(:reader, io, @row_format_options, name: format) do |rows|
-        read_only_fields(rows)
-        yield(rows)
-      end
+    def read_rows(io, &)
+      parser.class.row_format.open_stream(:reader, io, @row_format_options, name: format, arguments: {schema: schema}, &)
     end
 
     # Yields [#<<] the writer of the rows of a format whose rows are not lines, see #lines?, to the supplied stream of
@@ -539,14 +537,6 @@ module IOStreams
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 
     private
-
-    # Reads only the columns of the fields of the schema, when the reader of the rows can, see #read_rows.
-    def read_only_fields(rows)
-      return unless schema && rows.respond_to?(:read_only)
-
-      labels = schema.projection { rows.labels }
-      rows.read_only(labels) if labels
-    end
 
     # Raises ArgumentError for the options of the header, such as `columns:` and `allowed_columns:`, which describe the
     # columns of a file without a schema, since the schema describes them, see `IOStreams::Schema`, rather than apply one
