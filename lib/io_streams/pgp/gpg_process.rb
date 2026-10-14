@@ -51,7 +51,7 @@ module IOStreams
       # open for reading, including the file of a Tempfile. Ruby's read buffer is discarded first, so that gpg starts
       # where the caller would read next.
       def self.readable_file(io)
-        file = local_file(io)
+        file = Utils.local_file(io)
         return unless file&.stat&.file?
 
         file.seek(file.pos)
@@ -65,18 +65,11 @@ module IOStreams
       # Returns [String] the absolute name of the file that the caller's stream reads or writes, for messages,
       # or nil for any other stream.
       def self.file_name(io)
-        file = local_file(io)
+        file = Utils.local_file(io)
         ::File.absolute_path(file.path) if file&.path
       rescue IOError, SystemCallError
         nil
       end
-
-      # Returns [File] the open file of the stream, including the file of a Tempfile, or nil for any other stream.
-      def self.local_file(io)
-        file = defined?(::Delegator) && io.is_a?(::Delegator) ? io.__getobj__ : io
-        file if file.is_a?(::File) && !file.closed?
-      end
-      private_class_method :local_file
 
       def initialize(command, failure:, input:, output:, passphrases:, captures:)
         @failure  = failure

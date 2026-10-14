@@ -62,7 +62,7 @@ module IOStreams
 
       # Raises IOError when the file was not opened for reading, without reading from it.
       input_stream.read(0)
-      ::File.open(file_name, "rb") { |file| file_name if ::File.identical?(file, input_stream) }
+      ::File.open(file_name, "rb") { |file| file_name if ::File.identical?(file, Utils.local_file(input_stream)) }
     rescue IOError, SystemCallError
       nil
     end

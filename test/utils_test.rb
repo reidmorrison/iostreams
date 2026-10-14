@@ -264,6 +264,16 @@ class UtilsTest < Minitest::Test
         File.open(file_name, "rb") { |file| assert_equal file_name, IOStreams::Utils.local_file_name(file) }
       end
 
+      it "returns the name of the file of a Tempfile at its start" do
+        tempfile = Tempfile.new("iostreams_local_file_name")
+        tempfile.write("a,b\n")
+        tempfile.rewind
+
+        assert_equal File.absolute_path(tempfile.path), IOStreams::Utils.local_file_name(tempfile)
+      ensure
+        tempfile&.close!
+      end
+
       it "returns nil for a local file that is not at its start" do
         File.open(file_name, "rb") do |file|
           file.read(1)

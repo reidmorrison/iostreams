@@ -151,8 +151,16 @@ module IOStreams
       end
     end
 
-    # Returns [String] the absolute name of the local file that the IO reads, so that a reader that only works on
-    # files, such as zip, can open the file itself instead of a temp copy of it.
+    # Returns [File] the open local file that the IO reads or writes: the IO itself when it is a `File`, or the file of
+    # a `Tempfile`, which delegates to it. Returns nil for any other IO, such as a pipe, a socket or a StringIO, and for
+    # a file that is closed.
+    def self.local_file(io)
+      file = defined?(::Delegator) && io.is_a?(::Delegator) ? io.__getobj__ : io
+      file if file.is_a?(::File) && !file.closed?
+    end
+
+    # Returns [String] the absolute name of the local file that the IO reads, see .local_file, so that a reader that
+    # only works on files, such as zip, can open the file itself instead of a temp copy of it.
     #
     # Only when the IO is a regular file at its start, and its name still refers to it, which for example a
     # relative name no longer does after the current directory changes.
@@ -161,10 +169,11 @@ module IOStreams
     # The name is absolute so that it still refers to the file when the current directory changes before the
     # reader opens it.
     def self.local_file_name(io)
-      return unless io.is_a?(::File) && !io.closed? && io.path
+      file = local_file(io)
+      return unless file&.path
 
-      name = ::File.absolute_path(io.path)
-      name if io.stat.file? && io.pos.zero? && ::File.identical?(io, name)
+      name = ::File.absolute_path(file.path)
+      name if file.stat.file? && file.pos.zero? && ::File.identical?(file, name)
     rescue SystemCallError
       nil
     end
