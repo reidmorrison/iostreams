@@ -86,29 +86,6 @@ store, use the methods of the path, rather than passing `#to_s` to `File` or `Di
 and rescue the kind of failure, such as `IOStreams::Errors::NotFound`, rather than the exception of one store, see
 [Errors](errors). See [Paths are configuration](config#paths-are-configuration).
 
-### Paths are copied, not shared
-
-`IOStreams.path` returns a copy of a path that is supplied on its own, with its arguments, streams and options, so that
-changing the copy, for example with `#option`, does not change the original:
-
-~~~ruby
-path = IOStreams.path("example.csv.pgp")
-copy = IOStreams.path(path).option(:pgp, passphrase: "secret")
-
-path.setting(:pgp)
-# => nil
-
-copy == path
-# => true
-~~~
-
-The copy is equal to the original, see [Comparing paths](#comparing-paths), but it is a different object.
-`IOStreams.stream` returns a copy of a stream the same way, `IOStreams.root` and `IOStreams.roots` return copies of
-the root paths, and `IOStreams.join` and `#join` without any elements return a copy of the root or the path. Each copy
-of an S3 or SFTP path holds its own copy of its request options or ssh options, so that changing them, such as
-`copy.options[:acl] = "private"`, does not change the original. A root path is frozen, so that it cannot be changed
-for the whole process, see [Using root paths](#using-root-paths).
-
 ## Local files {#file}
 
 A name without a scheme is a local file, relative to the current directory unless it starts with `/`:
@@ -195,6 +172,17 @@ An `s3://` url names an object, by its bucket and its key:
 
 ~~~ruby
 path = IOStreams.path("s3://my-bucket/exports/daily.csv")
+~~~
+
+Read it, write it and list it like any other path. The AWS SDK finds the credentials and the region, such as in its
+environment variables or credential files, or from the instance profile, unless they are supplied as
+[arguments](#optional-arguments-1):
+
+~~~ruby
+path.write("name,login\nJack Jones,jjones\n")
+path.each(:hash) { |record| p record }
+
+IOStreams.path("s3://my-bucket/exports").each_child("*.csv") { |child| puts child }
 ~~~
 
 S3 needs the `aws-sdk-s3` gem, which IOStreams loads when it is first needed. So a process without the gem, such as a
@@ -888,6 +876,29 @@ starts its query. A pattern without a directory, such as `*.csv`, lists the curr
 
 ## Joining and comparing
 
+### Paths are copied, not shared
+
+`IOStreams.path` returns a copy of a path that is supplied on its own, with its arguments, streams and options, so that
+changing the copy, for example with `#option`, does not change the original:
+
+~~~ruby
+path = IOStreams.path("example.csv.pgp")
+copy = IOStreams.path(path).option(:pgp, passphrase: "secret")
+
+path.setting(:pgp)
+# => nil
+
+copy == path
+# => true
+~~~
+
+The copy is equal to the original, see [Comparing paths](#comparing-paths), but it is a different object.
+`IOStreams.stream` returns a copy of a stream the same way, `IOStreams.root` and `IOStreams.roots` return copies of
+the root paths, and `IOStreams.join` and `#join` without any elements return a copy of the root or the path. Each copy
+of an S3 or SFTP path holds its own copy of its request options or ssh options, so that changing them, such as
+`copy.options[:acl] = "private"`, does not change the original. A root path is frozen, so that it cannot be changed
+for the whole process, see [Using root paths](#using-root-paths).
+
 ### Joining paths
 
 `#join` returns a new path with the elements joined to the path, in the same store, and `/` joins one element:
@@ -1011,26 +1022,6 @@ IOStreams.path("/var/exports/daily.csv").to_s == "/var/exports/daily.csv"
 
 `#move_to` also detects other spellings of the same location, see [Operations on the store](#operations-on-the-store).
 
-### Coming from Pathname
-
-IOStreams paths are modeled on Ruby's `Pathname`, and most methods with the same name do the same thing. These are the
-differences, each of which keeps a path working the same way wherever the file is stored:
-
-| Pathname | IOStreams | Why |
-|----------|-----------|-----|
-| `Pathname("/a").join("/b")` is `/b` | `IOStreams.path("/a").join("/b")` is `/a/b`, and so is `IOStreams.path("/a") / "/b"` | An absolute name, such as one from configuration, is joined to the path, such as a root, rather than replacing it. A name can still leave the path with `..`, so restrict untrusted names with [allowed paths](#restricting-access-with-allowed-paths) |
-| `join("..")` returns the parent | `join("..")` keeps `..`; use `cleanpath` or `directory` | Joining never accesses or resolves anything |
-| `Pathname("a/b").join("a/b/c")` is `a/b/a/b/c` | `IOStreams.path("a/b").join("a/b/c")` is `a/b/c` | An element that is already within the path is used as it is, so a name that includes its root is not doubled |
-| `mkpath` creates the whole path | `mkpath` creates the directories of a file, and `mkdir` creates the whole path | A path usually names a file, and writing a local file creates its directories anyway |
-| `children` and `each_child` list every entry | `children("*.csv")` and `each_child` take a pattern like `glob`, skip directories and hidden files, and ignore case by default | The same pattern lists local, S3 and SFTP paths |
-| `children` raises for a missing directory | Returns nothing for a missing path, or a file | S3 has no directories that could be missing |
-| `delete` raises for a missing file | Does nothing, and returns the path | The same on every store, where checking first would be a separate request |
-| `basename`, `dirname` and `relative_path_from` return a `Pathname` | They return a String; `directory` returns the directory as a path | A name on its own has no store; `basename` uses `file_name` when it is set |
-| `read(length, offset)` | `read(length)` reads bytes from the start, after any decompression or decryption | A compressed or encrypted stream cannot seek |
-| `each_line` without a block returns an Enumerator | `each` requires a block | The file, any temp file and any gpg process are closed when the block returns |
-| Paths sort with `/` first | Paths sort by their full name, spelled as `==` compares it, see [Comparing paths](#comparing-paths) | Names include the scheme, bucket or host |
-| `to_path`, so `File.exist?(pathname)` works | No `to_path`; use the methods of the path, such as `exist?` and `reader` | `File` and `Dir` only work with local files, so code that passes a path to them breaks when the configured path moves to S3 or SFTP |
-
 ## Using root paths
 
 A root path names a location once, at startup, such as the directory or bucket that an application writes its exports
@@ -1111,3 +1102,23 @@ IOStreams.path("/etc/passwd").allowed?
 ~~~
 
 See [Allowed paths](security#allowed-paths) for how the paths of each store are compared with them.
+
+## Coming from Pathname
+
+IOStreams paths are modeled on Ruby's `Pathname`, and most methods with the same name do the same thing. These are the
+differences, each of which keeps a path working the same way wherever the file is stored:
+
+| Pathname | IOStreams | Why |
+|----------|-----------|-----|
+| `Pathname("/a").join("/b")` is `/b` | `IOStreams.path("/a").join("/b")` is `/a/b`, and so is `IOStreams.path("/a") / "/b"` | An absolute name, such as one from configuration, is joined to the path, such as a root, rather than replacing it. A name can still leave the path with `..`, so restrict untrusted names with [allowed paths](#restricting-access-with-allowed-paths) |
+| `join("..")` returns the parent | `join("..")` keeps `..`; use `cleanpath` or `directory` | Joining never accesses or resolves anything |
+| `Pathname("a/b").join("a/b/c")` is `a/b/a/b/c` | `IOStreams.path("a/b").join("a/b/c")` is `a/b/c` | An element that is already within the path is used as it is, so a name that includes its root is not doubled |
+| `mkpath` creates the whole path | `mkpath` creates the directories of a file, and `mkdir` creates the whole path | A path usually names a file, and writing a local file creates its directories anyway |
+| `children` and `each_child` list every entry | `children("*.csv")` and `each_child` take a pattern like `glob`, skip directories and hidden files, and ignore case by default | The same pattern lists local, S3 and SFTP paths |
+| `children` raises for a missing directory | Returns nothing for a missing path, or a file | S3 has no directories that could be missing |
+| `delete` raises for a missing file | Does nothing, and returns the path | The same on every store, where checking first would be a separate request |
+| `basename`, `dirname` and `relative_path_from` return a `Pathname` | They return a String; `directory` returns the directory as a path | A name on its own has no store; `basename` uses `file_name` when it is set |
+| `read(length, offset)` | `read(length)` reads bytes from the start, after any decompression or decryption | A compressed or encrypted stream cannot seek |
+| `each_line` without a block returns an Enumerator | `each` requires a block | The file, any temp file and any gpg process are closed when the block returns |
+| Paths sort with `/` first | Paths sort by their full name, spelled as `==` compares it, see [Comparing paths](#comparing-paths) | Names include the scheme, bucket or host |
+| `to_path`, so `File.exist?(pathname)` works | No `to_path`; use the methods of the path, such as `exist?` and `reader` | `File` and `Dir` only work with local files, so code that passes a path to them breaks when the configured path moves to S3 or SFTP |
