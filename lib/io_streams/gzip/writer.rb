@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "zlib"
+
 module IOStreams
   module Gzip
     class Writer < IOStreams::Writer
@@ -15,12 +17,20 @@ module IOStreams
       #     Default: Zlib::DEFAULT_COMPRESSION
       #
       # The output stream is not closed, since it belongs to the caller.
-      def self.stream(output_stream, level: nil, &block)
-        io = ::Zlib::GzipWriter.new(output_stream, level)
-        block.call(io)
-      ensure
+      #
+      # The gzip trailer is written when the block returns, including when it leaves early, such as with `break`, so
+      # that what was written is a complete gzip file. It is not written when the block raises, or its thread is killed,
+      # so that the output does not look like a complete file of the partial data, see `IOStreams::AbortableOutput`.
+      def self.stream(output_stream, level: nil)
+        output = AbortableOutput.new(output_stream)
+        io     = ::Zlib::GzipWriter.new(output, level)
         # Unlike #close, #finish does not close the output stream.
-        io.finish if io && !io.closed?
+        finish = -> { io.finish unless io.closed? }
+        abort  = lambda do
+          output.discard
+          finish.call
+        end
+        Utils.finish_or_abort(finish: finish, abort: abort) { yield(io) }
       end
     end
   end

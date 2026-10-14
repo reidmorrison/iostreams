@@ -64,7 +64,8 @@ module IOStreams
           @output_stream.write(@zstd.finish)
         end
 
-        # Nothing to free, since zstd-ruby frees the compression context when it is garbage collected.
+        # Ends writing without the end of the zstd frame, when writing did not finish. Nothing to free, since zstd-ruby
+        # frees the compression context when it is garbage collected.
         def close
         end
       end

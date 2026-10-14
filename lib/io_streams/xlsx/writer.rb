@@ -37,19 +37,24 @@ module IOStreams
       # Each CSV record is parsed into a row, so a quoted value can contain a newline.
       #
       # A workbook is written even when nothing is, with an empty worksheet.
+      #
+      # The workbook is ended when the block returns, including when it leaves early, such as with `break`, so that
+      # what was written is a complete workbook. It is not ended when the block raises, or its thread is killed, so
+      # that the output is not a workbook that can be read.
       def self.stream(output_stream, sheet_name: "Sheet1", auto_format: false, use_shared_strings: false)
         Utils.load_soft_dependency("xlsxtream", "Xlsx") unless defined?(Xlsxtream::Workbook)
 
-        workbook = Xlsxtream::Workbook.new(output_stream, auto_format: auto_format, use_shared_strings: use_shared_strings)
-        result   = nil
-        workbook.write_worksheet(name: sheet_name) do |worksheet|
-          writer = new(worksheet)
-          result = yield(writer)
+        workbook  = Xlsxtream::Workbook.new(output_stream, auto_format: auto_format, use_shared_strings: use_shared_strings)
+        # Rather than the block form, which ends the worksheet after its block without an `ensure`.
+        worksheet = workbook.add_worksheet(name: sheet_name)
+        writer    = new(worksheet)
+        finish    = lambda do
           writer.finish
+          worksheet.close
+          # Ends the zip file without closing the output stream.
+          workbook.close
         end
-        # Ends the zip file without closing the output stream.
-        workbook.close
-        result
+        Utils.finish_or_abort(finish: finish) { yield(writer) }
       end
 
       # The supplied worksheet receives each row that is written.

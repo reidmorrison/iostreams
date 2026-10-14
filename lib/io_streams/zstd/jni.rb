@@ -60,12 +60,13 @@ module IOStreams
       # to the output stream whenever it ran, even after writing failed.
       class Encoder
         def initialize(output_stream, level: nil)
-          @output = OutputStream.new(output_stream)
+          @output = AbortableOutput.new(output_stream)
+          stream  = OutputStream.new(@output)
           @zstd   =
             if level.nil?
-              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(@output)
+              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(stream)
             else
-              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(@output, level)
+              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(stream, level)
             end
         end
 
@@ -121,14 +122,7 @@ module IOStreams
           @io = io
         end
 
-        # Discards anything written from now on.
-        def discard
-          @discard = true
-        end
-
         def write(bytes, offset = 0, length = nil)
-          return if @discard
-
           if bytes.is_a?(Integer)
             @io.write((bytes & 0xff).chr)
           else

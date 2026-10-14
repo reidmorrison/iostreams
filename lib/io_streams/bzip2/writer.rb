@@ -22,15 +22,22 @@ module IOStreams
       #     How much effort to spend on highly repetitive input before falling back
       #     to a slower algorithm, from 0 to 250. 0 uses the libbz2 default.
       #     Default: 0
-      def self.stream(input_stream, autoclose: false, block_size: nil, work_factor: nil)
+      #
+      # The end of the bzip2 data is written when the block returns, including when it leaves early, such as with
+      # `break`. It is not written when the block raises, or its thread is killed, so that the output does not look like
+      # a complete file of the partial data, see `IOStreams::AbortableOutput`.
+      def self.stream(output_stream, autoclose: false, block_size: nil, work_factor: nil)
         Utils.load_soft_dependency("bzip2-ffi", "Bzip2", "bzip2/ffi") unless defined?(::Bzip2::FFI)
 
-        begin
-          io = ::Bzip2::FFI::Writer.new(input_stream, autoclose: autoclose, block_size: block_size, work_factor: work_factor)
-          yield io
-        ensure
-          io&.close
+        output = AbortableOutput.new(output_stream)
+        io     = ::Bzip2::FFI::Writer.new(output, autoclose: autoclose, block_size: block_size, work_factor: work_factor)
+        # Frees the memory of libbz2, which the writer otherwise only frees once it is garbage collected.
+        finish = -> { io.close unless io.closed? }
+        abort  = lambda do
+          output.discard
+          finish.call
         end
+        Utils.finish_or_abort(finish: finish, abort: abort) { yield(io) }
       end
     end
   end

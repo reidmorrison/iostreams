@@ -3,6 +3,7 @@
 require "io_streams/version"
 # @formatter:off
 module IOStreams
+  autoload :AbortableOutput,     "io_streams/abortable_output"
   autoload :Builder,             "io_streams/builder"
   autoload :ChunkReader,         "io_streams/chunk_reader"
   autoload :Errors,              "io_streams/errors"

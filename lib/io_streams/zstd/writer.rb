@@ -16,13 +16,15 @@ module IOStreams
       #     Default: 3
       #
       # The output stream is not closed, since it belongs to the caller.
+      #
+      # The end of the zstd frame is written when the block returns, including when it leaves early, such as with
+      # `break`. It is not written when the block raises, or its thread is killed, so that the output does not look like
+      # a complete file of the partial data.
       def self.stream(output_stream, level: nil)
         encoder = Zstd.library.encoder(output_stream, level: level)
-        result  = yield Compressor.new(encoder)
-        encoder.finish
-        result
-      ensure
-        encoder&.close
+        Utils.finish_or_abort(finish: -> { encoder.finish }, abort: -> { encoder.close }) do
+          yield Compressor.new(encoder)
+        end
       end
 
       # Writes data to an encoder of the zstd library, as an IO.
