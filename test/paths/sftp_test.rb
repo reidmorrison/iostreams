@@ -814,6 +814,21 @@ module Paths
 
           assert_equal "example.org ssh-rsa AAAA", contents
         end
+
+        it "writes both an IdentityKey and a HostKey to temp files, without changing the ssh options" do
+          ssh_options = {"IdentityKey" => "PRIVATE-KEY-DATA", "HostKey" => "example.org ssh-rsa AAAA"}
+          path        = new_path(url, username: "jack", ssh_options: ssh_options)
+
+          contents = nil
+          path.send(:with_sftp_args) do |args|
+            contents = %w[IdentityFile UserKnownHostsFile].map do |option|
+              ::File.read(args.find { |arg| arg.start_with?("-o#{option}=") }.split("=", 2).last)
+            end
+          end
+
+          assert_equal ["PRIVATE-KEY-DATA", "example.org ssh-rsa AAAA"], contents
+          assert_equal ssh_options, path.ssh_options
+        end
       end
 
       # Minimal logger stub exposing a symbol level, like SemanticLogger.
@@ -1760,22 +1775,28 @@ module Paths
         end
       end
 
-      describe "#map_log_level" do
+      describe "the LogLevel of the sftp program" do
         it "defaults to INFO without a logger" do
           path = new_path(url, username: "jack", password: "secret")
 
           with_io_streams_logger(nil) do
-            assert_equal "INFO", path.send(:map_log_level)
+            assert_includes path.send(:sftp_args, {}), "-oLogLevel=INFO"
           end
         end
 
-        it "maps logger levels to sftp log levels" do
+        it "maps the levels of IOStreams.logger to sftp log levels" do
           path = new_path(url, username: "jack", password: "secret")
           {trace: "DEBUG3", warn: "ERROR", debug: "debug", info: "info", error: "error"}.each_pair do |level, expected|
             with_io_streams_logger(logger_stub(level)) do
-              assert_equal expected, path.send(:map_log_level), "level #{level.inspect}"
+              assert_includes path.send(:sftp_args, {}), "-oLogLevel=#{expected}", "level #{level.inspect}"
             end
           end
+        end
+
+        it "is the LogLevel ssh option when it is supplied" do
+          path = new_path(url, username: "jack", ssh_options: {"LogLevel" => "QUIET"})
+
+          assert_equal ["-oLogLevel=QUIET"], path.send(:sftp_args, path.ssh_options).grep(/LogLevel/)
         end
       end
 

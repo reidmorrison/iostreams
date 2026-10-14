@@ -39,6 +39,7 @@ module IOStreams
       autoload :Failure, "io_streams/paths/sftp/failure"
       autoload :Listing, "io_streams/paths/sftp/listing"
       autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
+      autoload :Program, "io_streams/paths/sftp/program"
 
       attr_reader :hostname, :username, :ssh_options, :url, :port
 
@@ -498,36 +499,10 @@ module IOStreams
         raise(kind ? kind.tag(error, display_name) : error)
       end
 
+      # Yields [Array<String>] the command that runs the sftp program, see `#sftp_args`, with any key that an ssh option
+      # holds written to a temp file, see `Program.with_key_files`.
       def with_sftp_args
-        return yield sftp_args(ssh_options) if !ssh_options.key?("IdentityKey") && !ssh_options.key?("HostKey")
-
-        with_identity_key(ssh_options.dup) do |options|
-          with_host_key(options) do |options2|
-            yield sftp_args(options2)
-          end
-        end
-      end
-
-      def with_identity_key(options)
-        return yield options unless ssh_options.key?("IdentityKey")
-
-        with_temp_file(options, "IdentityFile", options.delete("IdentityKey")) { yield options }
-      end
-
-      def with_host_key(options)
-        return yield options unless ssh_options.key?("HostKey")
-
-        with_temp_file(options, "UserKnownHostsFile", options.delete("HostKey")) { yield options }
-      end
-
-      def with_temp_file(options, option, value)
-        # sftp requires that private key is only readable by the current user
-        Utils.private_temp_file("iostreams-sftp-args", "key", purpose: "the ssh #{option}") do |file_name|
-          ::File.binwrite(file_name, value)
-
-          options[option] = file_name
-          yield options
-        end
+        Program.with_key_files(ssh_options) { |options| yield sftp_args(options) }
       end
 
       def sftp_args(ssh_options)
@@ -546,30 +521,15 @@ module IOStreams
         args << "-oIdentitiesOnly=yes" if ssh_options.key?("IdentityFile")
         # Default is ask, but this is non-interactive so make the default fail without asking.
         args << "-oStrictHostKeyChecking=yes" unless ssh_options.key?("StrictHostKeyChecking")
-        args << "-oLogLevel=#{map_log_level}" unless ssh_options.key?("LogLevel")
+        args << "-oLogLevel=#{Program.log_level(IOStreams.logger&.level)}" unless ssh_options.key?("LogLevel")
         args << "-oPort=#{port}" unless port == 22
         ssh_options.each_pair { |key, value| args << "-o#{key}=#{value}" }
         args << "-b"
         args << "-"
         # Stop sftp from treating the destination as an option.
         args << "--"
-        # Without a username, sftp uses the one from the ssh config, or the current user.
-        args << (username ? "#{username}@#{hostname}" : hostname)
+        args << Program.destination(hostname, username)
         args
-      end
-
-      def map_log_level
-        level = IOStreams.logger&.level
-        case level
-        when :trace
-          "DEBUG3"
-        when :warn
-          "ERROR"
-        when Symbol
-          level.to_s
-        else
-          "INFO"
-        end
       end
     end
   end
