@@ -332,17 +332,13 @@ module IOStreams
       # * Only a 307 or 308 redirect to the same scheme, host, and port is followed when writing.
       #   The other redirects change the request into a GET, which would discard the upload, and
       #   a redirect to another server would send it the data being uploaded.
-      def stream_writer(&block)
+      def stream_writer(&)
         if maximum_file_size
           raise(ArgumentError, "maximum_file_size: only applies when reading from an HTTP path, not when writing")
         end
 
-        Utils.private_temp_file("iostreams_http", purpose: "the upload to #{display_name}") do |file_name|
-          upload = -> { send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil } }
-          Utils.finish_or_abort(finish: upload) do
-            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          end
-        end
+        upload = ->(file_name) { send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil } }
+        spooled_writer("iostreams_http", upload: upload, &)
       end
 
       # Sends the request, following redirects, and returns the result of the block, which is called

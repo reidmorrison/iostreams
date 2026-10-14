@@ -471,21 +471,16 @@ module IOStreams
         child
       end
 
-      def stream_reader(&block)
-        Utils.private_temp_file("iostreams-sftp-reader", purpose: "the download of #{display_name}") do |file_name|
-          sftp_download(remote_path, file_name)
-          ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
-        end
+      # The sftp program downloads the whole file into a temp file, which is then read, see
+      # `IOStreams::Path#spooled_reader`.
+      def stream_reader(&)
+        spooled_reader("iostreams-sftp-reader", download: ->(file_name) { sftp_download(remote_path, file_name) }, &)
       end
 
-      def stream_writer(&block)
-        # Uploads the file once all data has been written to it, including when the block leaves early, such as with
-        # `break`, as a local file keeps what was written, see `IOStreams::Utils.finish_or_abort`.
-        Utils.private_temp_file("iostreams-sftp-writer", purpose: "the upload to #{display_name}") do |file_name|
-          Utils.finish_or_abort(finish: -> { sftp_upload(file_name, remote_path) }) do
-            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          end
-        end
+      # The sftp program uploads the whole file from a temp file, once the block returns, see
+      # `IOStreams::Path#spooled_writer`.
+      def stream_writer(&)
+        spooled_writer("iostreams-sftp-writer", upload: ->(file_name) { sftp_upload(file_name, remote_path) }, &)
       end
 
       # Use the sftp executable to download to a local file, via sshpass when a password is supplied

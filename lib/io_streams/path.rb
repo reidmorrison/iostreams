@@ -502,6 +502,28 @@ module IOStreams
       raise(ArgumentError, "Cannot move #{display_name} onto itself, as #{target.display_name}: it would delete the file")
     end
 
+    # Reads this file through a temp file, for a store that can only download a whole file: calls `download` with the
+    # name of the temp file, which only the current user can read, then reads it through the streams of this path,
+    # yielding to the block as #reader does. The temp file is deleted once the block returns.
+    def spooled_reader(prefix, download:, &block)
+      Utils.private_temp_file(prefix, purpose: "the download of #{display_name}") do |file_name|
+        download.call(file_name)
+        ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
+      end
+    end
+
+    # Writes this file through a temp file, for a store that can only upload a whole file: writes what the block writes
+    # into the temp file through the streams of this path, as #writer does, then calls `upload` with its name once the
+    # block returns, including when it leaves early, such as with `break`, as a local file keeps what was written, but
+    # not when it raises, or its thread is killed, see `IOStreams::Utils.finish_or_abort`.
+    def spooled_writer(prefix, upload:, &block)
+      Utils.private_temp_file(prefix, purpose: "the upload to #{display_name}") do |file_name|
+        Utils.finish_or_abort(finish: -> { upload.call(file_name) }) do
+          ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+        end
+      end
+    end
+
     # Returns [true|false] whether a child found by `#each_child` is within the allowed paths, logging it when it is not.
     def allowed_child?(child)
       return true if child.allowed?

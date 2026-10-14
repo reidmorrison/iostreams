@@ -335,19 +335,15 @@ module IOStreams
       #
       # Reads the object one range at a time, as the block reads it, see `RangeReader`. Unless the `range` or
       # `part_number` option chooses the bytes to read, which are downloaded into a temp file first.
-      def stream_reader(&block)
+      def stream_reader(&)
         if RangeReader.supports?(options_for(:get_object).keys)
           authorize!
           input = RangeReader.new(->(**params) { request(:get_object, bucket: bucket_name, key: path, **params) })
-          return builder.reader(input, &block)
+          return builder.reader(input, &)
         end
 
         # Since a single S3 download only supports a push stream, write it to a tempfile first.
-        Utils.private_temp_file("iostreams_s3", purpose: "the download of #{display_name}") do |file_name|
-          read_file(file_name)
-
-          ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
-        end
+        spooled_reader("iostreams_s3", download: method(:read_file), &)
       end
 
       # Shortcut method if caller has a filename already with no other streams applied:
@@ -375,14 +371,9 @@ module IOStreams
           return Uploader.upload(request) { |io| builder.writer(io, &block) }
         end
 
-        # Since S3 upload only supports a pull stream, write it to a tempfile first.
-        # Uploads the file only once all data has been written to it, including when the block leaves early, such as
-        # with `break`, as a local file keeps what was written, see `IOStreams::Utils.finish_or_abort`.
-        Utils.private_temp_file("iostreams_s3", purpose: "the upload to #{display_name}") do |file_name|
-          Utils.finish_or_abort(finish: -> { write_file(file_name) }) do
-            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          end
-        end
+        # Since S3 upload only supports a pull stream, write it to a tempfile first, which is uploaded once the block
+        # returns, see `IOStreams::Path#spooled_writer`.
+        spooled_writer("iostreams_s3", upload: method(:write_file), &block)
       end
 
       # Shortcut method if caller has a filename already with no other streams applied:
