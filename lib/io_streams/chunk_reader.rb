@@ -40,15 +40,19 @@ module IOStreams
     # Returns [String] the next line, ending with the separator, or the rest of the data, or nil at its end, like
     # `IO#gets`, so that code that reads an IO a line at a time, such as `CSV.new(io)`, reads any stream.
     #
-    # Like IO, a limit returns at most that many bytes, `chomp: true` removes the separator, the separator nil reads the
-    # rest of the data, and the separator "" reads paragraphs, which end at a blank line, skipping the line endings
-    # before each one and after the blank line that ends it.
+    # Like IO, a limit returns at most that many bytes, a limit of 0 an empty string, and a negative limit is no limit,
+    # `chomp: true` removes the separator, the separator nil reads the rest of the data, and the separator "" reads
+    # paragraphs, which end at a blank line, skipping the line endings before each one and after the blank line that
+    # ends it.
     def gets(separator = $/, limit = nil, chomp: false)
       check_readable
       if separator.is_a?(Integer)
         limit     = separator
         separator = $/
       end
+      return "".b if limit&.zero?
+
+      limit     = nil if limit&.negative?
       paragraph = separator == ""
       separator = paragraph ? "\n\n".b : separator&.b
       skip_line_endings if paragraph
@@ -66,18 +70,33 @@ module IOStreams
     end
 
     # Yields each line, see #gets, like `IO#each_line`. Returns self, or an Enumerator without a block.
-    def each_line(separator = $/, limit = nil, chomp: false)
-      return enum_for(__method__, separator, limit, chomp: chomp) unless block_given?
+    def each_line(separator = $/, limit = nil, chomp: false, &block)
+      return enum_for(__method__, separator, limit, chomp: chomp) unless block
 
-      while (line = gets(separator, limit, chomp: chomp))
-        yield(line)
-      end
+      read_lines(__method__, separator, limit, chomp, &block)
       self
     end
 
     alias each each_line
 
+    # Returns [Array<String>] the rest of the lines, see #gets, like `IO#readlines`.
+    def readlines(separator = $/, limit = nil, chomp: false)
+      lines = []
+      read_lines(__method__, separator, limit, chomp) { |line| lines << line }
+      lines
+    end
+
     private
+
+    # Yields each line, see #gets. Raises ArgumentError for a limit of 0, like IO, since every line would be empty, so
+    # that the end of the data would never be reached.
+    def read_lines(method, separator, limit, chomp)
+      raise(ArgumentError, "invalid limit: 0 for #{method}") if (separator.is_a?(Integer) ? separator : limit)&.zero?
+
+      while (line = gets(separator, limit, chomp: chomp))
+        yield(line)
+      end
+    end
 
     # Returns [String] the bytes up to and including the next separator, or up to the limit, or the rest of the data,
     # or nil at its end, see #gets.
