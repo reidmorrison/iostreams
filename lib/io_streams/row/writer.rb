@@ -16,36 +16,14 @@ module IOStreams
     # read from another file can be written as they are, see `IOStreams::Schema::Columns#match_written`. Unless the file
     # has no header row, such as JSON or a schema with `header: false`, whose rows are the values of the fields, in
     # order.
-    class Writer < IOStreams::Writer
-      # Returns [Array<Symbol>] the options that this writer accepts, see .stream: its own, and those of the
-      # `IOStreams::Tabular` that writes the rows, other than the file name, which it supplies.
+    #
+    # `IOStreams::Stream#writer(:array)` creates it with the tabular of the stream.
+    class Writer
+      # Returns [Array<Symbol>] the options of each call that writes rows, see `IOStreams::Stream#writer`, which raises
+      # for any other: those of the lines that it writes, see `IOStreams::Line::Writer.option_names`, and those of the
+      # `IOStreams::Tabular` that renders them, see `IOStreams::Tabular.write_option_names`.
       def self.option_names
-        [:original_file_name, *(IOStreams::Tabular.write_option_names - %i[file_name])]
-      end
-
-      # Write a record from an Array at a time to a stream.
-      #
-      # Note:
-      # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
-      #
-      # Parameters
-      #   original_file_name: [String]
-      #     The file name from which to infer the format, see `IOStreams::Tabular.new`.
-      #
-      #   For all other parameters, see `IOStreams::Tabular.new`.
-      def self.stream(line_writer, original_file_name: nil, **args)
-        # Pass-through if already a row writer
-        return yield(line_writer) if line_writer.is_a?(self)
-
-        yield new(line_writer, tabular: IOStreams::Tabular.new(file_name: original_file_name, **args))
-      end
-
-      # When writing to a file also add the line writer stream. See `.stream` for the parameters.
-      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
-        tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
-        IOStreams::Line::Writer.file(file_name, delimiter: delimiter) do |io|
-          yield new(io, tabular: tabular)
-        end
+        [*IOStreams::Line::Writer.option_names, *IOStreams::Tabular.write_option_names]
       end
 
       # Create a writer that takes individual rows as arrays.

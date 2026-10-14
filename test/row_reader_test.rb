@@ -16,7 +16,7 @@ class RowReaderTest < Minitest::Test
     describe "#each" do
       it "file" do
         rows  = []
-        count = IOStreams::Row::Reader.file(file_name) do |io|
+        count = IOStreams.path(file_name).reader(:array) do |io|
           io.each { |row| rows << row }
         end
 
@@ -26,8 +26,8 @@ class RowReaderTest < Minitest::Test
 
       it "stream" do
         rows  = []
-        count = IOStreams::Line::Reader.file(file_name) do |file|
-          IOStreams::Row::Reader.stream(file) do |io|
+        count = File.open(file_name) do |file|
+          IOStreams.stream(file).reader(:array) do |io|
             io.each { |row| rows << row }
           end
         end
@@ -36,24 +36,10 @@ class RowReaderTest < Minitest::Test
         assert_equal expected.size, count
       end
 
-      it "yields a row reader that it is given as it is" do
-        rows = []
-        IOStreams::Line::Reader.stream(StringIO.new("name,zip\nJack,12345\n")) do |file|
-          IOStreams::Row::Reader.stream(file) do |io|
-            IOStreams::Row::Reader.stream(io) do |inner|
-              assert_same io, inner
-              inner.each { |row| rows << row }
-            end
-          end
-        end
-
-        assert_equal [%w[name zip], %w[Jack 12345]], rows
-      end
-
       it "keeps newlines within quoted values when reading a file" do
         embedded_file_name = File.join(File.dirname(__FILE__), "files", "embedded_lines_test.csv")
         rows               = []
-        IOStreams::Row::Reader.file(embedded_file_name) { |io| io.each { |row| rows << row } }
+        IOStreams.path(embedded_file_name).each(:array) { |row| rows << row }
 
         assert_equal CSV.read(embedded_file_name), rows
       end
@@ -73,9 +59,7 @@ class RowReaderTest < Minitest::Test
 
       def read_rows(**args)
         rows = []
-        IOStreams::Line::Reader.stream(StringIO.new(csv)) do |file|
-          IOStreams::Row::Reader.stream(file, **args) { |io| io.each { |row| rows << row } }
-        end
+        IOStreams.stream(StringIO.new(csv)).each(:array, **args) { |row| rows << row }
         rows
       end
 

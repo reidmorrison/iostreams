@@ -8,8 +8,8 @@ module IOStreams
     # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
     COPY_MODES = %i[line array hash].freeze
 
-    # The settings of rows and records that describe the file, so that they are set on the path, rather than supplied
-    # to each call of a reader or writer, with an example of setting each one.
+    # An example of setting each of the settings of rows and records that describe the file on the path, rather than
+    # supplying it to each call of a reader or writer, which raises, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`.
     PATH_SETTINGS = {
       format:             "path.format(:json).each(:hash)",
       default_format:     "path.format(:json).each(:hash)",
@@ -278,7 +278,9 @@ module IOStreams
     #   Supplying `embedded_within` in the `:array` and `:hash` modes is deprecated, since the format splits their
     #   lines: set the format with #format instead.
     # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
-    #   ArgumentError when they are supplied to a call, see PATH_SETTINGS.
+    #   ArgumentError when they are supplied to a call, see PATH_SETTINGS. So does any other option that the mode does
+    #   not take, before the file is opened, see `IOStreams::Line::Reader.option_names`,
+    #   `IOStreams::Row::Reader.option_names` and `IOStreams::Record::Reader.option_names`.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -411,6 +413,7 @@ module IOStreams
           reject_read_options!(
             args, "but a copy uses its options to write the target", suggest_schema: %i[array hash].include?(mode)
           )
+          reject_unknown_options!(mode, mode_writer(mode), args)
           stream.reader(mode) do |rows|
             writer(mode, **args) { |target| rows.copy_to(target) }
           end
@@ -677,15 +680,38 @@ module IOStreams
       file_name_or_io.is_a?(Stream) ? file_name_or_io : IOStreams.new(file_name_or_io)
     end
 
-    # Raises ArgumentError for a setting that describes the file, see PATH_SETTINGS, since it is set on the path.
+    # Raises ArgumentError for a setting that describes the file, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`, since it
+    # is set on the path, with an example of setting it there, see PATH_SETTINGS.
     def reject_path_settings!(options)
-      names = PATH_SETTINGS.keys & options.keys
+      names = IOStreams::Tabular::FORMAT_OPTION_NAMES & options.keys
       return if names.empty?
 
       messages = names.map do |name|
-        "#{name.inspect} cannot be supplied to each call, set it on the path instead, for example: #{PATH_SETTINGS[name]}"
+        "#{name.inspect} cannot be supplied to each call, set it on the path instead, for example: #{PATH_SETTINGS.fetch(name)}"
       end
       raise(ArgumentError, messages.join(". "))
+    end
+
+    # Options are strict: raise rather than ignore an option of a call in the mode that its reader or writer, the
+    # supplied class, does not take, see the `option_names` of `IOStreams::Row::Reader` and the others, before anything
+    # is opened. A setting that describes the file raises first, see #reject_path_settings!, with an example of setting
+    # it on the path.
+    def reject_unknown_options!(mode, klass, options)
+      reject_path_settings!(options)
+      unknown = options.keys - klass.option_names
+      return if unknown.empty?
+
+      raise(ArgumentError, "Unknown #{unknown.size == 1 ? 'option' : 'options'} #{unknown.map(&:inspect).join(', ')} for " \
+                           "the #{mode.inspect} mode. Valid options: #{klass.option_names.map(&:inspect).join(', ')}.")
+    end
+
+    # Returns [Class] the writer of the mode, whose `option_names` are the options of each call that writes in it.
+    def mode_writer(mode)
+      case mode
+      when :line then IOStreams::Line::Writer
+      when :array then IOStreams::Row::Writer
+      when :hash then IOStreams::Record::Writer
+      end
     end
 
     # Raises ArgumentError for an option that only applies when reading, see .read_option_names, since writing would
@@ -754,7 +780,7 @@ module IOStreams
     # The lines are read in the encoding of the format, set with #format or detected from the file name, see
     # `IOStreams::Tabular#encoding`, unless an encoding is set on the encode stream.
     def line_reader(embedded_within: :auto, **args, &)
-      reject_path_settings!(args)
+      reject_unknown_options!(:line, IOStreams::Line::Reader, args)
       format = rows_format
       reject_unlined_format!(format)
       # `:auto` uses the quote character of the format, set with #format or detected from the file name,
@@ -781,6 +807,7 @@ module IOStreams
     # The other options, such as `cleanse_header:` and `columns:`, are those of the tabular that reads the rows, see
     # `IOStreams::Tabular.new`.
     def row_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
+      reject_unknown_options!(:array, IOStreams::Row::Reader, args)
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
         yield IOStreams::Row::Reader.new(io, tabular: tabular)
@@ -791,6 +818,7 @@ module IOStreams
     #
     # The lines are split where the format that parses them expects, see #row_reader.
     def record_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
+      reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular)
@@ -855,11 +883,11 @@ module IOStreams
                            ":hash mode, or its bytes with the :stream mode")
     end
 
-    # Returns [IOStreams::Tabular] that reads or writes the rows of this stream with the options of the call, as its
-    # tabular settings describe them, see `IOStreams::Tabular::Settings#tabular`.
-    def tabular(**args)
-      reject_path_settings!(args)
-      tabular_settings.tabular(file_name: file_name, text_format: builder.text_format, **args)
+    # Returns [IOStreams::Tabular] that reads or writes the rows of this stream with the options of the call, which have
+    # been checked, see #reject_unknown_options!, as its tabular settings describe them, see
+    # `IOStreams::Tabular::Settings#tabular`.
+    def tabular(**)
+      tabular_settings.tabular(file_name: file_name, text_format: builder.text_format, **)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.
@@ -884,8 +912,8 @@ module IOStreams
 
     # The lines are written in the encoding of the format, see #line_reader.
     def line_writer(**args, &block)
-      reject_path_settings!(args)
       reject_read_options!(args, "not when writing", suggest_schema: false)
+      reject_unknown_options!(:line, IOStreams::Line::Writer, args)
       return block.call(io_stream) if open_writer_supplied?(IOStreams::Line::Writer, args)
 
       format = rows_format
@@ -929,6 +957,7 @@ module IOStreams
     # finishes once the block returns, see `IOStreams::Row::Writer#finish`.
     def row_writer(delimiter: nil, **args, &block)
       reject_read_options!(args, "not when writing")
+      reject_unknown_options!(:array, IOStreams::Row::Writer, args)
       return block.call(io_stream) if open_writer_supplied?(IOStreams::Row::Writer, {delimiter: delimiter, **args})
 
       tabular = tabular(**args)
@@ -941,6 +970,7 @@ module IOStreams
     # The delimiter is the default of the line writer unless it is supplied, see #open_rows_writer.
     def record_writer(delimiter: nil, **args, &block)
       reject_read_options!(args, "not when writing")
+      reject_unknown_options!(:hash, IOStreams::Record::Writer, args)
       return block.call(io_stream) if open_writer_supplied?(IOStreams::Record::Writer, {delimiter: delimiter, **args})
 
       tabular = tabular(**args)

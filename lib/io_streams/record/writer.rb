@@ -7,55 +7,16 @@ module IOStreams
     #     stream << {name: 'Jack', address: 'Somewhere', zipcode: 12345}
     #     stream << {name: 'Joe', address: 'Lost', zipcode: 32443, age: 23}
     #   end
-    class Writer < IOStreams::Writer
-      # Returns [Array<Symbol>] the options that this writer accepts, see .stream: its own, and those of the
-      # `IOStreams::Tabular` that writes the records, other than the file name, which it supplies.
+    #
+    # `IOStreams::Stream#writer(:hash)` creates it with the tabular of the stream, whose options are documented with
+    # `IOStreams::Tabular.new`. The options that restrict the columns read, `allowed_columns`, `required_columns` and
+    # `skip_unknown`, only apply when reading, so `IOStreams::Stream#writer` raises ArgumentError for them.
+    class Writer
+      # Returns [Array<Symbol>] the options of each call that writes records, see `IOStreams::Stream#writer`, which raises
+      # for any other: those of the lines that it writes, see `IOStreams::Line::Writer.option_names`, and those of the
+      # `IOStreams::Tabular` that renders them, see `IOStreams::Tabular.write_option_names`.
       def self.option_names
-        [:original_file_name, *(IOStreams::Tabular.write_option_names - %i[file_name])]
-      end
-
-      # Write a record as a Hash at a time to a stream.
-      # Note:
-      # - The supplied stream _must_ already be a line stream, or a stream that responds to :<<
-      #
-      # Parameters
-      #   original_file_name: [String]
-      #     When `:format` is not supplied the file name can be used to infer the required format.
-      #     Optional. Default: nil
-      #
-      #   format: [Symbol]
-      #     :csv, :hash, :array, :json, :psv, :fixed or :parquet, see `IOStreams::Tabular.new`.
-      #
-      #   schema: [IOStreams::Schema]
-      #     The fields of the file and the type of each one, see `IOStreams::Tabular.new`. The `:fixed` format needs it
-      #     for the position of each field. With a schema, `columns` raises ArgumentError, since the schema describes the
-      #     columns of the file.
-      #
-      #   format_options: [Hash]
-      #     Deprecated, use `schema:`, see `IOStreams::Tabular.new`.
-      #
-      #   columns [Array<String|Symbol>]
-      #     Deprecated: the fields of a schema are the columns, see `schema:`.
-      #     The header columns when the file does not include a header row.
-      #     Note:
-      #       Column names are converted to strings.
-      #
-      # The options that restrict the columns read, `allowed_columns`, `required_columns` and `skip_unknown`, only apply
-      # when reading, so they are not options of this writer, see .option_names, and `IOStreams::Stream#writer` raises
-      # ArgumentError for them.
-      def self.stream(line_writer, original_file_name: nil, **args)
-        # Pass-through if already a record writer
-        return yield(line_writer) if line_writer.is_a?(self)
-
-        yield new(line_writer, tabular: IOStreams::Tabular.new(file_name: original_file_name, **args))
-      end
-
-      # When writing to a file also add the line writer stream. See `.stream` for the parameters.
-      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
-        tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
-        IOStreams::Line::Writer.file(file_name, delimiter: delimiter) do |io|
-          yield new(io, tabular: tabular)
-        end
+        [*IOStreams::Line::Writer.option_names, *IOStreams::Tabular.write_option_names]
       end
 
       # Create a writer that takes individual records as hashes.

@@ -26,7 +26,7 @@ class RecordReaderTest < Minitest::Test
     describe "#each" do
       it "csv file" do
         records = []
-        IOStreams::Record::Reader.file(file_name, cleanse_header: false) do |io|
+        IOStreams.path(file_name).reader(:hash, cleanse_header: false) do |io|
           io.each { |row| records << row }
         end
 
@@ -35,7 +35,7 @@ class RecordReaderTest < Minitest::Test
 
       it "json file" do
         records = []
-        IOStreams::Record::Reader.file(json_file_name, cleanse_header: false, format: :json) do |input|
+        IOStreams.path(json_file_name).format(:json).reader(:hash, cleanse_header: false) do |input|
           input.each { |row| records << row }
         end
 
@@ -44,8 +44,8 @@ class RecordReaderTest < Minitest::Test
 
       it "stream" do
         rows = []
-        IOStreams::Line::Reader.file(file_name) do |file|
-          IOStreams::Record::Reader.stream(file, cleanse_header: false) do |io|
+        File.open(file_name) do |file|
+          IOStreams.stream(file).reader(:hash, cleanse_header: false) do |io|
             io.each { |row| rows << row }
           end
         end
@@ -53,24 +53,10 @@ class RecordReaderTest < Minitest::Test
         assert_equal expected, rows
       end
 
-      it "yields a record reader that it is given as it is" do
-        records = []
-        IOStreams::Line::Reader.stream(StringIO.new("name\nJack\n")) do |file|
-          IOStreams::Record::Reader.stream(file) do |io|
-            IOStreams::Record::Reader.stream(io) do |inner|
-              assert_same io, inner
-              inner.each { |record| records << record }
-            end
-          end
-        end
-
-        assert_equal [{"name" => "Jack"}], records
-      end
-
       it "keeps newlines within quoted values when reading a file" do
         embedded_file_name = File.join(File.dirname(__FILE__), "files", "embedded_lines_test.csv")
         records            = []
-        IOStreams::Record::Reader.file(embedded_file_name, cleanse_header: false) { |io| io.each { |row| records << row } }
+        IOStreams.path(embedded_file_name).each(:hash, cleanse_header: false) { |row| records << row }
 
         header, *rows = CSV.read(embedded_file_name)
 
@@ -79,9 +65,9 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "allowed_columns" do
-      def read(input, **args)
+      def read(input, format: nil, **args)
         records = []
-        IOStreams::Record::Reader.stream(StringIO.new(input), **args) { |io| io.each { |record| records << record } }
+        IOStreams.stream(StringIO.new(input)).format(format).each(:hash, **args) { |record| records << record }
         records
       end
 
@@ -150,9 +136,9 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "allowed_columns when enforce_column_restrictions is false" do
-      def read(input, **args)
+      def read(input, format: nil, **args)
         records = []
-        IOStreams::Record::Reader.stream(StringIO.new(input), **args) { |io| io.each { |record| records << record } }
+        IOStreams.stream(StringIO.new(input)).format(format).each(:hash, **args) { |record| records << record }
         records
       end
 
@@ -231,7 +217,7 @@ class RecordReaderTest < Minitest::Test
 
     describe "#collect" do
       it "json file" do
-        records = IOStreams::Record::Reader.file(json_file_name, format: :json) do |input|
+        records = IOStreams.path(json_file_name).reader(:hash) do |input|
           input.collect { |record| record["state"] }
         end
 

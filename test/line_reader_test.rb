@@ -292,18 +292,6 @@ class LineReaderTest < Minitest::Test
         end
       end
 
-      it "yields a line reader that it is given as it is" do
-        lines = []
-        IOStreams::Line::Reader.stream(StringIO.new("first\nsecond\n")) do |io|
-          IOStreams::Line::Reader.stream(io) do |inner|
-            assert_same io, inner
-            inner.each { |line| lines << line }
-          end
-        end
-
-        assert_equal %w[first second], lines
-      end
-
       it "is Enumerable, as a reader of records is" do
         lines = IOStreams.stream(StringIO.new("first\nsecond\nthird\n")).reader(:line) { |io| io.collect(&:upcase) }
 

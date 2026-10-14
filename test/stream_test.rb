@@ -2030,11 +2030,11 @@ class StreamTest < Minitest::Test
           assert_equal [record], rows
         end
 
-        it "raise an unknown option as an unknown keyword" do
+        it "raise an unknown option as an option that the mode does not take" do
           stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
 
           error = assert_raises(ArgumentError) { stream.each(:hash, delimitr: "\n") { |row| row } }
-          assert_equal "unknown keyword: :delimitr", error.message
+          assert_match(/\AUnknown option :delimitr for the :hash mode\. Valid options: :delimiter,/, error.message)
         end
 
         it "raise for cleanse_header with a schema, whose fields name the keys of the records" do

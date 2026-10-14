@@ -2,39 +2,16 @@
 
 module IOStreams
   module Row
-    # Converts each line of an input stream into an array for every line
-    class Reader < IOStreams::Reader
+    # Converts each line of an input stream into an array for every line, for `IOStreams::Stream#each(:array)` and
+    # `#reader(:array)`, which create it with the tabular of the stream.
+    class Reader
       include Enumerable
 
-      # Returns [Array<Symbol>] the options that this reader accepts, see .stream: its own, and those of the
-      # `IOStreams::Tabular` that reads the rows, other than the file name, which it supplies.
+      # Returns [Array<Symbol>] the options of each call that reads rows, see `IOStreams::Stream#reader`, which raises
+      # for any other: those of the lines that it reads, see `IOStreams::Line::Reader.option_names`, and those of the
+      # `IOStreams::Tabular` that parses them, see `IOStreams::Tabular.read_option_names`.
       def self.option_names
-        [:original_file_name, *(IOStreams::Tabular.read_option_names - %i[file_name])]
-      end
-
-      # Read a line as an Array at a time from a stream.
-      # Note:
-      # - The supplied stream _must_ already be a line stream, or a stream that responds to :each
-      #
-      # Parameters
-      #   original_file_name: [String]
-      #     The file name from which to infer the format, see `IOStreams::Tabular.new`.
-      #
-      #   For all other parameters, see `IOStreams::Tabular.new`, such as `cleanse_header:`.
-      def self.stream(line_reader, original_file_name: nil, **args)
-        # Pass-through if already a row reader
-        return yield(line_reader) if line_reader.is_a?(self)
-
-        yield new(line_reader, tabular: IOStreams::Tabular.new(file_name: original_file_name, **args))
-      end
-
-      # When reading from a file also add the line reader stream, which splits the lines where the format expects,
-      # such as within a quoted CSV value. See `.stream` for the parameters.
-      def self.file(file_name, original_file_name: file_name, delimiter: $/, **args)
-        tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
-        IOStreams::Line::Reader.file(file_name, delimiter: delimiter, embedded_within: tabular.quote_character) do |io|
-          yield new(io, tabular: tabular)
-        end
+        [*IOStreams::Line::Reader.option_names, *IOStreams::Tabular.read_option_names]
       end
 
       # Create a reader that returns the stream rows as arrays.

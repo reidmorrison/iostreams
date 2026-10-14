@@ -5,7 +5,8 @@ module IOStreams
     class Writer < IOStreams::Writer
       attr_reader :delimiter
 
-      # Returns [Array<Symbol>] the options that the writer accepts, see #initialize.
+      # Returns [Array<Symbol>] the options that the writer accepts, see #initialize, which are the options of each call
+      # that writes lines, see `IOStreams::Stream#writer`, which raises for any other.
       def self.option_names
         %i[delimiter]
       end

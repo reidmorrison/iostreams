@@ -46,7 +46,7 @@ class RecordWriterTest < Minitest::Test
     describe "#<<" do
       it "file" do
         result =
-          IOStreams::Record::Writer.file(file_name) do |io|
+          IOStreams.path(file_name).writer(:hash) do |io|
             inputs.each { |hash| io << hash }
             53_534
           end
@@ -59,7 +59,7 @@ class RecordWriterTest < Minitest::Test
 
       it "json file" do
         result =
-          IOStreams::Record::Writer.file(file_name, file_name: "abc.json") do |io|
+          IOStreams.path(file_name).format(:json).writer(:hash) do |io|
             inputs.each { |hash| io << hash }
             53_534
           end
@@ -74,25 +74,21 @@ class RecordWriterTest < Minitest::Test
       it "stream" do
         io_string = StringIO.new
         result    =
-          IOStreams::Line::Writer.stream(io_string) do |io|
-            IOStreams::Record::Writer.stream(io) do |stream|
-              inputs.each { |row| stream << row }
-              53_534
-            end
+          IOStreams.stream(io_string).writer(:hash) do |stream|
+            inputs.each { |row| stream << row }
+            53_534
           end
 
         assert_equal 53_534, result
         assert_equal raw_csv_data, io_string.string
       end
 
-      it "yields a record writer that it is given as it is" do
+      it "writes records into a record writer supplied to IOStreams.stream, rather than through another one" do
         io_string = StringIO.new
-        IOStreams::Line::Writer.stream(io_string) do |io|
-          IOStreams::Record::Writer.stream(io) do |records|
-            IOStreams::Record::Writer.stream(records) do |inner|
-              assert_same records, inner
-              inner << {"name" => "Jack"}
-            end
+        IOStreams.stream(io_string).writer(:hash) do |records|
+          IOStreams.stream(records).writer(:hash) do |inner|
+            assert_same records, inner
+            inner << {"name" => "Jack"}
           end
         end
 
@@ -101,11 +97,9 @@ class RecordWriterTest < Minitest::Test
 
       it "returns the record writer so that calls can be chained" do
         io_string = StringIO.new
-        IOStreams::Line::Writer.stream(io_string) do |io|
-          IOStreams::Record::Writer.stream(io) do |stream|
-            assert_same stream, stream << {"name" => "Jack"}
-            stream << {"name" => "Jill"} << {"name" => "Joe"}
-          end
+        IOStreams.stream(io_string).writer(:hash) do |stream|
+          assert_same stream, stream << {"name" => "Jack"}
+          stream << {"name" => "Jill"} << {"name" => "Joe"}
         end
 
         assert_equal "name\nJack\nJill\nJoe\n", io_string.string

@@ -15,17 +15,15 @@ module IOStreams
 
       LINEFEED_REGEXP = /\r\n|\n|\r/
 
-      # Returns [Array<Symbol>] the options that the reader accepts, see #initialize.
+      # Returns [Array<Symbol>] the options that the reader accepts, see #initialize, which are the options of each call
+      # that reads lines, see `IOStreams::Stream#reader`, which raises for any other.
       def self.option_names
         %i[delimiter buffer_size embedded_within]
       end
 
       # Read a line at a time from a stream
-      def self.stream(input_stream, **args)
-        # Pass-through if already a line reader
-        return yield(input_stream) if input_stream.is_a?(self)
-
-        yield new(input_stream, **args)
+      def self.stream(input_stream, **)
+        yield new(input_stream, **)
       end
 
       # Create a delimited stream reader from the supplied input stream.

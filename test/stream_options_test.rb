@@ -108,7 +108,44 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
+    describe "an option that the mode does not take" do
+      it "raises before the file is opened, naming the mode and its options" do
+        missing = path("missing.csv")
+
+        error = assert_raises(ArgumentError) { missing.each(:hash, original_file_name: "a.json") { |row| row } }
+        assert_equal "Unknown option :original_file_name for the :hash mode. Valid options: :delimiter, :buffer_size, " \
+                     ":embedded_within, :cleanse_header, :columns, :allowed_columns, :required_columns, :skip_unknown.",
+                     error.message
+        error = assert_raises(ArgumentError) { missing.each(:line, cleanse_header: false, bogus: 1) { |line| line } }
+        assert_equal "Unknown options :cleanse_header, :bogus for the :line mode. Valid options: :delimiter, :buffer_size, " \
+                     ":embedded_within.", error.message
+        error = assert_raises(ArgumentError) { missing.reader(:array, bogus: 1) { |rows| rows } }
+        assert_match(/\AUnknown option :bogus for the :array mode\. Valid options: :delimiter,/, error.message)
+      end
+
+      it "raises before the file is opened when writing, so that an existing file is kept" do
+        path("a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:line, bogus: 1) { |io| io << "x" } }
+        assert_equal "Unknown option :bogus for the :line mode. Valid options: :delimiter.", error.message
+        %i[array hash].each do |mode|
+          error = assert_raises(ArgumentError) { path("a.csv").writer(mode, bogus: 1) { |io| io } }
+          assert_equal "Unknown option :bogus for the #{mode.inspect} mode. Valid options: :delimiter, :columns.", error.message
+        end
+        assert_equal data, path("a.csv").read
+      end
+
+      it "raises when copying, before the source is opened" do
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("missing.csv"), mode: :hash, bogus: 1) }
+        assert_equal "Unknown option :bogus for the :hash mode. Valid options: :delimiter, :columns.", error.message
+      end
+    end
+
     describe "settings that describe the file" do
+      it "gives an example of setting each one on the path" do
+        assert_equal IOStreams::Tabular::FORMAT_OPTION_NAMES.sort, IOStreams::Stream::PATH_SETTINGS.keys.sort
+      end
+
       it "raises for them for each call, since they are set on the path" do
         path("a.csv").write(data)
 
@@ -423,25 +460,27 @@ class StreamOptionsTest < Minitest::Test
         assert_equal keywords(IOStreams::Line::Writer.instance_method(:initialize)).sort, IOStreams::Line::Writer.option_names.sort
       end
 
-      it "matches the keyword arguments of the tabular and its header" do
-        tabular = keywords(IOStreams::Tabular.instance_method(:initialize))
-        header  = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
-
-        assert_equal (tabular + header).sort, IOStreams::Tabular.read_option_names.sort
+      it "matches the keyword arguments of the tabular and its header, with the settings that describe the file" do
+        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize))
+        header    = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
         read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
 
-        assert_equal (tabular + header - read_only).sort, IOStreams::Tabular.write_option_names.sort
+        assert_equal (tabular + header).sort, (IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular.read_option_names).sort
+        assert_equal (tabular + header - read_only).sort, (IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular.write_option_names).sort
       end
 
-      it "matches the keyword arguments of the readers and writers of rows and records, with those of the tabular they pass the others to" do
+      it "are the options of each call of the mode, which the stream takes for the lines, and passes on to the tabular" do
+        file      = IOStreams::Tabular::FORMAT_OPTION_NAMES
+        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize)) + keywords(IOStreams::Tabular::Header.instance_method(:initialize)) - file
+        read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
+
         {
-          IOStreams::Row::Reader    => IOStreams::Tabular.read_option_names,
-          IOStreams::Record::Reader => IOStreams::Tabular.read_option_names,
-          IOStreams::Row::Writer    => IOStreams::Tabular.write_option_names,
-          IOStreams::Record::Writer => IOStreams::Tabular.write_option_names
-        }.each_pair do |klass, tabular|
-          # The reader or writer supplies the file name of the tabular, from its own `original_file_name`.
-          assert_equal (keywords(klass.method(:stream)) + tabular - %i[file_name]).sort, klass.option_names.sort, klass.name
+          IOStreams::Row::Reader    => [:row_reader, tabular],
+          IOStreams::Record::Reader => [:record_reader, tabular],
+          IOStreams::Row::Writer    => [:row_writer, tabular - read_only],
+          IOStreams::Record::Writer => [:record_writer, tabular - read_only]
+        }.each_pair do |klass, (method, options)|
+          assert_equal (keywords(IOStreams::Stream.instance_method(method)) + options).sort, klass.option_names.sort, klass.name
         end
       end
 

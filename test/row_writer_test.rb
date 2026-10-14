@@ -29,10 +29,10 @@ class RowWriterTest < Minitest::Test
       temp_file.delete
     end
 
-    describe ".stream" do
+    describe "#<<" do
       it "file" do
         result =
-          IOStreams::Row::Writer.file(file_name) do |io|
+          IOStreams.path(file_name).writer(:array) do |io|
             csv_rows.each { |array| io << array }
             53_534
           end
@@ -46,40 +46,32 @@ class RowWriterTest < Minitest::Test
       it "streams" do
         io_string = StringIO.new
         result    =
-          IOStreams::Line::Writer.stream(io_string) do |io|
-            IOStreams::Row::Writer.stream(io) do |stream|
-              csv_rows.each { |array| stream << array }
-              53_534
-            end
+          IOStreams.stream(io_string).writer(:array) do |stream|
+            csv_rows.each { |array| stream << array }
+            53_534
           end
 
         assert_equal 53_534, result
         assert_equal raw_csv_data, io_string.string
       end
 
-      it "yields a row writer that it is given as it is" do
+      it "writes rows into a row writer supplied to IOStreams.stream, rather than through another one" do
         io_string = StringIO.new
-        IOStreams::Line::Writer.stream(io_string) do |io|
-          IOStreams::Row::Writer.stream(io) do |rows|
-            IOStreams::Row::Writer.stream(rows) do |inner|
-              assert_same rows, inner
-              inner << %w[name zip]
-            end
+        IOStreams.stream(io_string).writer(:array) do |rows|
+          IOStreams.stream(rows).writer(:array) do |inner|
+            assert_same rows, inner
+            inner << %w[name zip]
           end
         end
 
         assert_equal "name,zip\n", io_string.string
       end
-    end
 
-    describe "#<<" do
       it "returns the row writer so that calls can be chained" do
         io_string = StringIO.new
-        IOStreams::Line::Writer.stream(io_string) do |io|
-          IOStreams::Row::Writer.stream(io) do |stream|
-            assert_same stream, stream << %w[name zip]
-            stream << %w[name zip] << %w[Jack 12345]
-          end
+        IOStreams.stream(io_string).writer(:array) do |stream|
+          assert_same stream, stream << %w[name zip]
+          stream << %w[name zip] << %w[Jack 12345]
         end
 
         assert_equal "name,zip\nname,zip\nJack,12345\n", io_string.string

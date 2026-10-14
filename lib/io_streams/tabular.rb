@@ -50,22 +50,26 @@ module IOStreams
     # the header row without a schema. Distinct from nil, which does not cleanse it, as before.
     CLEANSE_BY_DEFAULT = :default
 
-    # The options of #initialize that describe the format of the file, which reading and writing both accept.
+    # The options of #initialize that describe the format of the file, which reading and writing both accept. They are
+    # set on the path, see `IOStreams::Tabular::Settings`, so that a call to read or write the rows cannot supply them,
+    # see `IOStreams::Stream::PATH_SETTINGS`.
     FORMAT_OPTION_NAMES = %i[format file_name schema format_options default_format row_format_options].freeze
 
     # The options of #initialize that only apply when reading: whether to cleanse the header row read, see #read_header.
     READ_OPTION_NAMES = %i[cleanse_header].freeze
 
-    # Returns [Array<Symbol>] the options of a Tabular that reads rows or records, see #initialize: those of the format
-    # of the file, its own that only apply when reading, and those of its header, see `IOStreams::Tabular::Header`.
+    # Returns [Array<Symbol>] the options of #initialize that a call to read rows or records supplies, see
+    # `IOStreams::Row::Reader.option_names`: those that only apply when reading, and those of the header, see
+    # `IOStreams::Tabular::Header`, but not those that describe the format of the file, see FORMAT_OPTION_NAMES.
     def self.read_option_names
-      [*FORMAT_OPTION_NAMES, *READ_OPTION_NAMES, *Header::OPTION_NAMES]
+      [*READ_OPTION_NAMES, *Header::OPTION_NAMES]
     end
 
-    # Returns [Array<Symbol>] the options of a Tabular that writes rows or records: all but those that only apply when
-    # reading, its own, and the restrictions of the columns read, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`.
+    # Returns [Array<Symbol>] the options of #initialize that a call to write rows or records supplies, see
+    # `IOStreams::Row::Writer.option_names`: those of the header, other than the restrictions of the columns read, see
+    # `IOStreams::Tabular::Header::READ_OPTION_NAMES`.
     def self.write_option_names
-      [*FORMAT_OPTION_NAMES, *(Header::OPTION_NAMES - Header::READ_OPTION_NAMES)]
+      Header::OPTION_NAMES - Header::READ_OPTION_NAMES
     end
 
     # Parse a delimited data source.
