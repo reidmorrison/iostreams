@@ -123,6 +123,23 @@ class ParquetTest < Minitest::Test
       assert_equal [["Jack", 1], [nil, 2]], rows
     end
 
+    it "reads the rows of a file without a schema after a header row of its columns" do
+      write
+      rows = []
+      path.each(:array) { |row| rows << row }
+
+      assert_equal [expected.first.keys, *expected.map(&:values)], rows
+      assert path.reader(:array, &:header?)
+    end
+
+    it "copies the rows of a file without a schema into a CSV file, with its columns as the header row" do
+      write
+      path("people.csv").copy_from(path, mode: :array)
+
+      assert_equal "id,name,amount,ratio,born,at,active\n1,Jack,12.35,0.5,2000-02-29,2026-10-13T00:30:00Z,true\n2,,,,,,\n",
+                   File.read(File.join(dir, "people.csv"))
+    end
+
     it "copies its rows into a CSV file, with a header row of the names of the fields" do
       write
       subset = {fieldsMatch: "subset", fields: [{name: "name", type: "string"}, {name: "id", type: "integer"}]}

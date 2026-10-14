@@ -111,6 +111,33 @@ module Tabular
           assert_equal [1, 2], values.render({"b" => 2, "A" => 1})
         end
 
+        it "reads the rows of a format of keyed records by the keys of its first record, which are its header row" do
+          json = mapping(:json)
+
+          assert_predicate json, :rows_header?
+          refute_predicate json, :header?
+          assert_raises(IOStreams::Errors::MissingHeader) { json.row_parse(%({"b":2})) }
+          assert_nil json.read_header("{}")
+          assert_equal %w[b a], json.read_header(%({"b":2,"a":1}))
+          refute_predicate json, :rows_header?
+          assert_equal [2, 1], json.row_parse(%({"a":1,"b":2}))
+          assert_equal [nil, 3], json.row_parse(%({"a":3}))
+          assert_equal [5, 4], json.row_parse([5, 4])
+          assert_nil json.headerless_columns
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { json.row_parse(%({"a":1,"c":3})) }
+          assert_match(/: the key "c" is not one of them\./, error.message)
+        end
+
+        it "reads the rows of a format of keyed records by the columns supplied, as they are supplied, whatever the restrictions make of them" do
+          json = mapping(:json, columns: %w[Name age], allowed_columns: %w[name])
+          json.restrict_columns
+
+          refute_predicate json, :rows_header?
+          assert_equal %w[name __rejected__age], json.header.columns
+          assert_equal ["Jack", 21], json.row_parse(%({"name":"Jack","age":21,"x":1}))
+          assert_equal({"name" => "Jack"}, json.record_parse(["Jack", 21]))
+        end
+
         it "takes the columns of the rows written after a header row from it, for a format without one" do
           json = mapping(:json)
 

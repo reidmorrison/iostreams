@@ -697,6 +697,30 @@ class TabularTest < Minitest::Test
           assert_equal %w[Name Secret], tabular.header.columns
         end
 
+        it "takes a row of the keys of a format of keyed records as they are, which name the values of the rows after it, as Rocket Job does" do
+          uploader = IOStreams::Tabular.new(format: :json)
+
+          assert_equal %w[Name zip], uploader.read_header(%w[Name zip])
+          assert_equal %w[Name zip], uploader.header.columns
+          refute_predicate uploader, :rows_header?
+          assert_equal ["Jack", nil], uploader.row_parse(%({"Name":"Jack"}))
+
+          worker = IOStreams::Tabular.new(format: :json, columns: uploader.header.columns)
+
+          assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.record_parse(%w[Jack 12345]))
+          assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.read_record(%w[Jack 12345], rename: true))
+        end
+
+        it "cleanses and restricts the keys of a format of keyed records only when the columns are restricted, as for its records" do
+          restricted = IOStreams::Tabular.new(format: :json, allowed_columns: %w[name])
+
+          assert_equal %w[Name zip], restricted.read_header(%w[Name zip])
+          assert_equal %w[name __rejected__zip], restricted.header.columns
+          assert_equal({"name" => "Jack"}, restricted.record_parse(%w[Jack 12345]))
+          assert_equal %w[Name], IOStreams::Tabular.new(format: :json, allowed_columns: %w[Name], cleanse_header: false).read_header(%w[Name])
+          assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams::Tabular.new(format: :json, required_columns: %w[age]).read_header(%w[Name]) }
+        end
+
         it "returns nil for a blank line, so that the header is still to be read" do
           tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
 
@@ -803,6 +827,25 @@ class TabularTest < Minitest::Test
           tabular = IOStreams::Tabular.new(format: :csv, columns: %w[name code])
 
           assert_equal [%w[Name Code]], rows(tabular, "Name,Code")
+        end
+
+        it "yields the keys of the first record of a format of keyed records as the header row, before its row" do
+          tabular = IOStreams::Tabular.new(format: :json)
+
+          assert_predicate tabular, :rows_header?
+          refute_predicate tabular, :header?
+          assert_equal [nil], rows(tabular, "null")
+          assert_predicate tabular, :rows_header?
+          assert_equal [%w[name age], ["Jack", 21]], rows(tabular, %({"name":"Jack","age":21}))
+          refute_predicate tabular, :rows_header?
+          assert_equal [["Jill", nil]], rows(tabular, %({"name":"Jill"}))
+        end
+
+        it "yields no header row for a format of keyed records whose columns are supplied" do
+          tabular = IOStreams::Tabular.new(format: :json, columns: %w[age name])
+
+          refute_predicate tabular, :rows_header?
+          assert_equal [[21, "Jack"]], rows(tabular, %({"name":"Jack","age":21}))
         end
       end
 

@@ -350,7 +350,6 @@ class StreamTest < Minitest::Test
         end
 
         it "detects format from file_name" do
-          skip "TODO: Support reading json files as arrays"
           output           = []
           stream.file_name = source_file_name
           stream.each(:array) { |record| output << record }
@@ -359,7 +358,6 @@ class StreamTest < Minitest::Test
         end
 
         it "honors format" do
-          skip "TODO: Support reading json files as arrays"
           output           = []
           stream.file_name = "blah"
           stream.format    = :json
@@ -2972,6 +2970,33 @@ class StreamTest < Minitest::Test
         target_path.copy_from(source, mode: :hash)
 
         assert_equal "name\nJack\nJill\n", target_path.read
+      ensure
+        source&.delete
+      end
+
+      it "copies the rows of JSON, whose first row is the header row of the keys of its first record" do
+        source = IOStreams.join("copy_test", "source.json")
+        source.write(%({"name":"Jack","zip":12345}\n{"zip":null,"name":"Jill"}\n))
+        target_path.copy_from(source, mode: :array)
+
+        assert_equal "name,zip\nJack,12345\nJill,\n", target_path.read
+
+        copy = IOStreams.join("copy_test", "copy.json")
+        copy.copy_from(source, mode: :array)
+
+        assert_equal %({"name":"Jack","zip":12345}\n{"name":"Jill","zip":null}\n), copy.read
+      ensure
+        source&.delete
+        copy&.delete
+      end
+
+      it "leaves no target when a copy of rows fails part way, such as for a JSON record with a key that the first one does not have" do
+        source = IOStreams.join("copy_test", "source.json")
+        source.write(%({"name":"Jack"}\n{"name":"Jill","zip":12345}\n))
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { target_path.copy_from(source, mode: :array) }
+        assert_match(/: the key "zip" is not one of them\./, error.message)
+        refute_predicate target_path, :exist?
       ensure
         source&.delete
       end

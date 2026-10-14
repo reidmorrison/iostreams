@@ -35,14 +35,18 @@ module IOStreams
         @tabular.restrict_columns
       end
 
-      # Returns [true|false] whether the first row that #each yields is the header row of the file, which names the
-      # column of each value of the rows after it, so that a copy can write it as a header row, see
-      # `IOStreams::Row::Writer#write_header`. Asked before #each.
+      # Returns [true|false] whether the first row that #each yields is a header row, which names the column of each
+      # value of the rows after it, so that a copy can write it as a header row, see `IOStreams::Row::Writer#write_header`:
+      # the header row of the file, or the keys of the first record of a format of keyed records, such as JSON, without a
+      # schema, see `IOStreams::Tabular#rows_header?`. Asked before #each.
       def header?
-        @tabular.header?
+        @tabular.rows_header?
       end
 
-      # Yields the header row as it was read, followed by each row.
+      # Yields the header row as it was read, followed by each row, an Array, whatever the format. A file without a
+      # header row, such as fixed width, or JSON with a schema, yields no header row: each row is the values of the
+      # fields of the schema, or of the layout, in order. The header row of JSON without a schema is the keys of its first
+      # record, and each row the values of a record in that order, see `IOStreams::Tabular#read_row`.
       #
       # The allowed and required columns are applied to the header row, or to the supplied columns,
       # even when `cleanse_header` is false, unless `IOStreams.enforce_column_restrictions?` is false.

@@ -45,6 +45,55 @@ class RowReaderTest < Minitest::Test
       end
     end
 
+    describe "#header?" do
+      it "is true when the first row is the header row of the file, or the keys of the first record of JSON without a schema" do
+        assert IOStreams.stream(StringIO.new("name\nJack\n")).reader(:array, &:header?)
+        assert IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).reader(:array, &:header?)
+        refute IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).schema(fields: [{name: "name"}]).reader(:array, &:header?)
+        refute IOStreams.stream(StringIO.new("Jack\n")).schema(header: false, fields: [{name: "name"}]).reader(:array, &:header?)
+        refute(assert_deprecated(/describe the columns of the file with #schema instead/) do
+          IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).reader(:array, columns: %w[name], &:header?)
+        end)
+      end
+    end
+
+    describe "the rows of JSON without a schema" do
+      # Returns [Array] the rows read from the JSON text.
+      def read_json(json, **)
+        rows = []
+        IOStreams.stream(StringIO.new(json)).format(:json).each(:array, **) { |row| rows << row }
+        rows
+      end
+
+      it "start with a header row of the keys of the first record, then hold the values of each record in that order" do
+        json = %({"name":"Jack","tags":["a"],"address":{"zip":"12345"}}\n{"address":null,"tags":[],"name":"Jill"}\n)
+
+        assert_equal [%w[name tags address], ["Jack", ["a"], {"zip" => "12345"}], ["Jill", [], nil]], read_json(json)
+      end
+
+      it "hold nil for a key that a record does not have" do
+        assert_equal [%w[name age], ["Jack", 21], ["Jill", nil]], read_json(%({"name":"Jack","age":21}\n{"name":"Jill"}\n))
+      end
+
+      it "are nil for a blank line, a line of null, or a record without keys, which do not give the columns" do
+        assert_equal [nil, nil, nil, %w[a], [1], nil], read_json(%(\nnull\n{}\n{"a":1}\n{}\n))
+      end
+
+      it "raise for a record with a key that the first record does not have, since no row has a column for it" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { read_json(%({"name":"Jack"}\n{"name":"Jill","age":22,"zip":1}\n)) }
+        assert_equal "The keys of a record do not match the columns of the rows, which are the keys of the first record: the " \
+                     'keys "age" and "zip" are not among them. Read the records with each(:hash), or describe the columns with a ' \
+                     'schema whose fields are every key, with fieldsMatch "superset" when a record can leave out a key',
+                     error.message
+      end
+
+      it "raise for a line that is not an object" do
+        ["[1,2]", "5", %("x"), "true"].each do |line|
+          assert_raises(IOStreams::Errors::TypeMismatch, line) { read_json(%({"a":1}\n#{line}\n)) }
+        end
+      end
+    end
+
     describe "#collect" do
       it "is Enumerable, as a reader of records is" do
         csv = "name,zip\nJack,12345\nJill,23456\n"
@@ -95,6 +144,27 @@ class RowReaderTest < Minitest::Test
         rows = read_rows(allowed_columns: ["name"])
 
         assert_equal [%w[Name Secret], %w[Jack x]], rows
+      end
+
+      # Returns [Array] the rows read from the JSON text.
+      def read_json_rows(json, **args)
+        rows = []
+        IOStreams.stream(StringIO.new(json)).format(:json).each(:array, **args) { |row| rows << row }
+        rows
+      end
+
+      it "applies them to the keys of the first record of JSON, which the header row holds as they are, as each row holds every value" do
+        json = %({"Name":"Jack","Secret":"x"}\n)
+
+        assert_equal [%w[Name Secret], %w[Jack x]], read_json_rows(json, allowed_columns: ["name"])
+        assert_equal [%w[Name Secret], %w[Jack x]], read_json_rows(json, required_columns: ["Name"], cleanse_header: false)
+        assert_raises(IOStreams::Errors::InvalidHeader) { read_json_rows(json, allowed_columns: ["name"], skip_unknown: false) }
+        assert_raises(IOStreams::Errors::InvalidHeader) { read_json_rows(json, required_columns: ["missing"]) }
+      end
+
+      it "reads the values of the columns supplied from the keys of JSON, or the keys that are the same once cleansed, without a header row" do
+        assert_equal [%w[Jack x]], read_json_rows(%({"name":"Jack","Secret":"x","admin":true}\n), columns: %w[Name secret])
+        assert_equal [["Jack", nil]], read_json_rows(%({"name":"Jack"}\n), columns: %w[name secret], allowed_columns: %w[name])
       end
 
       describe "when enforce_column_restrictions is false" do

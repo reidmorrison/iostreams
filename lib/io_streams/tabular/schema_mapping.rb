@@ -54,6 +54,13 @@ module IOStreams
         @requires_header && !@columns.matched?
       end
 
+      # Returns [true|false] whether the rows read start with a header row, see `IOStreams::Tabular#rows_header?`: the
+      # header row of a file with one, until it is read, see #header?, since the fields are the columns of the rows of a
+      # file without one.
+      def rows_header?
+        header?
+      end
+
       # Returns [true] the keys of the records read are the names of the fields, see `IOStreams::Tabular#field_names?`.
       def field_names?
         true

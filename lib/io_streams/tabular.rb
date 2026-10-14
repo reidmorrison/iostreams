@@ -185,6 +185,14 @@ module IOStreams
       @mapping.header?
     end
 
+    # Returns [true|false] whether the rows read start with a header row, which names the column of each value of the
+    # rows after it, see #read_row: the header row of a file with one, until it is read, see #header?, or for a format of
+    # keyed records, such as JSON, without a schema or the columns supplied, the keys of its first record, until they are
+    # read, since the columns of its rows are not known until then.
+    def rows_header?
+      @mapping.rows_header?
+    end
+
     # Returns [Array<String|Symbol>] the columns of the rows that #row_parse returns of a file without a header row,
     # so that a copy can give them to the target, see `IOStreams::Row::Reader#copy_to`: the names of the fields of a
     # schema, see `IOStreams::Schema#header?`, or the keys of the layout of a fixed width file.
@@ -355,12 +363,20 @@ module IOStreams
     # others, hands each line or value to these, which decide whether it is the header row, as the mapping of the
     # columns answers, see `IOStreams::Tabular::Mapping`, so that the reader or writer only iterates.
 
-    # Yields [Array|nil] what the line of a file of rows holds: the header row, while it is expected, see #header?,
-    # which it reads, see #read_header, otherwise the row, see #row_parse, or nil for a blank line.
+    # Yields [Array|nil] each row of the line of a file of rows: the header row, while it is expected, see #header?,
+    # which it reads, see #read_header, otherwise the row, see #row_parse, or nil for a blank line. The first record of a
+    # format of keyed records whose columns are not known, see #rows_header?, such as JSON without a schema, yields its
+    # keys as the header row before its row, since they name the column of each value of the rows.
     #
     # Returns the result of the block.
     def read_row(line)
-      yield(@mapping.header? ? @mapping.read_header(line) : @mapping.row_parse(line))
+      return yield(@mapping.read_header(line)) if @mapping.header?
+
+      if @mapping.rows_header?
+        columns = @mapping.read_header(line)
+        yield columns if columns
+      end
+      yield @mapping.row_parse(line)
     end
 
     # Yields [Hash|nil] the record of the line of a file of records, see #read_record, or nil for a blank line, unless
