@@ -4,6 +4,8 @@ module IOStreams
   module Row
     # Converts each line of an input stream into an array for every line
     class Reader < IOStreams::Reader
+      include Enumerable
+
       # Returns [Array<Symbol>] the options that this reader accepts, see .stream: its own, and those of the
       # `IOStreams::Tabular` that reads the rows, other than the file name, which it supplies.
       def self.option_names

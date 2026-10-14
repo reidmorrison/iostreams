@@ -288,6 +288,13 @@ class LineReaderTest < Minitest::Test
         assert_equal %w[first second], lines
       end
 
+      it "is Enumerable, as a reader of records is" do
+        lines = IOStreams.stream(StringIO.new("first\nsecond\nthird\n")).reader(:line) { |io| io.collect(&:upcase) }
+
+        assert_equal %w[FIRST SECOND THIRD], lines
+        assert_equal %w[first second], IOStreams.stream(StringIO.new("first\nsecond\nthird\n")).reader(:line) { |io| io.first(2) }
+      end
+
       it "returns UTF-8 lines when characters and the delimiter are split across blocks" do
         data  = "Jos\u00e9\r\nZ\u00fcrich\r\n\u{1F600}"
         lines = []

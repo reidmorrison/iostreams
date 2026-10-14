@@ -59,6 +59,15 @@ class RowReaderTest < Minitest::Test
       end
     end
 
+    describe "#collect" do
+      it "is Enumerable, as a reader of records is" do
+        csv = "name,zip\nJack,12345\nJill,23456\n"
+
+        assert_equal %w[name Jack Jill], IOStreams.stream(StringIO.new(csv)).reader(:array) { |io| io.collect(&:first) }
+        assert_equal [%w[name zip], %w[Jack 12345]], IOStreams.stream(StringIO.new(csv)).reader(:array) { |io| io.first(2) }
+      end
+    end
+
     describe "allowed and required columns" do
       let(:csv) { "Name,Secret\nJack,x\n" }
 

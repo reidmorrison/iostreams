@@ -3,6 +3,8 @@
 module IOStreams
   module Line
     class Reader < IOStreams::Reader
+      include Enumerable
+
       attr_reader :delimiter, :buffer_size, :line_number
 
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` bytes are read.
