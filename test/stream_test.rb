@@ -1581,6 +1581,30 @@ class StreamTest < Minitest::Test
 
         let(:line) { "Jack  xx12345-0012.50   " }
 
+        it "writes a number that is not finite with spaces, rather than zeros, so that it can be read back" do
+          written = write_fixed({"pay" => "NaN"}, {"pay" => "INF"}, {"pay" => "-INF"}, schema: {fields: [{name: "pay", type: "number", width: 8}]})
+
+          assert_equal "     NaN\n     INF\n    -INF\n", written
+          pays = read_fixed(written, schema: {fields: [{name: "pay", type: "number", width: 8}]}).map { |record| record["pay"] }
+
+          assert_predicate pays[0], :nan?
+          assert_equal [BigDecimal("Infinity"), BigDecimal("-Infinity")], pays[1..]
+        end
+
+        it "reads back a number that is not finite from the layout of the deprecated format options" do
+          layout = {layout: [{size: 8, key: :pay, type: :float, decimals: 2}]}
+          out    = StringIO.new
+          IOStreams::Stream.new(out).format(:fixed).format_options(layout).writer(:hash) do |io|
+            [Float::NAN, -Float::INFINITY, -1.5].each { |pay| io << {pay: pay} }
+          end
+          pays = []
+          IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout).each(:hash) { |record| pays << record[:pay] }
+
+          assert_equal "     NaN\n    -INF\n-0001.50\n", out.string
+          assert_predicate pays[0], :nan?
+          assert_equal [-Float::INFINITY, -1.5], pays[1..]
+        end
+
         # Returns [Array<Hash>] the records read from the text, as a fixed width file.
         def read_fixed(text, schema: fixed)
           records = []

@@ -428,10 +428,12 @@ module IOStreams
         end
       end
 
+      # A Rational is divided, so that a decimal that ends keeps every digit, such as `1234567890123456789/100r`.
       def cast_number(value)
         return parse_number(value) if value.is_a?(String)
-        return invalid(value) unless value.is_a?(Integer) || value.is_a?(Float) || bigdecimal?(value)
+        return invalid(value) unless value.is_a?(Integer) || value.is_a?(Float) || value.is_a?(Rational) || bigdecimal?(value)
         return value.to_f if @float
+        return BigDecimal(value.numerator) / value.denominator if value.is_a?(Rational)
 
         bigdecimal?(value) ? value : BigDecimal(value.to_s)
       end

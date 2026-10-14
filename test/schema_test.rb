@@ -491,6 +491,14 @@ class SchemaTest < Minitest::Test
           assert_equal BigDecimal("1.1"), number.cast(1.1)
         end
 
+        it "converts a Rational, keeping every digit of a decimal that ends" do
+          assert_equal BigDecimal("12345678901234567.89"), number.cast(1_234_567_890_123_456_789/100r)
+          assert_equal BigDecimal("-0.875"), number.cast(-7/8r)
+          assert_in_delta 0.333333, number.cast(1/3r), 1e-6
+          assert_in_delta 0.25, field(type: "number", floatNumber: true).cast(1/4r)
+          assert_equal "0.33", field(type: "number", decimals: 2).render(1/3r, :text)
+        end
+
         it "raises for a value that is not a number" do
           ["abc", "1,5", "1.2.3", "$5"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { number.cast(text) }

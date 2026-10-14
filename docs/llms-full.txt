@@ -2875,7 +2875,7 @@ file, the deprecated options of each call that describe them without a schema, s
 |------|---------|------------|
 | `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042` | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` | ISO 8601, or text in its `format` |
@@ -3107,7 +3107,8 @@ its field. The keys of each record are the names of the fields as they are given
 Symbol returns a Symbol key.
 
 When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
-specifications of most fixed width files require. Any other value is left justified and space filled, with each line
+specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
+filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
 break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
 filler, are spaces. The keys of the records written may be strings or symbols.
 

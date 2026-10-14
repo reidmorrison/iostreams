@@ -10,11 +10,13 @@ module IOStreams
       # which the schema then converts to the type of its field.
       #
       # When writing, a number is right justified and zero filled, and a missing number is written as zero, as most
-      # specifications of fixed width files require. Any other value is left justified and space filled, with each
+      # specifications of fixed width files require, except a number that is not finite, such as NaN, which is space
+      # filled, so that it can be read back. Any other value is left justified and space filled, with each
       # line break replaced with a space, so that a value cannot add records. The characters that no field covers,
       # such as fillers, are spaces.
       class Fixed < Base
         LINE_BREAK = /\r\n|\r|\n/
+        DIGIT      = /\d/
 
         # Where a field is in each line: the offset of its first character, and its width, or -1 for the remainder of
         # the line.
@@ -214,7 +216,10 @@ module IOStreams
           return text if column.width == -1
 
           padded =
-            if text.start_with?("-")
+            # A number that is not finite, such as NaN or -INF, has no digits to zero fill, so that it can be read back.
+            if !DIGIT.match?(text)
+              text.rjust(column.width)
+            elsif text.start_with?("-")
               "-#{text.delete_prefix('-').rjust(column.width - 1, '0')}"
             else
               text.rjust(column.width, "0")
