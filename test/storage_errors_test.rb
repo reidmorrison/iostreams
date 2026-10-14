@@ -45,6 +45,55 @@ class StorageErrorsTest < Minitest::Test
     def entries(_name) = [Entry.new("a.csv", Attributes.new(false))]
   end
 
+  describe IOStreams::Errors::Unavailable do
+    describe ".unknown_host?" do
+      it "is true for a host name that does not resolve" do
+        skip_without_resolution_error
+
+        assert IOStreams::Errors::Unavailable.unknown_host?(resolution_error(Socket::EAI_NONAME))
+      end
+
+      it "is false for a temporary failure of name resolution, such as a DNS outage" do
+        skip_without_resolution_error
+
+        refute IOStreams::Errors::Unavailable.unknown_host?(resolution_error(Socket::EAI_AGAIN))
+      end
+
+      it "is false for a SocketError that is not a failure of name resolution, as on Ruby 3.2" do
+        refute IOStreams::Errors::Unavailable.unknown_host?(SocketError.new("getaddrinfo: nodename nor servname provided"))
+      end
+
+      it "is false for any other exception, or nil" do
+        refute IOStreams::Errors::Unavailable.unknown_host?(Errno::ECONNREFUSED.new)
+        refute IOStreams::Errors::Unavailable.unknown_host?(nil)
+      end
+    end
+
+    describe ".network_error?" do
+      it "is true for an exception of a connection that failed" do
+        assert IOStreams::Errors::Unavailable.network_error?(Errno::ECONNREFUSED.new)
+        assert IOStreams::Errors::Unavailable.network_error?(SocketError.new("getaddrinfo: Temporary failure"))
+      end
+
+      it "is true for an exception of the protocol of a path that it is also supplied" do
+        refute IOStreams::Errors::Unavailable.network_error?(EOFError.new)
+        assert IOStreams::Errors::Unavailable.network_error?(EOFError.new, also: [EOFError])
+      end
+
+      it "is false for a host name that does not resolve, since the same request cannot succeed later" do
+        skip_without_resolution_error
+
+        refute IOStreams::Errors::Unavailable.network_error?(resolution_error(Socket::EAI_NONAME))
+        assert IOStreams::Errors::Unavailable.network_error?(resolution_error(Socket::EAI_AGAIN))
+      end
+
+      it "is false for any other exception" do
+        refute IOStreams::Errors::Unavailable.network_error?(Errno::ENOENT.new)
+        refute IOStreams::Errors::Unavailable.network_error?(ArgumentError.new)
+      end
+    end
+  end
+
   describe IOStreams::Errors::StorageError do
     let(:not_found) { IOStreams::Errors::NotFound }
 
@@ -400,6 +449,16 @@ class StorageErrorsTest < Minitest::Test
         path = IOStreams.path("http://127.0.0.1:#{port}/a.csv")
 
         assert_unavailable(Errno::ECONNREFUSED, path) { path.read }
+      end
+
+      it "raises Unavailable for HTTP when the connection times out or closes" do
+        path = IOStreams.path("http://example.org/a.csv")
+
+        [Net::OpenTimeout, Net::ReadTimeout, EOFError, Errno::EPIPE].each do |error_class|
+          Net::HTTP.stub(:start, ->(*) { raise error_class }) do
+            assert_unavailable(error_class, path) { path.read }
+          end
+        end
       end
     end
 

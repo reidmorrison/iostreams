@@ -246,8 +246,37 @@ module IOStreams
 
     # The storage could not be reached, or could not handle the request at the time, so that the same request can
     # succeed when it is made again later.
+    #
+    # It also decides which exceptions of a connection to a server mean that, see .network_error?, which each path asks.
     module Unavailable
       include StorageError
+
+      # The exceptions that a connection raises when the server cannot be reached, or the connection to it fails.
+      CONNECTION_ERRORS = [
+        SocketError, Errno::ECONNABORTED, Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH,
+        Errno::ENETUNREACH, Errno::ETIMEDOUT
+      ].freeze
+
+      # Returns [true|false] whether the exception, raised by a connection to a server, means that the server could not
+      # be reached, or that the connection to it failed, so that the same request can succeed later: it is one of
+      # CONNECTION_ERRORS, or of the supplied classes that the protocol of a path also raises for a connection that
+      # fails, such as a read timeout, but not a host name that does not resolve, see .unknown_host?.
+      def self.network_error?(exception, also: [])
+        return false if unknown_host?(exception)
+
+        [*CONNECTION_ERRORS, *also].any? { |error_class| exception.is_a?(error_class) }
+      end
+
+      # Returns [true|false] whether the exception is a failure to look up a host name that does not resolve, such as a
+      # mistyped host, so that the same request cannot succeed later. A temporary failure of name resolution
+      # (`Socket::EAI_AGAIN`), which is how a DNS outage, or a network without DNS, is reported on Linux, is not.
+      #
+      # Ruby 3.2 does not have `Socket::ResolutionError`, so its `SocketError` is never an unknown host.
+      def self.unknown_host?(exception)
+        return false unless defined?(::Socket::ResolutionError) && exception.is_a?(::Socket::ResolutionError)
+
+        exception.error_code != ::Socket::EAI_AGAIN
+      end
     end
   end
 end

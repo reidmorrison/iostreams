@@ -43,17 +43,6 @@ module IOStreams
       end
     end
 
-    # Returns [true|false] whether the exception is a failure to look up a host name that does not resolve, such as a
-    # mistyped host, so that the same request cannot succeed later. A temporary failure of name resolution
-    # (`Socket::EAI_AGAIN`), which is how a DNS outage, or a network without DNS, is reported on Linux, is not.
-    #
-    # Ruby 3.2 does not have `Socket::ResolutionError`, so its `SocketError` is never an unknown host.
-    def self.unknown_host?(exception)
-      return false unless defined?(::Socket::ResolutionError) && exception.is_a?(::Socket::ResolutionError)
-
-      exception.error_code != ::Socket::EAI_AGAIN
-    end
-
     def self.redact_hash(options, sensitive)
       options.to_h { |name, value| [name, redact_option(name, value, sensitive)] }
     end

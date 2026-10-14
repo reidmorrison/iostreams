@@ -21,20 +21,14 @@ module IOStreams
           Net::HTTPGatewayTimeout              => Errors::Unavailable
         }.freeze
 
-        # The exceptions that a request raises when the server cannot be reached, or the connection to it fails.
-        NETWORK_ERRORS = [
-          EOFError, SocketError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, Errno::ECONNABORTED,
-          Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::EPIPE, Errno::ETIMEDOUT
-        ].freeze
+        # The exceptions that Net::HTTP raises when the connection to the server fails, besides those of every
+        # connection, see `IOStreams::Errors::Unavailable::CONNECTION_ERRORS`.
+        CONNECTION_ERRORS = [EOFError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, Errno::EPIPE].freeze
 
         # Returns [Module] the kind of failure that an exception raised by a request means, or nil when it is none of
-        # them.
-        #
-        # A host that does not resolve is not unavailable, since the same request cannot succeed later.
+        # them, see `IOStreams::Errors::Unavailable.network_error?`.
         def self.kind(exception)
-          return if Utils.unknown_host?(exception)
-
-          Errors::Unavailable if NETWORK_ERRORS.any? { |error_class| exception.is_a?(error_class) }
+          Errors::Unavailable if Errors::Unavailable.network_error?(exception, also: CONNECTION_ERRORS)
         end
 
         # Returns [Module] the kind of failure that the unsuccessful response means, or nil when it is none of them.
