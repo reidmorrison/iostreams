@@ -84,7 +84,7 @@ class TestHTTPServer
   # With `chunked: true` the body is sent in chunks, without a Content-Length, as a server sends a body that it
   # compresses while it sends it.
   def self.response(status, body: "", headers: {}, chunked: false)
-    reason = {200 => "OK", 201 => "Created", 204 => "No Content", 301 => "Moved Permanently", 302 => "Found",
+    reason = {200 => "OK", 201 => "Created", 204 => "No Content", 206 => "Partial Content", 301 => "Moved Permanently", 302 => "Found",
               307 => "Temporary Redirect", 308 => "Permanent Redirect", 401 => "Unauthorized",
               404 => "Not Found", 405 => "Method Not Allowed", 410 => "Gone", 500 => "Internal Server Error"}[status]
     length = chunked ? {"Transfer-Encoding" => "chunked"} : {"Content-Length" => body.bytesize.to_s}

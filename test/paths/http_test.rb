@@ -513,6 +513,20 @@ module Paths
             assert_equal ["identity"], accept_encodings
           end
 
+          it "asks for the file as it is stored with a Range supplied with headers:, since a range of a compressed body cannot be decompressed" do
+            start_server do |_path, request|
+              if request[:headers]["accept-encoding"].to_s.include?("gzip")
+                # As nginx does, which compresses the whole file, rather than sending the range.
+                TestHTTPServer.response(200, body: Zlib.gzip(csv), headers: {"Content-Encoding" => "gzip"})
+              else
+                TestHTTPServer.response(206, body: csv.byteslice(0, 4), headers: {"Content-Range" => "bytes 0-3/#{csv.bytesize}"})
+              end
+            end
+
+            assert_equal "a,b\n", IOStreams.path(data_url, headers: {"Range" => "bytes=0-3"}).read
+            assert_equal ["identity"], accept_encodings
+          end
+
           it "asks for gzip after a redirect to another host, and decompresses its response" do
             @other = TestHTTPServer.new do |_path|
               TestHTTPServer.response(200, body: gzipped, headers: {"Content-Encoding" => "gzip"})

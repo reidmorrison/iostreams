@@ -502,14 +502,16 @@ module IOStreams
       # Returns [true|false] whether a GET asks the server to compress the body while it sends it, which is then
       # decompressed as it is read, see `ContentCoding`: when this path reads its data through streams that neither
       # compress nor encrypt it, such as `data.csv`, a `.parquet` file, or a url without an extension, and `headers:`
-      # do not supply an Accept-Encoding.
+      # supply neither an Accept-Encoding nor a Range.
       #
       # A compressed or encrypted file, such as `data.csv.gz`, and a file read as it is stored, see #raw, are requested
       # as they are stored: their data does not compress further, a Content-Encoding that the server sends with them,
       # such as `gzip` for a `.gz` file, belongs to the file as it is stored, which their own streams decode, and a
-      # server that compresses every response would otherwise compress them again.
+      # server that compresses every response would otherwise compress them again. A range of a compressed body
+      # cannot be decompressed on its own, and a server can send the whole file compressed instead of the range, so a
+      # Range asks for the file as it is stored too, as Net::HTTP does.
       def compress_in_transit?
-        !raw? && !compressed? && !encrypted? && supplied_header("accept-encoding").nil?
+        !raw? && !compressed? && !encrypted? && supplied_header("accept-encoding").nil? && supplied_header("range").nil?
       end
 
       # Returns [String] the value of the header supplied with `headers:`, whatever the case of its name, or nil.
