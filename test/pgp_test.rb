@@ -736,6 +736,31 @@ class PgpTest < Minitest::Test
 
         assert_equal [{key_id: "C16500E3", private: true, name: "Jack Jones", email: "jack@example.org"}], keys
       end
+
+      it "returns the keys that it imported, and not those that were already in the keyring" do
+        output = <<~OUTPUT
+          gpg: key 4BA9B160FCD751E8: "Alice <alice@example.org>" not changed
+          gpg: key A72CF45C8951C8A7: public key "Carol <carol@example.org>" imported
+          gpg: Total number processed: 2
+          gpg:               imported: 1
+          gpg:              unchanged: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "A72CF45C8951C8A7", private: false, name: "Carol", email: "carol@example.org"}], keys
+      end
+
+      it "returns no keys when every key was already in the keyring" do
+        output = <<~OUTPUT
+          gpg: key 4BA9B160FCD751E8: "Alice <alice@example.org>" not changed
+          gpg: key A72CF45C8951C8A7: "Carol <carol@example.org>" not changed
+          gpg: Total number processed: 2
+          gpg:              unchanged: 2
+        OUTPUT
+
+        assert_empty(with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") })
+      end
     end
 
     describe ".import" do
@@ -783,6 +808,12 @@ class PgpTest < Minitest::Test
 
         it "imports private key" do
           assert_imported IOStreams::Pgp.import(key: @private_key), private: true
+        end
+
+        it "imports a key in a bundle with a key that was already in the keyring" do
+          known = IOStreams::Pgp.export(email: "sender@example.org")
+
+          assert_imported IOStreams::Pgp.import(key: known + @public_key), private: false
         end
       end
     end

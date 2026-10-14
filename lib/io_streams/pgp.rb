@@ -360,9 +360,6 @@ module IOStreams
       # For older versions, the output is in err, for newer ones it might be in out
       output = err.empty? ? out : err
 
-      # Check for duplicate keys or "not changed" messages
-      return [] if output =~ /already in secret keyring/i || output =~ /not changed/i
-
       # Check for successful import in output, even if status has warnings
       import_successful = status.success? || output =~ /imported:\s*\d+/i || output =~ /public key.*imported/i
 
@@ -389,14 +386,15 @@ module IOStreams
         #   gpg: Total number processed: 1
         #   gpg:              unchanged: 1
         #
-        # Check for unchanged message specifically
-        return [] if output =~ /unchanged: 1/i || output =~ /not changed/i
+        # A key that was already in the keyring is reported as "not changed", including when the same input has other
+        # keys, which are imported, so that only the lines of the other keys report imported keys.
+        lines = output.each_line.grep_v(/not changed\s*\z/i)
 
         # gpg reports the import of a secret key on a line of its own, before the line of its public key in versions
         # before 2.4, and after it from 2.4, so it is matched by its key id.
         secret_key_ids = output.scan(/key\s+([0-9A-F]+):\s+secret key imported/i).flatten
         results        = []
-        output.each_line do |line|
+        lines.each do |line|
           next unless (match = line.match(/key\s+([0-9A-F]+):\s+.*"([^"]*)"/i))
 
           key_id           = match[1].to_s.strip
@@ -407,21 +405,19 @@ module IOStreams
         # Return results if we found any
         return results unless results.empty?
 
-        # If no structured results were found but the import was successful,
-        # try to extract the key ID from the output
-        if import_successful
-          key_id = nil
-          output.each_line do |line|
-            if (match = line.match(/key\s+([0-9A-F]+):/i))
-              key_id = match[1].to_s.strip
-            end
+        # If no structured results were found, try to extract the key ID of a public key that gpg imported, such as
+        # `gpg: key 7932AB23D7238F6B: public key imported`.
+        key_id = nil
+        lines.each do |line|
+          if (match = line.match(/key\s+([0-9A-F]+):\s+public key\b.*\bimported/i))
+            key_id = match[1].to_s.strip
           end
-
-          return [{key_id: key_id, private: false, name: nil, email: nil}] if key_id
         end
+        return [{key_id: key_id, private: false, name: nil, email: nil}] if key_id
 
-        # Return empty array if we couldn't parse anything but the import was successful
-        return [] if import_successful
+        # Return empty array if we couldn't parse anything but the import was successful, such as when every key was
+        # already in the keyring.
+        return []
       end
 
       raise(Pgp::Failure, "GPG Failed importing key: #{err}#{out}")
