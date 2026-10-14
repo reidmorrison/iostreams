@@ -8,7 +8,7 @@ require "pathname"
 require "rbconfig"
 
 module IOStreams
-  class PathTest < Minitest::Test
+  class IOStreamsTest < Minitest::Test
     describe IOStreams do
       let :records do
         [
@@ -568,6 +568,11 @@ module IOStreams
           IOStreams.deregister_extension(:abc123)
 
           refute IOStreams.extensions.key?(:abc123)
+        end
+
+        it "returns nil for the built-in encode stream, which is not registered" do
+          assert_nil IOStreams.deregister_extension(:encode)
+          assert_equal({encode: {encoding: "BINARY"}}, IOStreams.stream(StringIO.new).encoding("BINARY").pipeline)
         end
 
         it "removes the extension whatever its case, and returns its format" do

@@ -2265,6 +2265,14 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "the deprecated option(:encode)" do
+      it "sets the encoding of a stream without a file name" do
+        io = StringIO.new("caf\xE9".b)
+
+        assert_equal "caf\u00e9", IOStreams.stream(io).option(:encode, encoding: "ISO-8859-1:UTF-8").read
+      end
+    end
+
     describe "#encoding without arguments" do
       it "returns the encoding that was set" do
         assert_nil IOStreams.path("a.csv").encoding

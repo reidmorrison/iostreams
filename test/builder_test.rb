@@ -110,66 +110,60 @@ class BuilderTest < Minitest::Test
 
       it "directly calls block for an empty stream" do
         string_io = StringIO.new
-        value     = nil
-        streams.stream(:none)
-        streams.reader(string_io) do |io|
-          assert_equal io, string_io
-          value = 32
+        value     = IOStreams::Builder.new.reader(string_io) do |io|
+          assert_same string_io, io
+          32
         end
 
         assert_equal 32, value
       end
 
-      it "returns the reader" do
-        string_io = StringIO.new(gzip_string)
-        streams.stream(:gz)
-
-        streams.reader(string_io) do |io|
-          assert_kind_of IOStreams::Gzip::Reader::Members, io, io
+      it "yields the reader of the stream" do
+        value = streams.stream(:gz).reader(StringIO.new(gzip_string)) do |io|
+          assert_kind_of IOStreams::Gzip::Reader::Members, io
+          io.read
         end
+
+        assert_equal "Hello World", value
       end
 
-      it "returns the last reader" do
-        string_io = StringIO.new(gzip_string)
-        streams.stream(:encode)
-        streams.stream(:gz)
-
-        streams.reader(string_io) do |io|
-          assert_kind_of IOStreams::Encode::Reader, io, io
+      it "yields the reader of the encode stream, which is closest to the application" do
+        value = streams.stream(:gz).encoding("UTF-8").reader(StringIO.new(gzip_string)) do |io|
+          assert_kind_of IOStreams::Encode::Reader, io
+          io.read
         end
+
+        assert_equal "Hello World", value
       end
     end
 
     describe "#writer" do
       it "directly calls block for an empty stream" do
         string_io = StringIO.new
-        value     = nil
-        streams.stream(:none)
-        streams.writer(string_io) do |io|
-          assert_equal io, string_io
-          value = 32
+        value     = IOStreams::Builder.new.writer(string_io) do |io|
+          assert_same string_io, io
+          32
         end
 
         assert_equal 32, value
       end
 
-      it "returns the reader" do
+      it "yields the writer of the stream" do
         string_io = StringIO.new
-        streams.stream(:zip)
+        streams.stream(:gz).writer(string_io) { |io| io.write("Hello World") }
 
-        streams.writer(string_io) do |io|
-          assert_kind_of ZipKit::Streamer::Writable, io, io
-        end
+        assert_equal "Hello World", Zlib.gunzip(string_io.string)
       end
 
-      it "returns the last reader" do
+      it "yields the writer of the encode stream, which is closest to the application" do
         string_io = StringIO.new
-        streams.stream(:encode)
-        streams.stream(:zip)
-
-        streams.writer(string_io) do |io|
-          assert_kind_of IOStreams::Encode::Writer, io, io
+        value     = streams.stream(:gz).encoding("UTF-8").writer(string_io) do |io|
+          assert_kind_of IOStreams::Encode::Writer, io
+          io.write("Hello World")
         end
+
+        assert_equal 11, value
+        assert_equal "Hello World", Zlib.gunzip(string_io.string)
       end
     end
 
@@ -243,60 +237,58 @@ class BuilderTest < Minitest::Test
       end
     end
 
-    describe "#stream_format" do
-      it "xlsx" do
-        assert_equal IOStreams::Xlsx, streams.send(:stream_format, :xlsx)
+    describe ".find_format" do
+      it "returns the format registered for the extension" do
+        assert_equal IOStreams::Xlsx, IOStreams::Builder.find_format(:xlsx)
+        assert_equal IOStreams::Gzip, IOStreams::Builder.find_format(:gzip)
       end
 
-      it "gzip" do
-        assert_equal IOStreams::Gzip, streams.send(:stream_format, :gzip)
+      it "returns the built-in encode stream" do
+        assert_equal IOStreams::Encode, IOStreams::Builder.find_format(:encode)
       end
 
-      it "encode, which is built in" do
-        assert_equal IOStreams::Encode, streams.send(:stream_format, :encode)
-      end
-
-      it "unknown" do
-        assert_raises ArgumentError do
-          streams.send(:stream_format, :unknown)
-        end
+      it "returns nil for a stream that is not registered, which #stream and #option raise for" do
+        assert_nil IOStreams::Builder.find_format(:unknown)
+        assert_raises(ArgumentError) { streams.stream(:unknown) }
+        assert_raises(ArgumentError) { streams.option(:unknown) }
       end
     end
 
-    describe "#parse_extensions" do
-      it "single stream" do
-        streams = IOStreams::Builder.new("my/path/abc.xlsx")
+    describe "the streams of the file name" do
+      def stream_names(file_name)
+        IOStreams::Builder.new(file_name).pipeline.keys
+      end
 
-        assert_equal %i[xlsx], streams.send(:parse_extensions)
+      it "single stream" do
+        assert_equal %i[xlsx], stream_names("my/path/abc.xlsx")
       end
 
       it "empty" do
-        streams = IOStreams::Builder.new("my/path/abc.csv")
-
-        assert_equal [], streams.send(:parse_extensions)
+        assert_equal [], stream_names("my/path/abc.csv")
       end
 
       it "handles multiple extensions" do
-        assert_equal %i[xlsx zip gz pgp], streams.send(:parse_extensions)
+        assert_equal %i[xlsx zip gz pgp], streams.pipeline.keys
       end
 
       it "ignores the name of the file" do
-        assert_equal [], IOStreams::Builder.new("my/path/gz").send(:parse_extensions)
-        assert_equal [], IOStreams::Builder.new("my/path.zip/abc").send(:parse_extensions)
-        assert_equal %i[gz], IOStreams::Builder.new("my/path/.zip.gz").send(:parse_extensions)
+        assert_equal [], stream_names("my/path/gz")
+        assert_equal [], stream_names("my/path.zip/abc")
+        assert_equal %i[gz], stream_names("my/path/.zip.gz")
       end
 
-      describe "case-insensitive" do
-        let(:file_name) { "a.XlsX.GzIp" }
+      it "is case-insensitive" do
+        assert_equal %i[xlsx gzip], stream_names("a.XlsX.GzIp")
+      end
 
-        it "is case-insensitive" do
-          assert_equal %i[xlsx gzip], streams.send(:parse_extensions)
-        end
+      it "are only the registered extensions at the end of the name" do
+        assert_equal [], stream_names("my/path/data.gz.csv")
+        assert_equal %i[gz], stream_names("my/path/data.csv.gz")
       end
 
       it "ignores a stream that file names do not name" do
-        assert_equal [], IOStreams::Builder.new("my/path/notes.encode").send(:parse_extensions)
-        assert_equal %i[gz], IOStreams::Builder.new("my/path/notes.encode.gz").send(:parse_extensions)
+        assert_equal [], stream_names("my/path/notes.encode")
+        assert_equal %i[gz], stream_names("my/path/notes.encode.gz")
       end
     end
 
@@ -321,14 +313,14 @@ class BuilderTest < Minitest::Test
         assert_equal expected, streams.pipeline
       end
 
-      it "file name with encode option" do
+      it "file name with the deprecated encode option" do
         expected = {encode: {encoding: "BINARY"}, xlsx: {}, zip: {}, gz: {}, pgp: {}}
         streams.option(:encode, encoding: "BINARY")
 
         assert_equal expected, streams.pipeline
       end
 
-      it "applies the encode option before the file name's streams, whatever order the options are set in" do
+      it "applies the deprecated encode option before the file name's streams, whatever order the options are set in" do
         streams.option(:pgp, passphrase: "unlock-me").option(:encode, encoding: "BINARY")
 
         expected = [[:encode, {encoding: "BINARY"}], [:xlsx, {}], [:zip, {}], [:gz, {}], [:pgp, {passphrase: "unlock-me"}]]
@@ -336,7 +328,7 @@ class BuilderTest < Minitest::Test
         assert_equal expected, streams.pipeline.to_a
       end
 
-      it "puts the encode stream first, whatever order the streams are set in" do
+      it "puts the deprecated encode stream first, whatever order the streams are set in" do
         streams.stream(:gz).stream(:encode, encoding: "UTF-8").stream(:pgp)
 
         assert_equal [[:encode, {encoding: "UTF-8"}], [:gz, {}], [:pgp, {}]], streams.pipeline.to_a
@@ -582,40 +574,28 @@ class BuilderTest < Minitest::Test
       end
     end
 
-    describe "#execute" do
-      it "directly calls block for an empty stream" do
+    describe "a pipeline of several streams" do
+      def write(builder)
         string_io = StringIO.new
-        value     = nil
-        streams.send(:execute, :writer, {}, string_io) do |io|
-          assert_equal io, string_io
-          value = 32
-        end
-
-        assert_equal 32, value
+        builder.writer(string_io) { |io| io.write("last") }
+        string_io.string
       end
 
-      it "calls last block in one element stream" do
-        pipeline  = {simple: {arg: "first"}}
-        string_io = StringIO.new
-        streams.send(:execute, :writer, pipeline, string_io) { |io| io.write("last") }
-
-        assert_equal "first>last", string_io.string
+      it "writes through one stream" do
+        assert_equal "first>last", write(IOStreams::Builder.new.stream(:simple, arg: "first"))
       end
 
-      it "chains blocks in 2 element stream" do
-        pipeline  = {simple: {arg: "first"}, simple2: {arg: "second"}}
-        string_io = StringIO.new
-        streams.send(:execute, :writer, pipeline, string_io) { |io| io.write("last") }
+      it "chains the streams, the first set being the one closest to the application" do
+        builder = IOStreams::Builder.new.stream(:simple, arg: "first").stream(:simple2, arg: "second")
 
-        assert_equal "second>first>last", string_io.string
+        assert_equal "second>first>last", write(builder)
       end
 
-      it "chains blocks in 3 element stream" do
-        pipeline  = {simple: {arg: "first"}, simple2: {arg: "second"}, simple3: {arg: "third"}}
-        string_io = StringIO.new
-        streams.send(:execute, :writer, pipeline, string_io) { |io| io.write("last") }
+      it "chains three streams" do
+        builder = IOStreams::Builder.new.stream(:simple, arg: "first").stream(:simple2, arg: "second").
+                  stream(:simple3, arg: "third")
 
-        assert_equal "third>second>first>last", string_io.string
+        assert_equal "third>second>first>last", write(builder)
       end
     end
   end

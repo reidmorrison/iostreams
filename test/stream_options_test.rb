@@ -239,8 +239,14 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "says when a stream accepts no options" do
-        error = assert_raises(ArgumentError) { path("a.csv.gz").option(:gz, levl: 1) }
-        assert_equal "Unknown option :levl for a :gz stream. Valid options: :level.", error.message
+        reader = Class.new(IOStreams::Reader) { def self.option_names = [] }
+        writer = Class.new(IOStreams::Writer) { def self.option_names = [] }
+        IOStreams.register_extension(:no_options, reader, writer)
+
+        error = assert_raises(ArgumentError) { path("a.csv.no_options").option(:no_options, levl: 1) }
+        assert_equal "Unknown option :levl for a :no_options stream. Valid options: none.", error.message
+      ensure
+        IOStreams.deregister_extension(:no_options)
       end
 
       it "does not change the options already set" do

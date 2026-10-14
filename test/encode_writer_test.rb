@@ -53,6 +53,8 @@ class EncodeWriterTest < Minitest::Test
         result = File.read(file_name, mode: "rb")
 
         assert_equal bad_data, result
+      ensure
+        temp_file&.close!
       end
 
       it "stream" do
