@@ -17,6 +17,7 @@ module IOStreams
 
       autoload :Directories, "io_streams/paths/s3/directories"
       autoload :Failure, "io_streams/paths/s3/failure"
+      autoload :Listing, "io_streams/paths/s3/listing"
       autoload :RangeReader, "io_streams/paths/s3/range_reader"
       autoload :Sdk, "io_streams/paths/s3/sdk"
       autoload :Uploader, "io_streams/paths/s3/uploader"
@@ -236,7 +237,7 @@ module IOStreams
       def delete_all
         authorize!
         delete if file_key?
-        each_page(directory_prefix) { |page| delete_keys(page.contents.map { |object| {key: object.key} }) }
+        listing.each_page(directory_prefix) { |page| delete_keys(page.contents.map { |object| {key: object.key} }) }
         self
       end
 
@@ -415,7 +416,8 @@ module IOStreams
       #
       # S3 has no directories, only keys that contain `/`. With `directories: true` the directories within the
       # keys are also returned, such as `a` and `a/b` for the key `a/b/c.csv`, along with any empty folder
-      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder.
+      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder,
+      # see `Listing#each`.
       #
       # Notes:
       # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
@@ -433,30 +435,15 @@ module IOStreams
         # When the pattern is an exact file name without any pattern characters
         if matcher.exact?
           Sdk.load
-          each_exact_child(child_path(bucket_name, key_within(prefix, matcher.pattern)), directories, &)
+          each_exact_child(child_path(key_within(prefix, matcher.pattern)), directories, &)
           return
         end
 
         # List within the key as a directory, so that a key such as "reports" does not also list "reports_2024.csv".
         prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
-        listed = Directories.new
-        each_object(prefix) do |name, object|
-          relative = object.key.delete_prefix(prefix)
-          if directories
-            listed.each_new(relative) do |directory|
-              next unless matcher.match?(directory)
-
-              child = child_path(name, "#{prefix}#{directory}")
-              yield(child, relative == "#{directory}/" ? object.to_h : {}) if allowed_child?(child)
-            end
-          end
-          next if object.key.end_with?("/")
-          next unless matcher.match?(relative)
-
-          child = child_path(name, object.key)
-          next unless allowed_child?(child)
-
-          yield(child, object.to_h)
+        listing.each(prefix, matcher, directories: directories) do |key, attributes|
+          child = child_path(key)
+          yield(child, attributes) if allowed_child?(child)
         end
         nil
       end
@@ -609,19 +596,9 @@ module IOStreams
         yield(child, attributes) if attributes
       end
 
-      # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
-      def each_object(prefix)
-        each_page(prefix) { |page| page.contents.each { |object| yield(page.name, object) } }
-      end
-
-      # Yields each page of upto 1,000 objects in the bucket whose keys start with the supplied prefix.
-      def each_page(prefix)
-        token = nil
-        loop do
-          page = request(:list_objects_v2, bucket: bucket_name, prefix: prefix, continuation_token: token)
-          yield(page)
-          break unless (token = page.next_continuation_token)
-        end
+      # Returns [Listing] the listing of the objects in the bucket, which makes each request of this path.
+      def listing
+        Listing.new(->(**params) { request(:list_objects_v2, bucket: bucket_name, **params) })
       end
 
       # Returns [String] the bucket and key, which is compared against the allowed paths.
@@ -648,7 +625,7 @@ module IOStreams
       #
       # The child uses this path's client and options, so that it has the same credentials, region
       # and request parameters, such as `request_payer` or an SSE-C key.
-      def child_path(bucket_name, key)
+      def child_path(key)
         child      = self.class.new("s3://#{bucket_name}", client: client, **options)
         child.path = key.dup.freeze
         child
