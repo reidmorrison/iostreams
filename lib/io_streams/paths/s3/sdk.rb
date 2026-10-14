@@ -82,6 +82,20 @@ module IOStreams
           end
         end
 
+        # Raises ArgumentError for an option that no S3 operation accepts, so that a misspelled option is reported.
+        # The options that S3 accepts come from the AWS SDK, so it is only loaded when options are supplied.
+        #
+        # Without the AWS SDK the options cannot be checked, but a path can still be displayed, for example by a
+        # process that only enqueues work. Every request needs the SDK, so the options are never used unchecked.
+        def self.check_options(names)
+          return if names.empty? || !available?
+
+          unknown = unknown_options(names)
+          return if unknown.empty?
+
+          raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
+        end
+
         # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts.
         def self.unknown_options(names)
           @known_options ||= OPERATIONS.flat_map { |operation| operation_options(operation) }.uniq.freeze

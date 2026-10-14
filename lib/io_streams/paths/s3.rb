@@ -15,6 +15,7 @@ module IOStreams
       # otherwise a single `put_object` request, like a smaller file.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
+      autoload :ClientCache, "io_streams/paths/s3/client_cache"
       autoload :Directories, "io_streams/paths/s3/directories"
       autoload :Failure, "io_streams/paths/s3/failure"
       autoload :Listing, "io_streams/paths/s3/listing"
@@ -191,21 +192,12 @@ module IOStreams
         key          = utf8_key(uri.path.delete_prefix("/"))
 
         # The client is created when first used, and is shared by copies of this path, such as from `#join`.
-        # It is held in a Hash so that it is also created when this path is frozen, for example a root path.
-        @client_cache = {}
-        if client && !client.is_a?(Hash)
-          validate_client_arguments!(region: region, access_key_id: access_key_id, secret_access_key: secret_access_key)
-          @client_cache[:client] = client
-        else
-          @client_options                     = client.is_a?(Hash) ? client.dup : {}
-          @client_options[:access_key_id]     = access_key_id if access_key_id
-          @client_options[:secret_access_key] = secret_access_key if secret_access_key
-          @client_options[:region]            = region if region
-        end
+        @client_cache = ClientCache.new(client, access_key_id: access_key_id, secret_access_key: secret_access_key,
+                                                region: region)
 
         @options = args
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
-        validate_options!
+        Sdk.check_options(options.keys)
 
         super(key)
       end
@@ -463,7 +455,7 @@ module IOStreams
       # for example from the EC2 instance metadata service.
       def client
         Sdk.load
-        @client_cache[:client] ||= ::Aws::S3::Client.new(@client_options)
+        @client_cache.client
       end
 
       protected
@@ -600,30 +592,6 @@ module IOStreams
             "it cannot have a user name or password. Supply the credentials with access_key_id: and secret_access_key:"
           end
         raise(Utils::URI.invalid("S3", url, problem)) if problem
-      end
-
-      # Raises ArgumentError for a region or credentials supplied with a client, which already has them, rather than
-      # ignore them.
-      def validate_client_arguments!(**arguments)
-        names = arguments.compact.keys.map { |name| "#{name}:" }.join(", ")
-        return if names.empty?
-
-        raise(ArgumentError, "#{names} cannot be supplied with an Aws::S3::Client as client:, which already has them. " \
-                             "Supply #{names} to Aws::S3::Client.new, or supply client: as a Hash of its options")
-      end
-
-      # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.
-      # The options that S3 accepts come from the AWS SDK, so it is only loaded when options are supplied.
-      #
-      # Without the AWS SDK the options cannot be checked, but the path can still be displayed, for example by a
-      # process that only enqueues work. Every request needs the SDK, so the options are never used unchecked.
-      def validate_options!
-        return if options.empty? || !Sdk.available?
-
-        unknown = Sdk.unknown_options(options.keys)
-        return if unknown.empty?
-
-        raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
       end
 
       # Returns [Listing] the listing of the objects in the bucket, which makes each request of this path.
