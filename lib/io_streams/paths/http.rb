@@ -214,8 +214,7 @@ module IOStreams
       # directory of `a%2541/b.csv` is still `a%2541`, rather than `a%41` from encoding its decoded name `a%41`.
       #
       # In a new name, such as from `#join`, characters that cannot appear in a url path, such as a space, `?`
-      # or `#`, are percent-encoded in the url. A `%` followed by two hexadecimal digits is assumed to already be
-      # percent-encoded, any other `%` is encoded.
+      # or `#`, are percent-encoded in the url, as is every `%`, since the name is a name rather than part of a url.
       def path=(path)
         super
         uri           = URI.parse(url)
@@ -252,17 +251,14 @@ module IOStreams
         "#{url}?#{[*kept, URI.encode_www_form(parameters)].join('&')}#{hash}#{fragment}"
       end
 
-      # Characters that can appear in a url path, besides `%`, which is assumed to already be percent-encoded.
-      PATH_CHARACTERS = %r{[A-Za-z0-9\-._~!$&'()*+,;=:@/%]}
+      # Characters that can appear in a name in a url path as they are. A `%` cannot, since it starts a percent-encoded
+      # character.
+      PATH_CHARACTERS = %r{[A-Za-z0-9\-._~!$&'()*+,;=:@/]}
       private_constant :PATH_CHARACTERS
 
-      # A `%` that does not start a percent-encoded character.
-      UNENCODED_PERCENT = /%(?![0-9A-Fa-f]{2})/
-      private_constant :UNENCODED_PERCENT
-
-      def escape_path(path)
-        path.gsub(UNENCODED_PERCENT, "%25").
-          each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
+      # Returns [String] the name with each character that cannot appear in a url path as it is percent-encoded.
+      def escape_path(name)
+        name.each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
       end
 
       attr_reader :allow_hosts, :maximum_file_size, :headers

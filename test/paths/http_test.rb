@@ -107,17 +107,20 @@ module Paths
       end
 
       describe "#join" do
-        it "keeps a percent-encoded character in a joined name" do
-          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("my%20file.csv")
+        it "encodes every % in a joined name, which is a name rather than part of a url" do
+          %w[100%.csv 100%41.csv my%20file.csv].each do |name|
+            path = IOStreams::Paths::HTTP.new("https://example.com/files").join(name)
 
-          assert_equal "https://example.com/files/my%20file.csv", path.to_s
+            assert_equal "https://example.com/files/#{name.gsub('%', '%25')}", path.to_s
+            assert_equal name, path.basename
+            assert_equal path.path, IOStreams.path(path.to_s).path
+          end
         end
 
-        it "encodes a % that is not percent-encoded in a joined name" do
-          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("100%.csv")
+        it "encodes a space in a joined name" do
+          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("my file.csv")
 
-          assert_equal "https://example.com/files/100%25.csv", path.to_s
-          assert_equal "100%.csv", path.basename
+          assert_equal "https://example.com/files/my%20file.csv", path.to_s
         end
       end
 
