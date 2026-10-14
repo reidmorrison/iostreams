@@ -239,6 +239,22 @@ class LineReaderTest < Minitest::Test
         assert_equal data.size, count
       end
 
+      it "reads blocks of the default size for a buffer_size of nil, as when it is not supplied" do
+        lines = []
+        IOStreams.stream(StringIO.new(data.join("\n"))).each(:line, buffer_size: nil) { |line| lines << line }
+
+        assert_equal data, lines
+        assert_equal IOStreams::Line::Reader::DEFAULT_BUFFER_SIZE, IOStreams::Line::Reader.new(StringIO.new("a")).buffer_size
+      end
+
+      it "raises for a buffer_size that is not a positive Integer" do
+        [0, -1, "64"].each do |buffer_size|
+          error = assert_raises(ArgumentError) { IOStreams::Line::Reader.new(StringIO.new("a\n"), buffer_size: buffer_size) }
+
+          assert_includes error.message, "Invalid buffer_size #{buffer_size.inspect}"
+        end
+      end
+
       ["\r\n", "\n", "\r"].each do |delimiter|
         it "autodetect delimiter: #{delimiter.inspect}" do
           lines  = []

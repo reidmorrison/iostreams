@@ -10,6 +10,9 @@ module IOStreams
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` bytes are read.
       MAX_BLOCKS_MULTIPLIER = 100
 
+      # The size of the blocks read from the input stream, when no `buffer_size` is supplied.
+      DEFAULT_BUFFER_SIZE = 65_536
+
       LINEFEED_REGEXP = /\r\n|\n|\r/
 
       # Returns [Array<Symbol>] the options that the reader accepts, see #initialize.
@@ -45,7 +48,7 @@ module IOStreams
       #
       #   buffer_size: [Integer]
       #     Size of blocks to read from the input stream at a time.
-      #     Default: 65536 ( 64K )
+      #     Default: nil, which reads DEFAULT_BUFFER_SIZE bytes, 64KB, at a time.
       #
       #   embedded_within: [String]
       #     Supports CSV files where a line may contain an embedded newline.
@@ -54,11 +57,14 @@ module IOStreams
       # Note:
       # * When reached via `IOStreams::Stream`, `embedded_within` defaults to the quote character of the
       #   tabular format (e.g. `"` for CSV). See `IOStreams::Tabular#quote_character`.
-      def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
+      def initialize(input_stream, delimiter: nil, buffer_size: nil, embedded_within: nil)
         super(input_stream)
+        unless buffer_size.nil? || (buffer_size.is_a?(Integer) && buffer_size.positive?)
+          raise(ArgumentError, "Invalid buffer_size #{buffer_size.inspect}: supply the number of bytes to read at a time")
+        end
 
         @embedded_within = embedded_within
-        @buffer_size     = buffer_size
+        @buffer_size     = buffer_size || DEFAULT_BUFFER_SIZE
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         @use_read_cache_buffer = !@input_stream.method(:read).arity.between?(0, 1)

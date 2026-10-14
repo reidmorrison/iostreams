@@ -765,7 +765,7 @@ module IOStreams
     # format that holds them in a binary layout of its own, such as Parquet, read from its bytes, see
     # `IOStreams::Tabular#read_rows`.
     #
-    # The line reader reads in blocks of `buffer_size` bytes, unless it is nil, which keeps its own default.
+    # The line reader reads in blocks of `buffer_size` bytes, or of its own default when it is nil.
     #
     # Raises ArgumentError when `delimiter`, `embedded_within` or `buffer_size` is supplied, or an encoding is set, for a
     # format without lines, see #reject_line_options!.
@@ -777,9 +777,7 @@ module IOStreams
       end
 
       embedded_within = tabular.quote_character if embedded_within == :auto
-      options         = {delimiter: delimiter, embedded_within: embedded_within}
-      options[:buffer_size] = buffer_size unless buffer_size.nil?
-      open_line_reader(tabular.encoding, **options, &)
+      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within, buffer_size: buffer_size, &)
     end
 
     # Yields [#<<] the writer of the rows of the format of the tabular: a line writer, or the writer of a format that
