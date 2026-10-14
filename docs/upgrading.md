@@ -1056,7 +1056,9 @@ A zip file or spreadsheet on HTTP is still copied into a temp file, since it is 
 
 Fix: replace calls such as `#rewind` or `#size` on the IO. Where the IO must be a `File`, where processing
 must not start until the whole file has been read, or where the block is slow to read, read it into a local
-file first, for example with `IOStreams.path("https://example.com/a.csv").copy_to(local_path, convert: false)`.
+file first, for example with `IOStreams.path("https://example.com/a.csv").copy_to(local_path)`, which the server
+can compress while it sends it, or with `copy_to(local_path, convert: false)` to copy a compressed file, such as
+`a.csv.gz`, as it is stored.
 
 #### The path of an HTTP url is decoded
 
@@ -1075,6 +1077,26 @@ where the data could be read or changed in transit.
 
 Fix: read the `http://` url directly if plain http is acceptable for that server, or have the
 server redirect to an `https://` url.
+
+#### HTTP responses are decompressed by IOStreams
+
+Reading an `http://` or `https://` file that is neither compressed nor encrypted, such as `data.csv`, now asks the
+server to compress it with gzip while it sends it, and IOStreams decompresses the response as it is read. Previously
+every request accepted gzip and deflate, and Net::HTTP decompressed the response. A compressed or encrypted file, such
+as `data.csv.gz`, and `#raw`, ask for the file as it is stored, so a `.gz` file that the server sends with
+`Content-Encoding: gzip` is decompressed once, where it raised. This changes:
+
+* A response with a `Content-Encoding` that IOStreams cannot decompress, such as `br`, `zstd` or `deflate`, raises
+  `IOStreams::Errors::CommunicationsFailure` before the block is called. Previously its encoded data was read as the
+  file, apart from `deflate`, which Net::HTTP decompressed.
+* A gzip response that is truncated or corrupt raises `IOStreams::Errors::CommunicationsFailure`, where the data
+  before the damage was read without an error, and a response of several gzip members is read to its end, where only
+  its first member was read.
+* `maximum_file_size` limits the size of the response as it is received, as well as once it is decompressed.
+
+Fix: to read a response as the server sends it, without decompressing it, supply an `Accept-Encoding` with
+`headers:`, such as `headers: {"Accept-Encoding" => "identity"}`, which is sent instead, also after a redirect to
+another host. To read a file as it is stored, use `#raw`.
 
 ### Extending IOStreams
 

@@ -307,6 +307,9 @@ also rescue an attempt to access a path that the application does not allow, suc
   from within the block, once some of the data has been processed. A connection that closes before the whole body
   has been received raises `IOStreams::Errors::CommunicationsFailure` tagged as `Unavailable`, as does a body that is
   shorter than its `Content-Length`. A failure raised by the block itself is not tagged.
+* An HTTP response that cannot be decompressed, see [Reading a url](path#http-reading), raises
+  `IOStreams::Errors::CommunicationsFailure` without a tag, since the whole response was received, so sending the
+  request again returns the same response.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
 * Likewise a stream tags only the exceptions of the gem that reads its format. An exception raised by the block that
   you supply, such as a `Zlib::GzipFile::Error` from another gzip file that it reads, is not tagged.

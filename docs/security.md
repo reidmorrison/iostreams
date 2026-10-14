@@ -137,8 +137,12 @@ IOStreams.path(untrusted_url, http_redirect_count: 0).read
 IOStreams.path(untrusted_url, maximum_file_size: 50 * 1024 * 1024).read
 ~~~
 
+`maximum_file_size:` limits the bytes received, and the size of the file once IOStreams decompresses a response
+that the server compressed, so a small response that decompresses to a huge file is stopped too.
+
 Allowed paths also check every redirect. Credentials, and the `headers:` supplied, are only ever sent to the original
-host: they are not sent again after a redirect to another scheme, host or port. A redirect from `https` to `http` is
+host: they are not sent again after a redirect to another scheme, host or port, apart from an `Accept-Encoding`, which
+holds no credential. A redirect from `https` to `http` is
 not followed, so that the data cannot be read or changed in transit. When writing or deleting, a redirect is only
 followed to the same scheme, host and port, so that it cannot send the data to another server, or delete a file on it.
 For stronger guarantees, send these requests through an egress proxy, or a network policy, that blocks private,

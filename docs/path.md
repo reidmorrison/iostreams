@@ -525,15 +525,15 @@ IOStreams.path("https://example.com/files/my%20data.csv").path
 |----------|---------|---------|
 | `username:` | The user name of basic authentication | The user name in the url, otherwise none |
 | `password:` | The password of basic authentication, sent with the `username:` | The password in the url |
-| `headers:` | A Hash of headers to add to every request, such as `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` for an upload | None |
+| `headers:` | A Hash of headers to add to every request, such as `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` for an upload. An `Accept-Encoding` is sent instead of the one that IOStreams chooses, see [Reading a url](#http-reading) | None |
 | `parameters:` | A Hash of query parameters to add to the url, which replace any with the same name in it, such as `{type: "csv"}` | None |
 | `http_redirect_count:` | The most redirects to follow, or `0` to follow none | `10` |
 | `allow_hosts:` | The host name, or an Array of the host names, that may be contacted, including after a redirect, compared without case. A request of any other host raises `IOStreams::Errors::CommunicationsFailure` | Any host |
-| `maximum_file_size:` | The most bytes to read. A larger body raises `IOStreams::Errors::CommunicationsFailure` from within the block. Writing a path with it raises `ArgumentError` | No limit |
+| `maximum_file_size:` | The most bytes to read, both as they are received and once decompressed. A larger body raises `IOStreams::Errors::CommunicationsFailure` from within the block. Writing a path with it raises `ArgumentError` | No limit |
 
 The credentials and the `headers:` are only sent to the scheme, host and port of the url, and never after a redirect
-to another one, since any header can hold a credential. A path answers `#url`, which is `#to_s`, `#username` and
-`#http_redirect_count`.
+to another one, since any header can hold a credential, apart from an `Accept-Encoding`, which holds none. A path
+answers `#url`, which is `#to_s`, `#username` and `#http_redirect_count`.
 
 ### Reading a url {#http-reading}
 
@@ -549,12 +549,19 @@ to another one, since any header can hold a credential. A path answers `#url`, w
   that closes before the whole body has been received, or a body shorter than its `Content-Length`, raises
   `IOStreams::Errors::CommunicationsFailure`, tagged as `IOStreams::Errors::Unavailable`.
 * A zip file or a spreadsheet is copied into a temp file first, since it is read from a file.
-* The request accepts only the `identity` encoding, so the file is read as it is stored, and a `.gz` file is
-  decompressed once, by its gzip stream. To have the server compress the file while it is sent, supply an
-  `Accept-Encoding` with `headers:`, such as `{"Accept-Encoding" => "gzip"}`, which is sent instead: the body is then
-  read as the server sends it, so read a body that it compresses with `stream(:gz)`. Read a file that the server
-  sends with a `Content-Encoding` whatever the request accepts, such as an S3 object stored with that metadata, with
-  `stream(:gz)` too.
+* A file that is neither compressed nor encrypted, such as `data.csv`, is compressed while it is sent, when the server
+  can: the request accepts `gzip`, and IOStreams decompresses the response as the block reads it. A compressed or
+  encrypted file, such as `data.csv.gz`, and a file read with `#raw`, are requested as they are stored, as is a file
+  read with a `Range` in `headers:`, since a part of a compressed response cannot be decompressed.
+* A response that IOStreams cannot decompress, such as one with the `Content-Encoding` `br`, raises
+  `IOStreams::Errors::CommunicationsFailure` before the block is called, and so does a gzip response that is
+  truncated or corrupt. To read the response as the server sends it, without decompressing it, supply an
+  `Accept-Encoding` with `headers:`, which is sent instead, such as `{"Accept-Encoding" => "identity"}`.
+
+~~~ruby
+# Read the response as the server sends it.
+IOStreams.path("https://example.com/files/data.csv", headers: {"Accept-Encoding" => "identity"}).read
+~~~
 
 ### Writing a url {#http-writing}
 
