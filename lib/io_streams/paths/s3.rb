@@ -489,6 +489,13 @@ module IOStreams
         name
       end
 
+      # Returns [String] the key with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`, keeping a
+      # trailing `/`, since a key that ends with it, such as that of a folder object, is another object.
+      def clean_name(name)
+        clean = super
+        name.end_with?("/") && !clean.end_with?("/") ? "#{clean}/" : clean
+      end
+
       # Returns [Integer] the size of the object, or nil when it does not exist, see `#empty?`. A direct copy of an object
       # that does not exist then raises `NoSuchKey` from S3, as it did before `#size` raised for it.
       def object_size

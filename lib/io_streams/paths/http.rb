@@ -220,6 +220,13 @@ module IOStreams
           URI.parse(other.url).query == original_uri.query
       end
 
+      # Returns [String] the path with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`, keeping a
+      # trailing `/`, since a url that ends with it is another url, which a server can answer differently.
+      def clean_name(name)
+        clean = super
+        name.end_with?("/") && !clean.end_with?("/") ? "#{clean}/" : clean
+      end
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
       # Each directory or file name that is unchanged keeps its encoding from the url, so that for example the

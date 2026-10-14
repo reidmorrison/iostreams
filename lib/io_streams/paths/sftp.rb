@@ -322,6 +322,16 @@ module IOStreams
         @url      = "#{Utils::URI.authority(url)}#{separator}#{Utils::URI.encode_path(self.path)}"
       end
 
+      # Returns [String] the name with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`. A name
+      # within the login directory is cleaned within it, keeping a `..` that leaves it, such as `~/../x.csv`, since
+      # what is above the login directory is only known to the server, rather than `x.csv`, whose url names `/x.csv`.
+      def clean_name(name)
+        return super unless name == "~" || name.start_with?("~/")
+
+        relative = super(name.delete_prefix("~").delete_prefix("/").then { |within| within.empty? ? "." : within })
+        relative == "." ? "~" : "~/#{relative}"
+      end
+
       # Returns [String] the name of this path on the server, where a path within the login
       # directory, which starts with `~`, is relative.
       def remote_path

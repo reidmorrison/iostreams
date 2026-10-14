@@ -217,6 +217,22 @@ module IOStreams
 
         it "keeps the host of an SFTP path within the login directory" do
           assert_equal "sftp://host/~/b.csv", IOStreams.path("sftp://host/~/a/../b.csv").cleanpath.to_s
+          assert_equal "sftp://host/~", IOStreams.path("sftp://host/~/a/..").cleanpath.to_s
+        end
+
+        it "keeps a .. that leaves the login directory of an SFTP path, so that its url names the same file" do
+          clean = IOStreams.path("sftp://host/~/a/../../x.csv").cleanpath
+
+          assert_equal "~/../x.csv", clean.path
+          assert_equal "sftp://host/~/../x.csv", clean.to_s
+          assert_equal clean.path, IOStreams.path(clean.to_s).path
+        end
+
+        it "keeps the trailing / of an S3 key or an HTTP url, which name another object or url, but not of a file" do
+          assert_equal "s3://bucket/a/b/", IOStreams.path("s3://bucket/a/./b/").cleanpath.to_s
+          assert_equal "https://example.com/a/b/", IOStreams.path("https://example.com/a/./b/").cleanpath.to_s
+          assert_equal "https://example.com/", IOStreams.path("https://example.com/a/..").cleanpath.to_s
+          assert_equal "a/b", IOStreams.path("a/./b/").cleanpath.to_s
         end
       end
 

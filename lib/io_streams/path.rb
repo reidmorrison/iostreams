@@ -54,7 +54,7 @@ module IOStreams
     # Note: S3 treats `.` and `..` in a key as ordinary characters, but they are resolved here like any other path.
     def cleanpath
       clean      = dup
-      clean.path = Pathname.new(Utils.matchable(path)).cleanpath.to_s.force_encoding(path.encoding)
+      clean.path = clean_name(path)
       clean
     end
 
@@ -392,6 +392,12 @@ module IOStreams
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
     attr_writer :path
+
+    # Returns [String] the name with `.`, `..` and repeated `/` removed, like `Pathname#cleanpath`, see #cleanpath.
+    # A path class whose names differ, such as a url whose trailing `/` names another url, refines it.
+    def clean_name(name)
+      Pathname.new(Utils.matchable(name)).cleanpath.to_s.force_encoding(name.encoding)
+    end
 
     # Returns [String] the path of the supplied name joined to this path, see #join: the name itself when it is
     # already within this path.
