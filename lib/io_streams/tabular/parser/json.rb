@@ -65,12 +65,15 @@ module IOStreams
         # Raises `IOStreams::Errors::TypeMismatch` for a line that is not an object, such as `[1,2]` or `5`, since only an
         # object has the keys that name its values.
         def parse(row)
-          return row if row.is_a?(::Hash) || row.is_a?(::Array)
+          # Each line read is a String, so that is checked first.
+          unless row.is_a?(String)
+            return row if row.is_a?(::Hash) || row.is_a?(::Array)
 
-          raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
+            raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}")
+          end
 
           values = @decimal_keys ? parse_decimals(row) : JSON.parse(row)
-          return values if values.nil? || values.is_a?(::Hash)
+          return values if values.is_a?(::Hash) || values.nil?
 
           raise(IOStreams::Errors::TypeMismatch, "Each line of the :json format must be an object, whose keys name its " \
                                                  "values, rather than #{values.class.name}")

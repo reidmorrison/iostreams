@@ -378,12 +378,12 @@ module IOStreams
     #
     # Returns the result of the block.
     def read_row(line)
+      # Once the header row is read, every line is a row, so that is asked first.
+      return yield(@mapping.row_parse(line)) unless @mapping.rows_header?
       return yield(@mapping.read_header(line)) if @mapping.header?
 
-      if @mapping.rows_header?
-        columns = @mapping.read_header(line)
-        yield columns if columns
-      end
+      columns = @mapping.read_header(line)
+      yield columns if columns
       yield @mapping.row_parse(line)
     end
 
