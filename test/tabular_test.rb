@@ -729,7 +729,7 @@ class TabularTest < Minitest::Test
           worker = IOStreams::Tabular.new(format: :json, columns: uploader.header.columns)
 
           assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.record_parse(%w[Jack 12345]))
-          assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.read_record(%w[Jack 12345], rename: true))
+          assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.read_record(%w[Jack 12345]))
         end
 
         it "reads the record of a row already read after its header row, whatever the format, as Rocket Job's workers do" do
@@ -801,10 +801,10 @@ class TabularTest < Minitest::Test
           assert_equal({"name" => "x"}, tabular.read_record(json))
         end
 
-        it "compares the keys as-is without renaming them" do
-          tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"])
+        it "compares the keys as-is without renaming them, with cleanse_header: false" do
+          tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"], cleanse_header: false)
 
-          assert_equal({"Name" => "x"}, tabular.read_record(json, rename: false))
+          assert_equal({"Name" => "x"}, tabular.read_record(json))
         end
 
         it "does not change a record when the columns are not restricted" do
@@ -817,7 +817,9 @@ class TabularTest < Minitest::Test
 
           assert_equal({name: "Jack", "zip" => 1}, record)
           # Not renamed, so `:Zip` is not the column "zip".
-          assert_equal({name: "Jack"}, tabular.read_record({name: "Jack", Zip: 1}, rename: false))
+          as_is = IOStreams::Tabular.new(format: :hash, allowed_columns: %w[name zip], cleanse_header: false)
+
+          assert_equal({name: "Jack"}, as_is.read_record({name: "Jack", Zip: 1}))
           assert_equal({1 => "a"}, IOStreams::Tabular.new(format: :hash, required_columns: %w[1]).read_record({1 => "a"}))
         end
 
@@ -923,18 +925,23 @@ class TabularTest < Minitest::Test
           end
         end
 
-        it "is replaced by the arguments of #read_header, #read_record and #restrict_columns, as Rocket Job supplies them" do
+        it "is replaced by the argument of #read_header, as Rocket Job supplies it" do
           tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"], cleanse_header: false)
           tabular.read_header("Name,Secret", cleanse: true)
 
           assert_equal %w[name __rejected__Secret], tabular.header.columns
-          json = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"], cleanse_header: false)
+        end
 
-          assert_equal({"name" => "x"}, json.read_record(%({"Name":"x"}), rename: true))
-          supplied = IOStreams::Tabular.new(format: :csv, columns: %w[Name Secret], allowed_columns: ["name"], cleanse_header: false)
-          supplied.restrict_columns(rename: true)
+        it "applies to #read_record and #restrict_columns, which take no argument for it" do
+          json = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"])
+
+          assert_equal({"name" => "x"}, json.read_record(%({"Name":"x"})))
+          assert_raises(ArgumentError) { json.read_record(%({"Name":"x"}), rename: false) }
+          supplied = IOStreams::Tabular.new(format: :csv, columns: %w[Name Secret], allowed_columns: ["name"])
+          supplied.restrict_columns
 
           assert_equal %w[name __rejected__Secret], supplied.header.columns
+          assert_raises(ArgumentError) { supplied.restrict_columns(rename: false) }
         end
       end
     end
@@ -1446,19 +1453,6 @@ class TabularTest < Minitest::Test
           assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
         end
         assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
-      end
-
-      it "raises for renaming the columns or keys, which are the names of the fields, unless it is nil, as Rocket Job supplies it" do
-        tabular = IOStreams::Tabular.new(format: :json, schema: schema)
-
-        [true, false].each do |rename|
-          error = assert_raises(ArgumentError, rename.inspect) { tabular.restrict_columns(rename: rename) }
-          assert_match(/\Arename: cannot be supplied with a schema/, error.message)
-          error = assert_raises(ArgumentError, rename.inspect) { tabular.read_record(%({"ID":1,"Pay":2.5}), rename: rename) }
-          assert_match(/\Arename: cannot be supplied with a schema/, error.message)
-        end
-        assert_nil tabular.restrict_columns(rename: nil)
-        assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, tabular.read_record(%({"ID":1,"Pay":2.5}), rename: nil))
       end
 
       it "raises for the columns before cleanse_header, with a schema" do
