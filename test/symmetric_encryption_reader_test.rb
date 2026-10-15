@@ -74,7 +74,7 @@ class SymmetricEncryptionReaderTest < Minitest::Test
       it "reads encrypted data that holds no data as empty" do
         [{}, {compress: false}].each do |options|
           output = StringIO.new(+"".b)
-          IOStreams.stream(output).stream(:enc, **options).write("")
+          IOStreams.stream(output).stream(:enc, **options).writer { |_io| nil }
 
           assert_equal "", IOStreams::SymmetricEncryption::Reader.stream(StringIO.new(output.string), &:read)
         end
