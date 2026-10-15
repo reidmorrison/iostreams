@@ -13,6 +13,17 @@ module IOStreams
     autoload :Reader, "io_streams/encode/reader"
     autoload :Writer, "io_streams/encode/writer"
 
+    # The byte order mark that some programs write at the start of Unicode text, such as Excel at the start of a "CSV
+    # UTF-8" file, and Windows programs at the start of UTF-16LE "Unicode Text".
+    BYTE_ORDER_MARK = "\uFEFF"
+
+    # The encodings whose text starts with a byte order mark that tells its byte order, "UTF-16" and "UTF-32", which
+    # Ruby calls dummy encodings, and the encodings of their byte orders, big-endian first, which Ruby writes them in.
+    BYTE_ORDERS = {
+      Encoding::UTF_16 => [Encoding::UTF_16BE, Encoding::UTF_16LE].freeze,
+      Encoding::UTF_32 => [Encoding::UTF_32BE, Encoding::UTF_32LE].freeze
+    }.freeze
+
     # Returns [Class] the class that converts text as it is read.
     def self.reader_class
       Reader
@@ -41,6 +52,14 @@ module IOStreams
 
       external, internal = encoding.split(":", 2)
       [Encoding.find(external), Encoding.find(internal)]
+    end
+
+    # Returns [Array<Encoding>] the encodings of the byte orders of text in the supplied encoding, big-endian first,
+    # when it starts with a byte order mark that tells its byte order, "UTF-16" or "UTF-32", see BYTE_ORDERS, otherwise
+    # nil. Ruby converts such text one String at a time, writing a byte order mark at the start of each String, and
+    # reading one only at its start, so the encode stream reads and writes it in the encoding of its byte order.
+    def self.byte_order_encodings(encoding)
+      BYTE_ORDERS[encoding.is_a?(String) ? Encoding.find(encoding) : encoding]
     end
 
     # Raises ArgumentError for the options that the reader or writer of the encode stream would raise for once the

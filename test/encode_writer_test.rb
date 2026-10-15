@@ -322,5 +322,53 @@ class EncodeWriterTest < Minitest::Test
         assert_equal "caf\u00e9\n", IOStreams::Encode::Reader.stream(StringIO.new(output.string), encoding: "Windows-1252:UTF-8", &:read)
       end
     end
+
+    describe "UTF-16 and UTF-32, which name no byte order" do
+      it "writes the byte order mark once, then the text big-endian, as Ruby writes it" do
+        %w[UTF-16 UTF-32].each do |encoding|
+          output = BlockRecorder.new
+          IOStreams::Encode::Writer.stream(output, encoding: encoding) do |io|
+            io << "caf\u{e9}\n"
+            io << "na\u{ef}ve\n"
+          end
+
+          assert_equal "caf\u{e9}\nna\u{ef}ve\n".encode(encoding).b, output.string, encoding
+        end
+      end
+
+      it "writes no byte order mark before binary data that starts the text, which already starts with its own" do
+        input  = "\u{feff}ab".encode("UTF-16BE").b
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io.write(input)
+          io.write("c")
+        end
+
+        assert_equal "\u{feff}abc".encode("UTF-16BE").b, output.string
+      end
+
+      it "writes nothing for no text" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") { |io| io.write("") }
+
+        assert_equal "", output.string
+      end
+
+      it "writes the rows of a CSV file that are read back as the records written" do
+        records = [{"name" => "Jos\u{e9}", "city" => "M\u{e1}laga"}, {"name" => "Jack", "city" => "Paris"}]
+        # Binary, since a StringIO converts the data written to it to the encoding of its String.
+        output  = StringIO.new(String.new(encoding: Encoding::BINARY))
+        IOStreams.stream(output).file_name("people.csv").encoding("UTF-16").writer(:hash) do |io|
+          records.each { |record| io << record }
+        end
+        read = []
+        IOStreams.stream(StringIO.new(output.string)).file_name("people.csv").encoding("UTF-16:UTF-8").each(:hash) do |record|
+          read << record
+        end
+
+        assert_equal "name,city\nJos\u{e9},M\u{e1}laga\nJack,Paris\n".encode("UTF-16").b, output.string
+        assert_equal records, read
+      end
+    end
   end
 end

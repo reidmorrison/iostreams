@@ -58,7 +58,11 @@ module IOStreams
         super(output_stream)
 
         external, _internal = Encode.external_and_internal(encoding)
-        @converter          = Converter.new(encoding: external, replace: replace)
+        # "UTF-16" and "UTF-32" are written big-endian, after a byte order mark that tells so, as Ruby writes them.
+        byte_orders         = Encode.byte_order_encodings(external)
+        @converter          = Converter.new(encoding: byte_orders&.first || external, replace: replace)
+        # The byte order mark that is written before the first text, see #write_block.
+        @byte_order_mark    = BYTE_ORDER_MARK.encode(@converter.encoding) if byte_orders
         @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
       end
 
@@ -77,13 +81,21 @@ module IOStreams
       # Binary data, for example when copying a file, is treated as already being in the requested encoding.
       # A multi-byte character that is split across two writes is written by the second write.
       def write_data(data)
+        # Binary data that starts the text of "UTF-16" or "UTF-32" already starts with its own byte order mark.
+        @byte_order_mark = nil if @byte_order_mark && data.encoding == Encoding::BINARY && !data.empty?
         block = @converter.convert(data)
         @converter.raise_invalid
         write_block(block)
       end
 
+      # Writes the block, after the byte order mark of "UTF-16" or "UTF-32" when it is the first text written, since
+      # Ruby writes one at the start of each String that it converts to them, rather than once at the start of the text.
       def write_block(block)
         block = @cleaner.call(block) if @cleaner
+        unless @byte_order_mark.nil? || block.empty?
+          block            = @byte_order_mark + block
+          @byte_order_mark = nil
+        end
         @output_stream.write(block)
       end
     end

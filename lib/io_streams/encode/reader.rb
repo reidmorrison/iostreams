@@ -12,12 +12,9 @@ module IOStreams
     class Reader < IOStreams::Reader
       include ChunkReader
 
-      # The byte order mark that some programs write at the start of Unicode text, such as Excel at the start of a "CSV
-      # UTF-8" file, and Windows programs at the start of UTF-16LE "Unicode Text".
-      BYTE_ORDER_MARK = "\uFEFF"
-
-      # The encodings of the text whose byte order mark is removed, see #remove_byte_order_mark. Not the dummy encodings
-      # "UTF-16" and "UTF-32", since Ruby removes the byte order mark that tells their byte order when it converts them.
+      # The encodings of the text whose byte order mark is removed, see #remove_byte_order_mark. Text in "UTF-16" or
+      # "UTF-32" is read in one of them, the encoding of the byte order that its byte order mark tells, see
+      # #read_byte_order.
       BYTE_ORDER_MARK_ENCODINGS = [
         Encoding::UTF_8, Encoding::UTF_16LE, Encoding::UTF_16BE, Encoding::UTF_32LE, Encoding::UTF_32BE
       ].freeze
@@ -62,7 +59,9 @@ module IOStreams
       #     raises Encoding::UndefinedConversionError, unless `replace` is supplied.
       #
       #     When reading UTF-8, UTF-16LE, UTF-16BE, UTF-32LE or UTF-32BE, a byte order mark at the start of the data is
-      #     removed.
+      #     removed. "UTF-16" and "UTF-32", which name no byte order, read the data in the byte order that the byte
+      #     order mark at its start tells, such as UTF-16LE for "\xFF\xFE", and raise IOStreams::Errors::InvalidEncoding
+      #     when it does not start with one, as Ruby does.
       #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
@@ -81,13 +80,13 @@ module IOStreams
         super(input_stream)
 
         external, @internal = Encode.external_and_internal(encoding)
-        @converter          = Converter.new(encoding: external, replace: replace)
-        @internal           = nil if @internal == @converter.encoding
+        @replace            = replace
         @transcode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
         @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
-        # The byte order mark in the encoding of the data, while the start of the data, where Unicode text can begin
-        # with one, is still to be read.
-        @byte_order_mark    = byte_order_mark(@converter.encoding)
+        # The encodings of the byte orders of "UTF-16" or "UTF-32", while the byte order mark at the start of the data,
+        # which tells which one it is in, is still to be read, see #read_byte_order.
+        @byte_orders        = Encode.byte_order_encodings(external)
+        read_as(external) unless @byte_orders
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         # Binary, since `IO#read` keeps the encoding of the buffer that it reads into.
@@ -117,6 +116,7 @@ module IOStreams
       # Returns [Encoding] the encoding of the text that is read, see `IOStreams::ChunkReader`: the internal encoding, or
       # the encoding of the data, or binary when the data is read as it is.
       def chunk_encoding
+        read_byte_order if @byte_orders
         @internal || @converter.encoding || Encoding::BINARY
       end
 
@@ -126,8 +126,51 @@ module IOStreams
       # Raises IOStreams::Errors::InvalidEncoding for data that is not valid, once the text before it has been returned,
       # and again each time that it is called after, since the converter keeps the error.
       def next_chunk
-        block = read_block
+        read_byte_order if @byte_orders
+        block   = @start || read_block
+        @start  = nil
         text(block.nil? ? @converter.finish : @converter.convert(block))
+      end
+
+      # Reads the data in the supplied encoding, converted to the internal encoding unless it is the same one.
+      def read_as(encoding)
+        @converter       = Converter.new(encoding: encoding, replace: @replace)
+        @internal        = nil if @internal == @converter.encoding
+        # The byte order mark in the encoding of the data, while the start of the data, where Unicode text can begin
+        # with one, is still to be read.
+        @byte_order_mark = byte_order_mark(@converter.encoding)
+      end
+
+      # Reads data in "UTF-16" or "UTF-32" in the encoding of the byte order that the byte order mark at its start tells,
+      # such as UTF-16LE for "\xFF\xFE", see `IOStreams::Encode.byte_order_encodings`, whose byte order mark is then
+      # removed, as Ruby removes it. Keeps the start of the data that it read, up to the size of a byte order mark, for
+      # #next_chunk. Data without any bytes is read in big-endian, which has no text to read.
+      #
+      # Raises IOStreams::Errors::InvalidEncoding when the data does not start with a byte order mark, which Ruby also
+      # needs to read it, since only the mark tells its byte order.
+      def read_byte_order
+        size  = BYTE_ORDER_MARK.encode(@byte_orders.first).bytesize
+        start = String.new(encoding: Encoding::BINARY)
+        while start.bytesize < size && (block = read_block)
+          start << block
+        end
+        encoding = @byte_orders.find { |byte_order| start.start_with?(BYTE_ORDER_MARK.encode(byte_order).b) }
+        raise(missing_byte_order_mark(start.byteslice(0, size))) unless encoding || start.empty?
+
+        @start = start unless start.empty?
+        read_as(encoding || @byte_orders.first)
+        @byte_orders = nil
+      end
+
+      # Returns [IOStreams::Errors::InvalidEncoding] the error for data in "UTF-16" or "UTF-32" that does not start with
+      # a byte order mark, see #read_byte_order, whose first bytes are supplied.
+      def missing_byte_order_mark(bytes)
+        encoding = BYTE_ORDERS.key(@byte_orders)
+        Errors::InvalidEncoding.new(
+          "The #{encoding} text does not start with a byte order mark, which tells its byte order, so supply " \
+          "#{@byte_orders.reverse.join(' or ')} instead: #{bytes.dump}",
+          byte_offset: 0, error_char: bytes, source_encoding: Encoding::BINARY, destination_encoding: encoding
+        )
       end
 
       # Returns [String] the whole characters that the converter returned, without the byte order mark at the start of

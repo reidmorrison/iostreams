@@ -498,6 +498,65 @@ class EncodeReaderTest < Minitest::Test
 
           assert_equal "a\uFEFFb", data
         end
+
+        describe "of UTF-16 and UTF-32, which name no byte order" do
+          # Text of more than one block of the data that the encode stream reads at a time.
+          let(:text) { Array.new(8_000) { |i| "line #{i} caf\u{e9}\n" }.join }
+
+          it "tells the byte order that the data is read in, over every block, as Ruby reads it" do
+            %w[UTF-16BE UTF-16LE UTF-32BE UTF-32LE].each do |byte_order|
+              encoding = byte_order.delete_suffix("BE").delete_suffix("LE")
+              input    = "\u{feff}#{text}".encode(byte_order).b
+              data     = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "#{encoding}:UTF-8", &:read)
+
+              assert_equal text, data, byte_order
+            end
+          end
+
+          it "replaces only the invalid characters of the blocks after the first one" do
+            input = "\u{feff}#{text}".encode("UTF-16LE").b
+            data  = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16:UTF-8", replace: "?", &:read)
+
+            assert_equal text, data
+          end
+
+          it "reads the text in the encoding of its byte order without an internal encoding, so that its lines are split" do
+            input = "\u{feff}a\nb\n".encode("UTF-16LE").b
+            lines = []
+            IOStreams.stream(StringIO.new(input)).encoding("UTF-16").each(:line) { |line| lines << line }
+
+            assert_equal ["a".encode("UTF-16LE"), "b".encode("UTF-16LE")], lines
+          end
+
+          it "reads a byte order mark that is split across reads" do
+            chunks = []
+            input  = "\u{feff}ab".encode("UTF-32LE").b
+            IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-32:UTF-8") do |io|
+              while (chunk = io.read(1))
+                chunks << chunk
+              end
+            end
+
+            assert_equal %w[a b], chunks
+          end
+
+          it "reads no text from no data" do
+            assert_equal "", IOStreams::Encode::Reader.stream(StringIO.new(+""), encoding: "UTF-16:UTF-8", &:read)
+          end
+
+          it "raises InvalidEncoding for data that does not start with a byte order mark, as Ruby raises" do
+            input = "ab".encode("UTF-16BE").b
+            error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+              IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16:UTF-8", &:read)
+            end
+
+            assert_equal "The UTF-16 text does not start with a byte order mark, which tells its byte order, so supply " \
+                         'UTF-16LE or UTF-16BE instead: "\x00a" at byte offset 0', error.message
+            assert_equal 0, error.byte_offset
+            assert_equal "\x00a".b, error.error_char
+            assert_raises(Encoding::InvalidByteSequenceError) { input.dup.force_encoding("UTF-16").encode("UTF-8") }
+          end
+        end
       end
 
       describe "external:internal encoding" do
