@@ -50,7 +50,11 @@ module IOStreams
 
       private
 
+      # Writes nothing for empty data, which some gems reject, such as `SymmetricEncryption::Writer` on JRuby, whose
+      # OpenSSL raises `ArgumentError: data must not be empty` from `Cipher#update`, while an IO writes nothing.
       def write_data(data)
+        return 0 if data.empty?
+
         __getobj__.write(data)
         data.bytesize
       end

@@ -244,6 +244,28 @@ class StreamIOTest < Minitest::Test
 
         assert_equal "id,name\n1,Jack\n2,Jill\n3,Bob\n4,Ann\n5,Zoe\n", result
       end
+
+      it "writes nothing for an empty string, like an IO, for the #{name.inspect} stream" do
+        output = StringIO.new(+"".b)
+        IOStreams.stream(output).stream(name, **writer_options).writer do |io|
+          assert_equal 0, io.write("")
+          assert_equal 3, io.write("", "id\n", "")
+          assert_same io, io << ""
+          assert_nil io.print("")
+        end
+
+        assert_equal "id\n", IOStreams.stream(StringIO.new(output.string)).stream(name, **reader_options).read
+      end
+    end
+
+    it "writes nothing for an empty string, like an IO, for an uncompressed :enc stream" do
+      output = StringIO.new(+"".b)
+      IOStreams.stream(output).stream(:enc, compress: false).writer do |io|
+        assert_equal 0, io.write("")
+        io << "id\n" << ""
+      end
+
+      assert_equal "id\n", IOStreams.stream(StringIO.new(output.string)).stream(:enc).read
     end
 
     it "responds to the methods of an IO that write for an uncompressed :enc stream" do
