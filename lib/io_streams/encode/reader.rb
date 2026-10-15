@@ -134,9 +134,11 @@ module IOStreams
       # and again each time that it is called after, since the converter keeps the error.
       def next_chunk
         read_byte_order if @byte_orders
-        block   = @start || read_block
-        @start  = nil
-        text(block.nil? ? @converter.finish : @converter.convert(block))
+        block  = @start || read_block
+        @start = nil
+        return text(@converter.convert(block)) if block
+
+        text(@converter.finish) || finish_transcoder
       end
 
       # Reads the data in the supplied encoding, converted to the internal encoding unless it is the same one.
@@ -146,6 +148,13 @@ module IOStreams
         # The byte order mark in the encoding of the data, while the start of the data, where Unicode text can begin
         # with one, is still to be read.
         @byte_order_mark = byte_order_mark(@converter.encoding)
+        # Ruby calls an encoding that keeps state from one character to the next, such as ISO-2022-JP, whose escape
+        # sequences switch the character set of the characters after them, a dummy encoding. So its data is converted
+        # to the internal encoding by one converter, which keeps that state from one block to the next, see
+        # #to_internal.
+        return unless @internal && @converter.encoding&.dummy?
+
+        @transcoder = Encoding::Converter.new(@converter.encoding, @internal, **@transcode_options)
       end
 
       # Reads data in "UTF-16" or "UTF-32" in the encoding of the byte order that the byte order mark at its start tells,
@@ -192,10 +201,29 @@ module IOStreams
         # Data that is not converted, such as with `encoding: "BINARY"`, is the block that was read, which can be
         # the buffer that the next block is read into.
         data = data.dup if data.equal?(@read_cache_buffer)
-        # The converter returns whole characters, so each block can be converted to the internal encoding on its own.
-        data = data.encode(@internal, **@transcode_options) if @internal
+        data = to_internal(data) if @internal
         data = @cleaner.call(data) if @cleaner
         data
+      end
+
+      # Returns [String] the data in the internal encoding. The converter returns whole characters, so each block is
+      # converted on its own, apart from the data of a dummy encoding, whose converter keeps its state, see #read_as.
+      def to_internal(data)
+        @transcoder ? @transcoder.convert(data) : data.encode(@internal, **@transcode_options)
+      end
+
+      # Returns [String] the end of the text that the converter of a dummy encoding still holds once the data has been
+      # read, in the internal encoding, and cleansed, or nil when it holds none, see #read_as. Raises
+      # Encoding::InvalidByteSequenceError when the data ends within a character or an escape sequence, as converting
+      # the whole of the data with String#encode does.
+      def finish_transcoder
+        return if @transcoder.nil?
+
+        rest        = @transcoder.finish
+        @transcoder = nil
+        return if rest.empty?
+
+        @cleaner ? @cleaner.call(rest) : rest
       end
 
       # Returns [String] the byte order mark in the encoding of the data, or nil for an encoding whose byte order mark is

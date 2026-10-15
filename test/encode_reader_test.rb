@@ -675,6 +675,34 @@ class EncodeReaderTest < Minitest::Test
         it "raises ArgumentError for an unknown encoding" do
           assert_raises(ArgumentError) { IOStreams::Encode::Reader.stream(StringIO.new(windows1252), encoding: "Nope:UTF-8", &:read) }
         end
+
+        describe "from an encoding that keeps state from one character to the next" do
+          # ISO-2022-JP switches the character set of the characters after each of its escape sequences, so text of more
+          # than one block has characters at the start of a block that are only read correctly after the escape
+          # sequence in the block before it.
+          let(:text) { Array.new(8_000) { |i| "#{i} \u{65e5}\u{672c}\u{8a9e}\u{306e}\u{30c6}\u{30ad}\u{30b9}\u{30c8}\n" }.join }
+
+          it "converts the data across blocks, as Ruby converts the whole of it" do
+            %w[ISO-2022-JP CP50221].each do |encoding|
+              input = text.encode(encoding).b
+              data  = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "#{encoding}:UTF-8", &:read)
+
+              assert_equal text, data, encoding
+            end
+          end
+
+          it "raises for data that ends within a character, as Ruby does" do
+            assert_raises(Encoding::InvalidByteSequenceError) do
+              IOStreams::Encode::Reader.stream(StringIO.new("abc\e$BF".b), encoding: "ISO-2022-JP:UTF-8", &:read)
+            end
+          end
+
+          it "replaces a character that the data ends within when replace is supplied" do
+            data = IOStreams::Encode::Reader.stream(StringIO.new("abc\e$BF".b), encoding: "ISO-2022-JP:UTF-8", replace: "?", &:read)
+
+            assert_equal "abc?", data
+          end
+        end
       end
     end
 
