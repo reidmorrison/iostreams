@@ -297,6 +297,10 @@ CSV in a temp file for your code to read. A spreadsheet on S3 or HTTP, or within
 temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
 raises `ArgumentError` for `sheet_name`, since it always reads the first worksheet.
 
+A spreadsheet is a zip file of parts, such as its worksheets. Before creek reads it, IOStreams checks the size and the
+CRC32 of each part, which creek does not, so that a damaged spreadsheet raises `IOStreams::Errors::Corrupt`, rather than
+reading wrong values, see [Errors](errors#what-each-stream-raises).
+
 ### Writing an Excel spreadsheet
 
 Writing uses the `xlsxtream` gem, which streams the workbook without a temp file. Its options, `sheet_name`,

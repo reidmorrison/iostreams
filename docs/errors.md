@@ -179,7 +179,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 | `.zst` | `RuntimeError` | Never | Never |
 | `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, or, from rubyzip 3.7, `NoMethodError`, `TypeError` or `ArgumentError` for a zip file whose end record is cut short, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
 | `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
-| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never | Never |
+| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet, or `IOStreams::Errors::StreamFailure` for a part whose size or CRC32 is not the one that the spreadsheet records | Never | Never |
 | `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
 
 The PGP stream tells why gpg failed from gpg's status, which does not depend on the locale. A PGP file that was not
@@ -344,7 +344,7 @@ also rescue an attempt to access a path that the application does not allow, suc
   For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
   which raises `Corrupt`.
 * A stream can only report the corruption that it, or its gem, detects. A damaged frame of `.zst` data without the
-  checksum of its content, which `.zst` written on MRI does not have, is not detected. rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
+  checksum of its content, which `.zst` written on MRI does not have, is not detected.
 
 ## Storage registered with `IOStreams.register_scheme`
 

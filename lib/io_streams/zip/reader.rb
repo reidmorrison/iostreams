@@ -54,6 +54,19 @@ module IOStreams
         end
       end
 
+      # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` unless the size and the CRC32 of
+      # the data read from the supplied rubyzip entry are those that the zip file records for it, giving the reason the
+      # way that `java.util.zip` gives it on JRuby, and naming the zip file by the supplied name. rubyzip checks neither.
+      def self.check_entry(entry, size, crc, name)
+        reason =
+          if size != entry.size
+            "invalid entry size (expected #{entry.size} but got #{size} bytes)"
+          elsif crc != entry.crc
+            format("invalid entry CRC (expected 0x%<expected>x but got 0x%<actual>x)", expected: entry.crc, actual: crc)
+          end
+        raise(failure(Errors::Corrupt, corrupt_message(entry.name, name, reason), name)) if reason
+      end
+
       # Returns [String] the message for a file within a zip file whose data is corrupt, for the supplied reason.
       def self.corrupt_message(entry_name, file_name, reason)
         "The file #{entry_name.inspect} within the zip file #{file_name} is corrupt: #{reason}"
@@ -215,18 +228,9 @@ module IOStreams
           end
 
           # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` unless the data read has the
-          # size and the CRC32 of the file, giving the reason the way that `java.util.zip` gives it on JRuby.
+          # size and the CRC32 of the file, see `Reader.check_entry`.
           def check
-            if @size != @entry.size
-              corrupt("invalid entry size (expected #{@entry.size} but got #{@size} bytes)")
-            elsif @crc != @entry.crc
-              corrupt(format("invalid entry CRC (expected 0x%<expected>x but got 0x%<actual>x)",
-                             expected: @entry.crc, actual: @crc))
-            end
-          end
-
-          def corrupt(reason)
-            raise(Reader.failure(Errors::Corrupt, Reader.corrupt_message(@entry.name, @file_name, reason), @file_name))
+            Reader.check_entry(@entry, @size, @crc, @file_name)
           end
         end
       end

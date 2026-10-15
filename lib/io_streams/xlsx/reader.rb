@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "csv"
+require "zlib"
 
 module IOStreams
   module Xlsx
@@ -34,15 +35,39 @@ module IOStreams
       # Convert a xlsx, or xlsm file into CSV format.
       #
       # Raises the exception of creek, tagged as `IOStreams::Errors::Corrupt`, for a file that is not a spreadsheet, see
-      # .failure_kind, naming the spreadsheet by its `display_name`, see .file_name_options, otherwise by the name of the
-      # local file.
+      # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
+      # damaged, see .verify, naming the spreadsheet by its `display_name`, see .file_name_options, otherwise by the name
+      # of the local file.
       def self.file(file_name, display_name: nil, &block)
+        name = display_name || file_name
+        verify(file_name, name)
         # Stream into a temp file as csv
         Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
           ::File.open(temp_file_name, "wb") do |io|
-            tag_failure(display_name || file_name) { new(file_name).each { |lines| io << lines.to_csv } }
+            tag_failure(name) { new(file_name).each { |lines| io << lines.to_csv } }
           end
           ::File.open(temp_file_name, "rb", &block)
+        end
+      end
+
+      # Raises unless each part of the spreadsheet has the size and the CRC32 that the spreadsheet records for it, see
+      # `IOStreams::Zip::Reader.check_entry`, since rubyzip, which creek reads it with, checks neither, so that a damaged
+      # part read wrong values without an error. Reads each part once more, before creek reads it.
+      def self.verify(file_name, name)
+        Zip::Reader.open_zip(file_name, name).each do |entry|
+          next unless entry.file?
+
+          size = 0
+          crc  = Zlib.crc32
+          tag_failure(name) do
+            entry.get_input_stream do |input|
+              while (chunk = input.read(65_536))
+                size += chunk.bytesize
+                crc   = Zlib.crc32(chunk, crc)
+              end
+            end
+          end
+          Zip::Reader.check_entry(entry, size, crc, name)
         end
       end
 
