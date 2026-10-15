@@ -3539,6 +3539,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 | `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
 | `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet, or `IOStreams::Errors::StreamFailure` for a part whose size or CRC32 is not the one that the spreadsheet records | Never | Never |
 | `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, including a signature that is cut short, which gpg itself does not report, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
+| `.parquet` | `RuntimeError` from the parquet gem, which raises it for a file that is not Parquet, or is damaged or cut short | Never | Never |
 
 The PGP stream tells why gpg failed from gpg's status, which does not depend on the locale. A PGP file that was not
 signed by the `signer`, or that gpg does not trust, raises `IOStreams::Pgp::Failure` without a kind of failure, since
@@ -3702,7 +3703,12 @@ also rescue an attempt to access a path that the application does not allow, suc
   For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
   which raises `Corrupt`.
 * A stream can only report the corruption that it, or its gem, detects. A damaged frame of `.zst` data without the
-  checksum of its content, which `.zst` written on MRI does not have, is not detected.
+  checksum of its content, which `.zst` written on MRI does not have, is not detected, nor is most damage to the values
+  within the data pages of a Parquet file, which the parquet gem reads as other values.
+* The parquet gem raises a plain `RuntimeError` for every failure, without a class of its own, so IOStreams tags only a
+  `RuntimeError` that the gem raised while the block was not running, and that is not an operating system error. Some
+  damaged Parquet files make the parquet gem 0.9 stop with Ruby's `fatal`, which no `rescue` can catch, and which ends
+  the process when it is raised in its main thread, until the gem catches the panics of the Rust library that it uses.
 
 ## Storage registered with `IOStreams.register_scheme`
 
