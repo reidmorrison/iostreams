@@ -3099,6 +3099,12 @@ IOStreams.path("example.csv.enc").each(:hash) { |record| p record }
 
 A `version` that is not configured raises `SymmetricEncryption::CipherError` before the file is opened.
 
+Reading a file whose header names a version of the cipher that is not configured raises
+`SymmetricEncryption::CipherError`, tagged as `IOStreams::Errors::MissingKey`. Data that the cipher cannot decrypt,
+such as data that is damaged, cut short, or encrypted with another key, raises `OpenSSL::Cipher::CipherError`, tagged
+as `IOStreams::Errors::Corrupt`, and so does an empty file, which the writer never writes, since encrypting no data
+still writes the header, or a block of padding. See [Errors](errors#what-each-stream-raises).
+
 ### PGP
 
 `.pgp` and `.gpg` files are encrypted, decrypted, signed and verified with the `gpg` program of GnuPG, which must be
@@ -3526,7 +3532,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 | `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError`, or `IOStreams::Errors::StreamFailure` for empty data | Never | Never |
 | `.zst` | `RuntimeError` | Never | Never |
 | `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
-| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
+| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
 | `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never | Never |
 | `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
 
@@ -3692,8 +3698,7 @@ also rescue an attempt to access a path that the application does not allow, suc
   For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
   which raises `Corrupt`.
 * A stream can only report the corruption that it, or its gem, detects. A damaged frame of `.zst` data without the
-  checksum of its content, which `.zst` written on MRI does not have, is not detected. An empty `.enc` file reads as
-  empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
+  checksum of its content, which `.zst` written on MRI does not have, is not detected. rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
 
 ## Storage registered with `IOStreams.register_scheme`
 
@@ -5515,6 +5520,14 @@ Reading an empty `.bz2` file raises `IOStreams::Errors::Corrupt`, as `bzip2 -d` 
 with its header, even when it holds no data. Previously it read as empty.
 
 Fix: write files that hold no data as bzip2 data, as IOStreams does, rather than as empty files, or rescue
+`IOStreams::Errors::Corrupt`.
+
+#### An empty `.enc` file raises `Corrupt`
+
+Reading an empty `.enc` file raises `IOStreams::Errors::Corrupt`, since the writer never writes one: encrypting no
+data still writes the header, or a block of padding. Previously it read as empty.
+
+Fix: write files that hold no data through the `.enc` stream, rather than as empty files, or rescue
 `IOStreams::Errors::Corrupt`.
 
 #### Reading gzip returns every member

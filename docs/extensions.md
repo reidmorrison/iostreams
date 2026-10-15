@@ -263,6 +263,12 @@ IOStreams.path("example.csv.enc").each(:hash) { |record| p record }
 
 A `version` that is not configured raises `SymmetricEncryption::CipherError` before the file is opened.
 
+Reading a file whose header names a version of the cipher that is not configured raises
+`SymmetricEncryption::CipherError`, tagged as `IOStreams::Errors::MissingKey`. Data that the cipher cannot decrypt,
+such as data that is damaged, cut short, or encrypted with another key, raises `OpenSSL::Cipher::CipherError`, tagged
+as `IOStreams::Errors::Corrupt`, and so does an empty file, which the writer never writes, since encrypting no data
+still writes the header, or a block of padding. See [Errors](errors#what-each-stream-raises).
+
 ### PGP
 
 `.pgp` and `.gpg` files are encrypted, decrypted, signed and verified with the `gpg` program of GnuPG, which must be

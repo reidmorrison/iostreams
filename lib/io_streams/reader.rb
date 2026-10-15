@@ -1,7 +1,25 @@
 # frozen_string_literal: true
 
+require "delegate"
+
 module IOStreams
   class Reader
+    # An input stream that notes whether any data was read from it, for a reader whose gem reads empty input as empty
+    # data, such as bzip2-ffi, where the format always starts with a header, so that empty input is not the format.
+    # Every other method is the input stream's own, such as `#close` and `#seek`.
+    class Input < SimpleDelegator
+      def read(...)
+        data = __getobj__.read(...)
+        @read ||= !data.nil? && !data.empty?
+        data
+      end
+
+      # Returns [true|false] whether any data was read from the input stream.
+      def read?
+        @read || false
+      end
+    end
+
     # Returns [Array<Symbol>] the names of the options this reader accepts,
     # or [nil] when the reader does not declare them.
     #

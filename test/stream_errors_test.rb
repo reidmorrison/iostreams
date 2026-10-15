@@ -24,9 +24,6 @@ class StreamErrorsTest < Minitest::Test
     gpg:  "IOStreams::Pgp::Failure"
   }.freeze
 
-  # The streams that read empty data as empty, rather than raising.
-  READ_EMPTY = %i[enc].freeze
-
   # Options needed to write and read each stream.
   STREAM_OPTIONS = {
     pgp: [{recipient: "receiver@example.org"}, {passphrase: "receiver_passphrase"}],
@@ -64,8 +61,6 @@ class StreamErrorsTest < Minitest::Test
       end
 
       it "raises Corrupt for empty #{name.inspect} data" do
-        skip("#{name.inspect} reads empty data as empty") if READ_EMPTY.include?(name)
-
         assert_raises(IOStreams::Errors::Corrupt) { read(name, "".b) }
       end
 

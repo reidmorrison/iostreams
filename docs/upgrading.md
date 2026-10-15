@@ -475,6 +475,14 @@ with its header, even when it holds no data. Previously it read as empty.
 Fix: write files that hold no data as bzip2 data, as IOStreams does, rather than as empty files, or rescue
 `IOStreams::Errors::Corrupt`.
 
+#### An empty `.enc` file raises `Corrupt`
+
+Reading an empty `.enc` file raises `IOStreams::Errors::Corrupt`, since the writer never writes one: encrypting no
+data still writes the header, or a block of padding. Previously it read as empty.
+
+Fix: write files that hold no data through the `.enc` stream, rather than as empty files, or rescue
+`IOStreams::Errors::Corrupt`.
+
 #### Reading gzip returns every member
 
 Reading a gzip file that contains several members, for example concatenated gzip files, now returns

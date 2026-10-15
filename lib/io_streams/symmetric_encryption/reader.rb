@@ -37,14 +37,19 @@ module IOStreams
       #
       # Raises `OpenSSL::Cipher::CipherError`, tagged as `IOStreams::Errors::Corrupt`, for data that the cipher cannot
       # decrypt, see .failure_kind, and the exception of the gzip stream for compressed data that it cannot decompress.
+      # Raises `IOStreams::Errors::StreamFailure`, tagged the same way, for empty data, which the writer never writes,
+      # since encrypting no data still writes the header, or a block of padding.
       def self.stream(input_stream, buffer_size: 16_384, version: nil, &block)
         Utils.load_soft_dependency("symmetric-encryption", ".enc streaming") unless defined?(::SymmetricEncryption)
 
         begin
+          input      = Input.new(input_stream)
           # Reads the header, and decrypts the key that it holds.
-          reader     = tag_failure { ::SymmetricEncryption::Reader.new(input_stream, buffer_size: buffer_size, version: version) }
+          reader     = tag_failure { ::SymmetricEncryption::Reader.new(input, buffer_size: buffer_size, version: version) }
           io         = BlockReader.new(reader, failures: self)
           compressed = tag_failure { !reader.eof? && reader.compressed? }
+          raise(Errors::Corrupt.tag(Errors::StreamFailure.new("The encrypted data is empty"))) unless input.read?
+
           compressed ? Gzip::Reader.stream(io, &block) : block.call(io)
         ensure
           reader&.close(false)

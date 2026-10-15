@@ -178,7 +178,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 | `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError`, or `IOStreams::Errors::StreamFailure` for empty data | Never | Never |
 | `.zst` | `RuntimeError` | Never | Never |
 | `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
-| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
+| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
 | `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never | Never |
 | `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
 
@@ -344,8 +344,7 @@ also rescue an attempt to access a path that the application does not allow, suc
   For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
   which raises `Corrupt`.
 * A stream can only report the corruption that it, or its gem, detects. A damaged frame of `.zst` data without the
-  checksum of its content, which `.zst` written on MRI does not have, is not detected. An empty `.enc` file reads as
-  empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
+  checksum of its content, which `.zst` written on MRI does not have, is not detected. rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
 
 ## Storage registered with `IOStreams.register_scheme`
 

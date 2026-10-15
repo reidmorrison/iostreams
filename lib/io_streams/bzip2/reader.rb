@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "delegate"
-
 module IOStreams
   module Bzip2
     class Reader < IOStreams::Reader
@@ -43,26 +41,12 @@ module IOStreams
         Utils.load_soft_dependency("bzip2-ffi", "Bzip2", "bzip2/ffi") unless defined?(::Bzip2::FFI)
 
         begin
+          # bzip2-ffi calls `#close` on it when `autoclose: true`, and `#seek` when `first_only: true`.
           input  = Input.new(input_stream)
           reader = ::Bzip2::FFI::Reader.new(input, autoclose: autoclose, first_only: first_only, small: small)
           yield Decompressor.new(reader, input)
         ensure
           reader&.close
-        end
-      end
-
-      # The input stream of bzip2-ffi, which notes whether any data was read from it. Every other method is the input
-      # stream's own, such as `#close`, which bzip2-ffi calls when `autoclose: true`.
-      class Input < SimpleDelegator
-        def read(...)
-          data = __getobj__.read(...)
-          @read ||= !data.nil? && !data.empty?
-          data
-        end
-
-        # Returns [true|false] whether any data was read from the input stream.
-        def read?
-          @read || false
         end
       end
 
