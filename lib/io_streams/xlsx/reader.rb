@@ -16,11 +16,24 @@ module IOStreams
         %i[sheet_name]
       end
 
+      # Returns [Module] `IOStreams::Errors::Corrupt` for an exception that creek raises for a file that is not a
+      # spreadsheet, see `IOStreams::Reader.failure_kind`: `Zip::Error` from rubyzip, which creek reads the spreadsheet
+      # with, for a file that is not a zip file, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet,
+      # such as `xl/workbook.xml`.
+      def self.failure_kind(exception)
+        Errors::Corrupt if (defined?(::Zip::Error) && exception.is_a?(::Zip::Error)) || exception.is_a?(::Errno::ENOENT)
+      end
+
       # Convert a xlsx, or xlsm file into CSV format.
+      #
+      # Raises the exception of creek, tagged as `IOStreams::Errors::Corrupt`, for a file that is not a spreadsheet, see
+      # .failure_kind.
       def self.file(file_name, &block)
         # Stream into a temp file as csv
         Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
-          ::File.open(temp_file_name, "wb") { |io| new(file_name).each { |lines| io << lines.to_csv } }
+          ::File.open(temp_file_name, "wb") do |io|
+            tag_failure(file_name) { new(file_name).each { |lines| io << lines.to_csv } }
+          end
           ::File.open(temp_file_name, "rb", &block)
         end
       end

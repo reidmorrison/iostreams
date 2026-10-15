@@ -40,19 +40,19 @@ module IOStreams
 
         # Returns [String] the next block of decompressed data, or [nil] at the end of the stream.
         #
-        # Raises [RuntimeError] for data that is not zstd, a frame cut short at the end of the input stream, or an input
-        # stream without any data, like `zstd -d`.
+        # Raises [RuntimeError] tagged as `IOStreams::Errors::Corrupt`, see `Zstd.corrupt`, for data that is not zstd, a
+        # frame cut short at the end of the input stream, or an input stream without any data, like `zstd -d`.
         def read_block
           count = @zstd.read(@buffer, 0, BLOCK_SIZE)
           if count.negative?
-            raise("zstd decompress error: the data is empty") unless @input.read?
+            raise(Zstd.corrupt("the data is empty")) unless @input.read?
 
             return
           end
 
           String.from_java_bytes(java.util.Arrays.copy_of_range(@buffer, 0, count))
         rescue java.io.IOException => e
-          raise("zstd decompress error: #{e.message}")
+          raise(Zstd.corrupt(e.message))
         end
 
         # Frees the native decompression context, without closing the input stream, which belongs to the caller.

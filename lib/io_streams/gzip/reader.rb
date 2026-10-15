@@ -12,12 +12,22 @@ module IOStreams
         []
       end
 
+      # Returns [Module] `IOStreams::Errors::Corrupt` for an exception that Zlib raises for data that is not gzip, or is
+      # damaged or cut short, such as `Zlib::GzipFile::Error` and its `Zlib::GzipFile::CRCError`, see
+      # `IOStreams::Reader.failure_kind`.
+      def self.failure_kind(exception)
+        Errors::Corrupt if exception.is_a?(::Zlib::GzipFile::Error) || exception.is_a?(::Zlib::DataError)
+      end
+
       # Read from a gzip stream, decompressing the contents as it is read.
       #
       # A gzip file can contain several members one after the other, for example when gzip files
       # are concatenated, and like `gunzip` the contents of every member are returned.
       #
       # The stream supplied to the block responds to #read, #readpartial and #eof?, see `IOStreams::ChunkReader`.
+      #
+      # Raises `Zlib::GzipFile::Error` or `Zlib::DataError`, tagged as `IOStreams::Errors::Corrupt`, for data that is not
+      # gzip, or is damaged or cut short.
       def self.stream(input_stream)
         io = Members.new(input_stream)
         yield io
@@ -34,7 +44,8 @@ module IOStreams
 
         def initialize(input_stream)
           @source = Source.new(input_stream)
-          @gzip   = gzip_reader
+          # Reads the header of the first member.
+          @gzip   = Reader.tag_failure { gzip_reader }
         end
 
         # Finishes the gzip reader, without closing the input stream, which belongs to the caller.
@@ -50,10 +61,12 @@ module IOStreams
 
         # Returns [String] the next data decompressed, or nil after the last member, see `IOStreams::ChunkReader`.
         def next_chunk
-          loop do
-            data = read_member
-            return data if data
-            return unless next_member?
+          Reader.tag_failure do
+            loop do
+              data = read_member
+              return data if data
+              return unless next_member?
+            end
           end
         end
 

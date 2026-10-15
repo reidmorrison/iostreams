@@ -48,16 +48,18 @@ module IOStreams
         # once, which could be gigabytes for 64KB of data that compresses well.
         #
         # A frame cut short at the end of the input stream is not detected, since `zstd-ruby` does not report it.
+        #
+        # Raises [RuntimeError] tagged as `IOStreams::Errors::Corrupt` for data that is not zstd, see `Zstd.corrupt`.
         def read_block
           loop do
             read_input if @input.empty? && !@end_of_input
-            data, read = @zstd.decompress_with_pos(@input)
+            data, read = decompress
             @input     = @input.byteslice(read..)
             return data unless data.empty?
             # Without any input to read, zstd has also written out all of the data it holds.
             return if @end_of_input && @input.empty?
             # zstd reads some of the input whenever it writes no data, so this would loop forever.
-            raise("zstd decompress error: none of the input was read") if read.zero? && !@input.empty?
+            raise(Zstd.corrupt("none of the input was read")) if read.zero? && !@input.empty?
           end
         end
 
@@ -66,11 +68,19 @@ module IOStreams
 
         private
 
+        # Returns [Array(String, Integer)] the data that zstd decompressed from the input, and how much of the input it
+        # read. Tags the RuntimeError that `zstd-ruby` raises for data that is not zstd as `IOStreams::Errors::Corrupt`.
+        def decompress
+          @zstd.decompress_with_pos(@input)
+        rescue RuntimeError => e
+          raise(Errors::Corrupt.tag(e))
+        end
+
         # Raises [RuntimeError] at the end of an input stream without any data, which is not zstd, like `zstd -d`.
         def read_input
           block = @input_stream.read(BLOCK_SIZE)
           if block.nil?
-            raise("zstd decompress error: the data is empty") unless @read
+            raise(Zstd.corrupt("the data is empty")) unless @read
 
             @end_of_input = true
           else

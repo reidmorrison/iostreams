@@ -29,6 +29,30 @@ module IOStreams
       []
     end
 
+    # Returns [Module] the kind of failure, such as `IOStreams::Errors::Corrupt`, that an exception raised by the gem
+    # that reads this format means, or nil when it is none of them, see `IOStreams::Errors::StreamError`.
+    #
+    # Each reader returns the kinds of failure of its own gem, and makes each call of its gem within `.tag_failure`, so
+    # that the caller rescues the kind of failure, rather than the exception of a gem, which can be replaced by another.
+    # A reader registered with `IOStreams.register_extension` can do the same.
+    def self.failure_kind(_exception)
+      nil
+    end
+
+    # Calls the block, which calls the gem that reads this format, and tags an exception that it raises with the kind of
+    # failure that it means, see `.failure_kind`, and the display name of the file that is read, when it is known.
+    #
+    # Only call the gem within the block, never a block that the caller supplied, since an exception raised by the
+    # caller's block, such as a `Zlib::GzipFile::Error` from another gzip file, is not a failure of this stream.
+    def self.tag_failure(display_name = nil)
+      yield
+    rescue StandardError => e
+      kind = failure_kind(e)
+      raise unless kind
+
+      raise(kind.tag(e, display_name))
+    end
+
     # When a Reader does not support streams, it reads the file of the stream when the stream is already
     # a local file, see `.input_file_name`. Otherwise the stream is copied to a local temp file,
     # and that file name is passed to this reader.

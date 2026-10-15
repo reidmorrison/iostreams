@@ -41,5 +41,12 @@ module IOStreams
     def self.encrypted?
       false
     end
+
+    # Returns [RuntimeError] the error for data that is not valid zstd, for the supplied reason, tagged as
+    # `IOStreams::Errors::Corrupt`. It is a RuntimeError, which `zstd-ruby` raises itself, so that the decoder of every
+    # library raises the same class.
+    def self.corrupt(reason)
+      Errors::Corrupt.tag(RuntimeError.new("zstd decompress error: #{reason}"))
+    end
   end
 end

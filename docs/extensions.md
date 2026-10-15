@@ -242,6 +242,10 @@ end
 As a precaution, the value of any option whose name contains `passphrase`, `password` or `secret` is not
 displayed either.
 
+A reader class tags the exceptions that its gem raises for data that it cannot read with the kind of failure, such
+as `IOStreams::Errors::Corrupt`, so that callers rescue the kind of failure whatever the format, see
+[Errors](errors#formats-registered-with-iostreamsregister_extension).
+
 A format that is neither compressed nor encrypted can instead be registered with just its reader and
 writer classes:
 

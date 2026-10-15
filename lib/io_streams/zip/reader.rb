@@ -9,12 +9,19 @@ module IOStreams
         %i[entry_file_name]
       end
 
-      # Returns [Zip::Error] the error of rubyzip with the supplied message, so that a zip file that cannot be read
-      # raises the same error on every platform. JRuby reads zip files with `java.util.zip`, so it only loads rubyzip
-      # for this error.
-      def self.error(message)
-        Utils.load_soft_dependency("rubyzip", "Zip", "zip") unless defined?(::Zip::Error)
-        ::Zip::Error.new(message)
+      # Returns [Module] `IOStreams::Errors::Corrupt` for `Zip::Error`, which rubyzip raises for a file that is not a zip
+      # file, data that it cannot decompress, or a part of the format that it does not support, such as a file
+      # encrypted with a password, see `IOStreams::Reader.failure_kind`. Only MRI reads zip files with rubyzip.
+      def self.failure_kind(exception)
+        Errors::Corrupt if defined?(::Zip::Error) && exception.is_a?(::Zip::Error)
+      end
+
+      # Returns [IOStreams::Errors::StreamFailure] the failure with the supplied message, tagged with the supplied kind
+      # of failure, such as `IOStreams::Errors::MissingEntry`, and the name of the zip file, for a failure that this
+      # reader finds itself, so that it raises the same exception on every platform, whichever library reads the zip
+      # file.
+      def self.failure(kind, message, file_name)
+        kind.tag(Errors::StreamFailure.new(message), file_name)
       end
 
       # Returns [String] the message for a zip file that does not contain the file to read.
@@ -42,9 +49,12 @@ module IOStreams
       #
       # The stream supplied to the block responds to #read, #readpartial and #eof?, see `IOStreams::ChunkReader`.
       #
-      # Raises [Zip::Error] when the zip file does not contain the file to read, or does not contain a file at all,
-      # such as one of only folders, and once the whole file has been read, when its data is corrupt: its size, or its
-      # CRC32, is not the one that the zip file records.
+      # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::MissingEntry` when the zip file does not
+      # contain the file to read, or does not contain a file at all, such as one of only folders, and tagged as
+      # `IOStreams::Errors::Corrupt` once the whole file has been read, when its data is corrupt: its size, or its
+      # CRC32, is not the one that the zip file records. A file that is not a zip file, or data that cannot be
+      # decompressed, also raises an exception tagged as `IOStreams::Errors::Corrupt`: rubyzip's `Zip::Error` on MRI,
+      # and the StreamFailure on JRuby, which reads zip files with `java.util.zip`.
       #
       # Example:
       #   IOStreams::Zip::Reader.open('abc.zip') do |io_stream|
@@ -67,13 +77,28 @@ module IOStreams
 
         # Returns the entry of the file to read, skipping any folders. Raises when the zip file does not contain it, or
         # when a file before it is corrupt, which `java.util.zip` finds as it reads past it.
+        #
+        # `java.util.zip` finds no entries in a file that is not a zip file, rather than raising, so it is told apart
+        # from a zip file without any entries by how it starts, see .empty_zip?.
         def self.find_entry(zin, entry_file_name, file_name)
+          entries = false
           while (entry = zin.get_next_entry)
+            entries = true
             return entry if !entry.directory? && (entry_file_name.nil? || entry.name == entry_file_name)
           end
-          raise(error(missing_message(entry_file_name, file_name)))
+          unless entries || empty_zip?(file_name)
+            raise(failure(Errors::Corrupt, "The file #{file_name} is not a zip file", file_name))
+          end
+
+          raise(failure(Errors::MissingEntry, missing_message(entry_file_name, file_name), file_name))
         rescue Java::JavaUtilZip::ZipException, Java::JavaIo::EOFException => e
-          raise(error("The zip file #{file_name} is corrupt: #{e.message}"))
+          raise(failure(Errors::Corrupt, "The zip file #{file_name} is corrupt: #{e.message}", file_name))
+        end
+
+        # Returns [true|false] whether the file is a zip file without any entries, which holds only the end of its
+        # central directory, and so starts with its signature.
+        def self.empty_zip?(file_name)
+          ::File.binread(file_name, 4) == "PK\x05\x06".b
         end
 
         # Reads a file within a zip file from `java.util.zip`, a block at a time, like an IO.
@@ -97,27 +122,36 @@ module IOStreams
 
           # Returns [String] the next block of the file, or nil at its end, see `IOStreams::ChunkReader`.
           #
-          # Raises [Zip::Error] for a file whose data is corrupt, with the reason that `java.util.zip` gives, which
-          # a Ruby IO of the stream raises as `SystemCallError: Unknown error`.
+          # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` for a file whose data is
+          # corrupt, with the reason that `java.util.zip` gives, which a Ruby IO of the stream raises as
+          # `SystemCallError: Unknown error`.
           def next_chunk
             count = @zin.read(@buffer, 0, BLOCK_SIZE)
             return if count.negative?
 
             String.from_java_bytes(Java::JavaUtil::Arrays.copy_of_range(@buffer, 0, count))
           rescue Java::JavaUtilZip::ZipException, Java::JavaIo::EOFException => e
-            raise(Reader.error(Reader.corrupt_message(@entry_name, @file_name, e.message)))
+            raise(Reader.failure(Errors::Corrupt, Reader.corrupt_message(@entry_name, @file_name, e.message), @file_name))
           end
         end
       else
         # Read from a zip file or stream, decompressing the contents as it is read
         # The input stream from the first file found in the zip file is passed
         # to the supplied block
+        #
+        # rubyzip is called within `.tag_failure`, but not the block, see `IOStreams::Reader.tag_failure`.
         def self.file(file_name, entry_file_name: nil, &block)
           Utils.load_soft_dependency("rubyzip", "Zip", "zip") unless defined?(::Zip::File)
 
-          ::Zip::File.open(file_name) do |zip_file|
-            entry = find_entry(zip_file, entry_file_name) || raise(error(missing_message(entry_file_name, file_name)))
-            entry.get_input_stream { |input| block.call(Entry.new(input, entry, file_name)) }
+          zip_file = tag_failure(file_name) { ::Zip::File.open(file_name) }
+          entry    = find_entry(zip_file, entry_file_name)
+          raise(failure(Errors::MissingEntry, missing_message(entry_file_name, file_name), file_name)) unless entry
+
+          input = tag_failure(file_name) { entry.get_input_stream }
+          begin
+            block.call(Entry.new(input, entry, file_name))
+          ensure
+            input.close
           end
         end
 
@@ -144,8 +178,11 @@ module IOStreams
 
           private
 
+          # Returns [String] the next block of the file, or nil at its end, see `IOStreams::ChunkReader`. Tags an
+          # exception that rubyzip raises for data that it cannot decompress, see `Reader.failure_kind`, and checks the
+          # file once all of it has been read, see #check.
           def next_chunk
-            chunk = super
+            chunk = Reader.tag_failure(@file_name) { super }
             if chunk
               @crc   = Zlib.crc32(chunk, @crc)
               @size += chunk.bytesize
@@ -155,8 +192,8 @@ module IOStreams
             chunk
           end
 
-          # Raises [Zip::Error] unless the data read has the size and the CRC32 of the file, giving the reason the way
-          # that `java.util.zip` gives it on JRuby.
+          # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` unless the data read has the
+          # size and the CRC32 of the file, giving the reason the way that `java.util.zip` gives it on JRuby.
           def check
             if @size != @entry.size
               corrupt("invalid entry size (expected #{@entry.size} but got #{@size} bytes)")
@@ -167,7 +204,7 @@ module IOStreams
           end
 
           def corrupt(reason)
-            raise(Reader.error(Reader.corrupt_message(@entry.name, @file_name, reason)))
+            raise(Reader.failure(Errors::Corrupt, Reader.corrupt_message(@entry.name, @file_name, reason), @file_name))
           end
         end
       end

@@ -20,6 +20,12 @@ module IOStreams
     class CommunicationsFailure < Error
     end
 
+    # A stream found that it cannot read the data of a file, such as a file within a zip file whose CRC32 is not the one
+    # that the zip file records, or a zip file that does not contain the file to read. It is tagged with the kind of
+    # failure, such as `Corrupt` or `MissingEntry`, see StreamError.
+    class StreamFailure < Error
+    end
+
     # When a path is not within any of the allowed paths, see `IOStreams.add_allowed_path`.
     #
     # IOStreams raises it to enforce the access that the application allows, so it is not a `PermissionDenied`,
@@ -111,6 +117,103 @@ module IOStreams
       end
     end
 
+    # The display name of the file that failed, and the message that starts with it, for an exception that a kind of
+    # failure tags, such as `NotFound` or `Corrupt`. Each family of kinds of failure, StorageError and StreamError,
+    # includes it.
+    #
+    # A kind of failure tags the exception that was raised, rather than replacing it, so that the exception keeps its
+    # class, backtrace and attributes, and can still be rescued by its own class.
+    module Tagged
+      # Returns [String] the display name of the file that failed, which does not include any credentials, see
+      # `IOStreams::Path#display_name`, or nil when it is not known.
+      def display_name
+        @iostreams_display_name
+      end
+
+      # Returns [String] the message, starting with the display name, unless it already includes it, or is not known.
+      def to_s
+        prefix_display_name(super)
+      end
+
+      # Returns [String] the message, see #to_s, also for an exception whose class answers its own message, rather than
+      # its #to_s, such as `Zip::DecompressionError` of rubyzip.
+      def message
+        prefix_display_name(super)
+      end
+
+      # Adds `.tag` to each kind of failure, such as `NotFound.tag`.
+      module Tag
+        # Tags the exception with this kind of failure, and the display name of the file that failed, when known.
+        #
+        # Returns [Exception] the exception. It is unchanged when it is frozen, or when it is already tagged with any
+        # kind of failure, for example by a path that failed within a block that another path called, or by the stream
+        # that another stream reads.
+        def tag(exception, display_name = nil)
+          return exception if exception.frozen? || exception.is_a?(Tagged)
+
+          exception.instance_variable_set(:@iostreams_display_name, display_name)
+          exception.extend(self)
+        end
+      end
+
+      # Gives each kind of failure that includes a family, such as `NotFound`, which includes StorageError, `.tag`.
+      module Family
+        def included(kind)
+          super
+          kind.extend(Tag)
+        end
+      end
+
+      def self.included(family)
+        super
+        family.extend(Family)
+      end
+
+      private
+
+      def prefix_display_name(text)
+        name = display_name
+        name.nil? || text.nil? || text.include?(name) ? text : "#{name}: #{text}"
+      end
+    end
+    private_constant :Tagged
+
+    # Every kind of failure of a stream to read the data of a file, such as `Corrupt`, includes StreamError. A stream,
+    # such as gzip or zip, tags the exception that the gem reading its format raised with the kind of failure, rather
+    # than replacing it, and raises `StreamFailure` tagged with it for a failure that it finds itself, see
+    # `docs/errors.md`.
+    #
+    # Rescue the kind of failure, rather than the exception of a gem, such as `Zlib::GzipFile::Error` for gzip, so that
+    # the code works whichever streams the file name names, for example when a path held in configuration changes from
+    # `.gz` to `.zip`, and whichever gem reads the format, which can be replaced by another, or differ by platform.
+    #
+    # Its message starts with the display name of the file, when the stream knows it, unless the message already
+    # includes it.
+    #
+    # Example:
+    #   begin
+    #     IOStreams.path("orders.csv.gz").each(:hash) { |record| Order.import(record) }
+    #   rescue IOStreams::Errors::Corrupt => e
+    #     e.class   # => Zlib::GzipFile::Error
+    #     e.message # => "not in gzip format"
+    #   end
+    module StreamError
+      include Tagged
+    end
+
+    # The data is not valid in the format of its stream, so that the stream cannot read it: it is damaged, cut short, or
+    # not in that format at all, such as a text file named `.gz`, or it uses a part of the format that the stream does not
+    # support, such as a zip file encrypted with a password.
+    module Corrupt
+      include StreamError
+    end
+
+    # The file does not contain the entry to read, such as a zip file without the file named by `entry_file_name`, or
+    # without any file at all.
+    module MissingEntry
+      include StreamError
+    end
+
     # Every kind of failure of the storage that a path is on, such as `NotFound`, includes StorageError. A path tags
     # the exception that its storage raised with the kind of failure, rather than replacing it, see `docs/errors.md`.
     #
@@ -118,7 +221,6 @@ module IOStreams
     # local file or `Aws::S3::Errors::NoSuchKey` for S3, so that the code works whichever storage the path is on,
     # for example when a path held in configuration changes from local files to S3.
     #
-    # A tagged exception keeps its class, backtrace and attributes, so that it can still be rescued by its own class.
     # Its message starts with the display name of the path, unless the message already includes it.
     #
     # Example:
@@ -129,39 +231,7 @@ module IOStreams
     #     e.message      # => "s3://my-bucket/data/report.csv: The specified key does not exist."
     #   end
     module StorageError
-      # Returns [String] the display name of the path whose storage failed, which does not include any credentials,
-      # see `IOStreams::Path#display_name`.
-      def display_name
-        @iostreams_display_name
-      end
-
-      # Returns [String] the message, starting with the display name of the path, unless it already includes it.
-      def to_s
-        text = super
-        name = display_name
-        name.nil? || text.include?(name) ? text : "#{name}: #{text}"
-      end
-
-      # Adds `.tag` to each kind of failure, such as `NotFound.tag`.
-      module Tag
-        # Tags the exception with this kind of failure, and the display name of the path whose storage raised it.
-        #
-        # Returns [Exception] the exception. It is unchanged when it is frozen, or when it is already tagged, for
-        # example by a path that failed within a block that another path called.
-        def tag(exception, display_name)
-          return exception if exception.frozen? || exception.is_a?(StorageError)
-
-          exception.instance_variable_set(:@iostreams_display_name, display_name)
-          exception.extend(self)
-        end
-      end
-      private_constant :Tag
-
-      # Each kind of failure that includes StorageError, such as `NotFound`, answers `.tag`.
-      def self.included(kind)
-        super
-        kind.extend(Tag)
-      end
+      include Tagged
     end
 
     # The file, a directory that it is in, or its S3 bucket, does not exist.

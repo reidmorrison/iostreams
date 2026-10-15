@@ -2,18 +2,25 @@
 layout: default
 title: Errors
 description: >-
-  Rescue a missing file, a file that cannot be accessed, or a server that cannot
-  be reached, the same way wherever the file is stored, keeping the exception that
-  the storage raised, and the other exceptions that IOStreams raises.
+  Rescue a missing file, a file that cannot be accessed, a server that cannot
+  be reached, or a file whose data is corrupt, the same way wherever the file is
+  stored and whatever its format, keeping the exception that was raised, and the
+  other exceptions that IOStreams raises.
 ---
 
 When a path's storage fails, for example because the file does not exist, the path raises the exception that its
 storage raised, such as `Errno::ENOENT` for a local file or `Aws::S3::Errors::NoSuchKey` for S3. It tags that
 exception with the kind of failure: `IOStreams::Errors::NotFound`, `PermissionDenied` or `Unavailable`.
 
-Rescue the kind of failure, rather than the exception from one storage, so that the same code keeps working when the
-path changes, for example from a local file in development to S3 in production. See
-[Paths are configuration](config#paths-are-configuration).
+Likewise, when a stream cannot read the data of a file, for example because a file named `.gz` is not gzip data, or a
+zip file does not contain the file to read, the stream raises the exception of the gem that reads the format, such as
+`Zlib::GzipFile::Error`, tagged with the kind of failure: `IOStreams::Errors::Corrupt` or `MissingEntry`.
+
+Rescue the kind of failure, rather than the exception from one storage or one gem, so that the same code keeps working
+when the path changes, for example from a local file in development to S3 in production, or from `.gz` to `.zip`. See
+[Paths are configuration](config#paths-are-configuration). It also keeps working when IOStreams replaces the gem that
+reads a format with a newer or better one, or reads it with another library on another platform, as JRuby reads zip
+files with Java.
 
 ## Rescue the kind of failure
 
@@ -41,16 +48,48 @@ rescue Errno::ENOENT
 rescue Errno::ENOENT, Aws::S3::Errors::NoSuchKey, IOStreams::Errors::CommunicationsFailure
 ~~~
 
+## Rescue a file that cannot be read, whatever its format
+
+~~~ruby
+path = IOStreams.path(ENV.fetch("IMPORT_PATH"))
+
+begin
+  path.each(:hash) { |record| Order.import(record) }
+rescue IOStreams::Errors::Corrupt => e
+  logger.error("#{path.display_name} cannot be read, ask for it to be sent again", e)
+end
+~~~
+
+The same rescue handles a file that is damaged, cut short, or not in its format at all, whether `IMPORT_PATH` is
+`orders.csv.gz`, `orders.csv.bz2`, `orders.csv.zst`, `orders.zip`, `orders.csv.enc` or `orders.xlsx`.
+
+Rescuing the exception of one gem only works for that format:
+
+~~~ruby
+# Avoid: misses a corrupt file once the file name changes to .bz2 or .zip.
+rescue Zlib::GzipFile::Error
+~~~
+
 ## The exception tree
 
-The kinds of failure are modules that tag the exception that the storage raised:
+The kinds of failure are modules that tag the exception that the storage, or the gem that reads a format, raised:
 
-* `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure includes it.
+* `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure of the storage includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
   * `IOStreams::Errors::PermissionDenied`: the storage does not permit the access, or the credentials for it are
     missing or not valid.
   * `IOStreams::Errors::Unavailable`: the storage could not be reached, or could not handle the request at the time,
     so that the same request can succeed when it is made again later.
+* `IOStreams::Errors::StreamError`: a stream, such as gzip or zip, cannot read the data of the file. Every kind of
+  failure of a stream includes it.
+  * `IOStreams::Errors::Corrupt`: the data is not valid in the format of its stream: it is damaged, cut short, or
+    not in that format at all, such as a text file named `.gz`, or it uses a part of the format that the stream does
+    not support, such as a zip file encrypted with a password.
+  * `IOStreams::Errors::MissingEntry`: the file does not contain the entry to read, such as a zip file without the
+    file named by `entry_file_name`, or without any file at all.
+
+A failure of the storage is never a failure of a stream, so rescuing `NotFound` does not rescue a zip file without
+the file to read, which reading again will not fix.
 
 IOStreams raises these classes itself:
 
@@ -59,6 +98,9 @@ IOStreams raises these classes itself:
     [allowed paths](path#restricting-access-with-allowed-paths). It is not a `PermissionDenied`, see below.
   * `IOStreams::Errors::CommunicationsFailure`: an SFTP or HTTP request failed. It is also tagged with the kind
     of failure when the failure is known, such as a `404 Not Found` response.
+  * `IOStreams::Errors::StreamFailure`: a stream found that it cannot read the data, such as a zip file that does not
+    contain the file to read, or a file within a zip file whose CRC32 is not the one that the zip file records. It is
+    tagged with the kind of failure, `Corrupt` or `MissingEntry`.
   * `IOStreams::Errors::UnknownFormat`: the tabular format cannot be inferred from the file name.
   * `IOStreams::Errors::MissingHeader`: the columns are needed, but are not known: to write a header row when they
     are not set, or, with a schema, to read a row of a file with a header row before the header row is read.
@@ -108,6 +150,25 @@ SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem
 A failure that is none of these kinds raises its exception without a tag, such as an SFTP host key that does not
 match, or an HTTPS certificate that is not trusted.
 
+## What each stream raises
+
+The exception that each stream raises when it cannot read the data, which is tagged with the kind of failure:
+
+| Stream | `Corrupt` | `MissingEntry` |
+|--------|-----------|----------------|
+| `.gz`, `.gzip` | `Zlib::GzipFile::Error`, such as its `Zlib::GzipFile::CRCError` or `NoFooter`, or `Zlib::DataError` | Never |
+| `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError` | Never |
+| `.zst` | `RuntimeError` | Never |
+| `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` |
+| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data | Never |
+| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never |
+
+`.pgp` and `.gpg` do not tag their failures yet: gpg raises `IOStreams::Pgp::Failure`, whose message gives the
+reason, since gpg does not always tell a key that is missing or wrong apart from corrupt data.
+
+Rescue the kind of failure rather than these exceptions: they belong to the gem that reads the format, which a newer
+version of IOStreams can replace with another, and the zip stream already raises different ones on MRI and JRuby.
+
 ## The exception is kept
 
 The tag does not replace the exception, so its class and attributes stay the same, and code that rescues it by its
@@ -125,9 +186,22 @@ end
 ~~~
 
 * `#display_name` is the path that failed, without any user name, password or query, which can hold credentials,
-  see `IOStreams::Path#display_name`.
+  see `IOStreams::Path#display_name`. For a failure of a stream, it is the file whose data the stream could not
+  read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the other streams,
+  whose message is that of the gem, such as `not in gzip format`.
 * The message starts with the display name, unless it already includes it, so that a log of the exception names
   the file. For example the message from S3 does not name the key, while that of `Errno::ENOENT` already names the file.
+
+The same holds for the failure of a stream, which keeps the class that the gem raised, as in v2.1:
+
+~~~ruby
+begin
+  IOStreams.path("orders.csv.gz").read
+rescue IOStreams::Errors::Corrupt => e
+  e.class   # => Zlib::GzipFile::Error
+  e.message # => "not in gzip format"
+end
+~~~
 
 ## Examples
 
@@ -229,6 +303,16 @@ also rescue an attempt to access a path that the application does not allow, suc
   has been received raises `IOStreams::Errors::CommunicationsFailure` tagged as `Unavailable`, as does a body that is
   shorter than its `Content-Length`. A failure raised by the block itself is not tagged.
 * A frozen exception cannot be tagged. The tag is kept when the exception is marshaled, but not by `#dup`.
+* Likewise a stream tags only the exceptions of the gem that reads its format. An exception raised by the block that
+  you supply, such as a `Zlib::GzipFile::Error` from another gzip file that it reads, is not tagged.
+* The failure of a stream that reads another stream keeps its tag. For example, data that cannot be decrypted within
+  `orders.csv.gz.enc` raises the exception of `.enc`, which the gzip stream reading it does not tag again.
+* A key for `.enc` that is not the one that the data was encrypted with also raises `Corrupt`, since the cipher
+  cannot tell it apart from corrupt data.
+* A stream can only report the corruption that its format, or the gem that reads it, detects. A frame of `.zst`
+  data that is cut short is not detected on MRI, where `zstd-ruby` does not report it, nor is a damaged frame without
+  the checksum of its content, which `.zst` written on MRI does not have. An empty `.bz2` or `.enc` file reads as
+  empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
 
 ## Storage registered with `IOStreams.register_scheme`
 
@@ -258,3 +342,29 @@ end
 Never call the block that the caller supplied within `#tag_failure`, since an exception that it raises is not a
 failure of the path. To tag an exception directly, such as one that the path raises itself, call
 `IOStreams::Errors::NotFound.tag(exception, display_name)`.
+
+## Formats registered with `IOStreams.register_extension`
+
+A reader registered with `IOStreams.register_extension` tags the failures of the gem that reads its format the same
+way. Implement the class method `.failure_kind`, which returns the kind of failure that an exception from the gem
+means, or `nil`, and make each call of the gem within the class method `.tag_failure`, including each read, which
+`IOStreams::BlockReader` makes within it when it is supplied the reader:
+
+~~~ruby
+class MyXz::Reader < IOStreams::Reader
+  def self.failure_kind(exception)
+    IOStreams::Errors::Corrupt if exception.is_a?(XzLibrary::DataError)
+  end
+
+  def self.stream(input_stream)
+    xz = tag_failure { XzLibrary::Reader.new(input_stream) }
+    yield IOStreams::BlockReader.new(xz, failures: self)
+  ensure
+    xz&.finish
+  end
+end
+~~~
+
+Never call the block that the caller supplied within `.tag_failure`, since an exception that it raises is not a
+failure of the stream. For a failure that the reader finds itself, raise `IOStreams::Errors::StreamFailure` tagged
+with the kind, such as `IOStreams::Errors::MissingEntry.tag(IOStreams::Errors::StreamFailure.new(message))`.

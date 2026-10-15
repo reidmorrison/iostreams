@@ -266,16 +266,21 @@ documented, instead of `file`.
 Fix: if the program that reads the zip file expects the name `file`, supply
 `option(:zip, entry_file_name: "file")`.
 
-### A zip file that cannot be read raises `Zip::Error`
+### A zip file that cannot be read raises `MissingEntry` or `Corrupt`
 
 Reading a zip file that does not contain the file to read, such as a zip file of only folders, or one without
-the `entry_file_name:` supplied, raises `Zip::Error`, naming the zip file. Previously a zip file of only
-folders read as empty on MRI, so `#read` returned nil, and a missing `entry_file_name:` raised `Errno::ENOENT`,
-as if the zip file itself were missing. A file within the zip file whose size or CRC32 is not the one that the
-zip file records raises `Zip::Error` once it has all been read, where the corrupt data was returned on MRI.
+the `entry_file_name:` supplied, raises `IOStreams::Errors::MissingEntry`, naming the zip file. Previously a zip
+file of only folders read as empty on MRI, so `#read` returned nil, and a missing `entry_file_name:` raised
+`Errno::ENOENT`, as if the zip file itself were missing. A file within the zip file whose size or CRC32 is not the
+one that the zip file records raises `IOStreams::Errors::Corrupt` once it has all been read, where the corrupt data
+was returned on MRI. Both are an `IOStreams::Errors::StreamFailure`, tagged with the kind of failure, on every
+platform. A file that is not a zip file still raises the `Zip::Error` of `rubyzip` on MRI, now tagged as `Corrupt`,
+and raises `Corrupt` on JRuby too, where it read as empty.
 
-Fix: rescue `Zip::Error`, rather than `Errno::ENOENT`, for a missing `entry_file_name:`, and for a zip file
-without any file in it, rather than checking for a nil `#read`.
+Fix: rescue `IOStreams::Errors::MissingEntry`, rather than `Errno::ENOENT`, for a missing `entry_file_name:`,
+and for a zip file without any file in it, rather than checking for a nil `#read`. Rescue
+`IOStreams::Errors::Corrupt` for a zip file that cannot be read, rather than `Zip::Error`, which is the exception
+of `rubyzip`, and is not raised on JRuby. See [Errors](errors#what-each-stream-raises).
 
 ### Hash keys match columns once cleansed
 

@@ -110,18 +110,72 @@ class ZipReaderTest < Minitest::Test
           zip_file_name
         end
 
-        it "raises naming the file and the zip file when the data of the file is corrupt" do
+        # Returns [IOStreams::Errors::StreamFailure] that the block raises, once it checks that it is tagged with the
+        # supplied kind of failure, and names the zip file as its display name.
+        def assert_stream_failure(kind, zip_file_name, &)
+          error = assert_raises(kind, &)
+          assert_instance_of IOStreams::Errors::StreamFailure, error
+          assert_equal zip_file_name, error.display_name
+          error
+        end
+
+        it "raises Corrupt naming the file and the zip file when the data of the file is corrupt" do
           zip_file_name = corrupt_zip(Zip::Entry::STORED)
 
-          error = assert_raises(Zip::Error) { IOStreams.path(zip_file_name).read }
+          error = assert_stream_failure(IOStreams::Errors::Corrupt, zip_file_name) { IOStreams.path(zip_file_name).read }
           assert_match(/\AThe file "data.csv" within the zip file #{Regexp.escape(zip_file_name)} is corrupt: invalid entry CRC \(expected 0x\h+ but got 0x\h+\)\z/,
                        error.message)
         end
 
-        it "raises when the compressed data of the file is corrupt" do
+        it "raises Corrupt when the compressed data of the file is corrupt" do
           zip_file_name = corrupt_zip(Zip::Entry::DEFLATED)
 
-          assert_raises(Zip::Error) { IOStreams.path(zip_file_name).read }
+          error = assert_stream_failure(IOStreams::Errors::Corrupt, zip_file_name) { IOStreams.path(zip_file_name).read }
+          # Java checks the CRC32 before the size.
+          assert_match(/\AThe file "data.csv" within the zip file #{Regexp.escape(zip_file_name)} is corrupt: invalid entry (size|CRC)/,
+                       error.message)
+        end
+
+        it "raises Corrupt for compressed data that cannot be decompressed" do
+          zip_file_name = corrupt_zip(Zip::Entry::DEFLATED)
+          bytes         = File.binread(zip_file_name)
+          # The compressed data follows the local header of the file, its name and its extra field. Starting it with a
+          # block of a type that deflate does not have, 3, makes zlib raise.
+          name_length, extra_length = bytes.byteslice(26, 4).unpack("vv")
+          bytes.setbyte(30 + name_length + extra_length, 0xFF)
+          File.binwrite(zip_file_name, bytes)
+
+          error = assert_raises(IOStreams::Errors::Corrupt) { IOStreams.path(zip_file_name).read }
+          # On MRI rubyzip raises its own error for data that it cannot decompress, which is tagged.
+          assert_instance_of(defined?(JRuby) ? IOStreams::Errors::StreamFailure : Zip::DecompressionError, error)
+          assert_equal zip_file_name, error.display_name
+          assert_includes error.message, zip_file_name
+          assert_includes error.message, "invalid block type"
+        end
+
+        it "raises Corrupt for a file that is not a zip file" do
+          zip_file_name = File.join(dir, "text.zip")
+          File.write(zip_file_name, "Not a zip file\n" * 100)
+
+          error = assert_raises(IOStreams::Errors::Corrupt) { IOStreams.path(zip_file_name).read }
+          if defined?(JRuby)
+            assert_instance_of IOStreams::Errors::StreamFailure, error
+            assert_equal "The file #{zip_file_name} is not a zip file", error.message
+          else
+            # rubyzip raises its own error, which is tagged, so that it can still be rescued as in v2.1.
+            assert_instance_of Zip::Error, error
+            assert_equal "#{zip_file_name}: Zip end of central directory signature not found", error.message
+          end
+
+          assert_equal zip_file_name, error.display_name
+        end
+
+        it "raises Corrupt for an empty file" do
+          zip_file_name = File.join(dir, "empty.zip")
+          File.write(zip_file_name, "")
+
+          error = assert_raises(IOStreams::Errors::Corrupt) { IOStreams.path(zip_file_name).read }
+          assert_equal zip_file_name, error.display_name
         end
 
         it "reads the data of a file that is not corrupt" do
@@ -131,34 +185,85 @@ class ZipReaderTest < Minitest::Test
           assert_equal data, IOStreams.path(zip_file_name).read
         end
 
-        it "raises naming the zip file when it does not contain a file, only folders" do
+        it "raises MissingEntry naming the zip file when it does not contain a file, only folders" do
           zip_file_name = File.join(dir, "folders.zip")
           Zip::File.open(zip_file_name, create: true) { |zip| zip.mkdir("folder") }
 
           called = false
-          error  = assert_raises(Zip::Error) { IOStreams.path(zip_file_name).reader { called = true } }
+          error  = assert_stream_failure(IOStreams::Errors::MissingEntry, zip_file_name) do
+            IOStreams.path(zip_file_name).reader { called = true }
+          end
           assert_equal "The zip file #{zip_file_name} does not contain a file", error.message
           refute called
         end
 
-        it "raises naming the file and the zip file when the zip file does not contain the file to read" do
-          error = assert_raises(Zip::Error) do
-            IOStreams.path(multiple_zip_file_name).option(:zip, entry_file_name: "missing.csv").read
-          end
-          assert_equal "The zip file #{File.expand_path(multiple_zip_file_name)} does not contain the file \"missing.csv\"",
-                       error.message
+        it "raises MissingEntry for a zip file without any entries" do
+          zip_file_name = File.join(dir, "no_entries.zip")
+          # The end of the central directory of a zip file without any entries.
+          File.binwrite(zip_file_name, "PK\x05\x06#{"\0" * 18}")
+
+          error = assert_stream_failure(IOStreams::Errors::MissingEntry, zip_file_name) { IOStreams.path(zip_file_name).read }
+          assert_equal "The zip file #{zip_file_name} does not contain a file", error.message
         end
 
-        it "raises when the file to read is a folder" do
+        it "raises MissingEntry naming the file and the zip file when the zip file does not contain the file to read" do
+          zip_file_name = File.expand_path(multiple_zip_file_name)
+
+          error = assert_stream_failure(IOStreams::Errors::MissingEntry, zip_file_name) do
+            IOStreams.path(multiple_zip_file_name).option(:zip, entry_file_name: "missing.csv").read
+          end
+          assert_equal "The zip file #{zip_file_name} does not contain the file \"missing.csv\"", error.message
+        end
+
+        it "raises MissingEntry when the file to read is a folder" do
           zip_file_name = File.join(dir, "folder.zip")
           Zip::File.open(zip_file_name, create: true) do |zip|
             zip.mkdir("folder")
             zip.get_output_stream("folder/data.csv") { |io| io.write("a,b\n") }
           end
 
-          error = assert_raises(Zip::Error) { IOStreams.path(zip_file_name).option(:zip, entry_file_name: "folder/").read }
+          error = assert_stream_failure(IOStreams::Errors::MissingEntry, zip_file_name) do
+            IOStreams.path(zip_file_name).option(:zip, entry_file_name: "folder/").read
+          end
           assert_equal "The zip file #{zip_file_name} does not contain the file \"folder/\"", error.message
         end
+
+        it "does not tag an exception that the block raises" do
+          zip_file_name = File.join(dir, "data.zip")
+          Zip::File.open(zip_file_name, create: true) { |zip| zip.get_output_stream("data.csv") { |io| io.write(data) } }
+
+          error = assert_raises(Zip::Error) { IOStreams.path(zip_file_name).reader { raise(Zip::Error, "from the block") } }
+          refute_kind_of IOStreams::Errors::StreamError, error
+        end
+      end
+
+      it "reads, and raises MissingEntry, without rubyzip on JRuby, which reads zip files with java.util.zip" do
+        skip "MRI reads zip files with rubyzip" unless defined?(JRuby)
+
+        # A new process, since the tests have already loaded rubyzip, which hides it, as if it were not installed.
+        script = <<~'RUBY'
+          module Kernel
+            alias_method :require_installed, :require
+
+            def require(name)
+              raise(LoadError, "cannot load such file -- #{name}") if name == "zip"
+
+              require_installed(name)
+            end
+          end
+          require "iostreams"
+          print IOStreams.path(ARGV.first).read.bytesize
+          begin
+            IOStreams.path(ARGV.first).option(:zip, entry_file_name: "missing.csv").read
+          rescue IOStreams::Errors::MissingEntry => e
+            print " #{e.class}"
+          end
+          print " #{defined?(Zip::Error).inspect}"
+        RUBY
+        lib    = File.expand_path("../lib", __dir__)
+        output = IO.popen([RbConfig.ruby, "-I", lib, "-e", script, file_name], err: File::NULL, &:read)
+
+        assert_equal "#{decompressed.bytesize} IOStreams::Errors::StreamFailure nil", output
       end
     end
   end
