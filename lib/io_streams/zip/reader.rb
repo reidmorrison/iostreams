@@ -24,6 +24,20 @@ module IOStreams
         kind.tag(Errors::StreamFailure.new(message), file_name)
       end
 
+      # Returns [Zip::File] the zip file of the supplied name, as rubyzip reads the list of its contents.
+      #
+      # Raises the exception of rubyzip, tagged as `IOStreams::Errors::Corrupt` and the supplied name, for a file that is
+      # not a zip file, see .failure_kind. rubyzip 3.7.0 raises `NoMethodError`, `TypeError` or `ArgumentError`, rather
+      # than `Zip::Error`, for a zip file whose end record is cut short, which are tagged the same way, since only
+      # rubyzip runs while it reads the file. The spreadsheet reader opens spreadsheets with it too, which are zip files.
+      def self.open_zip(file_name, name)
+        Utils.load_soft_dependency("rubyzip", "Zip", "zip") unless defined?(::Zip::File)
+
+        tag_failure(name) { ::Zip::File.open(file_name) }
+      rescue NoMethodError, TypeError, ArgumentError => e
+        raise(Errors::Corrupt.tag(e, name))
+      end
+
       # Returns [Hash] the options with the name of the zip file that is read, as the path, or the stream, names it,
       # see `IOStreams::StreamFormat#open_stream`, so that its errors name it, rather than the temp file that a zip file
       # that is not a local file is copied into, see `IOStreams::Reader.stream`.
@@ -150,10 +164,8 @@ module IOStreams
         #
         # rubyzip is called within `.tag_failure`, but not the block, see `IOStreams::Reader.tag_failure`.
         def self.file(file_name, entry_file_name: nil, display_name: nil, &block)
-          Utils.load_soft_dependency("rubyzip", "Zip", "zip") unless defined?(::Zip::File)
-
           name     = display_name || file_name
-          zip_file = tag_failure(name) { ::Zip::File.open(file_name) }
+          zip_file = open_zip(file_name, name)
           entry    = find_entry(zip_file, entry_file_name)
           raise(failure(Errors::MissingEntry, missing_message(entry_file_name, name), name)) unless entry
 
