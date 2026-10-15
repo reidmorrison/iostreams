@@ -97,19 +97,52 @@ class ZstdReaderTest < Minitest::Test
         assert_equal "zstd decompress error: the data is empty", error.message
       end
 
-      it "raises for a frame cut short at the end of the stream on JRuby, and returns the data before it on MRI" do
+      it "raises for a frame cut short at the end of the stream" do
         compressed = ZstdLibrary.compress(data)
         cut_short  = compressed[0, compressed.bytesize - 3]
 
-        if defined?(JRuby)
-          error = assert_raises(RuntimeError) { read_with(cut_short, &:read) }
-          assert_equal "zstd decompress error: Truncated source", error.message
-        else
-          # zstd-ruby does not report a frame cut short.
-          result = read_with(cut_short, &:read)
+        error = assert_raises(RuntimeError) { read_with(cut_short, &:read) }
+        assert_equal "zstd decompress error: Truncated source", error.message
+        assert_kind_of IOStreams::Errors::Corrupt, error
+      end
 
-          assert_operator result.bytesize, :<, data.bytesize
-          assert data.start_with?(result)
+      describe "data cut short anywhere" do
+        # Returns [Array(String, String)] a frame written by IOStreams, and the data in it.
+        def written_frame(text)
+          output = StringIO.new(+"".b)
+          IOStreams::Zstd::Writer.stream(output) { |io| io.write(text) }
+          [output.string, text]
+        end
+
+        # Frames with each type of block: compressed, raw for data that does not compress, and RLE for a repeated byte,
+        # with a checksum, from the zstd library, and without one, from zstd-ruby on MRI, and a skippable frame, which
+        # holds no data.
+        let :frames do
+          random = Random.new(42).bytes(300)
+          [
+            written_frame("hello, world\n" * 20),
+            [ZstdLibrary.compress(random), random],
+            # A skippable frame: its magic number, the size of its content, and the content.
+            [[0x184D2A50, 3, "abc"].pack("VVa*"), ""],
+            [ZstdLibrary.compress("\0" * 5000), "\0" * 5000],
+            written_frame("last\n")
+          ]
+        end
+
+        it "reads the frames that end where the data ends, and raises for data that ends within a frame" do
+          compressed = frames.map(&:first).join
+          ends       = frames.each_index.map { |i| frames[0..i].sum { |frame, _| frame.bytesize } }
+
+          (1..compressed.bytesize).each do |length|
+            cut_short = compressed.byteslice(0, length)
+            if (count = ends.index(length))
+              assert_equal frames[0..count].map(&:last).join.b, read_with(cut_short, &:read), "cut at #{length}"
+            else
+              error = assert_raises(RuntimeError, "cut at #{length}") { read_with(cut_short, &:read) }
+              assert_kind_of IOStreams::Errors::Corrupt, error
+              assert_equal "zstd decompress error: Truncated source", error.message unless defined?(JRuby)
+            end
+          end
         end
       end
 

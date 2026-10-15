@@ -343,10 +343,9 @@ also rescue an attempt to access a path that the application does not allow, suc
   cannot tell it apart from corrupt data, while a version of the cipher that is not configured raises `MissingKey`.
   For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
   which raises `Corrupt`.
-* A stream can only report the corruption that it, or its gem, detects. A frame of `.zst`
-  data that is cut short is not detected on MRI, where `zstd-ruby` does not report it, nor is a damaged frame without
-  the checksum of its content, which `.zst` written on MRI does not have. An empty `.bz2` or `.enc` file reads as
-  empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
+* A stream can only report the corruption that it, or its gem, detects. A damaged frame of `.zst` data without the
+  checksum of its content, which `.zst` written on MRI does not have, is not detected. An empty `.bz2` or `.enc` file
+  reads as empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
 
 ## Storage registered with `IOStreams.register_scheme`
 

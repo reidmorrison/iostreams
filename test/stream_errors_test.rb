@@ -61,8 +61,6 @@ class StreamErrorsTest < Minitest::Test
       end
 
       it "raises Corrupt for #{name.inspect} data that is cut short" do
-        skip("zstd-ruby does not report a frame cut short") if name == :zst && !defined?(JRuby)
-
         written = write(name, data)
 
         assert_raises(IOStreams::Errors::Corrupt) { read(name, written.byteslice(0, written.bytesize / 2)) }

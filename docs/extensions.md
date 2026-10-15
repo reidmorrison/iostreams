@@ -221,8 +221,10 @@ end
   `zstd` command writes it. On MRI it does not, since `zstd-ruby` cannot write one.
 * Empty data is not zstd, so reading it raises `RuntimeError: zstd decompress error: the data is empty`, as
   `zstd -d` does.
-* On MRI, a file that was cut short, such as by an interrupted download, is not detected: reading returns the data up
-  to where the file ends. zstd-jni on JRuby detects it, and raises `RuntimeError`.
+* A file that was cut short, such as by an interrupted download, raises
+  `RuntimeError: zstd decompress error: Truncated source`, as `zstd -d` does. IOStreams follows the frames of the data
+  itself to find it, since `zstd-ruby` does not report it, and zstd-jni does not report a frame cut off before its
+  checksum.
 
 ## Encryption
 

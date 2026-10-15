@@ -41,11 +41,13 @@ module IOStreams
         # Returns [String] the next block of decompressed data, or [nil] at the end of the stream.
         #
         # Raises [RuntimeError] tagged as `IOStreams::Errors::Corrupt`, see `Zstd.corrupt`, for data that is not zstd, a
-        # frame cut short at the end of the input stream, or an input stream without any data, like `zstd -d`.
+        # frame cut short at the end of the input stream, or an input stream without any data, like `zstd -d`. zstd-jni
+        # does not report a frame that ends before its checksum, which the frames of the input show, see `Zstd::Frames`.
         def read_block
           count = @zstd.read(@buffer, 0, BLOCK_SIZE)
           if count.negative?
             raise(Zstd.corrupt("the data is empty")) unless @input.read?
+            raise(Zstd.corrupt("Truncated source")) unless @input.complete?
 
             return
           end
@@ -95,19 +97,25 @@ module IOStreams
         end
       end
 
-      # A Java InputStream that reads from a Ruby IO.
+      # A Java InputStream that reads from a Ruby IO, following the zstd frames of what it reads, see `Zstd::Frames`.
       #
       # Closing it does not close the Ruby IO, which belongs to the caller.
       class InputStream < java.io.InputStream
         def initialize(io)
           super()
-          @io   = io
-          @read = false
+          @io     = io
+          @read   = false
+          @frames = Frames.new
         end
 
         # Returns [true|false] whether any data has been read from the IO.
         def read?
           @read
+        end
+
+        # Returns [true|false] whether the data read so far ends at the end of a frame, see `Zstd::Frames#complete?`.
+        def complete?
+          @frames.complete?
         end
 
         # Returns [Integer] the next byte, or the number of bytes read into `bytes`, or -1 at the end of the stream.
@@ -117,6 +125,7 @@ module IOStreams
             return -1 if byte.nil?
 
             @read = true
+            @frames << byte
             return byte.getbyte(0)
           end
           return 0 if length.zero?
@@ -125,6 +134,7 @@ module IOStreams
           return -1 if data.nil?
 
           @read ||= !data.empty?
+          @frames << data
           data = data.to_java_bytes
           java.lang.System.arraycopy(data, 0, bytes, offset, data.length)
           data.length

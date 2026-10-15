@@ -10,6 +10,7 @@ module IOStreams
   module Zstd
     extend StreamFormat
 
+    autoload :Frames, "io_streams/zstd/frames"
     autoload :Jni,    "io_streams/zstd/jni"
     autoload :Native, "io_streams/zstd/native"
     autoload :Reader, "io_streams/zstd/reader"
