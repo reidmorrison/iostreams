@@ -48,8 +48,8 @@ nav:
 
   - group: Using IOStreams
     items:
-      - { page: path.html,       label: Paths }
       - { page: streams.html,    label: Reading and writing }
+      - { page: path.html,       label: Paths }
       - { page: formats.html,    label: Tabular formats }
       - { page: extensions.html, label: Compression and encryption }
       - { page: copy_files.html, label: Copying and moving }
