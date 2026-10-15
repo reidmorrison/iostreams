@@ -121,10 +121,13 @@ module IOStreams
         match_header(line)&.last
       end
 
-      # Returns nil: no column options apply, since the schema describes the columns instead. Accepts `rename`, which has
-      # no effect, as it has none without a schema when no column is restricted, so that a caller, such as Rocket Job,
-      # can call it whether or not there is a schema.
-      def restrict_columns(rename: nil) # rubocop:disable Lint/UnusedMethodArgument -- accepted, as it is without a schema
+      # Returns nil: no column options apply, since the schema describes the columns instead. Accepts `rename` of nil,
+      # which has no effect, as it has none without a schema when no column is restricted, so that a caller, such as
+      # Rocket Job, can call it whether or not there is a schema.
+      #
+      # Raises ArgumentError for `rename`, other than nil, since the columns are not renamed, see #reject_rename!.
+      def restrict_columns(rename: nil)
+        reject_rename!(rename)
         nil
       end
 
@@ -151,7 +154,10 @@ module IOStreams
 
       # Returns [Hash] the record of the line, see #record_parse, to which no column options apply, see
       # #restrict_columns.
-      def read_record(line, rename: nil) # rubocop:disable Lint/UnusedMethodArgument -- accepted, see #restrict_columns
+      #
+      # Raises ArgumentError for `rename`, other than nil, since the keys are not renamed, see #reject_rename!.
+      def read_record(line, rename: nil)
+        reject_rename!(rename)
         record_parse(line)
       end
 
@@ -191,6 +197,15 @@ module IOStreams
       end
 
       private
+
+      # Raises ArgumentError for `rename`, other than nil, since the keys of the records are the names of the fields,
+      # which are never renamed, so a setting would have no effect, as #read_header raises for `cleanse`.
+      def reject_rename!(rename)
+        return if rename.nil?
+
+        raise(ArgumentError, "rename: cannot be supplied with a schema, since the keys of its records are the names of its " \
+                             "fields, which are not renamed")
+      end
 
       # Returns [Array(Array, Array)] the header row parsed from the line, which the header keeps as it was read, and the
       # names of the fields of its columns, once they are matched to the fields, or nil when the line is blank, or the

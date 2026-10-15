@@ -362,7 +362,8 @@ module IOStreams
 
     # Applies the column restrictions to the header columns once they are known, such as the columns supplied in
     # place of a header row, renaming them when `rename:`, see `IOStreams::Tabular::Header#cleanse!`. `rename:`
-    # defaults to the `cleanse_header` option, see #initialize.
+    # defaults to the `cleanse_header` option, see #initialize. With a schema no column options apply, and `rename:`
+    # raises ArgumentError unless it is nil.
     def restrict_columns(**)
       @mapping.restrict_columns(**)
     end
@@ -370,7 +371,8 @@ module IOStreams
     # Returns [Hash<String,Object>] the line as a record, with the column restrictions applied to its keys for a
     # format without a header row, such as JSON, whose records each supply their own keys, renaming them when
     # `rename:`, see `IOStreams::Tabular::Header#restrict_hash`. `rename:` defaults to the `cleanse_header` option, see
-    # #initialize.
+    # #initialize. With a schema the keys are the names of the fields, and `rename:` raises ArgumentError unless it is
+    # nil.
     # Returns nil if the line is blank.
     def read_record(line, **)
       @mapping.read_record(line, **)
