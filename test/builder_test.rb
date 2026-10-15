@@ -474,6 +474,22 @@ class BuilderTest < Minitest::Test
         assert_nil streams.setting(:encode)
       end
 
+      it "raises for an encoding that Ruby cannot convert text to or from, when it is set" do
+        error = assert_raises(ArgumentError) { streams.encoding("UTF-7") }
+
+        assert_equal %(Invalid encoding "UTF-7": Ruby cannot convert text to or from UTF-7), error.message
+        error = assert_raises(ArgumentError) { streams.encoding("Windows-1252:Windows-1258") }
+        assert_equal %(Invalid encoding "Windows-1252:Windows-1258": Ruby cannot convert text to or from Windows-1258),
+                     error.message
+        assert_nil streams.setting(:encode)
+      end
+
+      it "accepts an encoding that Ruby converts, including one that needs a byte order mark or keeps state" do
+        %w[UTF-8 BINARY UTF-16 UTF-32 ISO-2022-JP IBM037 Windows-1252:UTF-8].each do |encoding|
+          assert_equal({encoding: encoding}, IOStreams::Builder.new.encoding(encoding).setting(:encode))
+        end
+      end
+
       it "raises for an encoding that is neither a String nor an Encoding, when it is set" do
         error = assert_raises(ArgumentError) { streams.encoding(:utf8) }
 

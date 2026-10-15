@@ -44,11 +44,12 @@ module IOStreams
     end
 
     # Raises ArgumentError for the options that the reader or writer of the encode stream would raise for once the
-    # text is read or written: an encoding that Ruby does not know, or that is neither a String nor an Encoding, a
-    # `replace` that is not a String, or a cleaner that is neither the name of a built-in rule nor a Proc, see
-    # `IOStreams::Encode::Cleaner`. So that they raise when they are set, see `IOStreams::Builder#encoding`, and
-    # before a writer opens its output, see `IOStreams::StreamFormat#check_stream`, which would replace an existing
-    # file, rather than once the data is read or written.
+    # text is read or written: an encoding that Ruby does not know, or that is neither a String nor an Encoding, one
+    # that Ruby cannot convert text to and from, see .check_convertible, a `replace` that is not a String, or a cleaner
+    # that is neither the name of a built-in rule nor a Proc, see `IOStreams::Encode::Cleaner`. So that they raise when
+    # they are set, see `IOStreams::Builder#encoding`, and before a writer opens its output, see
+    # `IOStreams::StreamFormat#check_stream`, which would replace an existing file, rather than once the data is read or
+    # written.
     def self.check(encoding: default_encoding, cleaner: nil, replace: nil)
       unless encoding.nil? || encoding.is_a?(String) || encoding.is_a?(Encoding)
         raise(ArgumentError, "Invalid encoding #{encoding.inspect}: supply the name of an encoding, such as " \
@@ -58,11 +59,34 @@ module IOStreams
         raise(ArgumentError, "Invalid replace #{replace.inspect}: supply the String that replaces each invalid character")
       end
 
-      external, _internal = external_and_internal(encoding)
-      Encoding.find(external) if external.is_a?(String)
+      external, internal = external_and_internal(encoding)
+      external           = Encoding.find(external) if external.is_a?(String)
+      [external, internal].compact.each { |text_encoding| check_convertible(encoding, text_encoding) }
       Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
       nil
     end
+
+    # Raises ArgumentError for an encoding that Ruby knows, but has no converter for between it and UTF-8, such as
+    # "UTF-7" or "Windows-1258", so that it raises when it is set, rather than Encoding::ConverterNotFoundError once
+    # the text is read or written. Text is converted from it when it is read, and to it when it is written, including
+    # the line endings that the line reader looks for. UTF-8 needs no converter, and binary data is not converted.
+    #
+    # Parameters
+    #   option: [String|Encoding]
+    #     The `encoding` option that names it, for the message, such as "Windows-1252:UTF-7".
+    #
+    #   encoding: [Encoding]
+    #     The external or the internal encoding of the option.
+    def self.check_convertible(option, encoding)
+      return if [Encoding::UTF_8, Encoding::BINARY].include?(encoding)
+
+      Encoding::Converter.new(encoding, Encoding::UTF_8)
+      Encoding::Converter.new(Encoding::UTF_8, encoding)
+      nil
+    rescue Encoding::ConverterNotFoundError
+      raise(ArgumentError, "Invalid encoding #{option.inspect}: Ruby cannot convert text to or from #{encoding}")
+    end
+    private_class_method :check_convertible
 
     # Returns [true|false] whether data in this format is compressed.
     def self.compressed?
