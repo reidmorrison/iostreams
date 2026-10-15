@@ -1925,6 +1925,22 @@ module Paths
             assert_includes error.message, "same scheme, host and port"
           end
 
+          it "follows a redirect to the same host in another case when writing, since host names ignore case" do
+            path    = IOStreams::Paths::HTTP.new("https://API.Example.com/upload.csv")
+            new_uri = path.send(:redirects).follow(URI.parse(path.url), redirect_to("https://api.example.com/upload.csv"), 1, Net::HTTP::Put)
+
+            assert_equal "https://api.example.com/upload.csv", new_uri.to_s
+          end
+
+          it "sends the credentials and headers to the same host in another case" do
+            path    = IOStreams::Paths::HTTP.new("https://API.Example.com/file.csv", username: "jack", password: "secret",
+                                                                                     headers: {"X-Api-Key" => "key"})
+            request = path.send(:build_request, Net::HTTP::Get, URI.parse("https://api.example.com/file.csv"))
+
+            assert_equal %w[jack secret], Base64.decode64(request["authorization"].sub(/\ABasic /, "")).split(":")
+            assert_equal "key", request["x-api-key"]
+          end
+
           it "logs each redirect that is followed, without credentials or the query" do
             start_server do |path|
               if path.start_with?("/redirect")

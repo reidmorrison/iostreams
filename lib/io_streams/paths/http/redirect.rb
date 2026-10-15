@@ -24,9 +24,11 @@ module IOStreams
           @loggable     = loggable
         end
 
-        # Returns [true|false] whether the uri has the scheme, host and port of the url of the path.
+        # Returns [true|false] whether the uri has the scheme, host and port of the url of the path. Host names are
+        # compared without case, as DNS compares them, so `API.Example.com` is the host `api.example.com`.
         def same_origin?(uri)
-          uri.scheme == @original_uri.scheme && uri.hostname == @original_uri.hostname && uri.port == @original_uri.port
+          uri.scheme == @original_uri.scheme && uri.hostname.to_s.casecmp?(@original_uri.hostname.to_s) &&
+            uri.port == @original_uri.port
         end
 
         # Returns [URI] the location that a request of the supplied class follows the redirect response to, resolved

@@ -524,8 +524,9 @@ IOStreams.path("https://example.com/files/my%20data.csv").path
 | `allow_hosts:` | The host name, or an Array of the host names, that may be contacted, including after a redirect, compared without case. A request of any other host raises `IOStreams::Errors::CommunicationsFailure` | Any host |
 | `maximum_file_size:` | The most bytes to read, both as they are received and once decompressed. A larger body raises `IOStreams::Errors::CommunicationsFailure` from within the block. Writing a path with it raises `ArgumentError` | No limit |
 
-The credentials and the `headers:` are only sent to the scheme, host and port of the url, and never after a redirect
-to another one, since any header can hold a credential, apart from an `Accept-Encoding`, which holds none. A path
+The credentials and the `headers:` are only sent to the scheme, host and port of the url, whatever the case of the
+host name, and never after a redirect to another one, since any header can hold a credential, apart from an
+`Accept-Encoding`, which holds none. A path
 answers `#url`, which is `#to_s`, `#username` and `#http_redirect_count`.
 
 ### Reading a url {#http-reading}
