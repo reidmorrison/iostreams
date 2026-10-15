@@ -314,6 +314,14 @@ class UtilsTest < Minitest::Test
         tempfile&.close!
       end
 
+      it "returns the name of the file of a Tempfile within another delegator, such as IOStreams::BytesOutput" do
+        tempfile = Tempfile.new("iostreams_local_file_name")
+
+        assert_equal File.absolute_path(tempfile.path), IOStreams::Utils.local_file_name(IOStreams::BytesOutput.new(tempfile, Encoding::UTF_8))
+      ensure
+        tempfile&.close!
+      end
+
       it "returns nil for a local file that is not at its start" do
         File.open(file_name, "rb") do |file|
           file.read(1)

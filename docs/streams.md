@@ -436,6 +436,11 @@ end
 
 IOStreams never closes an IO that you supply, so close it yourself when you are done with it.
 
+The streams write their data to your IO as it is, the bytes of a compressed or encrypted stream, or of text in the
+encoding set with `#encoding`, even when your IO converts the text written to it to its external encoding, as a
+`StringIO` does, a file opened with an encoding, such as `File.open(name, "w:UTF-8")`, and any file opened in text
+mode, such as a `Tempfile`, in a Rails process. Without any streams, what you write goes to your IO itself.
+
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
 that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with
 its own settings, options, streams or an encoding supplied to that call raise `ArgumentError`.
