@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "zlib"
-
 module IOStreams
   module Paths
     class HTTP < IOStreams::Path
@@ -26,10 +24,6 @@ module IOStreams
         # The format that decodes each content coding that can be decoded, by its name in lower case. `x-gzip` is
         # another name for `gzip`.
         FORMATS = {"gzip" => IOStreams::Gzip, "x-gzip" => IOStreams::Gzip}.freeze
-
-        # The errors that the format raises for a body that it cannot decode: those of Zlib, on every platform, since the
-        # gzip stream reads a whole block at a time.
-        DECODE_ERRORS = [Zlib::Error].freeze
 
         # The number of bytes read at a time from the format that decodes the body.
         BLOCK_SIZE = 65_536
@@ -77,11 +71,12 @@ module IOStreams
 
         # Returns the result of the block, which reads the body as it is decoded.
         #
-        # Raises [IOStreams::Errors::CommunicationsFailure] when the format cannot decode the body, naming the content
-        # coding and the display name of the path, with the failure of the format as its cause.
+        # Raises [IOStreams::Errors::CommunicationsFailure] when the format cannot decode the body, which it raises tagged
+        # as `IOStreams::Errors::Corrupt`, whichever gem decodes it, naming the content coding and the display name of the
+        # path, with the failure of the format as its cause.
         def decoding
           yield
-        rescue *DECODE_ERRORS => e
+        rescue Errors::Corrupt => e
           raise(failure(e))
         end
 
@@ -105,7 +100,7 @@ module IOStreams
           ensure
             reader&.close
           end
-        rescue *DECODE_ERRORS => e
+        rescue Errors::Corrupt => e
           # A failure that the block raises is its own. The format raises one as it starts to read the body, such as a
           # body that is not gzip, and as it finishes reading it.
           raise if in_block
@@ -115,8 +110,8 @@ module IOStreams
 
         # Returns [IOStreams::Errors::CommunicationsFailure] the failure to decode the body, for the error of the format.
         # A failure of the request that the body raises as it is read, such as `Errno::EPIPE` for a connection that
-        # failed, is not one of the `DECODE_ERRORS`, so it is raised as it is, tagged by the request with its kind of
-        # failure, see `IOStreams::Errors::StorageError`.
+        # failed, is not `Corrupt`, so it is raised as it is, tagged by the request with its kind of failure, see
+        # `IOStreams::Errors::StorageError`.
         #
         # The failure to decode is not tagged with a kind of failure, such as `IOStreams::Errors::Unavailable`, since the
         # whole body was received, so the server sent a body that cannot be decoded, which sending the request again

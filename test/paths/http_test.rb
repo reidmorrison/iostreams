@@ -432,6 +432,7 @@ module Paths
               start_labeling_server(data, "gzip")
 
               error = assert_raises(IOStreams::Errors::CommunicationsFailure) { IOStreams.path("#{data_url}?token=SECRET").read }
+              assert_kind_of IOStreams::Errors::Corrupt, error.cause
               assert_instance_of cause, error.cause
               assert_equal "Cannot decode the Content-Encoding \"gzip\" of #{data_url}: #{error.cause.message}", error.message
               refute_kind_of IOStreams::Errors::StorageError, error
@@ -450,11 +451,14 @@ module Paths
             assert_equal data.byteslice(0, 10), read
           end
 
-          it "does not convert a Zlib::Error that the block raises" do
+          it "does not convert a Corrupt failure that the block raises, such as reading another file" do
             start_labeling_server(gzipped, "gzip")
 
-            error = assert_raises(Zlib::DataError) { IOStreams.path(data_url).reader { |_io| raise(Zlib::DataError, "block failed") } }
-            assert_equal "block failed", error.message
+            error = assert_raises(IOStreams::Errors::Corrupt) do
+              IOStreams.path(data_url).reader { |_io| IOStreams.stream(StringIO.new("not gzip")).stream(:gz).read }
+            end
+            refute_kind_of IOStreams::Errors::CommunicationsFailure, error
+            assert_equal "not in gzip format", error.message
           end
 
           it "limits the size of the body once decompressed to the maximum file size" do
