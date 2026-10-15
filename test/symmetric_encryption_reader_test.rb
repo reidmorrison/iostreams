@@ -63,6 +63,23 @@ class SymmetricEncryptionReaderTest < Minitest::Test
         assert_includes error.message, "version:7"
       end
 
+      it "is Corrupt for empty data, which the writer never writes" do
+        File.write(file_name, "")
+
+        error = assert_raises(IOStreams::Errors::Corrupt) { IOStreams::SymmetricEncryption::Reader.file(file_name, &:read) }
+        assert_instance_of IOStreams::Errors::StreamFailure, error
+        assert_equal "The encrypted data is empty", error.message
+      end
+
+      it "reads encrypted data that holds no data as empty" do
+        [{}, {compress: false}].each do |options|
+          output = StringIO.new(+"".b)
+          IOStreams.stream(output).stream(:enc, **options).writer { |_io| nil }
+
+          assert_equal "", IOStreams::SymmetricEncryption::Reader.stream(StringIO.new(output.string), &:read)
+        end
+      end
+
       it "is Corrupt for data that is not encrypted" do
         File.write(file_name, "Not encrypted data\n" * 10)
 

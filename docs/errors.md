@@ -175,12 +175,13 @@ The exception that each stream raises when it cannot read the data, which is tag
 | Stream | `Corrupt` | `MissingEntry` | `MissingKey` |
 |--------|-----------|----------------|--------------|
 | `.gz`, `.gzip` | `Zlib::GzipFile::Error`, such as its `Zlib::GzipFile::CRCError` or `NoFooter`, or `Zlib::DataError` | Never | Never |
-| `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError` | Never | Never |
+| `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError`, or `IOStreams::Errors::StreamFailure` for empty data | Never | Never |
 | `.zst` | `RuntimeError` | Never | Never |
-| `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
-| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
-| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never | Never |
-| `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
+| `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, or, from rubyzip 3.7, `NoMethodError`, `TypeError` or `ArgumentError` for a zip file whose end record is cut short, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
+| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
+| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet, or `IOStreams::Errors::StreamFailure` for a part whose size or CRC32 is not the one that the spreadsheet records | Never | Never |
+| `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, including a signature that is cut short, which gpg itself does not report, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
+| `.parquet` | `RuntimeError` from the parquet gem, which raises it for a file that is not Parquet, or is damaged or cut short | Never | Never |
 
 The PGP stream tells why gpg failed from gpg's status, which does not depend on the locale. A PGP file that was not
 signed by the `signer`, or that gpg does not trust, raises `IOStreams::Pgp::Failure` without a kind of failure, since
@@ -207,8 +208,9 @@ end
 
 * `#display_name` is the path that failed, without any user name, password or query, which can hold credentials,
   see [Operations on the name](path#operations-on-the-name). For a failure of a stream, it is the file whose data the
-  stream could not read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the
-  other streams, whose message is that of the gem, such as `not in gzip format`.
+  stream could not read, when the stream knows its name, as the zip, spreadsheet and PGP streams do: the display name
+  of the path, such as `s3://my-bucket/imports/orders.zip`, or the file name of a stream, set with `#file_name`. It is
+  `nil` for the other streams, whose message is that of the gem, such as `not in gzip format`.
 * The message starts with the display name, unless it already includes it, so that a log of the exception names
   the file. For example the message from S3 does not name the key, while that of `Errno::ENOENT` already names the file.
 
@@ -343,10 +345,13 @@ also rescue an attempt to access a path that the application does not allow, suc
   cannot tell it apart from corrupt data, while a version of the cipher that is not configured raises `MissingKey`.
   For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
   which raises `Corrupt`.
-* A stream can only report the corruption that it, or its gem, detects. A frame of `.zst`
-  data that is cut short is not detected on MRI, where `zstd-ruby` does not report it, nor is a damaged frame without
-  the checksum of its content, which `.zst` written on MRI does not have. An empty `.bz2` or `.enc` file reads as
-  empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
+* A stream can only report the corruption that it, or its gem, detects. A damaged frame of `.zst` data without the
+  checksum of its content, which `.zst` written on MRI does not have, is not detected, nor is most damage to the values
+  within the data pages of a Parquet file, which the parquet gem reads as other values.
+* The parquet gem raises a plain `RuntimeError` for every failure, without a class of its own, so IOStreams tags only a
+  `RuntimeError` that the gem raised while the block was not running, and that is not an operating system error. Some
+  damaged Parquet files make the parquet gem 0.9 stop with Ruby's `fatal`, which no `rescue` can catch, and which ends
+  the process when it is raised in its main thread, until the gem catches the panics of the Rust library that it uses.
 
 ## Storage registered with `IOStreams.register_scheme`
 

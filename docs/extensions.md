@@ -136,6 +136,9 @@ bzip2 uses the `bzip2-ffi` gem, which calls the bzip2 library, libbz2, of the sy
 IOStreams.path("example.csv.bz2").option(:bz2, block_size: 1).write("name,login\nJack Jones,jjones\n")
 ~~~
 
+bzip2 data always starts with its header, even when it holds no data, so an empty file is not bzip2 data, and reading
+one raises `IOStreams::Errors::Corrupt`, as `bzip2 -d` does.
+
 ### Zip
 
 Reading a `.zip` file reads one file within it: the first file, skipping any folders, or the file that
@@ -221,8 +224,10 @@ end
   `zstd` command writes it. On MRI it does not, since `zstd-ruby` cannot write one.
 * Empty data is not zstd, so reading it raises `RuntimeError: zstd decompress error: the data is empty`, as
   `zstd -d` does.
-* On MRI, a file that was cut short, such as by an interrupted download, is not detected: reading returns the data up
-  to where the file ends. zstd-jni on JRuby detects it, and raises `RuntimeError`.
+* A file that was cut short, such as by an interrupted download, raises
+  `RuntimeError: zstd decompress error: Truncated source`, as `zstd -d` does. IOStreams follows the frames of the data
+  itself to find it, since `zstd-ruby` does not report it, and zstd-jni does not report a frame cut off before its
+  checksum.
 
 ## Encryption
 
@@ -258,6 +263,12 @@ IOStreams.path("example.csv.enc").each(:hash) { |record| p record }
 
 A `version` that is not configured raises `SymmetricEncryption::CipherError` before the file is opened.
 
+Reading a file whose header names a version of the cipher that is not configured raises
+`SymmetricEncryption::CipherError`, tagged as `IOStreams::Errors::MissingKey`. Data that the cipher cannot decrypt,
+such as data that is damaged, cut short, or encrypted with another key, raises `OpenSSL::Cipher::CipherError`, tagged
+as `IOStreams::Errors::Corrupt`, and so does an empty file, which the writer never writes, since encrypting no data
+still writes the header, or a block of padding. See [Errors](errors#what-each-stream-raises).
+
 ### PGP
 
 `.pgp` and `.gpg` files are encrypted, decrypted, signed and verified with the `gpg` program of GnuPG, which must be
@@ -285,6 +296,10 @@ Reading uses the `creek` gem, which reads a local file and returns its rows to a
 CSV in a temp file for your code to read. A spreadsheet on S3 or HTTP, or within another stream, is first copied into a
 temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
 raises `ArgumentError` for `sheet_name`, since it always reads the first worksheet.
+
+A spreadsheet is a zip file of parts, such as its worksheets. Before creek reads it, IOStreams checks the size and the
+CRC32 of each part, which creek does not, so that a damaged spreadsheet raises `IOStreams::Errors::Corrupt`, rather than
+reading wrong values, see [Errors](errors#what-each-stream-raises).
 
 ### Writing an Excel spreadsheet
 

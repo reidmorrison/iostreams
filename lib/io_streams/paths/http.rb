@@ -237,11 +237,10 @@ module IOStreams
         location(Utils::URI.encode_path(normalize_path(path)))
       end
 
-      # Returns [String] the path with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`, keeping a
-      # trailing `/`, since a url that ends with it is another url, which a server can answer differently.
-      def clean_name(name)
-        clean = super
-        name.end_with?("/") && !clean.end_with?("/") ? "#{clean}/" : clean
+      # A url that ends with `/` is another url than the url without it, which a server can answer differently, see
+      # `IOStreams::Path#clean_name`.
+      def trailing_slash_significant?
+        true
       end
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
@@ -350,7 +349,7 @@ module IOStreams
           end
         end
         BodyReader.open(request) do |body|
-          coding.reader(body, maximum_size: maximum_file_size) { |input| builder.reader(input, &) }
+          coding.reader(body, maximum_size: maximum_file_size) { |input| builder.reader(input, display_name: display_name, &) }
         end
       end
 

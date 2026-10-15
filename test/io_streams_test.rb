@@ -451,6 +451,8 @@ module IOStreams
           assert_equal compressed_format, IOStreams.extensions[:abc123]
           assert_equal({abc123: {}}, IOStreams.path("data.csv.abc123").pipeline)
           assert_equal({abc123: {}}, IOStreams.path("data.csv.ABC123").pipeline)
+          # And is set by the name it was registered with.
+          assert_equal({abc123: {}}, IOStreams.path("data.csv").stream(:ABC123).pipeline)
         ensure
           IOStreams.deregister_extension(:abc123)
         end
@@ -632,11 +634,46 @@ module IOStreams
             assert_equal encrypted.include?(extension), format.encrypted?, extension
           end
         end
+
+        it "returns a copy, which can be changed without changing the registry" do
+          extensions = IOStreams.extensions
+          extensions.delete(:gz)
+
+          assert_equal IOStreams::Gzip, IOStreams.extensions[:gz]
+        end
+      end
+
+      describe ".extension" do
+        it "returns the format registered for the extension, in any case" do
+          assert_equal IOStreams::Gzip, IOStreams.extension(:gz)
+          assert_equal IOStreams::Gzip, IOStreams.extension("GZ")
+          assert_equal IOStreams::Pgp, IOStreams.extension(:Gpg)
+        end
+
+        it "returns nil for an extension that is not registered, or the built-in encode stream" do
+          assert_nil IOStreams.extension(:unknown)
+          assert_nil IOStreams.extension(:encode)
+        end
+
+        it "returns the format of an extension registered in upper case" do
+          IOStreams.register_extension(:ABC123, IOStreams::Gzip)
+
+          assert_equal IOStreams::Gzip, IOStreams.extension(:ABC123)
+          assert_equal IOStreams::Gzip, IOStreams.extension(:abc123)
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
       end
 
       describe ".scheme" do
         it "returns the registered scheme" do
           assert_equal IOStreams::Paths::S3, IOStreams.scheme(:s3)
+        end
+
+        it "returns the registered scheme in any case, as it is registered" do
+          assert_equal IOStreams::Paths::S3, IOStreams.scheme(:S3)
+          assert_equal IOStreams::Paths::HTTP, IOStreams.scheme("HTTPS")
+          assert_equal IOStreams::Paths::File, IOStreams.scheme(nil)
         end
 
         it "raises an exception for an unknown scheme" do

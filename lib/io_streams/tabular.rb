@@ -158,8 +158,8 @@ module IOStreams
     #     it is supplied, see `IOStreams::Deprecation`, unless it is nil, which is not supplied, apart from
     #     `cleanse_header: nil`, which does not cleanse the header row.
     #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, which #read_header,
-    #     #read_record and #restrict_columns apply unless they are told otherwise. nil does not cleanse it, as before it
-    #     was deprecated. With a schema it raises ArgumentError, including for nil, since it would have no effect.
+    #     #read_record and #restrict_columns apply, unless #read_header is told otherwise. nil does not cleanse it, as
+    #     before it was deprecated. With a schema it raises ArgumentError, including for nil, since it would have no effect.
     #     Default: CLEANSE_BY_DEFAULT, which cleanses it.
     def initialize(format: nil, file_name: nil, schema: nil, format_options: nil, default_format: :csv,
                    row_format_options: nil, cleanse_header: CLEANSE_BY_DEFAULT, **args)
@@ -361,19 +361,19 @@ module IOStreams
     end
 
     # Applies the column restrictions to the header columns once they are known, such as the columns supplied in
-    # place of a header row, renaming them when `rename:`, see `IOStreams::Tabular::Header#cleanse!`. `rename:`
-    # defaults to the `cleanse_header` option, see #initialize.
-    def restrict_columns(**)
-      @mapping.restrict_columns(**)
+    # place of a header row, renaming them as the `cleanse_header` option says, see #initialize and
+    # `IOStreams::Tabular::Header#cleanse!`. With a schema no column options apply.
+    def restrict_columns
+      @mapping.restrict_columns
     end
 
     # Returns [Hash<String,Object>] the line as a record, with the column restrictions applied to its keys for a
-    # format without a header row, such as JSON, whose records each supply their own keys, renaming them when
-    # `rename:`, see `IOStreams::Tabular::Header#restrict_hash`. `rename:` defaults to the `cleanse_header` option, see
-    # #initialize.
+    # format without a header row, such as JSON, whose records each supply their own keys, renaming them as the
+    # `cleanse_header` option says, see #initialize and `IOStreams::Tabular::Header#restrict_hash`. With a schema the
+    # keys are the names of the fields.
     # Returns nil if the line is blank.
-    def read_record(line, **)
-      @mapping.read_record(line, **)
+    def read_record(line)
+      @mapping.read_record(line)
     end
 
     # Reading and writing a line at a time: a reader or writer of rows or records, see `IOStreams::Row::Reader` and the

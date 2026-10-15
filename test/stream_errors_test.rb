@@ -60,9 +60,11 @@ class StreamErrorsTest < Minitest::Test
         refute_kind_of IOStreams::Errors::StorageError, error
       end
 
-      it "raises Corrupt for #{name.inspect} data that is cut short" do
-        skip("zstd-ruby does not report a frame cut short") if name == :zst && !defined?(JRuby)
+      it "raises Corrupt for empty #{name.inspect} data" do
+        assert_raises(IOStreams::Errors::Corrupt) { read(name, "".b) }
+      end
 
+      it "raises Corrupt for #{name.inspect} data that is cut short" do
         written = write(name, data)
 
         assert_raises(IOStreams::Errors::Corrupt) { read(name, written.byteslice(0, written.bytesize / 2)) }

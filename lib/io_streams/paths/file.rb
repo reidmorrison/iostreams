@@ -383,7 +383,7 @@ module IOStreams
       def stream_reader(&)
         file = tag_failure { ::File.open(path, "rb") }
         begin
-          builder.reader(file, &)
+          builder.reader(file, display_name: display_name, &)
         ensure
           file.close
         end

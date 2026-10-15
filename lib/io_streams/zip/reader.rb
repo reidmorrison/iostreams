@@ -24,11 +24,24 @@ module IOStreams
         kind.tag(Errors::StreamFailure.new(message), file_name)
       end
 
-      # Returns [Hash] the options with the name of the zip file that is read, as the path, or the stream, names it,
-      # see `IOStreams::StreamFormat#open_stream`, so that its errors name it, rather than the temp file that a zip file
-      # that is not a local file is copied into, see `IOStreams::Reader.stream`.
-      def self.file_name_options(file_name, **options)
-        options.merge(display_name: file_name)
+      # Returns [Zip::File] the zip file of the supplied name, as rubyzip reads the list of its contents.
+      #
+      # Raises the exception of rubyzip, tagged as `IOStreams::Errors::Corrupt` and the supplied name, for a file that is
+      # not a zip file, see .failure_kind. rubyzip 3.7.0 raises `NoMethodError`, `TypeError` or `ArgumentError`, rather
+      # than `Zip::Error`, for a zip file whose end record is cut short, which are tagged the same way, since only
+      # rubyzip runs while it reads the file. The spreadsheet reader opens spreadsheets with it too, which are zip files.
+      def self.open_zip(file_name, name)
+        Utils.load_soft_dependency("rubyzip", "Zip", "zip") unless defined?(::Zip::File)
+
+        tag_failure(name) { ::Zip::File.open(file_name) }
+      rescue NoMethodError, TypeError, ArgumentError => e
+        raise(Errors::Corrupt.tag(e, name))
+      end
+
+      # Its failures name the zip file that is read, rather than the temp file that a zip file that is not a local file
+      # is copied into, see `IOStreams::Reader.takes_display_name?`.
+      def self.takes_display_name?
+        true
       end
 
       # Returns [String] the message for a zip file that does not contain the file to read.
@@ -38,6 +51,19 @@ module IOStreams
         else
           "The zip file #{file_name} does not contain a file"
         end
+      end
+
+      # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` unless the size and the CRC32 of
+      # the data read from the supplied rubyzip entry are those that the zip file records for it, giving the reason the
+      # way that `java.util.zip` gives it on JRuby, and naming the zip file by the supplied name. rubyzip checks neither.
+      def self.check_entry(entry, size, crc, name)
+        reason =
+          if size != entry.size
+            "invalid entry size (expected #{entry.size} but got #{size} bytes)"
+          elsif crc != entry.crc
+            format("invalid entry CRC (expected 0x%<expected>x but got 0x%<actual>x)", expected: entry.crc, actual: crc)
+          end
+        raise(failure(Errors::Corrupt, corrupt_message(entry.name, name, reason), name)) if reason
       end
 
       # Returns [String] the message for a file within a zip file whose data is corrupt, for the supplied reason.
@@ -62,7 +88,7 @@ module IOStreams
       # CRC32, is not the one that the zip file records. A file that is not a zip file, or data that cannot be
       # decompressed, also raises an exception tagged as `IOStreams::Errors::Corrupt`: rubyzip's `Zip::Error` on MRI,
       # and the StreamFailure on JRuby, which reads zip files with `java.util.zip`. Each one names the zip file by its
-      # `display_name`, the name of the file that is read, see .file_name_options, otherwise by the name of the local
+      # `display_name`, the name of the file that is read, see .takes_display_name?, otherwise by the name of the local
       # file.
       #
       # Example:
@@ -150,10 +176,8 @@ module IOStreams
         #
         # rubyzip is called within `.tag_failure`, but not the block, see `IOStreams::Reader.tag_failure`.
         def self.file(file_name, entry_file_name: nil, display_name: nil, &block)
-          Utils.load_soft_dependency("rubyzip", "Zip", "zip") unless defined?(::Zip::File)
-
           name     = display_name || file_name
-          zip_file = tag_failure(name) { ::Zip::File.open(file_name) }
+          zip_file = open_zip(file_name, name)
           entry    = find_entry(zip_file, entry_file_name)
           raise(failure(Errors::MissingEntry, missing_message(entry_file_name, name), name)) unless entry
 
@@ -203,18 +227,9 @@ module IOStreams
           end
 
           # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` unless the data read has the
-          # size and the CRC32 of the file, giving the reason the way that `java.util.zip` gives it on JRuby.
+          # size and the CRC32 of the file, see `Reader.check_entry`.
           def check
-            if @size != @entry.size
-              corrupt("invalid entry size (expected #{@entry.size} but got #{@size} bytes)")
-            elsif @crc != @entry.crc
-              corrupt(format("invalid entry CRC (expected 0x%<expected>x but got 0x%<actual>x)",
-                             expected: @entry.crc, actual: @crc))
-            end
-          end
-
-          def corrupt(reason)
-            raise(Reader.failure(Errors::Corrupt, Reader.corrupt_message(@entry.name, @file_name, reason), @file_name))
+            Reader.check_entry(@entry, @size, @crc, @file_name)
           end
         end
       end

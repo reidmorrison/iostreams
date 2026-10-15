@@ -687,6 +687,16 @@ module Paths
             Net::HTTP.stub(:start, tracking) { yield(-> { open }) }
           end
 
+          it "names the url, without its credentials or query, in the failure of a stream" do
+            # A zip file without any entries.
+            start_server { |_path| TestHTTPServer.response(200, body: "PK\x05\x06#{"\0" * 18}") }
+            path  = IOStreams.path("http://jack:secret@127.0.0.1:#{@server.port}/exports/folders.zip?token=secret")
+            error = assert_raises(IOStreams::Errors::MissingEntry) { path.read }
+
+            assert_equal "#{@server.base_url}/exports/folders.zip", error.display_name
+            assert_equal "The zip file #{@server.base_url}/exports/folders.zip does not contain a file", error.message
+          end
+
           it "reads lines like an IO, as the response is read" do
             start_server { |_path| TestHTTPServer.response(200, body: "a,b\n1,2\n") }
             path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
@@ -1923,6 +1933,22 @@ module Paths
               path.send(:redirects).follow(URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Put)
             end
             assert_includes error.message, "same scheme, host and port"
+          end
+
+          it "follows a redirect to the same host in another case when writing, since host names ignore case" do
+            path    = IOStreams::Paths::HTTP.new("https://API.Example.com/upload.csv")
+            new_uri = path.send(:redirects).follow(URI.parse(path.url), redirect_to("https://api.example.com/upload.csv"), 1, Net::HTTP::Put)
+
+            assert_equal "https://api.example.com/upload.csv", new_uri.to_s
+          end
+
+          it "sends the credentials and headers to the same host in another case" do
+            path    = IOStreams::Paths::HTTP.new("https://API.Example.com/file.csv", username: "jack", password: "secret",
+                                                                                     headers: {"X-Api-Key" => "key"})
+            request = path.send(:build_request, Net::HTTP::Get, URI.parse("https://api.example.com/file.csv"))
+
+            assert_equal %w[jack secret], Base64.decode64(request["authorization"].sub(/\ABasic /, "")).split(":")
+            assert_equal "key", request["x-api-key"]
           end
 
           it "logs each redirect that is followed, without credentials or the query" do

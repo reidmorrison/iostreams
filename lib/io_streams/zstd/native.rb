@@ -38,6 +38,8 @@ module IOStreams
           @input        = String.new(encoding: Encoding::BINARY)
           @end_of_input = false
           @read         = false
+          # Follows the frames of the input, since `zstd-ruby` does not report a frame that it ends within.
+          @frames       = Frames.new
         end
 
         # Returns [String] the next data decompressed, at most one block of zstd, 128KB, however well the data
@@ -47,9 +49,8 @@ module IOStreams
         # the rest is decompressed by the next call, where `#decompress` returns all of the data of the input block at
         # once, which could be gigabytes for 64KB of data that compresses well.
         #
-        # A frame cut short at the end of the input stream is not detected, since `zstd-ruby` does not report it.
-        #
-        # Raises [RuntimeError] tagged as `IOStreams::Errors::Corrupt` for data that is not zstd, see `Zstd.corrupt`.
+        # Raises [RuntimeError] tagged as `IOStreams::Errors::Corrupt` for data that is not zstd, or a frame cut short at
+        # the end of the input stream, see `Zstd.corrupt`.
         def read_block
           loop do
             read_input if @input.empty? && !@end_of_input
@@ -76,16 +77,19 @@ module IOStreams
           raise(Errors::Corrupt.tag(e))
         end
 
-        # Raises [RuntimeError] at the end of an input stream without any data, which is not zstd, like `zstd -d`.
+        # Raises [RuntimeError] at the end of an input stream without any data, which is not zstd, like `zstd -d`, or
+        # that ends within a frame, with the message of zstd-jni on JRuby, see `Zstd::Frames`.
         def read_input
           block = @input_stream.read(BLOCK_SIZE)
           if block.nil?
             raise(Zstd.corrupt("the data is empty")) unless @read
+            raise(Zstd.corrupt("Truncated source")) unless @frames.complete?
 
             @end_of_input = true
           else
             @read ||= !block.empty?
-            @input  = block
+            @frames << block
+            @input = block
           end
         end
       end

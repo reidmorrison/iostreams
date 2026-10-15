@@ -58,6 +58,26 @@ class BuilderTest < Minitest::Test
         end
       end
 
+      it "takes the name of the stream in any case, as the extensions of the file name are compared" do
+        streams.option(:PGP, passphrase: "unlock-me")
+        streams.option("Gz", level: 1)
+
+        assert_equal({pgp: {passphrase: "unlock-me"}, gz: {level: 1}}, streams.options)
+        assert_equal({passphrase: "unlock-me"}, streams.setting(:Pgp))
+        assert_equal({passphrase: "unlock-me"}, streams.pipeline[:pgp])
+        assert_equal({level: 1}, streams.pipeline[:gz])
+      end
+
+      it "sets the options of an extension that was registered in upper case, by that name" do
+        IOStreams.register_extension(:GZX, IOStreams::Gzip)
+        streams = IOStreams::Builder.new("data.csv.GZX").option(:GZX, level: 1)
+
+        assert_equal({gzx: {level: 1}}, streams.pipeline)
+        assert_equal({level: 1}, streams.setting(:GZX))
+      ensure
+        IOStreams.deregister_extension(:gzx)
+      end
+
       describe "with no file_name" do
         let(:file_name) { nil }
 
@@ -96,6 +116,16 @@ class BuilderTest < Minitest::Test
         assert_raises ArgumentError do
           streams.stream(:blah, value: 23)
         end
+      end
+
+      it "takes the name of the stream in any case, as the extensions of the file name are compared" do
+        streams.stream(:PGP, passphrase: "unlock-me")
+        streams.stream("Enc", compress: false)
+
+        assert_equal({pgp: {passphrase: "unlock-me"}, enc: {compress: false}}, streams.streams)
+        assert_equal({compress: false}, streams.setting(:ENC))
+        assert_equal({passphrase: "unlock-me"}, streams.remove_from_pipeline(:Pgp))
+        assert_equal({enc: {compress: false}}, streams.pipeline)
       end
     end
 
@@ -241,6 +271,12 @@ class BuilderTest < Minitest::Test
       it "returns the format registered for the extension" do
         assert_equal IOStreams::Xlsx, IOStreams::Builder.find_format(:xlsx)
         assert_equal IOStreams::Gzip, IOStreams::Builder.find_format(:gzip)
+      end
+
+      it "returns the format of a name in any case" do
+        assert_equal IOStreams::Gzip, IOStreams::Builder.find_format(:GZ)
+        assert_equal IOStreams::Pgp, IOStreams::Builder.find_format("Gpg")
+        assert IOStreams::Builder.stream_name?(:XLSX)
       end
 
       it "returns the built-in encode stream" do

@@ -121,10 +121,8 @@ module IOStreams
         match_header(line)&.last
       end
 
-      # Returns nil: no column options apply, since the schema describes the columns instead. Accepts `rename`, which has
-      # no effect, as it has none without a schema when no column is restricted, so that a caller, such as Rocket Job,
-      # can call it whether or not there is a schema.
-      def restrict_columns(rename: nil) # rubocop:disable Lint/UnusedMethodArgument -- accepted, as it is without a schema
+      # Returns nil: no column options apply, since the schema describes the columns instead.
+      def restrict_columns
         nil
       end
 
@@ -151,7 +149,7 @@ module IOStreams
 
       # Returns [Hash] the record of the line, see #record_parse, to which no column options apply, see
       # #restrict_columns.
-      def read_record(line, rename: nil) # rubocop:disable Lint/UnusedMethodArgument -- accepted, see #restrict_columns
+      def read_record(line)
         record_parse(line)
       end
 

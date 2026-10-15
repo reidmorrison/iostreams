@@ -52,6 +52,32 @@ class XlsxReaderTest < Minitest::Test
       end
     end
 
+    describe "a damaged spreadsheet" do
+      let(:spreadsheet) { File.binread(File.join(File.dirname(__FILE__), "files", "spreadsheet.xlsx")) }
+
+      # Returns [IOStreams::Stream] reading the supplied bytes as a spreadsheet named archive/damaged.xlsx.
+      def damaged(bytes)
+        IOStreams.stream(StringIO.new(bytes)).file_name("archive/damaged.xlsx")
+      end
+
+      it "raises Corrupt for a part whose data is not the data that the spreadsheet records for it" do
+        # A byte within the data of a part that is stored without compression, whose CRC32 no longer matches.
+        bytes  = spreadsheet.b
+        middle = bytes.bytesize / 2
+        bytes.setbyte(middle, bytes.getbyte(middle) ^ 0x10)
+
+        error = assert_raises(IOStreams::Errors::Corrupt) { damaged(bytes).read }
+        assert_instance_of IOStreams::Errors::StreamFailure, error
+        assert_equal "archive/damaged.xlsx", error.display_name
+        assert_match(%r{\AThe file "[^"]+" within the zip file archive/damaged.xlsx is corrupt: invalid entry CRC}, error.message)
+      end
+
+      it "raises Corrupt for a spreadsheet whose end record is cut short" do
+        error = assert_raises(IOStreams::Errors::Corrupt) { damaged(spreadsheet.byteslice(0, spreadsheet.bytesize - 4)).read }
+        assert_equal "archive/damaged.xlsx", error.display_name
+      end
+    end
+
     describe "without the creek gem" do
       it "raises LoadError asking to install it" do
         # A new process, since the tests have already loaded creek, which hides it, as if it were not installed.

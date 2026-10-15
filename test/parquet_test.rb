@@ -67,6 +67,54 @@ class ParquetTest < Minitest::Test
       list
     end
 
+    describe "a file that cannot be read" do
+      it "raises Corrupt for a file that is not Parquet" do
+        File.write(path.to_s, "id,name\n1,Jack\n")
+
+        error = assert_raises(IOStreams::Errors::Corrupt) { read }
+        assert_instance_of RuntimeError, error
+      end
+
+      it "raises Corrupt for an empty file" do
+        File.write(path.to_s, "")
+
+        assert_raises(IOStreams::Errors::Corrupt) { read }
+      end
+
+      it "raises Corrupt for a file that is cut short" do
+        write
+        bytes = File.binread(path.to_s)
+        File.binwrite(path.to_s, bytes.byteslice(0, bytes.bytesize / 2))
+
+        assert_raises(IOStreams::Errors::Corrupt) { read }
+      end
+
+      it "raises Corrupt for a damaged file when it reads the columns for a schema" do
+        File.write(path.to_s, "not a Parquet file")
+        subset = schema.merge(fieldsMatch: "subset")
+
+        assert_raises(IOStreams::Errors::Corrupt) { read(path.schema(subset)) }
+      end
+
+      it "does not tag an exception that the block raises, which the gem raises again" do
+        write
+        raised = RuntimeError.new("Parquet error: from the block")
+
+        error = assert_raises(RuntimeError) { path.each(:hash) { |record| raise(raised) if record } }
+        assert_same raised, error
+        refute_kind_of IOStreams::Errors::StreamError, error
+      end
+
+      it "keeps the tag of a damaged file that the block reads, rather than tagging it again" do
+        write
+        damaged = path("damaged.parquet")
+        File.write(damaged.to_s, "not a Parquet file")
+
+        error = assert_raises(IOStreams::Errors::Corrupt) { path.each(:hash) { read(damaged) } }
+        assert_instance_of RuntimeError, error
+      end
+    end
+
     it "reads the records written, with the type of each field" do
       write
 

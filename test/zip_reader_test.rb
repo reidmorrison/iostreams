@@ -170,6 +170,25 @@ class ZipReaderTest < Minitest::Test
           assert_equal zip_file_name, error.display_name
         end
 
+        it "raises Corrupt for a zip file whose end record is cut short" do
+          zip_file_name = File.join(dir, "data.zip")
+          Zip::File.open(zip_file_name, create: true) { |zip| zip.get_output_stream("data.csv") { |io| io.write(data) } }
+          bytes = File.binread(zip_file_name)
+
+          # The end of central directory record is 22 bytes. rubyzip 3.7.0 raises NoMethodError, TypeError or
+          # ArgumentError for most of these, which are tagged too.
+          (1..22).each do |cut|
+            File.binwrite(zip_file_name, bytes.byteslice(0, bytes.bytesize - cut))
+            if defined?(JRuby)
+              # java.util.zip reads the header before each file, so the end record does not matter.
+              assert_equal data, IOStreams.path(zip_file_name).read
+            else
+              error = assert_raises(IOStreams::Errors::Corrupt, "cut #{cut}") { IOStreams.path(zip_file_name).read }
+              assert_equal zip_file_name, error.display_name
+            end
+          end
+        end
+
         it "raises Corrupt for an empty file" do
           zip_file_name = File.join(dir, "empty.zip")
           File.write(zip_file_name, "")
@@ -223,6 +242,15 @@ class ZipReaderTest < Minitest::Test
 
           error = assert_stream_failure(IOStreams::Errors::MissingEntry, "archive/folders.zip") { stream.read }
           assert_equal "The zip file archive/folders.zip does not contain a file", error.message
+        end
+
+        it "names the path that is read, rather than the file name that is set to choose its streams" do
+          zip_file_name = File.join(dir, "upload-1234")
+          File.binwrite(zip_file_name, "PK\x05\x06#{"\0" * 18}")
+          path = IOStreams.path(zip_file_name).file_name("folders.zip")
+
+          error = assert_stream_failure(IOStreams::Errors::MissingEntry, zip_file_name) { path.read }
+          assert_equal "The zip file #{zip_file_name} does not contain a file", error.message
         end
 
         it "names the zip file of a corrupt file that is read from a stream" do

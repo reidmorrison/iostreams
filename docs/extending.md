@@ -158,6 +158,11 @@ stream. For a failure that the reader finds itself, such as a file within an arc
 `IOStreams::Errors::StreamFailure` tagged with the kind of failure, such as
 `raise(IOStreams::Errors::MissingEntry.tag(IOStreams::Errors::StreamFailure.new(message)))`.
 
+To name the file that failed, as the zip, spreadsheet and PGP readers do, answer `true` from the class method
+`.takes_display_name?`. Then `.stream` and `.file` are also given `display_name:`, the name of the file as the path
+displays it, such as `s3://bucket/data.xz`, or nil when it is not known, for `.tag_failure(display_name)` and the
+messages of the reader, rather than the name of the temp file that a reader of local files is given.
+
 ### Registering just the reader and writer
 
 A format that is neither compressed nor encrypted can be registered with just its reader and writer classes:
@@ -168,12 +173,15 @@ IOStreams.register_extension(:xls, MyXls::Reader, MyXls::Writer)
 
 ### Another extension for a built-in format
 
-To read and write a built-in format for another extension, register the format that `IOStreams.extensions` returns
+To read and write a built-in format for another extension, register the format that `IOStreams.extension` returns
 for it, for example when a partner names its gzip files `.gzipped`:
 
 ~~~ruby
-IOStreams.register_extension(:gzipped, IOStreams.extensions[:gz])
+IOStreams.register_extension(:gzipped, IOStreams.extension(:gz))
 ~~~
+
+Extensions are compared without case, as they are in file names, so `.GZIPPED` files are read as gzip too, and the
+stream is named `:gzipped` in any case, such as with `option(:Gzipped, level: 9)`.
 
 ## Registering a storage scheme
 

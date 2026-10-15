@@ -460,6 +460,36 @@ class EncodeReaderTest < Minitest::Test
 
           assert_equal with_byte_order_mark, data
         end
+
+        it "is removed from the start of UTF-16 and UTF-32 data of either byte order, such as Windows Unicode Text" do
+          %w[UTF-16LE UTF-16BE UTF-32LE UTF-32BE].each do |encoding|
+            input     = "\uFEFFname,city".encode(encoding).b
+            converted = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "#{encoding}:UTF-8", &:read)
+            as_read   = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: encoding, &:read)
+
+            assert_equal "name,city", converted, encoding
+            assert_equal "name,city".encode(encoding), as_read, encoding
+          end
+        end
+
+        it "is removed from the start of UTF-16 data when it is split across reads" do
+          chunks = []
+          input  = "\uFEFFab".encode("UTF-16LE").b
+          IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16LE:UTF-8") do |io|
+            while (chunk = io.read(1))
+              chunks << chunk
+            end
+          end
+
+          assert_equal %w[a b], chunks
+        end
+
+        it "is kept when it is not at the start of UTF-16 data" do
+          input = "a\uFEFFb".encode("UTF-16LE").b
+          data  = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16LE:UTF-8", &:read)
+
+          assert_equal "a\uFEFFb", data
+        end
       end
 
       describe "external:internal encoding" do

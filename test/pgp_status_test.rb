@@ -93,6 +93,17 @@ class PgpStatusTest < Minitest::Test
       end
     end
 
+    describe "#incomplete?" do
+      it "is true when gpg found the data, but not the end of it, such as a signature that is cut short" do
+        assert_predicate status("PLAINTEXT 62 0", "NODATA 3"), :incomplete?
+      end
+
+      it "is false when gpg read all of the data" do
+        refute_predicate status("PLAINTEXT 62 0", "NEWSIG", "GOODSIG D0E8E4F389B682E6 Sender <sender@example.org>"),
+                         :incomplete?
+      end
+    end
+
     describe "#good_signatures" do
       it "returns the fingerprint of the primary key, and the trust, of each good signature" do
         result = status("NEWSIG", "GOODSIG D0E8E4F389B682E6 Sender <sender@example.org>",

@@ -455,7 +455,7 @@ module IOStreams
       end
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s.match?(/\A\w+\z/)
 
-    name = extension.to_s.downcase.to_sym unless extension.nil?
+    name = Utils.extension_name(extension)
     if Builder.reserved_keyword?(name)
       raise(ArgumentError, "Cannot register the extension #{extension.inspect}, which is a reserved keyword")
     end
@@ -480,7 +480,7 @@ module IOStreams
   def self.deregister_extension(extension)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s.match?(/\A\w+\z/)
 
-    name = extension.to_s.downcase.to_sym
+    name = Utils.extension_name(extension)
     @registry_mutex.synchronize do
       removed     = @extensions[name]
       @extensions = @extensions.except(name).freeze
@@ -492,6 +492,14 @@ module IOStreams
   # A format registered by its reader and writer classes is a frozen `IOStreams::Extension`.
   def self.extensions
     @extensions.dup
+  end
+
+  # Returns the format registered for the file extension, whatever its case, as it is registered, such as
+  # `IOStreams::Gzip` for `:gz` or `"GZ"`, or nil when none is, see `register_extension`.
+  #
+  # Unlike `extensions`, it does not copy the registry, so it can be called for every stream of every path.
+  def self.extension(name)
+    @extensions[Utils.extension_name(name)]
   end
 
   # Register a URI scheme and the path class that handles it
@@ -511,10 +519,12 @@ module IOStreams
     @schemes.dup
   end
 
-  # Returns [Class] the path class registered for the url scheme, such as `IOStreams::Paths::S3` for `:s3`, or for nil,
-  # a name without a scheme. Raises ArgumentError for a scheme that is not registered.
+  # Returns [Class] the path class registered for the url scheme, whatever its case, as it is registered, such as
+  # `IOStreams::Paths::S3` for `:s3` or `"S3"`, or for nil, a name without a scheme. Raises ArgumentError for a scheme
+  # that is not registered.
   def self.scheme(scheme_name)
-    @schemes[scheme_name&.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
+    name = scheme_name.to_s.downcase.to_sym unless scheme_name.nil?
+    @schemes[name] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
   end
 
   # A format registered with `register_extension` by its reader and writer classes,

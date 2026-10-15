@@ -66,6 +66,13 @@ module IOStreams
         keyword?("PLAINTEXT")
       end
 
+      # Returns [true|false] whether gpg reported data that is not PGP data after the data that it read, which gpg
+      # ignores when it succeeds, as for a signature cut off at the end of a file that is signed but not encrypted, while
+      # text before or after armor, or bytes after the data, are not reported.
+      def incomplete?
+        keyword?("NODATA")
+      end
+
       # Returns [Array<Hash>] the fingerprint of the primary key, and the trust level, of each good signature.
       #
       # For each good signature gpg reports `VALIDSIG`, whose last field is the fingerprint of the primary key, since

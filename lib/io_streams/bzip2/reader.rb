@@ -35,15 +35,38 @@ module IOStreams
       # The stream supplied to the block responds to #read, #readpartial and #eof?, see `IOStreams::BlockReader`.
       #
       # Raises the exception of bzip2-ffi, tagged as `IOStreams::Errors::Corrupt`, for data that is not bzip2, or is
-      # damaged or cut short, see .failure_kind.
+      # damaged or cut short, see .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for empty
+      # data, see Decompressor.
       def self.stream(input_stream, autoclose: false, first_only: false, small: false)
         Utils.load_soft_dependency("bzip2-ffi", "Bzip2", "bzip2/ffi") unless defined?(::Bzip2::FFI)
 
         begin
-          reader = ::Bzip2::FFI::Reader.new(input_stream, autoclose: autoclose, first_only: first_only, small: small)
-          yield BlockReader.new(reader, failures: self)
+          # bzip2-ffi calls `#close` on it when `autoclose: true`, and `#seek` when `first_only: true`.
+          input  = Input.new(input_stream)
+          reader = ::Bzip2::FFI::Reader.new(input, autoclose: autoclose, first_only: first_only, small: small)
+          yield Decompressor.new(reader, input)
         ensure
           reader&.close
+        end
+      end
+
+      # Reads the data that bzip2-ffi decompresses a block at a time, see `IOStreams::BlockReader`.
+      #
+      # Raises for input without any data, which bzip2-ffi reads as empty, while `bzip2 -d` rejects it, since bzip2 data
+      # always starts with its header, even when it holds no data.
+      class Decompressor < BlockReader
+        def initialize(reader, input)
+          super(reader, failures: Reader)
+          @input = input
+        end
+
+        private
+
+        def next_chunk
+          chunk = super
+          return chunk if chunk || @input.read?
+
+          raise(Errors::Corrupt.tag(Errors::StreamFailure.new("The bzip2 data is empty")))
         end
       end
     end

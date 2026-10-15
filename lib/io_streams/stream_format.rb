@@ -100,7 +100,8 @@ module IOStreams
     # The options are validated, see #validate_options, and only those that the class uses are supplied to it,
     # leaving out those that are valid but that it does not need, such as `compress` when reading `.enc`.
     # A class can default its options from the file name, such as the name of the file within a zip file,
-    # by answering `.file_name_options`.
+    # by answering `.file_name_options`. A reader that names the file in its failures, such as zip, declares
+    # `.takes_display_name?`, see `IOStreams::Reader.takes_display_name?`, and is supplied `display_name:`.
     #
     # Parameters
     #   name: [Symbol]
@@ -109,39 +110,50 @@ module IOStreams
     #   file_name: [String]
     #     The name of the file being read or written, when known.
     #
+    #   display_name: [String]
+    #     The name that identifies the file being read in failures, such as the url of a path, see
+    #     `IOStreams::Path#display_name`, when known.
+    #
     #   arguments: [Hash]
     #     The keyword arguments that the caller supplies, rather than the options set on the stream, so that they are
     #     neither validated nor sliced as options are, such as the schema of the records of a Parquet file, which is set
     #     on the path, see `IOStreams::Tabular#write_rows`.
-    def open_stream(type, io_stream, options, name:, file_name: nil, arguments: nil, &)
+    def open_stream(type, io_stream, options, name:, file_name: nil, display_name: nil, arguments: nil, &)
       klass = registered_class(type, name)
-      klass.open(io_stream, **stream_arguments(type, options, name, file_name, arguments), &)
+      klass.open(io_stream, **stream_arguments(type, options, name, file_name, arguments, display_name: display_name), &)
     end
 
     # Raises what #open_stream would raise before the class reads or writes anything, so that the caller can check
     # before it opens the output, which would replace an existing file, see `IOStreams::Stream#open_rows_writer`. The
     # options are validated, see #validate_options, and those that the class uses, with the arguments, are supplied to
     # its `.check`, when it has one, such as `IOStreams::Parquet::Writer.check`. See #open_stream for the parameters.
-    def check_stream(type, options, name:, file_name: nil, arguments: nil)
+    def check_stream(type, options, name:, file_name: nil, display_name: nil, arguments: nil)
       klass     = registered_class(type, name)
-      arguments = stream_arguments(type, options, name, file_name, arguments)
+      arguments = stream_arguments(type, options, name, file_name, arguments, display_name: display_name)
       klass.check(**arguments) if klass.respond_to?(:check)
     end
 
     private
+
+    # Returns [true|false] whether the class names the file that it reads in its failures, so that it takes
+    # `display_name:`, see `IOStreams::Reader.takes_display_name?`.
+    def takes_display_name?(klass)
+      klass.respond_to?(:takes_display_name?) && klass.takes_display_name?
+    end
 
     def registered_class(type, name)
       stream_class(type) || raise(ArgumentError, "No #{type} registered for Stream type: #{name.inspect}")
     end
 
     # Returns [Hash] the keyword arguments that the class is opened with: the options that it uses, once they are
-    # validated, and the arguments of the caller, see #open_stream.
-    def stream_arguments(type, options, name, file_name, arguments)
+    # validated, the display name of the file when the class takes it, and the arguments of the caller, see #open_stream.
+    def stream_arguments(type, options, name, file_name, arguments, display_name: nil)
       validate_options(type, options, name: name)
       klass    = stream_class(type)
       accepted = option_names(type)
       options  = options.slice(*accepted) if accepted
       options  = klass.file_name_options(file_name, **options) if file_name && klass.respond_to?(:file_name_options)
+      options  = options.merge(display_name: display_name) if display_name && takes_display_name?(klass)
       options  = options.merge(arguments) if arguments
       options
     end

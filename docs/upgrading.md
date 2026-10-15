@@ -76,7 +76,8 @@ and write bytes.
 The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is
 removed from the first line, so that a CSV file with a quoted header row no longer raises
 `CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
-`encoding: "UTF-8"`. `read` keeps it, like `File.read`.
+`encoding: "UTF-8"`, and from UTF-16 or UTF-32 text of either byte order, such as
+`encoding("UTF-16LE:UTF-8")`. `read` keeps it, like `File.read`.
 
 Fix: read a file in another encoding by setting it with `#encoding`, for example
 `encoding("Windows-1252:UTF-8")`, which converts it to UTF-8 as it is read, or `encoding("Windows-1252")`, whose
@@ -466,6 +467,22 @@ Fix: replace calls such as `#rewind` or `#size` on the stream. Read lines with `
 `IOStreams.path("data.csv.gz").copy_to("/tmp/data.csv")`, which decompresses it, and read that file. To read a
 number of bytes with an encoding set, such as a record of a fixed size, read the bytes without the encoding, and
 convert them.
+
+#### An empty `.bz2` file raises `Corrupt`
+
+Reading an empty `.bz2` file raises `IOStreams::Errors::Corrupt`, as `bzip2 -d` does, since bzip2 data always starts
+with its header, even when it holds no data. Previously it read as empty.
+
+Fix: write files that hold no data as bzip2 data, as IOStreams does, rather than as empty files, or rescue
+`IOStreams::Errors::Corrupt`.
+
+#### An empty `.enc` file raises `Corrupt`
+
+Reading an empty `.enc` file raises `IOStreams::Errors::Corrupt`, since the writer never writes one: encrypting no
+data still writes the header, or a block of padding. Previously it read as empty.
+
+Fix: write files that hold no data through the `.enc` stream, rather than as empty files, or rescue
+`IOStreams::Errors::Corrupt`.
 
 #### Reading gzip returns every member
 

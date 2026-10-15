@@ -152,7 +152,8 @@ IOStreams::Errors::InvalidEncoding: "\xE9" is not valid UTF-8 at byte offset 104
 ~~~
 
 The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that the
-first column name of a CSV file is read as it appears.
+first column name of a CSV file is read as it appears. So is the one at the start of UTF-16 or UTF-32 text, such as
+the "Unicode Text" that Windows programs export, read with `encoding("UTF-16LE:UTF-8")`.
 
 `#read` returns the whole file as UTF-8 without checking it, like `File.read`, so that it can also read a binary
 file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`

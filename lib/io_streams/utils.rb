@@ -117,6 +117,13 @@ module IOStreams
       parts.map(&:downcase)
     end
 
+    # Returns [Symbol] the name of a file name extension, as it is registered, see `IOStreams.register_extension`, and as
+    # the streams of a path are named, see `IOStreams::Builder`: in lower case, since the extensions of a file name are
+    # compared without case, see .file_name_extensions, so `:GZ` and `"gz"` are `:gz`. Returns nil for nil.
+    def self.extension_name(name)
+      name.to_s.downcase.to_sym unless name.nil?
+    end
+
     # Returns [String] the supplied string, or its bytes when it is not valid in its encoding, so that a Regexp,
     # `split` or `File.fnmatch?` can be applied to it, since Ruby raises ArgumentError for those otherwise.
     #

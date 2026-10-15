@@ -29,5 +29,28 @@ class Bzip2ReaderTest < Minitest::Test
         assert_equal decompressed, result
       end
     end
+
+    describe "data that holds nothing" do
+      it "raises Corrupt for empty data, which is not bzip2, as `bzip2 -d` does" do
+        error = assert_raises(IOStreams::Errors::Corrupt) { IOStreams::Bzip2::Reader.stream(StringIO.new(""), &:read) }
+
+        assert_instance_of IOStreams::Errors::StreamFailure, error
+        assert_equal "The bzip2 data is empty", error.message
+      end
+
+      it "reads bzip2 data of an empty file as empty" do
+        output = StringIO.new(+"".b)
+        IOStreams::Bzip2::Writer.stream(output) { |io| io.write("") }
+
+        assert_equal "", IOStreams::Bzip2::Reader.stream(StringIO.new(output.string), &:read)
+      end
+
+      it "still closes the input stream when autoclose is true" do
+        input = StringIO.new(File.binread(file_name))
+        IOStreams::Bzip2::Reader.stream(input, autoclose: true, &:read)
+
+        assert_predicate input, :closed?
+      end
+    end
   end
 end

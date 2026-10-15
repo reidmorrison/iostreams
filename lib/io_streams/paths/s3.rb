@@ -339,7 +339,7 @@ module IOStreams
         if RangeReader.supports?(options_for(:get_object).keys)
           authorize!
           input = RangeReader.new(->(**params) { request(:get_object, bucket: bucket_name, key: path, **params) })
-          return builder.reader(input, &)
+          return builder.reader(input, display_name: display_name, &)
         end
 
         # Since a single S3 download only supports a push stream, write it to a tempfile first.
@@ -394,12 +394,13 @@ module IOStreams
       #
       # S3 has no directories, only keys that contain `/`. With `directories: true` the directories within the
       # keys are also returned, such as `a` and `a/b` for the key `a/b/c.csv`, along with any empty folder
-      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder,
-      # see `Listing#each`.
+      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder found
+      # by listing every key below the directory, see `Listing#each`.
       #
       # Notes:
       # - S3 lists every key below the directory, unless the pattern cannot match a name below it, such as `*.csv`,
-      #   when it only lists the keys directly within it, see `Listing#each`.
+      #   `*` or an exact name that is not found, when it only lists the keys and the directories directly within it,
+      #   see `Listing#each`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false, &)
         unless block_given?
           return to_enum(__method__, pattern,
@@ -476,11 +477,10 @@ module IOStreams
         name
       end
 
-      # Returns [String] the key with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`, keeping a
-      # trailing `/`, since a key that ends with it, such as that of a folder object, is another object.
-      def clean_name(name)
-        clean = super
-        name.end_with?("/") && !clean.end_with?("/") ? "#{clean}/" : clean
+      # A key that ends with `/`, such as that of a folder object, is another object than the key without it, see
+      # `IOStreams::Path#clean_name`.
+      def trailing_slash_significant?
+        true
       end
 
       # Returns [Integer] the size of the object, or nil when it does not exist, see `#empty?`. A direct copy of an object

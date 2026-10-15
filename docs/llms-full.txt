@@ -777,7 +777,8 @@ IOStreams::Errors::InvalidEncoding: "\xE9" is not valid UTF-8 at byte offset 104
 ~~~
 
 The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is removed, so that the
-first column name of a CSV file is read as it appears.
+first column name of a CSV file is read as it appears. So is the one at the start of UTF-16 or UTF-32 text, such as
+the "Unicode Text" that Windows programs export, read with `encoding("UTF-16LE:UTF-8")`.
 
 `#read` returns the whole file as UTF-8 without checking it, like `File.read`, so that it can also read a binary
 file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`
@@ -1565,8 +1566,9 @@ IOStreams.path("https://example.com/files/my%20data.csv").path
 | `allow_hosts:` | The host name, or an Array of the host names, that may be contacted, including after a redirect, compared without case. A request of any other host raises `IOStreams::Errors::CommunicationsFailure` | Any host |
 | `maximum_file_size:` | The most bytes to read, both as they are received and once decompressed. A larger body raises `IOStreams::Errors::CommunicationsFailure` from within the block. Writing a path with it raises `ArgumentError` | No limit |
 
-The credentials and the `headers:` are only sent to the scheme, host and port of the url, and never after a redirect
-to another one, since any header can hold a credential, apart from an `Accept-Encoding`, which holds none. A path
+The credentials and the `headers:` are only sent to the scheme, host and port of the url, whatever the case of the
+host name, and never after a redirect to another one, since any header can hold a credential, apart from an
+`Accept-Encoding`, which holds none. A path
 answers `#url`, which is `#to_s`, `#username` and `#http_redirect_count`.
 
 ### Reading a url {#http-reading}
@@ -1860,7 +1862,9 @@ IOStreams.path("exports").each_child("*", directories: true) { |child| puts chil
   and SFTP a name that is found is returned without listing the directory, so a second name that differs from it only
   in case is not returned with it.
 * With `directories: true`, S3 returns the directories within its keys, such as `a` and `a/b` for the key
-  `a/b/c.csv`, and each folder object, without its trailing `/`.
+  `a/b/c.csv`, and each folder object, without its trailing `/`. A pattern that can only match names within the
+  directory, such as `*`, lists them by name, with the names of the keys within it, so they have empty attributes,
+  while one that lists every key below the directory, such as `**/*`, returns each folder object with its attributes.
 * A path that does not exist, or that is a file, has no children, on every store. A directory that cannot be read
   raises the exception of its store, tagged as `IOStreams::Errors::PermissionDenied`: `Errno::EACCES` for a local
   directory, `Net::SFTP::StatusException` on SFTP, or `Aws::S3::Errors::AccessDenied` on S3. A directory below it that
@@ -2972,6 +2976,9 @@ bzip2 uses the `bzip2-ffi` gem, which calls the bzip2 library, libbz2, of the sy
 IOStreams.path("example.csv.bz2").option(:bz2, block_size: 1).write("name,login\nJack Jones,jjones\n")
 ~~~
 
+bzip2 data always starts with its header, even when it holds no data, so an empty file is not bzip2 data, and reading
+one raises `IOStreams::Errors::Corrupt`, as `bzip2 -d` does.
+
 ### Zip
 
 Reading a `.zip` file reads one file within it: the first file, skipping any folders, or the file that
@@ -3057,8 +3064,10 @@ end
   `zstd` command writes it. On MRI it does not, since `zstd-ruby` cannot write one.
 * Empty data is not zstd, so reading it raises `RuntimeError: zstd decompress error: the data is empty`, as
   `zstd -d` does.
-* On MRI, a file that was cut short, such as by an interrupted download, is not detected: reading returns the data up
-  to where the file ends. zstd-jni on JRuby detects it, and raises `RuntimeError`.
+* A file that was cut short, such as by an interrupted download, raises
+  `RuntimeError: zstd decompress error: Truncated source`, as `zstd -d` does. IOStreams follows the frames of the data
+  itself to find it, since `zstd-ruby` does not report it, and zstd-jni does not report a frame cut off before its
+  checksum.
 
 ## Encryption
 
@@ -3094,6 +3103,12 @@ IOStreams.path("example.csv.enc").each(:hash) { |record| p record }
 
 A `version` that is not configured raises `SymmetricEncryption::CipherError` before the file is opened.
 
+Reading a file whose header names a version of the cipher that is not configured raises
+`SymmetricEncryption::CipherError`, tagged as `IOStreams::Errors::MissingKey`. Data that the cipher cannot decrypt,
+such as data that is damaged, cut short, or encrypted with another key, raises `OpenSSL::Cipher::CipherError`, tagged
+as `IOStreams::Errors::Corrupt`, and so does an empty file, which the writer never writes, since encrypting no data
+still writes the header, or a block of padding. See [Errors](errors#what-each-stream-raises).
+
 ### PGP
 
 `.pgp` and `.gpg` files are encrypted, decrypted, signed and verified with the `gpg` program of GnuPG, which must be
@@ -3121,6 +3136,10 @@ Reading uses the `creek` gem, which reads a local file and returns its rows to a
 CSV in a temp file for your code to read. A spreadsheet on S3 or HTTP, or within another stream, is first copied into a
 temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
 raises `ArgumentError` for `sheet_name`, since it always reads the first worksheet.
+
+A spreadsheet is a zip file of parts, such as its worksheets. Before creek reads it, IOStreams checks the size and the
+CRC32 of each part, which creek does not, so that a damaged spreadsheet raises `IOStreams::Errors::Corrupt`, rather than
+reading wrong values, see [Errors](errors#what-each-stream-raises).
 
 ### Writing an Excel spreadsheet
 
@@ -3518,12 +3537,13 @@ The exception that each stream raises when it cannot read the data, which is tag
 | Stream | `Corrupt` | `MissingEntry` | `MissingKey` |
 |--------|-----------|----------------|--------------|
 | `.gz`, `.gzip` | `Zlib::GzipFile::Error`, such as its `Zlib::GzipFile::CRCError` or `NoFooter`, or `Zlib::DataError` | Never | Never |
-| `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError` | Never | Never |
+| `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError`, or `IOStreams::Errors::StreamFailure` for empty data | Never | Never |
 | `.zst` | `RuntimeError` | Never | Never |
-| `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
-| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
-| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never | Never |
-| `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
+| `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, or, from rubyzip 3.7, `NoMethodError`, `TypeError` or `ArgumentError` for a zip file whose end record is cut short, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
+| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
+| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet, or `IOStreams::Errors::StreamFailure` for a part whose size or CRC32 is not the one that the spreadsheet records | Never | Never |
+| `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, including a signature that is cut short, which gpg itself does not report, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
+| `.parquet` | `RuntimeError` from the parquet gem, which raises it for a file that is not Parquet, or is damaged or cut short | Never | Never |
 
 The PGP stream tells why gpg failed from gpg's status, which does not depend on the locale. A PGP file that was not
 signed by the `signer`, or that gpg does not trust, raises `IOStreams::Pgp::Failure` without a kind of failure, since
@@ -3550,8 +3570,9 @@ end
 
 * `#display_name` is the path that failed, without any user name, password or query, which can hold credentials,
   see [Operations on the name](path#operations-on-the-name). For a failure of a stream, it is the file whose data the
-  stream could not read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the
-  other streams, whose message is that of the gem, such as `not in gzip format`.
+  stream could not read, when the stream knows its name, as the zip, spreadsheet and PGP streams do: the display name
+  of the path, such as `s3://my-bucket/imports/orders.zip`, or the file name of a stream, set with `#file_name`. It is
+  `nil` for the other streams, whose message is that of the gem, such as `not in gzip format`.
 * The message starts with the display name, unless it already includes it, so that a log of the exception names
   the file. For example the message from S3 does not name the key, while that of `Errno::ENOENT` already names the file.
 
@@ -3686,10 +3707,13 @@ also rescue an attempt to access a path that the application does not allow, suc
   cannot tell it apart from corrupt data, while a version of the cipher that is not configured raises `MissingKey`.
   For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
   which raises `Corrupt`.
-* A stream can only report the corruption that it, or its gem, detects. A frame of `.zst`
-  data that is cut short is not detected on MRI, where `zstd-ruby` does not report it, nor is a damaged frame without
-  the checksum of its content, which `.zst` written on MRI does not have. An empty `.bz2` or `.enc` file reads as
-  empty, and rubyzip, which reads the parts of a spreadsheet, does not check their CRC32.
+* A stream can only report the corruption that it, or its gem, detects. A damaged frame of `.zst` data without the
+  checksum of its content, which `.zst` written on MRI does not have, is not detected, nor is most damage to the values
+  within the data pages of a Parquet file, which the parquet gem reads as other values.
+* The parquet gem raises a plain `RuntimeError` for every failure, without a class of its own, so IOStreams tags only a
+  `RuntimeError` that the gem raised while the block was not running, and that is not an operating system error. Some
+  damaged Parquet files make the parquet gem 0.9 stop with Ruby's `fatal`, which no `rescue` can catch, and which ends
+  the process when it is raised in its main thread, until the gem catches the panics of the Rust library that it uses.
 
 ## Storage registered with `IOStreams.register_scheme`
 
@@ -4937,6 +4961,11 @@ stream. For a failure that the reader finds itself, such as a file within an arc
 `IOStreams::Errors::StreamFailure` tagged with the kind of failure, such as
 `raise(IOStreams::Errors::MissingEntry.tag(IOStreams::Errors::StreamFailure.new(message)))`.
 
+To name the file that failed, as the zip, spreadsheet and PGP readers do, answer `true` from the class method
+`.takes_display_name?`. Then `.stream` and `.file` are also given `display_name:`, the name of the file as the path
+displays it, such as `s3://bucket/data.xz`, or nil when it is not known, for `.tag_failure(display_name)` and the
+messages of the reader, rather than the name of the temp file that a reader of local files is given.
+
 ### Registering just the reader and writer
 
 A format that is neither compressed nor encrypted can be registered with just its reader and writer classes:
@@ -4947,12 +4976,15 @@ IOStreams.register_extension(:xls, MyXls::Reader, MyXls::Writer)
 
 ### Another extension for a built-in format
 
-To read and write a built-in format for another extension, register the format that `IOStreams.extensions` returns
+To read and write a built-in format for another extension, register the format that `IOStreams.extension` returns
 for it, for example when a partner names its gzip files `.gzipped`:
 
 ~~~ruby
-IOStreams.register_extension(:gzipped, IOStreams.extensions[:gz])
+IOStreams.register_extension(:gzipped, IOStreams.extension(:gz))
 ~~~
+
+Extensions are compared without case, as they are in file names, so `.GZIPPED` files are read as gzip too, and the
+stream is named `:gzipped` in any case, such as with `option(:Gzipped, level: 9)`.
 
 ## Registering a storage scheme
 
@@ -5114,7 +5146,8 @@ and write bytes.
 The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is
 removed from the first line, so that a CSV file with a quoted header row no longer raises
 `CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
-`encoding: "UTF-8"`. `read` keeps it, like `File.read`.
+`encoding: "UTF-8"`, and from UTF-16 or UTF-32 text of either byte order, such as
+`encoding("UTF-16LE:UTF-8")`. `read` keeps it, like `File.read`.
 
 Fix: read a file in another encoding by setting it with `#encoding`, for example
 `encoding("Windows-1252:UTF-8")`, which converts it to UTF-8 as it is read, or `encoding("Windows-1252")`, whose
@@ -5504,6 +5537,22 @@ Fix: replace calls such as `#rewind` or `#size` on the stream. Read lines with `
 `IOStreams.path("data.csv.gz").copy_to("/tmp/data.csv")`, which decompresses it, and read that file. To read a
 number of bytes with an encoding set, such as a record of a fixed size, read the bytes without the encoding, and
 convert them.
+
+#### An empty `.bz2` file raises `Corrupt`
+
+Reading an empty `.bz2` file raises `IOStreams::Errors::Corrupt`, as `bzip2 -d` does, since bzip2 data always starts
+with its header, even when it holds no data. Previously it read as empty.
+
+Fix: write files that hold no data as bzip2 data, as IOStreams does, rather than as empty files, or rescue
+`IOStreams::Errors::Corrupt`.
+
+#### An empty `.enc` file raises `Corrupt`
+
+Reading an empty `.enc` file raises `IOStreams::Errors::Corrupt`, since the writer never writes one: encrypting no
+data still writes the header, or a block of padding. Previously it read as empty.
+
+Fix: write files that hold no data through the `.enc` stream, rather than as empty files, or rescue
+`IOStreams::Errors::Corrupt`.
 
 #### Reading gzip returns every member
 

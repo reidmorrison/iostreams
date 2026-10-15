@@ -16,8 +16,8 @@ module IOStreams
       # Parameters:
       #   cleanse: [true|false]
       #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, as the `cleanse_header`
-      #     option of `IOStreams::Tabular.new` says, which #read_header, #restrict_columns and #read_record apply unless
-      #     they are told otherwise.
+      #     option of `IOStreams::Tabular.new` says, which #read_header, #restrict_columns and #read_record apply, unless
+      #     #read_header is told otherwise.
       #     Default: true
       #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
@@ -153,15 +153,15 @@ module IOStreams
 
       # Returns [Hash] the record of the line, see #record_parse, with the column restrictions applied to its keys for a
       # format without a header row, such as JSON, whose records each supply their own keys, renaming them when
-      # `rename`, see `IOStreams::Tabular::Header#restrict_hash`.
+      # `cleanse`, see #initialize and `IOStreams::Tabular::Header#restrict_hash`.
       # Returns nil if the line is blank.
-      def read_record(line, rename: @cleanse)
+      def read_record(line)
         record = record_parse(line)
         return record unless record.is_a?(::Hash) && header.restricted? && header.columns.nil?
-        return header.restrict_hash(record, rename: rename) if IOStreams.enforce_column_restrictions?
+        return header.restrict_hash(record, rename: @cleanse) if IOStreams.enforce_column_restrictions?
 
         # Once warned, the remaining records are not checked.
-        warn_restriction("records") if !@warned && header.restrict_hash_changes?(record, rename: rename)
+        warn_restriction("records") if !@warned && header.restrict_hash_changes?(record, rename: @cleanse)
         record
       end
 

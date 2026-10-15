@@ -1068,6 +1068,15 @@ module Paths
             assert_equal [{request_payer: "requester"}], children.map(&:options)
           end
 
+          it "names the object by its url, with its bucket, in the failure of a stream" do
+            # A zip file without any entries.
+            IOStreams.path("s3://bucket/reports/folders.zip").raw.write("PK\x05\x06#{"\0" * 18}")
+            error = assert_raises(IOStreams::Errors::MissingEntry) { IOStreams.path("s3://bucket/reports/folders.zip").read }
+
+            assert_equal "s3://bucket/reports/folders.zip", error.display_name
+            assert_equal "The zip file s3://bucket/reports/folders.zip does not contain a file", error.message
+          end
+
           it "raises the exception that the block raises for an exact name, and yields it once" do
             missing = IOStreams.path("s3://bucket/missing.csv")
             [false, true].each do |directories|
@@ -1122,6 +1131,50 @@ module Paths
           # The keys a.csv, b.csv and c.txt, and the common prefixes sub/ and z/, in pages of two.
           assert_equal 3, requests.size
           assert(requests.all? { |params| params[:delimiter] == "/" })
+        end
+
+        it "lists only the keys and the directories directly within the directory, with directories: true" do
+          directory = IOStreams.path("s3://bucket/d")
+          children  = nil
+          requests  = listings(directory) { children = directory.each_child("*", directories: true).to_a }
+
+          assert_equal %w[d/a.csv d/b.csv d/c.txt d/sub d/z], children.map { |child, _| child.path }.sort
+          assert_equal({}, children.to_h { |child, attributes| [child.path, attributes] }["d/sub"])
+          # The keys a.csv, b.csv and c.txt, and the common prefixes sub/ and z/, in pages of two.
+          assert_equal 3, requests.size
+          assert(requests.all? { |params| params[:delimiter] == "/" })
+        end
+
+        it "lists only the directory for an exact name that is not found, ignoring case" do
+          directory = IOStreams.path("s3://bucket/d")
+          [false, true].each do |directories|
+            children = nil
+            requests = listings(directory) { children = directory.children("MISSING.csv", directories: directories) }
+
+            assert_empty children
+            # Apart from the request of one key that checks whether the name is a directory, with directories: true.
+            directory_listings = requests.select { |params| params[:prefix] == "d/" }
+
+            assert_equal 3, directory_listings.size, directories.inspect
+            assert_equal ["/"], directory_listings.map { |params| params[:delimiter] }.uniq, directories.inspect
+          end
+        end
+
+        it "finds a directory that differs only in case from an exact name, from the common prefixes" do
+          directory = IOStreams.path("s3://bucket/d")
+
+          assert_equal %w[d/sub], directory.children("SUB", directories: true).map(&:path)
+          assert_empty directory.children("SUB")
+        end
+
+        it "returns an empty folder within the directory with empty attributes, and below it with those of its object" do
+          directory = IOStreams.path("s3://bucket/d")
+          directory.client.put_object(bucket: "bucket", key: "d/empty/", body: "")
+          within = directory.each_child("*", directories: true).to_h { |child, attributes| [child.path, attributes] }
+          below  = directory.each_child("**/*", directories: true).to_h { |child, attributes| [child.path, attributes] }
+
+          assert_equal({}, within.fetch("d/empty"))
+          assert_equal "d/empty/", below.fetch("d/empty")[:key]
         end
 
         it "deletes the keys of every page" do
