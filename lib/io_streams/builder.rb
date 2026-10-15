@@ -214,8 +214,11 @@ module IOStreams
       options[stream] if options
     end
 
-    def reader(io_stream, &)
-      execute(:reader, pipeline, io_stream, &)
+    # Yields the stream that reads the supplied stream through this pipeline. A stream whose failures name the file that
+    # it reads, such as zip, names it by the display name, such as the url of a path, see `IOStreams::Path#display_name`,
+    # otherwise by the file name, see `IOStreams::Reader.takes_display_name?`.
+    def reader(io_stream, display_name: nil, &)
+      execute(:reader, pipeline, io_stream, display_name: display_name || file_name, &)
     end
 
     # Raises what writing through the pipeline would raise before anything is written, such as an option value that a
@@ -409,26 +412,28 @@ module IOStreams
     end
 
     # Executes the streams that need to be executed.
-    def execute(type, pipeline, io_stream, &block)
+    def execute(type, pipeline, io_stream, display_name: nil, &block)
       raise(ArgumentError, "IOStreams call is missing mandatory block") if block.nil?
 
       if pipeline.empty?
         block.call(io_stream)
       elsif pipeline.size == 1
         stream, opts = pipeline.first
-        open_stream(type, stream, io_stream, opts, &block)
+        open_stream(type, stream, io_stream, opts, display_name: display_name, &block)
       else
         # Daisy chain multiple streams together
         last = pipeline.keys.inject(block) do |inner, stream_sym|
-          ->(io) { open_stream(type, stream_sym, io, pipeline[stream_sym], &inner) }
+          ->(io) { open_stream(type, stream_sym, io, pipeline[stream_sym], display_name: display_name, &inner) }
         end
         last.call(io_stream)
       end
     end
 
     # Asks the stream's format to open its reader or writer, see `IOStreams::StreamFormat#open_stream`.
-    def open_stream(type, stream, io_stream, opts, &)
-      stream_format(stream).open_stream(type, io_stream, opts, name: stream, file_name: file_name, &)
+    def open_stream(type, stream, io_stream, opts, display_name: nil, &)
+      stream_format(stream).open_stream(
+        type, io_stream, opts, name: stream, file_name: file_name, display_name: display_name, &
+      )
     end
   end
 end

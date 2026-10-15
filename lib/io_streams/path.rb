@@ -512,7 +512,7 @@ module IOStreams
     def spooled_reader(prefix, download:, &block)
       Utils.private_temp_file(prefix, purpose: "the download of #{display_name}") do |file_name|
         download.call(file_name)
-        ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
+        ::File.open(file_name, "rb") { |io| builder.reader(io, display_name: display_name, &block) }
       end
     end
 

@@ -1068,6 +1068,15 @@ module Paths
             assert_equal [{request_payer: "requester"}], children.map(&:options)
           end
 
+          it "names the object by its url, with its bucket, in the failure of a stream" do
+            # A zip file without any entries.
+            IOStreams.path("s3://bucket/reports/folders.zip").raw.write("PK\x05\x06#{"\0" * 18}")
+            error = assert_raises(IOStreams::Errors::MissingEntry) { IOStreams.path("s3://bucket/reports/folders.zip").read }
+
+            assert_equal "s3://bucket/reports/folders.zip", error.display_name
+            assert_equal "The zip file s3://bucket/reports/folders.zip does not contain a file", error.message
+          end
+
           it "raises the exception that the block raises for an exact name, and yields it once" do
             missing = IOStreams.path("s3://bucket/missing.csv")
             [false, true].each do |directories|

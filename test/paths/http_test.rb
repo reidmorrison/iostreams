@@ -687,6 +687,16 @@ module Paths
             Net::HTTP.stub(:start, tracking) { yield(-> { open }) }
           end
 
+          it "names the url, without its credentials or query, in the failure of a stream" do
+            # A zip file without any entries.
+            start_server { |_path| TestHTTPServer.response(200, body: "PK\x05\x06#{"\0" * 18}") }
+            path  = IOStreams.path("http://jack:secret@127.0.0.1:#{@server.port}/exports/folders.zip?token=secret")
+            error = assert_raises(IOStreams::Errors::MissingEntry) { path.read }
+
+            assert_equal "#{@server.base_url}/exports/folders.zip", error.display_name
+            assert_equal "The zip file #{@server.base_url}/exports/folders.zip does not contain a file", error.message
+          end
+
           it "reads lines like an IO, as the response is read" do
             start_server { |_path| TestHTTPServer.response(200, body: "a,b\n1,2\n") }
             path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")

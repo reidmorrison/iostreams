@@ -339,7 +339,7 @@ module IOStreams
         if RangeReader.supports?(options_for(:get_object).keys)
           authorize!
           input = RangeReader.new(->(**params) { request(:get_object, bucket: bucket_name, key: path, **params) })
-          return builder.reader(input, &)
+          return builder.reader(input, display_name: display_name, &)
         end
 
         # Since a single S3 download only supports a push stream, write it to a tempfile first.

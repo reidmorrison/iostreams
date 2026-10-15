@@ -244,6 +244,15 @@ class ZipReaderTest < Minitest::Test
           assert_equal "The zip file archive/folders.zip does not contain a file", error.message
         end
 
+        it "names the path that is read, rather than the file name that is set to choose its streams" do
+          zip_file_name = File.join(dir, "upload-1234")
+          File.binwrite(zip_file_name, "PK\x05\x06#{"\0" * 18}")
+          path = IOStreams.path(zip_file_name).file_name("folders.zip")
+
+          error = assert_stream_failure(IOStreams::Errors::MissingEntry, zip_file_name) { path.read }
+          assert_equal "The zip file #{zip_file_name} does not contain a file", error.message
+        end
+
         it "names the zip file of a corrupt file that is read from a stream" do
           stream = IOStreams.stream(StringIO.new(File.binread(corrupt_zip(Zip::Entry::STORED)))).file_name("archive/corrupt.zip")
 

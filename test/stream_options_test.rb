@@ -430,7 +430,8 @@ class StreamOptionsTest < Minitest::Test
       # takes the same options as its `.stream`, so the declaration cannot drift from the signature. A method that takes
       # `**` passes the options on to `#initialize`, such as `IOStreams::Encode::Writer.stream`, whose keywords it takes.
       # A class that answers `.file_name_options` also takes the keywords that it adds from the name of the file, such as
-      # the `display_name:` of the zip reader, which are not options.
+      # the `entry_file_name:` of the zip writer, and a reader that `.takes_display_name?` takes `display_name:`, which is
+      # not an option.
       FORMATS.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
         # A class registered with `IOStreams.register_extension` need not declare its options, which are then not checked.
         next unless klass.respond_to?(:option_names) && klass.option_names
@@ -444,8 +445,9 @@ class StreamOptionsTest < Minitest::Test
           it "#{klass}.#{name} matches its keyword arguments" do
             keywords  = params.filter_map { |kind, keyword| keyword if %i[key keyreq].include?(kind) }
             file_name = klass.respond_to?(:file_name_options) ? klass.file_name_options("example.csv.zip").keys : []
+            named     = klass.respond_to?(:takes_display_name?) && klass.takes_display_name? ? %i[display_name] : []
 
-            assert_equal keywords.sort, (klass.option_names | file_name).sort
+            assert_equal keywords.sort, (klass.option_names | file_name | named).sort
           end
         end
       end

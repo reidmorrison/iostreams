@@ -350,7 +350,7 @@ module IOStreams
           end
         end
         BodyReader.open(request) do |body|
-          coding.reader(body, maximum_size: maximum_file_size) { |input| builder.reader(input, &) }
+          coding.reader(body, maximum_size: maximum_file_size) { |input| builder.reader(input, display_name: display_name, &) }
         end
       end
 

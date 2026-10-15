@@ -208,8 +208,9 @@ end
 
 * `#display_name` is the path that failed, without any user name, password or query, which can hold credentials,
   see [Operations on the name](path#operations-on-the-name). For a failure of a stream, it is the file whose data the
-  stream could not read, when the stream knows its name, as the zip and spreadsheet streams do. It is `nil` for the
-  other streams, whose message is that of the gem, such as `not in gzip format`.
+  stream could not read, when the stream knows its name, as the zip, spreadsheet and PGP streams do: the display name
+  of the path, such as `s3://my-bucket/imports/orders.zip`, or the file name of a stream, set with `#file_name`. It is
+  `nil` for the other streams, whose message is that of the gem, such as `not in gzip format`.
 * The message starts with the display name, unless it already includes it, so that a log of the exception names
   the file. For example the message from S3 does not name the key, while that of `Errno::ENOENT` already names the file.
 

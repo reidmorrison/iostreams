@@ -47,6 +47,15 @@ module IOStreams
       []
     end
 
+    # Returns [true|false] whether this reader names the file that it reads in its failures, see `.tag_failure`, so that
+    # it is opened with `display_name:`, the name of that file as the path or the stream that reads it displays it, such
+    # as `s3://bucket/data.zip`, see `IOStreams::Path#display_name`, rather than the stream, or the local temp file
+    # that the file is copied into, that it reads, see `IOStreams::StreamFormat#open_stream`. Then its `.stream` and
+    # `.file` take `display_name:`, which is nil when the name of the file is not known.
+    def self.takes_display_name?
+      false
+    end
+
     # Returns [Module] the kind of failure, such as `IOStreams::Errors::Corrupt`, that an exception raised by the gem
     # that reads this format means, or nil when it is none of them, see `IOStreams::Errors::StreamError`.
     #

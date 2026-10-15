@@ -38,11 +38,10 @@ module IOStreams
         raise(Errors::Corrupt.tag(e, name))
       end
 
-      # Returns [Hash] the options with the name of the zip file that is read, as the path, or the stream, names it,
-      # see `IOStreams::StreamFormat#open_stream`, so that its errors name it, rather than the temp file that a zip file
-      # that is not a local file is copied into, see `IOStreams::Reader.stream`.
-      def self.file_name_options(file_name, **options)
-        options.merge(display_name: file_name)
+      # Its failures name the zip file that is read, rather than the temp file that a zip file that is not a local file
+      # is copied into, see `IOStreams::Reader.takes_display_name?`.
+      def self.takes_display_name?
+        true
       end
 
       # Returns [String] the message for a zip file that does not contain the file to read.
@@ -89,7 +88,7 @@ module IOStreams
       # CRC32, is not the one that the zip file records. A file that is not a zip file, or data that cannot be
       # decompressed, also raises an exception tagged as `IOStreams::Errors::Corrupt`: rubyzip's `Zip::Error` on MRI,
       # and the StreamFailure on JRuby, which reads zip files with `java.util.zip`. Each one names the zip file by its
-      # `display_name`, the name of the file that is read, see .file_name_options, otherwise by the name of the local
+      # `display_name`, the name of the file that is read, see .takes_display_name?, otherwise by the name of the local
       # file.
       #
       # Example:

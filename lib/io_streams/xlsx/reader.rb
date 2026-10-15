@@ -25,18 +25,17 @@ module IOStreams
         Errors::Corrupt if (defined?(::Zip::Error) && exception.is_a?(::Zip::Error)) || exception.is_a?(::Errno::ENOENT)
       end
 
-      # Returns [Hash] the options with the name of the spreadsheet that is read, as the path, or the stream, names it,
-      # see `IOStreams::StreamFormat#open_stream`, so that its errors name it, rather than the temp file that a
-      # spreadsheet that is not a local file is copied into, see `IOStreams::Reader.stream`.
-      def self.file_name_options(file_name, **options)
-        options.merge(display_name: file_name)
+      # Its failures name the spreadsheet that is read, rather than the temp file that a spreadsheet that is not a local
+      # file is copied into, see `IOStreams::Reader.takes_display_name?`.
+      def self.takes_display_name?
+        true
       end
 
       # Convert a xlsx, or xlsm file into CSV format.
       #
       # Raises the exception of creek, tagged as `IOStreams::Errors::Corrupt`, for a file that is not a spreadsheet, see
       # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
-      # damaged, see .verify, naming the spreadsheet by its `display_name`, see .file_name_options, otherwise by the name
+      # damaged, see .verify, naming the spreadsheet by its `display_name`, see .takes_display_name?, otherwise by the name
       # of the local file.
       def self.file(file_name, display_name: nil, &block)
         name = display_name || file_name

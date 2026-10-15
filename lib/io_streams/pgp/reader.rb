@@ -103,7 +103,7 @@ module IOStreams
       #   Default: false
       #
       # display_name: [String]
-      #   The name of the file that is read, as the path or the stream names it, see .file_name_options, which its
+      #   The name of the file that is read, as the path or the stream names it, see .takes_display_name?, which its
       #   errors name.
       #
       # Raises `IOStreams::Pgp::Failure` when gpg fails, tagged with the kind of failure that gpg's status reports, see
@@ -139,10 +139,10 @@ module IOStreams
         verify_first ? decrypt_then_read(decrypt, &) : decrypt.call(&)
       end
 
-      # Returns [Hash] the options with the name of the file that is read, as the path, or the stream, names it, see
-      # `IOStreams::StreamFormat#open_stream`, so that its errors name it, rather than the stream that gpg reads.
-      def self.file_name_options(file_name, **options)
-        options.merge(display_name: file_name)
+      # Its failures name the file that is read, rather than the stream that gpg reads, see
+      # `IOStreams::Reader.takes_display_name?`.
+      def self.takes_display_name?
+        true
       end
 
       # Decrypts the file into a temporary file, and only yields it once gpg has succeeded.
