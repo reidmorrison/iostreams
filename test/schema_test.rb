@@ -209,6 +209,41 @@ class SchemaTest < Minitest::Test
       end
     end
 
+    describe ".from_layout" do
+      let(:layout) { [{size: 10, key: :name}, {size: 2}, {size: 5, key: :zip, type: :integer}] }
+
+      # The test helper fails a test that causes an IOStreams deprecation warning, which #format_options reports.
+      it "returns the schema of the layout as a Hash, without a deprecation warning" do
+        expected = {
+          fields:      [{name: :name, type: "string", width: 10, truncate: true}, {name: :zip, type: "integer", width: 5, start: 13}],
+          fieldsMatch: "subset"
+        }
+
+        assert_equal expected, IOStreams::Schema.from_layout(layout: layout)
+      end
+
+      it "is the schema that the path of the layout has" do
+        path = assert_deprecated(/format_options/) { IOStreams.stream(StringIO.new).format_options(layout: layout, truncate: false) }
+
+        assert_equal path.schema, IOStreams::Schema.from_layout(layout: layout, truncate: false)
+      end
+
+      it "translates a layout read from JSON" do
+        layout = JSON.parse('[{"size": 10, "key": "name"}, {"size": 5, "key": "zip", "type": "integer"}]')
+        path   = IOStreams.stream(StringIO.new("Jack      01234\n")).format(:fixed).schema(IOStreams::Schema.from_layout(layout: layout))
+
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_equal [{"name" => "Jack", "zip" => 1234}], records
+      end
+
+      it "raises for an invalid layout" do
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Schema.from_layout(layout: [{key: "id"}]) }
+        assert_raises(ArgumentError) { IOStreams::Schema.from_layout(layout: [{size: 2, key: "id", bogus: 1}]) }
+      end
+    end
+
     describe ".read" do
       it "reads the schema from a JSON file" do
         Dir.mktmpdir do |dir|
