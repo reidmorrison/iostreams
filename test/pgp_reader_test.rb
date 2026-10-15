@@ -456,6 +456,20 @@ class PgpReaderTest < Minitest::Test
           end
         end
 
+        it "is Corrupt for a signed file whose signature is cut short, which gpg does not report" do
+          IOStreams::Pgp::Writer.file(temp_file.path, encrypt: false, signer: "sender@example.org",
+                                                      signer_passphrase: "sender_passphrase") { |io| io.write(decrypted) }
+          signed = File.binread(temp_file.path)
+          # Cutting the last 4 bytes damages the signature, which gpg reports. Cutting more leaves a packet that gpg
+          # cannot read, which it ignores, exiting successfully without checking the signature.
+          cut_short = signed.byteslice(0, signed.bytesize - 40)
+
+          error = assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp::Reader.stream(StringIO.new(cut_short), &:read) }
+          assert_kind_of IOStreams::Errors::Corrupt, error
+          assert_equal "GPG Failed to decrypt stream: the end of the PGP data is incomplete, such as a signature that " \
+                       "is cut short", error.message
+        end
+
         it "names the file that is read, as the stream names it" do
           stream = IOStreams.stream(StringIO.new("Not a PGP file")).file_name("archive/data.csv.pgp").
                    option(:pgp, passphrase: "receiver_passphrase")

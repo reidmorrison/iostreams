@@ -176,6 +176,7 @@ module IOStreams
       def self.verify(gpg, signers, display_name)
         status = finish(gpg, display_name)
         verify_plaintext(gpg, status, display_name)
+        verify_complete(gpg, status, display_name)
         verify_signers(gpg, signers, status) unless signers.empty?
       end
       private_class_method :verify
@@ -206,6 +207,18 @@ module IOStreams
         raise(Errors::Corrupt.tag(failure, display_name))
       end
       private_class_method :verify_plaintext
+
+      # Raises Pgp::Failure, tagged as `IOStreams::Errors::Corrupt`, when gpg succeeded, but could not read the end of
+      # the PGP data, see `Pgp::Status#incomplete?`, such as a signature cut off at the end of a file that is signed but
+      # not encrypted, whose data gpg then returns without checking it.
+      def self.verify_complete(gpg, status, display_name)
+        return unless status.incomplete?
+
+        failure = Pgp::Failure.new("GPG Failed to decrypt #{gpg.subject}: the end of the PGP data is incomplete, " \
+                                   "such as a signature that is cut short")
+        raise(Errors::Corrupt.tag(failure, display_name))
+      end
+      private_class_method :verify_complete
 
       # Who must have signed the file: the fingerprints of the primary keys, and whether gpg must also trust them.
       Signers = Struct.new(:name, :fingerprints, :trusted)
