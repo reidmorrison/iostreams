@@ -789,6 +789,28 @@ module IOStreams
         end
       end
 
+      describe ".tabular_formats" do
+        it "includes the registered formats" do
+          %i[array csv fixed hash json parquet psv].each do |format|
+            assert_includes IOStreams.tabular_formats, format
+          end
+        end
+
+        it "does not include the formats of the streams, which are extensions" do
+          refute_includes IOStreams.tabular_formats, :gz
+        end
+
+        it "includes each format that a path accepts" do
+          IOStreams.tabular_formats.each do |format|
+            assert_equal format, IOStreams.path("sample").format(format).format
+          end
+        end
+
+        it "is frozen, so that it cannot change the formats" do
+          assert_predicate IOStreams.tabular_formats, :frozen?
+        end
+      end
+
       describe ".schemes" do
         it "includes the registered schemes" do
           %i[file http https sftp s3].each do |scheme|
