@@ -142,29 +142,32 @@ IOStreams.path("offices.zip").option(:zip, entry_file_name: "data/offices.csv").
 end
 ~~~
 
-Reading uses the `rubyzip` gem. JRuby reads zip files with Java's own support instead, and only loads `rubyzip` to
-raise its `Zip::Error`, so install `rubyzip` on JRuby too.
+Reading uses the `rubyzip` gem. JRuby reads zip files with Java's own support instead, so it does not need `rubyzip`.
 
 A zip file lists its contents at its end, so it is read from a local file. A local path, and the temp file that an
 SFTP path downloads into, are read where they are, while a zip file on S3 or HTTP, or within another stream, such as
 `example.csv.zip.pgp`, is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
-Reading raises `Zip::Error`, naming the local file that it read, which is the temp file for a zip file that was copied:
+Reading raises `IOStreams::Errors::StreamFailure`, naming the local file that it read, which is the temp file for a
+zip file that was copied, tagged with the kind of failure, which is the same on every platform, see
+[Errors](errors#what-each-stream-raises):
 
-* When the zip file does not contain the file to read: one of only folders, or one without the file that
-  `entry_file_name` names, or where it names a folder:
-
-  ~~~
-  Zip::Error: The zip file /data/offices.zip does not contain the file "data/missing.csv"
-  ~~~
-
-* When the file within it is corrupt: once all of it has been read, its size, or its CRC32 checksum, is not the one
-  that the zip file records. So the block has already read the corrupt data, as with any check that needs the whole
-  file:
+* `IOStreams::Errors::MissingEntry` when the zip file does not contain the file to read: one of only folders, or one
+  without the file that `entry_file_name` names, or where it names a folder:
 
   ~~~
-  Zip::Error: The file "data.csv" within the zip file /data/a.zip is corrupt: invalid entry CRC (expected 0x9d0b854a but got 0x1e367632)
+  IOStreams::Errors::StreamFailure: The zip file /data/offices.zip does not contain the file "data/missing.csv"
   ~~~
+
+* `IOStreams::Errors::Corrupt` when the file within it is corrupt: once all of it has been read, its size, or its
+  CRC32 checksum, is not the one that the zip file records. So the block has already read the corrupt data, as with
+  any check that needs the whole file:
+
+  ~~~
+  IOStreams::Errors::StreamFailure: The file "data.csv" within the zip file /data/a.zip is corrupt: invalid entry CRC (expected 0x9d0b854a but got 0x1e367632)
+  ~~~
+
+A file that is not a zip file, or data that cannot be decompressed, also raises `IOStreams::Errors::Corrupt`.
 
 Writing uses the `zip_kit` gem, which streams the zip file as it is written, without a temp file, even to S3, or into
 another stream, such as `example.csv.zip.pgp`. The zip file holds one file, which is named after the path, without the
