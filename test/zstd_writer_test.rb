@@ -69,6 +69,15 @@ class ZstdWriterTest < Minitest::Test
         assert_raises(StandardError) { ZstdLibrary.decompress(io_string.string) }
       end
 
+      it "ends the frame with the checksum of its content on JRuby, which zstd-ruby cannot write on MRI" do
+        io_string = StringIO.new("".b)
+        IOStreams::Zstd::Writer.stream(io_string) { |io| io.write(decompressed) }
+
+        # Bit 2 of the frame header descriptor, which follows the 4 bytes of the magic number, flags the checksum.
+        assert_equal defined?(JRuby) ? 1 : 0, io_string.string.getbyte(4)[2]
+        assert_equal decompressed, ZstdLibrary.decompress(io_string.string)
+      end
+
       it "compresses many small writes into one frame" do
         lines     = Array.new(10_000) { |i| "#{i},same text on every line\n" }
         io_string = StringIO.new("".b)
@@ -95,6 +104,32 @@ class ZstdWriterTest < Minitest::Test
         assert_equal compress(data), compress(data)
         refute_equal compress(data), compress(data, level: 19)
         assert_equal data, ZstdLibrary.decompress(compress(data, level: 19))
+      end
+    end
+
+    describe ".check" do
+      it "accepts the levels of zstd, including negative levels" do
+        [nil, -131_072, -5, 0, 1, 22].each { |level| assert_nil IOStreams::Zstd::Writer.check(level: level) }
+      end
+
+      it "raises for a level that zstd cannot compress with" do
+        [23, -131_073, "19", 1.5].each do |level|
+          error = assert_raises(ArgumentError) { IOStreams::Zstd::Writer.check(level: level) }
+          assert_equal "Invalid zstd level #{level.inspect}: supply an Integer from 1, the fastest, to 22, the best " \
+                       "compression, 0 for the default, or a negative level, down to -131072, for faster compression",
+                       error.message
+        end
+      end
+
+      it "raises from .stream too" do
+        assert_raises(ArgumentError) { IOStreams::Zstd::Writer.stream(StringIO.new("".b), level: 99) { |io| io.write(decompressed) } }
+      end
+
+      it "keeps an existing local file" do
+        File.write(file_name, "precious")
+
+        assert_raises(ArgumentError) { IOStreams.path(file_name).stream(:zst, level: "19").write(decompressed) }
+        assert_equal "precious", File.read(file_name)
       end
     end
   end

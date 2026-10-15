@@ -69,6 +69,9 @@ module Paths
             matches:          %w[a.csv b/c.csv],
             not_matches:      %w[b.csv]
           },
+          {pattern: "{a/{b,c},d}.csv", directory: "", expected_pattern: "{a/{b,c},d}.csv", depth: nil, matches: %w[a/b.csv d.csv]},
+          # A `/` between braces is not within one.
+          {pattern: "{a,b}/{c,d}.csv", directory: "", expected_pattern: "{a,b}/{c,d}.csv", depth: 1, matches: %w[a/c.csv]},
           # `\` escapes the next character, so it is a pattern character.
           {pattern: "my\\file.csv", directory: "", expected_pattern: "my\\file.csv", depth: 0, matches: %w[myfile.csv]},
           {pattern: "a\\*.csv", directory: "", expected_pattern: "a\\*.csv", depth: 0, matches: %w[a*.csv], not_matches: %w[ab.csv]}

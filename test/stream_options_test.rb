@@ -3,8 +3,8 @@
 require_relative "test_helper"
 
 # Options supplied via `#option` / `#stream` are strict: an option that is not valid for the stream
-# raises instead of being silently ignored. An option for the other direction is only ignored
-# when it is in the `valid_option_names` of the reader or writer being used.
+# raises instead of being silently ignored. An option for the other direction is ignored,
+# unless it is in the `unsupported_option_names` of the reader or writer being used.
 class StreamOptionsTest < Minitest::Test
   # The format of each stream, those registered for a file name extension and the built-in encode stream.
   FORMATS = [*IOStreams.extensions.each_value, IOStreams::Encode].uniq.freeze
@@ -50,7 +50,7 @@ class StreamOptionsTest < Minitest::Test
 
       it "passes options to the writer when copying with a mode" do
         path("a.csv").write(data)
-        path("b.csv").copy_from(path("a.csv"), mode: :hash, columns: %w[name])
+        assert_deprecated(/describe the columns of the file with #schema instead/) { path("b.csv").copy_from(path("a.csv"), mode: :hash, columns: %w[name]) }
 
         assert_equal "name\nJack\n", path("b.csv").read
       end
@@ -102,13 +102,49 @@ class StreamOptionsTest < Minitest::Test
 
       it "copies the columns supplied with columns:" do
         path("a.csv").write("id,name,secret\n1,Jack,x\n")
-        path("a.csv").copy_to(path("b.json"), mode: :hash, columns: %w[name])
+        assert_deprecated(/describe the columns of the file with #schema instead/) { path("a.csv").copy_to(path("b.json"), mode: :hash, columns: %w[name]) }
 
         assert_equal %({"name":"Jack"}\n), path("b.json").read
       end
     end
 
+    describe "an option that the mode does not take" do
+      it "raises before the file is opened, naming the mode and its options that are not deprecated" do
+        missing = path("missing.csv")
+
+        error = assert_raises(ArgumentError) { missing.each(:hash, original_file_name: "a.json") { |row| row } }
+        assert_equal "Unknown option :original_file_name for the :hash mode. Valid options: :delimiter, :buffer_size.",
+                     error.message
+        error = assert_raises(ArgumentError) { missing.each(:line, cleanse_header: false, bogus: 1) { |line| line } }
+        assert_equal "Unknown options :cleanse_header, :bogus for the :line mode. Valid options: :delimiter, :buffer_size, " \
+                     ":embedded_within.", error.message
+        error = assert_raises(ArgumentError) { missing.reader(:array, bogus: 1) { |rows| rows } }
+        assert_equal "Unknown option :bogus for the :array mode. Valid options: :delimiter, :buffer_size.", error.message
+      end
+
+      it "raises before the file is opened when writing, so that an existing file is kept" do
+        path("a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:line, bogus: 1) { |io| io << "x" } }
+        assert_equal "Unknown option :bogus for the :line mode. Valid options: :delimiter.", error.message
+        %i[array hash].each do |mode|
+          error = assert_raises(ArgumentError) { path("a.csv").writer(mode, bogus: 1) { |io| io } }
+          assert_equal "Unknown option :bogus for the #{mode.inspect} mode. Valid options: :delimiter.", error.message
+        end
+        assert_equal data, path("a.csv").read
+      end
+
+      it "raises when copying, before the source is opened" do
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("missing.csv"), mode: :hash, bogus: 1) }
+        assert_equal "Unknown option :bogus for the :hash mode. Valid options: :delimiter.", error.message
+      end
+    end
+
     describe "settings that describe the file" do
+      it "gives an example of setting each one on the path" do
+        assert_equal IOStreams::Tabular::FORMAT_OPTION_NAMES.sort, IOStreams::Stream::PATH_SETTINGS.keys.sort
+      end
+
       it "raises for them for each call, since they are set on the path" do
         path("a.csv").write(data)
 
@@ -161,7 +197,7 @@ class StreamOptionsTest < Minitest::Test
       def with_direction_stream
         reader = Class.new(IOStreams::Reader) do
           def self.option_names = %i[size]
-          def self.valid_option_names = option_names
+          def self.unsupported_option_names = %i[level]
           def self.stream(io, **) = yield(io)
         end
         writer = Class.new(IOStreams::Writer) do
@@ -174,7 +210,7 @@ class StreamOptionsTest < Minitest::Test
         IOStreams.deregister_extension(:direction_test)
       end
 
-      it "accepts the options of the other direction unless the class overrides valid_option_names" do
+      it "accepts the options of the other direction that the class does not list as unsupported" do
         with_direction_stream do
           io = StringIO.new
           IOStreams.stream(io).stream(:direction_test, size: 1).write(data)
@@ -239,8 +275,14 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "says when a stream accepts no options" do
-        error = assert_raises(ArgumentError) { path("a.csv.gz").option(:gz, levl: 1) }
-        assert_equal "Unknown option :levl for a :gz stream. Valid options: :level.", error.message
+        reader = Class.new(IOStreams::Reader) { def self.option_names = [] }
+        writer = Class.new(IOStreams::Writer) { def self.option_names = [] }
+        IOStreams.register_extension(:no_options, reader, writer)
+
+        error = assert_raises(ArgumentError) { path("a.csv.no_options").option(:no_options, levl: 1) }
+        assert_equal "Unknown option :levl for a :no_options stream. Valid options: none.", error.message
+      ensure
+        IOStreams.deregister_extension(:no_options)
       end
 
       it "does not change the options already set" do
@@ -335,8 +377,8 @@ class StreamOptionsTest < Minitest::Test
       it "is not validated by the base classes" do
         assert_nil IOStreams::Reader.option_names
         assert_nil IOStreams::Writer.option_names
-        assert_nil IOStreams::Reader.valid_option_names
-        assert_nil IOStreams::Writer.valid_option_names
+        assert_empty IOStreams::Reader.unsupported_option_names
+        assert_empty IOStreams::Writer.unsupported_option_names
       end
 
       it "validates a reader that declares its options when its writer does not" do
@@ -384,21 +426,26 @@ class StreamOptionsTest < Minitest::Test
     end
 
     describe ".option_names" do
-      # Every class whose entry points take explicit keywords must declare exactly those keywords,
-      # so the declaration cannot drift from the signature.
+      # Every class must declare exactly the keywords that its entry points take, and the `.check` of a writer, which
+      # takes the same options as its `.stream`, so the declaration cannot drift from the signature. A method that takes
+      # `**` passes the options on to `#initialize`, such as `IOStreams::Encode::Writer.stream`, whose keywords it takes.
+      # A class that answers `.file_name_options` also takes the keywords that it adds from the name of the file, such as
+      # the `display_name:` of the zip reader, which are not options.
       FORMATS.flat_map { |ext| [ext.reader_class, ext.writer_class] }.compact.uniq.each do |klass|
-        methods = %i[stream file].select { |name| klass.singleton_class.method_defined?(name, false) }
-        next if methods.empty?
+        # A class registered with `IOStreams.register_extension` need not declare its options, which are then not checked.
+        next unless klass.respond_to?(:option_names) && klass.option_names
 
-        methods.each do |name|
+        %i[stream file check].each do |name|
+          next unless klass.singleton_class.method_defined?(name, false)
+
           params = klass.method(name).parameters
-          next if params.any? { |kind, _| kind == :keyrest }
+          params = klass.instance_method(:initialize).parameters if params.any? { |kind, _| kind == :keyrest }
 
           it "#{klass}.#{name} matches its keyword arguments" do
-            # rubocop:disable-next Style/HashSlice
-            keywords = params.select { |kind, _| %i[key keyreq].include?(kind) }.map(&:last)
+            keywords  = params.filter_map { |kind, keyword| keyword if %i[key keyreq].include?(kind) }
+            file_name = klass.respond_to?(:file_name_options) ? klass.file_name_options("example.csv.zip").keys : []
 
-            assert_equal keywords.sort, klass.option_names.sort
+            assert_equal keywords.sort, (klass.option_names | file_name).sort
           end
         end
       end
@@ -415,29 +462,86 @@ class StreamOptionsTest < Minitest::Test
         assert_equal keywords(IOStreams::Line::Writer.instance_method(:initialize)).sort, IOStreams::Line::Writer.option_names.sort
       end
 
-      it "matches the keyword arguments of the tabular and its header" do
-        tabular = keywords(IOStreams::Tabular.instance_method(:initialize))
-        header  = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
+      it "matches the keyword arguments of the tabular and its header, with the settings that describe the file" do
+        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize))
+        header    = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
+        read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
 
-        assert_equal (tabular + header).sort, IOStreams::Tabular.read_option_names.sort
-        assert_equal (tabular + header - IOStreams::Tabular::Header::READ_OPTION_NAMES).sort, IOStreams::Tabular.write_option_names.sort
+        assert_equal (tabular + header).sort, (IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular.read_option_names).sort
+        assert_equal (tabular + header - read_only).sort, (IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular.write_option_names).sort
       end
 
-      it "matches the keyword arguments of the readers and writers of rows and records, with those of the tabular they pass the others to" do
+      it "are the options of each call of the mode, which the stream takes for the lines, and passes on to the tabular" do
+        file      = IOStreams::Tabular::FORMAT_OPTION_NAMES
+        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize)) + keywords(IOStreams::Tabular::Header.instance_method(:initialize)) - file
+        read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
+
         {
-          IOStreams::Row::Reader    => IOStreams::Tabular.read_option_names,
-          IOStreams::Record::Reader => IOStreams::Tabular.read_option_names,
-          IOStreams::Row::Writer    => IOStreams::Tabular.write_option_names,
-          IOStreams::Record::Writer => IOStreams::Tabular.write_option_names
-        }.each_pair do |klass, tabular|
-          # The reader or writer supplies the file name of the tabular, from its own `original_file_name`.
-          assert_equal (keywords(klass.method(:stream)) + tabular - %i[file_name]).sort, klass.option_names.sort, klass.name
+          IOStreams::Row::Reader    => [:row_reader, tabular],
+          IOStreams::Record::Reader => [:record_reader, tabular],
+          IOStreams::Row::Writer    => [:row_writer, tabular - read_only],
+          IOStreams::Record::Writer => [:record_writer, tabular - read_only]
+        }.each_pair do |klass, (method, options)|
+          assert_equal (keywords(IOStreams::Stream.instance_method(method)) + options).sort, klass.option_names.sort, klass.name
         end
       end
 
       it "gives the options that only apply when reading" do
         assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns skip_unknown],
                      IOStreams::Stream.read_option_names.sort
+      end
+    end
+
+    describe ".deprecated_option_names of lines, rows and records" do
+      # A value of each option of a call, which reads or writes `data`.
+      let :sample_options do
+        {
+          delimiter:        "\n",
+          buffer_size:      1024,
+          embedded_within:  '"',
+          cleanse_header:   false,
+          columns:          %w[id name],
+          allowed_columns:  %w[id name],
+          required_columns: %w[id],
+          skip_unknown:     false
+        }
+      end
+
+      # Returns [Hash<Class, Proc>] a call in the mode of each class, with the options supplied to the Proc.
+      def calls
+        {
+          IOStreams::Line::Reader   => ->(options) { IOStreams.stream(StringIO.new(data)).each(:line, **options) { |line| line } },
+          IOStreams::Row::Reader    => ->(options) { IOStreams.stream(StringIO.new(data)).each(:array, **options) { |row| row } },
+          IOStreams::Record::Reader => ->(options) { IOStreams.stream(StringIO.new(data)).each(:hash, **options) { |record| record } },
+          IOStreams::Line::Writer   => ->(options) { IOStreams.stream(StringIO.new).writer(:line, **options) { |io| io << "1,Jack" } },
+          IOStreams::Row::Writer    => ->(options) { IOStreams.stream(StringIO.new).writer(:array, **options) { |io| io << %w[1 Jack] } },
+          IOStreams::Record::Writer => lambda do |options|
+            IOStreams.stream(StringIO.new).writer(:hash, **options) { |io| io << {"id" => 1, "name" => "Jack"} }
+          end
+        }
+      end
+
+      it "are the options of each call, which a call still accepts, but the message of an unknown option does not list" do
+        assert_empty IOStreams::Line::Reader.deprecated_option_names
+        assert_empty IOStreams::Line::Writer.deprecated_option_names
+        %w[Row Record].each do |name|
+          assert_equal %i[allowed_columns cleanse_header columns embedded_within required_columns skip_unknown],
+                       IOStreams.const_get(name)::Reader.deprecated_option_names.sort
+          assert_equal %i[columns], IOStreams.const_get(name)::Writer.deprecated_option_names
+        end
+      end
+
+      it "are the options that report a deprecation warning when a call supplies them" do
+        calls.each_pair do |klass, call|
+          klass.option_names.each do |name|
+            options = {name => sample_options.fetch(name)}
+            if klass.deprecated_option_names.include?(name)
+              assert_deprecated(/ #{name}: is deprecated/) { call.call(options) }
+            else
+              refute_deprecated { call.call(options) }
+            end
+          end
+        end
       end
     end
 
@@ -452,22 +556,22 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
-    describe ".valid_option_names" do
-      it "accepts the options of both directions unless a class overrides it" do
-        assert_nil IOStreams::Pgp::Reader.valid_option_names
-        assert_nil IOStreams::Pgp::Writer.valid_option_names
+    describe ".unsupported_option_names" do
+      it "accepts the options of both directions unless a class lists them" do
+        assert_empty IOStreams::Pgp::Reader.unsupported_option_names
+        assert_empty IOStreams::Pgp::Writer.unsupported_option_names
       end
 
-      # A class that overrides it must accept its own options, and can only add those of the other direction.
+      # A class can only list options of the other direction, which it does not take itself.
       FORMATS.map { |ext| [ext.reader_class, ext.writer_class] }.uniq.each do |pair|
         [pair, pair.reverse].each do |klass, other|
-          next unless klass.respond_to?(:valid_option_names) && klass.valid_option_names
+          next unless klass.respond_to?(:unsupported_option_names) && klass.unsupported_option_names.any?
 
-          it "#{klass} includes its options, and only adds those of the other direction" do
+          it "#{klass} only lists options of the other direction" do
             other_names = other.respond_to?(:option_names) ? other.option_names.to_a : []
 
-            assert_empty klass.option_names - klass.valid_option_names
-            assert_empty klass.valid_option_names - klass.option_names - other_names
+            assert_empty klass.unsupported_option_names - other_names
+            assert_empty klass.unsupported_option_names & klass.option_names
           end
         end
       end

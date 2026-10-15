@@ -39,6 +39,7 @@ module IOStreams
       autoload :Failure, "io_streams/paths/sftp/failure"
       autoload :Listing, "io_streams/paths/sftp/listing"
       autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
+      autoload :Program, "io_streams/paths/sftp/program"
 
       attr_reader :hostname, :username, :ssh_options, :url, :port
 
@@ -86,11 +87,11 @@ module IOStreams
       #   - Any other options supported by ssh_config.
       #     `man ssh_config` to see all available options.
       #
-      #   `#each_child` lists files with the net-sftp gem instead of the sftp executable, so it only supports
-      #   these ssh options: HostKey, IdentityKey, IdentityFile, UserKnownHostsFile, StrictHostKeyChecking,
-      #   ConnectTimeout, ServerAliveInterval, ServerAliveCountMax and LogLevel. Any other option raises
-      #   ArgumentError.
-      #   It also needs the ed25519 gem, and the bcrypt_pbkdf gem except on JRuby, when the host key or the
+      #   `#each_child`, `#exist?`, `#size`, `#mtime`, `#file?`, `#directory?`, `#empty?`, `#delete` and `#delete_all`
+      #   use the net-sftp gem instead of the sftp executable, so they only support these ssh options: HostKey,
+      #   IdentityKey, IdentityFile, UserKnownHostsFile, StrictHostKeyChecking, ConnectTimeout, ServerAliveInterval,
+      #   ServerAliveCountMax and LogLevel. Any other option raises ArgumentError for them.
+      #   They also need the ed25519 gem, and the bcrypt_pbkdf gem except on JRuby, when the host key or the
       #   identity key is an ed25519 key. Reading and writing do not, since the sftp executable supports them.
       #
       # Examples:
@@ -123,15 +124,15 @@ module IOStreams
         uri = Utils::URI.new(url)
         raise(ArgumentError, "Invalid URL. Required Format: 'sftp://<host_name>/<file_name>'") unless uri.scheme == "sftp"
 
+        validate_url!(uri, url)
         @hostname = uri.hostname
         @mkdir    = false
         @username = username || uri.user
         @url      = Utils::URI.root(url)
         @password = password || uri.password
         @port     = uri.port || 22
-        # Not Ruby 2.5 yet: transform_keys(&:to_s)
-        @ssh_options = {}
-        ssh_options.each_pair { |key, value| @ssh_options[key.to_s] = value }
+        # A copy of each option, so that a String supplied as an option is not shared, see #ssh_options.
+        @ssh_options = Utils.deep_copy(ssh_options.transform_keys(&:to_s))
         validate_username!
 
         super(self.class.url_path(uri.path))
@@ -161,15 +162,22 @@ module IOStreams
 
       # Creates the directories of this path, when a file is next written to this path, or to a path
       # joined to it, since each write connects to the server separately.
-      # Returns self
+      #
+      # Returns self, or a copy of this path that creates them when it is frozen, such as a root path, which cannot be
+      # changed.
       def mkdir
+        return dup.mkdir if frozen?
+
         @mkdir = true
         self
       end
 
       # Creates the directories of this file, excluding the file name, when the file is next written.
-      # Returns self
+      #
+      # Returns self, or a copy of this path that creates them when it is frozen, see #mkdir.
       def mkpath
+        return dup.mkpath if frozen?
+
         @mkdir = true
         self
       end
@@ -265,26 +273,30 @@ module IOStreams
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
-        matcher   = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
-        directory = matcher.directory.empty? ? self : child_path(matcher.directory)
+        matcher = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
+        # An exception that the block raises is raised once the session has closed, outside `#with_net_sftp`, so that
+        # it is not tagged as a failure of this path, such as the failure of a request that the block makes itself.
+        failure = nil
         with_net_sftp("SFTP glob capability") do |sftp|
-          if matcher.exact?
-            # When the pattern is an exact file name without any pattern characters
-            child      = child_path(matcher.pattern, directory.path)
-            attributes = Listing.remote_attributes(sftp, child.remote_path)
-            found      = attributes && (attributes.file? || (directories && attributes.directory?))
-            yield(child, attributes.attributes) if found && allowed_child?(child)
-          else
-            Listing.each(sftp, directory.remote_path, matcher, directories: directories) do |name, attributes|
-              child = child_path(name, directory.path)
-              yield(child, attributes) if allowed_child?(child)
-            end
+          each_match(sftp, matcher, directories) do |child, attributes|
+            yield(child, attributes)
+          rescue StandardError => e
+            failure = e
+            break
           end
         end
+        raise(failure) if failure
+
         nil
       end
 
-      # Returns [String] the url without the user name, password, or query, which can hold ssh options such as a key.
+      # Freezes the ssh options too, see #ssh_options and `IOStreams::Path#freeze`.
+      def freeze
+        @ssh_options = Utils.frozen_copy(@ssh_options)
+        super
+      end
+
+      # Returns [String] the url without the user name or password, which are credentials.
       # Each byte of a name that is not valid UTF-8 is shown as `\xHH`, see `IOStreams::Path#display_name`.
       def display_name
         Utils.display_text(Utils::URI.without_userinfo_or_query(url))
@@ -292,8 +304,33 @@ module IOStreams
 
       protected
 
+      # A copy has its own ssh options, so that changing them does not change this path, see #ssh_options.
+      def initialize_copy(source)
+        super
+        @ssh_options = Utils.deep_copy(@ssh_options)
+      end
+
       # Paths on the same host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [hostname.to_s.downcase, port]
+
+      # Returns [String] the parts of the url that identify the file, see `IOStreams::Path#identity`, as the url
+      # `sftp://host:port/path`: its store, see #store, so the host in lower case, since host names are not
+      # case-sensitive, and the port unless it is the default port 22, and its path, decoded, see #path, since the
+      # server is sent the name of the file rather than its url, so `%20` is a space. The user name is only part of it
+      # for a path within the login directory, such as `~/a.csv`, which is the login directory of that user, while the
+      # password and the ssh options never are, since they say how to connect rather than which file it is.
+      def identity
+        user = "#{::URI.encode_uri_component(username)}@" if username && path.start_with?("~")
+        name = path.start_with?("/") ? path : "/#{path}"
+        "sftp://#{user}#{Utils::URI.host_and_port(*store, 22)}#{Utils::URI.encode_path(name)}"
+      end
+
+      # Returns [true|false] whether the other path is the same file, see `IOStreams::Path#same_location?`, also by
+      # another spelling: equal, see #==, once `.`, `..` and repeated `/` are resolved, see #cleanpath, as the server
+      # resolves them, within the login directory for a path within it, such as `~/a.csv`.
+      def same_location?(other)
+        other.instance_of?(self.class) && cleanpath == other.cleanpath
+      end
 
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
@@ -304,6 +341,16 @@ module IOStreams
         super([".", ""].include?(path) ? "~" : path)
         separator = self.path.start_with?("/") ? "" : "/"
         @url      = "#{Utils::URI.authority(url)}#{separator}#{Utils::URI.encode_path(self.path)}"
+      end
+
+      # Returns [String] the name with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`. A name
+      # within the login directory is cleaned within it, keeping a `..` that leaves it, such as `~/../x.csv`, since
+      # what is above the login directory is only known to the server, rather than `x.csv`, whose url names `/x.csv`.
+      def clean_name(name)
+        return super unless name == "~" || name.start_with?("~/")
+
+        relative = super(name.delete_prefix("~").delete_prefix("/").then { |within| within.empty? ? "." : within })
+        relative == "." ? "~" : "~/#{relative}"
       end
 
       # Returns [String] the name of this path on the server, where a path within the login
@@ -331,13 +378,20 @@ module IOStreams
           NetSSH.options(ssh_options, port: port, password: password) do |options|
             Net::SFTP.start(hostname, username, options) do |sftp|
               connected = true
-              result    = yield(sftp)
+              returned  = false
+              # Net::SFTP.start only closes the session once the block returns, and shuts it down when it raises, so
+              # shut it down when the block leaves early, such as with `break` from `#each_child`, or
+              # `Enumerator#first`, rather than leave the connection open until the session is garbage collected.
+              Utils.finish_or_abort(finish: -> { sftp.session.shutdown! unless returned }) do
+                result   = yield(sftp)
+                returned = true
+              end
             end
           end
-        rescue *Failure::CONNECTION_ERRORS => e
+        rescue *Errors::Unavailable::CONNECTION_ERRORS => e
           # Once connected, the same exception can be raised by the block supplied by the caller, such as `#each_child`.
-          # A host that does not resolve is not unavailable, since the same request cannot succeed later.
-          raise if connected || Utils.unknown_host?(e)
+          # A host that does not resolve is not unavailable, see `IOStreams::Errors::Unavailable.network_error?`.
+          raise if connected || !Errors::Unavailable.network_error?(e)
 
           raise(Errors::Unavailable.tag(e, display_name))
         end
@@ -361,6 +415,25 @@ module IOStreams
         self
       end
 
+      # Yields each child within this path that the matcher matches, and its attributes, see `#each_child`.
+      def each_match(sftp, matcher, directories)
+        directory = matcher.directory.empty? ? self : child_path(matcher.directory)
+        if matcher.exact?
+          # When the pattern is an exact file name without any pattern characters
+          child      = child_path(matcher.pattern, directory.path)
+          attributes = Listing.remote_attributes(sftp, child.remote_path)
+          found      = attributes && (attributes.file? || (directories && attributes.directory?))
+          yield(child, attributes.attributes) if found && allowed_child?(child)
+          # Otherwise the name is matched within its directory, ignoring case, like a local path.
+          return if found || matcher.case_sensitive?
+        end
+
+        Listing.each(sftp, directory.remote_path, matcher, directories: directories) do |name, attributes|
+          child = child_path(name, directory.path)
+          yield(child, attributes) if allowed_child?(child)
+        end
+      end
+
       # Returns the attributes of this path on the server, or nil when it does not exist.
       def remote_attributes(capability)
         with_net_sftp(capability) { |sftp| Listing.remote_attributes(sftp, remote_path) }
@@ -370,6 +443,20 @@ module IOStreams
       # `.` and `..` are resolved the way the sftp server resolves them.
       def allowed_location
         "sftp://#{hostname.to_s.downcase}:#{port}#{normalize_path(path)}".chomp("/")
+      end
+
+      # Raises ArgumentError for a part of the url that SFTP does not use, rather than ignore it. A query cannot hold ssh
+      # options, since an option such as `ProxyCommand` runs a command, so they are only supplied with `ssh_options:`.
+      def validate_url!(uri, url)
+        problem =
+          if uri.hostname.to_s.empty?
+            "it must name a host, such as 'sftp://example.org/a.csv'"
+          elsif uri.query
+            "it cannot have a query. Supply ssh options with ssh_options:, and percent-encode a '?' in a name as '%3F'"
+          elsif uri.fragment
+            "percent-encode a '#' in a name as '%23', since it starts a fragment, which an SFTP url cannot have"
+          end
+        raise(Utils::URI.invalid("SFTP", url, problem)) if problem
       end
 
       # Usernames are passed to the `sftp` executable, so reject values that it could treat as options.
@@ -394,63 +481,37 @@ module IOStreams
         child
       end
 
-      def stream_reader(&block)
-        Utils.private_temp_file("iostreams-sftp-reader", purpose: "the download of #{display_name}") do |file_name|
-          sftp_download(remote_path, file_name)
-          ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
-        end
+      # The sftp program downloads the whole file into a temp file, which is then read, see
+      # `IOStreams::Path#spooled_reader`.
+      def stream_reader(&)
+        spooled_reader("iostreams-sftp-reader", download: ->(file_name) { sftp_download(remote_path, file_name) }, &)
       end
 
-      def stream_writer(&block)
-        # Uploads the file once all data has been written to it, including when the block leaves early, such as with
-        # `break`, as a local file keeps what was written, see `IOStreams::Utils.finish_or_abort`.
-        Utils.private_temp_file("iostreams-sftp-writer", purpose: "the upload to #{display_name}") do |file_name|
-          Utils.finish_or_abort(finish: -> { sftp_upload(file_name, remote_path) }) do
-            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          end
-        end
+      # The sftp program uploads the whole file from a temp file, once the block returns, see
+      # `IOStreams::Path#spooled_writer`.
+      def stream_writer(&)
+        spooled_writer("iostreams-sftp-writer", upload: ->(file_name) { sftp_upload(file_name, remote_path) }, &)
       end
 
       # Use the sftp executable to download to a local file, via sshpass when a password is supplied
       def sftp_download(remote_file_name, local_file_name)
         # Built first, so that a name that sftp cannot use raises before it is started.
-        command = Batch.get(remote_file_name, local_file_name)
-        with_sftp_args do |args|
-          Open3.popen2e(*args) do |writer, reader, waith_thr|
-            if password
-              # Give time for remote sftp server to get ready to accept the password.
-              sleep self.class.before_password_wait_seconds
-
-              writer.puts password
-
-              # Give time for password to be processed and stdin to be passed to sftp process.
-              sleep self.class.sshpass_wait_seconds
-            end
-
-            writer.puts command
-            writer.puts "bye"
-            writer.close
-            out = reader.read.chomp
-            raise_failure("Download", out, waith_thr.value) unless waith_thr.value.success?
-
-            out
-          rescue Errno::EPIPE
-            out = begin
-              reader.read.chomp
-            rescue StandardError
-              nil
-            end
-            raise_failure("Download", out, waith_thr.value)
-          end
-        end
+        run_sftp("Download", [Batch.get(remote_file_name, local_file_name)], wait_before_password: true)
       end
 
       def sftp_upload(local_file_name, remote_file_name)
         # Built first, so that a name that sftp cannot use raises before it is started.
-        commands = Batch.put(local_file_name, remote_file_name, mkpath: @mkdir)
+        run_sftp("Upload", Batch.put(local_file_name, remote_file_name, mkpath: @mkdir))
+      end
+
+      # Runs the sftp executable with the batch commands, via sshpass when a password is supplied.
+      # Returns [String] its output.
+      def run_sftp(action, commands, wait_before_password: false)
         with_sftp_args do |args|
           Open3.popen2e(*args) do |writer, reader, waith_thr|
             if password
+              # Give time for remote sftp server to get ready to accept the password.
+              sleep self.class.before_password_wait_seconds if wait_before_password
               writer.puts(password)
               # Give time for password to be processed and stdin to be passed to sftp process.
               sleep self.class.sshpass_wait_seconds
@@ -459,7 +520,7 @@ module IOStreams
             writer.puts "bye"
             writer.close
             out = reader.read.chomp
-            raise_failure("Upload", out, waith_thr.value) unless waith_thr.value.success?
+            raise_failure(action, out, waith_thr.value) unless waith_thr.value.success?
 
             out
           rescue Errno::EPIPE
@@ -468,7 +529,7 @@ module IOStreams
             rescue StandardError
               nil
             end
-            raise_failure("Upload", out, waith_thr.value)
+            raise_failure(action, out, waith_thr.value)
           end
         end
       end
@@ -479,7 +540,7 @@ module IOStreams
       # When the server does not prompt for a password, sftp reads the password line as a command
       # and echoes it in its output, so remove it before the output is included in the error.
       def raise_failure(action, out, status = nil)
-        out   = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
+        out   = out.gsub(password.to_s, Utils::FILTERED) if out && !password.to_s.empty?
         error = Errors::CommunicationsFailure.new(
           "#{action} failed calling #{self.class.sftp_bin}#{" via #{self.class.sshpass_bin}" if password}: #{out}"
         )
@@ -487,36 +548,10 @@ module IOStreams
         raise(kind ? kind.tag(error, display_name) : error)
       end
 
+      # Yields [Array<String>] the command that runs the sftp program, see `#sftp_args`, with any key that an ssh option
+      # holds written to a temp file, see `Program.with_key_files`.
       def with_sftp_args
-        return yield sftp_args(ssh_options) if !ssh_options.key?("IdentityKey") && !ssh_options.key?("HostKey")
-
-        with_identity_key(ssh_options.dup) do |options|
-          with_host_key(options) do |options2|
-            yield sftp_args(options2)
-          end
-        end
-      end
-
-      def with_identity_key(options)
-        return yield options unless ssh_options.key?("IdentityKey")
-
-        with_temp_file(options, "IdentityFile", options.delete("IdentityKey")) { yield options }
-      end
-
-      def with_host_key(options)
-        return yield options unless ssh_options.key?("HostKey")
-
-        with_temp_file(options, "UserKnownHostsFile", options.delete("HostKey")) { yield options }
-      end
-
-      def with_temp_file(options, option, value)
-        # sftp requires that private key is only readable by the current user
-        Utils.private_temp_file("iostreams-sftp-args", "key", purpose: "the ssh #{option}") do |file_name|
-          ::File.binwrite(file_name, value)
-
-          options[option] = file_name
-          yield options
-        end
+        Program.with_key_files(ssh_options) { |options| yield sftp_args(options) }
       end
 
       def sftp_args(ssh_options)
@@ -535,30 +570,15 @@ module IOStreams
         args << "-oIdentitiesOnly=yes" if ssh_options.key?("IdentityFile")
         # Default is ask, but this is non-interactive so make the default fail without asking.
         args << "-oStrictHostKeyChecking=yes" unless ssh_options.key?("StrictHostKeyChecking")
-        args << "-oLogLevel=#{map_log_level}" unless ssh_options.key?("LogLevel")
+        args << "-oLogLevel=#{Program.log_level(IOStreams.logger&.level)}" unless ssh_options.key?("LogLevel")
         args << "-oPort=#{port}" unless port == 22
         ssh_options.each_pair { |key, value| args << "-o#{key}=#{value}" }
         args << "-b"
         args << "-"
         # Stop sftp from treating the destination as an option.
         args << "--"
-        # Without a username, sftp uses the one from the ssh config, or the current user.
-        args << (username ? "#{username}@#{hostname}" : hostname)
+        args << Program.destination(hostname, username)
         args
-      end
-
-      def map_log_level
-        level = IOStreams.logger&.level
-        case level
-        when :trace
-          "DEBUG3"
-        when :warn
-          "ERROR"
-        when Symbol
-          level.to_s
-        else
-          "INFO"
-        end
       end
     end
   end

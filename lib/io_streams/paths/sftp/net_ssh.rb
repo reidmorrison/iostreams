@@ -1,13 +1,34 @@
 # frozen_string_literal: true
 
+require "logger"
+
 module IOStreams
   module Paths
     class SFTP < IOStreams::Path
-      # Translates the ssh options supplied for the sftp executable into options for net-ssh,
-      # which `SFTP#each_child` uses to list files instead of the sftp executable.
+      # Translates the ssh options supplied for the sftp executable into options for net-ssh, which SFTP uses to
+      # list, check and delete files, such as with `SFTP#each_child`, `#exist?` and `#delete`, instead of the sftp
+      # executable, which only reads and writes them.
       #
       # The net-ssh options match those that SFTP passes to the sftp executable.
       module NetSSH
+        # The logger that net-ssh is supplied, which forwards each message at or above its level to the logger that it
+        # wraps, `IOStreams.logger`, which then logs it at its own level.
+        #
+        # net-ssh sets the level of the logger that it is supplied from the `LogLevel` ssh option, so it has a logger of
+        # its own, rather than change the level of IOStreams.logger for the whole process.
+        class ForwardingLogger < ::Logger
+          def initialize(logger)
+            super(nil)
+            @logger = logger
+          end
+
+          def add(severity, message = nil, progname = nil, &)
+            return true if (severity || UNKNOWN) < level
+
+            @logger.add(severity, message, progname, &)
+          end
+        end
+
         # The ssh options that net-ssh supports.
         OPTIONS = %w[
           HostKey IdentityKey IdentityFile UserKnownHostsFile StrictHostKeyChecking
@@ -19,7 +40,7 @@ module IOStreams
         # Raises [ArgumentError] when `ssh_options` includes an option that is not in `OPTIONS`.
         def self.options(ssh_options, port:, password:)
           options = {port: port, max_pkt_size: 65_536, non_interactive: true}
-          options[:logger] = IOStreams.logger if IOStreams.logger
+          options[:logger] = ForwardingLogger.new(IOStreams.logger) if IOStreams.logger
           # Like the sftp executable, only use the password when one is supplied, and otherwise only public keys.
           if password
             options[:password]     = password
@@ -67,7 +88,8 @@ module IOStreams
             options[:verbose] = log_level(value)
           else
             raise(ArgumentError,
-                  "SFTP #each_child does not support the ssh option #{key.inspect}. It supports: #{OPTIONS.join(', ')}")
+                  "net-ssh, which lists, checks and deletes SFTP files, such as with #each_child, #exist? and #delete, " \
+                  "does not support the ssh option #{key.inspect}. It supports: #{OPTIONS.join(', ')}")
           end
         end
 

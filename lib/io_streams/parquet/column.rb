@@ -8,8 +8,9 @@ module IOStreams
     # The type of each field:
     #   "string"    string
     #   "integer"   int64
-    #   "number"    decimal(38, decimals), whose value is rounded to its `decimals`, or double with `floatNumber: true`.
-    #               A number needs one of them, since a Parquet decimal has a fixed number of digits after its point.
+    #   "number"    decimal(38, decimals), or double with `floatNumber: true`, whose value is rounded to its `decimals`, if
+    #               any, as the field rounds the number that CSV writes, see `IOStreams::Schema::Field#round`. A number
+    #               needs one of them, since a Parquet decimal has a fixed number of digits after its point.
     #   "boolean"   boolean
     #   "date"      date32
     #   "datetime"  timestamp_micros, adjusted to UTC, so the time read back is in UTC, and has whole microseconds.
@@ -48,11 +49,13 @@ module IOStreams
       end
 
       # Returns the value, of the type of the field, see `IOStreams::Schema::Field#render`, in the form that the
-      # `parquet` gem writes it: a decimal rounded to its scale, since the gem drops the digits after it, and a Date as
-      # its text, since the gem only converts a String or a Time into a date32.
+      # `parquet` gem writes it: a number rounded to the decimals of its field, as the field rounds it, see
+      # `IOStreams::Schema::Field#round`, which for a decimal is its scale, since the gem drops the digits after it, and
+      # a Date as its text, since the gem only converts a String or a Time into a date32. A double that is not finite,
+      # such as NaN, is written as it is.
       #
       # Raises `IOStreams::Errors::InvalidValue` for a value that the column cannot hold: an integer outside the range
-      # of an int64, or a number that is not finite, or that has more digits before its decimal point than its decimal
+      # of an int64, or a decimal that is not finite, or that has more digits before its decimal point than its decimal
       # holds, so that the record that holds it raises, naming its field, rather than the gem, once it writes the row.
       def value(value)
         return value if value.nil?
@@ -60,7 +63,7 @@ module IOStreams
         case @type
         when :int64 then int64(value)
         when :decimal then decimal(value)
-        when :double then @field.decimals ? value.round(@field.decimals) : value
+        when :double then @field.round(value)
         when :date32 then value.iso8601
         else value
         end
@@ -111,7 +114,7 @@ module IOStreams
                                                  "cannot be written as a Parquet decimal")
         end
 
-        rounded = value.round(@field.decimals)
+        rounded = @field.round(value)
         return rounded if rounded.abs < 10**(PRECISION - @field.decimals)
 
         raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.to_s('F')} has more than " \

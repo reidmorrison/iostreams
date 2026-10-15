@@ -4,35 +4,8 @@ require_relative "test_helper"
 
 class SymmetricEncryptionWriterTest < Minitest::Test
   describe IOStreams::SymmetricEncryption::Writer do
-    let :temp_file do
-      Tempfile.new("iostreams")
-    end
-
-    let :file_name do
-      temp_file.path
-    end
-
     let :decrypted do
       File.read(File.join(File.dirname(__FILE__), "files", "text.txt"))
-    end
-
-    after do
-      temp_file.delete
-    end
-
-    describe ".file" do
-      it "writes an encrypted file" do
-        result =
-          IOStreams::SymmetricEncryption::Writer.file(file_name) do |io|
-            io.write(decrypted)
-            53_534
-          end
-
-        assert_equal 53_534, result
-
-        refute_equal decrypted, File.read(file_name, mode: "rb")
-        assert_equal decrypted, ::SymmetricEncryption::Reader.open(file_name, &:read)
-      end
     end
 
     describe ".stream" do
@@ -47,6 +20,11 @@ class SymmetricEncryptionWriterTest < Minitest::Test
 
         assert_equal decrypted, ::SymmetricEncryption::Reader.open(io, &:read)
         assert_equal [true, true], header_and_compression(io_string.string)
+      end
+
+      it "raises for an option that it does not take" do
+        error = assert_raises(ArgumentError) { IOStreams::SymmetricEncryption::Writer.stream(StringIO.new, bogus: 1) { |io| io.write(decrypted) } }
+        assert_equal "unknown keyword: :bogus", error.message
       end
 
       it "writes an uncompressed encrypted stream" do
@@ -83,6 +61,28 @@ class SymmetricEncryptionWriterTest < Minitest::Test
 
         refute_equal decrypted, IOStreams.path(path.to_s).raw.read
         assert_equal decrypted, IOStreams.path(path.to_s).read
+      end
+    end
+
+    describe ".check" do
+      it "accepts the options of the configured cipher" do
+        assert_nil IOStreams::SymmetricEncryption::Writer.check
+        assert_nil IOStreams::SymmetricEncryption::Writer.check(compress: false, header: false)
+      end
+
+      it "raises what the writer of the gem raises" do
+        assert_raises(::SymmetricEncryption::CipherError) { IOStreams::SymmetricEncryption::Writer.check(version: 99) }
+        assert_raises(ArgumentError) { IOStreams::SymmetricEncryption::Writer.check(random_iv: false) }
+      end
+
+      it "keeps an existing local file" do
+        Dir.mktmpdir do |dir|
+          file_name = File.join(dir, "data.csv.enc")
+          File.write(file_name, "precious")
+
+          assert_raises(::SymmetricEncryption::CipherError) { IOStreams.path(file_name).option(:enc, version: 99).write(decrypted) }
+          assert_equal "precious", File.read(file_name)
+        end
       end
     end
   end

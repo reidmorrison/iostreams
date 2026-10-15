@@ -2,42 +2,23 @@
 
 module IOStreams
   module Row
-    # Converts each line of an input stream into an array for every line
-    class Reader < IOStreams::Reader
-      # Returns [Array<Symbol>] the options that this reader accepts, see .stream: its own, and those of the
-      # `IOStreams::Tabular` that reads the rows, other than the file name, which it supplies.
+    # Converts each line of an input stream into an array for every line, for `IOStreams::Stream#each(:array)` and
+    # `#reader(:array)`, which create it with the tabular of the stream.
+    class Reader
+      include Enumerable
+
+      # Returns [Array<Symbol>] the options of each call that reads rows, see `IOStreams::Stream#reader`, which raises
+      # for any other: those of the lines that it reads, see `IOStreams::Line::Reader.option_names`, and those of the
+      # `IOStreams::Tabular` that parses them, see `IOStreams::Tabular.read_option_names`.
       def self.option_names
-        [:original_file_name, :cleanse_header, *(IOStreams::Tabular.read_option_names - %i[file_name])]
+        [*IOStreams::Line::Reader.option_names, *IOStreams::Tabular.read_option_names]
       end
 
-      # Read a line as an Array at a time from a stream.
-      # Note:
-      # - The supplied stream _must_ already be a line stream, or a stream that responds to :each
-      #
-      # Parameters
-      #   original_file_name: [String]
-      #     The file name from which to infer the format, see `IOStreams::Tabular.new`.
-      #
-      #   cleanse_header: [true|false]
-      #     See #initialize.
-      #
-      #   For all other parameters, see `IOStreams::Tabular.new`.
-      def self.stream(line_reader, original_file_name: nil, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
-        # Pass-through if already a row reader
-        return yield(line_reader) if line_reader.is_a?(self)
-
-        tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
-        yield new(line_reader, tabular: tabular, cleanse_header: cleanse_header)
-      end
-
-      # When reading from a file also add the line reader stream, which splits the lines where the format expects,
-      # such as within a quoted CSV value. See `.stream` for the parameters.
-      def self.file(file_name, original_file_name: file_name, delimiter: $/,
-                    cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, **args)
-        tabular = IOStreams::Tabular.new(file_name: original_file_name, **args)
-        IOStreams::Line::Reader.file(file_name, delimiter: delimiter, embedded_within: tabular.quote_character) do |io|
-          yield new(io, tabular: tabular, cleanse_header: cleanse_header)
-        end
+      # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
+      # lines, see `IOStreams::Line::Reader.deprecated_option_names`, `embedded_within`, since the format of the file splits
+      # the lines of its rows, and those of the tabular, see `IOStreams::Tabular.deprecated_option_names`.
+      def self.deprecated_option_names
+        [*IOStreams::Line::Reader.deprecated_option_names, :embedded_within, *IOStreams::Tabular.deprecated_option_names]
       end
 
       # Create a reader that returns the stream rows as arrays.
@@ -47,34 +28,32 @@ module IOStreams
       #     Anything that returns one line / record at a time when #each is called on it.
       #
       #   tabular: [IOStreams::Tabular]
-      #     Parses each line in its format, and holds the header.
-      #
-      #   cleanse_header: [true|false]
-      #     Deprecated. Whether to cleanse the header row, see `IOStreams::Tabular::Header#cleanse!`. With a schema, the
-      #     keys of the records are the names of its fields instead, so it raises ArgumentError, see
-      #     `IOStreams::Tabular#header_cleansing`.
-      #     Default: true
-      def initialize(line_reader, tabular:, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT)
+      #     Parses each line in its format, holds the header, and cleanses the header row as its `cleanse_header`
+      #     option says, see `IOStreams::Tabular.new`.
+      def initialize(line_reader, tabular:)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
 
-        @tabular        = tabular
-        @line_reader    = line_reader
-        @cleanse_header = tabular.header_cleansing(cleanse_header)
+        @tabular     = tabular
+        @line_reader = line_reader
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
-        @tabular.restrict_columns(rename: @cleanse_header)
+        @tabular.restrict_columns
       end
 
-      # Returns [true|false] whether the first row that #each yields is the header row of the file, which names the
-      # column of each value of the rows after it, so that a copy can write it as a header row, see
-      # `IOStreams::Row::Writer#write_header`. Asked before #each.
+      # Returns [true|false] whether the first row that #each yields is a header row, which names the column of each
+      # value of the rows after it, so that a copy can write it as a header row, see `IOStreams::Row::Writer#write_header`:
+      # the header row of the file, or the keys of the first record of a format of keyed records, such as JSON, without a
+      # schema, see `IOStreams::Tabular#rows_header?`. Asked before #each.
       def header?
-        @tabular.header?
+        @tabular.rows_header?
       end
 
-      # Yields the header row as it was read, followed by each row.
+      # Yields the header row as it was read, followed by each row, an Array, whatever the format. A file without a
+      # header row, such as fixed width, or JSON with a schema, yields no header row: each row is the values of the
+      # fields of the schema, or of the layout, in order. The header row of JSON without a schema is the keys of its first
+      # record, and each row the values of a record in that order, see `IOStreams::Tabular#read_row`.
       #
       # The allowed and required columns are applied to the header row, or to the supplied columns,
       # even when `cleanse_header` is false, unless `IOStreams.enforce_column_restrictions?` is false.
@@ -82,14 +61,39 @@ module IOStreams
       #
       # With a schema, the header row is the names of the fields of its columns, and each row is the values of those
       # fields, in the order of the fields, without the columns that the schema skips, see `IOStreams::Tabular#row_parse`.
-      def each
-        @line_reader.each do |line|
-          if @tabular.header?
-            yield @tabular.read_header(line, cleanse: @cleanse_header)
+      def each(&block)
+        @line_reader.each { |line| @tabular.read_row(line, &block) }
+      end
+
+      # Writes each row to the writer, see `IOStreams::Row::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,
+      # telling it the column of each value of the rows: it writes the header row of the file as their header row, see
+      # `IOStreams::Row::Writer#write_header`, so that a format without one, such as JSON, takes their columns from it,
+      # rather than write it as a row of values, or, for a file without a header row whose schema gives its columns,
+      # the names of the fields as their columns, see `IOStreams::Row::Writer#write_columns`, before the first row. A
+      # blank line, which #each yields as nil, is not a row, so it is not written.
+      #
+      # Returns the result of #each.
+      def copy_to(writer)
+        columns = @tabular.headerless_columns
+        writer.write_columns(columns) if columns
+        header = header?
+        each do |row|
+          next if row.nil?
+
+          if header
+            header = false
+            writer.write_header(row)
           else
-            yield @tabular.row_parse(line)
+            writer << row
           end
         end
+      end
+
+      # Returns [String] the class and the format of the rows, see `IOStreams::Tabular#format`, rather than every instance
+      # variable, such as the tabular and the lines that it reads, so that irb, which displays what a reader block
+      # returns, shows what the documentation describes.
+      def inspect
+        "#<#{self.class.name} format=#{@tabular.format.inspect}>"
       end
     end
   end

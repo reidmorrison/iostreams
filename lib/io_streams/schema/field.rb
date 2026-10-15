@@ -106,12 +106,17 @@ module IOStreams
       NUMERIC_TYPES = %w[integer number].freeze
 
       INTEGER  = /\A[+-]?\d+\z/
+      # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and a
+      # fixed width layout read the column with `to_i` before it was deprecated.
+      WHOLE    = /\A([+-]?\d+)\.0*\z/
       NUMBER   = /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
       # A decimal point without digits after it, such as in "12.", which NUMBER accepts, as Ruby 3.4 does, but
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
       DATETIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
+      # The offset from UTC at the end of the text of a datetime that DATETIME matches.
+      OFFSET   = /(?:Z|[+-]\d{2}:\d{2})\z/
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -153,6 +158,7 @@ module IOStreams
         check_type
         check_properties(descriptor)
         @format       = check_format(descriptor["format"])
+        @utc          = @type == "datetime" && !@format.nil? && !format_zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
@@ -312,6 +318,17 @@ module IOStreams
         end
       end
 
+      # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
+      # written, see #render: a BigDecimal half up, which is an Integer with no decimals, and a Float as Ruby's `format`
+      # rounds it, to the nearest of its binary value, so that a format that holds the number itself, such as Parquet,
+      # holds the number that CSV writes. A number that is not finite, or of a field without decimals, is returned as it
+      # is.
+      def round(number)
+        return number if @decimals.nil? || !number.finite?
+
+        number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals)
+      end
+
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
@@ -337,9 +354,16 @@ module IOStreams
         case type
         when "number" then number_text(value)
         when "boolean" then value ? @true_values.first : @false_values.first
-        when "date", "datetime" then @format ? value.strftime(@format) : self.class.any_text(value)
+        when "date" then @format ? value.strftime(@format) : self.class.any_text(value)
+        when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
         else self.class.any_text(value)
         end
+      end
+
+      # Returns [String] the time in the format of this field. Text without a zone is read as UTC, see #parse_time, so a
+      # time is written in UTC with a format without a zone, so that it reads back as the same time.
+      def datetime_text(time)
+        (@utc ? time.getutc : time).strftime(@format)
       end
 
       def check_type
@@ -445,10 +469,19 @@ module IOStreams
       def cast_integer(value)
         case value
         when Integer then value
-        when String then INTEGER.match?(value) ? Integer(value, 10) : invalid(value)
+        when String then integer_text(value)
         when Float, Rational then value.finite? && value == value.floor ? value.to_i : invalid(value)
         else bigdecimal?(value) && value.finite? && value.frac.zero? ? value.to_i : invalid(value)
         end
+      end
+
+      # Returns [Integer] the whole number of the text, which can have a decimal point followed only by zeros, such as
+      # "12.0", see WHOLE.
+      def integer_text(text)
+        return Integer(text, 10) if INTEGER.match?(text)
+
+        whole = WHOLE.match(text)
+        whole ? Integer(whole[1], 10) : invalid(text)
       end
 
       def cast_number(value)
@@ -518,6 +551,9 @@ module IOStreams
 
       # `Time` moves a day past the end of its month into the next month, such as February 30 into March 2, so the
       # date is checked first, as a date field does.
+      #
+      # Text without an offset from UTC is read as UTC, rather than in the time zone of the process, so that a file
+      # reads the same on every server.
       def cast_datetime(value)
         return value if value.is_a?(Time)
         return self.class.time_of(value) if value.is_a?(DateTime)
@@ -526,21 +562,38 @@ module IOStreams
         return invalid(value) unless DATETIME.match?(value)
         return invalid(value) unless Date.valid_date?(value[0, 4].to_i, value[5, 2].to_i, value[8, 2].to_i)
 
-        Time.iso8601(value)
+        Time.iso8601(OFFSET.match?(value) ? value : "#{value}Z")
       rescue ArgumentError
         invalid(value)
       end
 
+      # Returns [true|false] whether the strftime pattern of the format writes a zone, such as `%z`, `%:z` or `%Z`, so
+      # that a time written with it says its own offset from UTC.
+      #
+      # A width does not start with `0`, which is a flag, so that the flags and the width never match the same
+      # characters, which would take time that grows with the square of their length.
+      def format_zone?
+        @format.scan(/%(?:%|[-_0^#:]*(?:[1-9]\d*)?([a-zA-Z+]))/).flatten.compact.intersect?(%w[z Z +])
+      end
+
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
       # and whose date must exist, see #cast_datetime.
+      #
+      # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
+      # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
       def parse_time(klass, text)
         parts = Date._strptime(text, @format)
         return invalid(text) if parts.nil? || parts.key?(:leftover)
         if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
           return invalid(text)
         end
+        return Date.strptime(text, @format) if klass == Date
+        return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
-        klass.strptime(text, @format)
+        # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
+        # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
+        time = self.class.time_of(DateTime.strptime(text, @format))
+        parts[:offset] ? time : time.utc
       rescue ArgumentError
         invalid(text)
       end
@@ -548,15 +601,21 @@ module IOStreams
       def number_text(value)
         return "NaN" if value.nan?
         return value.positive? ? "INF" : "-INF" if value.infinite?
-        return (@decimals ? format("%.#{@decimals}f", value) : value.to_s) if value.is_a?(Float)
+        return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
         return value.to_s("F") unless @decimals
 
         # Rounding to no decimals returns an Integer.
-        rounded = value.round(@decimals)
+        rounded = round(value)
         return rounded.to_s if rounded.is_a?(Integer)
 
         whole, fraction = rounded.to_s("F").split(".")
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
+      end
+
+      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds to the nearest
+      # of its binary value.
+      def float_text(value)
+        format("%.#{@decimals}f", value)
       end
 
       def json(value)

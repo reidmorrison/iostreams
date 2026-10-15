@@ -12,7 +12,9 @@ module Paths
     end
 
     describe IOStreams::Paths::File do
-      let(:root) { IOStreams::Paths::File.new("/tmp/iostreams").delete_all }
+      # A directory of its own for each test, rather than one shared by every test run on the machine, which another
+      # checkout running its tests at the same time would delete.
+      let(:root) { IOStreams::Paths::File.new(::File.realpath(Dir.mktmpdir("iostreams_file_test"))) }
       let(:directory) { root.join("/some_test_dir") }
       let(:data) { "Hello World\nHow are you doing?\nOn this fine day" }
       let(:file_path) do
@@ -24,6 +26,10 @@ module Paths
         path = root.join("some_test_dir/test_file2.txt")
         path.writer { |io| io << "Hello World2" }
         path
+      end
+
+      after do
+        FileUtils.rm_rf(root.to_s)
       end
 
       describe "home directory" do
@@ -70,6 +76,21 @@ module Paths
 
             assert_equal ["./~/a.txt"], children
             assert_equal "data", IOStreams.path(children.first).read
+          end
+        end
+
+        it "yields the children of a directory called ~ within the current directory, for a pattern that starts with ~" do
+          in_home do |home, current|
+            FileUtils.mkdir_p(::File.join(current, "~"))
+            ::File.write(::File.join(current, "~", "a.csv"), "data")
+            ::File.write(::File.join(home, "a.csv"), "home")
+
+            [IOStreams.path(""), IOStreams.path(".")].each do |path|
+              children = path.children("~/*.csv")
+
+              assert_equal ["./~/a.csv"], children.collect(&:to_s), path.to_s
+              assert_equal "data", children.first.read
+            end
           end
         end
 
@@ -127,6 +148,26 @@ module Paths
         it "rejects a query or fragment" do
           assert_raises(ArgumentError) { IOStreams.path("file:///tmp/a.txt?x=1") }
           assert_raises(ArgumentError) { IOStreams.path("file:///tmp/a.txt#x") }
+        end
+      end
+
+      describe "comparison" do
+        it "is equal to the same name, also from a file url or within the home directory" do
+          path = IOStreams.path("/tmp/data/a b.csv")
+
+          assert_equal_paths path, IOStreams.path("file:///tmp/data/a%20b.csv")
+          assert_equal_paths path, IOStreams.path("file://localhost/tmp/data/a b.csv")
+          assert_equal_paths IOStreams.path("~/a.csv"), IOStreams.path(::File.join(Dir.home, "a.csv"))
+        end
+
+        it "compares the name as it is, as Pathname does, without accessing the file" do
+          path  = IOStreams.path("/tmp/data/a.csv")
+          names = %w[/tmp/data/A.csv tmp/data/a.csv /tmp/data/./a.csv /tmp//data/a.csv /tmp/data/a.csv/ /tmp/data/x/../a.csv]
+
+          names.each do |name|
+            refute_equal_paths path, IOStreams.path(name), name
+            refute_equal Pathname.new(path.to_s), Pathname.new(name), name
+          end
         end
       end
 
@@ -330,6 +371,50 @@ module Paths
           assert_nil(root.each_child("**/*") { |child| child })
         end
 
+        it "keeps create_path in the children, as #join does" do
+          file_path
+          path = IOStreams.path(directory.to_s, create_path: false)
+
+          assert_equal [false], path.children("*.txt").collect(&:create_path)
+          assert_equal [true], directory.children("*.txt").collect(&:create_path)
+        end
+
+        it "raises PermissionDenied for a directory that cannot be read, like SFTP" do
+          skip "Every directory can be read as root" if Process.uid.zero?
+
+          locked = root.join("locked").mkdir
+          locked.join("a.csv").write(data)
+          begin
+            ::File.chmod(0o000, locked.to_s)
+
+            [-> { locked.children("*") }, -> { root.children("locked/*.csv") }].each do |list|
+              error = assert_raises(IOStreams::Errors::PermissionDenied, &list)
+
+              assert_instance_of Errno::EACCES, error
+            end
+          ensure
+            ::File.chmod(0o755, locked.to_s)
+          end
+        end
+
+        it "skips a sub-directory that cannot be read, like Dir.glob" do
+          skip "Every directory can be read as root" if Process.uid.zero?
+
+          root.join("a.csv").write(data)
+          locked = root.join("locked").mkdir
+          locked.join("b.csv").write(data)
+          begin
+            ::File.chmod(0o000, locked.to_s)
+            children = nil
+            # Dir.glob warns that it cannot read the directory, when Ruby shows warnings.
+            capture_io { children = root.children("**/*.csv").collect(&:to_s) }
+
+            assert_equal [root.join("a.csv").to_s], children
+          ensure
+            ::File.chmod(0o755, locked.to_s)
+          end
+        end
+
         it "with no block returns enumerator" do
           expected = [file_path.to_s, file_path2.to_s]
           actual   = root.each_child("**/*").first(100).collect(&:to_s)
@@ -481,7 +566,7 @@ module Paths
 
         it "keeps the streams, options and create_path of the path, since it is the same file" do
           path = IOStreams::Paths::File.new(::File.join(__dir__, "../files/test.csv"), create_path: false)
-          path.option(:encode, encoding: "BINARY")
+          path.encoding("BINARY")
           realpath = path.realpath
 
           refute realpath.create_path
@@ -547,6 +632,34 @@ module Paths
           end
         end
 
+        it "raises ArgumentError for a target that is the same file, by any name, and keeps the file" do
+          source = directory.join("same.txt")
+          source.write(data)
+          ::File.symlink(source.to_s, directory.join("link.txt").to_s)
+
+          Dir.chdir(directory.to_s) do
+            [source, source.to_s, directory.join(".", "same.txt"), "same.txt", directory.join("link.txt")].each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move #{source.display_name} onto itself"
+            end
+          end
+
+          assert_equal data, source.read
+        end
+
+        it "raises ArgumentError for a target that is a directory, and keeps the file" do
+          source = directory.join("file.txt")
+          source.write(data)
+          target = directory.join("archive").mkdir
+
+          error = assert_raises(ArgumentError) { source.move_to(target) }
+
+          assert_includes error.message, "Cannot move #{source.display_name} onto the directory #{target.display_name}"
+          assert_equal data, source.read
+          assert_empty target.children
+        end
+
         it "missing target directories" do
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             temp_file.write("Hello World")
@@ -580,6 +693,69 @@ module Paths
           assert_same file_path, file_path.delete
           refute_path_exists file_path.to_s
         end
+
+        it "deletes a symbolic link to a file that does not exist" do
+          link = directory.mkdir.join("dangling.txt")
+          ::File.symlink(directory.join("nowhere.txt").to_s, link.to_s)
+
+          assert_same link, link.delete
+          refute ::File.symlink?(link.to_s)
+        end
+
+        it "raises PermissionDenied for a file in a directory that cannot be searched" do
+          skip "Every directory can be searched as root" if Process.uid.zero?
+
+          file_path
+          begin
+            ::File.chmod(0o600, directory.to_s)
+            error = assert_raises(IOStreams::Errors::PermissionDenied) { file_path.delete }
+
+            assert_instance_of Errno::EACCES, error
+          ensure
+            ::File.chmod(0o755, directory.to_s)
+          end
+        end
+
+        it "deletes a symbolic link to a directory, rather than the directory" do
+          target = directory.join("target").mkdir
+          target.join("a.txt").write(data)
+          link = directory.join("link")
+          ::File.symlink(target.to_s, link.to_s)
+
+          link.delete
+
+          refute ::File.symlink?(link.to_s)
+          assert_equal data, target.join("a.txt").read
+        end
+      end
+
+      describe "#delete_all" do
+        it "deletes a directory and everything within it, without following a symbolic link within it" do
+          target = root.join("target").mkdir
+          target.join("a.txt").write(data)
+          directory.join("sub/b.txt").write(data)
+          ::File.symlink(target.to_s, directory.join("sub/link").to_s)
+
+          assert_same directory, directory.delete_all
+          refute_path_exists directory.to_s
+          assert_equal data, target.join("a.txt").read
+        end
+
+        it "deletes a symbolic link, rather than what it refers to" do
+          target = directory.join("target").mkdir
+          target.join("a.txt").write(data)
+          link = root.join("link")
+          ::File.symlink(target.to_s, link.to_s)
+          dangling = root.join("dangling")
+          ::File.symlink(root.join("nowhere").to_s, dangling.to_s)
+
+          link.delete_all
+          dangling.delete_all
+
+          refute ::File.symlink?(link.to_s)
+          refute ::File.symlink?(dangling.to_s)
+          assert_equal data, target.join("a.txt").read
+        end
       end
 
       describe "reader" do
@@ -603,6 +779,24 @@ module Paths
 
           assert_path_exists new_file_path.to_s
           assert_equal data.size, new_file_path.size
+        end
+
+        it "keeps an existing file when a stream cannot write with its options, without opening it" do
+          writer = Class.new(IOStreams::Writer) do
+            def self.option_names = %i[level]
+            def self.check(level: 1) = (raise(ArgumentError, "level must be 1 to 9") unless (1..9).cover?(level))
+            def self.stream(io, **) = yield(io)
+          end
+          IOStreams.register_extension(:check_test, Class.new(IOStreams::Reader), writer)
+          path = directory.join("existing.txt.check_test").mkpath
+          File.write(path.to_s, "existing")
+
+          error = assert_raises(ArgumentError) { path.option(:check_test, level: 99).writer { |io| io << data } }
+
+          assert_equal "level must be 1 to 9", error.message
+          assert_equal "existing", File.read(path.to_s)
+        ensure
+          IOStreams.deregister_extension(:check_test)
         end
 
         it "removes the partial file when the block raises" do
@@ -630,10 +824,6 @@ module Paths
         end
 
         it "removes the partial file when Timeout interrupts the block" do
-          if Gem::Version.new(Timeout::VERSION) < Gem::Version.new("0.4")
-            skip("Timeout before v0.4 ends the block with throw, like break")
-          end
-
           new_file_path = directory.join("new.txt.pgp").option(:pgp, recipient: "receiver@example.org")
           assert_raises(Timeout::Error) do
             Timeout.timeout(1) do

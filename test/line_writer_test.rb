@@ -2,7 +2,7 @@
 
 require_relative "test_helper"
 
-class DelimitedWriterTest < Minitest::Test
+class LineWriterTest < Minitest::Test
   describe IOStreams::Line::Writer do
     let :file_name do
       File.join(File.dirname(__FILE__), "files", "text.txt")
@@ -44,18 +44,6 @@ class DelimitedWriterTest < Minitest::Test
         assert_equal 53_534, result
         assert_equal raw, io_string.string
       end
-
-      it "yields a line writer that it is given as it is" do
-        io_string = StringIO.new
-        IOStreams::Line::Writer.stream(io_string) do |io|
-          IOStreams::Line::Writer.stream(io) do |inner|
-            assert_same io, inner
-            inner << "first"
-          end
-        end
-
-        assert_equal "first\n", io_string.string
-      end
     end
 
     describe ".write" do
@@ -71,6 +59,14 @@ class DelimitedWriterTest < Minitest::Test
         assert_equal 53_534, result
         assert_equal raw, io_string.string
         assert_equal raw.size, count
+      end
+    end
+
+    describe "#inspect" do
+      it "shows the class and the delimiter of the lines, rather than the stream that it writes" do
+        inspect = IOStreams.stream(StringIO.new).writer(:line, delimiter: "\r\n", &:inspect)
+
+        assert_equal '#<IOStreams::Line::Writer delimiter="\r\n">', inspect
       end
     end
   end

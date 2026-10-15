@@ -1,0 +1,215 @@
+# frozen_string_literal: true
+
+module IOStreams
+  class Tabular
+    # Maps the columns of a file to the fields of its schema, see `IOStreams::Tabular::Mapping`: the columns of its header
+    # row, or the keys of each record of a format of keyed records, such as JSON, are matched to the fields once, see
+    # `IOStreams::Schema::Columns`, which converts the values of each row and record read to the types of the fields, by
+    # their names, and renders those written. The columns of the rows of a file without a header row are the fields, in
+    # order, see `IOStreams::Schema#header?`, including those of a format whose records supply their own keys, whose rows
+    # are the values of every field of each record.
+    #
+    # The column options of a file without a schema do not apply, since the schema describes the columns, see
+    # `IOStreams::Tabular.new`. The header keeps the header row as it was read, so that another Tabular with the same
+    # schema, such as one that reads the rest of the file elsewhere, matches the same columns with
+    # `read_header(header.columns)`.
+    class SchemaMapping < Mapping
+      # Parameters:
+      #   schema: [IOStreams::Schema]
+      #     The fields of the rows and records.
+      #
+      #   See `IOStreams::Tabular::Mapping#initialize` for the others.
+      #
+      # Raises ArgumentError when the schema describes a file without a header row, of a format with one, such as CSV,
+      # that it cannot describe, see `IOStreams::Schema#check_fields_in_order`.
+      def initialize(schema, header:, parser:, format:)
+        super(header: header, parser: parser, format: format)
+        @schema          = schema
+        @columns         = schema.columns
+        @requires_header = parser.requires_header? && schema.header?
+        # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
+        # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values
+        # of the fields.
+        @keyed           = parser.class.keyed?
+        @form            = parser.class.value_form
+        # The columns of the rows of a file without a header row are the fields, in order: of a format with one whose
+        # schema says that it has none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one, such
+        # as fixed width, or JSON, whose rows are the values of the fields of its records.
+        if parser.requires_header?
+          @columns.match_fields unless schema.header?
+        else
+          @columns.match_in_order
+        end
+      end
+
+      # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, unless the schema
+      # says that the file has none, see `IOStreams::Schema#header?`.
+      def requires_header?
+        @requires_header
+      end
+
+      # Returns [true|false] whether the header row is still to be read, see #read_header: until its columns are
+      # matched to the fields, for a file with a header row.
+      def header?
+        @requires_header && !@columns.matched?
+      end
+
+      # Returns [true|false] whether the rows read start with a header row, see `IOStreams::Tabular#rows_header?`: the
+      # header row of a file with one, until it is read, see #header?, since the fields are the columns of the rows of a
+      # file without one.
+      def rows_header?
+        header?
+      end
+
+      # Returns [true] the keys of the records read are the names of the fields, see `IOStreams::Tabular#field_names?`.
+      def field_names?
+        true
+      end
+
+      # Returns [Array<String|Symbol>] the names of the fields of a file without a header row, which are the columns of
+      # its rows, see `IOStreams::Tabular#headerless_columns`.
+      # Returns nil for a file with a header row.
+      def headerless_columns
+        @columns.names if @columns.matched? && !@requires_header
+      end
+
+      # Returns [false] the schema gives the columns, which cannot be supplied with it.
+      def columns_supplied?
+        false
+      end
+
+      # Returns [false] the schema gives the columns of the rows and records written.
+      def columns_from_first_row?
+        false
+      end
+
+      # Returns [true|false] whether the next row written is the header row of the rows after it, for a file with a
+      # header row, until it is written, so that the rows read from a file with a header row, which start with it, can be
+      # written, see `IOStreams::Schema::Columns#match_written`.
+      def first_row_header?
+        @requires_header && !@columns.written?
+      end
+
+      # Returns [true|false] whether the header row written before the rows copied from a file with one gives the
+      # columns of the rows, see #render_header, rather than being written as a row: for a file without a header row,
+      # whose header row is the names of the fields.
+      def columns_from_header_row?
+        !@requires_header
+      end
+
+      # Returns [Array] the header row parsed from the line, once its columns are matched to the fields, see
+      # `IOStreams::Schema::Columns#match`.
+      # Returns nil when the line is blank, or the format has no header row.
+      def parse_header(line)
+        match_header(line)&.first
+      end
+
+      # Matches the columns of the header row to the fields, see #parse_header.
+      #
+      # Returns [Array<String|Symbol>] the names of the fields of its columns, in the order of the fields.
+      # Returns nil when the line is blank, or the format has no header row.
+      #
+      # Raises ArgumentError for `cleanse`, other than nil or `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which leave the
+      # header row as it is, since the keys of the records are the names of the fields, which its columns are matched to
+      # instead.
+      def read_header(line, cleanse: nil)
+        unless cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT)
+          raise(ArgumentError, "cleanse: cannot be supplied with a schema, since the keys of its records are the names of " \
+                               "its fields, which the columns of the header row are matched to")
+        end
+
+        match_header(line)&.last
+      end
+
+      # Returns nil: no column options apply, since the schema describes the columns instead. Accepts `rename`, which has
+      # no effect, as it has none without a schema when no column is restricted, so that a caller, such as Rocket Job,
+      # can call it whether or not there is a schema.
+      def restrict_columns(rename: nil) # rubocop:disable Lint/UnusedMethodArgument -- accepted, as it is without a schema
+        nil
+      end
+
+      # Returns [Array] the values of the fields of the line, converted to their types, in the order of the fields: of
+      # its columns, or, for a format whose records supply their own keys, such as JSON, of every field, nil for a key
+      # that its record does not have, see `IOStreams::Schema::Columns#read_row`.
+      # Returns nil if the line is blank.
+      def row_parse(line)
+        values = parse_values(line)
+        return if values.nil?
+
+        values.is_a?(::Hash) ? @columns.read_row(values) : @columns.row(values)
+      end
+
+      # Returns [Hash] the record of the line, converted to the types of the fields, by the names of the fields. The
+      # record of a row already read, an Array, is by the columns of the rows, see #row_parse.
+      # Returns nil if the line is blank.
+      def record_parse(line)
+        values = parse_values(line)
+        return if values.nil?
+
+        values.is_a?(::Hash) ? @columns.read_hash(values) : @columns.record(values)
+      end
+
+      # Returns [Hash] the record of the line, see #record_parse, to which no column options apply, see
+      # #restrict_columns.
+      def read_record(line, rename: nil) # rubocop:disable Lint/UnusedMethodArgument -- accepted, see #restrict_columns
+        record_parse(line)
+      end
+
+      # Returns [String|Array|Hash] the line that the parser renders for the row or record, with the value of each field
+      # in the form of its field that the format writes, see `IOStreams::Schema::Field#render`, in the order of the
+      # fields, see `IOStreams::Schema::Columns#render`.
+      #
+      # Returns nil for a blank row, which is written as a blank line, see #render_blank.
+      def render(row)
+        return @columns.render_blank if IOStreams::Utils.blank?(row)
+
+        render_fields(row)
+      end
+
+      # Returns [String|Array|Hash] the line that the parser renders for the value of each field of a row or record that
+      # is not blank, see #render, even when it supplies none of them.
+      def render_fields(row)
+        @parser.render(@columns.render(row, @form, @keyed))
+      end
+
+      # Returns nil, the line of a blank row or record, which is written as a blank line.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a field that is required, since a blank row has no value for it.
+      def render_blank
+        @columns.render_blank
+      end
+
+      # Returns [String] the header row of the file: the names of its fields, once the columns supplied, if any, are
+      # matched to the fields, so that the value of each field is taken from its column of the rows rendered after it,
+      # see `IOStreams::Schema::Columns#match_written`.
+      # Returns nil when the file has no header row.
+      def render_header(columns = nil)
+        @columns.match_written(columns) if columns
+        return unless @requires_header
+
+        @parser.render(@schema.fields.map { |field| field.name.to_s })
+      end
+
+      private
+
+      # Returns [Array(Array, Array)] the header row parsed from the line, which the header keeps as it was read, and the
+      # names of the fields of its columns, once they are matched to the fields, or nil when the line is blank, or the
+      # format has no header row.
+      def match_header(line)
+        return if IOStreams::Utils.blank?(line) || !@parser.requires_header?
+
+        columns        = @parser.parse(line)
+        names          = @columns.match(columns)
+        header.columns = columns
+        [columns, names]
+      end
+
+      # Returns [Array|Hash] the values of the line, or nil when it is blank, including a record without keys, such as a
+      # JSON line of `{}`, which has no value for any field, like a JSON line of `null`.
+      def parse_values(line)
+        values = parse(line)
+        values unless IOStreams::Utils.blank?(values)
+      end
+    end
+  end
+end

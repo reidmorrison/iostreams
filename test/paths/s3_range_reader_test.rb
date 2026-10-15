@@ -47,6 +47,17 @@ module Paths
         end
       end
 
+      describe ".new" do
+        it "requests the first range, so that a failure raises before the object is read" do
+          reader
+
+          assert_equal(["bytes=0-7"], requests.map { |params| params[:range] })
+          assert_raises(Aws::S3::Errors::NoSuchKey) do
+            IOStreams::Paths::S3::RangeReader.new(->(**) { raise Aws::S3::Errors::NoSuchKey.new(nil, "missing") })
+          end
+        end
+      end
+
       describe "#read" do
         it "reads the whole object, one range at a time" do
           assert_equal data, reader.read

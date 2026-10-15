@@ -239,6 +239,22 @@ class LineReaderTest < Minitest::Test
         assert_equal data.size, count
       end
 
+      it "reads blocks of the default size for a buffer_size of nil, as when it is not supplied" do
+        lines = []
+        IOStreams.stream(StringIO.new(data.join("\n"))).each(:line, buffer_size: nil) { |line| lines << line }
+
+        assert_equal data, lines
+        assert_equal IOStreams::Line::Reader::DEFAULT_BUFFER_SIZE, IOStreams::Line::Reader.new(StringIO.new("a")).buffer_size
+      end
+
+      it "raises for a buffer_size that is not a positive Integer" do
+        [0, -1, "64"].each do |buffer_size|
+          error = assert_raises(ArgumentError) { IOStreams::Line::Reader.new(StringIO.new("a\n"), buffer_size: buffer_size) }
+
+          assert_includes error.message, "Invalid buffer_size #{buffer_size.inspect}"
+        end
+      end
+
       ["\r\n", "\n", "\r"].each do |delimiter|
         it "autodetect delimiter: #{delimiter.inspect}" do
           lines  = []
@@ -263,6 +279,68 @@ class LineReaderTest < Minitest::Test
         end
       end
 
+      describe "a file whose first line ends with \"\\r\\n\"" do
+        # Returns [Array<String>] the lines read from the data, in blocks of the supplied size.
+        def lines_of(data, buffer_size: nil, **)
+          lines = []
+          IOStreams::Line::Reader.stream(StringIO.new(data), buffer_size: buffer_size, **) do |io|
+            io.each { |line| lines << line }
+          end
+          lines
+        end
+
+        it "also ends a line at a \"\\n\" without a \"\\r\", and keeps \"\\r\\n\" as its delimiter" do
+          data = "name,zip\r\nJack,12345\nJill,98101\r\nBob,10001"
+
+          IOStreams::Line::Reader.stream(StringIO.new(data)) { |io| assert_equal "\r\n", io.delimiter }
+          [nil, 1, 2, 3, 7].each do |buffer_size|
+            assert_equal ["name,zip", "Jack,12345", "Jill,98101", "Bob,10001"], lines_of(data, buffer_size: buffer_size)
+          end
+        end
+
+        it "keeps a \"\\r\" that does not end a line" do
+          assert_equal ["a,b", "c\rd", "e"], lines_of("a,b\r\nc\rd\ne\r")
+        end
+
+        it "keeps the line break within a quoted value as it is" do
+          data = "a,b\r\n\"one\r\ntwo\",1\r\n\"three\nfour\",2\n"
+
+          assert_equal ["a,b", "\"one\r\ntwo\",1", "\"three\nfour\",2"], lines_of(data, embedded_within: "\"")
+        end
+
+        it "only ends a line at \"\\r\\n\" when it is the supplied delimiter" do
+          assert_equal %W[a b\nc], lines_of("a\r\nb\nc\r\n", delimiter: "\r\n")
+        end
+
+        it "reads text in an encoding whose characters are wider than a byte" do
+          data  = "one\r\ntwo\nthree\r\n".encode(Encoding::UTF_16LE).b
+          lines = []
+          IOStreams.stream(StringIO.new(data)).encoding("UTF-16LE").each(:line) { |line| lines << line }
+
+          assert_equal(%w[one two three].map { |line| line.encode(Encoding::UTF_16LE) }, lines)
+        end
+
+        it "reads every record of a CSV file whose lines end with \"\\r\\n\" and \"\\n\"" do
+          records = []
+          IOStreams.stream(StringIO.new("name,zip\r\nJack,12345\nJill,98101\r\n")).each(:hash) { |record| records << record }
+
+          assert_equal [{"name" => "Jack", "zip" => "12345"}, {"name" => "Jill", "zip" => "98101"}], records
+        end
+      end
+
+      ["\r\n", "\n", "\r"].each do |delimiter|
+        it "autodetect delimiter: #{delimiter.inspect} of text in an encoding that is not ASCII compatible" do
+          lines = []
+          data  = "first\u00e9#{delimiter}second#{delimiter}".encode(Encoding::UTF_16LE).b
+          IOStreams.stream(StringIO.new(data)).encoding("UTF-16LE").reader(:line, buffer_size: 6) do |io|
+            assert_equal delimiter.encode(Encoding::UTF_16LE), io.delimiter
+            io.each { |line| lines << line }
+          end
+
+          assert_equal(%W[first\u00e9 second].map { |line| line.encode(Encoding::UTF_16LE) }, lines)
+        end
+      end
+
       ["@", "BLAH"].each do |delimiter|
         it "reads delimited #{delimiter.inspect}" do
           lines  = []
@@ -276,16 +354,11 @@ class LineReaderTest < Minitest::Test
         end
       end
 
-      it "yields a line reader that it is given as it is" do
-        lines = []
-        IOStreams::Line::Reader.stream(StringIO.new("first\nsecond\n")) do |io|
-          IOStreams::Line::Reader.stream(io) do |inner|
-            assert_same io, inner
-            inner.each { |line| lines << line }
-          end
-        end
+      it "is Enumerable, as a reader of records is" do
+        lines = IOStreams.stream(StringIO.new("first\nsecond\nthird\n")).reader(:line) { |io| io.collect(&:upcase) }
 
-        assert_equal %w[first second], lines
+        assert_equal %w[FIRST SECOND THIRD], lines
+        assert_equal %w[first second], IOStreams.stream(StringIO.new("first\nsecond\nthird\n")).reader(:line) { |io| io.first(2) }
       end
 
       it "returns UTF-8 lines when characters and the delimiter are split across blocks" do
@@ -493,6 +566,14 @@ class LineReaderTest < Minitest::Test
             end
           end
         end
+      end
+    end
+
+    describe "#inspect" do
+      it "shows the class and the delimiter of the lines, rather than the stream that it reads" do
+        inspect = IOStreams.stream(StringIO.new("name\r\nJack\r\n")).reader(:line, &:inspect)
+
+        assert_equal '#<IOStreams::Line::Reader delimiter="\r\n">', inspect
       end
     end
   end

@@ -35,6 +35,42 @@ class SymmetricEncryptionReaderTest < Minitest::Test
       end
     end
 
+    describe "an option" do
+      it "raises for an option that it does not take" do
+        error = assert_raises(ArgumentError) do
+          File.open(file_name, "rb") { |file| IOStreams::SymmetricEncryption::Reader.stream(file, bogus: 1, &:read) }
+        end
+        assert_equal "unknown keyword: :bogus", error.message
+      end
+    end
+
+    describe "the kind of failure" do
+      it "is MissingKey for data encrypted with the version of a cipher that is not configured" do
+        primary = ::SymmetricEncryption.cipher
+        ::SymmetricEncryption.cipher = ::SymmetricEncryption::Cipher.new(
+          cipher_name: "aes-128-cbc", key: "ABCDEF1234567890", iv: "1234567890ABCDEF", version: 7
+        )
+        begin
+          ::SymmetricEncryption::Writer.open(file_name) { |io| io.write(decrypted) }
+        ensure
+          ::SymmetricEncryption.cipher = primary
+        end
+
+        error = assert_raises(::SymmetricEncryption::CipherError) do
+          IOStreams::SymmetricEncryption::Reader.file(file_name, &:read)
+        end
+        assert_kind_of IOStreams::Errors::MissingKey, error
+        assert_includes error.message, "version:7"
+      end
+
+      it "is Corrupt for data that is not encrypted" do
+        File.write(file_name, "Not encrypted data\n" * 10)
+
+        error = assert_raises(OpenSSL::Cipher::CipherError) { IOStreams::SymmetricEncryption::Reader.file(file_name, &:read) }
+        assert_kind_of IOStreams::Errors::Corrupt, error
+      end
+    end
+
     describe ".file" do
       it "reads an encrypted file" do
         result = IOStreams::SymmetricEncryption::Reader.file(file_name, &:read)
@@ -48,6 +84,35 @@ class SymmetricEncryptionReaderTest < Minitest::Test
         result = IOStreams::SymmetricEncryption::Reader.open(file_name, &:read)
 
         assert_equal decrypted, result
+      end
+    end
+
+    describe "the :stream mode" do
+      # Like `Zlib::GzipReader`, which returned the data of a compressed file in the default external encoding.
+      def read_with_external_encoding(data, encoding, **options)
+        original = Encoding.default_external
+        Encoding.default_external = encoding
+        output = StringIO.new(+"".b)
+        IOStreams.stream(output).stream(:enc, **options).write(data)
+        IOStreams.stream(StringIO.new(output.string)).stream(:enc).reader { |io| [io.read(3), io.read] }
+      ensure
+        Encoding.default_external = original
+      end
+
+      it "returns bytes from compressed data, with or without a length, whatever the default external encoding" do
+        start, rest = read_with_external_encoding("José\n", "Windows-1252")
+
+        assert_equal "Jos".b, start
+        assert_equal Encoding::BINARY, start.encoding
+        assert_equal "\xC3\xA9\n".b, rest
+        assert_equal Encoding::BINARY, rest.encoding
+      end
+
+      it "returns bytes from data that is not compressed" do
+        start, rest = read_with_external_encoding("José\n", "Windows-1252", compress: false)
+
+        assert_equal [Encoding::BINARY, Encoding::BINARY], [start.encoding, rest.encoding]
+        assert_equal "José\n".b, start + rest
       end
     end
 

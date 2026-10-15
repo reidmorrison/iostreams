@@ -10,14 +10,22 @@ module IOStreams
           :typed
         end
 
-        def parse(row)
-          raise(IOStreams::Errors::TypeMismatch, "Format is :hash. Invalid input: #{row.class.name}") unless row.is_a?(::Hash)
-
-          row
+        # Returns [true] each row is a Hash, whose keys name its values.
+        def self.keyed?
+          true
         end
 
-        def render(row, header)
-          header.to_hash(row)
+        # Returns [Hash] the record supplied, or the row supplied, an Array that is already parsed, as it is, see
+        # `IOStreams::Tabular#record_parse`.
+        def parse(row)
+          return row if row.is_a?(::Hash) || row.is_a?(::Array)
+
+          raise(IOStreams::Errors::TypeMismatch, "Format is :hash. Invalid input: #{row.class.name}")
+        end
+
+        # Returns [Hash] the record, by the names of its columns, as it is.
+        def render(row)
+          row
         end
 
         def requires_header?

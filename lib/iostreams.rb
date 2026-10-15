@@ -3,7 +3,11 @@
 require "io_streams/version"
 # @formatter:off
 module IOStreams
+  autoload :AbortableOutput,     "io_streams/abortable_output"
+  autoload :BlockReader,         "io_streams/block_reader"
   autoload :Builder,             "io_streams/builder"
+  autoload :ChunkReader,         "io_streams/chunk_reader"
+  autoload :Deprecation,         "io_streams/deprecation"
   autoload :Errors,              "io_streams/errors"
   autoload :Path,                "io_streams/path"
   autoload :Reader,              "io_streams/reader"
@@ -12,6 +16,7 @@ module IOStreams
   autoload :StreamFormat,        "io_streams/stream_format"
   autoload :Tabular,             "io_streams/tabular"
   autoload :Utils,               "io_streams/utils"
+  autoload :Writable,            "io_streams/writable"
   autoload :Writer,              "io_streams/writer"
 
   # Formats registered with `IOStreams.register_extension`. Each one autoloads its own reader and writer.
@@ -28,7 +33,6 @@ module IOStreams
   autoload :Parquet,             "io_streams/parquet"
 
   module Paths
-    autoload :ChunkReader, "io_streams/paths/chunk_reader"
     autoload :File,        "io_streams/paths/file"
     autoload :HTTP,        "io_streams/paths/http"
     autoload :Matcher,     "io_streams/paths/matcher"

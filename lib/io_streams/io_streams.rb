@@ -1,51 +1,33 @@
 # frozen_string_literal: true
 
+require "fileutils"
+require "tmpdir"
 require "uri"
 
-# Streaming library for Ruby
+# Streaming library for Ruby, see `IOStreams.path` and `IOStreams.stream`.
 #
-# Stream types / extensions supported:
-#   .zip       Zip File                                   [ :zip ]
-#   .gz, .gzip GZip File                                  [ :gzip ]
-#   .enc       File Encrypted using symmetric encryption  [ :enc ]
-#   etc...
-#   other      All other extensions will be returned as:  []
-#
-# When a file is encrypted, it may also be compressed:
-#   .zip.enc  [ :zip, :enc ]
-#   .gz.enc   [ :gz,  :enc ]
+# The streams of a file are taken from the extensions at the end of its name that are registered, see
+# `IOStreams.register_extension`, so `data.csv.gz.pgp` is decrypted with PGP, then decompressed with gzip, and its
+# rows are read as CSV:
+#   IOStreams.path("data.csv.gz.pgp").pipeline
+#   # => {gz: {}, pgp: {}}
 module IOStreams
-  # Returns [Path] instance for the supplied complete path with optional scheme.
+  # Returns [IOStreams::Path] the path of the supplied elements, joined with `/`, of the class that its scheme names,
+  # such as `IOStreams::Paths::S3` for `s3://`, or a local file without a scheme. Each element can be a String, a
+  # `Pathname`, or anything else whose `to_s` is a name.
   #
   # Example:
   #    IOStreams.path("/usr", "local", "sample")
-  #    # => #<IOStreams::Paths::File:0x00007fec66e59b60 @path="/usr/local/sample">
+  #    # => #<IOStreams::Paths::File:/usr/local/sample pipeline={}>
   #
-  #    IOStreams.path("/usr", "local", "sample").to_s
-  #    # => "/usr/local/sample"
+  #    IOStreams.path("s3://mybucket/path/file.csv.gz")
+  #    # => #<IOStreams::Paths::S3:s3://mybucket/path/file.csv.gz pipeline={gz: {}}>
   #
-  #    IOStreams.path("s3://mybucket/path/file.xls")
-  #    # => #<IOStreams::Paths::S3:0x00007fec66e3a288 @path="s3://mybucket/path/file.xls">
+  #    IOStreams.path("files", "file.xlsx").to_s
+  #    # => "files/file.xlsx"
   #
-  #    IOStreams.path("s3://mybucket/path/file.xls").to_s
-  #    # => "s3://mybucket/path/file.xls"
-  #
-  #    IOStreams.path("file.xls")
-  #    # => #<IOStreams::Paths::File:0x00007fec6be6aaf0 @path="file.xls">
-  #
-  #    IOStreams.path("files", "file.xls").to_s
-  #    # => "files/file.xls"
-  #
-  # For Files
-  # IOStreams.path('blah.zip').encoding('BINARY').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').encoding('UTF-8').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').encoding('UTF-8').each(:hash) { |hash| p hash }
-  # IOStreams.path('blah.zip').encoding('UTF-8').read
-  # IOStreams.path('blah.csv.zip').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').option(:pgp, passphrase: 'receiver_passphrase').read
-  # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
-  # IOStreams.path('blah.zip').stream(:zip).encoding('BINARY').read
-  #
+  #    IOStreams.path("data.csv.zip").each(:hash) { |record| p record }
+  #    IOStreams.path("tempfile2527").stream(:zip).encoding("BINARY").read
   #
   # A path supplied on its own is copied, keeping its streams and options, so that changing the
   # returned path, for example with `#option`, does not change the path supplied.
@@ -81,14 +63,16 @@ module IOStreams
   # Returns [Hash<Symbol:Hash>] the options of each stream, as supplied to `IOStreams::Path#stream`, with the value of
   # each sensitive option, such as a PGP passphrase, replaced with "[FILTERED]", so that they can be displayed.
   #
-  # Each stream's format decides which of its options are sensitive, see `IOStreams::StreamFormat#redact_options`.
-  # Every value of a stream whose format is not registered is replaced.
+  # Each stream's format decides which of its options are sensitive, see `IOStreams::StreamFormat#redact_options`, as
+  # it does for `#inspect`, including the format of the rows of a tabular format, such as `parquet:`, whose options
+  # `IOStreams::Path#option` also sets, see `IOStreams::Stream.stream_format`. Every value of a stream whose format is
+  # not registered is replaced.
   #
   # Example:
   #   IOStreams.redact_stream_options(pgp: {passphrase: "secret", recipient: "a@b.org"})
   #   # => {pgp: {passphrase: "[FILTERED]", recipient: "a@b.org"}}
   def self.redact_stream_options(streams)
-    Builder.redact_streams(streams)
+    Utils.redact_streams(streams) { |name| Stream.stream_format(name) }
   end
 
   # Returns [Class] the path class of the scheme of the supplied path or url, such as `IOStreams::Paths::SFTP`.
@@ -97,25 +81,27 @@ module IOStreams
   end
   private_class_method :path_class
 
-  # For an existing IO Stream
-  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').read
-  # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').each(:line){ ... }
-  # IOStreams.stream(io).file_name('blah.csv.zip').each(:line) { ... }
-  # IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
+  # Returns [IOStreams::Stream] a stream that reads or writes the supplied IO, which it never closes, since it
+  # belongs to the caller:
+  #   IOStreams.stream(io).file_name("blah.csv.zip").each(:line) { |line| p line }
+  #   IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
   #
   # A stream supplied is copied, keeping its streams and options, so that changing the
   # returned stream does not change the stream supplied.
+  #
+  # Raises ArgumentError for a String or a Pathname, which name a file: see `IOStreams.path`.
   def self.stream(io_stream)
     return io_stream.dup if io_stream.is_a?(Stream)
 
     Stream.new(io_stream)
   end
 
-  # For processing by either a file name or an open IO stream.
+  # Returns [IOStreams::Stream] the path of a file name, such as a String or a Pathname, see `IOStreams.path`, or the
+  # stream of an IO, see `IOStreams.stream`.
   def self.new(file_name_or_io)
     return file_name_or_io.dup if file_name_or_io.is_a?(Stream)
 
-    file_name_or_io.is_a?(String) ? path(file_name_or_io) : stream(file_name_or_io)
+    Utils.file_name?(file_name_or_io) ? path(file_name_or_io) : stream(file_name_or_io)
   end
 
   # Join the supplied path elements to a root path.
@@ -134,16 +120,10 @@ module IOStreams
   #    IOStreams.add_root(:default, "tmp/export")
   #    IOStreams.add_root(:ftp, "tmp/ftp")
   #
-  #    IOStreams.join('file.xls')
-  #    # => #<IOStreams::Paths::File:0x00007fec70391bd8 @path="tmp/export/file.xls">
-  #
-  #    IOStreams.join('file.xls').to_s
+  #    IOStreams.join("file.xls").to_s
   #    # => "tmp/export/file.xls"
   #
-  #    IOStreams.join('sample', 'file.xls', root: :ftp)
-  #    # => #<IOStreams::Paths::File:0x00007fec6ee329b8 @path="tmp/ftp/sample/file.xls">
-  #
-  #    IOStreams.join('sample', 'file.xls', root: :ftp).to_s
+  #    IOStreams.join("sample", "file.xls", root: :ftp).to_s
   #    # => "tmp/ftp/sample/file.xls"
   #
   # Notes:
@@ -153,8 +133,8 @@ module IOStreams
     root(root).join(*elements)
   end
 
-  # Returns a path to a temporary file.
-  # Temporary file is deleted upon block completion if present.
+  # Yields [IOStreams::Paths::File] the path of a temporary file, which is deleted when the block returns, if it
+  # exists. Returns the result of the block.
   #
   # Parameters:
   #   basename: [String]
@@ -269,10 +249,14 @@ module IOStreams
   # "*"         "dave/.profile"  true
   def self.each_child(pattern, case_sensitive: false, directories: false, hidden: false, &)
     # The directory before the first element with pattern characters is the path, such as `s3://bucket/data`
-    # for `s3://bucket/data/*.csv`, which lists the pattern within it.
-    matcher = Paths::Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
-    path(matcher.directory).
-      each_child(matcher.pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &)
+    # for `s3://bucket/data/*.csv`, which lists the pattern within it. Only the path of a url holds the pattern, so that
+    # the `[` and `]` of an IPv6 host, a password or a query is not part of it, and the pattern is decoded like the rest
+    # of the path, see `IOStreams::Utils::URI.split`.
+    authority, name, query = Utils::URI.split(pattern)
+    matcher   = Paths::Matcher.new(name, case_sensitive: case_sensitive, hidden: hidden)
+    directory = path("#{authority}#{matcher.directory}#{query}")
+    pattern   = authority.empty? ? matcher.pattern : Utils::URI.decode_path(matcher.pattern)
+    directory.each_child(pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &)
   end
 
   # Returns [IOStreams::Path] a copy of the default root path, or the named root path,
@@ -287,9 +271,11 @@ module IOStreams
   # Returns [IOStreams::Path] the root path, which is frozen so that it cannot be changed for the whole process.
   # `IOStreams.root` and `IOStreams.join` return copies of it that can be changed.
   def self.add_root(root, *elements, **args)
-    raise(ArgumentError, "Invalid characters in root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
+    raise(ArgumentError, "Invalid characters in root name #{root.inspect}") unless root.to_s.match?(/\A\w+\z/)
 
-    @root_paths[root.to_sym] = path(*elements, **args).freeze
+    path = path(*elements, **args).freeze
+    @registry_mutex.synchronize { @root_paths = @root_paths.merge(root.to_sym => path).freeze }
+    path
   end
 
   # Returns [Hash<Symbol, IOStreams::Path>] a copy of each root path, by name.
@@ -450,6 +436,9 @@ module IOStreams
   #
   # Raises ArgumentError for a reserved keyword, such as `:encode` or `:none`.
   #
+  # The extension matches file names whatever its case, as the extensions of a file name are compared, so
+  # registering `:XZ` registers `:xz`.
+  #
   # Example:
   #   register_extension(:xz, MyXz)
   #
@@ -464,31 +453,39 @@ module IOStreams
       else
         raise(ArgumentError, "wrong number of arguments (given #{format_or_classes.size + 1}, expected 2..3)")
       end
-    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
-    if Builder.reserved_keyword?(extension&.to_sym)
+    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s.match?(/\A\w+\z/)
+
+    name = extension.to_s.downcase.to_sym unless extension.nil?
+    if Builder.reserved_keyword?(name)
       raise(ArgumentError, "Cannot register the extension #{extension.inspect}, which is a reserved keyword")
     end
 
-    missing = FORMAT_METHODS.reject { |name| format.respond_to?(name) }
+    missing = StreamFormat.missing_methods(format)
     unless missing.empty?
       raise(ArgumentError,
             "Invalid format for extension #{extension.inspect}: #{format.inspect} does not respond to " \
             "#{missing.join(', ')}. See IOStreams.register_extension.")
     end
 
-    @extensions[extension&.to_sym] = format
+    @registry_mutex.synchronize { @extensions = @extensions.merge(name => format).freeze }
+    format
   end
 
   # De-Register a file extension
   #
-  # Returns [Symbol] the extension removed, or nil if the extension was not registered
+  # Returns the format that was registered for the extension, or nil if the extension was not registered
   #
   # Example:
   #   deregister_extension(:xls)
   def self.deregister_extension(extension)
-    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
+    raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s.match?(/\A\w+\z/)
 
-    @extensions.delete(extension.to_sym)
+    name = extension.to_s.downcase.to_sym
+    @registry_mutex.synchronize do
+      removed     = @extensions[name]
+      @extensions = @extensions.except(name).freeze
+      removed
+    end
   end
 
   # Returns [Hash<Symbol, Object>] the format registered for each file extension, see `register_extension`.
@@ -502,25 +499,23 @@ module IOStreams
   # Example:
   #   register_scheme(:gcs, MyGoogleCloudStoragePath)
   def self.register_scheme(scheme, klass)
-    raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s =~ /\A\w+\Z/
+    raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s.match?(/\A\w+\z/)
 
-    @schemes[scheme&.to_sym] = klass
+    name = scheme.to_s.downcase.to_sym unless scheme.nil?
+    @registry_mutex.synchronize { @schemes = @schemes.merge(name => klass).freeze }
+    klass
   end
 
+  # Returns [Hash<Symbol, Class>] the path class registered for each url scheme, see `register_scheme`.
   def self.schemes
     @schemes.dup
   end
 
+  # Returns [Class] the path class registered for the url scheme, such as `IOStreams::Paths::S3` for `:s3`, or for nil,
+  # a name without a scheme. Raises ArgumentError for a scheme that is not registered.
   def self.scheme(scheme_name)
     @schemes[scheme_name&.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
   end
-
-  # The methods that a format registered with `register_extension` must respond to.
-  FORMAT_METHODS = %i[
-    reader_class writer_class compressed? encrypted?
-    option_names valid_option_names validate_options open_stream redact_options
-  ].freeze
-  private_constant :FORMAT_METHODS
 
   # A format registered with `register_extension` by its reader and writer classes,
   # whose data is neither compressed nor encrypted.
@@ -536,16 +531,17 @@ module IOStreams
     end
   end
 
-  # Hold root paths
-  @root_paths = {}
+  # The registries of root paths, of the formats of file name extensions, and of the path classes of url schemes. Each
+  # is replaced rather than modified, under the lock, so that it can be read, and iterated, without the lock, while
+  # another thread registers one, such as at boot.
+  @registry_mutex = Mutex.new
+  @root_paths     = {}.freeze
+  @extensions     = {}.freeze
+  @schemes        = {}.freeze
 
   # Hold allowed paths. Replaced rather than modified, so that it can be read without a lock.
   @allowed_paths       = [].freeze
   @allowed_paths_mutex = Mutex.new
-
-  # A registry to hold formats for processing files during upload or download
-  @extensions = {}
-  @schemes    = {}
 
   # Register File extensions
   register_extension(:bz2, IOStreams::Bzip2)

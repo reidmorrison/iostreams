@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "csv"
 
 class EncodeReaderTest < Minitest::Test
   # Wraps an IO whose `#read` only accepts a single optional argument (arity -1).
@@ -178,6 +179,33 @@ class EncodeReaderTest < Minitest::Test
         end
       end
 
+      describe "invalid data" do
+        it "raises an error that answers what Encoding::UndefinedConversionError answers" do
+          exc = assert_raises(Encoding::UndefinedConversionError) do
+            IOStreams::Encode::Reader.stream(StringIO.new("ab\xE9cd".b), encoding: "UTF-8", &:read)
+          end
+
+          assert_instance_of IOStreams::Errors::InvalidEncoding, exc
+          assert_equal "\xE9".b, exc.error_char
+          assert_equal Encoding::BINARY, exc.source_encoding
+          assert_equal Encoding::UTF_8, exc.destination_encoding
+          assert_equal "ASCII-8BIT", exc.source_encoding_name
+          assert_equal "UTF-8", exc.destination_encoding_name
+        end
+
+        it "keeps a character of another encoding that is split across reads after an invalid byte, with replace" do
+          data   = "\xFF".b + "ab".b + "\u65E5cd".encode("Shift_JIS").b
+          chunks = []
+          IOStreams::Encode::Reader.stream(StringIO.new(data), encoding: "Shift_JIS:UTF-8", replace: "?") do |io|
+            while (chunk = io.read(4))
+              chunks << chunk
+            end
+          end
+
+          assert_equal "?ab\u65E5cd", chunks.join
+        end
+      end
+
       describe "valid multi-byte characters" do
         let(:text) { "Jos\u00e9, M\u00fcnchen \u{1F600}" }
 
@@ -293,7 +321,7 @@ class EncodeReaderTest < Minitest::Test
             file.write("#{'x' * 65_534}\n#{"\u00e9,Jos\u00e9\n" * 3}".b)
             file.close
             lines = []
-            IOStreams.path(file.path).option(:encode, encoding: "UTF-8").each(:line) { |line| lines << line }
+            IOStreams.path(file.path).encoding("UTF-8").each(:line) { |line| lines << line }
 
             assert_equal ["x" * 65_534, "\u00e9,Jos\u00e9", "\u00e9,Jos\u00e9", "\u00e9,Jos\u00e9"], lines
           end
@@ -381,7 +409,7 @@ class EncodeReaderTest < Minitest::Test
             file.write("name\nJos\xE9\n".b)
             file.close
             lines = []
-            IOStreams.path(file.path).option(:encode, encoding: "BINARY").each(:line) { |line| lines << line }
+            IOStreams.path(file.path).encoding("BINARY").each(:line) { |line| lines << line }
 
             assert_equal ["name", "Jos\xE9".b], lines
             assert_equal Encoding::BINARY, lines.last.encoding
@@ -392,8 +420,8 @@ class EncodeReaderTest < Minitest::Test
           Dir.mktmpdir do |dir|
             IOStreams.path(dir, "data.txt").write(latin1)
             IOStreams.path(dir, "data.txt.gz").write(latin1)
-            plain = IOStreams.path(dir, "data.txt").option(:encode, encoding: "Windows-1252").read
-            gzip  = IOStreams.path(dir, "data.txt.gz").option(:encode, encoding: "Windows-1252").read
+            plain = IOStreams.path(dir, "data.txt").encoding("Windows-1252").read
+            gzip  = IOStreams.path(dir, "data.txt.gz").encoding("Windows-1252").read
 
             assert_equal plain, gzip
             assert_equal "Jos\u00e9,M\u00e1laga", gzip.encode("UTF-8")
@@ -474,7 +502,7 @@ class EncodeReaderTest < Minitest::Test
 
         it "reads lines in the internal encoding" do
           lines = []
-          IOStreams.stream(StringIO.new(windows1252)).stream(:encode, encoding: "Windows-1252:UTF-8").each(:line) { |line| lines << line }
+          IOStreams.stream(StringIO.new(windows1252)).encoding("Windows-1252:UTF-8").each(:line) { |line| lines << line }
 
           assert_equal %w[café naïve], lines
           assert_equal [Encoding::UTF_8], lines.map(&:encoding).uniq
@@ -494,6 +522,149 @@ class EncodeReaderTest < Minitest::Test
 
         it "raises ArgumentError for an unknown encoding" do
           assert_raises(ArgumentError) { IOStreams::Encode::Reader.stream(StringIO.new(windows1252), encoding: "Nope:UTF-8", &:read) }
+        end
+      end
+    end
+
+    # The stream that `#reader` supplies with an encoding reads like an IO that reads text in an encoding, such as
+    # `File.open(name, "r:Windows-1252:UTF-8")`, so that code that reads lines from it, such as `CSV.new(io)`, works
+    # whether or not an encoding is set, as it does with any other stream.
+    describe "reading like an IO that converts text" do
+      # Windows-1252 text of more than one block of the data that the encode stream reads at a time, in which every
+      # character that is not ASCII is two bytes once it is converted to UTF-8.
+      let(:windows1252) { Array.new(4000) { |i| "#{i},caf\xE9 na\xEFve\r\n".b }.join }
+
+      # Returns what the block returns for a File that reads the data in the encoding, once it has checked that the
+      # block returns the same, with the same encodings, for the stream that `#reader` supplies with the encoding.
+      def read_like_io(data, encoding, &block)
+        expected = Tempfile.create("encode_reader") do |file|
+          file.binmode
+          file.write(data)
+          file.flush
+          File.open(file.path, "rb:#{encoding}", &block)
+        end
+
+        assert_equal with_encodings(expected), with_encodings(IOStreams.stream(StringIO.new(data)).encoding(encoding).reader(&block))
+        expected
+      end
+
+      # Returns [Object] the result, with each String in it as its value and its encoding, so that they compare by both.
+      def with_encodings(result)
+        case result
+        when String
+          [result, result.encoding]
+        when Array
+          result.map { |item| with_encodings(item) }
+        else
+          result
+        end
+      end
+
+      it "reads lines in the internal encoding, like an IO that converts text" do
+        results = read_like_io(windows1252, "Windows-1252:UTF-8") do |io|
+          [
+            io.gets, io.gets(chomp: true), io.gets(","), io.gets(4), io.readline, io.gets(nil, 5), io.each_line.count,
+            io.gets, io.eof?
+          ]
+        end
+
+        assert_equal ["0,caf\u00e9 na\u00efve\r\n", "1,caf\u00e9 na\u00efve", "2,", "caf\u00e9", " na\u00efve\r\n", "3,caf", 3997, nil, true],
+                     results
+        assert_equal Encoding::UTF_8, results.first.encoding
+      end
+
+      it "reads the rest of the lines like IO#readlines" do
+        results = read_like_io(windows1252, "Windows-1252:UTF-8") { |io| [io.gets, io.readlines(chomp: true), io.readlines] }
+
+        assert_equal Array.new(3999) { |i| "#{i + 1},caf\u00e9 na\u00efve" }, results[1]
+        assert_empty results.last
+      end
+
+      it "reads lines of the text that it checks, like an IO that reads text in an encoding" do
+        # Every line splits a character between the blocks that the encode stream reads, and between their halves.
+        data    = "\u00e9\n#{'x' * 65_533}\u00e9\u00e9\n#{"\u00e9t\u00e9\n" * 3}".b
+        results = read_like_io(data, "UTF-8") { |io| [io.gets(1), io.gets, io.gets(65_534), io.readlines, io.gets] }
+
+        assert_equal ["\u00e9", "\n", "#{'x' * 65_533}\u00e9", ["\u00e9\n", *(["\u00e9t\u00e9\n"] * 3)], nil], results
+      end
+
+      it "reads lines in an encoding that is not ASCII compatible, like an IO that converts text" do
+        results = read_like_io("ab\ncd\nef", "UTF-8:UTF-16LE") { |io| [io.gets, io.gets(1), io.gets(chomp: true), io.read] }
+
+        assert_equal %W[ab\n c d ef].map { |line| line.encode("UTF-16LE") }, results
+      end
+
+      it "is read by CSV, as an IO that converts text is" do
+        rows = IOStreams.stream(StringIO.new(windows1252)).encoding("Windows-1252:UTF-8").reader { |io| CSV.new(io).to_a }
+
+        assert_equal 4000, rows.size
+        assert_equal ["3999", "caf\u00e9 na\u00efve"], rows.last
+      end
+
+      it "reads upto the length in whole characters, and the first character when it is longer" do
+        parts = IOStreams.stream(StringIO.new("\xE9\xE9ab\xE9c".b)).encoding("Windows-1252:UTF-8").reader do |io|
+          [io.read(1), io.read(3), io.read(2), io.read(3), io.read(3)]
+        end
+
+        assert_equal ["\u00e9", "\u00e9a", "b", "\u00e9c", nil], parts
+      end
+
+      it "reads part of the text that has already been converted, in whole characters" do
+        IOStreams.stream(StringIO.new("\xE9\xE9a".b)).encoding("Windows-1252:UTF-8").reader do |io|
+          assert_equal "\u00e9", io.readpartial(3)
+          assert_equal Encoding::UTF_8, io.readpartial(1).encoding
+          assert_equal "a", io.readpartial(3)
+          assert_raises(EOFError) { io.readpartial(3) }
+        end
+      end
+
+      it "removes the byte order mark from the start of the first line" do
+        line = IOStreams.stream(StringIO.new("\xEF\xBB\xBFname\nJack\n".b)).encoding("UTF-8").reader(&:gets)
+
+        assert_equal "name\n", line
+      end
+
+      it "cleans the lines" do
+        lines = IOStreams.stream(StringIO.new("a\abc\nd\xE9f\n".b)).encoding("UTF-8", cleaner: :printable, replace: "").reader(&:readlines)
+
+        assert_equal %W[abc\n df\n], lines
+      end
+
+      it "returns the lines before data that is not valid, and raises for the line that holds it" do
+        IOStreams.stream(StringIO.new("first\nsecond\nthi\xFFrd\nfourth\n".b)).encoding("UTF-8").reader do |io|
+          assert_equal "first\n", io.gets
+          assert_equal "second\n", io.gets
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) { io.gets }
+          assert_equal 16, error.byte_offset
+          assert_raises(IOStreams::Errors::InvalidEncoding) { io.gets }
+        end
+      end
+
+      it "reads the data in blocks of the length of a read, and otherwise in blocks of 64KB" do
+        sizes = []
+        input = StringIO.new("x" * 70_000)
+        input.define_singleton_method(:read) do |*args|
+          sizes << args.first
+          super(*args)
+        end
+        IOStreams.stream(input).encoding("UTF-8").reader do |io|
+          assert_equal "x" * 10, io.read(10)
+          assert_equal 69_990, io.gets.bytesize
+        end
+
+        assert_equal [10, 65_536, 65_536, 65_536], sizes
+      end
+
+      it "raises IOError once the file that it reads is closed, rather than read the text already converted" do
+        Tempfile.create(%w[iostreams .csv]) do |file|
+          file.write("name\nJack\n")
+          file.close
+          io = IOStreams.path(file.path).encoding("UTF-8").reader do |stream|
+            assert_equal "name\n", stream.gets
+            stream
+          end
+
+          assert_raises(IOError) { io.gets }
         end
       end
     end

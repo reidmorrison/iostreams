@@ -10,26 +10,47 @@ module IOStreams
       nil
     end
 
-    # Returns [Array<Symbol>] the names of the options that are valid when reading the stream,
-    # or [nil] to accept the options of both the reader and the writer of its format,
-    # see `IOStreams::StreamFormat#valid_option_names`.
-    #
-    # `IOStreams::Builder` rejects any other option before the reader is opened, naming the direction
-    # an option belongs to when it is only valid for the other direction.
+    # Returns [Array<Symbol>] the options of the writer of its format that this reader does not support, so that
+    # `IOStreams::StreamFormat#validate_options` raises for them when reading, with a message that names the
+    # direction that they belong to, rather than ignoring them.
     #
     # One option hash is shared by the reader and the writer for a stream, so that the same path can be
     # written and then read. So by default the writer's options are also valid when reading, and are
-    # ignored, since only `option_names` are passed to the reader. Override this to exclude an option of
-    # the writer that a caller could expect to have an effect when reading, which must raise until the
-    # reader supports it.
-    def self.valid_option_names
-      nil
+    # ignored, since only `option_names` are passed to the reader. List an option of the writer here when a
+    # caller could expect it to have an effect when reading, such as the name of the worksheet to write, which
+    # must raise until the reader supports it.
+    def self.unsupported_option_names
+      []
     end
 
     # Returns [Array<Symbol>] the names of the options whose values must not be displayed, such as a passphrase,
     # so that `#inspect` on a path or stream does not display them, see `IOStreams::StreamFormat#redact_options`.
     def self.sensitive_option_names
       []
+    end
+
+    # Returns [Module] the kind of failure, such as `IOStreams::Errors::Corrupt`, that an exception raised by the gem
+    # that reads this format means, or nil when it is none of them, see `IOStreams::Errors::StreamError`.
+    #
+    # Each reader returns the kinds of failure of its own gem, and makes each call of its gem within `.tag_failure`, so
+    # that the caller rescues the kind of failure, rather than the exception of a gem, which can be replaced by another.
+    # A reader registered with `IOStreams.register_extension` can do the same.
+    def self.failure_kind(_exception)
+      nil
+    end
+
+    # Calls the block, which calls the gem that reads this format, and tags an exception that it raises with the kind of
+    # failure that it means, see `.failure_kind`, and the display name of the file that is read, when it is known.
+    #
+    # Only call the gem within the block, never a block that the caller supplied, since an exception raised by the
+    # caller's block, such as a `Zlib::GzipFile::Error` from another gzip file, is not a failure of this stream.
+    def self.tag_failure(display_name = nil)
+      yield
+    rescue StandardError => e
+      kind = failure_kind(e)
+      raise unless kind
+
+      raise(kind.tag(e, display_name))
     end
 
     # When a Reader does not support streams, it reads the file of the stream when the stream is already
@@ -65,13 +86,13 @@ module IOStreams
 
       # Raises IOError when the file was not opened for reading, without reading from it.
       input_stream.read(0)
-      ::File.open(file_name, "rb") { |file| file_name if ::File.identical?(file, input_stream) }
+      ::File.open(file_name, "rb") { |file| file_name if ::File.identical?(file, Utils.local_file(input_stream)) }
     rescue IOError, SystemCallError
       nil
     end
     private_class_method :input_file_name
 
-    # When a Writer supports streams, also allow it to simply support a file
+    # When a Reader supports streams, also allow it to simply support a file
     def self.file(file_name, **args, &block)
       ::File.open(file_name, "rb") { |file| stream(file, **args, &block) }
     end

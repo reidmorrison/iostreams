@@ -15,12 +15,14 @@ Gem::Specification.new do |s|
   s.homepage              = "https://iostreams.reidmorrison.com"
   s.summary               = "Streaming I/O for Ruby: compression, encryption, file format, and storage location " \
                             "transparent to your code."
-  s.description           = "IOStreams makes file formats, compression (gzip, zip, bzip2, zstd), " \
-                            "encryption (PGP, symmetric), and storage location (local file, S3, SFTP, HTTP) " \
-                            "transparent to your application code. " \
+  s.description           = "IOStreams makes file formats (CSV, JSON, Excel, fixed width, Parquet), " \
+                            "compression (gzip, zip, bzip2, zstd), encryption (PGP, symmetric), and storage location " \
+                            "(local file, S3, SFTP, HTTP) transparent to your application code. " \
                             "Files of any size are read and written one block at a time, without loading the entire " \
                             "file into memory."
-  s.files                 = Dir["lib/**/*", "bin/*", "docs/*.md", "LICENSE", "Rakefile", "README.md"]
+  # The documentation pages, but not the notes for the agents that maintain them (docs/CLAUDE.md).
+  s.files                 = Dir["lib/**/*.rb", "docs/*.md", "CHANGELOG.md", "LICENSE", "Rakefile", "README.md"] -
+                            ["docs/CLAUDE.md"]
   s.license               = "Apache-2.0"
   s.metadata              = {
     "bug_tracker_uri"       => "https://github.com/reidmorrison/iostreams/issues",
@@ -30,7 +32,7 @@ Gem::Specification.new do |s|
     "source_code_uri"       => "https://github.com/reidmorrison/iostreams/tree/v#{IOStreams::VERSION}",
     "rubygems_mfa_required" => "true"
   }
-  s.required_ruby_version = ">= 3.2"
+  s.required_ruby_version = ">= 3.3"
 
   # CSV is the default tabular format. It was a Ruby default gem through 3.3, but became a
   # bundled gem in Ruby 3.4, so it must be declared to remain loadable under Bundler.

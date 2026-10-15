@@ -53,15 +53,60 @@ class PgpTest < Minitest::Test
       Open3.stub(:capture3, [out, err, Struct.new(:success?).new(success)], &block)
     end
 
+    describe "module methods" do
+      it "are the public ones, and not the helpers that its reader and writer use" do
+        # Those that were public in v2.1, apart from `version_check`, which did nothing, and those of a format.
+        public_methods = %i[executable executable= gpg_command generate_key delete_keys key? list_keys key_info export
+                            import import_and_trust import_and_trust_recipient set_trust pgp_version parse_list_output
+                            reject_newlines! delete_public_or_private_keys delete_public_or_private_keys_v1
+                            reader_class writer_class compressed? encrypted?]
+
+        # JRuby also lists the methods that were undefined, such as a stub that minitest has removed.
+        defined = IOStreams::Pgp.singleton_methods(false).select { |name| IOStreams::Pgp.respond_to?(name) }
+
+        assert_equal public_methods.sort, defined.sort
+      end
+    end
+
     describe ".pgp_version" do
       it "returns pgp version" do
         assert_match(/\A\d+\.\d+\.\d+\z/, IOStreams::Pgp.pgp_version)
+      end
+
+      it "is the version of the executable that is set" do
+        installed = IOStreams::Pgp.pgp_version
+        Dir.mktmpdir do |dir|
+          executable = File.join(dir, "gpg")
+          File.write(executable, "#!/bin/sh\necho 'gpg (GnuPG) 9.8.7'\n")
+          File.chmod(0o700, executable)
+          original = IOStreams::Pgp.executable
+          begin
+            IOStreams::Pgp.executable = executable
+
+            assert_equal "9.8.7", IOStreams::Pgp.pgp_version
+          ensure
+            IOStreams::Pgp.executable = original
+          end
+        end
+
+        assert_equal installed, IOStreams::Pgp.pgp_version
       end
 
       describe "from the output of gpg" do
         before { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
 
         after { IOStreams::Pgp.instance_variable_set(:@pgp_version, nil) }
+
+        it "raises Pgp::Failure when the output has no version" do
+          ["", "gpg (GnuPG)\n"].each do |output|
+            IOStreams::Pgp.instance_variable_set(:@pgp_version, nil)
+            error = assert_raises(IOStreams::Pgp::Failure) do
+              Open3.stub(:capture3, [output, "", Struct.new(:success?).new(true)]) { IOStreams::Pgp.pgp_version }
+            end
+
+            assert_includes error.message, "in its --version output"
+          end
+        end
 
         it "returns the version on its first line" do
           {
@@ -85,6 +130,56 @@ class PgpTest < Minitest::Test
       end
     end
 
+    describe "without gpg" do
+      let(:missing) { "iostreams-missing-gpg" }
+
+      # Runs the block with an executable that cannot be run. With a version, as if it had already been found, so that
+      # a call fails where it runs gpg, rather than where it finds the version of gpg.
+      def without_gpg(version = nil)
+        original                  = IOStreams::Pgp.executable
+        IOStreams::Pgp.executable = missing
+        IOStreams::Pgp.instance_variable_set(:@pgp_version, version) if version
+        yield
+      ensure
+        IOStreams::Pgp.executable = original
+      end
+
+      def assert_cannot_run(label, &block)
+        error = assert_raises(IOStreams::Pgp::Failure, label.to_s, &block)
+
+        assert_match(/\AGPG Failed to run the gpg executable "#{missing}": .+\. Install GnuPG, or set IOStreams::Pgp\.executable to the gpg executable\z/,
+                     error.message)
+        assert_kind_of SystemCallError, error.cause
+      end
+
+      it "raises Pgp::Failure for the version, naming the executable" do
+        IOStreams::Pgp.pgp_version
+
+        without_gpg { assert_cannot_run(:pgp_version) { IOStreams::Pgp.pgp_version } }
+      end
+
+      it "raises Pgp::Failure for every call that runs gpg, naming the executable" do
+        calls = {
+          generate_key:        -> { IOStreams::Pgp.generate_key(name: user_name, email: email, passphrase: nil, key_length: 1024) },
+          list_keys:           -> { IOStreams::Pgp.list_keys },
+          key?:                -> { IOStreams::Pgp.key?(email: email) },
+          key_info:            -> { IOStreams::Pgp.key_info(key: "KEY") },
+          export:              -> { IOStreams::Pgp.export(email: email) },
+          import:              -> { IOStreams::Pgp.import(key: "KEY") },
+          set_trust:           -> { IOStreams::Pgp.set_trust(email: email) },
+          set_trust_by_key_id: -> { IOStreams::Pgp.set_trust(key_id: "ABCDEF") },
+          delete_keys:         -> { IOStreams::Pgp.delete_keys(email: email) },
+          read:                -> { IOStreams.stream(StringIO.new("data")).stream(:pgp).read },
+          read_with_signer:    -> { IOStreams.stream(StringIO.new("data")).stream(:pgp, signer: email).read },
+          write:               -> { IOStreams.stream(StringIO.new(+"")).stream(:pgp, recipient: email).write("data") }
+        }
+        version = IOStreams::Pgp.pgp_version
+        without_gpg(version) do
+          calls.each_pair { |label, call| assert_cannot_run(label, &call) }
+        end
+      end
+    end
+
     describe "gpg capabilities" do
       # Pretends that the supplied version of gpg is installed.
       def with_pgp_version(version)
@@ -94,25 +189,25 @@ class PgpTest < Minitest::Test
         IOStreams::Pgp.instance_variable_set(:@pgp_version, nil)
       end
 
-      describe ".version_at_least?" do
+      describe "Gpg.version_at_least?" do
         it "compares versions by their numbers" do
           with_pgp_version("2.10.0") do
-            assert IOStreams::Pgp.version_at_least?("2.4")
-            assert IOStreams::Pgp.version_at_least?("2.10")
-            refute IOStreams::Pgp.version_at_least?("2.11")
+            assert IOStreams::Pgp::Gpg.version_at_least?("2.4")
+            assert IOStreams::Pgp::Gpg.version_at_least?("2.10")
+            refute IOStreams::Pgp::Gpg.version_at_least?("2.11")
           end
         end
 
         it "is false for any version when the version is not known" do
           with_pgp_version(nil) do
             IOStreams::Pgp.stub(:pgp_version, nil) do
-              refute IOStreams::Pgp.version_at_least?("1.0")
+              refute IOStreams::Pgp::Gpg.version_at_least?("1.0")
             end
           end
         end
       end
 
-      describe ".passphrase_args" do
+      describe "Gpg.passphrase_args" do
         {
           "2.0.30" => [],
           "2.2.40" => ["--pinentry-mode", "loopback"],
@@ -120,32 +215,32 @@ class PgpTest < Minitest::Test
           "2.10.0" => ["--pinentry-mode", "loopback", "--no-symkey-cache"]
         }.each_pair do |version, expected|
           it "are #{expected.inspect} for gpg #{version}" do
-            with_pgp_version(version) { assert_equal expected, IOStreams::Pgp.passphrase_args }
+            with_pgp_version(version) { assert_equal expected, IOStreams::Pgp::Gpg.passphrase_args }
           end
         end
       end
 
-      describe ".recipient_file?" do
+      describe "Gpg.recipient_file?" do
         it "is true from gpg 2.1.14" do
-          with_pgp_version("2.1.14") { assert_predicate IOStreams::Pgp, :recipient_file? }
-          with_pgp_version("2.10.0") { assert_predicate IOStreams::Pgp, :recipient_file? }
+          with_pgp_version("2.1.14") { assert_predicate IOStreams::Pgp::Gpg, :recipient_file? }
+          with_pgp_version("2.10.0") { assert_predicate IOStreams::Pgp::Gpg, :recipient_file? }
         end
 
         it "is false before gpg 2.1.14" do
-          with_pgp_version("2.1.13") { refute_predicate IOStreams::Pgp, :recipient_file? }
+          with_pgp_version("2.1.13") { refute_predicate IOStreams::Pgp::Gpg, :recipient_file? }
         end
       end
 
-      describe ".fingerprint?" do
+      describe "Gpg.fingerprint?" do
         it "is true for the fingerprint of a v4 key, or a v5 or v6 key" do
-          assert IOStreams::Pgp.fingerprint?("18A0FC1C09C0D8AE34CE659257DC4AE323C7368C")
-          assert IOStreams::Pgp.fingerprint?("A" * 64)
+          assert IOStreams::Pgp::Gpg.fingerprint?("18A0FC1C09C0D8AE34CE659257DC4AE323C7368C")
+          assert IOStreams::Pgp::Gpg.fingerprint?("A" * 64)
         end
 
         it "is false for a short key id, an email address, or nil" do
-          refute IOStreams::Pgp.fingerprint?("7932AB23D7238F6B")
-          refute IOStreams::Pgp.fingerprint?("pgp_test@iostreams.net")
-          refute IOStreams::Pgp.fingerprint?(nil)
+          refute IOStreams::Pgp::Gpg.fingerprint?("7932AB23D7238F6B")
+          refute IOStreams::Pgp::Gpg.fingerprint?("pgp_test@iostreams.net")
+          refute IOStreams::Pgp::Gpg.fingerprint?(nil)
         end
       end
     end
@@ -205,7 +300,7 @@ class PgpTest < Minitest::Test
 
       describe "on GnuPG 2.1 or later" do
         before do
-          skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp.version_at_least?("2.1")
+          skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp::Gpg.version_at_least?("2.1")
         end
 
         it "generates an unprotected key when passphrase is nil" do
@@ -232,8 +327,12 @@ class PgpTest < Minitest::Test
           )
           key = IOStreams::Pgp.list_keys(email: email).first
 
-          # gpg lists the curve as the type of the key, such as "ed25519".
-          assert_equal "ed25519", "#{key[:key_type]}#{key[:key_length]}"
+          # gpg lists the curve as the type of the key, which gives the size of the curve.
+          assert_equal "ed25519", key[:key_type]
+          assert_equal 255, key[:key_length]
+          assert_equal email, key[:email]
+          assert_equal Date.today, key[:date]
+          refute key[:private]
         ensure
           IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if key_id
         end
@@ -337,6 +436,20 @@ class PgpTest < Minitest::Test
         end
         assert_includes error.message, "Either :email, or :key_id must be supplied"
         assert IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
+      end
+
+      it "raises for the methods that it calls when neither email nor key_id is supplied, rather than delete every key" do
+        generated_key_id
+
+        %i[delete_public_or_private_keys delete_public_or_private_keys_v1].each do |name|
+          [true, false].each do |private|
+            error = assert_raises(ArgumentError) { IOStreams::Pgp.public_send(name, private: private) }
+            assert_includes error.message, "Either :email, or :key_id must be supplied"
+          end
+        end
+
+        assert IOStreams::Pgp.key?(key_id: generated_key_id, private: true)
+        assert IOStreams::Pgp.key?(key_id: generated_key_id)
       end
 
       it "handles no keys" do
@@ -447,7 +560,7 @@ class PgpTest < Minitest::Test
 
         assert_match(/\A-----BEGIN PGP PRIVATE KEY BLOCK-----/, keys)
         # gpg shows the details of a private key from 2.2.8, see `IOStreams::Pgp.key_info`.
-        if IOStreams::Pgp.version_at_least?("2.2.8")
+        if IOStreams::Pgp::Gpg.version_at_least?("2.2.8")
           assert_equal([[email, true]], IOStreams::Pgp.key_info(key: keys).map { |key| [key[:email], key[:private]] })
         end
       end
@@ -482,9 +595,18 @@ class PgpTest < Minitest::Test
 
     describe ".list_keys on an empty keyring" do
       it "returns no keys" do
-        with_gpg_output("") do
-          assert_equal [], IOStreams::Pgp.list_keys
-        end
+        original = IOStreams::Pgp.executable
+        # At a short path, since the socket of gpg-agent is limited to about 104 bytes on macOS.
+        home     = File.expand_path("../tmp/gnupg-empty", __dir__)
+        FileUtils.rm_rf(home)
+        FileUtils.mkdir_p(home, mode: 0o700)
+        IOStreams::Pgp.executable = "#{original} --homedir #{Shellwords.escape(home)}"
+
+        assert_equal [], IOStreams::Pgp.list_keys
+      ensure
+        IOStreams::Pgp.executable = original
+        system("gpgconf", "--homedir", home, "--kill", "all", out: File::NULL, err: File::NULL)
+        FileUtils.rm_rf(home)
       end
     end
 
@@ -509,7 +631,7 @@ class PgpTest < Minitest::Test
         assert_equal user_name, key[:name]
         refute key[:private], key
         # gpg lists the trust of a key from v2.0.30.
-        assert_equal "ultimate", key[:trust] if IOStreams::Pgp.version_at_least?("2.0.30")
+        assert_equal "ultimate", key[:trust] if IOStreams::Pgp::Gpg.version_at_least?("2.0.30")
       end
 
       it "lists public keys for key_id" do
@@ -525,7 +647,7 @@ class PgpTest < Minitest::Test
         assert_equal user_name, key[:name]
         refute key[:private], key
         # gpg lists the trust of a key from v2.0.30.
-        assert_equal "ultimate", key[:trust] if IOStreams::Pgp.version_at_least?("2.0.30")
+        assert_equal "ultimate", key[:trust] if IOStreams::Pgp::Gpg.version_at_least?("2.0.30")
       end
 
       it "lists private keys for email" do
@@ -574,7 +696,7 @@ class PgpTest < Minitest::Test
       end
 
       it "extracts private key info" do
-        skip "Requires GnuPG 2.2.8 or later" unless IOStreams::Pgp.version_at_least?("2.2.8")
+        skip "Requires GnuPG 2.2.8 or later" unless IOStreams::Pgp::Gpg.version_at_least?("2.2.8")
 
         generated_key_id
         keys = IOStreams::Pgp.key_info(key: IOStreams::Pgp.export(email: email, private: true, passphrase: passphrase))
@@ -655,6 +777,31 @@ class PgpTest < Minitest::Test
 
         assert_equal [{key_id: "C16500E3", private: true, name: "Jack Jones", email: "jack@example.org"}], keys
       end
+
+      it "returns the keys that it imported, and not those that were already in the keyring" do
+        output = <<~OUTPUT
+          gpg: key 4BA9B160FCD751E8: "Alice <alice@example.org>" not changed
+          gpg: key A72CF45C8951C8A7: public key "Carol <carol@example.org>" imported
+          gpg: Total number processed: 2
+          gpg:               imported: 1
+          gpg:              unchanged: 1
+        OUTPUT
+
+        keys = with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") }
+
+        assert_equal [{key_id: "A72CF45C8951C8A7", private: false, name: "Carol", email: "carol@example.org"}], keys
+      end
+
+      it "returns no keys when every key was already in the keyring" do
+        output = <<~OUTPUT
+          gpg: key 4BA9B160FCD751E8: "Alice <alice@example.org>" not changed
+          gpg: key A72CF45C8951C8A7: "Carol <carol@example.org>" not changed
+          gpg: Total number processed: 2
+          gpg:              unchanged: 2
+        OUTPUT
+
+        assert_empty(with_gpg_output("", output) { IOStreams::Pgp.import(key: "KEY") })
+      end
     end
 
     describe ".import" do
@@ -703,6 +850,12 @@ class PgpTest < Minitest::Test
         it "imports private key" do
           assert_imported IOStreams::Pgp.import(key: @private_key), private: true
         end
+
+        it "imports a key in a bundle with a key that was already in the keyring" do
+          known = IOStreams::Pgp.export(email: "sender@example.org")
+
+          assert_imported IOStreams::Pgp.import(key: known + @public_key), private: false
+        end
       end
     end
 
@@ -745,7 +898,7 @@ class PgpTest < Minitest::Test
 
         assert_equal "6", ownertrust(IOStreams::Pgp.send(:fingerprint, email: email))
         # gpg lists the trust of a key from v2.0.30.
-        assert_equal "ultimate", key[:trust] if IOStreams::Pgp.version_at_least?("2.0.30")
+        assert_equal "ultimate", key[:trust] if IOStreams::Pgp::Gpg.version_at_least?("2.0.30")
       end
 
       it "imports the key and trusts it at the supplied level" do
@@ -755,7 +908,7 @@ class PgpTest < Minitest::Test
       end
 
       it "imports and trusts a private key" do
-        skip "Requires GnuPG 2.2.8 or later" unless IOStreams::Pgp.version_at_least?("2.2.8")
+        skip "Requires GnuPG 2.2.8 or later" unless IOStreams::Pgp::Gpg.version_at_least?("2.2.8")
 
         # The key that `before` generated was deleted.
         IOStreams::Pgp.generate_key(name: user_name, email: email, key_length: 1024, passphrase: passphrase)
@@ -867,6 +1020,11 @@ class PgpTest < Minitest::Test
         assert_nil IOStreams::Pgp.set_trust(email: "random@iostreams.net")
       end
 
+      it "raises when neither email nor key_id is supplied" do
+        error = assert_raises(ArgumentError) { IOStreams::Pgp.set_trust(level: 5) }
+        assert_includes error.message, "Either :email, or :key_id must be supplied"
+      end
+
       it "trusts an existing key" do
         fingerprint = IOStreams::Pgp.send(:fingerprint, email: email)
         IOStreams::Pgp.set_trust(email: email, level: 2)
@@ -901,15 +1059,15 @@ class PgpTest < Minitest::Test
       end
     end
 
-    describe ".primary_fingerprints" do
+    describe "Gpg.primary_fingerprints" do
       it "returns the fingerprint of the primary key, and not of its subkey" do
         generated_key_id
 
-        assert_equal [IOStreams::Pgp.send(:fingerprint, email: email)], IOStreams::Pgp.primary_fingerprints(email)
+        assert_equal [IOStreams::Pgp.send(:fingerprint, email: email)], IOStreams::Pgp::Gpg.primary_fingerprints(email)
       end
 
       it "returns none for an email address that has no key" do
-        assert_empty IOStreams::Pgp.primary_fingerprints("nobody@iostreams.net")
+        assert_empty IOStreams::Pgp::Gpg.primary_fingerprints("nobody@iostreams.net")
       end
     end
 
@@ -929,7 +1087,7 @@ class PgpTest < Minitest::Test
       end
 
       before do
-        skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp.version_at_least?("2.1")
+        skip "Requires GnuPG 2.1 or later" unless IOStreams::Pgp::Gpg.version_at_least?("2.1")
 
         other_emails.each { |email| generate(email) }
       end
@@ -1011,15 +1169,15 @@ class PgpTest < Minitest::Test
       end
     end
 
-    describe ".user_id" do
+    describe "Gpg.user_id" do
       it "encloses an email address so that it only matches exactly" do
-        assert_equal "<jack@example.org>", IOStreams::Pgp.user_id("jack@example.org")
+        assert_equal "<jack@example.org>", IOStreams::Pgp::Gpg.user_id("jack@example.org")
       end
 
       it "returns other values unchanged" do
         ["<jack@example.org>", "Jack Jones", "3A5456F5", "CB3E582C87C4D569C52F4A28C0A5F177F20E39B0", "@example.org",
          "Jack <jack@example.org>", "*jack@example.org", "=Jack <jack@example.org>"].each do |value|
-          assert_equal value, IOStreams::Pgp.user_id(value)
+          assert_equal value, IOStreams::Pgp::Gpg.user_id(value)
         end
       end
     end
@@ -1127,6 +1285,52 @@ class PgpTest < Minitest::Test
       assert_equal "Receiver", key[:name]
       assert_equal "receiver@example.org", key[:email]
       refute key.key?(:trust)
+    end
+
+    it "parses the curve of an Elliptic Curve key as its type, and its size as its length" do
+      {
+        "ed25519"         => 255,
+        "cv25519"         => 255,
+        "ed448"           => 448,
+        "cv448"           => 448,
+        "nistp256"        => 256,
+        "nistp384"        => 384,
+        "nistp521"        => 521,
+        "brainpoolP256r1" => 256,
+        "brainpoolP384r1" => 384,
+        "brainpoolP512r1" => 512,
+        "secp256k1"       => 256
+      }.each_pair do |curve, length|
+        output = <<~OUTPUT
+          sec   #{curve} 2026-10-14 [SC]
+                ABCDEF0123456789ABCDEF0123456789ABCDEF01
+          uid           [ultimate] Jack Jones <jack@example.org>
+        OUTPUT
+        key = IOStreams::Pgp.parse_list_output(output).first
+
+        assert_equal curve, key[:key_type]
+        assert_equal length, key[:key_length], curve
+        assert key[:private], curve
+        assert_equal Date.new(2026, 10, 14), key[:date]
+        assert_equal "ABCDEF0123456789ABCDEF0123456789ABCDEF01", key[:key_id]
+        assert_equal "jack@example.org", key[:email]
+      end
+    end
+
+    it "parses the algorithm and the length of a key that is not on an Elliptic Curve" do
+      {"rsa4096" => ["rsa", 4096], "dsa2048" => ["dsa", 2048], "elg1024" => ["elg", 1024]}.each_pair do |name, type_and_length|
+        key = IOStreams::Pgp.parse_list_output("pub   #{name} 2026-10-14 [SC]\nuid           [ultimate] Jack Jones\n").first
+
+        assert_equal type_and_length, [key[:key_type], key[:key_length]]
+      end
+    end
+
+    it "parses a curve that it does not know as the type of the key, without a length" do
+      key = IOStreams::Pgp.parse_list_output("pub   E_1.3.6.1.4.1.99999 2026-10-14 [SC]\nuid           [ultimate] Jack Jones\n").first
+
+      assert_equal "E_1.3.6.1.4.1.99999", key[:key_type]
+      assert_nil key[:key_length]
+      assert_equal Date.new(2026, 10, 14), key[:date]
     end
 
     it "parses a uid that has a name but no email" do

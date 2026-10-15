@@ -39,8 +39,22 @@ class PgpWriterTest < Minitest::Test
       File.read(file_name)
     end
 
+    let :large_data do
+      # Random bytes, which gpg cannot compress, so that the encrypted data fills the pipes to and from gpg.
+      Random.new(42).bytes(2_000_000)
+    end
+
     after do
       temp_file.delete
+    end
+
+    describe "settings" do
+      it "are initialized on the writer" do
+        names = %i[@default_signer @default_signer_passphrase @audit_recipient]
+
+        assert_empty(names.reject { |name| IOStreams::Pgp::Writer.instance_variable_defined?(name) })
+        assert_empty(names.select { |name| IOStreams::Pgp::Writer.singleton_class.instance_variable_defined?(name) })
+      end
     end
 
     describe ".file" do
@@ -129,6 +143,38 @@ class PgpWriterTest < Minitest::Test
         assert_equal "Requires either :recipient or :import_and_trust_key", error.message
       end
 
+      it "raises for options that it cannot write with before a path opens its file, so that the file is kept" do
+        File.write(file_name, "existing")
+        {
+          {}                                              => "Requires either :recipient or :import_and_trust_key",
+          {recipient: []}                                 => "Requires either :recipient or :import_and_trust_key",
+          {recipient: [], import_and_trust_key: []}       => "Requires either :recipient or :import_and_trust_key",
+          {recipient: ["receiver@example.org", " "]}      => ':recipient cannot be blank: ["receiver@example.org", " "]',
+          {recipient: [nil]}                              => ":recipient cannot be blank: [nil]",
+          {import_and_trust_key: ""}                      => ":import_and_trust_key cannot be blank",
+          {encrypt: false}                                => "Requires a :signer when encrypt is false",
+          {recipient: "receiver@example.org", signer: ""} => ':signer cannot be blank: ""'
+        }.each_pair do |options, message|
+          path  = IOStreams.path(file_name).stream(:pgp, **options)
+          error = assert_raises(ArgumentError, options.inspect) { path.write("new") }
+
+          assert_equal message, error.message
+          assert_equal "existing", File.read(file_name), options.inspect
+        end
+      end
+
+      it "encrypts for just the audit recipient with an empty list of recipients, but requires a recipient" do
+        IOStreams::Pgp::Writer.stub(:audit_recipient, "receiver2@example.org") do
+          error = assert_raises(ArgumentError) { IOStreams::Pgp::Writer.file(file_name) { |io| io.write(decrypted) } }
+
+          assert_equal "Requires either :recipient or :import_and_trust_key", error.message
+
+          IOStreams::Pgp::Writer.file(file_name, recipient: []) { |io| io.write(decrypted) }
+        end
+
+        assert_equal decrypted, IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+      end
+
       it "supports multiple recipients" do
         IOStreams::Pgp::Writer.file(file_name, recipient: %w[receiver@example.org receiver2@example.org], signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
           io.write(decrypted)
@@ -159,6 +205,19 @@ class PgpWriterTest < Minitest::Test
         assert_equal decrypted, result
       end
 
+      it "adds the audit recipient without changing the recipients supplied, which can be frozen" do
+        recipients = ["receiver@example.org"]
+        IOStreams::Pgp::Writer.stub(:audit_recipient, "receiver2@example.org") do
+          IOStreams::Pgp::Writer.file(file_name, recipient: recipients) { |io| io.write(decrypted) }
+
+          assert_equal ["receiver@example.org"], recipients
+
+          IOStreams::Pgp::Writer.file(file_name, recipient: recipients.freeze) { |io| io.write(decrypted) }
+        end
+
+        assert_equal decrypted, IOStreams::Pgp::Reader.file(file_name, passphrase: "receiver2_passphrase", &:read)
+      end
+
       it "fails with bad signer passphrase" do
         error = assert_raises(IOStreams::Pgp::Failure) do
           IOStreams::Pgp::Writer.file(file_name, recipient: "receiver@example.org", signer: "sender@example.org", signer_passphrase: "BAD") do |io|
@@ -170,12 +229,12 @@ class PgpWriterTest < Minitest::Test
       end
 
       it "fails with bad recipient" do
-        error = assert_raises(IOStreams::Pgp::Failure) do
-          IOStreams::Pgp::Writer.file(file_name, recipient: "BAD@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
-            io.write(decrypted)
-            # Allow process to terminate
-            sleep 1
-            io.write(decrypted)
+        error = Timeout.timeout(30) do
+          assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Writer.file(file_name, recipient: "BAD@example.org", signer: "sender@example.org", signer_passphrase: "sender_passphrase") do |io|
+              # More than a pipe holds, since gpg stops without reading any of it.
+              io.write(large_data)
+            end
           end
         end
 
@@ -210,11 +269,6 @@ class PgpWriterTest < Minitest::Test
     end
 
     describe ".stream" do
-      let :large_data do
-        # Random bytes, which gpg cannot compress, so that the encrypted data fills the pipes to and from gpg.
-        Random.new(42).bytes(2_000_000)
-      end
-
       def decrypt(data)
         IOStreams::Pgp::Reader.stream(StringIO.new(data), passphrase: "receiver_passphrase", &:read)
       end
@@ -246,12 +300,10 @@ class PgpWriterTest < Minitest::Test
       end
 
       it "raises when gpg fails, naming the stream" do
-        error = assert_raises(IOStreams::Pgp::Failure) do
-          IOStreams::Pgp::Writer.stream(StringIO.new("".b), recipient: "BAD@example.org") do |io|
-            io.write(decrypted)
-            # Allow process to terminate
-            sleep 1
-            io.write(decrypted)
+        error = Timeout.timeout(30) do
+          assert_raises(IOStreams::Pgp::Failure) do
+            # More than a pipe holds, since gpg stops without reading any of it.
+            IOStreams::Pgp::Writer.stream(StringIO.new("".b), recipient: "BAD@example.org") { |io| io.write(large_data) }
           end
         end
 
@@ -304,12 +356,10 @@ class PgpWriterTest < Minitest::Test
 
       it "leaves a local file that belongs to the caller in place when gpg fails" do
         File.open(file_name, "wb") do |file|
-          error = assert_raises(IOStreams::Pgp::Failure) do
-            IOStreams::Pgp::Writer.stream(file, recipient: "BAD@example.org") do |io|
-              io.write(decrypted)
-              # Allow process to terminate
-              sleep 1
-              io.write(decrypted)
+          error = Timeout.timeout(30) do
+            assert_raises(IOStreams::Pgp::Failure) do
+              # More than a pipe holds, since gpg stops without reading any of it.
+              IOStreams::Pgp::Writer.stream(file, recipient: "BAD@example.org") { |io| io.write(large_data) }
             end
           end
 
@@ -461,6 +511,72 @@ class PgpWriterTest < Minitest::Test
       end
     end
 
+    describe "when the block leaves early" do
+      let(:path) { IOStreams.path(file_name).stream(:pgp, recipient: "receiver@example.org") }
+
+      let(:output) { StringIO.new("".b) }
+
+      let(:stream) { IOStreams.stream(output).stream(:pgp, recipient: "receiver@example.org") }
+
+      def decrypt(data)
+        IOStreams::Pgp::Reader.stream(StringIO.new(data), passphrase: "receiver_passphrase", &:read)
+      end
+
+      it "completes the file with what was written before a break" do
+        path.writer(:line) do |io|
+          io << "first"
+          break
+        end
+
+        assert_equal "first\n", decrypt(File.binread(file_name))
+      end
+
+      it "completes the PGP message in a stream with what was written before a break" do
+        stream.writer do |io|
+          io.write("first")
+          break
+        end
+
+        assert_equal "first", decrypt(output.string)
+      end
+
+      it "removes the file when the block raises" do
+        assert_raises(ArgumentError) do
+          path.writer(:line) do |io|
+            io << "first"
+            raise(ArgumentError, "from the block")
+          end
+        end
+
+        refute_path_exists file_name
+      end
+
+      it "leaves nothing that can be read when its thread is killed" do
+        written = Queue.new
+        threads = [
+          Thread.new do
+            path.writer(:line) do |io|
+              io << "first"
+              written << true
+              sleep
+            end
+          end,
+          Thread.new do
+            stream.writer do |io|
+              io.write("first")
+              written << true
+              sleep
+            end
+          end
+        ]
+        2.times { written.pop }
+        threads.each(&:kill).each(&:join)
+
+        refute_path_exists file_name
+        assert_raises(IOStreams::Pgp::Failure) { decrypt(output.string) }
+      end
+    end
+
     describe "compress" do
       # Returns [Array<String>] the compressed packets of a file that is signed and not encrypted, so that gpg lists
       # them without decrypting it, such as ":compressed packet: algo=1" for zip.
@@ -497,24 +613,12 @@ class PgpWriterTest < Minitest::Test
         Dir.mktmpdir do |dir|
           args_file       = ::File.join(dir, "args")
           passphrase_file = ::File.join(dir, "passphrase")
-          executable      = ::File.join(dir, "gpg")
-          ::File.write(executable, <<~SCRIPT)
-            #!/bin/sh
+          script          = <<~SCRIPT
             printf '%s\n' "$@" > "#{args_file}"
             cat <&#{IOStreams::Pgp::Writer::PASSPHRASE_FD} > "#{passphrase_file}"
             cat > /dev/null
           SCRIPT
-          ::File.chmod(0o700, executable)
-
-          # Resolve the version using the real gpg before swapping in the stub.
-          IOStreams::Pgp.pgp_version
-          original                  = IOStreams::Pgp.executable
-          IOStreams::Pgp.executable = executable
-          begin
-            yield(args_file, passphrase_file)
-          ensure
-            IOStreams::Pgp.executable = original
-          end
+          with_gpg_stub(script) { yield(args_file, passphrase_file) }
         end
       end
 

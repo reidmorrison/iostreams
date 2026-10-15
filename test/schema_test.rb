@@ -139,10 +139,9 @@ class SchemaTest < Minitest::Test
                      error.message
       end
 
-      it "raises for a fieldsMatch other than exact without a header row, whose columns are the fields in order" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal") }
-        assert_match(/header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
-        assert_equal "exact", IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "exact").fields_match
+      it "accepts any fieldsMatch without a header row, which a format without a header row, such as JSON, ignores" do
+        assert_equal "equal", IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal").fields_match
+        assert_equal "exact", IOStreams::Schema.new(fields: [{name: "id"}], header: false).fields_match
       end
 
       it "raises for a property of another type of field" do
@@ -184,8 +183,8 @@ class SchemaTest < Minitest::Test
         assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: "no") }
       end
 
-      it "raises without fields when there is no header row, since the fields are the columns" do
-        assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: false) }
+      it "accepts no fields without a header row, which a format without a header row, such as JSON, ignores" do
+        refute_predicate IOStreams::Schema.new(fields: [], header: false), :header?
       end
 
       it "accepts a width of remainder" do
@@ -211,6 +210,16 @@ class SchemaTest < Minitest::Test
           path.write(JSON.generate(fields: [{name: "id", type: "integer"}]))
 
           assert_equal ["id"], IOStreams::Schema.read(path.to_s).fields.map(&:name)
+        end
+      end
+
+      it "ignores the byte order mark that some editors write at the start of a UTF-8 file, as reading rows does" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.json")
+          path.write("\xEF\xBB\xBF#{JSON.generate(fields: [{name: 'id', type: 'integer'}])}".b)
+
+          assert_equal ["id"], IOStreams::Schema.read(path.to_s).fields.map(&:name)
+          assert_equal ["id"], IOStreams::Schema.read(IOStreams.path(path.to_s).raw).fields.map(&:name)
         end
       end
 
@@ -423,12 +432,31 @@ class SchemaTest < Minitest::Test
         assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
       end
 
-      it "does not suggest a fieldsMatch that skips them without a header row, which only accepts exact" do
+      it "does not suggest a fieldsMatch that skips them when the columns are the fields in order, which only accepts exact" do
         error = assert_raises(IOStreams::Errors::InvalidHeader) do
-          IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown([1], noun: "value")
+          IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown([1], noun: "value", fields_in_order: true)
         end
         assert_equal "The values of a row do not match the schema: 1 value after the last field, which a schema with " \
                      "header: false does not accept, since its columns are the fields in order", error.message
+      end
+
+      it "suggests a fieldsMatch that skips them without a header row, for a format whose columns are not the fields in order" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown(["age"], noun: "key")
+        end
+        assert_equal "The keys of a record do not match the schema: the key \"age\" is not a field of the schema, which " \
+                     "fieldsMatch \"exact\" does not accept; \"subset\" and \"partial\" skip them", error.message
+      end
+    end
+
+    describe "#check_fields_in_order" do
+      it "raises for a fieldsMatch other than exact, or no fields, since the columns are the fields in order" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal").check_fields_in_order }
+        assert_equal 'A schema with header: false has the fields in order, so fieldsMatch must be "exact": "equal"', error.message
+
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: false).check_fields_in_order }
+        assert_equal "A schema with header: false needs fields, which are the columns of the file", error.message
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_fields_in_order
       end
     end
 
@@ -510,11 +538,18 @@ class SchemaTest < Minitest::Test
         end
 
         it "raises for a value that is not a whole number, rather than return 0 or its leading digits" do
-          ["abc", "12-", "1,234", "1.5", "0x1A", "1_000"].each do |text|
+          ["abc", "12-", "1,234", "1.5", "0x1A", "1_000", "12.01", "1.2e1", ".0"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { integer.cast(text) }
           end
           assert_raises(IOStreams::Errors::InvalidValue) { integer.cast(1.5) }
           assert_raises(IOStreams::Errors::InvalidValue) { integer.cast(true) }
+        end
+
+        it "reads the text of a whole number with a decimal point, as a spreadsheet stores every number" do
+          assert_equal 12, integer.cast("12.0")
+          assert_equal(-12, integer.cast(" -12.00 "))
+          assert_equal 12, integer.cast("+0012.")
+          assert_equal "12", integer.render("12.0", :text)
         end
 
         it "names the field and the value" do
@@ -609,6 +644,26 @@ class SchemaTest < Minitest::Test
 
         it "renders a Float with the number of decimals" do
           assert_equal "12.50", field(type: "number", floatNumber: true, decimals: 2).render(12.5, :text)
+        end
+
+        it "rounds a number to its decimals as it writes its text, for a format that holds the number itself" do
+          float   = field(type: "number", floatNumber: true, decimals: 2)
+          whole   = field(type: "number", floatNumber: true, decimals: 0)
+          decimal = field(type: "number", decimals: 2)
+
+          [0.125, 0.375, 2.675, 1.005, 12.5, 2.5].each do |value|
+            assert_equal Float(float.render(value, :text)), float.round(value), value.inspect
+            assert_equal Float(whole.render(value, :text)), whole.round(value), value.inspect
+            assert_equal BigDecimal(decimal.render(value, :text)), decimal.round(decimal.cast(value)), value.inspect
+          end
+          assert_equal 3, field(type: "number", decimals: 0).round(BigDecimal("2.5"))
+          assert_same 0.125, field(type: "number", floatNumber: true).round(0.125)
+        end
+
+        it "rounds a number that is not finite to itself" do
+          assert_predicate field(type: "number", floatNumber: true, decimals: 0).round(Float::NAN), :nan?
+          assert_equal(-Float::INFINITY, field(type: "number", floatNumber: true, decimals: 0).round(-Float::INFINITY))
+          assert_predicate field(type: "number", decimals: 2).round(BigDecimal("NaN")), :nan?
         end
 
         # Returns [String] the JSON that the json gem writes for the value of the field.
@@ -733,6 +788,33 @@ class SchemaTest < Minitest::Test
         it "reads ISO 8601" do
           assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13T09:30:00Z")
           assert_equal Time.utc(2026, 10, 13, 14, 30, 0.3r), datetime.cast("2026-10-13T09:30:00.300-05:00")
+          assert_equal(-18_000, datetime.cast("2026-10-13T09:30:00.300-05:00").utc_offset)
+        end
+
+        it "reads text without an offset from UTC as UTC, rather than in the time zone of the process" do
+          original  = ENV.fetch("TZ", nil)
+          ENV["TZ"] = "America/New_York"
+          pattern   = field(type: "datetime", format: "%Y-%m-%d %H:%M")
+
+          [datetime.cast("2026-10-13T09:30:00"), pattern.cast("2026-10-13 09:30"), field(type: "datetime", format: "%s").cast("1791883800")].each do |time|
+            assert_equal Time.utc(2026, 10, 13, 9, 30), time
+            assert_predicate time, :utc?
+          end
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.25r), datetime.cast("2026-10-13T09:30:00.25")
+          # A time that the clocks of the time zone skip, which a local time would move by an hour.
+          assert_equal Time.utc(2026, 3, 8, 2, 30), pattern.cast("2026-03-08 02:30")
+        ensure
+          ENV["TZ"] = original
+        end
+
+        it "reads text with a zone at its offset, and raises for a zone whose offset is not known" do
+          zone = field(type: "datetime", format: "%Y-%m-%d %H:%M %Z")
+
+          assert_equal Time.utc(2026, 10, 13, 8, 30), zone.cast("2026-10-13 09:30 CET")
+          assert_equal 3600, zone.cast("2026-10-13 09:30 CET").utc_offset
+          assert_equal Time.utc(2026, 10, 13, 14, 30), zone.cast("2026-10-13 09:30 EST")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { zone.cast("2026-10-13 09:30 XYZ") }
+          assert_equal 'Field "value": "2026-10-13 09:30 XYZ" is not a valid datetime', error.message
         end
 
         it "raises for a date without a time, or another form" do
@@ -776,6 +858,22 @@ class SchemaTest < Minitest::Test
 
           assert_equal Time.utc(2026, 10, 13, 9, 30), pattern.cast("20261013093000+0000")
           assert_equal "20261013093000+0000", pattern.render(Time.utc(2026, 10, 13, 9, 30), :text)
+        end
+
+        it "writes a time in UTC with a format without a zone, which reads it back as UTC, as the same time" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M")
+          time    = Time.new(2026, 10, 13, 9, 30, 0, "-04:00")
+
+          assert_equal "2026-10-13 13:30", pattern.render(time, :text)
+          assert_equal time, pattern.cast(pattern.render(time, :text))
+        end
+
+        it "writes a time at its own offset with a format that has a zone" do
+          time = Time.new(2026, 10, 13, 9, 30, 0, "-04:00")
+
+          assert_equal "2026-10-13 09:30 -0400", field(type: "datetime", format: "%Y-%m-%d %H:%M %z").render(time, :text)
+          assert_equal "2026-10-13 09:30 -04:00", field(type: "datetime", format: "%Y-%m-%d %H:%M %:z").render(time, :text)
+          assert_equal "100% 2026-10-13 13:30", field(type: "datetime", format: "100%% %Y-%m-%d %H:%M").render(time, :text)
         end
       end
 

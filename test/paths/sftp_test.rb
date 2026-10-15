@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require "logger"
+require "socket"
 
 module Paths
   class SFTPTest < Minitest::Test
@@ -52,16 +54,18 @@ module Paths
           assert_equal raw, existing_path.read
         end
 
-        it "fails when the file does not exist" do
-          assert_raises IOStreams::Errors::CommunicationsFailure do
-            missing_file_path.read
-          end
+        it "raises NotFound when the file does not exist" do
+          error = assert_raises(IOStreams::Errors::NotFound) { missing_file_path.read }
+
+          assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          assert_equal missing_file_path.display_name, error.display_name
         end
 
-        it "fails when the directory does not exist" do
-          assert_raises IOStreams::Errors::CommunicationsFailure do
-            missing_path.read
-          end
+        it "raises NotFound when the directory does not exist" do
+          error = assert_raises(IOStreams::Errors::NotFound) { missing_path.read }
+
+          assert_instance_of IOStreams::Errors::CommunicationsFailure, error
+          assert_equal missing_path.display_name, error.display_name
         end
       end
 
@@ -347,24 +351,33 @@ module Paths
     # Minimal stand-in for a Net::SFTP session, with a directory containing the supplied file names, which can
     # include sub-directories, relative to `root`, which defaults to the first name looked up.
     # A missing directory raises "no such file", and an unreadable sub-directory "permission denied".
+    #
+    # Each of the supplied symbolic links, relative to `root`, refers to a name, which `stat!` follows, while the
+    # directory listing has the link's own attributes, as a server lists it.
     class StubSFTPSession
-      Attributes = Struct.new(:attributes, :directory) do
-        def directory? = directory
-        def file? = !directory
+      Attributes = Struct.new(:attributes, :type) do
+        def directory? = type == :directory
+        def file? = type == :file
+        def symlink? = type == :link
       end
       Entry = Struct.new(:name, :attributes) do
         def directory? = attributes.directory?
         def file? = attributes.file?
+        def symlink? = attributes.symlink?
       end
 
       # The remote directories that were listed.
       attr_reader :listed
 
-      def initialize(names, root:, missing:, unreadable:)
+      # Whether the SSH session was shut down, see #session.
+      attr_reader :shut_down
+
+      def initialize(names, root:, missing:, unreadable:, links: {})
         @names      = names
         @root       = root
         @missing    = missing
         @unreadable = unreadable
+        @links      = links
         @listed     = []
       end
 
@@ -373,10 +386,11 @@ module Paths
 
         @root  ||= name
         relative = name.delete_prefix(@root).delete_prefix("/")
-        return Attributes.new({}, true) if relative.empty? || @names.any? { |n| n.start_with?("#{relative}/") }
+        relative = @links.fetch(relative, relative)
+        return Attributes.new({}, :directory) if relative.empty? || @names.any? { |n| n.start_with?("#{relative}/") }
         raise StubStatusException, 2 unless @names.include?(relative)
 
-        Attributes.new({size: 1}, false)
+        Attributes.new({size: 1}, :file)
       end
 
       def dir
@@ -388,9 +402,21 @@ module Paths
         relative = name == @root ? "" : "#{name.delete_prefix("#{@root}/")}/"
         raise StubStatusException, 3 if @unreadable.include?(relative.chomp("/"))
 
-        @names.filter_map { |n| n.delete_prefix(relative).split("/") if n.start_with?(relative) }.
-          group_by(&:first).
-          map { |child, elements| Entry.new(child, Attributes.new({size: 1}, elements.first.size > 1)) }
+        entries = @names.filter_map { |n| n.delete_prefix(relative).split("/") if n.start_with?(relative) }.
+                  group_by(&:first).
+                  map { |child, elements| Entry.new(child, Attributes.new({size: 1}, elements.first.size > 1 ? :directory : :file)) }
+        links   = @links.keys.select { |link| link.start_with?(relative) && !link.delete_prefix(relative).include?("/") }.
+                  map { |link| link.delete_prefix(relative) }
+        entries + links.map { |link| Entry.new(link, Attributes.new({size: 99}, :link)) }
+      end
+
+      # The SSH session of this SFTP session.
+      def session
+        self
+      end
+
+      def shutdown!
+        @shut_down = true
       end
     end
 
@@ -535,11 +561,11 @@ module Paths
         it "percent-encodes each %, ? and # in a name in its url, so that it can be created again from its url" do
           directory = new_path("sftp://example.org/in")
           {"a#b.csv" => "a%23b.csv", "q?.csv" => "q%3F.csv", "caf%E9.csv" => "caf%25E9.csv"}.each_pair do |name, encoded|
-            [directory.join(name), directory.send(:child_path, name)].each do |path|
-              assert_equal "sftp://example.org/in/#{encoded}", path.to_s
-              assert_equal "sftp://example.org/in/#{encoded}", path.display_name
-              assert_equal "/in/#{name}", new_path(path.to_s).path
-            end
+            path = directory.join(name)
+
+            assert_equal "sftp://example.org/in/#{encoded}", path.to_s
+            assert_equal "sftp://example.org/in/#{encoded}", path.display_name
+            assert_equal "/in/#{name}", new_path(path.to_s).path
           end
         end
 
@@ -558,6 +584,19 @@ module Paths
           end
         end
 
+        it "raises ArgumentError for a url that cannot be parsed, without its user name or password" do
+          %w[/ # ?].each do |character|
+            url   = "sftp://jack:TOP#{character}SECRET@example.org/a.csv"
+            error = assert_raises(ArgumentError, url) { IOStreams.path(url) }
+
+            assert_includes error.message, %(Invalid url "sftp://[FILTERED]@example.org/a.csv": it cannot be parsed)
+            refute_includes error.full_message, "SECRET"
+            refute_includes error.full_message, "jack"
+            assert_nil error.cause
+          end
+          assert_raises(ArgumentError) { IOStreams.each_child("sftp://jack:TOP/SECRET@example.org/*.csv") }
+        end
+
         it "raises for a host that is not ASCII, without the password" do
           error = assert_raises(ArgumentError) { new_path("sftp://jack:secret@bücher.example/a.csv") }
 
@@ -566,11 +605,10 @@ module Paths
           refute_includes error.message, "secret"
         end
 
-        it "lists the children of a host that is an IPv6 address" do
+        it "joins a name to a host that is an IPv6 address" do
           path = new_path("sftp://[::1]:2222/data")
 
           assert_equal "::1", path.hostname
-          assert_equal "sftp://[::1]:2222/data/a.csv", path.send(:child_path, "a.csv").to_s
           assert_equal "sftp://[::1]:2222/data/a.csv", path.join("a.csv").to_s
         end
 
@@ -602,6 +640,20 @@ module Paths
           assert_equal({"IdentityFile" => "~/.ssh/id_rsa"}, path.ssh_options)
         end
 
+        it "gives each copy its own ssh options, and freezes those of a frozen path, such as a root path" do
+          identity_file = +"/keys/a"
+          root          = new_path("sftp://example.org/data", ssh_options: {"IdentityFile" => identity_file}).freeze
+          identity_file << "-changed"
+          joined = root.join("a.csv")
+          joined.ssh_options["IdentityFile"] = "/attacker"
+          joined.ssh_options["ConnectTimeout"] = 1
+
+          assert_equal({"IdentityFile" => "/keys/a"}, root.ssh_options)
+          assert_equal({"IdentityFile" => "/attacker", "ConnectTimeout" => 1}, joined.ssh_options)
+          assert_raises(FrozenError) { root.ssh_options["IdentityFile"] = "/attacker" }
+          assert_raises(FrozenError) { root.ssh_options["IdentityFile"] << "x" }
+        end
+
         it "raises when the scheme is not sftp" do
           assert_raises ArgumentError do
             new_path("http://example.org/path/file.txt")
@@ -623,10 +675,19 @@ module Paths
           end
         end
 
-        it "ignores ssh options in the url query string" do
-          path = new_path("sftp://example.org/path/file.txt?ProxyCommand=id", username: "jack", password: "secret")
+        it "raises ArgumentError for a part of the url that SFTP does not use, rather than ignore it" do
+          {
+            "sftp://example.org/path/file.txt?ProxyCommand=id" =>
+              %(Invalid SFTP url "sftp://example.org/path/file.txt": it cannot have a query. Supply ssh options with ssh_options:),
+            "sftp://example.org/path/a#b.txt"                  =>
+              %(Invalid SFTP url "sftp://example.org/path/a": percent-encode a '#' in a name as '%23'),
+            "sftp:///path/file.txt"                            =>
+              %(Invalid SFTP url "sftp:///path/file.txt": it must name a host, such as 'sftp://example.org/a.csv')
+          }.each_pair do |url, message|
+            error = assert_raises(ArgumentError, url) { new_path(url, username: "jack", password: "secret") }
 
-          assert_empty path.ssh_options
+            assert_includes error.message, message, url
+          end
         end
       end
 
@@ -681,12 +742,75 @@ module Paths
         end
       end
 
-      describe "#mkdir" do
-        it "sets the flag and returns self" do
+      describe "comparison" do
+        it "is equal to another spelling of the url" do
+          path = new_path("sftp://example.org/data/a b.csv")
+          urls = %w[
+            sftp://EXAMPLE.org/data/a%20b.csv SFTP://example.org/data/a%20b.csv sftp://example.org:22/data/a%20b.csv
+            sftp://example.org/data/a%20b%2Ecsv sftp://jack:secret@example.org/data/a%20b.csv
+          ]
+
+          urls.each { |url| assert_equal_paths path, new_path(url), url }
+        end
+
+        it "is equal whatever the user name or password, except within the login directory, whose user it is" do
+          jack = new_path("sftp://example.org/~/a.csv", username: "jack")
+
+          assert_equal_paths new_path("sftp://example.org/a.csv", username: "jack"), new_path("sftp://jill:secret@example.org/a.csv")
+          assert_equal_paths jack, new_path("sftp://jack:secret@example.org/~/a.csv")
+          assert_equal_paths jack, new_path("sftp://jill@example.org/~/a.csv", username: "jack", password: "secret")
+          refute_equal_paths jack, new_path("sftp://example.org/~/a.csv", username: "jill")
+          refute_equal_paths jack, new_path("sftp://example.org/~/a.csv")
+        end
+
+        it "is equal whatever the ssh options" do
+          assert_equal_paths new_path(url, ssh_options: {"IdentityFile" => "~/.ssh/a"}), new_path(url)
+        end
+
+        it "decodes the path, since the server is sent the name of the file" do
+          assert_equal_paths new_path("sftp://example.org/a%2Fb.csv"), new_path("sftp://example.org/a/b.csv")
+          assert_equal_paths new_path("sftp://example.org/data").join("a#b.csv"), new_path("sftp://example.org/data/a%23b.csv")
+          refute_equal_paths new_path("sftp://example.org/data").join("a#b.csv"), new_path("sftp://example.org/data/a")
+        end
+
+        it "compares the host without its case, and the port and the path as they are" do
+          path = new_path("sftp://[FE80::1]/data/a.csv")
+          urls = %w[
+            sftp://[fe80::1]:2222/data/a.csv sftp://[fe80::1:2222]/data/a.csv sftp://example.org/data/a.csv
+            sftp://[fe80::1]/data/A.csv sftp://[fe80::1]/data/./a.csv sftp://[fe80::1]//data/a.csv sftp://[fe80::1]/data/a.csv/
+            sftp://[fe80::1]/~/data/a.csv
+          ]
+
+          assert_equal_paths path, new_path("sftp://[fe80::1]:22/data/a.csv")
+          urls.each { |url| refute_equal_paths path, new_path(url), url }
+          refute_equal_paths new_path("sftp://[fe80::1]:2222/data/a.csv"), new_path("sftp://[fe80::1:2222]/data/a.csv")
+        end
+
+        it "sorts by the url that it compares" do
+          paths = %w[sftp://B.org/a.csv sftp://a.org:2222/a.csv sftp://a.org/b.csv SFTP://A.org:22/a.csv].map { |url| new_path(url) }
+
+          assert_equal %w[SFTP://A.org:22/a.csv sftp://a.org/b.csv sftp://a.org:2222/a.csv sftp://B.org/a.csv], paths.sort.map(&:to_s)
+        end
+      end
+
+      describe "#mkdir and #mkpath" do
+        it "return self" do
           path = new_path(url, username: "jack", password: "secret")
 
           assert_same path, path.mkdir
-          assert path.instance_variable_get(:@mkdir)
+          assert_same path, path.mkpath
+        end
+
+        it "return a copy of a frozen path, such as a root path, which cannot be changed" do
+          path = new_path(url, username: "jack", password: "secret").freeze
+
+          %i[mkdir mkpath].each do |operation|
+            copy = path.public_send(operation)
+
+            refute_same path, copy
+            assert_equal path, copy
+            refute_predicate copy, :frozen?
+          end
         end
       end
 
@@ -703,6 +827,15 @@ module Paths
           assert_includes args, "-oStrictHostKeyChecking=yes"
           assert_includes args, "-b"
           assert_equal "jack@example.org", args.last
+        end
+
+        it "supplies a host that is an IPv6 address within [ and ], since sftp reads a : as the start of a path" do
+          with_name = new_path("sftp://[::1]:2222/data", username: "jack")
+          without   = new_path("sftp://[::1]:2222/data")
+
+          assert_equal ["-oPort=2222", "jack@[::1]"], [with_name.send(:sftp_args, {}).grep(/Port/).first, with_name.send(:sftp_args, {}).last]
+          assert_equal "[::1]", without.send(:sftp_args, {}).last
+          assert_equal "example.org", new_path(url).send(:sftp_args, {}).last
         end
 
         it "ends options before the destination" do
@@ -782,6 +915,21 @@ module Paths
 
           assert_equal "example.org ssh-rsa AAAA", contents
         end
+
+        it "writes both an IdentityKey and a HostKey to temp files, without changing the ssh options" do
+          ssh_options = {"IdentityKey" => "PRIVATE-KEY-DATA", "HostKey" => "example.org ssh-rsa AAAA"}
+          path        = new_path(url, username: "jack", ssh_options: ssh_options)
+
+          contents = nil
+          path.send(:with_sftp_args) do |args|
+            contents = %w[IdentityFile UserKnownHostsFile].map do |option|
+              ::File.read(args.find { |arg| arg.start_with?("-o#{option}=") }.split("=", 2).last)
+            end
+          end
+
+          assert_equal ["PRIVATE-KEY-DATA", "example.org ssh-rsa AAAA"], contents
+          assert_equal ssh_options, path.ssh_options
+        end
       end
 
       # Minimal logger stub exposing a symbol level, like SemanticLogger.
@@ -808,12 +956,38 @@ module Paths
           end
         end
 
-        it "passes IOStreams.logger through to net-ssh" do
-          logger = logger_stub(:info)
+        it "gives net-ssh a logger of its own, which forwards the messages at its level to IOStreams.logger" do
+          output = StringIO.new
+          logger = Logger.new(output, level: :info)
 
           with_io_streams_logger(logger) do
-            assert_same logger, net_ssh_options[:logger]
+            net_ssh_logger = net_ssh_options[:logger]
+
+            refute_same logger, net_ssh_logger
+
+            net_ssh_logger.add(Logger::INFO, nil, "net.ssh") { "connected" }
+            net_ssh_logger.add(Logger::DEBUG, nil, "net.ssh") { "below the level of IOStreams.logger" }
+            # As net-ssh does for the LogLevel ssh option.
+            net_ssh_logger.level = Logger::ERROR
+            net_ssh_logger.add(Logger::WARN, nil, "net.ssh") { "below the level of the LogLevel ssh option" }
           end
+
+          assert_includes output.string, "connected"
+          refute_includes output.string, "below the level"
+          assert_equal Logger::INFO, logger.level
+        end
+
+        it "does not change the level of IOStreams.logger for the LogLevel ssh option" do
+          server = TCPServer.new("127.0.0.1", 0)
+          port   = server.addr[1]
+          server.close
+          logger = Logger.new(StringIO.new, level: :warn)
+          path   = new_path("sftp://127.0.0.1:#{port}/a.csv", username: "jack", ssh_options: {"LogLevel" => "DEBUG"})
+
+          with_io_streams_logger(logger) do
+            assert_raises(IOStreams::Errors::Unavailable) { path.exist? }
+          end
+          assert_equal Logger::WARN, logger.level
         end
       end
 
@@ -1193,7 +1367,7 @@ module Paths
           end
         end
 
-        it "is the target of a move" do
+        it "is the target of a move, which creates its directories, without changing the target supplied" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "file.csv")
             source.write("data")
@@ -1201,27 +1375,116 @@ module Paths
 
             with_stub_sftp do |calls|
               assert_equal target, source.move_to(target)
+              target.write("data")
 
               assert_match(%r{-mkdir "/data/in"}, calls.first.last.string)
+              refute_match(/mkdir/, calls.last.last.string)
             end
             refute_predicate source, :exist?
+          end
+        end
+
+        it "creates the directories of a frozen path, such as a root path, through the copy that #mkpath returns" do
+          root = new_path("sftp://example.org/data/in/file.csv", username: "jack").freeze
+
+          with_stub_sftp do |calls|
+            root.mkpath.write("data")
+            root.write("data")
+
+            assert_match(%r{-mkdir "/data/in"}, calls.first.last.string)
+            refute_match(/mkdir/, calls.last.last.string)
+          end
+        end
+      end
+
+      describe "#move_to" do
+        # Runs the block with a stand-in for the sftp program, which succeeds, and for Net::SFTP, whose session deletes
+        # the supplied files. Yields the session.
+        def with_stub_sftp_and_net_sftp(files, &)
+          session   = StubDeleteSession.new(files, [], nil)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*, &block| block.call(session) }
+          status = Struct.new(:value).new(Struct.new(:success?).new(true))
+          popen  = ->(*_args, &block) { block.call(StringIO.new, StringIO.new(""), status) }
+
+          Open3.stub(:popen2e, popen) { StubNetSFTP.replace(stub_sftp) { yield(session) } }
+        end
+
+        it "raises ArgumentError for a target that is the same file, by any spelling, without connecting" do
+          source = new_path("sftp://example.org/data/a.csv", username: "jack")
+
+          Open3.stub(:popen2e, ->(*) { flunk "The sftp program must not be run" }) do
+            [source, source.to_s, "sftp://EXAMPLE.org:22/data/./in/../a.csv", "sftp://jill@example.org//data/a.csv",
+             "sftp://example.org/data/a%2Ecsv"].each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move sftp://example.org/data/a.csv onto itself"
+            end
+          end
+        end
+
+        it "raises ArgumentError for a target within the login directory of the same user, by any spelling" do
+          source  = new_path("sftp://example.org/~/data/a.csv", username: "jack")
+          targets = [new_path("sftp://jack@EXAMPLE.org:22/~/data/in/../a.csv"), new_path("sftp://example.org/~/data/./a.csv", username: "jack")]
+
+          Open3.stub(:popen2e, ->(*) { flunk "The sftp program must not be run" }) do
+            targets.each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move sftp://example.org/~/data/a.csv onto itself"
+            end
+          end
+        end
+
+        it "moves a file within the login directory to the same name for another user, whose login directory it is" do
+          source = new_path("sftp://example.org/~/a.csv", username: "jack")
+          target = new_path("sftp://example.org/~/a.csv", username: "jill")
+
+          with_stub_sftp_and_net_sftp(["a.csv"]) do |session|
+            assert_same target, source.move_to(target)
+            assert_equal [[:remove, "a.csv"]], session.deleted
           end
         end
       end
 
       describe "#each_child" do
         # Minimal stand-in for Net::SFTP. Records the options supplied to `start`, and the directories listed.
-        def with_stub_net_sftp(names, root: nil, missing: false, unreadable: [])
+        # Calls `on_start` with the arguments of `start`, while they are in use, such as a temp file that they name.
+        def with_stub_net_sftp(names, root: nil, missing: false, unreadable: [], links: {}, on_start: nil)
           stub_sftp = Module.new
           stub_sftp.const_set(:StatusException, StubStatusException)
           stub_sftp.define_singleton_method(:start) do |hostname, username, options, &block|
             stub_sftp.instance_variable_set(:@started, [hostname, username, options])
-            session = StubSFTPSession.new(names, root: root, missing: missing, unreadable: unreadable)
+            on_start&.call(hostname, username, options)
+            session = StubSFTPSession.new(names, root: root, missing: missing, unreadable: unreadable, links: links)
             stub_sftp.instance_variable_set(:@listed, session.listed)
+            stub_sftp.instance_variable_set(:@session, session)
             block.call(session)
           end
 
           StubNetSFTP.replace(stub_sftp) { yield(stub_sftp) }
+        end
+
+        it "shuts the session down when the block leaves early, since Net::SFTP.start would leave it open" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv b.csv]) do |stub_sftp|
+            child, _attributes = path.each_child.first
+
+            assert_equal "/data/a.csv", child.path
+            assert stub_sftp.instance_variable_get(:@session).shut_down
+          end
+        end
+
+        it "leaves the session for Net::SFTP.start to close when the block returns" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv b.csv]) do |stub_sftp|
+            path.each_child { |_child| nil }
+
+            refute stub_sftp.instance_variable_get(:@session).shut_down
+          end
         end
 
         it "does not parse remote file names as part of a url" do
@@ -1229,8 +1492,14 @@ module Paths
                                                        ssh_options: {"ServerAliveInterval" => 60})
 
           children = nil
-          with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do
+          started  = []
+          with_stub_net_sftp(["inbox/a+b.csv?acl=public-read", "inbox/c%41#d.csv"]) do |stub_sftp|
             children = path.each_child("**/*").to_a.map(&:first)
+            # Each child connects with the credentials and options of the path.
+            children.each do |child|
+              assert_predicate child, :exist?
+              started << stub_sftp.instance_variable_get(:@started)
+            end
           end
 
           assert_equal ["/data/inbox/a+b.csv?acl=public-read", "/data/inbox/c%41#d.csv"], children.map(&:path)
@@ -1239,10 +1508,9 @@ module Paths
           assert_equal(children.map(&:path), children.map { |child| IOStreams.path(child.to_s).path })
           children.each do |child|
             assert_instance_of IOStreams::Paths::SFTP, child
-            assert_equal "jack", child.username
-            assert_equal "secret", child.send(:password)
             assert_equal({"ServerAliveInterval" => 60}, child.ssh_options)
           end
+          assert_equal([["example.org", "jack", "secret"]] * 2, started.map { |host, user, options| [host, user, options[:password]] })
         end
 
         it "labels the names of remote files UTF-8" do
@@ -1373,12 +1641,14 @@ module Paths
           end
         end
 
-        it "is case-insensitive by default" do
+        it "is case-insensitive by default, for a pattern or an exact name" do
           path = new_path("sftp://example.org/data", username: "jack")
 
-          with_stub_net_sftp(%w[a.csv B.CSV]) do
+          with_stub_net_sftp(%w[a.csv B.CSV], root: "/data") do
             assert_equal %w[/data/B.CSV /data/a.csv], path.children("*.csv").map(&:path)
             assert_equal %w[/data/a.csv], path.children("*.csv", case_sensitive: true).map(&:path)
+            assert_equal %w[/data/a.csv], path.children("A.CSV").map(&:path)
+            assert_empty path.children("A.CSV", case_sensitive: true)
           end
         end
 
@@ -1390,7 +1660,20 @@ module Paths
           end
         end
 
-        it "yields an exact name with its attributes" do
+        it "returns a symbolic link by what it refers to, with its attributes, like a local path" do
+          path  = new_path("sftp://example.org/data", username: "jack")
+          links = {"link.csv" => "a.csv", "dangling.csv" => "missing.csv", "dir_link" => "sub"}
+
+          with_stub_net_sftp(%w[a.csv sub/b.csv], root: "/data", links: links) do
+            files = path.each_child("*").to_a.map { |child, attributes| [child.path, attributes] }
+
+            assert_equal [["/data/a.csv", {size: 1}], ["/data/link.csv", {size: 1}]], files
+            assert_includes path.children("*", directories: true).map(&:path), "/data/dir_link"
+            assert_equal %w[/data/a.csv /data/link.csv /data/sub/b.csv], path.children("**/*").map(&:path)
+          end
+        end
+
+        it "yields an exact name with its attributes, without listing its directory" do
           path = new_path("sftp://example.org/data", username: "jack")
 
           with_stub_net_sftp(%w[a.csv], root: "/data") do |stub_sftp|
@@ -1398,6 +1681,32 @@ module Paths
 
             assert_equal([["/data/a.csv", {size: 1}]], children.map { |child, attributes| [child.path, attributes] })
             assert_empty stub_sftp.instance_variable_get(:@listed)
+          end
+        end
+
+        it "lists the directory of an exact name that is not found, to match it ignoring case" do
+          path = new_path("sftp://example.org/data", username: "jack")
+
+          with_stub_net_sftp(%w[a.csv sub/A.CSV], root: "/data") do |stub_sftp|
+            children = path.each_child("sub/a.csv").to_a
+
+            assert_equal([["/data/sub/A.CSV", {size: 1}]], children.map { |child, attributes| [child.path, attributes] })
+            assert_equal ["/data/sub"], stub_sftp.instance_variable_get(:@listed)
+          end
+        end
+
+        it "is listed by IOStreams.each_child, which takes the pattern from the path of the url" do
+          {
+            "sftp://[::1]:2222/data/*.csv"               => ["::1", nil, "sftp://[::1]:2222/data/a.csv"],
+            "sftp://jack:p*ss@example.org/data/[ab].csv" => ["example.org", "jack", "sftp://example.org/data/a.csv"]
+          }.each_pair do |url, (hostname, username, child)|
+            with_stub_net_sftp(%w[a.csv b.txt], root: "/data") do |stub_sftp|
+              children = []
+              IOStreams.each_child(url) { |path, _attributes| children << path.to_s }
+
+              assert_equal [child], children, url
+              assert_equal [hostname, username], stub_sftp.instance_variable_get(:@started).first(2), url
+            end
           end
         end
 
@@ -1428,15 +1737,12 @@ module Paths
         def net_ssh_options(path)
           known_hosts = nil
           options     = nil
-          with_stub_net_sftp([]) do |stub_sftp|
-            stub_sftp.define_singleton_method(:start) do |_hostname, _username, opts, &_block|
-              options = opts
-              return unless opts[:user_known_hosts_file]&.first&.include?("iostreams-sftp-known-hosts")
-
-              known_hosts = File.read(opts[:user_known_hosts_file].first)
-            end
-            path.each_child.to_a
+          on_start    = lambda do |_hostname, _username, opts|
+            options = opts
+            file    = opts[:user_known_hosts_file]&.first
+            known_hosts = File.read(file) if file&.include?("iostreams-sftp-known-hosts")
           end
+          with_stub_net_sftp([], on_start: on_start) { path.each_child.to_a }
           [options, known_hosts]
         end
 
@@ -1703,22 +2009,28 @@ module Paths
         end
       end
 
-      describe "#map_log_level" do
+      describe "the LogLevel of the sftp program" do
         it "defaults to INFO without a logger" do
           path = new_path(url, username: "jack", password: "secret")
 
           with_io_streams_logger(nil) do
-            assert_equal "INFO", path.send(:map_log_level)
+            assert_includes path.send(:sftp_args, {}), "-oLogLevel=INFO"
           end
         end
 
-        it "maps logger levels to sftp log levels" do
+        it "maps the levels of IOStreams.logger to sftp log levels" do
           path = new_path(url, username: "jack", password: "secret")
           {trace: "DEBUG3", warn: "ERROR", debug: "debug", info: "info", error: "error"}.each_pair do |level, expected|
             with_io_streams_logger(logger_stub(level)) do
-              assert_equal expected, path.send(:map_log_level), "level #{level.inspect}"
+              assert_includes path.send(:sftp_args, {}), "-oLogLevel=#{expected}", "level #{level.inspect}"
             end
           end
+        end
+
+        it "is the LogLevel ssh option when it is supplied" do
+          path = new_path(url, username: "jack", ssh_options: {"LogLevel" => "QUIET"})
+
+          assert_equal ["-oLogLevel=QUIET"], path.send(:sftp_args, path.ssh_options).grep(/LogLevel/)
         end
       end
 

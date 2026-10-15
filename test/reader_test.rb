@@ -44,6 +44,21 @@ class ReaderTest < Minitest::Test
         assert_equal [file_name], FileOnlyReader.file_names
       end
 
+      it "reads the file of a Tempfile by its name, without copying it to another temp file" do
+        tempfile = Tempfile.new("iostreams_reader")
+        tempfile.write(data)
+        tempfile.rewind
+
+        result = IOStreams::Utils.stub(:private_temp_file, ->(*) { flunk("Copied the file to a temp file") }) do
+          FileOnlyReader.stream(tempfile, &:read)
+        end
+
+        assert_equal data, result
+        assert_equal [File.absolute_path(tempfile.path)], FileOnlyReader.file_names
+      ensure
+        tempfile&.close!
+      end
+
       it "copies a stream that is not a local file to a temp file, which is deleted afterwards" do
         result = FileOnlyReader.stream(StringIO.new(data), &:read)
 

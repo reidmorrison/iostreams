@@ -36,19 +36,19 @@ class StreamFormatTest < Minitest::Test
         assert_equal pgp.option_names(:reader) | pgp.option_names(:writer), pgp.valid_option_names
       end
 
-      it "does not accept the options of the other direction for a class that overrides valid_option_names" do
+      it "does not accept the options of the other direction that a class does not support" do
         reader = Class.new(IOStreams::Reader) do
           def self.option_names = %i[size]
-          def self.valid_option_names = option_names
+          def self.unsupported_option_names = %i[level]
         end
         writer = Class.new(IOStreams::Writer) do
-          def self.option_names = %i[level]
+          def self.option_names = %i[level compress]
         end
         format = IOStreams::Extension.new(reader, writer)
 
-        assert_equal %i[size], format.valid_option_names(:reader)
-        assert_equal %i[level size], format.valid_option_names(:writer)
-        assert_equal %i[size level], format.valid_option_names
+        assert_equal %i[size compress], format.valid_option_names(:reader)
+        assert_equal %i[level compress size], format.valid_option_names(:writer)
+        assert_equal %i[size level compress], format.valid_option_names
       end
 
       it "is nil when the class does not declare its options" do
@@ -114,7 +114,7 @@ class StreamFormatTest < Minitest::Test
       let(:format) do
         reader = Class.new(IOStreams::Reader) do
           def self.option_names = %i[size]
-          def self.valid_option_names = option_names
+          def self.unsupported_option_names = %i[level]
         end
         writer = Class.new(IOStreams::Writer) do
           def self.option_names = %i[level]

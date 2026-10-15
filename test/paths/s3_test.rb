@@ -43,12 +43,24 @@ module Paths
       end
 
       describe "#delete" do
-        it "existing file" do
-          assert_kind_of IOStreams::Paths::S3, existing_path.delete
+        it "deletes an existing file, and returns the path" do
+          path = existing_path
+
+          assert_same path, path.delete
+          refute_predicate path, :exist?
         end
 
-        it "missing file" do
-          assert_kind_of IOStreams::Paths::S3, missing_path.delete
+        it "does nothing for a file that does not exist, and returns the path" do
+          assert_same missing_path, missing_path.delete
+          refute_predicate missing_path, :exist?
+        end
+
+        it "does nothing for the bucket itself, which is a directory, like any other directory" do
+          existing_path
+          bucket = IOStreams::Paths::S3.new("s3://#{root_path.bucket_name}")
+
+          assert_same bucket, bucket.delete
+          assert_predicate existing_path, :exist?
         end
       end
 
@@ -92,23 +104,13 @@ module Paths
         end
       end
 
-      describe "#mkpath" do
-        it "returns self for non-existant path" do
-          assert_kind_of IOStreams::Paths::S3, existing_path.mkpath
-        end
-
-        it "checks for lack of existence" do
-          assert_kind_of IOStreams::Paths::S3, missing_path.mkpath
-        end
-      end
-
-      describe "#mkdir" do
-        it "returns self for non-existant path" do
-          assert_kind_of IOStreams::Paths::S3, existing_path.mkdir
-        end
-
-        it "checks for lack of existence" do
-          assert_kind_of IOStreams::Paths::S3, missing_path.mkdir
+      describe "#mkpath and #mkdir" do
+        it "return the path, without creating anything, since S3 has no directories" do
+          %i[mkpath mkdir].each do |operation|
+            assert_same existing_path, existing_path.public_send(operation)
+            assert_same missing_path, missing_path.public_send(operation)
+          end
+          refute_predicate missing_path, :exist?
         end
       end
 
@@ -117,12 +119,37 @@ module Paths
           assert_equal raw, existing_path.read
         end
 
+        it "reads lines like an IO, as the object is read" do
+          lines = existing_path.reader { |io| [io.gets, io.gets(chomp: true)] }
+
+          assert_equal raw.lines.first(2).map.with_index { |line, i| i.zero? ? line : line.chomp }, lines
+        end
+
         it "raises NotFound for a file that does not exist" do
           error = assert_raises(IOStreams::Errors::NotFound) { missing_path.read }
 
           assert_instance_of Aws::S3::Errors::NoSuchKey, error
           assert_equal missing_path.display_name, error.display_name
           assert_includes error.message, missing_path.display_name
+        end
+
+        it "requests the object before the block is called, so that a missing file raises before the block runs" do
+          called = false
+
+          assert_raises(IOStreams::Errors::NotFound) { missing_path.reader { |_io| called = true } }
+          refute called
+        end
+
+        it "does not change the target of a copy or move when the source is missing" do
+          IOStreams.temp_file("iostreams_s3_target", ".txt") do |target|
+            target.write("existing")
+
+            assert_raises(IOStreams::Errors::NotFound) { target.copy_from(missing_path) }
+            assert_raises(IOStreams::Errors::NotFound) { target.copy_from(missing_path, convert: false) }
+            assert_raises(IOStreams::Errors::NotFound) { missing_path.copy_to(target) }
+            assert_raises(IOStreams::Errors::NotFound) { missing_path.move_to(target) }
+            assert_equal "existing", target.read
+          end
         end
       end
 
@@ -177,6 +204,27 @@ module Paths
           assert_predicate IOStreams::Paths::S3.new("s3://#{dir.bucket_name}"), :directory?
           refute_predicate dir.join("a/data.txt"), :directory?
           refute_predicate dir.join("missing"), :directory?
+        end
+
+        it "#exist? is true for an object or a directory, like a local path" do
+          assert_predicate dir.join("a/data.txt"), :exist?
+          assert_predicate dir.join("a"), :exist?
+          assert_predicate dir.join("folder"), :exist?
+          assert_predicate IOStreams::Paths::S3.new("s3://#{dir.bucket_name}"), :exist?
+          refute_predicate dir.join("a/missing.txt"), :exist?
+          refute_predicate dir.join("missing"), :exist?
+        end
+
+        it "#size and #mtime raise NotFound for the bucket, which is not an object" do
+          bucket = IOStreams::Paths::S3.new("s3://#{dir.bucket_name}")
+
+          %i[size mtime].each do |operation|
+            error = assert_raises(IOStreams::Errors::NotFound, operation.to_s) { bucket.public_send(operation) }
+
+            assert_instance_of Errno::EISDIR, error
+            assert_includes error.message, "s3://#{dir.bucket_name}/ is the bucket, which is not an object"
+          end
+          assert_nil bucket.size?
         end
 
         it "#empty? is true for an empty object or folder" do
@@ -289,7 +337,6 @@ module Paths
       end
 
       describe "#each_child" do
-        # TODO: case_sensitive: false, directories: false, hidden: false
         let(:abd_file_names) { %w[abd/test1.txt abd/test5.file abd/extra/file.csv] }
         let(:files_for_test) { abd_file_names + %w[xyz/test2.csv xyz/another.csv] }
 
@@ -364,6 +411,34 @@ module Paths
           assert_equal [each_root.join("abd").to_s], each_root.children("abd", directories: true).collect(&:to_s)
         end
 
+        it "matches a pattern, or an exact name, ignoring case by default, like a local path" do
+          write_raw_data
+          directory = each_root.join("abd")
+
+          assert_equal [directory.join("test1.txt").to_s], directory.children("TEST1.*").collect(&:to_s)
+          assert_equal [directory.join("test1.txt").to_s], directory.children("TEST1.TXT").collect(&:to_s)
+          assert_equal [each_root.join("abd").to_s], each_root.children("ABD", directories: true).collect(&:to_s)
+        end
+
+        it "matches a pattern, or an exact name, with case_sensitive: true" do
+          write_raw_data
+          directory = each_root.join("abd")
+
+          assert_empty directory.children("TEST1.*", case_sensitive: true)
+          assert_empty directory.children("TEST1.TXT", case_sensitive: true)
+          assert_equal [directory.join("test1.txt").to_s], directory.children("test1.txt", case_sensitive: true).collect(&:to_s)
+        end
+
+        it "returns hidden children only when requested" do
+          hidden = each_root.join("abd/.hidden.txt")
+          hidden.write(raw)
+
+          refute_includes each_root.children("abd/*").collect(&:to_s), hidden.to_s
+          assert_includes each_root.children("abd/*", hidden: true).collect(&:to_s), hidden.to_s
+        ensure
+          hidden&.delete
+        end
+
         it "missing path" do
           count = 0
           missing_path.each_child { |_| count += 1 }
@@ -400,6 +475,21 @@ module Paths
             source&.delete
             target&.delete
           end
+        end
+
+        it "raises ArgumentError for a target that is the same object, and keeps it" do
+          source = root_path.join("move_test_source.txt")
+          source.write("Hello World")
+
+          # With options that S3 accepts for a copy of an object onto itself, such as another storage class.
+          [source, source.to_s, IOStreams.path(source.to_s, storage_class: "STANDARD_IA")].each do |target|
+            error = assert_raises(ArgumentError) { source.move_to(target) }
+
+            assert_includes error.message, "Cannot move #{source.display_name} onto itself"
+          end
+          assert_equal "Hello World", source.read
+        ensure
+          source&.delete
         end
 
         it "moves to a local file" do
@@ -496,8 +586,16 @@ module Paths
       end
 
       describe "#partial_files_visible?" do
-        it "visible only after upload" do
-          refute_predicate root_path, :partial_files_visible?
+        it "is false, since an object is only visible once its upload completes" do
+          path = write_path
+          path.writer do |io|
+            io.write(raw)
+
+            refute_predicate path, :exist?
+          end
+
+          refute_predicate path, :partial_files_visible?
+          assert_predicate path, :exist?
         end
       end
     end
@@ -539,6 +637,31 @@ module Paths
             assert_equal "s3://bucket/in/#{encoded}", path.to_s
             assert_equal "in/#{name}", IOStreams::Paths::S3.new(path.to_s, client: client).path
           end
+        end
+
+        it "raises ArgumentError for a part of the url that S3 does not use, rather than ignore it" do
+          {
+            "s3://bucket/a#b.csv"           => %(Invalid S3 url "s3://bucket/a": percent-encode a '#' in a key as '%23'),
+            "s3://bucket:9000/a.csv"        => %(Invalid S3 url "s3://bucket:9000/a.csv": it cannot have a port. Supply the endpoint),
+            "s3://AKIA:SECRET@bucket/a.csv" => %(Invalid S3 url "s3://bucket/a.csv": it cannot have a user name or password),
+            "s3:///a.csv"                   => %(Invalid S3 url "s3:///a.csv": it must name a bucket, such as 's3://bucket/a.csv')
+          }.each_pair do |url, message|
+            error = assert_raises(ArgumentError, url) { IOStreams::Paths::S3.new(url, client: client) }
+
+            assert_includes error.message, message, url
+            refute_includes error.message, "SECRET"
+          end
+        end
+
+        it "raises ArgumentError for a region or credentials supplied with a client, which already has them" do
+          %i[region access_key_id secret_access_key].each do |name|
+            error = assert_raises(ArgumentError, name.to_s) { IOStreams::Paths::S3.new("s3://bucket/a.csv", client: client, name => "x") }
+
+            assert_includes error.message, "Supply #{name}: to Aws::S3::Client.new, or supply client: as a Hash of its options"
+          end
+          path = IOStreams::Paths::S3.new("s3://bucket/a.csv", client: {region: "eu-west-1", stub_responses: true}, region: "us-east-1")
+
+          assert_equal "us-east-1", path.client.config.region
         end
 
         it "raises for a key that is not valid UTF-8, which S3 cannot hold" do
@@ -668,6 +791,50 @@ module Paths
           end
         end
 
+        it "copies directly with the client and options of the target, and what S3 needs to read the source" do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          credentials   = Aws::Credentials.new("id", "secret")
+          source_client = Aws::S3::Client.new(stub_responses: {head_object: {content_length: 4}}, region: "us-east-1", credentials: credentials)
+          target_client = Aws::S3::Client.new(stub_responses: true, region: "us-east-1", credentials: credentials)
+          key           = "k" * 32
+          key_md5       = [Digest::MD5.digest(key)].pack("m0")
+          source        = IOStreams::Paths::S3.new("s3://bucket-a/x.csv", client: source_client, storage_class: "GLACIER",
+                                                                          request_payer: "requester", sse_customer_algorithm: "AES256",
+                                                                          sse_customer_key: key, sse_customer_key_md5: key_md5)
+          target        = IOStreams::Paths::S3.new("s3://bucket-b/y.csv", client: target_client, storage_class: "STANDARD_IA",
+                                                                          acl: "bucket-owner-full-control")
+          source_requests = capture_requests(source_client)
+          target_requests = capture_requests(target_client)
+
+          source.copy_to(target, convert: false)
+          target.copy_from(source, convert: false)
+          source.move_to(target)
+
+          # The AWS SDK encodes the customer key in base64 before the request is sent.
+          expected = {
+            bucket: "bucket-b", key: "y.csv", copy_source: "bucket-a/x.csv", storage_class: "STANDARD_IA",
+            acl: "bucket-owner-full-control", request_payer: "requester", copy_source_sse_customer_algorithm: "AES256",
+            copy_source_sse_customer_key: [key].pack("m0"), copy_source_sse_customer_key_md5: key_md5
+          }
+
+          assert_empty source_requests[:copy_object]
+          assert_equal([expected] * 3, target_requests[:copy_object].map { |params| params.slice(*expected.keys) })
+          assert(target_requests[:copy_object].none? { |params| params.key?(:sse_customer_key) })
+        end
+
+        it "copies directly the version of the source that its version_id names" do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          client   = Aws::S3::Client.new(stub_responses: {head_object: {content_length: 4}}, region: "us-east-1",
+                                         credentials: Aws::Credentials.new("id", "secret"))
+          source   = IOStreams::Paths::S3.new("s3://bucket-a/x.csv", client: client, version_id: "3/L4kqtJlcpXro=")
+          requests = capture_requests(client)
+
+          source.copy_to(IOStreams::Paths::S3.new("s3://bucket-b/y.csv", client: client), convert: false)
+
+          assert_equal(["3/L4kqtJlcpXro="], requests[:head_object].map { |params| params[:version_id] })
+          assert_equal(["bucket-a/x.csv?versionId=3%2FL4kqtJlcpXro%3D"], requests[:copy_object].map { |params| params[:copy_source] })
+        end
+
         it "raises for an option that no request accepts" do
           error = assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, acll: "public-read") }
           assert_equal "Unknown S3 option: :acll", error.message
@@ -676,6 +843,32 @@ module Paths
 
         it "raises for a request parameter that the path sets" do
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, bucket: "other") }
+          assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, delimiter: "/") }
+          assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, encoding_type: "url") }
+          assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, start_after: "b") }
+        end
+      end
+
+      describe "comparison" do
+        it "is equal to the same key in the same bucket, whatever its options or client" do
+          path  = IOStreams.path("s3://bucket/data/a b.csv")
+          other = [
+            IOStreams.path("s3://bucket/data/a%20b.csv"), IOStreams.path("S3://bucket/data/a b.csv"),
+            IOStreams.path("s3://bucket/data/a b.csv?acl=bucket-owner-full-control&version_id=1"),
+            IOStreams::Paths::S3.new("s3://bucket/data/a b.csv", client: client, request_payer: "requester")
+          ]
+
+          other.each { |other_path| assert_equal_paths path, other_path, other_path.inspect }
+        end
+
+        it "compares the bucket and the key as they are, since S3 compares every character" do
+          path = IOStreams.path("s3://bucket/data/a.csv")
+          urls = %w[
+            s3://Bucket/data/a.csv s3://other/data/a.csv s3://bucket/data/A.csv s3://bucket/data/./a.csv
+            s3://bucket//data/a.csv s3://bucket/data/a.csv/ s3://bucket/data%2Fa.csv%2F
+          ]
+
+          urls.each { |url| refute_equal_paths path, IOStreams.path(url), url }
         end
       end
 
@@ -723,6 +916,20 @@ module Paths
           assert_same joined.client, path.client
         end
 
+        it "gives each copy its own options, and freezes those of a frozen path, such as a root path" do
+          metadata = {"a" => "1"}
+          root     = IOStreams::Paths::S3.new("s3://bucket/data", client: client, acl: "private", metadata: metadata).freeze
+          metadata["a"] = "changed"
+          joined = root.join("a.csv")
+          joined.options[:acl] = "public-read"
+          joined.options[:metadata]["a"] = "2"
+
+          assert_equal({acl: "private", metadata: {"a" => "1"}}, root.options)
+          assert_equal({acl: "public-read", metadata: {"a" => "2"}}, joined.options)
+          assert_raises(FrozenError) { root.options[:acl] = "public-read" }
+          assert_raises(FrozenError) { root.options[:metadata]["a"] = "2" }
+        end
+
         it "joins a name that only shares a prefix with the key" do
           path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)
 
@@ -733,6 +940,27 @@ module Paths
           path = IOStreams::Paths::S3.new("s3://bucket", client: client)
 
           assert_equal "reports/2024.csv", path.join("reports/2024.csv").path
+        end
+
+        it "joins a name that starts with / onto the bucket as a key within it, as onto a local directory" do
+          bucket = IOStreams::Paths::S3.new("s3://bucket", client: client)
+
+          %w[/a.csv //a.csv].each do |name|
+            joined = bucket / name
+
+            assert_equal "a.csv", joined.path, name
+            assert_equal "s3://bucket/a.csv", joined.to_s, name
+          end
+          assert_equal "exports/a.csv", bucket.join("/exports", "a.csv").path
+          assert_equal "data/a.csv", IOStreams::Paths::S3.new("s3://bucket/data", client: client).join("/a.csv").path
+        end
+
+        it "is created again from its url, for a key that starts with /" do
+          path = IOStreams::Paths::S3.new("s3://bucket//exports/a.csv", client: client)
+
+          assert_equal "/exports/a.csv", path.path
+          assert_equal "s3://bucket//exports/a.csv", path.to_s
+          assert_equal path.path, IOStreams::Paths::S3.new(path.to_s, client: client).path
         end
       end
 
@@ -831,6 +1059,75 @@ module Paths
 
             assert_equal [{request_payer: "requester"}], children.map(&:options)
           end
+
+          it "is listed by IOStreams.each_child, which keeps the query of the url as options" do
+            children = []
+            IOStreams.each_child("s3://bucket/reports/*.csv?request_payer=requester") { |child, _attributes| children << child }
+
+            assert_equal ["s3://bucket/reports/a.csv"], children.map(&:to_s)
+            assert_equal [{request_payer: "requester"}], children.map(&:options)
+          end
+
+          it "raises the exception that the block raises for an exact name, and yields it once" do
+            missing = IOStreams.path("s3://bucket/missing.csv")
+            [false, true].each do |directories|
+              calls = 0
+              error = assert_raises(IOStreams::Errors::NotFound) do
+                IOStreams.path("s3://bucket/reports").each_child("a.csv", directories: directories) do |_child|
+                  calls += 1
+                  missing.size
+                end
+              end
+
+              assert_equal missing.display_name, error.display_name
+              assert_equal 1, calls
+            end
+          end
+        end
+      end
+
+      describe "listing pages of upto two objects" do
+        let(:keys) { %w[d/a.csv d/b.csv d/c.txt d/sub/d.csv d/sub/e.csv d/sub/f.csv d/sub/g.csv d/z/h.csv] }
+
+        before do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          S3Stub.install(page_size: 2)
+          keys.each { |key| IOStreams.path("s3://bucket").join(key).write("data") }
+        end
+
+        after do
+          S3Stub.uninstall
+        end
+
+        # Returns [Array<Hash>] the parameters of each listing that the block requests.
+        def listings(path)
+          path.client.api_requests.clear
+          yield
+          path.client.api_requests.filter_map { |request| request[:params] if request[:operation_name] == :list_objects_v2 }
+        end
+
+        it "returns the children from every page" do
+          directory = IOStreams.path("s3://bucket/d")
+
+          assert_equal keys.grep(/\.csv\z/), directory.children("**/*.csv").map(&:path).sort
+          assert_equal(%w[d/sub d/z], directory.children("*", directories: true).map(&:path).reject { |path| path.include?(".") })
+        end
+
+        it "lists only the keys directly within the directory for a pattern that cannot match below it" do
+          directory = IOStreams.path("s3://bucket/d")
+          children  = nil
+          requests  = listings(directory) { children = directory.children("*.csv") }
+
+          assert_equal %w[d/a.csv d/b.csv], children.map(&:path)
+          # The keys a.csv, b.csv and c.txt, and the common prefixes sub/ and z/, in pages of two.
+          assert_equal 3, requests.size
+          assert(requests.all? { |params| params[:delimiter] == "/" })
+        end
+
+        it "deletes the keys of every page" do
+          IOStreams.path("s3://bucket/d").delete_all
+
+          assert_empty IOStreams.path("s3://bucket").children("**/*", hidden: true)
         end
       end
 
@@ -846,6 +1143,13 @@ module Paths
 
           assert_instance_of Aws::S3::Errors::NoSuchBucket, error
           assert_equal "s3://missing-bucket/reports", error.display_name
+        end
+
+        it "is not a path that exists, or a directory, for a bucket that does not exist" do
+          path = IOStreams::Paths::S3.new("s3://missing-bucket", client: stub_client(list_objects_v2: "NoSuchBucket"))
+
+          refute_predicate path, :exist?
+          refute_predicate path, :directory?
         end
 
         it "raises NotFound when an exact child is in a bucket that does not exist" do
@@ -897,16 +1201,15 @@ module Paths
           assert_instance_of Aws::S3::Errors::InternalError, error
         end
 
-        it "raises NotFound for an upload in parts to a bucket that does not exist" do
+        it "is NotFound for an upload in parts to a bucket that does not exist, which the AWS SDK raises" do
           client = stub_client(upload_part: "NoSuchBucket")
-          path   = IOStreams::Paths::S3.new("s3://missing-bucket/a.csv", client: client)
           # The AWS SDK only sets the code of an error that it raised for a response.
           part   = assert_raises(Aws::S3::Errors::NoSuchBucket) do
             client.upload_part(bucket: "missing-bucket", key: "a.csv", upload_id: "1", part_number: 1, body: "data")
           end
           parts = Aws::S3::MultipartUploadError.new("multipart upload failed", [part])
 
-          assert_equal IOStreams::Errors::NotFound, path.send(:failure_kind, parts)
+          assert_equal IOStreams::Errors::NotFound, IOStreams::Paths::S3::Failure.kind(parts)
         end
 
         it "does not tag any other failure" do

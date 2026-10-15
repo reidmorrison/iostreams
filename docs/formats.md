@@ -1,64 +1,205 @@
 ---
 layout: default
-title: File Formats
+title: Tabular Formats
 description: >-
-  Converting rows and records to and from CSV, PSV, JSON, Parquet and fixed width files,
-  including format inference, typed values with a schema, and header handling.
+  Reading and writing rows and records of CSV, PSV, JSON, fixed width, Excel and
+  Parquet files, how the format is chosen, and typed values with a schema.
 ---
 
-When reading or writing rows (`:array`) or records (`:hash`), IOStreams converts each line
-to or from the file's tabular format. The following formats are supported:
+**Contents**
 
-* `:csv`   Comma Separated Values
-* `:psv`   Pipe Separated Values
-* `:json`  One JSON document per line
-* `:parquet` Apache Parquet, whose records are typed values, see [Parquet files](#parquet-files)
-* `:fixed` Fixed width columns
-* `:array` Each line is already an array of values
-* `:hash`  Each line is already a hash
+* TOC
+{:toc}
 
-PSV has no way to escape values, so when writing PSV, a `|` within a value is replaced with `:`
-and a line break with a space, so that a value cannot add columns or records.
+When reading or writing rows (`:array`) or records (`:hash`), IOStreams converts each line of the file to or from its
+tabular format:
 
-## Format inference
+| Format | File name | Each row is |
+|--------|-----------|-------------|
+| `:csv` | `.csv` | Comma separated values, quoted as needed. The default, see [CSV and PSV files](#csv-and-psv-files) |
+| `:psv` | `.psv` | Pipe separated values, without quoting, see [CSV and PSV files](#csv-and-psv-files) |
+| `:json` | `.json` | A JSON object on its own line, also called JSON Lines, see [JSON files](#json-files) |
+| `:fixed` | `.fixed`, or `format(:fixed)` | Fields at fixed positions in the line, see [Fixed width files](#fixed-width-files) |
+| `:parquet` | `.parquet` | A row of an Apache Parquet file, which has no lines, see [Parquet files](#parquet-files) |
 
-The format is inferred from the file name when it contains a recognized extension:
+A spreadsheet, `.xlsx` or `.xlsm`, is read and written as CSV, one line for each row of its worksheet, see
+[Excel spreadsheets](#excel-spreadsheets).
+
+## How the format is chosen {#format-inference}
+
+The format of a file comes from the extensions of its name, after its first `.`, whatever their case, and the last one
+that is a format wins, so `people.csv.gz` and `PEOPLE.CSV.PGP` are CSV, and `data.json.txt` is JSON:
 
 ~~~ruby
 IOStreams.path("sample.csv").each(:hash) { |record| p record }
-IOStreams.path("sample.json").each(:hash) { |record| p record }
-IOStreams.path("sample.psv").each(:hash) { |record| p record }
+IOStreams.path("sample.json.gz").each(:hash) { |record| p record }
 ~~~
 
-The format extension can appear anywhere in the file name, so `sample.csv.gz` and
-`sample.json.pgp` are recognized as CSV and JSON respectively.
+The name of a directory, and the name of the file before its first `.`, are never its format, so `json/data.txt` and
+`hash.txt` are not JSON or `:hash`. A file whose name has no format extension is CSV, the default, and a spreadsheet is
+always CSV, whatever the rest of its name says.
 
-When the file name does not contain a recognized format extension, the format defaults to `:csv`.
+### Setting the format {#specifying-the-format}
 
-## Specifying the format
-
-When the file name cannot be used to infer the format, set it explicitly with `format`:
-
-~~~ruby
-path = IOStreams.path("sample_data")
-path.format(:json)
-path.each(:hash) { |record| p record }
-~~~
-
-`format` can be chained with the other path methods:
+When the file name does not name the format, set it on the path with `#format`, which takes a Symbol, or the name of a
+format as a String, such as one held in configuration:
 
 ~~~ruby
 IOStreams.path("sample_data").format(:json).each(:hash) { |record| p record }
+
+IOStreams.path(ENV.fetch("PEOPLE_PATH")).format(ENV.fetch("PEOPLE_FORMAT", "csv")).each(:hash) { |person| p person }
 ~~~
 
 The format describes the file, so it is set on the path, rather than supplied to each call of `#each`, `#reader` or
-`#writer`, which raises `ArgumentError` for `format:`.
+`#writer`, which raises `ArgumentError` for `format:`. `#format` without an argument returns the format of the path,
+or nil when neither the file name nor `#format` names one, and the file is read as CSV.
+
+## Records and rows without a schema
+
+Without a [schema](#schema), every value is read as text, and written as its text:
+
+* `each(:hash)` keys each record by the columns of the header row, cleansed: lower case, with spaces and dashes
+  replaced with `_`, and other punctuation removed, while letters and digits of any language are kept. So the column
+  `First Name` is the key `first_name`, `Zip-Code` is `zip_code`, `Amount ($)` is `amount_`, and `Prénom` is `prénom`.
+  A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are.
+* `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
+  its first row is a header row of the keys of its first record, and each row after it the values of a record in
+  that order, see [JSON files](#json-files).
+* `writer(:hash)` takes the header row from the keys of the first record, so the values of a key that only a later
+  record has are not written, except in JSON, where each record is written with its own keys.
+* `writer(:array)` takes the first row written as the header row, which JSON writes no line for, since it only names
+  the key of each value of the rows after it.
+* A blank line is yielded as `nil`.
+
+## CSV and PSV files
+
+CSV values are quoted when they hold a comma, a quote or a line break, so a quoted value can hold a line break, which
+stays within its row, see [Lines](streams#lines). `each(:array)` and `each(:hash)` read CSV a line at a time, and
+parse each line directly, which is several times faster than `CSV.parse_line`, while giving the same values.
+
+PSV separates values with `|`, and has no quoting, so it is simpler and a little faster to parse. Since a value cannot
+hold a `|` or a line break, writing PSV replaces a `|` within a value with `:`, and a line break with a space, so that a
+value cannot add columns or records:
+
+~~~ruby
+IOStreams.path("example.psv").writer(:hash) do |io|
+  io << {"name" => "Jack", "note" => "a|b\nc"}
+end
+
+IOStreams.path("example.psv").read
+# => "name|note\nJack|a:b c\n"
+~~~
+
+In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String.
+
+## JSON files
+
+A JSON file holds one JSON object on each line, the format called JSON Lines, so that it can be read a record at a
+time. A file that holds one JSON array of every record is not supported, since it would have to be read whole.
+
+Each record is read with its own keys, as they are in the file, and its values keep their JSON types: a number is an
+Integer or a Float, and `true`, `false` and `null` are `true`, `false` and `nil`. A line that is not an object, such
+as `[1, 2]`, raises `IOStreams::Errors::TypeMismatch`, and a line of `null` or `{}` is read as `nil`, like a blank
+line. Writing writes each record as a JSON object, with a `BigDecimal`, `Date` or `Time` as its usual text, see
+[Values without a field](#values-without-a-field).
+
+A JSON file has no header row, so the first row that `each(:array)` yields is a header row of the keys of its first
+record, and each row after it holds the values of a record in that order, `nil` for a key that it does not have:
+
+~~~ruby
+# people.json holds:
+# {"name":"Jack","age":21}
+# {"name":"Jill"}
+IOStreams.path("people.json").each(:array) { |row| p row }
+# ["name", "age"]
+# ["Jack", 21]
+# ["Jill", nil]
+~~~
+
+A record with a key that the first record does not have raises `IOStreams::Errors::InvalidHeader`, since no row has a
+column for it, so read records whose keys vary with `each(:hash)`, or describe them with a [schema](#schema) whose
+[`fieldsMatch`](#fieldsmatch) is `"superset"`. With a schema, each row is the values of its fields, in order, without
+a header row.
+`writer(:array)` takes the first row written as the header row, which names the key of each value of the rows after
+it, without a line of its own, so that the rows read can be written again, or copied into another format, see
+[Copying and moving](copy_files):
+
+~~~ruby
+IOStreams.path("people.json").writer(:array) do |io|
+  io << ["name", "age"]
+  io << ["Jack", 21]
+end
+
+IOStreams.path("people.json").read
+# => "{\"name\":\"Jack\",\"age\":21}\n"
+~~~
+
+## Excel spreadsheets
+
+A spreadsheet is read as CSV, one line for each row of its first worksheet, so the `:line`, `:array` and `:hash` modes
+apply, and a [schema](#schema) can give the type of each column:
+
+~~~ruby
+IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
+  p record
+end
+~~~
+
+Each cell is read as its text: a date as `2026-01-02`, a time as its time of day in UTC, such as
+`2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, and a number as Excel stores it, as a decimal,
+such as `1.0` or `12.5`, which an `integer` field reads as `1`. A date in a custom number format, such as one written
+with `auto_format: true`, reads as a time, such as `2026-01-02T00:00:00Z`, which a `date` field does not read: only
+Excel's built-in date formats read as a date. Reading needs the `creek` gem.
+
+Writing writes the CSV text of each row into the cells of a workbook with one worksheet, with the `xlsxtream` gem:
+
+~~~ruby
+IOStreams.path("report.xlsx").writer(:hash) do |io|
+  io << {"name" => "Jack", "zip" => "01234"}
+  io << {"name" => "Jill", "zip" => "98101"}
+end
+~~~
+
+Every cell is written as text by default, so that reading the spreadsheet returns the same values, such as the leading
+zero of `"01234"`, with these exceptions:
+
+* Empty cells at the end of a row are not stored, so they read back as missing values, which are nil, as for CSV.
+* A row of only empty cells reads back as an empty line, which `each(:array)` and `each(:hash)` yield as nil.
+* A carriage return within a value reads back as a newline, since XML reads a line break within text as a newline.
+
+The writer accepts these options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
+| `auto_format` | `false` | Write values that look like numbers, dates, times or booleans, such as `"1.5"`, `"2026-10-09"` or `"true"`, as Excel numbers, dates and booleans. Such values may then read back differently, such as `"01234"` as `"1234.0"`. |
+| `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
+
+~~~ruby
+IOStreams.path("report.xlsx").option(:xlsx, sheet_name: "Totals", auto_format: true).writer(:array) do |io|
+  io << ["region", "total"]
+  io << ["West", 1250.75]
+end
+~~~
+
+Notes:
+
+* Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
+  since it always reads the first worksheet.
+* Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
+  file first, and its rows are converted into CSV in a second temp file, since the `creek` gem returns them to a
+  block. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
+* On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
+  with `use_shared_strings: true`, as Excel does.
 
 ## Schema
 
 A schema gives the fields of the rows and records of a file, and the type of each one, so that reading them returns
 each value as its type, such as an `Integer` or a `Date`, rather than as text, and writing them writes each value in
 the text form of its type. It applies to every format, and gives the position of each field of a fixed width file.
+Its fields name the keys of the records read, and say which columns a file can have and must have, so that the keys
+do not depend on how cleansing changes a column, such as `Amount ($)` and `Amount (€)`, which both cleanse to
+`amount_`.
 
 A schema is a [Frictionless Table Schema](https://datapackage.org/standard/table-schema/), set on the path with
 `#schema`, either as a Hash:
@@ -73,7 +214,7 @@ path = IOStreams.path("people.csv").schema(
   ]
 )
 path.each(:hash) { |person| p person }
-# => {"id" => 42, "joined" => #<Date: 2026-10-13>}
+# => {"id" => 42, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>}
 ~~~
 
 Or as the path or url of a JSON file that holds it, in any store that IOStreams reads, so that the schema can be held
@@ -104,7 +245,7 @@ path.read
 # => "id,pay,joined,active\n42,12.50,2026-10-13,true\n"
 
 path.each(:hash) { |person| p person }
-# => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13>, "active" => true}
+# => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>, "active" => true}
 ~~~
 
 A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
@@ -121,11 +262,11 @@ file, the deprecated options of each call that describe them without a schema, s
 | Type | Read as | Written as |
 |------|---------|------------|
 | `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
-| `integer` | an `Integer`, from text such as `42`, `-12` or `0042` | `42` |
+| `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
-| `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` | ISO 8601, or text in its `format` |
+| `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, see [Values without a field](#values-without-a-field) |
 
 A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
@@ -155,10 +296,10 @@ Each column of the header row, or key of a JSON record, is matched to the field:
    punctuation, and with the forms of a character that Unicode treats as the same made the same. So the field
    `first_name` matches the columns `First Name`, `FIRST.NAME` and `firstname`, the field `email` matches `E-mail`,
    and `id` matches the full width `ＩＤ` that some spreadsheets have.
-4. Whose name or alias is the same as the column once both are cleansed as `cleanse_header` cleansed a header row, and
-   then compared the same way. Cleansing drops the characters that Unicode otherwise makes digits, such as `²`, `½`
-   and `①`, so that a field named as `cleanse_header` named its column, such as `area_m` for `Area (m²)`, matches
-   it, as `area_m2` does.
+4. Whose name or alias is the same as the column once both are cleansed as a header row is cleansed without a
+   schema, see [Records and rows without a schema](#records-and-rows-without-a-schema), and then compared the same
+   way. Cleansing drops the characters that Unicode otherwise makes digits, such as `²`, `½` and `①`, so that a
+   field named as the cleansed column, such as `area_m` for `Area (m²)`, matches it, as `area_m2` does.
 
 The columns are matched once, when the header row is read, or once for each set of keys of the JSON records, which
 are usually the same for every record, rather than for each value.
@@ -166,8 +307,9 @@ are usually the same for every record, rather than for each value.
 The keys of the records read are the names of their fields as they are given, so a field named with a Symbol, such as
 `name: :id`, returns the key `:id`, whatever the column of the file is called. For a format with a header row, such
 as CSV, `each(:array)` returns a header row of the names of the fields of its columns, and then the values of those
-fields of each row, in the order of the fields. JSON and fixed width return each record as a Hash, as they do without
-a schema. A column that the schema does not list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
+fields of each row, in the order of the fields. A file without a header row, such as JSON, Parquet or fixed width,
+returns no header row: each row is the values of every field, in order, `nil` for a key that a JSON record does not
+have. A column that the schema does not list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
 
 A column that could be either of two fields raises `IOStreams::Errors::InvalidHeader`, rather than guess, such as
 `amount` for the fields `Amount ($)` and `Amount (€)`, which match their own columns exactly. So do two columns that
@@ -246,7 +388,7 @@ schema = {
 }
 IOStreams.path("upload.csv").schema(schema).each(:hash) { |contact| p contact }
 # "E-mail Address,FIRST NAME,DOB,Notes" =>
-# {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03>}
+# {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>}
 ~~~
 
 IOStreams does not support the other constraints of Frictionless yet, such as `maxLength`, so they raise
@@ -323,7 +465,7 @@ format, and it can also be compressed or encrypted, such as `data.parquet.pgp`. 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
   p record
-  # => {"id" => 1, "name" => "Jack", "amount" => 0.1235e2, "born" => #<Date: 2000-02-29>}
+  # => {"id" => 1, "name" => "Jack", "amount" => 0.1235e2, "born" => #<Date: 2000-02-29 ((2451604j,0s,0n),+0s,2299161j)>}
 end
 ~~~
 
@@ -392,7 +534,14 @@ written: an integer outside the range of an `int64`, or a number with more digit
 
 A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
-UTF-8. Like JSON, each row of the `:array` mode is a `Hash` for now.
+UTF-8. Like JSON, it has no header row, so without a schema the first row that `each(:array)` yields is a header row
+of its columns, and with a schema each row is the values of its fields, in order, without a header row:
+
+~~~ruby
+IOStreams.path("s3://bucket/people.parquet").each(:array) { |row| p row }
+# ["id", "name", "amount", "born"]
+# [1, "Jack", 0.1235e2, #<Date: 2000-02-29 ((2451604j,0s,0n),+0s,2299161j)>]
+~~~
 
 ## Fixed width files
 
@@ -416,6 +565,14 @@ Writing a fixed width file uses the same schema to render each record:
 path.writer(:hash) do |io|
   io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
 end
+~~~
+
+A fixed width file has no header row, so each row that `each(:array)` yields is the values of the fields, in order,
+and `writer(:array)` takes rows the same way:
+
+~~~ruby
+path.each(:array) { |row| p row }
+# ["Jack Jones", "Somewhere", 12345]
 ~~~
 
 The schema can be held in a file, such as this `people.schema.json`:
@@ -476,7 +633,7 @@ Each `width` counts the characters of the text as it is read, and when writing, 
 padded and truncated to `width` characters. In ASCII, and in a single-byte code page, each character
 is one byte, so the widths count bytes.
 
-Set the encoding of the file with [`#encoding`](extensions#character-encoding) when it is not
+Set the encoding of the file with [`#encoding`](streams#character-encoding) when it is not
 ASCII. An encoding that is set always replaces the ASCII default, and `#raw` reads and writes the bytes as
 they are stored:
 
@@ -523,3 +680,8 @@ too, unless the encoding of the file is set.
 The `:printable` cleaner removes non-printable characters rather than replacing them, even with
 `replace:`, which only replaces invalid characters. So each one it removes moves every column that
 follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
+
+## Rows and records in memory
+
+Two more formats, `:array` and `:hash`, are for rows and records that are already Ruby objects rather than text,
+such as those that another library passes, so they are not used for files.

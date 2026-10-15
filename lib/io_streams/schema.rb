@@ -29,13 +29,15 @@ module IOStreams
   #     Whatever its value, a field whose `constraints` are `required` must be one of the columns, see
   #     `IOStreams::Schema::Field`. A format whose records supply their own keys, such as JSON, applies it to the keys
   #     of each record, in any order. The columns of a file without a header row, see `header`, are the fields in
-  #     order, so it only accepts "exact". A fixed width file always has every field, in order.
+  #     order, so for a format with a header row, such as CSV, it only accepts "exact". A fixed width file always has
+  #     every field, in order.
   #     Default: "exact"
   #
   #   header: [true|false]
   #     Whether the file has a header row, as the `header` of a Frictionless Table Dialect says. When false, the
-  #     columns of the file are the fields, in order: reading takes every line as a row, and writing writes no header
-  #     row, and the fields in order. A format without a header row, such as JSON or fixed width, ignores it.
+  #     columns of a file of a format with a header row, such as CSV, are the fields, in order: reading takes every line
+  #     as a row, and writing writes no header row, and the fields in order, so the schema needs fields, and fieldsMatch
+  #     "exact", see #check_fields_in_order. A format without a header row, such as JSON or fixed width, ignores it.
   #     Default: true
   #
   #   width: [Integer|"remainder"]
@@ -78,6 +80,9 @@ module IOStreams
     UNMATCHED_ASCII  = /[^a-z0-9]/
     UNMATCHED_BINARY = /[^a-z0-9]/n
 
+    # The bytes of the byte order mark that some editors, such as Notepad, write at the start of UTF-8 text.
+    BYTE_ORDER_MARK = "\xEF\xBB\xBF".b
+
     # Returns [Array<IOStreams::Schema::Field>] the fields, in the order of the columns of the file.
     attr_reader :fields
 
@@ -98,10 +103,15 @@ module IOStreams
     # Returns [IOStreams::Schema] the schema of the descriptor read from the supplied path or url, a String or a
     # path, such as `"s3://bucket/schemas/people.json"`, whose text is JSON.
     #
+    # A byte order mark at the start of the text is ignored, as reading lines, rows and records removes it from their
+    # data, since it is not part of the JSON.
+    #
     # Raises ArgumentError when the file is not JSON, or is not a valid schema.
     def self.read(location)
       path = location.is_a?(IOStreams::Stream) ? location : IOStreams.path(location)
       text = path.read
+      # Compared as bytes, since the text is binary when the path is read as it is stored, see IOStreams::Stream#raw.
+      text = text.byteslice(BYTE_ORDER_MARK.bytesize..) if text.byteslice(0, BYTE_ORDER_MARK.bytesize).b == BYTE_ORDER_MARK
       begin
         new(JSON.parse(text))
       rescue JSON::ParserError, ArgumentError => e
@@ -241,10 +251,59 @@ module IOStreams
     #
     #   last: [String]
     #     What the values of a row come after, "field" or "column", for the message.
-    def check_unknown(unknown, noun:, last: "field")
+    #
+    #   fields_in_order: [true|false]
+    #     Whether the columns of the file are the fields in order, see #check_fields_in_order, so that the message says
+    #     why `header: false` does not accept them, rather than suggest a `fieldsMatch` that it does not accept.
+    def check_unknown(unknown, noun:, last: "field", fields_in_order: false)
       return if unknown.empty? || skip_unknown?
 
-      raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{unknown_problem(unknown, noun, last)}")
+      problem = unknown_problem(unknown, noun, last: last, fields_in_order: fields_in_order)
+      raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{problem}")
+    end
+
+    # Raises `IOStreams::Errors::InvalidHeader` unless the columns of a header row that is written before its rows, see
+    # `IOStreams::Schema::Columns#match_written`, match the fields: a column that is not a field raises, unless
+    # `fieldsMatch` skips it, see #check_unknown, and so does a header row without a column that is a field, whatever
+    # `fieldsMatch` is, as reading with "partial" needs at least one, since the rows after it would have no value for
+    # any field, such as when the first row written is a row of values rather than a header row.
+    #
+    # Parameters:
+    #   found: [Array<IOStreams::Schema::Field>]
+    #     The fields of the columns, see #check_columns.
+    #
+    #   unknown: [Array]
+    #     The columns that are not fields.
+    #
+    #   fields_in_order: [true|false]
+    #     See #check_unknown.
+    def check_written_columns(found, unknown, fields_in_order: false)
+      check_unknown(unknown, noun: "column", fields_in_order: fields_in_order)
+      return unless found.empty?
+
+      columns =
+        if unknown.empty?
+          "it has no columns"
+        else
+          "#{describe(unknown, 'column')} #{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the schema"
+        end
+      raise(IOStreams::Errors::InvalidHeader, "#{subject('column')} #{columns}, so the rows after it would have no value " \
+                                              "for any field. The first row written is the header row of the rows after " \
+                                              "it, which names the column of each of their values, so write the names " \
+                                              "of the fields, or of their columns, first")
+    end
+
+    # Raises ArgumentError unless the columns of a file can be the fields in order, as they are for a format with a
+    # header row, such as CSV, whose file has none, see `header` above: the schema needs fields, and `fieldsMatch`
+    # "exact", since a file without a header row has no names to match its columns by. A format without a header row,
+    # such as JSON, ignores `header`, so these rules only apply to a format with one, once it is known, see
+    # `IOStreams::Schema::Columns#match_fields`.
+    def check_fields_in_order
+      raise(ArgumentError, "A schema with header: false needs fields, which are the columns of the file") if fields.empty?
+      return if fields_match == "exact"
+
+      raise(ArgumentError, "A schema with header: false has the fields in order, so fieldsMatch must be \"exact\": " \
+                           "#{fields_match.inspect}")
     end
 
     # Returns [Array] the columns of a file that its fields are read from, in the order of the columns, for a reader that
@@ -295,15 +354,16 @@ module IOStreams
     end
 
     # Returns [String] why the columns, keys or values are not accepted, and the values of `fieldsMatch` that skip them,
-    # unless the schema has no header row, whose columns are the fields in order, so that it only accepts "exact".
-    def unknown_problem(unknown, noun, last = "field")
+    # unless the columns of the file are the fields in order, see #check_fields_in_order, so that it only accepts
+    # "exact".
+    def unknown_problem(unknown, noun, last: "field", fields_in_order: false)
       text =
         if noun == "value"
           "#{unknown.size} #{plural('value', unknown)} after the last #{last}"
         else
           "#{describe(unknown, noun)} #{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the schema"
         end
-      unless @header
+      if fields_in_order
         return "#{text}, which a schema with header: false does not accept, since its columns are the fields in order"
       end
 
@@ -410,9 +470,6 @@ module IOStreams
     def check_header(header)
       return true if header.nil?
       raise(ArgumentError, "The schema header must be true or false: #{header.inspect}") unless [true, false].include?(header)
-      if !header && @fields.empty?
-        raise(ArgumentError, "A schema with header: false needs fields, which are the columns of the file")
-      end
 
       header
     end
@@ -422,10 +479,6 @@ module IOStreams
 
       unless FIELDS_MATCH.include?(fields_match)
         raise(ArgumentError, "The schema fieldsMatch must be one of #{sentence(FIELDS_MATCH.map(&:inspect))}: " \
-                             "#{fields_match.inspect}")
-      end
-      if !@header && fields_match != "exact"
-        raise(ArgumentError, "A schema with header: false has the fields in order, so fieldsMatch must be \"exact\": " \
                              "#{fields_match.inspect}")
       end
 

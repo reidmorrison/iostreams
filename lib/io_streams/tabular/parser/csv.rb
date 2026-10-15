@@ -31,10 +31,9 @@ module IOStreams
           parse_line(row)
         end
 
-        # Return the supplied array as a single line CSV string.
-        def render(row, header)
-          array = header.to_array(row)
-          render_array(array)
+        # Returns [String] the values of the row, in the order of its columns, as a single line CSV string.
+        def render(row)
+          render_array(row)
         end
 
         private

@@ -36,8 +36,10 @@ module IOStreams
       #   captures: [Array<Integer>]
       #     File descriptors whose output from gpg is kept, such as its status, see `#captured`.
       #
-      # When the block raises, gpg is stopped before it completes its output from partial data, and the exception
-      # is raised once gpg has exited. The caller's stream is never closed, since it belongs to the caller.
+      # The block finishes gpg, see #finish, once it has read or written what it needs, including when it leaves early,
+      # such as with `break`. Unless the block finishes gpg, such as when it raises, or its thread is killed, gpg is
+      # stopped before it completes its output from partial data, and the exception is raised once gpg has exited.
+      # The caller's stream is never closed, since it belongs to the caller.
       def self.run(command, failure:, input: nil, output: nil, passphrases: {}, captures: [])
         gpg = new(command, failure: failure, input: input, output: output, passphrases: passphrases, captures: captures)
         begin
@@ -51,7 +53,7 @@ module IOStreams
       # open for reading, including the file of a Tempfile. Ruby's read buffer is discarded first, so that gpg starts
       # where the caller would read next.
       def self.readable_file(io)
-        file = local_file(io)
+        file = Utils.local_file(io)
         return unless file&.stat&.file?
 
         file.seek(file.pos)
@@ -65,18 +67,11 @@ module IOStreams
       # Returns [String] the absolute name of the file that the caller's stream reads or writes, for messages,
       # or nil for any other stream.
       def self.file_name(io)
-        file = local_file(io)
+        file = Utils.local_file(io)
         ::File.absolute_path(file.path) if file&.path
       rescue IOError, SystemCallError
         nil
       end
-
-      # Returns [File] the open file of the stream, including the file of a Tempfile, or nil for any other stream.
-      def self.local_file(io)
-        file = defined?(::Delegator) && io.is_a?(::Delegator) ? io.__getobj__ : io
-        file if file.is_a?(::File) && !file.closed?
-      end
-      private_class_method :local_file
 
       def initialize(command, failure:, input:, output:, passphrases:, captures:)
         @failure  = failure
@@ -89,7 +84,7 @@ module IOStreams
         child     = child_ios(file, passphrases, captures)
 
         begin
-          @gpg = ::Process.detach(::Process.spawn(*command, child))
+          @gpg = ::Process.detach(Gpg.spawn(command, child))
         ensure
           # So that each pipe ends once gpg exits. The caller's file belongs to the caller.
           child.each_value { |io| io.close unless io.equal?(file) }
@@ -116,12 +111,16 @@ module IOStreams
         @writer ||= StdinWriter.new(@stdin, @stdout, @output, self)
       end
 
-      # Ends gpg's input, passes the rest of its output on to the caller's output, and waits for gpg to exit.
-      # Raises Pgp::Failure when gpg fails.
+      # Ends gpg's input, and waits for gpg to exit. Raises Pgp::Failure when gpg fails.
+      #
+      # When encrypting, passes the rest of what gpg writes on to the caller's output. When decrypting, reads the rest of
+      # what gpg decrypts, which the block did not read, and discards it, since gpg only exits once all that it writes
+      # has been read, and only checks the integrity and the signature of the data once it has read all of it.
       def finish
-        if @writer
-          @writer.finish
+        if @output
+          writer.finish
         else
+          ::IO.copy_stream(reader, ::File::NULL)
           @stdin&.close
         end
         wait
@@ -152,9 +151,10 @@ module IOStreams
         raise(error)
       end
 
-      # Returns [String] what gpg wrote to the supplied file descriptor, once gpg has finished.
+      # Returns [String] what gpg wrote to the supplied file descriptor, once gpg has finished, otherwise nil, such as
+      # when the caller's input failed while gpg was reading it.
       def captured(descriptor)
-        @texts.fetch(@captured.fetch(descriptor))
+        @texts&.fetch(@captured.fetch(descriptor))
       end
 
       # Returns [String] what gpg is processing, for an error message: the named file, or the stream.

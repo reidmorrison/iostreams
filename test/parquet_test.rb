@@ -109,6 +109,54 @@ class ParquetTest < Minitest::Test
                    read
     end
 
+    it "reads each row as the value of every field of the schema, in order, without a header row" do
+      write
+      rows = []
+      path.schema(schema).each(:array) { |row| rows << row }
+
+      assert_equal expected.map(&:values), rows
+      refute path.schema(schema).reader(:array, &:header?)
+
+      rows = []
+      path.schema(fieldsMatch: "subset", fields: [{name: "Name", type: "string"}, {name: "ID", type: "integer"}]).each(:array) { |row| rows << row }
+
+      assert_equal [["Jack", 1], [nil, 2]], rows
+    end
+
+    it "reads the rows of a file without a schema after a header row of its columns" do
+      write
+      rows = []
+      path.each(:array) { |row| rows << row }
+
+      assert_equal [expected.first.keys, *expected.map(&:values)], rows
+      assert path.reader(:array, &:header?)
+    end
+
+    it "copies the rows of a file without a schema into a CSV file, with its columns as the header row" do
+      write
+      path("people.csv").copy_from(path, mode: :array)
+
+      assert_equal "id,name,amount,ratio,born,at,active\n1,Jack,12.35,0.5,2000-02-29,2026-10-13T00:30:00Z,true\n2,,,,,,\n",
+                   File.read(File.join(dir, "people.csv"))
+    end
+
+    it "writes the rows that it reads into a file with the same records" do
+      write
+      rows = []
+      path.schema(schema).each(:array) { |row| rows << row }
+      path("copy.parquet").schema(schema).writer(:array) { |writer| rows.each { |row| writer << row } }
+
+      assert_equal expected, read(path("copy.parquet"))
+    end
+
+    it "copies its rows into a CSV file, with a header row of the names of the fields" do
+      write
+      subset = {fieldsMatch: "subset", fields: [{name: "name", type: "string"}, {name: "id", type: "integer"}]}
+      path("people.csv").copy_from(path.schema(subset), mode: :array)
+
+      assert_equal "name,id\nJack,1\n,2\n", File.read(File.join(dir, "people.csv"))
+    end
+
     it "reads the columns of a file by the fields of a schema that skips the others" do
       write
       subset = {fieldsMatch: "subset", fields: [{name: "ID", type: "integer"}, {name: "Name", type: "string"}]}
@@ -231,7 +279,36 @@ class ParquetTest < Minitest::Test
     end
 
     it "raises for a number that a decimal cannot hold" do
-      assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "NaN"}]) }
+      error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "NaN"}]) }
+      assert_match(/\AField "amount": .* is not finite, so it cannot be written as a Parquet decimal/, error.message)
+    end
+
+    it "rounds a number to its decimals as CSV writes it" do
+      numbers = {
+        fields: [
+          {name: "pay", type: "number", floatNumber: true, decimals: 2},
+          {name: "whole", type: "number", floatNumber: true, decimals: 0},
+          {name: "amount", type: "number", decimals: 2}
+        ]
+      }
+      values  = [0.125, 0.375, 2.675, 2.5]
+      list    = values.map { |value| {"pay" => value, "whole" => value, "amount" => value} }
+      write(path.schema(numbers), list)
+      write(path("people.csv").schema(numbers), list)
+      csv = read(path("people.csv").schema(numbers))
+
+      assert_equal csv, read
+      assert_equal(values.map { |value| Float(format("%.2f", value)) }, read.map { |record| record["pay"] })
+      assert_equal(values.map { |value| Float(format("%.0f", value)) }, read.map { |record| record["whole"] })
+    end
+
+    it "writes a double that is not finite, whatever its decimals" do
+      doubles = {fields: [{name: "ratio", type: "number", floatNumber: true, decimals: 0}]}
+      write(path.schema(doubles), [{"ratio" => Float::NAN}, {"ratio" => -Float::INFINITY}])
+      ratios = read.map { |record| record["ratio"] }
+
+      assert_predicate ratios.first, :nan?
+      assert_equal(-Float::INFINITY, ratios.last)
     end
 
     it "raises for an integer outside the range of an int64, naming its field, when the record is written" do
@@ -269,6 +346,8 @@ class ParquetTest < Minitest::Test
 
       assert_raises(ArgumentError) { path.each(:hash, delimiter: "\n") { nil } }
       assert_raises(ArgumentError) { path.each(:array, embedded_within: '"') { nil } }
+      error = assert_raises(ArgumentError) { path.each(:hash, buffer_size: 4096) { nil } }
+      assert_equal ":buffer_size cannot be used with the :parquet format, whose rows are not lines of text", error.message
       assert_raises(ArgumentError) { path("other.parquet").schema(schema).writer(:hash, delimiter: "\n") { nil } }
     end
 
@@ -355,6 +434,37 @@ class ParquetTest < Minitest::Test
         assert_equal({compression: "gzip"}, copy.setting(:parquet))
       end
 
+      it "accepts the name of the format as a String, such as from configuration" do
+        assert_equal({compression: "zstd"}, path.option("parquet", compression: "zstd").setting("parquet"))
+      end
+
+      it "is set with #option_or_stream, whether or not streams were set" do
+        assert_equal({compression: "zstd"}, path.option_or_stream(:parquet, compression: "zstd").setting(:parquet))
+        assert_equal({compression: "zstd"}, path.stream(:gz).option_or_stream(:parquet, compression: "zstd").setting(:parquet))
+      end
+
+      it "is kept by #raw, which only changes how the bytes are stored" do
+        target = path.option(:parquet, compression: "zstd").raw
+
+        assert_equal({compression: "zstd"}, target.setting(:parquet))
+        assert_equal({compression: "gzip"}, target.option(:parquet, compression: "gzip").setting(:parquet))
+      end
+
+      it "cannot be changed on a frozen path, nor through the options that it returns" do
+        target = path.option(:parquet, compression: "zstd").freeze
+
+        assert_raises(FrozenError) { target.option(:parquet, compression: "gzip") }
+        assert_raises(FrozenError) { target.setting(:parquet)[:compression] = "gzip" }
+        assert_equal({compression: "zstd"}, target.setting(:parquet))
+      end
+
+      it "is cleared by #join and #directory, since it was set for the file of the original path" do
+        target = IOStreams.path(dir).option(:parquet, compression: "zstd")
+
+        assert_nil target.join("people.parquet").setting(:parquet)
+        assert_nil target.directory.setting(:parquet)
+      end
+
       it "is set with #stream as with #option, without stopping the streams taken from the file name" do
         target = path("people.parquet.gz").schema(schema).stream(:parquet, compression: "zstd")
         write(target)
@@ -438,6 +548,27 @@ class ParquetTest < Minitest::Test
         partial = {fieldsMatch: "partial", fields: [{name: "missing", type: "string"}]}
 
         assert_raises(IOStreams::Errors::InvalidHeader) { read_columns(path.schema(partial)) }
+      end
+
+      it "is decided by the reader, which is given the schema as the writer is" do
+        write
+        subset    = IOStreams::Schema.new(fieldsMatch: "subset", fields: [{name: "Name", type: "string"}])
+        requested = []
+        each_row  = ::Parquet.method(:each_row)
+        rows      = []
+        ::Parquet.stub(:each_row, lambda { |file, **options, &block|
+          requested << options[:columns]
+          each_row.call(file, **options, &block)
+        }) do
+          IOStreams::Parquet::Reader.file(File.join(dir, "people.parquet"), schema: subset) do |reader|
+            refute_respond_to reader, :read_only
+            refute_respond_to reader, :labels
+            reader.each { |row| rows << row }
+          end
+        end
+
+        assert_equal [%w[name]], requested
+        assert_equal [{"name" => "Jack"}, {"name" => nil}], rows
       end
 
       it "reads every column when two columns are the same field, so that reading raises" do

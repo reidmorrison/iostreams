@@ -2,40 +2,17 @@
 
 require "net/http"
 require "uri"
-require "cgi"
+# For Time.httpdate, see #mtime.
+require "time"
 module IOStreams
   module Paths
     class HTTP < IOStreams::Path
       autoload :BodyReader, "io_streams/paths/http/body_reader"
+      autoload :ContentCoding, "io_streams/paths/http/content_coding"
+      autoload :Failure, "io_streams/paths/http/failure"
+      autoload :Redirect, "io_streams/paths/http/redirect"
 
       attr_reader :username, :password, :http_redirect_count, :url
-
-      # Requests that do not change the file, so that they can follow a redirect to another host.
-      SAFE_REQUESTS = [Net::HTTP::Get, Net::HTTP::Head].freeze
-      private_constant :SAFE_REQUESTS
-
-      # The kind of failure that each unsuccessful response means, see `IOStreams::Errors::StorageError`.
-      RESPONSE_FAILURES = {
-        Net::HTTPNotFound                    => Errors::NotFound,
-        Net::HTTPGone                        => Errors::NotFound,
-        Net::HTTPUnauthorized                => Errors::PermissionDenied,
-        Net::HTTPForbidden                   => Errors::PermissionDenied,
-        Net::HTTPProxyAuthenticationRequired => Errors::PermissionDenied,
-        Net::HTTPRequestTimeout              => Errors::Unavailable,
-        Net::HTTPTooManyRequests             => Errors::Unavailable,
-        Net::HTTPInternalServerError         => Errors::Unavailable,
-        Net::HTTPBadGateway                  => Errors::Unavailable,
-        Net::HTTPServiceUnavailable          => Errors::Unavailable,
-        Net::HTTPGatewayTimeout              => Errors::Unavailable
-      }.freeze
-      private_constant :RESPONSE_FAILURES
-
-      # The exceptions that a request raises when the server cannot be reached, or the connection to it fails.
-      NETWORK_ERRORS = [
-        EOFError, SocketError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, Errno::ECONNABORTED,
-        Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::EPIPE, Errno::ETIMEDOUT
-      ].freeze
-      private_constant :NETWORK_ERRORS
 
       # The password, the query `parameters`, which can hold an access key, and the cookie headers, see
       # IOStreams::Path.redact_options. The authentication headers, such as "Authorization", "Proxy-Authorization",
@@ -51,7 +28,7 @@ module IOStreams
       #   url: [String]
       #      URI of the file to download.
       #     Example:
-      #       https://www5.fdic.gov/idasp/Offices2.zip
+      #       https://example.com/files/data.zip
       #       http://hostname/path/file_name
       #
       #     Full url showing all the optional elements that can be set via the url:
@@ -80,7 +57,7 @@ module IOStreams
       #
       #   allow_hosts: [String | Array<String>]
       #     Optional allow-list of host names that may be contacted, applied to the
-      #     supplied url and to every redirect that is followed.
+      #     supplied url and to every redirect that is followed. Names are compared without case.
       #     When supplied, a request to any other host raises CommunicationsFailure.
       #     Use this to limit Server Side Request Forgery (SSRF) exposure when the url
       #     can be influenced by untrusted input.
@@ -90,6 +67,8 @@ module IOStreams
       #     Optional maximum number of bytes to download.
       #     When the response body exceeds this size the download is aborted with a
       #     CommunicationsFailure, protecting against unbounded (denial of service) responses.
+      #     A body that the server compressed while it sent it is also limited to this size once
+      #     it is decompressed, since a small body can decompress to far more data.
       #     Only applies when reading: writing to a path with a maximum_file_size raises ArgumentError.
       #     Default: nil (no limit).
       #
@@ -97,7 +76,9 @@ module IOStreams
       #     Optional headers to add to every request, for example
       #     `{"Authorization" => "Bearer token"}`, or `{"Content-Type" => "text/csv"}` when writing.
       #     Since any header may hold a credential, such as `X-Api-Key`, none of them are resent
-      #     when a redirect points at a different scheme, host, or port.
+      #     when a redirect points at a different scheme, host, or port, apart from an `Accept-Encoding`.
+      #     An `Accept-Encoding`, such as `{"Accept-Encoding" => "identity"}`, is sent instead of the one
+      #     that reading chooses, see #stream_reader, and the body is then read as it is sent.
       #     Default: nil (no additional headers).
       #
       # Security notes:
@@ -106,19 +87,23 @@ module IOStreams
       #   redirects with `http_redirect_count: 0`) when the url is not fully trusted.
       # - Basic authentication credentials, and the supplied headers, are only sent to the original
       #   host. They are not resent when a redirect points at a different scheme, host, or port,
-      #   so that a redirect cannot leak the credentials to another server.
+      #   so that a redirect cannot leak the credentials to another server. A supplied `Accept-Encoding`
+      #   is the exception, since it holds no credential, so that the body is still read as it is sent.
       # - A redirect from https to http is not followed, so that the data cannot be read or changed in transit.
       # - When writing or deleting, a redirect is only followed to the same scheme, host, and port, so that a
       #   redirect cannot send the data being uploaded to another server, or delete a file on it.
       # - Each redirect that is followed is logged at info level via `IOStreams.logger`.
       def initialize(url, username: nil, password: nil, http_redirect_count: 10, parameters: nil,
                      allow_hosts: nil, maximum_file_size: nil, headers: nil)
-        uri = URI.parse(url)
+        uri = Utils::URI.parse(url)
         unless %w[http https].include?(uri.scheme)
           raise(
             ArgumentError,
             "Invalid URL. Required Format: 'http://<host_name>/<file_name>', or 'https://<host_name>/<file_name>'"
           )
+        end
+        if uri.host.to_s.empty?
+          raise(Utils::URI.invalid("HTTP", url, "it must name a host, such as 'https://example.org/a.csv'"))
         end
 
         @username            = username || uri.user
@@ -180,13 +165,10 @@ module IOStreams
       end
 
       # Returns [Time] when the file was last modified, from the Last-Modified header of an HTTP HEAD,
-      # or nil when the server does not supply it.
+      # or nil when the server does not supply it, or supplies a value that is not a time, which is logged.
       def mtime
         authorize!
-        send_request(Net::HTTP::Head, url, http_redirect_count) do |response|
-          modified = response["last-modified"]
-          modified && Time.httpdate(modified)
-        end
+        send_request(Net::HTTP::Head, url, http_redirect_count) { |response| last_modified(response["last-modified"]) }
       end
 
       # Returns [true|false] whether the file exists, see `#exist?`. HTTP has no directories, so every url that
@@ -231,14 +213,44 @@ module IOStreams
       # Urls with the same scheme, host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [original_uri.scheme, original_uri.hostname.to_s.downcase, original_uri.port]
 
+      # Returns [String] the parts of the url that identify the file, see `IOStreams::Path#identity`, as the url
+      # `scheme://host:port/path?query`: its store, see #store, so the scheme and the host in lower case, since they are
+      # not case-sensitive, and the port unless it is the default port of the scheme, 80 or 443, then its path and its
+      # query, which can name another file, with their percent-encoded characters spelled as RFC 3986 normalizes them,
+      # see `IOStreams::Utils::URI.normalize_escapes`: so `%7E` is `~`, but `%2F` is not `/`, since a server can answer
+      # them differently. The user name and password are not part of it, since they are credentials rather than part of
+      # the name of the file, nor is the fragment, which is not sent to the server.
+      def identity
+        location(Utils::URI.normalize_escapes(original_uri.path))
+      end
+
+      # Returns [true|false] whether the other url is the same file, see `IOStreams::Path#same_location?`, also by
+      # another spelling that most web servers answer with the same file: with the same #identity once its path is
+      # decoded, see #path, and `.`, `..`, repeated `/` and a trailing `/` are resolved. So unlike #==, a percent-encoded
+      # `/` is the same as `/`, since a server can decode it.
+      def same_location?(other)
+        other.instance_of?(self.class) && other.resolved_location == resolved_location
+      end
+
+      # Returns [String] the #identity of this url with its path resolved, see #same_location?.
+      def resolved_location
+        location(Utils::URI.encode_path(normalize_path(path)))
+      end
+
+      # Returns [String] the path with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`, keeping a
+      # trailing `/`, since a url that ends with it is another url, which a server can answer differently.
+      def clean_name(name)
+        clean = super
+        name.end_with?("/") && !clean.end_with?("/") ? "#{clean}/" : clean
+      end
+
       # Sets the path, also changing the url to use it, for example when called by `#join` or `#directory`.
       #
       # Each directory or file name that is unchanged keeps its encoding from the url, so that for example the
       # directory of `a%2541/b.csv` is still `a%2541`, rather than `a%41` from encoding its decoded name `a%41`.
       #
       # In a new name, such as from `#join`, characters that cannot appear in a url path, such as a space, `?`
-      # or `#`, are percent-encoded in the url. A `%` followed by two hexadecimal digits is assumed to already be
-      # percent-encoded, any other `%` is encoded.
+      # or `#`, are percent-encoded in the url, as is every `%`, since the name is a name rather than part of a url.
       def path=(path)
         super
         uri           = URI.parse(url)
@@ -275,20 +287,34 @@ module IOStreams
         "#{url}?#{[*kept, URI.encode_www_form(parameters)].join('&')}#{hash}#{fragment}"
       end
 
-      # Characters that can appear in a url path, besides `%`, which is assumed to already be percent-encoded.
-      PATH_CHARACTERS = %r{[A-Za-z0-9\-._~!$&'()*+,;=:@/%]}
+      # Characters that can appear in a name in a url path as they are. A `%` cannot, since it starts a percent-encoded
+      # character.
+      PATH_CHARACTERS = %r{[A-Za-z0-9\-._~!$&'()*+,;=:@/]}
       private_constant :PATH_CHARACTERS
 
-      # A `%` that does not start a percent-encoded character.
-      UNENCODED_PERCENT = /%(?![0-9A-Fa-f]{2})/
-      private_constant :UNENCODED_PERCENT
+      # Returns [String] the name with each character that cannot appear in a url path as it is percent-encoded.
+      def escape_path(name)
+        name.each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
+      end
 
-      def escape_path(path)
-        path.gsub(UNENCODED_PERCENT, "%25").
-          each_char.map { |char| char.match?(PATH_CHARACTERS) ? char : URI.encode_uri_component(char) }.join
+      # Returns [String] the url of the supplied path, as a url writes it, on the server of this url, see #store, with the
+      # query of this url, in the spelling that #identity compares.
+      def location(url_path)
+        scheme, host, port = store
+        query              = "?#{Utils::URI.normalize_escapes(original_uri.query)}" if original_uri.query
+        "#{scheme}://#{Utils::URI.host_and_port(host, port, original_uri.default_port)}#{url_path}#{query}"
       end
 
       attr_reader :allow_hosts, :maximum_file_size, :headers
+
+      # Returns [Time] the time of the Last-Modified header, or nil when it is not supplied, or is not a time, which is
+      # logged as a warning via `IOStreams.logger`, since the file can still be read.
+      def last_modified(header)
+        header && Time.httpdate(header)
+      rescue ArgumentError
+        IOStreams.logger&.warn("Ignoring the Last-Modified header of #{display_name}, which is not a time: #{header.inspect}")
+        nil
+      end
 
       # Returns [Hash<String, String>] the supplied headers, frozen.
       def validate_headers(headers)
@@ -301,21 +327,31 @@ module IOStreams
       # Read a file using an http get.
       #
       # For example:
-      #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').reader {|file| puts file.read}
+      #   IOStreams.path('https://example.com/files/data.zip').reader {|file| puts file.read}
       #
       # Read the file without unzipping and streaming the first file in the zip:
-      #   IOStreams.path('https://www5.fdic.gov/idasp/Offices2.zip').raw.reader {|file| puts file.read}
+      #   IOStreams.path('https://example.com/files/data.zip').raw.reader {|file| puts file.read}
       #
       # Notes:
       # * The body is read one chunk at a time as the block reads it, see `BodyReader`, so the connection stays open
       #   while the block runs, and is closed once it returns.
       # * The request is made before the block is called, so that a failure of it, such as a missing file, raises
       #   before the block runs, and before `#copy_from` opens its target.
+      # * A file that is read through streams that neither compress nor encrypt it, such as `data.csv`, is requested
+      #   compressed, so that it is sent faster, and its body is decompressed as it is read, see #compress_in_transit?
+      #   and `ContentCoding`. A Content-Encoding that cannot be decoded raises before the block runs.
       def stream_reader(&)
+        coding  = nil
         request = lambda do |&each_chunk|
-          send_request(Net::HTTP::Get, url, http_redirect_count) { |response| read_body(response, &each_chunk) }
+          send_request(Net::HTTP::Get, url, http_redirect_count) do |response|
+            # Before the body is read, so that a content coding that cannot be decoded raises before the block runs.
+            coding = compress_in_transit? ? ContentCoding.of(response, display_name) : ContentCoding::AS_SENT
+            read_body(response, &each_chunk)
+          end
         end
-        BodyReader.open(request) { |input| builder.reader(input, &) }
+        BodyReader.open(request) do |body|
+          coding.reader(body, maximum_size: maximum_file_size) { |input| builder.reader(input, &) }
+        end
       end
 
       # Write a file using an http put.
@@ -332,17 +368,13 @@ module IOStreams
       # * Only a 307 or 308 redirect to the same scheme, host, and port is followed when writing.
       #   The other redirects change the request into a GET, which would discard the upload, and
       #   a redirect to another server would send it the data being uploaded.
-      def stream_writer(&block)
+      def stream_writer(&)
         if maximum_file_size
           raise(ArgumentError, "maximum_file_size: only applies when reading from an HTTP path, not when writing")
         end
 
-        Utils.private_temp_file("iostreams_http", purpose: "the upload to #{display_name}") do |file_name|
-          upload = -> { send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil } }
-          Utils.finish_or_abort(finish: upload) do
-            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          end
-        end
+        upload = ->(file_name) { send_request(Net::HTTP::Put, url, http_redirect_count, body_file_name: file_name) { |_response| nil } }
+        spooled_writer("iostreams_http", upload: upload, &)
       end
 
       # Sends the request, following redirects, and returns the result of the block, which is called
@@ -367,9 +399,7 @@ module IOStreams
         tag_failure do
           Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https") do |http|
             request = build_request(request_class, uri)
-            # So that the Content-Length is the size of the file, not of a compressed response.
-            request["Accept-Encoding"] = "identity" if request_class == Net::HTTP::Head
-            body = body_file_name ? ::File.open(body_file_name, "rb") : nil
+            body    = body_file_name ? ::File.open(body_file_name, "rb") : nil
             if body
               request.body_stream    = body
               request.content_length = body.size
@@ -384,7 +414,7 @@ module IOStreams
                 return nil if allow_missing && (response.is_a?(Net::HTTPNotFound) || response.is_a?(Net::HTTPGone))
 
                 if response.is_a?(Net::HTTPRedirection)
-                  redirect = redirect_uri(uri, response, http_redirect_count, request_class)
+                  redirect = redirects.follow(uri, response, http_redirect_count, request_class)
                   # Without reading the body of the redirect.
                   break
                 end
@@ -403,84 +433,76 @@ module IOStreams
         send_request(request_class, redirect, http_redirect_count - 1, body_file_name:, allow_missing:, &block)
       end
 
-      # Returns [Module] the kind of failure that an exception raised by a request means, see `IOStreams::Path#failure_kind`.
-      #
-      # A host that does not resolve is not unavailable, since the same request cannot succeed later.
+      # Returns [Module] the kind of failure that an exception raised by a request means, see `Failure.kind`.
       def failure_kind(exception)
-        return if Utils.unknown_host?(exception)
-
-        Errors::Unavailable if NETWORK_ERRORS.any? { |error_class| exception.is_a?(error_class) }
+        Failure.kind(exception)
       end
 
       # Raises [IOStreams::Errors::CommunicationsFailure] for the unsuccessful response, tagged with the kind of failure
-      # that it means, see `RESPONSE_FAILURES`.
+      # that it means, see `Failure.response_kind`.
       def raise_failure(response, uri)
         message =
           case response
           when Net::HTTPNotFound
-            "Invalid URL: #{without_credentials(uri)}"
+            "Invalid URL: #{loggable(uri)}"
           when Net::HTTPUnauthorized
             "Authorization Required: Invalid :username or :password."
           else
             "Invalid response code: #{response.code}"
           end
         error = Errors::CommunicationsFailure.new(message)
-        kind  = RESPONSE_FAILURES.find { |response_class, _kind| response.is_a?(response_class) }&.last
+        kind  = Failure.response_kind(response)
         raise(kind ? kind.tag(error, display_name) : error)
       end
 
       # Returns [Net::HTTPRequest] the request, with the supplied headers and credentials
-      # when it is sent to the original host.
+      # when it is sent to the original host, and its Accept-Encoding, see #accept_encoding.
       def build_request(request_class, uri)
-        request = request_class.new(uri)
         # Only send headers and credentials to the original host to avoid leaking them via a redirect.
-        if same_origin?(uri)
-          headers.each { |name, value| request[name] = value }
-          request.basic_auth(username, password) if username
+        original        = redirects.same_origin?(uri)
+        accept_encoding = accept_encoding(request_class)
+        # Supplied when the request is created, so that Net::HTTP never decodes the body.
+        request         = request_class.new(uri, accept_encoding ? {"Accept-Encoding" => accept_encoding} : nil)
+        (original ? headers : {}).each do |name, value|
+          request[name] = value unless accept_encoding && name.casecmp?("accept-encoding")
         end
+        request.basic_auth(username, password) if original && username
         request
       end
 
-      # Returns [URI] the location to redirect to, resolved against the current uri.
-      def redirect_uri(uri, response, http_redirect_count, request_class)
-        raise(IOStreams::Errors::CommunicationsFailure, "Too many redirects") if http_redirect_count < 1
+      # Returns [String] the Accept-Encoding of a request whose response body is read, or nil for a PUT or DELETE:
+      # * a HEAD accepts only identity, so that its Content-Length is the size of the file as it is stored;
+      # * a GET sends the Accept-Encoding supplied with `headers:`, and the body is then read as it is sent, see
+      #   #compress_in_transit?. Unlike the other supplied headers it is sent to every host, since it holds no
+      #   credential, so that the body is read the same way after a redirect;
+      # * otherwise a GET asks for a body that the server compresses while it sends it, when #compress_in_transit?,
+      #   and for the file as it is stored when not.
+      def accept_encoding(request_class)
+        return ContentCoding::IDENTITY if request_class == Net::HTTP::Head
+        return unless request_class == Net::HTTP::Get
+        return ContentCoding::ACCEPT_ENCODING if compress_in_transit?
 
-        # Other redirects change the request into a GET, which would discard the body being sent.
-        if !SAFE_REQUESTS.include?(request_class) && !%w[307 308].include?(response.code)
-          raise(
-            IOStreams::Errors::CommunicationsFailure,
-            "Only a 307 or 308 redirect can be followed when writing or deleting, " \
-            "received #{response.code}: #{without_credentials(uri)}"
-          )
-        end
+        supplied_header("accept-encoding") || ContentCoding::IDENTITY
+      end
 
-        location = response["location"]
-        unless location
-          raise(IOStreams::Errors::CommunicationsFailure,
-                "Redirect missing location header: #{without_credentials(uri)}")
-        end
+      # Returns [true|false] whether a GET asks the server to compress the body while it sends it, which is then
+      # decompressed as it is read, see `ContentCoding`: when this path reads its data through streams that neither
+      # compress nor encrypt it, such as `data.csv`, a `.parquet` file, or a url without an extension, and `headers:`
+      # supply neither an Accept-Encoding nor a Range.
+      #
+      # A compressed or encrypted file, such as `data.csv.gz`, and a file read as it is stored, see #raw, are requested
+      # as they are stored: their data does not compress further, a Content-Encoding that the server sends with them,
+      # such as `gzip` for a `.gz` file, belongs to the file as it is stored, which their own streams decode, and a
+      # server that compresses every response would otherwise compress them again. A range of a compressed body
+      # cannot be decompressed on its own, and a server can send the whole file compressed instead of the range, so a
+      # Range asks for the file as it is stored too, as Net::HTTP does.
+      def compress_in_transit?
+        !raw? && !compressed? && !encrypted? && supplied_header("accept-encoding").nil? && supplied_header("range").nil?
+      end
 
-        # Resolve relative redirects against the current uri.
-        new_uri = uri.merge(location)
-
-        if uri.scheme == "https" && new_uri.scheme == "http"
-          raise(
-            IOStreams::Errors::CommunicationsFailure,
-            "Redirect from https to http is not followed: #{without_credentials(uri)} to #{without_credentials(new_uri)}"
-          )
-        end
-
-        # A redirect to another server would send it the data being uploaded, or delete a file on it.
-        if !SAFE_REQUESTS.include?(request_class) && !same_origin?(new_uri)
-          raise(
-            IOStreams::Errors::CommunicationsFailure,
-            "Only a redirect to the same scheme, host and port can be followed when writing or deleting: " \
-            "#{without_credentials(uri)} to #{without_credentials(new_uri)}"
-          )
-        end
-
-        IOStreams.logger&.info("Following HTTP #{response.code} redirect from #{loggable(uri)} to #{loggable(new_uri)}")
-        new_uri
+      # Returns [String] the value of the header supplied with `headers:`, whatever the case of its name, or nil.
+      def supplied_header(name)
+        headers.find { |key, _value| key.casecmp?(name) }&.last
       end
 
       # Validate that the host may be contacted, and that the scheme is still http(s)
@@ -490,10 +512,10 @@ module IOStreams
       def validate_uri!(uri)
         unless %w[http https].include?(uri.scheme)
           raise(IOStreams::Errors::CommunicationsFailure,
-                "Invalid redirect, only http and https are supported: #{without_credentials(uri)}")
+                "Invalid redirect, only http and https are supported: #{loggable(uri)}")
         end
         authorize_location!(http_location(uri)) unless IOStreams.allowed_paths.empty?
-        return if allow_hosts.nil? || allow_hosts.include?(uri.hostname)
+        return if allow_hosts.nil? || allow_hosts.any? { |host| host.to_s.casecmp?(uri.hostname.to_s) }
 
         raise(IOStreams::Errors::CommunicationsFailure, "Host not in the allowed list of hosts: #{uri.hostname}")
       end
@@ -508,25 +530,17 @@ module IOStreams
       # The path is decoded and `.` and `..` resolved, the way most web servers resolve them, so that for
       # example `%2e%2e` cannot be used to leave an allowed path. A backslash is treated as a `/`.
       def http_location(uri)
-        raise(Errors::AccessDenied, "Access denied: #{without_credentials(uri)} has no host") if uri.host.to_s.empty?
+        raise(Errors::AccessDenied, "Access denied: #{loggable(uri)} has no host") if uri.host.to_s.empty?
 
         path = URI.decode_uri_component(uri.path).tr("\\", "/")
         "#{uri.scheme}://#{uri.host.downcase}:#{uri.port}#{normalize_path(path)}".chomp("/")
       rescue ArgumentError => e
-        raise(Errors::AccessDenied, "Access denied to #{without_credentials(uri)}: #{e.message}")
+        raise(Errors::AccessDenied, "Access denied to #{loggable(uri)}: #{e.message}")
       end
 
-      # Returns [String] the uri without any user name or password, for use in error messages.
-      def without_credentials(uri)
-        return uri.to_s unless uri.user
-
-        uri      = uri.dup
-        uri.user = nil
-        uri.to_s
-      end
-
-      # Returns [String] the uri without any user name, password, query or fragment, for logging.
-      # The query is removed since it can hold credentials, such as the signature of a pre-signed url.
+      # Returns [String] the uri without any user name, password, query or fragment, for logging, and for the message
+      # of an error. The query is removed since it can hold credentials, such as the signature of a pre-signed url, or
+      # the `parameters:` supplied to this path.
       def loggable(uri)
         uri          = uri.dup
         uri.user     = nil
@@ -535,16 +549,17 @@ module IOStreams
         uri.to_s
       end
 
-      def same_origin?(uri)
-        original = original_uri
-        uri.scheme == original.scheme && uri.hostname == original.hostname && uri.port == original.port
+      # Returns [IOStreams::Paths::HTTP::Redirect] which redirects the requests of this url follow.
+      def redirects
+        Redirect.new(original_uri, method(:loggable))
       end
 
       def original_uri
         @original_uri_cache[:uri] ||= URI.parse(url)
       end
 
-      # Yields each chunk of the body of the response, raising when it exceeds the maximum file size.
+      # Yields each chunk of the body of the response as it is received, raising when the bytes received exceed the maximum
+      # file size, before any content coding is decoded, see `ContentCoding`.
       #
       # Raises [IOStreams::Errors::CommunicationsFailure], tagged as `Unavailable`, when the connection closes before the
       # whole body has been received, rather than EOFError, which the application would take for the end of the body,

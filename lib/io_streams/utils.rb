@@ -26,15 +26,21 @@ module IOStreams
       redact_hash(options, sensitive_names.map { |name| normalize_option_name(name) })
     end
 
-    # Returns [true|false] whether the exception is a failure to look up a host name that does not resolve, such as a
-    # mistyped host, so that the same request cannot succeed later. A temporary failure of name resolution
-    # (`Socket::EAI_AGAIN`), which is how a DNS outage, or a network without DNS, is reported on Linux, is not.
+    # Returns [Hash] the options of each stream, by its name, such as those supplied to `IOStreams::Stream#stream`, with
+    # the value of each sensitive option replaced with FILTERED, as the format that the block returns for the name of the
+    # stream decides, see `IOStreams::StreamFormat#redact_options`.
     #
-    # Ruby 3.2 does not have `Socket::ResolutionError`, so its `SocketError` is never an unknown host.
-    def self.unknown_host?(exception)
-      return false unless defined?(::Socket::ResolutionError) && exception.is_a?(::Socket::ResolutionError)
+    # Every value of a stream is replaced when the block returns nil, since no format can say which are sensitive, and
+    # options that are not a Hash are replaced whole, since they cannot say which of their values are sensitive. Options
+    # that are nil are kept.
+    def self.redact_streams(streams)
+      streams.to_h do |name, options|
+        next [name, options] if options.nil?
+        next [name, FILTERED] unless options.is_a?(Hash)
 
-      exception.error_code != ::Socket::EAI_AGAIN
+        format = yield(name)
+        [name, format ? format.redact_options(options) : options.transform_values { FILTERED }]
+      end
     end
 
     def self.redact_hash(options, sensitive)
@@ -151,8 +157,46 @@ module IOStreams
       end
     end
 
-    # Returns [String] the absolute name of the local file that the IO reads, so that a reader that only works on
-    # files, such as zip, can open the file itself instead of a temp copy of it.
+    # Returns [true|false] whether the value names a file rather than being an IO: a String, or a Pathname, such as
+    # `Rails.root.join("data.csv")`, so that it is read as the file it names, rather than as an IO.
+    def self.file_name?(value)
+      value.is_a?(String) || (defined?(::Pathname) && value.is_a?(::Pathname)) || false
+    end
+
+    # Returns a copy of the value, whose Hashes, Arrays and Strings are copies too, so that changing the copy, such as
+    # the options of a copy of a path, does not change the value. Any other value, such as a Proc or a Symbol, is
+    # returned as it is.
+    def self.deep_copy(value)
+      case value
+      when Hash then value.to_h { |key, item| [key, deep_copy(item)] }
+      when Array then value.map { |item| deep_copy(item) }
+      when String then value.dup
+      else value
+      end
+    end
+
+    # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that freezing an
+    # object that holds options does not freeze the objects that the caller supplied. Any other value, such as a Proc
+    # or a Symbol, is returned as it is.
+    def self.frozen_copy(value)
+      case value
+      when Hash then value.to_h { |key, item| [frozen_copy(key), frozen_copy(item)] }.freeze
+      when Array then value.map { |item| frozen_copy(item) }.freeze
+      when String then value.frozen? ? value : value.dup.freeze
+      else value
+      end
+    end
+
+    # Returns [File] the open local file that the IO reads or writes: the IO itself when it is a `File`, or the file of
+    # a `Tempfile`, which delegates to it. Returns nil for any other IO, such as a pipe, a socket or a StringIO, and for
+    # a file that is closed.
+    def self.local_file(io)
+      file = defined?(::Delegator) && io.is_a?(::Delegator) ? io.__getobj__ : io
+      file if file.is_a?(::File) && !file.closed?
+    end
+
+    # Returns [String] the absolute name of the local file that the IO reads, see .local_file, so that a reader that
+    # only works on files, such as zip, can open the file itself instead of a temp copy of it.
     #
     # Only when the IO is a regular file at its start, and its name still refers to it, which for example a
     # relative name no longer does after the current directory changes.
@@ -161,10 +205,11 @@ module IOStreams
     # The name is absolute so that it still refers to the file when the current directory changes before the
     # reader opens it.
     def self.local_file_name(io)
-      return unless io.is_a?(::File) && !io.closed? && io.path
+      file = local_file(io)
+      return unless file&.path
 
-      name = ::File.absolute_path(io.path)
-      name if io.stat.file? && io.pos.zero? && ::File.identical?(io, name)
+      name = ::File.absolute_path(file.path)
+      name if file.stat.file? && file.pos.zero? && ::File.identical?(file, name)
     rescue SystemCallError
       nil
     end
@@ -231,9 +276,10 @@ module IOStreams
     # Parses an S3, SFTP or other url whose path is the name of an object or file as it is, see `.escape`.
     #
     # Also answers the parts of such a url, by its bytes, so that a url with a name that is not valid UTF-8 can be
-    # taken apart and put together again, see `.authority`, `.root`, `.without_userinfo_or_query` and `.encode_path`.
+    # taken apart and put together again, see `.authority`, `.split`, `.root`, `.without_userinfo_or_query` and
+    # `.encode_path`.
     class URI
-      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
+      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query, :fragment
 
       # A space, a control character, or a byte of a character that is not ASCII, none of which `::URI` parses.
       UNPARSEABLE_BYTE           = /[^\x21-\x7E]/n
@@ -247,15 +293,18 @@ module IOStreams
       AUTHORITY                  = %r{\A(?<scheme>[^:/?#]+://)(?:(?<userinfo>[^/?#]*)@)?(?<host>[^/?#]*)}n
       # The characters that `.new` reads in a path as an escape, the query or a fragment, see `.encode_path`.
       PATH_DELIMITER             = /[%?#]/n
+      # The characters that RFC 3986 calls unreserved, which a url can hold anywhere as they are, see `.normalize_escapes`.
+      UNRESERVED                 = /\A[A-Za-z0-9\-._~]\z/n
       private_constant :UNPARSEABLE_BYTE, :UNPARSEABLE_PATH_CHARACTER, :UNPARSEABLE_USERINFO_BYTE, :AUTHORITY,
-                       :PATH_DELIMITER
+                       :PATH_DELIMITER, :UNRESERVED
 
       # The user name and password are as they are in the url, including any character that is not ASCII, or `@`,
       # rather than percent-decoded, as they always have been, so that a password such as `p%41ss` is unchanged.
       #
-      # Raises ArgumentError when the host has a space, or a character that is not ASCII.
+      # Raises ArgumentError when the host has a space, or a character that is not ASCII, or when the url cannot be
+      # parsed, see `.parse`.
       def initialize(url)
-        uri       = ::URI.parse(self.class.escape(url))
+        uri       = self.class.parse(self.class.escape(url), name: url)
         @scheme   = uri.scheme
         @hostname = uri.hostname
         # Unlike a query string, `+` in a path is not a space.
@@ -263,10 +312,52 @@ module IOStreams
         @user     = uri.user && ::URI.decode_uri_component(uri.user)
         @password = uri.password && ::URI.decode_uri_component(uri.password)
         @port     = uri.port
+        @fragment = uri.fragment
         return unless uri.query
 
         @query = {}
         ::URI.decode_www_form(uri.query).each { |key, value| @query[key] = value }
+      rescue ::URI::InvalidURIError
+        # Without the url, which can hold a password, as the cause, since its message is the url.
+        raise(ArgumentError, self.class.unparseable(url), cause: nil)
+      end
+
+      # Returns [::URI::Generic] the url parsed by `::URI`.
+      #
+      # Raises ArgumentError when it cannot be parsed, rather than `URI::InvalidURIError`, whose message is the whole
+      # url, which can hold a password, or the signature of a pre-signed url in its query. The message names the url,
+      # or the supplied name of it, without them, see `.redact`.
+      def self.parse(url, name: url)
+        ::URI.parse(url)
+      rescue ::URI::InvalidURIError
+        raise(ArgumentError, unparseable(name), cause: nil)
+      end
+
+      # Returns [ArgumentError] for a url that a path of the kind, such as "S3", cannot use, naming the url without
+      # its user name, password, query or fragment, see `.without_userinfo_or_query`, and the problem with it.
+      def self.invalid(kind, url, problem)
+        ArgumentError.new("Invalid #{kind} url #{Utils.display_text(without_userinfo_or_query(url)).inspect}: #{problem}")
+      end
+
+      # Returns [String] the message for a url that cannot be parsed, see `.parse`.
+      def self.unparseable(url)
+        "Invalid url #{redact(url).inspect}: it cannot be parsed. Percent-encode a character that a url cannot hold, " \
+          "such as a space as '%20'. For an SFTP or HTTP url, supply a user name or password that has a '/', '?' or " \
+          "'#' with the username: and password: arguments."
+      end
+
+      # Returns [String] a url that cannot be parsed without anything that could be its user name, password, query or
+      # fragment, since its parts cannot be told apart: what is before the last `@` after its scheme is replaced with
+      # `[FILTERED]`, and what follows the first `?` or `#` after that is removed. A password can hold a `/`, `?`, `#`
+      # or `@`, so they cannot end it.
+      def self.redact(url)
+        text = Utils.display_text(url.to_s)
+        scheme, separator, rest = text.partition("://")
+        return text.sub(/[?#].*\z/m, "") if separator.empty?
+
+        _userinfo, at, after = rest.rpartition("@")
+        rest = "#{Utils::FILTERED}@#{after}" unless at.empty?
+        "#{scheme}://#{rest.sub(/[?#].*\z/m, '')}"
       end
 
       # Returns [String] the url with each byte that `::URI` cannot parse percent-encoded, to be decoded again with
@@ -288,6 +379,23 @@ module IOStreams
       # `sftp://jack:secret@example.org:2222`, as they are in the url, or an empty string when it has no scheme.
       def self.authority(url)
         AUTHORITY.match(url.b).to_s.dup.force_encoding(url.encoding)
+      end
+
+      # Returns [Array(String, String, String)] the url in three parts, which join to make it again: its scheme, user
+      # name, password, host and port, see `.authority`, its path, as it is written, and its query and fragment, such
+      # as `["s3://bucket", "/data/*.csv", "?request_payer=requester"]`. A name that is not a url is all path.
+      def self.split(url)
+        authority = AUTHORITY.match(url.b)
+        return ["", url, ""] unless authority
+
+        path, rest = authority.post_match.match(/\A([^?#]*)(.*)\z/mn).captures
+        [authority.to_s, path, rest].map { |part| part.force_encoding(url.encoding) }
+      end
+
+      # Returns [String] the name that a path of a url, as it is written, holds, such as `a#b.csv` for `a%23b.csv`,
+      # decoded as `.new` decodes it.
+      def self.decode_path(path)
+        ::URI.decode_uri_component(path)
       end
 
       # Returns [String] the url with the path `/` when it has no path, such as `sftp://host` or `https://host?a=1`,
@@ -316,6 +424,26 @@ module IOStreams
         percent_encode(name.b, PATH_DELIMITER).force_encoding(name.encoding)
       end
 
+      # Returns [String] the host and port as a url writes them, such as `example.org:2222`: an IPv6 address within `[`
+      # and `]`, such as `[::1]:2222`, so that the port is not read as part of it, and without the port when it is the
+      # supplied default port.
+      def self.host_and_port(hostname, port, default_port)
+        host = hostname.include?(":") ? "[#{hostname}]" : hostname
+        port == default_port ? host : "#{host}:#{port}"
+      end
+
+      # Returns [String] the supplied part of a url, such as its path or query, with each percent-encoded character
+      # spelled as RFC 3986 normalizes it: a letter, digit, `-`, `.`, `_` or `~`, which a url can hold anywhere as it is,
+      # is decoded, since it is the same as its percent-encoding, so `%7E` is `~`, and the hexadecimal digits of any
+      # other are in upper case, so `%2f` is `%2F`. Any other character is not the same as its percent-encoding, such as
+      # `/` and `%2F`, so they are kept apart.
+      def self.normalize_escapes(text)
+        text.gsub(/%\h\h/) do |escape|
+          character = escape.delete_prefix("%").hex.chr
+          character.match?(UNRESERVED) ? character : escape.upcase
+        end
+      end
+
       # Returns [String] the scheme, user name, password, host and port of the url that `::URI` can parse.
       def self.escape_authority(authority)
         return "" unless authority
@@ -337,7 +465,7 @@ module IOStreams
         bytes.gsub(pattern) { |byte| format("%%%02X", byte.ord) }
       end
 
-      private_class_method :escape_authority, :percent_encode
+      private_class_method :escape_authority, :percent_encode, :redact
     end
   end
 end

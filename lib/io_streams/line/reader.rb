@@ -3,24 +3,34 @@
 module IOStreams
   module Line
     class Reader < IOStreams::Reader
+      include Enumerable
+
       attr_reader :delimiter, :buffer_size, :line_number
 
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` bytes are read.
       MAX_BLOCKS_MULTIPLIER = 100
 
+      # The size of the blocks read from the input stream, when no `buffer_size` is supplied.
+      DEFAULT_BUFFER_SIZE = 65_536
+
       LINEFEED_REGEXP = /\r\n|\n|\r/
 
-      # Returns [Array<Symbol>] the options that the reader accepts, see #initialize.
+      # Returns [Array<Symbol>] the options that the reader accepts, see #initialize, which are the options of each call
+      # that reads lines, see `IOStreams::Stream#reader`, which raises for any other.
       def self.option_names
         %i[delimiter buffer_size embedded_within]
       end
 
-      # Read a line at a time from a stream
-      def self.stream(input_stream, **args)
-        # Pass-through if already a line reader
-        return yield(input_stream) if input_stream.is_a?(self)
+      # Returns [Array<Symbol>] the options of .option_names that are deprecated: none, since `embedded_within` still
+      # chooses the lines that `each(:line)` returns, although it is deprecated when reading rows and records, see
+      # `IOStreams::Row::Reader.deprecated_option_names`.
+      def self.deprecated_option_names
+        []
+      end
 
-        yield new(input_stream, **args)
+      # Read a line at a time from a stream
+      def self.stream(input_stream, **)
+        yield new(input_stream, **)
       end
 
       # Create a delimited stream reader from the supplied input stream.
@@ -38,12 +48,14 @@ module IOStreams
       #       This delimiter is removed from each line when `#each` or `#readline` is called.
       #     Default: nil
       #       Automatically detect line endings and break up by line
-      #       Searches for the first "\r\n" or "\n" and then uses that as the
-      #       delimiter for all subsequent records.
+      #       Searches for the first "\r\n", "\n" or "\r", such as of a file written on an old Mac, and then uses
+      #       that as the delimiter for all subsequent records. When it is "\r\n", a "\n" also ends a line, and the
+      #       "\r" before it is removed, so that a file whose lines end in both ways, such as a Windows file to which
+      #       a program on Linux added lines, is read line by line.
       #
       #   buffer_size: [Integer]
       #     Size of blocks to read from the input stream at a time.
-      #     Default: 65536 ( 64K )
+      #     Default: nil, which reads DEFAULT_BUFFER_SIZE bytes, 64KB, at a time.
       #
       #   embedded_within: [String]
       #     Supports CSV files where a line may contain an embedded newline.
@@ -52,11 +64,14 @@ module IOStreams
       # Note:
       # * When reached via `IOStreams::Stream`, `embedded_within` defaults to the quote character of the
       #   tabular format (e.g. `"` for CSV). See `IOStreams::Tabular#quote_character`.
-      def initialize(input_stream, delimiter: nil, buffer_size: 65_536, embedded_within: nil)
+      def initialize(input_stream, delimiter: nil, buffer_size: nil, embedded_within: nil)
         super(input_stream)
+        unless buffer_size.nil? || (buffer_size.is_a?(Integer) && buffer_size.positive?)
+          raise(ArgumentError, "Invalid buffer_size #{buffer_size.inspect}: supply the number of bytes to read at a time")
+        end
 
         @embedded_within = embedded_within
-        @buffer_size     = buffer_size
+        @buffer_size     = buffer_size || DEFAULT_BUFFER_SIZE
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         @use_read_cache_buffer = !@input_stream.method(:read).arity.between?(0, 1)
@@ -69,15 +84,21 @@ module IOStreams
         @delimiter         = delimiter
 
         read_block
-        # Auto-detect windows/linux line endings if not supplied. \n or \r\n
+        # Auto-detect windows, linux or old Mac line endings if not supplied: \r\n, \n or \r
         @delimiter ||= auto_detect_line_endings
+        # Lines whose detected ending is "\r\n" also end at a "\n" without a "\r", see #initialize.
+        @crlf = delimiter.nil? && @delimiter == "\r\n"
 
         return unless @buffer
 
         # Change the delimiters encoding to match that of the input stream
         @delimiter = @delimiter.encode(@encoding)
+        @newline   = "\n".encode(@encoding)
         # The delimiter as it is searched for within the buffer, see #buffer_encoding.
-        @separator = @delimiter.dup.force_encoding(@buffer.encoding)
+        @separator = (@crlf ? @newline : @delimiter).dup.force_encoding(@buffer.encoding)
+        @return    = "\r".encode(@encoding).force_encoding(@buffer.encoding) if @crlf
+        # The ending of the last line read, which a line that continues a quoted value is joined with, see #readline.
+        @ending    = @delimiter
       end
 
       # Iterate over every line in the file/stream passing each line to supplied block in turn.
@@ -94,6 +115,14 @@ module IOStreams
           end
         end
         line_count
+      end
+
+      # Writes each line to the writer, see `IOStreams::Line::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,
+      # including a blank line, which is a line of its own.
+      #
+      # Returns [Integer] the number of lines read, see #each.
+      def copy_to(writer)
+        each { |line| writer << line }
       end
 
       # Reads each line per the `delimeter`.
@@ -114,8 +143,8 @@ module IOStreams
                       initial_line_number
                     ))
             end
-            line << @delimiter
-            embedded_count += @delimiter.count(@embedded_within)
+            line << @ending
+            embedded_count += @ending.count(@embedded_within)
             next_line = _readline
             if next_line.nil?
               raise(Errors::MalformedDataError.new(
@@ -133,6 +162,13 @@ module IOStreams
       # Returns whether the end of file has been reached for this stream
       def eof?
         @eof && (@buffer.nil? || @buffer.empty?)
+      end
+
+      # Returns [String] the class and the delimiter of the lines, which the reader detects unless it was supplied,
+      # rather than every instance variable, such as the stream that it reads and the block of data that it holds, so
+      # that irb, which displays what a reader block returns, shows what the documentation describes.
+      def inspect
+        "#<#{self.class.name} delimiter=#{delimiter.inspect}>"
       end
 
       private
@@ -159,7 +195,20 @@ module IOStreams
           @line_number += 1
         end
 
+        data = remove_return(data) if @crlf && data
         data&.force_encoding(@encoding)
+      end
+
+      # Returns [String] the line without the "\r" that ends it, when the line ends with "\r\n", and notes how it
+      # ended, see #readline. A line that ends with "\n" alone keeps every "\r" within it.
+      def remove_return(data)
+        unless data.end_with?(@return)
+          @ending = @newline
+          return data
+        end
+
+        @ending = @delimiter
+        data.byteslice(0, data.bytesize - @return.bytesize)
       end
 
       # Returns whether more data is available to read
@@ -233,24 +282,33 @@ module IOStreams
       def auto_detect_line_endings
         return "\n" if @buffer.nil? && !read_block
 
-        # Could be "\r\n" broken in half by the block size
-        read_block if @buffer[-1] == "\r"
-
-        # Delimiter takes on the encoding from @buffer
-        delimiter = @buffer.slice(LINEFEED_REGEXP)
-        return delimiter if delimiter
-
-        while read_block
+        loop do
           # Could be "\r\n" broken in half by the block size
-          read_block if @buffer[-1] == "\r"
+          read_block if @buffer.end_with?(buffer_text("\r"))
 
-          # Delimiter takes on the encoding from @buffer
-          delimiter = @buffer.slice(LINEFEED_REGEXP)
-          return delimiter if delimiter
+          ending = first_line_ending
+          return ending if ending
+          # One line files with no delimiter
+          return "\n" unless read_block
         end
+      end
 
-        # One line files with no delimiter
-        "\n"
+      # Returns [String] the first line ending in the buffer, "\r\n", "\n" or "\r", or nil when it has none.
+      #
+      # Each ending is searched for in the encoding of the data, rather than with a Regexp, which cannot search text in
+      # an encoding that is not ASCII compatible, such as the UTF-16 of a Windows "Unicode Text" export.
+      def first_line_ending
+        return_at  = @buffer.index(buffer_text("\r"))
+        newline_at = @buffer.index(buffer_text("\n"))
+        return if return_at.nil? && newline_at.nil?
+        return "\n" if return_at.nil? || (newline_at && newline_at < return_at)
+
+        newline_at == return_at + 1 ? "\r\n" : "\r"
+      end
+
+      # Returns [String] the text in the encoding of the buffer, see #buffer_encoding.
+      def buffer_text(text)
+        text.encode(@encoding).force_encoding(@buffer.encoding)
       end
     end
   end

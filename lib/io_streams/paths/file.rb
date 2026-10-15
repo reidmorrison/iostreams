@@ -154,6 +154,8 @@ module IOStreams
         # A name without pattern characters is also matched within its directory, so that `case_sensitive` applies.
         matcher   = Matcher.new(pattern, case_sensitive: case_sensitive, hidden: hidden)
         directory = local_directory(matcher.directory)
+        return unless listable?(directory || ".")
+
         # `Dir.glob` ignores FNM_CASEFOLD on a case-sensitive file system, such as on Linux, so it lists every
         # candidate and the matcher matches the pattern. The directory is supplied as `base`, so that
         # characters such as `[` in its name are not pattern characters.
@@ -163,31 +165,36 @@ module IOStreams
         results    = candidates.filter_map do |name|
           next if %w[. ..].include?(::File.basename(name)) || !matcher.match?(name)
 
-          next ::File.join(directory, name) if directory
-
+          full_name = directory ? ::File.join(directory, name) : name
           # A child of the current directory called `~` is not the home directory.
-          Utils.matchable(name).match?(HOME_DIRECTORY) ? "./#{name}" : name
+          Utils.matchable(full_name).match?(HOME_DIRECTORY) ? "./#{full_name}" : full_name
         end
 
         results.each do |full_path|
           next if !directories && ::File.directory?(full_path)
 
-          child = self.class.new(full_path)
+          child = self.class.new(full_path, create_path: create_path)
           yield(child) if allowed_child?(child)
         end
         nil
       end
 
-      # Moves this file to the `target_path` by copying it to the new name and then deleting the current file.
+      # Moves this file to the `target_path`, renaming it, or copying it when the target is on another file system.
       #
-      # Notes:
-      # - Can copy across buckets.
+      # Raises ArgumentError when the target is the same file, see #same_location?, or is a directory, since another
+      # path cannot move a file onto a directory either.
       def move_to(target_path)
         target = to_stream(target_path)
         return super(target) unless target.is_a?(self.class)
 
         authorize!
         target.authorize!
+        reject_move_onto_itself!(target)
+        if ::File.directory?(target.path)
+          raise(ArgumentError, "Cannot move #{display_name} onto the directory #{target.display_name}: supply the name " \
+                               "of the file within it, such as #{target.join(basename).display_name}")
+        end
+
         target.mkpath
         # The target failed when its directory cannot be written to, otherwise this file did.
         failed = ::File.writable?(::File.dirname(target.to_s)) ? self : target
@@ -244,19 +251,19 @@ module IOStreams
         tag_failure { ::File.directory?(path) ? Dir.empty?(path) : ::File.empty?(path) }
       end
 
+      # A symbolic link is deleted, rather than what it refers to, including one that refers to nothing.
       def delete
         authorize!
-        return self unless exist?
-
-        tag_failure { ::File.directory?(path) ? Dir.delete(path) : ::File.unlink(path) }
+        status = link_status
+        tag_failure { status.directory? ? Dir.delete(path) : ::File.unlink(path) } if status
         self
       end
 
+      # A symbolic link is deleted, rather than what it refers to, and the links within a directory are not followed.
       def delete_all
         authorize!
-        return self unless exist?
-
-        tag_failure { ::File.directory?(path) ? FileUtils.remove_dir(path) : ::File.unlink(path) }
+        status = link_status
+        tag_failure { status.directory? ? FileUtils.remove_dir(path) : ::File.unlink(path) } if status
         self
       end
 
@@ -268,6 +275,22 @@ module IOStreams
         real      = dup
         real.path = tag_failure { ::File.realpath(path) }
         real
+      end
+
+      protected
+
+      # Returns [String] the name of the file, which identifies it, see `IOStreams::Path#identity`, as it is written,
+      # as `Pathname#==` compares it: a relative name is not its absolute name, and the case of each letter counts, even
+      # on a file system that ignores it, such as on macOS, since only the file system knows whether it does.
+      # A `file://` url, or a name within the home directory, `~`, is already its absolute name.
+      def identity
+        path
+      end
+
+      # Returns [true|false] whether the other path is the same file, see `IOStreams::Path#same_location?`, also by
+      # another name, such as a relative name, one with `.` or `..`, or a symbolic link to it, when both exist.
+      def same_location?(other)
+        super || (other.instance_of?(self.class) && ::File.identical?(path, other.path))
       end
 
       private
@@ -291,6 +314,18 @@ module IOStreams
         return (path unless path.empty?) if directory.empty?
 
         path.empty? ? directory : ::File.join(path, directory)
+      end
+
+      # Returns [true|false] whether the directory exists, so that it can be listed: false when it does not exist, or
+      # is a file, as on SFTP and S3.
+      #
+      # Raises [Errno::EACCES] tagged as `IOStreams::Errors::PermissionDenied` when it cannot be read, as SFTP does,
+      # rather than list nothing, as `Dir.glob` does. A directory within it that cannot be read is still skipped.
+      def listable?(directory)
+        tag_failure { Dir.open(directory).close }
+        true
+      rescue Errno::ENOENT, Errno::ENOTDIR
+        false
       end
 
       # Returns [String] a pattern for `Dir.glob` that lists every file within the depth that a pattern can match,
@@ -325,6 +360,14 @@ module IOStreams
         raise(Errors::AccessDenied, "Access denied to #{path}: #{e.message}")
       end
 
+      # Returns [File::Stat] the status of this file or directory, or of a symbolic link itself, rather than what it
+      # refers to, or nil when it does not exist.
+      def link_status
+        tag_failure { ::File.lstat(path) }
+      rescue Errno::ENOENT, Errno::ENOTDIR
+        nil
+      end
+
       # Returns [true|false] whether the file, directory or symbolic link exists, without following the link.
       def present?(file_name)
         ::File.lstat(file_name)
@@ -351,11 +394,10 @@ module IOStreams
       # Note:
       #   If an exception is raised whilst the file is being written to the file is removed to
       #   prevent incomplete / partial files from being created. This includes an exception that is
-      #   not a StandardError, such as `Interrupt`, or the one that `Timeout` raises within its block
-      #   from timeout v0.4, the default from Ruby 3.3. A block that exits with `return`, `break` or
-      #   `throw` completes the file. The file is also removed when the thread writing it is killed,
-      #   see `IOStreams::Utils.finish_or_abort`. A file that could not be opened, such as one that
-      #   cannot be written to, is left as it is.
+      #   not a StandardError, such as `Interrupt`, or the one that `Timeout` raises within its block.
+      #   A block that exits with `return`, `break` or `throw` completes the file. The file is also
+      #   removed when the thread writing it is killed, see `IOStreams::Utils.finish_or_abort`. A file
+      #   that could not be opened, such as one that cannot be written to, is left as it is.
       def stream_writer(&)
         mkpath if create_path
         file = nil

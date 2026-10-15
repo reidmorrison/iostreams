@@ -15,8 +15,10 @@ module IOStreams
       # otherwise a single `put_object` request, like a smaller file.
       MULTIPART_UPLOAD_SIZE = 5 * 1024 * 1024
 
+      autoload :ClientCache, "io_streams/paths/s3/client_cache"
       autoload :Directories, "io_streams/paths/s3/directories"
       autoload :Failure, "io_streams/paths/s3/failure"
+      autoload :Listing, "io_streams/paths/s3/listing"
       autoload :RangeReader, "io_streams/paths/s3/range_reader"
       autoload :Sdk, "io_streams/paths/s3/sdk"
       autoload :Uploader, "io_streams/paths/s3/uploader"
@@ -66,8 +68,11 @@ module IOStreams
       #     IOStreams::Paths::S3.new("s3://bucket/path/file_name.txt", client: { endpoint: "https://s3.test.com" })
       #
       # Any other options are supplied to each S3 request that accepts them, for example `acl` when
-      # writing or copying, and `request_payer` to every request. An option that no request accepts
-      # raises ArgumentError.
+      # writing or copying to this path, and `request_payer` to every request. An option that no request
+      # accepts raises ArgumentError.
+      #
+      # A direct copy within S3, with `convert: false` or `#move_to`, is made with the client and options of
+      # the target, which it writes, and the customer encryption key and `request_payer` of the source.
       #
       # Writer specific options:
       #
@@ -182,32 +187,33 @@ module IOStreams
         uri = Utils::URI.new(url)
         raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"
 
+        validate_url!(uri, url)
         @bucket_name = uri.hostname
         key          = utf8_key(uri.path.delete_prefix("/"))
 
         # The client is created when first used, and is shared by copies of this path, such as from `#join`.
-        # It is held in a Hash so that it is also created when this path is frozen, for example a root path.
-        @client_cache = {}
-        if client && !client.is_a?(Hash)
-          @client_cache[:client] = client
-        else
-          @client_options                     = client.is_a?(Hash) ? client.dup : {}
-          @client_options[:access_key_id]     = access_key_id if access_key_id
-          @client_options[:secret_access_key] = secret_access_key if secret_access_key
-          @client_options[:region]            = region if region
-        end
+        @client_cache = ClientCache.new(client, access_key_id: access_key_id, secret_access_key: secret_access_key,
+                                                region: region)
 
-        @options = args
+        # A copy of each option, so that a Hash supplied as an option, such as `metadata:`, is not shared, see #options.
+        @options = Utils.deep_copy(args)
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
-        validate_options!
+        Sdk.check_options(options.keys)
 
         super(key)
       end
 
+      # Freezes the options too, see #options and `IOStreams::Path#freeze`.
+      def freeze
+        @options = Utils.frozen_copy(@options)
+        super
+      end
+
       # Returns [String] the url of this path, with each `%`, `?` and `#` in the key percent-encoded, so that the
-      # path can be created again from its url, see `IOStreams::Utils::URI.encode_path`.
+      # path can be created again from its url, see `IOStreams::Utils::URI.encode_path`. The key is as it is, so that
+      # a key that starts with `/`, which S3 can hold, is `s3://bucket//a.csv`, rather than the key `a.csv`.
       def to_s
-        ::File.join("s3://", bucket_name, Utils::URI.encode_path(path))
+        "s3://#{bucket_name}/#{Utils::URI.encode_path(path)}"
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -218,7 +224,8 @@ module IOStreams
       def delete
         Sdk.load
         authorize!
-        unless_not_found(nil) { request(:delete_object, bucket: bucket_name, key: path) }
+        # The bucket itself is a directory, which, like any other, has no object to delete, see #delete_all.
+        unless_not_found(nil) { request(:delete_object, bucket: bucket_name, key: path) } unless path.empty?
         self
       end
 
@@ -233,29 +240,33 @@ module IOStreams
       def delete_all
         authorize!
         delete if file_key?
-        each_page(directory_prefix) { |page| delete_keys(page.contents.map { |object| {key: object.key} }) }
+        listing.each_page(directory_prefix) { |page| delete_keys(page.contents.map { |object| {key: object.key} }) }
         self
       end
 
+      # Returns [true|false] whether this path is an object, see #file?, or a directory, see #directory?, like a local
+      # path. When no object has the key, a second request looks for a key within it.
       def exist?
         Sdk.load
         authorize!
-        unless_not_found(false) { request(:head_object, bucket: bucket_name, key: path) && true }
+        object_exists? || directory_exists?
       end
 
       # Returns [true|false] whether an object exists with this key.
       # A folder object, with a key ending in `/`, is a directory rather than a file.
       def file?
+        Sdk.load
         authorize!
-        file_key? && exist?
+        object_exists?
       end
 
       # Returns [true|false] whether this path is a directory, which S3 only has within keys: when any key
       # starts with this path followed by `/`, such as `a` and `a/b` for the key `a/b/c.csv`, or when a folder
-      # object exists, such as `a/`. The bucket itself is always a directory.
+      # object exists, such as `a/`. The bucket itself is a directory when it exists.
       def directory?
+        Sdk.load
         authorize!
-        path.empty? || directory_keys(1).any?
+        directory_exists?
       end
 
       # Returns [true|false] whether this path is an object without any data, or a directory without any keys
@@ -278,31 +289,17 @@ module IOStreams
       # - No stream conversions are applied.
       def move_to(target_path)
         target = to_stream(target_path)
+        reject_move_onto_itself!(target)
         copy_to(target, convert: false)
         delete
         target
       end
 
-      # Make S3 perform direct copies within S3 itself.
+      # Make S3 perform direct copies within S3 itself, also for `#copy_to` another S3 path, which asks it.
       #
-      # Returns [Integer] the number of bytes copied, like any other copy.
-      def copy_to(target_path, convert: true, **args)
-        return super if convert
-
-        bytes = object_size.to_i
-        return super if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
-
-        target = to_stream(target_path)
-        return super(target, convert: convert, **args) unless target.is_a?(self.class)
-
-        reject_copy_options!(UNCONVERTED_COPY, **args)
-        authorize!
-        target.authorize!
-        copy_object(self, target)
-        bytes
-      end
-
-      # Make S3 perform direct copies within S3 itself.
+      # The copy writes this object, so it is requested with the client and options of this path, such as its `acl`,
+      # and the source supplies what S3 needs to read it, such as its customer encryption key, see
+      # `#copy_source_parameters`.
       #
       # Returns [Integer] the number of bytes copied, like any other copy.
       def copy_from(source_path, convert: true, **args)
@@ -317,7 +314,7 @@ module IOStreams
         reject_copy_options!(UNCONVERTED_COPY, **args)
         authorize!
         source.authorize!
-        copy_object(source, self)
+        copy_object_from(source)
         bytes
       end
 
@@ -327,32 +324,26 @@ module IOStreams
       def mkdir = self
 
       def size
-        authorize!
-        request(:head_object, bucket: bucket_name, key: path).content_length
+        head_object.content_length
       end
 
       def mtime
-        authorize!
-        request(:head_object, bucket: bucket_name, key: path).last_modified
+        head_object.last_modified
       end
 
       # Read from AWS S3 file.
       #
       # Reads the object one range at a time, as the block reads it, see `RangeReader`. Unless the `range` or
       # `part_number` option chooses the bytes to read, which are downloaded into a temp file first.
-      def stream_reader(&block)
+      def stream_reader(&)
         if RangeReader.supports?(options_for(:get_object).keys)
           authorize!
           input = RangeReader.new(->(**params) { request(:get_object, bucket: bucket_name, key: path, **params) })
-          return builder.reader(input, &block)
+          return builder.reader(input, &)
         end
 
         # Since a single S3 download only supports a push stream, write it to a tempfile first.
-        Utils.private_temp_file("iostreams_s3", purpose: "the download of #{display_name}") do |file_name|
-          read_file(file_name)
-
-          ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
-        end
+        spooled_reader("iostreams_s3", download: method(:read_file), &)
       end
 
       # Shortcut method if caller has a filename already with no other streams applied:
@@ -380,14 +371,9 @@ module IOStreams
           return Uploader.upload(request) { |io| builder.writer(io, &block) }
         end
 
-        # Since S3 upload only supports a pull stream, write it to a tempfile first.
-        # Uploads the file only once all data has been written to it, including when the block leaves early, such as
-        # with `break`, as a local file keeps what was written, see `IOStreams::Utils.finish_or_abort`.
-        Utils.private_temp_file("iostreams_s3", purpose: "the upload to #{display_name}") do |file_name|
-          Utils.finish_or_abort(finish: -> { write_file(file_name) }) do
-            ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
-          end
-        end
+        # Since S3 upload only supports a pull stream, write it to a tempfile first, which is uploaded once the block
+        # returns, see `IOStreams::Path#spooled_writer`.
+        spooled_writer("iostreams_s3", upload: method(:write_file), &block)
       end
 
       # Shortcut method if caller has a filename already with no other streams applied:
@@ -408,10 +394,12 @@ module IOStreams
       #
       # S3 has no directories, only keys that contain `/`. With `directories: true` the directories within the
       # keys are also returned, such as `a` and `a/b` for the key `a/b/c.csv`, along with any empty folder
-      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder.
+      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder,
+      # see `Listing#each`.
       #
       # Notes:
-      # - Currently all S3 lookups are recursive as of the pattern regardless of whether the pattern includes `**`.
+      # - S3 lists every key below the directory, unless the pattern cannot match a name below it, such as `*.csv`,
+      #   when it only lists the keys directly within it, see `Listing#each`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false, &)
         unless block_given?
           return to_enum(__method__, pattern,
@@ -426,30 +414,20 @@ module IOStreams
         # When the pattern is an exact file name without any pattern characters
         if matcher.exact?
           Sdk.load
-          each_exact_child(child_path(bucket_name, key_within(prefix, matcher.pattern)), directories, &)
-          return
+          child = child_path(key_within(prefix, matcher.pattern))
+          return unless allowed_child?(child)
+
+          attributes = child.exact_attributes(directories)
+          yield(child, attributes) if attributes
+          # Otherwise the name is matched within its directory, ignoring case, like a local path.
+          return if attributes || matcher.case_sensitive?
         end
 
         # List within the key as a directory, so that a key such as "reports" does not also list "reports_2024.csv".
         prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
-        listed = Directories.new
-        each_object(prefix) do |name, object|
-          relative = object.key.delete_prefix(prefix)
-          if directories
-            listed.each_new(relative) do |directory|
-              next unless matcher.match?(directory)
-
-              child = child_path(name, "#{prefix}#{directory}")
-              yield(child, relative == "#{directory}/" ? object.to_h : {}) if allowed_child?(child)
-            end
-          end
-          next if object.key.end_with?("/")
-          next unless matcher.match?(relative)
-
-          child = child_path(name, object.key)
-          next unless allowed_child?(child)
-
-          yield(child, object.to_h)
+        listing.each(prefix, matcher, directories: directories) do |key, attributes|
+          child = child_path(key)
+          yield(child, attributes) if allowed_child?(child)
         end
         nil
       end
@@ -461,10 +439,16 @@ module IOStreams
       # for example from the EC2 instance metadata service.
       def client
         Sdk.load
-        @client_cache[:client] ||= ::Aws::S3::Client.new(@client_options)
+        @client_cache.client
       end
 
       protected
+
+      # A copy has its own options, so that changing them does not change this path, see #options.
+      def initialize_copy(source)
+        super
+        @options = Utils.deep_copy(@options)
+      end
 
       # Sets the key, for example when called by `#join` or `#directory`.
       #
@@ -481,6 +465,24 @@ module IOStreams
         options.slice(*Sdk.operation_options(operation))
       end
 
+      # Returns [String] the key of the name joined to this path, see `IOStreams::Path#join`. A name joined to the
+      # bucket itself is a key within it, as a name joined to the local directory `/` is within it, so that a name that
+      # starts with `/`, such as from untrusted input, is not a key that starts with `/`, outside a directory such as
+      # `exports/` that it names.
+      def joined_path(name)
+        return super unless path.empty?
+
+        name = name.delete_prefix("/") while name.start_with?("/")
+        name
+      end
+
+      # Returns [String] the key with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`, keeping a
+      # trailing `/`, since a key that ends with it, such as that of a folder object, is another object.
+      def clean_name(name)
+        clean = super
+        name.end_with?("/") && !clean.end_with?("/") ? "#{clean}/" : clean
+      end
+
       # Returns [Integer] the size of the object, or nil when it does not exist, see `#empty?`. A direct copy of an object
       # that does not exist then raises `NoSuchKey` from S3, as it did before `#size` raised for it.
       def object_size
@@ -489,12 +491,56 @@ module IOStreams
         nil
       end
 
+      # Returns [Hash] the attributes of this object, see `#object_attributes`, empty attributes when it is a directory
+      # and `directories`, or nil when it is neither, for `#each_child` to yield this path as an exact name.
+      #
+      # Only the requests are rescued, rather than the block of `#each_child`, so that an exception that the block
+      # raises, such as `Aws::S3::Errors::NotFound` for another path, is raised as it is.
+      def exact_attributes(directories)
+        object_attributes || ({} if directories && directory?)
+      end
+
+      # Returns [Hash] the attributes of this object, in the same form as those of a listed object, see `#each_child`,
+      # or nil when it does not exist. Load the AWS SDK first, see `Sdk.load`.
+      def object_attributes
+        response = unless_not_found(nil) { request(:head_object, bucket: bucket_name, key: path) }
+        return unless response
+
+        {key: path, last_modified: response.last_modified, etag: response.etag, size: response.content_length,
+         storage_class: response.storage_class}.compact
+      end
+
       # Paths in the same bucket are in the same store, see `IOStreams::Path#same_store?`.
       def store = bucket_name
 
-      # Returns [String] this object as the `copy_source` of a copy, which S3 requires to be url-encoded.
-      def copy_source
-        "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
+      # Returns [String] the bucket and the key, which identify the object, see `IOStreams::Path#identity`, as the url
+      # `s3://bucket/key`, see #to_s. Both are compared as they are, since S3 tells them apart by every character: by the
+      # case of each letter, which the name of a bucket created before March 2018 can have, and by a `.`, `..` or
+      # repeated `/` in a key. The key is decoded from the url, so `%20` is a space. The options of the path, including
+      # those in the query of its url, such as `version_id`, are not part of it, since they are options of the requests.
+      def identity
+        to_s
+      end
+
+      # Copies the source object into this object within S3, see `#copy_from`. A missing object is a failure of the
+      # source, and any other failure is one of this path, since the size of the source is read before the copy, which
+      # raises when the source cannot be read.
+      def copy_object_from(source)
+        Sdk.load
+        tag_failure do
+          client.copy_object(options_for(:copy_object).merge(source.copy_source_parameters, bucket: bucket_name, key: path))
+        rescue Aws::S3::Errors::NoSuchKey => e
+          raise(Errors::NotFound.tag(e, source.display_name))
+        end
+      end
+
+      # Returns [Hash] the parameters of a copy that name this object as its source, which S3 requires to be url-encoded,
+      # with the version of this path, when it has a `version_id`, and the options that S3 needs to read it, see
+      # `Sdk.copy_source_options`.
+      def copy_source_parameters
+        source = "#{bucket_name}/#{Seahorse::Util.uri_path_escape(path)}"
+        source = "#{source}?versionId=#{::URI.encode_www_form_component(options[:version_id])}" if options[:version_id]
+        {copy_source: source, **Sdk.copy_source_options(options)}
       end
 
       private
@@ -510,20 +556,6 @@ module IOStreams
         tag_failure { client.public_send(operation, options_for(operation).merge(params)) }
       end
 
-      # Copies the source object to the target object within S3. A missing object is a failure of the source, and any
-      # other failure is one of the target, since the size of the source is read before the copy, which raises when
-      # the source cannot be read.
-      def copy_object(source, target)
-        Sdk.load
-        tag_failure(target) do
-          client.copy_object(
-            options_for(:copy_object).merge(bucket: target.bucket_name, key: target.path, copy_source: source.copy_source)
-          )
-        rescue Aws::S3::Errors::NoSuchKey => e
-          raise(Errors::NotFound.tag(e, source.display_name))
-        end
-      end
-
       # Deletes upto 1,000 keys in one request, raising when S3 could not delete any of them.
       def delete_keys(keys)
         errors = keys.empty? ? [] : request(:delete_objects, bucket: bucket_name, delete: {objects: keys, quiet: true}).errors
@@ -531,6 +563,34 @@ module IOStreams
 
         raise(Errors::CommunicationsFailure,
               "Failed to delete #{errors.size} keys from #{display_name}, such as #{errors.first.key}: #{errors.first.message}")
+      end
+
+      # Returns the response of a HEAD request for this object.
+      #
+      # Raises [Errno::EISDIR] tagged as `IOStreams::Errors::NotFound` for the bucket, which is not an object, since
+      # S3 cannot be asked for an object without a key.
+      def head_object
+        authorize!
+        if path.empty?
+          raise(Errors::NotFound.tag(Errno::EISDIR.new("#{display_name} is the bucket, which is not an object"), display_name))
+        end
+
+        request(:head_object, bucket: bucket_name, key: path)
+      end
+
+      # Returns [true|false] whether an object, other than a folder object, has this key.
+      # Load the AWS SDK first, see `Sdk.load`.
+      def object_exists?
+        file_key? && unless_not_found(false) { request(:head_object, bucket: bucket_name, key: path) && true }
+      end
+
+      # Returns [true|false] whether this path is a directory, see #directory?. Load the AWS SDK first, see `Sdk.load`.
+      def directory_exists?
+        return directory_keys(1).any? unless path.empty?
+
+        request(:list_objects_v2, bucket: bucket_name, max_keys: 1) && true
+      rescue Aws::S3::Errors::NoSuchBucket
+        false
       end
 
       # Returns [true|false] whether this path can be the key of a file, rather than the bucket or a folder object.
@@ -566,58 +626,25 @@ module IOStreams
         raise(ArgumentError, "An S3 key must be valid UTF-8: s3://#{bucket_name}/#{Utils.display_text(key)}")
       end
 
-      # Options are strict: an option that no S3 operation accepts raises, so that a misspelled option is reported.
-      # The options that S3 accepts come from the AWS SDK, so it is only loaded when options are supplied.
-      #
-      # Without the AWS SDK the options cannot be checked, but the path can still be displayed, for example by a
-      # process that only enqueues work. Every request needs the SDK, so the options are never used unchecked.
-      def validate_options!
-        return if options.empty? || !Sdk.available?
-
-        unknown = Sdk.unknown_options(options.keys)
-        return if unknown.empty?
-
-        raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
+      # Raises ArgumentError for a part of the url that S3 does not use, rather than ignore it.
+      def validate_url!(uri, url)
+        problem =
+          if uri.hostname.to_s.empty?
+            "it must name a bucket, such as 's3://bucket/a.csv'"
+          elsif uri.fragment
+            "percent-encode a '#' in a key as '%23', since it starts a fragment, which an S3 url cannot have"
+          elsif uri.port
+            "it cannot have a port. Supply the endpoint of another service that implements the S3 API with " \
+              "client: {endpoint: \"https://host:port\"}"
+          elsif uri.user || uri.password
+            "it cannot have a user name or password. Supply the credentials with access_key_id: and secret_access_key:"
+          end
+        raise(Utils::URI.invalid("S3", url, problem)) if problem
       end
 
-      # Yields the child, when it is an object, or a directory and `directories`, with its attributes,
-      # in the same form as those of a listed object. Load the AWS SDK first, see `Sdk.load`.
-      def each_exact_child(child, directories)
-        return unless allowed_child?(child)
-
-        response = tag_failure(child) do
-          client.head_object(options_for(:head_object).merge(bucket: bucket_name, key: child.path))
-        end
-        yield(child,
-              {key:           child.path,
-               last_modified: response.last_modified,
-               etag:          response.etag,
-               size:          response.content_length,
-               storage_class: response.storage_class}.compact)
-      rescue Aws::S3::Errors::NotFound
-        return unless directories
-
-        resp = tag_failure(child) do
-          client.list_objects_v2(
-            options_for(:list_objects_v2).merge(bucket: bucket_name, prefix: "#{child.path}/", max_keys: 1)
-          )
-        end
-        yield(child, {}) if resp.contents.any?
-      end
-
-      # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
-      def each_object(prefix)
-        each_page(prefix) { |page| page.contents.each { |object| yield(page.name, object) } }
-      end
-
-      # Yields each page of upto 1,000 objects in the bucket whose keys start with the supplied prefix.
-      def each_page(prefix)
-        token = nil
-        loop do
-          page = request(:list_objects_v2, bucket: bucket_name, prefix: prefix, continuation_token: token)
-          yield(page)
-          break unless (token = page.next_continuation_token)
-        end
+      # Returns [Listing] the listing of the objects in the bucket, which makes each request of this path.
+      def listing
+        Listing.new(->(**params) { request(:list_objects_v2, bucket: bucket_name, **params) })
       end
 
       # Returns [String] the bucket and key, which is compared against the allowed paths.
@@ -629,7 +656,10 @@ module IOStreams
           raise(Errors::AccessDenied, "Access denied to #{self}: '.' and '..' are not allowed in S3 keys")
         end
 
-        to_s.sub(%r{/+\z}, "")
+        # Without the `/` at its end, found by its last other character, rather than by matching the `/` before the end,
+        # which takes time that grows with the square of the number of `/` within the key.
+        location = to_s
+        location[0..location.rindex(%r{[^/]})]
       end
 
       # Returns [String] the key of the supplied name within the supplied key, or the key itself for an empty name.
@@ -644,7 +674,7 @@ module IOStreams
       #
       # The child uses this path's client and options, so that it has the same credentials, region
       # and request parameters, such as `request_payer` or an SSE-C key.
-      def child_path(bucket_name, key)
+      def child_path(key)
         child      = self.class.new("s3://#{bucket_name}", client: client, **options)
         child.path = key.dup.freeze
         child

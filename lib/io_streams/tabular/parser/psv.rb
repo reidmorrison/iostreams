@@ -18,14 +18,13 @@ module IOStreams
           row.split("|")
         end
 
-        # Return the supplied array as a single line PSV string.
+        # Returns [String] the values of the row, in the order of its columns, as a single line PSV string.
         #
         # Since PSV has no escaping, any `|` within a value is replaced with `:`,
         # and any line break with a space, so that a value cannot add columns or records.
         # A value that is not a String is written as its text, see `IOStreams::Schema::Field.any_text`.
-        def render(row, header)
-          array          = header.to_array(row)
-          cleansed_array = array.collect do |value|
+        def render(row)
+          cleansed_array = row.collect do |value|
             next if value.nil?
 
             text = IOStreams::Schema::Field.any_text(value)

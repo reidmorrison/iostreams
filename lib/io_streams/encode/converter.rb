@@ -15,7 +15,7 @@ module IOStreams
     # invalid bytes within all of the data converted. Unless it is in the final data, the valid data before it is
     # returned first, so that for example every whole line before it can be read, and the next call raises.
     class Converter
-      # Returns [Encoding] the encoding converted to, or nil when the data is returned unchanged.
+      # Returns [Encoding|nil] the encoding converted to; with nil or binary, the data is returned unchanged.
       attr_reader :encoding
 
       # Parameters
@@ -48,6 +48,9 @@ module IOStreams
           validate(@pending ? @pending + data.b : data.b, final)
         else
           remaining = finish
+          # A string that is not valid in its own encoding, such as UTF-8 text with a Latin-1 byte, cannot be converted.
+          raise(invalid_error(data, @offset, source: data.encoding)) if @replace.nil? && !data.valid_encoding?
+
           converted = data.encode(@encoding, **@encoding_options)
           @offset  += data.bytesize
           remaining ? remaining + converted : converted
@@ -88,7 +91,7 @@ module IOStreams
         return text.scrub(@replace) unless @replace.nil?
 
         valid    = valid_prefix(text)
-        @invalid = invalid_error(text.byteslice(valid.bytesize..), position + valid.bytesize)
+        @invalid = invalid_error(text.byteslice(valid.bytesize..), position + valid.bytesize, source: Encoding::BINARY)
         raise(@invalid) if final || valid.empty?
 
         valid
@@ -105,14 +108,24 @@ module IOStreams
         text.byteslice(0, size)
       end
 
-      # Returns [IOStreams::Errors::InvalidEncoding] the error for the text, which starts with an invalid character.
-      def invalid_error(text, byte_offset)
+      # Returns [IOStreams::Errors::InvalidEncoding] the error for the first invalid character of the text, which is at the
+      # supplied offset when the text starts with it, as it does for the data that is validated, otherwise within it.
+      #
+      # Parameters
+      #   source: [Encoding]
+      #     The encoding of the data supplied, binary for data that has none, such as data read from a file.
+      def invalid_error(text, byte_offset, source:)
         invalid = nil
         text.scrub do |sequence|
           invalid ||= sequence
           ""
         end
-        Errors::InvalidEncoding.new("#{invalid.dump} is not valid #{@encoding}", byte_offset: byte_offset)
+        prefix   = valid_prefix(text).bytesize
+        encoding = text.encoding == Encoding::BINARY ? @encoding : text.encoding
+        Errors::InvalidEncoding.new(
+          "#{invalid.dump} is not valid #{encoding}",
+          byte_offset: byte_offset + prefix, error_char: invalid.b, source_encoding: source, destination_encoding: @encoding
+        )
       end
 
       # Returns [Integer] the number of bytes at the end of the data that are the start of an incomplete character.
@@ -121,9 +134,27 @@ module IOStreams
         return 0 if bytes.dup.force_encoding(@encoding).valid_encoding?
 
         # Other encodings: the shortest number of trailing bytes whose removal leaves valid data.
-        (1..[3, bytes.bytesize].min).find do |size|
-          bytes.byteslice(0, bytes.bytesize - size).force_encoding(@encoding).valid_encoding?
-        end || 0
+        size = (1..[3, bytes.bytesize].min).find do |count|
+          bytes.byteslice(0, bytes.bytesize - count).force_encoding(@encoding).valid_encoding?
+        end
+        size || incomplete_size_after_invalid(bytes)
+      end
+
+      # Returns [Integer] the number of bytes at the end of data that holds invalid bytes before them, which are the start
+      # of an incomplete character, as a converter of the encoding finds them, since only it knows how the encoding forms
+      # its characters. So that, with `replace`, a character split across two blocks is kept, rather than replaced.
+      def incomplete_size_after_invalid(bytes)
+        converter = Encoding::Converter.new(@encoding, Encoding::UTF_8)
+        source    = bytes.dup
+        # Each invalid byte sequence stops the conversion, which then continues after it, to the end of the data.
+        stopped = %i[invalid_byte_sequence undefined_conversion]
+        loop { break unless stopped.include?(converter.primitive_convert(source, +"", nil, nil, partial_input: true)) }
+        return 0 unless converter.primitive_convert(+"", +"", nil, nil) == :incomplete_input
+
+        _result, _source, _target, error_bytes, readagain_bytes = converter.primitive_errinfo
+        error_bytes.bytesize + readagain_bytes.bytesize
+      rescue Encoding::ConverterNotFoundError
+        0
       end
 
       def incomplete_utf8_size(bytes)

@@ -9,17 +9,16 @@ module IOStreams
     # The operations that each storage implements, when it supports them. See `#respond_to?`.
     OPERATIONS = %i[each_child mkpath mkdir exist? size mtime file? directory? empty? delete delete_all].freeze
 
+    # The operations that are built on one of the OPERATIONS, which a path only supports when it supports that one.
+    DERIVED_OPERATIONS = {children: :each_child, size?: :size, move_to: :delete}.freeze
+
     def initialize(path)
       raise(ArgumentError, "Path cannot be nil") if path.nil?
       raise(ArgumentError, "Path must be a string: #{path.inspect}, class: #{path.class}") unless path.is_a?(String)
 
-      @path           = path.frozen? ? path : path.dup.freeze
-      @io_stream      = nil
-      @builder        = nil
-      @format         = nil
-      @format_options = nil
-      @schema         = nil
-      @schema_source  = nil
+      @path      = path.frozen? ? path : path.dup.freeze
+      @io_stream = nil
+      clear_configuration
     end
 
     # Returns [IOStreams::Path] a new path with the elements joined to this path.
@@ -30,20 +29,20 @@ module IOStreams
     def join(*elements)
       return dup if elements.empty?
 
-      elements = elements.collect(&:to_s)
-      relative = ::File.join(*elements)
-
       new_path = dup
       new_path.clear_configuration
-      new_path.path = contains?(relative) ? relative : ::File.join(path, relative)
+      new_path.path = joined_path(::File.join(*elements.collect(&:to_s)))
       new_path
     end
 
     # Returns [IOStreams::Path] a new path with the element joined to this path, see #join.
     #
-    # Like #join, and unlike `Pathname#/`, an absolute element is joined to this path rather than replacing it,
-    # so that a name from untrusted input, or from configuration, stays within this path:
+    # Like #join, and unlike `Pathname#/`, an absolute element is joined to this path rather than replacing it:
     #   IOStreams.path("/data") / "/b.csv"   # => /data/b.csv
+    #
+    # A name from untrusted input can still leave this path with `..`, such as `"../etc/passwd"`, and an absolute
+    # element joined to an empty path, the current directory, is used as it is, so restrict the paths that can be
+    # accessed with `IOStreams.add_allowed_path`.
     def /(other)
       join(other)
     end
@@ -54,7 +53,7 @@ module IOStreams
     # Note: S3 treats `.` and `..` in a key as ordinary characters, but they are resolved here like any other path.
     def cleanpath
       clean      = dup
-      clean.path = Pathname.new(Utils.matchable(path)).cleanpath.to_s.force_encoding(path.encoding)
+      clean.path = clean_name(path)
       clean
     end
 
@@ -211,12 +210,17 @@ module IOStreams
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
     #
+    # Raises ArgumentError when the target is the same location as this path, see #same_location?, since the file
+    # would be deleted once it was copied onto itself.
+    #
     # Notes:
     # - Currently only supports moving individual files, not directories.
     def move_to(target_path)
       target = to_stream(target_path)
-      target.mkpath
-      target.copy_from(self, convert: false)
+      reject_move_onto_itself!(target)
+      # Through a copy of the target, so that the directories that #mkpath creates when a file is next written, as on
+      # SFTP, are not a lasting change to the target supplied.
+      target.dup.mkpath.copy_from(self, convert: false)
       delete
       target
     end
@@ -268,9 +272,11 @@ module IOStreams
     #
     # An operation that a storage does not support, such as `#each_child` on an HTTP path, raises
     # NotImplementedError, and `respond_to?` returns false for it, as Ruby does for a method that is not
-    # implemented on the platform, such as `Process.fork` on Windows.
+    # implemented on the platform, such as `Process.fork` on Windows. So does an operation built on it, such as
+    # `#children`, see DERIVED_OPERATIONS.
     def respond_to?(name, include_all = false) # rubocop:disable Style/OptionalBooleanParameter -- the signature of Object#respond_to?
-      return false if OPERATIONS.include?(name.to_sym) && method(name).owner == IOStreams::Path
+      operation = DERIVED_OPERATIONS.fetch(name.to_sym, name.to_sym)
+      return false if OPERATIONS.include?(operation) && method(operation).owner == IOStreams::Path
 
       super
     end
@@ -303,44 +309,31 @@ module IOStreams
       true
     end
 
-    # Paths are sortable by their full name, see #to_s.
-    # Returns [nil] when compared with anything other than a path or a String.
+    # Paths sort by their full name in the spelling that #== compares, see #identity, so that equal paths compare
+    # as 0, and then by the name of their class, so that paths of different classes never do.
+    # Returns [nil] when compared with anything other than a path.
     def <=>(other)
-      case other
-      when Path
-        to_s <=> other.to_s
-      when String
-        to_s <=> other
-      end
+      sort_key <=> other.sort_key if other.is_a?(Path)
     end
 
-    # Returns [true|false] whether this path is the same location as the other path, or the String.
+    # Returns [true|false] whether the other is a path of the same class that names the same file, whatever the
+    # spelling of its name, see #identity, such as the case of the host of an SFTP or HTTP url, so that paths in
+    # different locations are never equal. The streams and options are ignored, as are the arguments of the path that
+    # do not identify the file, such as a password.
     #
-    # The full name of the path is compared, see #to_s, including the bucket of an S3 path and the
-    # host of an SFTP or HTTP path, so that paths in different locations are never equal.
-    # The streams and options are ignored.
-    #
-    # Names are compared exactly as given, so a relative path never equals an absolute path:
-    #   IOStreams.path("/home/user/a.txt") == "/home/user/a.txt"   # => true
-    #   IOStreams.path("a.txt") == "/home/user/a.txt"              # => false
+    # Like `Pathname#==`, `.` and `..` are not resolved, and a path is never equal to a String, even its name, since only
+    # a path knows which parts of its name identify it. Compare #to_s to compare the names as they are written.
+    #   IOStreams.path("sftp://Example.org:22/a.csv") == IOStreams.path("sftp://example.org/a.csv")   # => true
+    #   IOStreams.path("a.txt") == IOStreams.path("/home/user/a.txt")                               # => false
     def ==(other)
-      case other
-      when Path
-        other.instance_of?(self.class) && other.to_s == to_s
-      when String
-        to_s == other
-      else
-        false
-      end
+      other.instance_of?(self.class) && other.identity == identity
     end
 
-    # Paths are equal hash keys when they are the same location, see #==.
-    def eql?(other)
-      other.instance_of?(self.class) && other.to_s == to_s
-    end
+    # Paths are equal hash keys when they are equal, see #==.
+    alias eql? ==
 
     def hash
-      [self.class, to_s].hash
+      [self.class, identity].hash
     end
 
     # Returns [Array<Symbol>] the options for creating a path of this class whose values must not be displayed,
@@ -357,15 +350,12 @@ module IOStreams
     end
 
     # Does not create the builder, so that a frozen path can be inspected, for example in a `FrozenError` message.
-    # Does not display the values of sensitive options, such as a passphrase, see `IOStreams::Builder#redacted`.
+    # The builder and the tabular settings each display their own fields, see `IOStreams::Builder#inspect_fields` and
+    # `IOStreams::Tabular::Settings#inspect_fields`, without the values of sensitive options, such as a passphrase.
     def inspect
-      builder = (@builder || IOStreams::Builder.new(path)).redacted
-      str     = "#<#{self.class.name}:#{display_name}"
-      str << " @builder=#{builder.streams.inspect}" if builder.streams
-      str << " @options=#{builder.options.inspect}" if builder.options
-      str << " @encoding=#{builder.setting(:encode).inspect}" if builder.setting(:encode)
-      str << " @row_options=#{builder.row_options.inspect}" if builder.row_options
-      str << " pipeline=#{builder.pipeline.inspect}>"
+      builder = @builder || IOStreams::Builder.new(path)
+      "#<#{self.class.name}:#{display_name}#{builder.inspect_fields}#{@tabular_settings&.inspect_fields}" \
+        "#{builder.inspect_pipeline}>"
     end
 
     # Returns [String] the full name of this path, see #to_s, without any credentials, so that it can be logged
@@ -382,19 +372,47 @@ module IOStreams
       Utils.display_text(to_s)
     end
 
-    # Freezes this path, so that `#option`, `#stream` and `#file_name=` can no longer change the streams,
-    # options or file name it already holds, see `IOStreams.add_root`. The builder is created first, if it
-    # was not already, so that this path can still be read, for example with `#reader` or `#pipeline`.
-    def freeze
-      builder
-      super
-    end
-
     protected
 
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
     attr_writer :path
+
+    # Returns [String] the name with `.`, `..` and repeated `/` removed, like `Pathname#cleanpath`, see #cleanpath.
+    # A path class whose names differ, such as a url whose trailing `/` names another url, refines it.
+    def clean_name(name)
+      Pathname.new(Utils.matchable(name)).cleanpath.to_s.force_encoding(name.encoding)
+    end
+
+    # Returns [String] the path of the supplied name joined to this path, see #join: the name itself when it is
+    # already within this path.
+    def joined_path(name)
+      contains?(name) ? name : ::File.join(path, name)
+    end
+
+    # Returns [String] the name that identifies the file of this path, including its store, which #==, #eql?, #hash and
+    # #<=> compare: its full name, see #to_s, as it is written, as `Pathname#==` compares names. A path class whose
+    # names can spell the same file in other ways, such as a url whose host can be written in any case, returns its name
+    # in one spelling, without the parts of its name that do not identify the file, such as a password.
+    #
+    # It never makes a request of the store, and never resolves `.` or `..`, see #same_location?.
+    def identity
+      to_s
+    end
+
+    # Returns [Array(String, String)] what a path sorts by, see #<=>: its #identity, then the name of its class.
+    # Defined only here, rather than by each path class, so that a path can ask a path of any other class for it: Ruby
+    # only lets a path of the class that defines a protected method, such as `IOStreams::Paths::SFTP#identity`, call it.
+    def sort_key
+      [identity, self.class.to_s]
+    end
+
+    # Returns [true|false] whether the other path is the same location as this one, such as the same file, see
+    # #move_to. Equal paths are, see #==, and each path class also detects the other names of a location that it can
+    # tell without a request, such as a name with `.` or `..`.
+    def same_location?(other)
+      self == other
+    end
 
     # Returns [true|false] whether the other path is in the same store as this one, so that their names can be
     # compared, see #relative_path_from.
@@ -479,6 +497,35 @@ module IOStreams
         end
       end
       "/#{segments.join('/')}".force_encoding(name.encoding)
+    end
+
+    # Raises ArgumentError when the target is the same location as this path, see #same_location?.
+    def reject_move_onto_itself!(target)
+      return unless same_location?(target)
+
+      raise(ArgumentError, "Cannot move #{display_name} onto itself, as #{target.display_name}: it would delete the file")
+    end
+
+    # Reads this file through a temp file, for a store that can only download a whole file: calls `download` with the
+    # name of the temp file, which only the current user can read, then reads it through the streams of this path,
+    # yielding to the block as #reader does. The temp file is deleted once the block returns.
+    def spooled_reader(prefix, download:, &block)
+      Utils.private_temp_file(prefix, purpose: "the download of #{display_name}") do |file_name|
+        download.call(file_name)
+        ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
+      end
+    end
+
+    # Writes this file through a temp file, for a store that can only upload a whole file: writes what the block writes
+    # into the temp file through the streams of this path, as #writer does, then calls `upload` with its name once the
+    # block returns, including when it leaves early, such as with `break`, as a local file keeps what was written, but
+    # not when it raises, or its thread is killed, see `IOStreams::Utils.finish_or_abort`.
+    def spooled_writer(prefix, upload:, &block)
+      Utils.private_temp_file(prefix, purpose: "the upload to #{display_name}") do |file_name|
+        Utils.finish_or_abort(finish: -> { upload.call(file_name) }) do
+          ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
+        end
+      end
     end
 
     # Returns [true|false] whether a child found by `#each_child` is within the allowed paths, logging it when it is not.

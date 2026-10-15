@@ -33,21 +33,26 @@ module IOStreams
 
       class Decoder
         def initialize(input_stream)
-          @zstd   = Java::ComGithubLubenZstd::ZstdInputStreamNoFinalizer.new(InputStream.new(input_stream))
+          @input  = InputStream.new(input_stream)
+          @zstd   = Java::ComGithubLubenZstd::ZstdInputStreamNoFinalizer.new(@input)
           @buffer = Java::byte[BLOCK_SIZE].new
         end
 
         # Returns [String] the next block of decompressed data, or [nil] at the end of the stream.
         #
-        # Raises [RuntimeError] for data that is not zstd, or a frame cut short at the end of the input stream,
-        # like `zstd-ruby`.
+        # Raises [RuntimeError] tagged as `IOStreams::Errors::Corrupt`, see `Zstd.corrupt`, for data that is not zstd, a
+        # frame cut short at the end of the input stream, or an input stream without any data, like `zstd -d`.
         def read_block
           count = @zstd.read(@buffer, 0, BLOCK_SIZE)
-          return nil if count.negative?
+          if count.negative?
+            raise(Zstd.corrupt("the data is empty")) unless @input.read?
+
+            return
+          end
 
           String.from_java_bytes(java.util.Arrays.copy_of_range(@buffer, 0, count))
         rescue java.io.IOException => e
-          raise("zstd decompress error: #{e.message}")
+          raise(Zstd.corrupt(e.message))
         end
 
         # Frees the native decompression context, without closing the input stream, which belongs to the caller.
@@ -58,15 +63,19 @@ module IOStreams
 
       # Uses the zstd-jni streams without a finalizer, since a finalizer would write the end of the frame
       # to the output stream whenever it ran, even after writing failed.
+      #
+      # Each frame ends with the checksum of its content, which reading checks, as the zstd command writes it.
       class Encoder
         def initialize(output_stream, level: nil)
-          @output = OutputStream.new(output_stream)
+          @output = AbortableOutput.new(output_stream)
+          stream  = OutputStream.new(@output)
           @zstd   =
             if level.nil?
-              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(@output)
+              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(stream)
             else
-              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(@output, level)
+              Java::ComGithubLubenZstd::ZstdOutputStreamNoFinalizer.new(stream, level)
             end
+          @zstd.set_checksum(true)
         end
 
         def write(data)
@@ -92,20 +101,30 @@ module IOStreams
       class InputStream < java.io.InputStream
         def initialize(io)
           super()
-          @io = io
+          @io   = io
+          @read = false
+        end
+
+        # Returns [true|false] whether any data has been read from the IO.
+        def read?
+          @read
         end
 
         # Returns [Integer] the next byte, or the number of bytes read into `bytes`, or -1 at the end of the stream.
         def read(bytes = nil, offset = 0, length = bytes&.length)
           if bytes.nil?
             byte = @io.read(1)
-            return byte.nil? ? -1 : byte.getbyte(0)
+            return -1 if byte.nil?
+
+            @read = true
+            return byte.getbyte(0)
           end
           return 0 if length.zero?
 
           data = @io.read(length)
           return -1 if data.nil?
 
+          @read ||= !data.empty?
           data = data.to_java_bytes
           java.lang.System.arraycopy(data, 0, bytes, offset, data.length)
           data.length
@@ -121,14 +140,7 @@ module IOStreams
           @io = io
         end
 
-        # Discards anything written from now on.
-        def discard
-          @discard = true
-        end
-
         def write(bytes, offset = 0, length = nil)
-          return if @discard
-
           if bytes.is_a?(Integer)
             @io.write((bytes & 0xff).chr)
           else

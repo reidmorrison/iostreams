@@ -9,9 +9,20 @@ module IOStreams
   # One option hash is shared by a stream's reader and writer, so that the same path can be written and then
   # read. So by default the options of the other direction are also valid, and are ignored, such as `compress`
   # when reading `.enc`, whose header records it. A class can exclude an option of the other direction by
-  # overriding its `valid_option_names`, so that it raises, with a message that names the direction it
+  # listing it in its `unsupported_option_names`, so that it raises, with a message that names the direction it
   # belongs to.
   module StreamFormat
+    # The methods that a format answers itself, see `IOStreams.register_extension`. Extending this module gives it the
+    # others that a registered format must respond to.
+    FORMAT_METHODS = %i[reader_class writer_class compressed? encrypted?].freeze
+
+    # Returns [Array<Symbol>] the methods that a format registered with `IOStreams.register_extension` must respond to,
+    # but the supplied format does not: those that it answers itself, see `FORMAT_METHODS`, and those that extending
+    # this module gives it.
+    def self.missing_methods(format)
+      (FORMAT_METHODS + public_instance_methods(false).sort).reject { |name| format.respond_to?(name) }
+    end
+
     # Returns [Array<Symbol>] the options that the class reading (type: :reader) or writing (:writer) this
     # format uses, which are the only options supplied to it, or [nil] when the class does not declare them.
     def option_names(type)
@@ -23,19 +34,28 @@ module IOStreams
     # this format, or when either (nil), or [nil] when they are not checked, since a class does not declare
     # its options, which a class registered via `IOStreams.register_extension` need not.
     #
-    # Unless the class overrides `valid_option_names`, they are its own options and those of the class for
-    # the other direction. When that class does not declare its options, only the class's own are valid.
+    # They are the class's own options and those of the class for the other direction, except those of the other
+    # direction that the class does not support, see `IOStreams::Reader.unsupported_option_names`. When the class for
+    # the other direction does not declare its options, only the class's own are valid.
     def valid_option_names(type = nil)
       return valid_option_names_for_either if type.nil?
-
-      klass    = stream_class(type)
-      declared = klass.valid_option_names if klass.respond_to?(:valid_option_names)
-      return declared if declared
 
       own = option_names(type)
       return if own.nil?
 
-      own | (option_names(other_type(type)) || [])
+      klass       = stream_class(type)
+      unsupported = klass.respond_to?(:unsupported_option_names) ? klass.unsupported_option_names : []
+      own | ((option_names(other_type(type)) || []) - unsupported)
+    end
+
+    # Returns [Symbol|nil] the tabular format of the text that the reader of this format returns, and its writer
+    # accepts, when the format itself decides it, such as `:csv` for a spreadsheet, whose cells are read and
+    # written as CSV, otherwise nil, for a format whose data is the text, such as gzip.
+    #
+    # The rows and records of a path are read and written in this format when this stream is the one closest to
+    # the application, see `IOStreams::Builder#text_format`, whatever format the file name has before it.
+    def text_format
+      nil
     end
 
     # Returns [Array<Symbol>] the options whose values must not be displayed, such as a passphrase, as declared
@@ -51,8 +71,8 @@ module IOStreams
     # they can be displayed, for example by `#inspect`.
     #
     # Sensitive options are those that the reader or the writer declares, see #sensitive_option_names, and,
-    # as a precaution, any option whose name contains `passphrase`, `password`, `secret`, `token` or `credential`,
-    # see `IOStreams::Utils.redact_options`.
+    # as a precaution, any option whose name suggests a secret, such as one that contains `password` or `token`, see
+    # `IOStreams::Utils.redact_options`, which owns that list.
     def redact_options(options)
       Utils.redact_options(options, sensitive_option_names)
     end

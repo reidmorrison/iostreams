@@ -54,5 +54,30 @@ class GzipWriterTest < Minitest::Test
         assert_equal decompressed, data
       end
     end
+
+    describe ".check" do
+      it "accepts the levels of zlib" do
+        [nil, -1, 0, 9].each { |level| assert_nil IOStreams::Gzip::Writer.check(level: level) }
+      end
+
+      it "raises for a level that zlib cannot compress with" do
+        [10, -2, "9", 1.5].each do |level|
+          error = assert_raises(ArgumentError) { IOStreams::Gzip::Writer.check(level: level) }
+          assert_equal "Invalid gzip level #{level.inspect}: supply an Integer from 0, no compression, to 9, the best " \
+                       "compression, or -1 for the default", error.message
+        end
+      end
+
+      it "raises from .stream too" do
+        assert_raises(ArgumentError) { IOStreams::Gzip::Writer.stream(StringIO.new("".b), level: 10) { |io| io.write(decompressed) } }
+      end
+
+      it "keeps an existing local file" do
+        File.write(file_name, "precious")
+
+        assert_raises(ArgumentError) { IOStreams.path(file_name).stream(:gz, level: 10).write(decompressed) }
+        assert_equal "precious", File.read(file_name)
+      end
+    end
   end
 end

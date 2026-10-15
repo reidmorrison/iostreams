@@ -11,6 +11,11 @@ module IOStreams
           :json
         end
 
+        # Returns [true] each line is a JSON object, whose keys name its values.
+        def self.keyed?
+          true
+        end
+
         # Returns [JSON::Coder|nil] a coder that writes a record as `IOStreams::Schema::Field.any_json(record).to_json`
         # does, in one pass over its values in the json gem, rather than one pass in Ruby, then another to write them.
         #
@@ -50,19 +55,49 @@ module IOStreams
           @decimal_keys = {} if schema&.decimals?
         end
 
-        # Returns [Hash] the record of the line.
+        # Returns [Hash] the record of the line, or nil for a line of `null`, which is a blank line. Returns the record or
+        # row supplied, a Hash, or an Array that is already parsed, as it is, see `IOStreams::Tabular#record_parse`.
         #
         # With a schema that has a number field that keeps every digit, see `IOStreams::Schema#decimals?`, the numbers
         # of its column are read as BigDecimals, with every digit of their text, rather than through a Float, which keeps
         # about 16. Every other number is still a Float, the same as without a schema.
+        #
+        # Raises `IOStreams::Errors::TypeMismatch` for a line that is not an object, such as `[1,2]` or `5`, since only an
+        # object has the keys that name its values.
         def parse(row)
-          return row if row.is_a?(::Hash)
+          # Each line read is a String, so that is checked first.
+          unless row.is_a?(String)
+            return row if row.is_a?(::Hash) || row.is_a?(::Array)
 
-          raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}") unless row.is_a?(String)
-          return JSON.parse(row) unless @decimal_keys
+            raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}")
+          end
 
-          values = JSON.parse(row, decimal_class: ::BigDecimal)
-          return floats(values) unless values.is_a?(::Hash)
+          values = @decimal_keys ? parse_decimals(row) : JSON.parse(row)
+          return values if values.is_a?(::Hash) || values.nil?
+
+          raise(IOStreams::Errors::TypeMismatch, "Each line of the :json format must be an object, whose keys name its " \
+                                                 "values, rather than #{values.class.name}")
+        end
+
+        # Returns [String] the record, by the names of its columns, as a single line JSON string.
+        #
+        # A BigDecimal, Date or Time is written as its text, see `IOStreams::Schema::Field.any_json`, such as "12.5"
+        # rather than "0.125e2", so that a BigDecimal keeps all of its digits.
+        def render(row)
+          @coder ? @coder.dump(row) : IOStreams::Schema::Field.any_json(row).to_json
+        end
+
+        def requires_header?
+          false
+        end
+
+        private
+
+        # Returns the value of the line, with the numbers of each key that is the column of a number field that keeps
+        # every digit as BigDecimals, and every other number as a Float, see #parse.
+        def parse_decimals(line)
+          values = JSON.parse(line, decimal_class: ::BigDecimal)
+          return values unless values.is_a?(::Hash)
 
           values.each_pair do |key, value|
             next unless value.is_a?(::BigDecimal) || value.is_a?(::Array) || value.is_a?(::Hash)
@@ -71,21 +106,6 @@ module IOStreams
           end
           values
         end
-
-        # Return the supplied array as a single line JSON string.
-        #
-        # A BigDecimal, Date or Time is written as its text, see `IOStreams::Schema::Field.any_json`, such as "12.5"
-        # rather than "0.125e2", so that a BigDecimal keeps all of its digits.
-        def render(row, header)
-          hash = header.to_hash(row)
-          @coder ? @coder.dump(hash) : IOStreams::Schema::Field.any_json(hash).to_json
-        end
-
-        def requires_header?
-          false
-        end
-
-        private
 
         # Returns [true|false] whether the key is the column of a number field that keeps every digit, worked out once
         # for each key, see `IOStreams::Schema#field_for`.

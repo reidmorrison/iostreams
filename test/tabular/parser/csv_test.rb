@@ -96,10 +96,6 @@ module Tabular
         end
 
         describe "#render" do
-          let :header do
-            IOStreams::Tabular::Header.new
-          end
-
           # Returns the line with its encoding, or the class and message of the error raised.
           def rendered
             line = yield
@@ -113,7 +109,7 @@ module Tabular
           def assert_renders_like_csv(values)
             text     = values.map { |value| value && IOStreams::Schema::Field.any_text(value) }
             expected = rendered { CSV.generate_line(text, encoding: "UTF-8", row_sep: "") }
-            actual   = rendered { parser.render(values, header) }
+            actual   = rendered { parser.render(values) }
 
             assert_equal expected, actual, "Rendering #{values.inspect}"
           end
@@ -121,7 +117,7 @@ module Tabular
           it "writes a BigDecimal, Date or Time as its usual text, rather than the text that CSV writes for it" do
             row = [BigDecimal("12.5"), Time.at(0).utc, Date.new(2026, 10, 13), DateTime.new(2026, 10, 13, 9, 30)]
 
-            assert_equal "12.5,1970-01-01T00:00:00Z,2026-10-13,2026-10-13T09:30:00+00:00", parser.render(row, header)
+            assert_equal "12.5,1970-01-01T00:00:00Z,2026-10-13,2026-10-13T09:30:00+00:00", parser.render(row)
           end
 
           # The parser writes most lines itself, so check that each is the same, in the same encoding, or raises

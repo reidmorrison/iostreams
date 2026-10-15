@@ -55,6 +55,46 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".deep_copy" do
+      it "copies each Hash, Array and String within the value" do
+        value = {name: +"jack", list: [+"a", {key: +"b"}], count: 1, block: -> {}}
+        copy  = IOStreams::Utils.deep_copy(value)
+
+        assert_equal value, copy
+        refute_same value, copy
+        refute_same value[:name], copy[:name]
+        refute_same value[:list], copy[:list]
+        refute_same value[:list][1][:key], copy[:list][1][:key]
+        assert_same value[:block], copy[:block]
+      end
+
+      it "returns a copy that can be changed of a frozen value" do
+        copy = IOStreams::Utils.deep_copy({name: "jack", list: ["a"].freeze}.freeze)
+
+        refute_predicate copy, :frozen?
+        refute_predicate copy[:name], :frozen?
+        refute_predicate copy[:list], :frozen?
+        refute_predicate copy[:list].first, :frozen?
+      end
+    end
+
+    describe ".frozen_copy" do
+      it "returns a frozen copy, leaving the value as it is" do
+        value = {name: +"jack", list: [+"a", {key: +"b"}], block: -> {}}
+        copy  = IOStreams::Utils.frozen_copy(value)
+
+        assert_equal value, copy
+        assert_predicate copy, :frozen?
+        assert_predicate copy[:name], :frozen?
+        assert_predicate copy[:list], :frozen?
+        assert_predicate copy[:list][1][:key], :frozen?
+        refute_predicate value, :frozen?
+        refute_predicate value[:name], :frozen?
+        refute_predicate value[:list][1], :frozen?
+        assert_same value[:block], copy[:block]
+      end
+    end
+
     describe ".matchable" do
       it "returns a string that is valid in its encoding" do
         name = "café.csv"
@@ -264,6 +304,16 @@ class UtilsTest < Minitest::Test
         File.open(file_name, "rb") { |file| assert_equal file_name, IOStreams::Utils.local_file_name(file) }
       end
 
+      it "returns the name of the file of a Tempfile at its start" do
+        tempfile = Tempfile.new("iostreams_local_file_name")
+        tempfile.write("a,b\n")
+        tempfile.rewind
+
+        assert_equal File.absolute_path(tempfile.path), IOStreams::Utils.local_file_name(tempfile)
+      ensure
+        tempfile&.close!
+      end
+
       it "returns nil for a local file that is not at its start" do
         File.open(file_name, "rb") do |file|
           file.read(1)
@@ -307,29 +357,6 @@ class UtilsTest < Minitest::Test
         IO.pipe do |reader, _writer|
           assert_nil IOStreams::Utils.local_file_name(reader)
         end
-      end
-    end
-
-    describe ".unknown_host?" do
-      it "is true for a host name that does not resolve" do
-        skip_without_resolution_error
-
-        assert IOStreams::Utils.unknown_host?(resolution_error(Socket::EAI_NONAME))
-      end
-
-      it "is false for a temporary failure of name resolution, such as a DNS outage" do
-        skip_without_resolution_error
-
-        refute IOStreams::Utils.unknown_host?(resolution_error(Socket::EAI_AGAIN))
-      end
-
-      it "is false for a SocketError that is not a failure of name resolution, as on Ruby 3.2" do
-        refute IOStreams::Utils.unknown_host?(SocketError.new("getaddrinfo: nodename nor servname provided"))
-      end
-
-      it "is false for any other exception, or nil" do
-        refute IOStreams::Utils.unknown_host?(Errno::ECONNREFUSED.new)
-        refute IOStreams::Utils.unknown_host?(nil)
       end
     end
 
@@ -449,6 +476,23 @@ class UtilsTest < Minitest::Test
             assert_equal "/#{name}".b, IOStreams::Utils::URI.new("s3://bucket#{encoded}").path.b
           end
           assert_equal "/a%23b%3F%25.csv", IOStreams::Utils::URI.encode_path("/a#b?%.csv")
+        end
+      end
+
+      describe ".host_and_port" do
+        it "writes the port unless it is the default port, and an IPv6 address within [ and ]" do
+          assert_equal "example.org:2222", IOStreams::Utils::URI.host_and_port("example.org", 2222, 22)
+          assert_equal "example.org", IOStreams::Utils::URI.host_and_port("example.org", 22, 22)
+          assert_equal "[::1]:2222", IOStreams::Utils::URI.host_and_port("::1", 2222, 22)
+          assert_equal "[::1]", IOStreams::Utils::URI.host_and_port("::1", 443, 443)
+        end
+      end
+
+      describe ".normalize_escapes" do
+        it "decodes each percent-encoded unreserved character, and writes the digits of the others in upper case" do
+          assert_equal "/~a-b._c/%2F%3A%25%20%C3%A9", IOStreams::Utils::URI.normalize_escapes("/%7ea%2Db%2E%5F%63/%2f%3a%25%20%c3%a9")
+          assert_equal "a=~1&b=%2B+c", IOStreams::Utils::URI.normalize_escapes("a=%7E1&b=%2b+c")
+          assert_equal "%%2G%4", IOStreams::Utils::URI.normalize_escapes("%%2G%4")
         end
       end
 

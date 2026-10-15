@@ -22,16 +22,22 @@ module IOStreams
         # Only the sub-directories that the matcher can match names within are listed,
         # see `IOStreams::Paths::Matcher#depth`.
         #
+        # A symbolic link is a file or a directory by what it refers to, with its attributes, as for an exact name, see
+        # `.remote_attributes`, and a local path. A directory that a link refers to is not listed, like `Dir.glob`.
+        #
         # Yields nothing when the directory does not exist, or is not a directory.
         def self.each(sftp, directory, matcher, directories:)
           attributes = remote_attributes(sftp, directory)
           return unless attributes&.directory?
 
           each_entry(sftp, directory, nil, matcher.depth) do |name, entry|
-            next if !directories && !entry.file?
             next unless matcher.match?(name)
 
-            yield(name, entry.attributes.attributes)
+            # A server lists a link with its own attributes.
+            attributes = (entry.symlink? && link_attributes(sftp, ::File.join(directory, name))) || entry.attributes
+            next if !directories && !attributes.file?
+
+            yield(name, attributes.attributes)
           end
         end
 
@@ -92,7 +98,16 @@ module IOStreams
           nil
         end
 
-        private_class_method :each_entry, :entries, :utf8
+        # Returns the attributes of what the symbolic link refers to, or nil when it does not exist, or cannot be read.
+        def self.link_attributes(sftp, link)
+          sftp.stat!(link)
+        rescue Net::SFTP::StatusException => e
+          raise unless NOT_FOUND.include?(e.code) || e.code == PERMISSION_DENIED
+
+          nil
+        end
+
+        private_class_method :each_entry, :entries, :utf8, :link_attributes
       end
     end
   end

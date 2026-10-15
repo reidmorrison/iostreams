@@ -80,16 +80,25 @@ class TestHTTPServer
   end
 
   # Build a raw HTTP response string.
-  def self.response(status, body: "", headers: {})
-    reason = {200 => "OK", 201 => "Created", 204 => "No Content", 301 => "Moved Permanently", 302 => "Found",
+  #
+  # With `chunked: true` the body is sent in chunks, without a Content-Length, as a server sends a body that it
+  # compresses while it sends it.
+  def self.response(status, body: "", headers: {}, chunked: false)
+    reason = {200 => "OK", 201 => "Created", 204 => "No Content", 206 => "Partial Content", 301 => "Moved Permanently", 302 => "Found",
               307 => "Temporary Redirect", 308 => "Permanent Redirect", 401 => "Unauthorized",
               404 => "Not Found", 405 => "Method Not Allowed", 410 => "Gone", 500 => "Internal Server Error"}[status]
-    all    = {"Content-Length" => body.bytesize.to_s, "Connection" => "close"}.merge(headers)
+    length = chunked ? {"Transfer-Encoding" => "chunked"} : {"Content-Length" => body.bytesize.to_s}
+    all    = length.merge("Connection" => "close").merge(headers)
     lines  = ["HTTP/1.1 #{status} #{reason}"]
     all.each { |key, value| lines << "#{key}: #{value}" }
     lines << ""
-    lines << body
+    lines << (chunked ? chunks(body) : body)
     lines.join("\r\n")
+  end
+
+  # Returns [String] the body in the chunked transfer coding, in chunks of 16KB.
+  def self.chunks(body)
+    "#{body.b.scan(/.{1,16384}/mn).map { |chunk| "#{chunk.bytesize.to_s(16)}\r\n#{chunk}\r\n" }.join}0\r\n\r\n"
   end
 
   private

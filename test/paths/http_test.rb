@@ -4,8 +4,11 @@ require_relative "../test_helper"
 require_relative "../http_server"
 require "socket"
 require "base64"
+require "csv"
 require "logger"
+require "open3"
 require "openssl"
+require "rbconfig"
 
 module Paths
   class HTTPTest < Minitest::Test
@@ -16,6 +19,25 @@ module Paths
             IOStreams::Paths::HTTP.new("ftp://example.com/file")
           end
           assert_includes error.message, "Invalid URL"
+        end
+
+        it "raises ArgumentError for a url without a host" do
+          error = assert_raises(ArgumentError) { IOStreams.path("http:///a.csv") }
+
+          assert_includes error.message, %(Invalid HTTP url "http:///a.csv": it must name a host, such as 'https://example.org/a.csv')
+        end
+
+        it "raises ArgumentError for a url that cannot be parsed, without its password or query" do
+          {
+            "https://jack:TOP SECRET@example.com/a.csv"    => "https://[FILTERED]@example.com/a.csv",
+            "https://example.com/my file.csv?token=SECRET" => "https://example.com/my file.csv"
+          }.each_pair do |url, name|
+            error = assert_raises(ArgumentError) { IOStreams.path(url) }
+
+            assert_includes error.message, "Invalid url #{name.inspect}: it cannot be parsed"
+            refute_includes error.full_message, "SECRET"
+            assert_nil error.cause
+          end
         end
       end
 
@@ -46,6 +68,55 @@ module Paths
           assert_equal "https://example.com/?a=1#b", IOStreams::Paths::HTTP.new("https://example.com?a=1#b").to_s
           assert_equal "https://example.com/?a=1", IOStreams::Paths::HTTP.new("https://example.com", parameters: {a: 1}).to_s
           assert_equal IOStreams::Paths::HTTP.new("https://example.com"), IOStreams::Paths::HTTP.new("https://example.com/")
+        end
+      end
+
+      describe "comparison" do
+        it "is equal to another spelling of the url" do
+          path = IOStreams.path("https://example.org/data/~a.csv?q=~1")
+          urls = %w[
+            https://EXAMPLE.org/data/~a.csv?q=~1 HTTPS://example.org/data/~a.csv?q=~1
+            https://example.org:443/data/~a.csv?q=~1 https://example.org:/data/~a.csv?q=~1
+            https://example.org/data/%7Ea.csv?q=%7E1 https://example.org/data/%7ea%2Ecsv?q=%7e1
+            https://jack:secret@example.org/data/~a.csv?q=~1 https://example.org/data/~a.csv?q=~1#part
+          ]
+
+          urls.each { |url| assert_equal_paths path, IOStreams.path(url), url }
+          assert_equal_paths path, IOStreams.path("https://example.org/data/~a.csv", parameters: {q: "~1"}, username: "jack")
+        end
+
+        it "is equal to the root of the host, whether its url ends with /" do
+          assert_equal_paths IOStreams.path("http://example.org"), IOStreams.path("http://example.org:80/")
+        end
+
+        it "compares a percent-encoded character that is not the same as the character, whatever the case of its digits" do
+          path = IOStreams.path("https://example.org/a%2fb%2bc.csv")
+
+          assert_equal_paths path, IOStreams.path("https://example.org/a%2Fb%2Bc.csv")
+          refute_equal_paths path, IOStreams.path("https://example.org/a/b+c.csv")
+          assert_equal_paths IOStreams.path("https://example.org/caf%c3%a9.csv"), IOStreams.path("https://example.org/caf%C3%A9.csv")
+        end
+
+        it "compares the scheme and host without their case, and the port, path and query as they are" do
+          path = IOStreams.path("https://example.org/data/a.csv?x=1")
+          urls = %w[
+            http://example.org/data/a.csv?x=1 https://example.org:8443/data/a.csv?x=1 https://example.org:80/data/a.csv?x=1
+            https://example.com/data/a.csv?x=1 https://example.org/data/A.csv?x=1 https://example.org/data/a.csv?X=1
+            https://example.org/data/a.csv https://example.org/data/a.csv?x=1& https://example.org/data/./a.csv?x=1
+            https://example.org//data/a.csv?x=1 https://example.org/data/a.csv/?x=1 https://example.org/data%2Fa.csv?x=1
+          ]
+
+          urls.each { |url| refute_equal_paths path, IOStreams.path(url), url }
+          refute_equal_paths IOStreams.path("https://example.org/a.csv?"), IOStreams.path("https://example.org/a.csv")
+          refute_equal_paths IOStreams.path("http://[fe80::1]:8080/a.csv"), IOStreams.path("http://[fe80::1:8080]/a.csv")
+        end
+
+        it "sorts by the url that it compares" do
+          urls  = %w[https://B.org/a.csv http://b.org/a.csv https://a.org:8443/a.csv HTTPS://A.org:443/b.csv https://jack@a.org/a.csv]
+          paths = urls.map { |url| IOStreams.path(url) }
+
+          assert_equal %w[http://b.org/a.csv https://jack@a.org/a.csv HTTPS://A.org:443/b.csv https://a.org:8443/a.csv https://B.org/a.csv],
+                       paths.sort.map(&:to_s)
         end
       end
 
@@ -98,28 +169,34 @@ module Paths
         it "does not respond to them, like a method Ruby does not implement on the platform" do
           refute_respond_to path, :delete_all
           refute_respond_to path, :each_child
+          refute_respond_to path, :children
           assert_respond_to path, :exist?
+          assert_respond_to path, :size?
+          assert_respond_to path, :move_to
           assert_respond_to path, :read
         end
       end
 
       describe "#join" do
-        it "keeps a percent-encoded character in a joined name" do
-          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("my%20file.csv")
+        it "encodes every % in a joined name, which is a name rather than part of a url" do
+          %w[100%.csv 100%41.csv my%20file.csv].each do |name|
+            path = IOStreams::Paths::HTTP.new("https://example.com/files").join(name)
 
-          assert_equal "https://example.com/files/my%20file.csv", path.to_s
+            assert_equal "https://example.com/files/#{name.gsub('%', '%25')}", path.to_s
+            assert_equal name, path.basename
+            assert_equal path.path, IOStreams.path(path.to_s).path
+          end
         end
 
-        it "encodes a % that is not percent-encoded in a joined name" do
-          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("100%.csv")
+        it "encodes a space in a joined name" do
+          path = IOStreams::Paths::HTTP.new("https://example.com/files").join("my file.csv")
 
-          assert_equal "https://example.com/files/100%25.csv", path.to_s
-          assert_equal "100%.csv", path.basename
+          assert_equal "https://example.com/files/my%20file.csv", path.to_s
         end
       end
 
       it "does not support streams" do
-        assert_raises URI::InvalidURIError do
+        assert_raises ArgumentError do
           io = StringIO.new
           IOStreams::Paths::HTTP.new(io)
         end
@@ -165,6 +242,314 @@ module Paths
           assert_equal body, IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
         end
 
+        describe "the encoding of the response" do
+          let(:csv) { "a,b\n1,2\n" }
+          let(:gzipped) { Zlib.gzip(csv) }
+
+          # Returns [String] the url of the file on the server.
+          def data_url(name = "data.csv")
+            "#{@server.base_url}/#{name}"
+          end
+
+          # Returns [Array<String>] the Accept-Encoding of each request that the server received.
+          def accept_encodings(server = @server)
+            server.requests.map { |request| request[:headers]["accept-encoding"] }
+          end
+
+          # A server that serves a .gz file with `Content-Encoding: gzip` whenever the client accepts it, as many do.
+          def start_gzip_server
+            start_server do |_path, request|
+              gzip = request[:headers]["accept-encoding"].to_s.include?("gzip")
+              TestHTTPServer.response(200, body: gzipped, headers: gzip ? {"Content-Encoding" => "gzip"} : {})
+            end
+          end
+
+          # A server that compresses the body while it sends it when the request accepts gzip, as nginx, Apache and
+          # CDNs do for text.
+          def start_compressing_server(data = csv)
+            start_server do |_path, request|
+              if request[:headers]["accept-encoding"].to_s.include?("gzip")
+                TestHTTPServer.response(200, body: Zlib.gzip(data), headers: {"Content-Encoding" => "gzip"}, chunked: true)
+              else
+                TestHTTPServer.response(200, body: data)
+              end
+            end
+          end
+
+          # A server that sends the body with the Content-Encoding that is stored with it, whatever the request
+          # accepts, as S3 does, or no Content-Encoding when it is nil.
+          def start_labeling_server(data, content_encoding)
+            headers = content_encoding.nil? ? {} : {"Content-Encoding" => content_encoding}
+            start_server { |_path| TestHTTPServer.response(200, body: data, headers: headers) }
+          end
+
+          it "asks for gzip when the file is read through streams that neither compress nor encrypt it" do
+            start_server { |_path| TestHTTPServer.response(404) }
+            paths = [
+              IOStreams.path("#{@server.base_url}/data.csv"),
+              IOStreams.path("#{@server.base_url}/data.json"),
+              IOStreams.path("#{@server.base_url}/data.parquet"),
+              IOStreams.path("#{@server.base_url}/download"),
+              IOStreams.path("#{@server.base_url}/legacy.csv").encoding("Windows-1252:UTF-8")
+            ]
+
+            paths.each { |path| assert_raises(IOStreams::Errors::NotFound) { path.read } }
+            assert_equal ["gzip"] * paths.size, accept_encodings
+          end
+
+          it "asks for the file as it is stored when it is compressed or encrypted, read raw, or copied as it is" do
+            start_server { |_path| TestHTTPServer.response(404) }
+            paths = %w[data.csv.gz data.csv.bz2 data.csv.zst data.zip data.xlsx data.csv.pgp data.csv.enc].map do |name|
+              IOStreams.path("#{@server.base_url}/#{name}")
+            end
+            paths << IOStreams.path("#{@server.base_url}/download").stream(:gz)
+            paths << IOStreams.path("#{@server.base_url}/data.csv").raw
+
+            paths.each { |path| assert_raises(IOStreams::Errors::NotFound) { path.read } }
+            IOStreams.temp_file("iostreams_http_target", ".csv") do |target|
+              assert_raises(IOStreams::Errors::NotFound) do
+                IOStreams.path("#{@server.base_url}/data.csv").copy_to(target, convert: false)
+              end
+            end
+            assert_equal ["identity"] * (paths.size + 1), accept_encodings
+          end
+
+          it "asks for gzip with the deprecated stream(:none), as v2.1 did, unlike #raw" do
+            start_server { |_path| TestHTTPServer.response(404) }
+            path = assert_deprecated(/stream\(:none\)/) { IOStreams.path("#{@server.base_url}/data.csv.gz").stream(:none) }
+
+            assert_raises(IOStreams::Errors::NotFound) { path.read }
+            assert_equal ["gzip"], accept_encodings
+          end
+
+          it "reads a file that the server compresses while it sends it" do
+            start_compressing_server
+            records = []
+
+            assert_equal csv, IOStreams.path(data_url).read
+            IOStreams.path(data_url).each(:hash) { |record| records << record }
+
+            assert_equal [{"a" => "1", "b" => "2"}], records
+            assert_equal %w[gzip gzip], accept_encodings
+          end
+
+          it "decompresses a body sent with the Content-Encoding gzip or x-gzip, in any case" do
+            %w[gzip x-gzip GZIP X-Gzip].each do |content_encoding|
+              start_labeling_server(gzipped, content_encoding)
+
+              assert_equal csv, IOStreams.path(data_url).read, content_encoding
+              @server.shutdown
+            end
+          end
+
+          it "reads a file stored compressed, with the Content-Encoding gzip, as its content, and #raw as it is stored" do
+            start_labeling_server(gzipped, "gzip")
+
+            assert_equal csv, IOStreams.path(data_url).read
+            assert_equal gzipped, IOStreams.path(data_url).raw.read.b
+            assert_equal gzipped.bytesize, IOStreams.path(data_url).size
+            assert_equal %w[gzip identity identity], accept_encodings
+          end
+
+          it "decompresses a .gz file that the server sends with its Content-Encoding once, with its gzip stream" do
+            %w[gzip x-gzip].each do |content_encoding|
+              start_labeling_server(gzipped, content_encoding)
+
+              assert_equal csv, IOStreams.path(data_url("data.csv.gz")).read
+              assert_equal gzipped, IOStreams.path(data_url("data.csv.gz")).raw.read.b
+              assert_equal %w[identity identity], accept_encodings
+              @server.shutdown
+            end
+          end
+
+          it "requests the file as it is stored" do
+            start_gzip_server
+            url = data_url("data.csv.gz")
+
+            assert_equal gzipped, IOStreams.path(url).raw.read.b
+            assert_equal csv, IOStreams.path(url).read
+            assert_equal %w[identity identity], accept_encodings
+          end
+
+          it "reads a body that is not encoded as it is sent" do
+            [nil, "", "identity", "Identity", "none", "NONE"].each do |content_encoding|
+              start_labeling_server(csv, content_encoding)
+
+              assert_equal csv, IOStreams.path(data_url).read, content_encoding.inspect
+              @server.shutdown
+            end
+          end
+
+          it "reads an empty body as empty, whatever its Content-Encoding" do
+            start_labeling_server("", "gzip")
+
+            assert_equal "", IOStreams.path(data_url).read
+          end
+
+          it "decompresses every member of a body of several gzip members" do
+            random = Random.new(42)
+            # Larger than a read of the decompressor, and than a chunk of the body.
+            lines  = Array.new(20_000) { |i| "#{i},#{random.rand(10**12)}\n" }
+            start_labeling_server(lines.each_slice(5_000).map { |slice| Zlib.gzip(slice.join) }.join, "gzip")
+
+            assert_equal lines.join, IOStreams.path(data_url).read
+          end
+
+          it "decompresses every member of a body of many small gzip members" do
+            lines = Array.new(2_000) { |i| "#{format('%04d', i)},#{'x' * 250}\n" }
+            start_labeling_server(lines.map { |line| Zlib.gzip(line) }.join, "gzip")
+
+            assert_equal lines.join, IOStreams.path(data_url).read
+          end
+
+          it "raises before the block is called for a Content-Encoding that it cannot decode" do
+            ["br", "zstd", "deflate", "compress", "gzip, gzip", "utf-8", "aws-chunked"].each do |content_encoding|
+              start_labeling_server(csv, content_encoding)
+              called = false
+
+              error = assert_raises(IOStreams::Errors::CommunicationsFailure) do
+                IOStreams.path("#{data_url}?token=SECRET").reader { |_io| called = true }
+              end
+              refute called
+              assert_equal "Cannot decode the Content-Encoding #{content_encoding.inspect} of #{data_url}. To read the body " \
+                           "as it is sent, supply headers: {\"Accept-Encoding\" => \"identity\"}", error.message
+              refute_kind_of IOStreams::Errors::StorageError, error
+              @server.shutdown
+            end
+          end
+
+          it "raises for a gzip body that is truncated or corrupt, naming the url, with the failure as its cause" do
+            truncated = gzipped.byteslice(0, gzipped.bytesize - 4)
+            bad_crc   = gzipped.b.tap { |data| data.setbyte(-8, data.getbyte(-8) ^ 0xff) }
+            # The failure of zlib for each body, the same on every platform, since the gzip stream reads whole blocks.
+            [
+              [truncated, Zlib::GzipFile::NoFooter],
+              [gzipped.byteslice(0, 12), Zlib::GzipFile::Error],
+              [bad_crc, Zlib::GzipFile::CRCError],
+              ["#{gzipped}trailing garbage", Zlib::GzipFile::Error],
+              ["not gzip", Zlib::GzipFile::Error]
+            ].each do |data, cause|
+              start_labeling_server(data, "gzip")
+
+              error = assert_raises(IOStreams::Errors::CommunicationsFailure) { IOStreams.path("#{data_url}?token=SECRET").read }
+              assert_kind_of IOStreams::Errors::Corrupt, error.cause
+              assert_instance_of cause, error.cause
+              assert_equal "Cannot decode the Content-Encoding \"gzip\" of #{data_url}: #{error.cause.message}", error.message
+              refute_kind_of IOStreams::Errors::StorageError, error
+              @server.shutdown
+            end
+          end
+
+          it "raises the failure to decompress a body from within the block, once it has read what came before it" do
+            data = csv * 10_000
+            start_labeling_server(Zlib.gzip(data).byteslice(0..-5), "gzip")
+            read = +""
+
+            assert_raises(IOStreams::Errors::CommunicationsFailure) do
+              IOStreams.path(data_url).reader { |io| read << io.read(10) << io.read }
+            end
+            assert_equal data.byteslice(0, 10), read
+          end
+
+          it "does not convert a Corrupt failure that the block raises, such as reading another file" do
+            start_labeling_server(gzipped, "gzip")
+
+            error = assert_raises(IOStreams::Errors::Corrupt) do
+              IOStreams.path(data_url).reader { |_io| IOStreams.stream(StringIO.new("not gzip")).stream(:gz).read }
+            end
+            refute_kind_of IOStreams::Errors::CommunicationsFailure, error
+            assert_equal "not in gzip format", error.message
+          end
+
+          it "limits the size of the body once decompressed to the maximum file size" do
+            start_labeling_server(Zlib.gzip("\0" * 10_000_000), "gzip")
+            path = IOStreams.path(data_url, maximum_file_size: 1_000_000)
+            read = 0
+
+            error = assert_raises(IOStreams::Errors::CommunicationsFailure) do
+              path.reader { |io| read += io.read(65_536).bytesize while read < 2_000_000 }
+            end
+            assert_equal "Exceeded maximum allowed download size of 1000000 bytes once decompressed", error.message
+            assert_operator read, :>, 0
+            assert_operator read, :<=, 1_000_000
+          end
+
+          it "limits the bytes received to the maximum file size, also when they decompress to nothing" do
+            start_labeling_server(Zlib.gzip("") * 6_000, "gzip")
+
+            error = assert_raises(IOStreams::Errors::CommunicationsFailure) do
+              IOStreams.path(data_url, maximum_file_size: 100_000).read
+            end
+            assert_equal "Exceeded maximum allowed download size of 100000 bytes", error.message
+          end
+
+          it "reads a body whose size once decompressed is the maximum file size" do
+            data = csv * 1_000
+            start_labeling_server(Zlib.gzip(data), "gzip")
+
+            assert_equal data, IOStreams.path(data_url, maximum_file_size: data.bytesize).read
+          end
+
+          it "copies a file that the server compresses while it sends it, and copies it as it is stored without conversion" do
+            start_compressing_server
+
+            IOStreams.temp_file("iostreams_http_target", ".csv") do |target|
+              IOStreams.path(data_url).copy_to(target)
+
+              assert_equal csv, target.read
+            end
+            IOStreams.temp_file("iostreams_http_target", ".csv") do |target|
+              IOStreams.path(data_url).copy_to(target, convert: false)
+
+              assert_equal csv, target.read
+            end
+            assert_equal %w[gzip identity], accept_encodings
+          end
+
+          it "accepts the encodings supplied with headers:, and reads the body as it is sent" do
+            start_gzip_server
+            path = IOStreams.path("#{@server.base_url}/data.csv", headers: {"Accept-Encoding" => "gzip"})
+
+            assert_equal gzipped, IOStreams.path(path).raw.read.b
+            assert_equal gzipped, IOStreams.path(path).read.b
+            assert_equal csv, IOStreams.path(path).stream(:gz).read
+            assert_equal %w[gzip gzip gzip], accept_encodings
+          end
+
+          it "reads the body as it is sent, whatever its Content-Encoding, with headers: that accept only identity" do
+            start_labeling_server(csv, "br")
+            path = IOStreams.path(data_url, headers: {"accept-encoding" => "identity"})
+
+            assert_equal csv, path.read
+            assert_equal ["identity"], accept_encodings
+          end
+
+          it "asks for the file as it is stored with a Range supplied with headers:, since a range of a compressed body cannot be decompressed" do
+            start_server do |_path, request|
+              if request[:headers]["accept-encoding"].to_s.include?("gzip")
+                # As nginx does, which compresses the whole file, rather than sending the range.
+                TestHTTPServer.response(200, body: Zlib.gzip(csv), headers: {"Content-Encoding" => "gzip"})
+              else
+                TestHTTPServer.response(206, body: csv.byteslice(0, 4), headers: {"Content-Range" => "bytes 0-3/#{csv.bytesize}"})
+              end
+            end
+
+            assert_equal "a,b\n", IOStreams.path(data_url, headers: {"Range" => "bytes=0-3"}).read
+            assert_equal ["identity"], accept_encodings
+          end
+
+          it "asks for gzip after a redirect to another host, and decompresses its response" do
+            @other = TestHTTPServer.new do |_path|
+              TestHTTPServer.response(200, body: gzipped, headers: {"Content-Encoding" => "gzip"})
+            end
+            start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "#{@other.base_url}/data.csv"}) }
+
+            assert_equal csv, IOStreams.path(data_url).read
+            assert_equal ["gzip"], accept_encodings
+            assert_equal ["gzip"], accept_encodings(@other)
+          end
+        end
+
         it "raises when the server returns 404 Not Found" do
           start_server { |_path| TestHTTPServer.response(404) }
 
@@ -185,13 +570,38 @@ module Paths
           assert_equal "#{@server.base_url}/gone.csv: Invalid response code: 410", error.message
         end
 
-        it "raises NotFound with the display name of the path, without its credentials or query" do
+        it "raises NotFound with the display name of the path, without its credentials, query or parameters" do
           start_server { |_path| TestHTTPServer.response(404) }
           url = "http://jack:TOP-SECRET@127.0.0.1:#{@server.port}/missing.csv?token=SECRET"
 
-          error = assert_raises(IOStreams::Errors::NotFound) { IOStreams::Paths::HTTP.new(url).read }
+          error = assert_raises(IOStreams::Errors::NotFound) do
+            IOStreams::Paths::HTTP.new(url, parameters: {api_key: "PARAMETER-SECRET"}).read
+          end
           assert_equal "http://127.0.0.1:#{@server.port}/missing.csv", error.display_name
-          refute_includes error.message, "TOP-SECRET"
+          refute_includes error.message, "SECRET"
+          refute_includes error.message, "jack"
+        end
+
+        it "does not include credentials or the query in the message of a redirect that is not followed" do
+          start_server do |path|
+            case path
+            when %r{\A/ftp} then TestHTTPServer.response(302, headers: {"Location" => "ftp://127.0.0.1/x?token=LOCATION-SECRET"})
+            when %r{\A/nowhere} then TestHTTPServer.response(302)
+            else TestHTTPServer.response(301, headers: {"Location" => "/other?token=LOCATION-SECRET"})
+            end
+          end
+          base = "http://jack:TOP-SECRET@127.0.0.1:#{@server.port}"
+
+          [
+            -> { IOStreams.path("#{base}/ftp?token=SECRET").read },
+            -> { IOStreams.path("#{base}/nowhere?token=SECRET").read },
+            -> { IOStreams.path("#{base}/upload?token=SECRET").write("data") }
+          ].each do |request|
+            error = assert_raises(IOStreams::Errors::CommunicationsFailure, &request)
+
+            refute_includes error.message, "SECRET"
+            refute_includes error.message, "jack"
+          end
         end
 
         it "does not tag any other unsuccessful response" do
@@ -277,6 +687,15 @@ module Paths
             Net::HTTP.stub(:start, tracking) { yield(-> { open }) }
           end
 
+          it "reads lines like an IO, as the response is read" do
+            start_server { |_path| TestHTTPServer.response(200, body: "a,b\n1,2\n") }
+            path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+
+            rows = path.reader { |io| CSV.new(io).to_a }
+
+            assert_equal [%w[a b], %w[1 2]], rows
+          end
+
           it "keeps the connection open while the block reads, and closes it once the block returns" do
             start_server { |_path| TestHTTPServer.response(200, body: large) }
             path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
@@ -296,6 +715,74 @@ module Paths
             tracking_connections do |open|
               assert_raises(ArgumentError) { path.reader { |io| io.read(10) && raise(ArgumentError, "block failed") } }
               assert_equal 0, open.call
+            end
+          end
+
+          describe "a body that is decompressed as it is read" do
+            # Not compressible, so that the server is still sending it when the block stops reading.
+            let(:random) { Random.new(42).bytes(2_000_000) }
+
+            before do
+              compressed = Zlib.gzip(random)
+              start_server { |_path| TestHTTPServer.response(200, body: compressed, headers: {"Content-Encoding" => "gzip"}) }
+            end
+
+            it "closes the connection, and the decompressor, once the block returns" do
+              path = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+              stream = nil
+
+              tracking_connections do |open|
+                read, open_while_reading = path.reader do |io|
+                  stream = io
+                  [io.read(10), open.call]
+                end
+
+                assert_equal random.byteslice(0, 10), read
+                assert_equal 1, open_while_reading
+                assert_equal 0, open.call
+                assert_predicate stream, :closed?
+              end
+            end
+
+            it "closes the connection, and the decompressor, when the block raises" do
+              path   = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+              stream = nil
+              read   = nil
+
+              tracking_connections do |open|
+                assert_raises(ArgumentError) do
+                  path.reader do |io|
+                    stream = io
+                    read   = io.read(10)
+                    raise(ArgumentError, "block failed")
+                  end
+                end
+                assert_equal random.byteslice(0, 10), read
+                assert_equal 0, open.call
+                assert_predicate stream, :closed?
+              end
+            end
+
+            it "closes the connection, and the decompressor, when the thread reading is killed" do
+              path    = IOStreams::Paths::HTTP.new("#{@server.base_url}/file")
+              stream  = nil
+              reading = Queue.new
+
+              tracking_connections do |open|
+                thread = Thread.new do
+                  path.reader do |io|
+                    stream = io
+                    reading << [io.read(10), open.call]
+                    sleep
+                  end
+                end
+
+                assert_equal [random.byteslice(0, 10), 1], reading.pop
+                thread.kill.join
+
+                assert_equal 0, open.call
+                assert_predicate stream, :closed?
+              end
             end
           end
 
@@ -558,6 +1045,16 @@ module Paths
           assert_includes error.message, "missing location"
         end
 
+        it "raises for a redirect to a location that is not a url, without the location" do
+          start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "http://exa mple.com/a.csv?token=secret"}) }
+
+          error = assert_raises IOStreams::Errors::CommunicationsFailure do
+            IOStreams::Paths::HTTP.new("#{@server.base_url}/redirect").read
+          end
+          assert_equal "Redirect to a location that is not a url: #{@server.base_url}/redirect", error.message
+          assert_nil error.cause
+        end
+
         it "rejects a redirect to a host outside the allow list" do
           # The initial host is allowed, but the server redirects to a different
           # host name (localhost) that is not, which is the core SSRF scenario.
@@ -699,6 +1196,15 @@ module Paths
           start_server { |_path| TestHTTPServer.response(200, body: body) }
 
           assert_equal body, IOStreams::Paths::HTTP.new("#{@server.base_url}/file", allow_hosts: ["127.0.0.1"]).read
+        end
+
+        it "allows a host in the allow list whatever its case, since host names are not case-sensitive" do
+          connected = Class.new(StandardError)
+
+          Net::HTTP.stub(:start, ->(*) { raise connected }) do
+            assert_raises(connected) { IOStreams::Paths::HTTP.new("https://Example.COM/file", allow_hosts: ["example.com"]).read }
+            assert_raises(connected) { IOStreams::Paths::HTTP.new("https://example.com/file", allow_hosts: "EXAMPLE.com").read }
+          end
         end
 
         it "accepts allow_hosts supplied as a single string" do
@@ -1121,10 +1627,35 @@ module Paths
             assert_equal "HEAD", @server.requests.first[:method]
           end
 
+          it "returns the time in a process that has only required iostreams" do
+            start_server do |_path|
+              "HTTP/1.1 200 OK\r\nLast-Modified: Wed, 21 Oct 2015 07:28:00 GMT\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            end
+            # The test helper requires `time`, which defines Time.httpdate, so the time is read in a new process.
+            script = %(require "iostreams"; print IOStreams.path("#{@server.base_url}/file.txt").mtime.to_i)
+            output, = Open3.capture2e(RbConfig.ruby, "-I", File.expand_path("../../lib", __dir__), "-e", script)
+
+            assert_equal Time.utc(2015, 10, 21, 7, 28, 0).to_i.to_s, output
+          end
+
           it "returns nil when the server does not supply it" do
             start_server { |_path| "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
 
             assert_nil IOStreams.path("#{@server.base_url}/file.txt").mtime
+          end
+
+          it "returns nil, and logs a warning, when the Last-Modified header is not a time" do
+            start_server { |_path| "HTTP/1.1 200 OK\r\nLast-Modified: yesterday\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
+            output   = StringIO.new
+            original = IOStreams.logger
+            IOStreams.logger = Logger.new(output, level: :warn)
+            path = IOStreams.path("#{@server.base_url}/file.txt?token=SECRET")
+
+            assert_nil path.mtime
+            assert_includes output.string, "Ignoring the Last-Modified header of #{@server.base_url}/file.txt, which is not a time: \"yesterday\""
+            refute_includes output.string, "SECRET"
+          ensure
+            IOStreams.logger = original
           end
 
           it "raises NotFound when the file is not found" do
@@ -1304,6 +1835,41 @@ module Paths
             assert_equal body, request[:body]
           end
 
+          it "raises ArgumentError for a target that is the same url, by any spelling, without a request" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            source  = IOStreams.path("http://localhost:#{@server.port}/files/file.txt")
+            targets = [
+              source, source.to_s, "http://LOCALHOST:#{@server.port}/files/./a/../file.txt",
+              "http://localhost:#{@server.port}/files/file%2Etxt", "http://localhost:#{@server.port}/files%2Ffile.txt",
+              "http://localhost:#{@server.port}/files/file.txt/"
+            ]
+
+            targets.each do |target|
+              error = assert_raises(ArgumentError, target.to_s) { source.move_to(target) }
+
+              assert_includes error.message, "Cannot move #{source.display_name} onto itself"
+            end
+            assert_empty @server.requests
+          end
+
+          it "raises ArgumentError for a target with another spelling of the same query, without a request" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+            source = IOStreams.path("http://localhost:#{@server.port}/file.txt?v=~1")
+
+            error = assert_raises(ArgumentError) { source.move_to("http://localhost:#{@server.port}/file.txt?v=%7e1") }
+
+            assert_includes error.message, "Cannot move #{source.display_name} onto itself"
+            assert_empty @server.requests
+          end
+
+          it "moves to the same path with another query, which can be another file" do
+            start_server { |_path| TestHTTPServer.response(200, body: body) }
+
+            IOStreams.path("#{@server.base_url}/file.txt?version=1").move_to("#{@server.base_url}/file.txt?version=2")
+
+            assert_equal(%w[GET PUT DELETE], @server.requests.map { |request| request[:method] })
+          end
+
           it "downloads the file and then deletes it" do
             start_server { |_path| TestHTTPServer.response(200, body: body) }
 
@@ -1327,14 +1893,25 @@ module Paths
             path = IOStreams::Paths::HTTP.new("https://example.com/file")
 
             error = assert_raises IOStreams::Errors::CommunicationsFailure do
-              path.send(:redirect_uri, URI.parse(path.url), redirect_to("http://example.com/file"), 1, Net::HTTP::Get)
+              path.send(:redirects).follow(URI.parse(path.url), redirect_to("http://example.com/file"), 1, Net::HTTP::Get)
             end
             assert_includes error.message, "from https to http"
           end
 
+          it "does not include credentials or the query of either url in the message" do
+            path     = IOStreams::Paths::HTTP.new("https://jack:TOP-SECRET@example.com/file?token=SECRET")
+            redirect = redirect_to("http://example.com/file?token=LOCATION-SECRET")
+
+            error = assert_raises IOStreams::Errors::CommunicationsFailure do
+              path.send(:redirects).follow(URI.parse(path.url), redirect, 1, Net::HTTP::Get)
+            end
+            assert_equal "Redirect from https to http is not followed: https://example.com/file to http://example.com/file",
+                         error.message
+          end
+
           it "follows a redirect from http to https when reading" do
             path    = IOStreams::Paths::HTTP.new("http://example.com/file")
-            new_uri = path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Get)
+            new_uri = path.send(:redirects).follow(URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Get)
 
             assert_equal "https://example.com/file", new_uri.to_s
           end
@@ -1343,7 +1920,7 @@ module Paths
             path = IOStreams::Paths::HTTP.new("http://example.com/file")
 
             error = assert_raises IOStreams::Errors::CommunicationsFailure do
-              path.send(:redirect_uri, URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Put)
+              path.send(:redirects).follow(URI.parse(path.url), redirect_to("https://example.com/file"), 1, Net::HTTP::Put)
             end
             assert_includes error.message, "same scheme, host and port"
           end
@@ -1396,6 +1973,21 @@ module Paths
             assert_nil redirected["x-api-key"]
             assert_nil redirected["cookie"]
             refute_equal "text/csv", redirected["accept"]
+          end
+
+          it "sends an Accept-Encoding supplied with headers: across a redirect to another host, which holds no credential" do
+            @other = TestHTTPServer.new { |_path| TestHTTPServer.response(200, body: body, headers: {"Content-Encoding" => "br"}) }
+            start_server { |_path| TestHTTPServer.response(302, headers: {"Location" => "#{@other.base_url}/file"}) }
+
+            %w[identity gzip].each do |accept_encoding|
+              path = IOStreams::Paths::HTTP.new(
+                "#{@server.base_url}/redirect", headers: {"Accept-Encoding" => accept_encoding, "X-Api-Key" => "key"}
+              )
+
+              assert_equal body, path.read
+            end
+            assert_equal(%w[identity gzip], @other.requests.map { |request| request[:headers]["accept-encoding"] })
+            assert(@other.requests.none? { |request| request[:headers]["x-api-key"] })
           end
 
           it "sends the supplied headers across a same-origin redirect" do

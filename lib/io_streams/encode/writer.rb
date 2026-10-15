@@ -3,22 +3,26 @@
 module IOStreams
   module Encode
     class Writer < IOStreams::Writer
+      include IOStreams::Writable
+
       def self.option_names
         %i[encoding cleaner replace]
       end
 
-      attr_reader :cleaner
-
-      # Write a line at a time to a file or stream
-      def self.stream(input_stream, **args)
-        writer = new(input_stream, **args)
-        result = yield(writer)
-        writer.send(:finish)
-        result
+      # Raises ArgumentError for options that #initialize would raise for, see `IOStreams::Encode.check`.
+      def self.check(**)
+        Encode.check(**)
       end
 
-      # A delimited stream writer that will write to the supplied output stream
-      # Written data is encoded prior to writing.
+      # Yields a writer that encodes the data written to the supplied output stream. Once the block returns, including
+      # when it leaves early, such as with `break`, a character still held back at the end of the data is written, see
+      # #finish, as the data written so far is kept, but not when the block raises, see `IOStreams::Utils.finish_or_abort`.
+      def self.stream(output_stream, **)
+        writer = new(output_stream, **)
+        Utils.finish_or_abort(finish: -> { writer.finish }) { yield(writer) }
+      end
+
+      # A writer that encodes the data written to it, and writes it to the supplied output stream.
       #
       # Parameters
       #   output_stream
@@ -58,47 +62,24 @@ module IOStreams
         @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
       end
 
-      # Returns [Encoding] the encoding of the data written, or nil when it is written unchanged.
-      def encoding
-        @converter.encoding
-      end
-
-      # Write a line to the output stream
-      #
-      # Example:
-      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
-      #     stream << 'first line' << 'second line'
-      #   end
-      def <<(record)
-        write(record)
-        self
-      end
-
-      # Encode data and write it to the output stream.
-      # Returns [Integer] the number of bytes written.
-      #
-      # Example:
-      #   IOStreams.path('a.txt').encoding('UTF-8').writer do |stream|
-      #     count = stream.write('first line')
-      #     puts "Wrote #{count} bytes to the output file"
-      #   end
-      #
-      # Binary data, for example when copying a file, is treated as already being in the requested encoding.
-      # A multi-byte character that is split across two writes is written by the second write.
-      def write(data)
-        return 0 if data.nil?
-
-        block = @converter.convert(data.to_s)
-        @converter.raise_invalid
-        write_block(block)
+      # Writes a multi-byte character still held back at the end of the data, after replacing it when it is incomplete.
+      # Raises IOStreams::Errors::InvalidEncoding for an incomplete character without `replace`.
+      def finish
+        block = @converter.finish
+        write_block(block) if block
       end
 
       private
 
-      # Writes a multi-byte character still held back at the end of the data.
-      def finish
-        block = @converter.finish
-        write_block(block) if block
+      # Encodes the data and writes it to the output stream, see `IOStreams::Writable`, which writes `#write`, `#<<`,
+      # `#print`, `#puts` and `#printf` through it. Returns [Integer] the number of bytes written to the output stream.
+      #
+      # Binary data, for example when copying a file, is treated as already being in the requested encoding.
+      # A multi-byte character that is split across two writes is written by the second write.
+      def write_data(data)
+        block = @converter.convert(data)
+        @converter.raise_invalid
+        write_block(block)
       end
 
       def write_block(block)

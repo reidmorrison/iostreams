@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "securerandom"
 require "timeout"
 
 class PgpReaderTest < Minitest::Test
@@ -104,6 +105,13 @@ class PgpReaderTest < Minitest::Test
       temp_file.delete
     end
 
+    describe "settings" do
+      it "are initialized on the reader" do
+        assert IOStreams::Pgp::Reader.instance_variable_defined?(:@default_passphrase)
+        refute IOStreams::Pgp::Reader.singleton_class.instance_variable_defined?(:@default_passphrase)
+      end
+    end
+
     describe ".file" do
       it "reads encrypted file" do
         IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org") do |io|
@@ -149,6 +157,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_includes error.message, "Bad passphrase"
+        assert_kind_of IOStreams::Errors::MissingKey, error
       end
 
       it "fails without a passphrase" do
@@ -157,6 +166,7 @@ class PgpReaderTest < Minitest::Test
         error = assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp::Reader.file(temp_file.path, &:read) }
 
         assert_match(/\AGPG Failed to decrypt file: /, error.message)
+        assert_kind_of IOStreams::Errors::MissingKey, error
       end
 
       it "decrypts with the default passphrase when none is supplied" do
@@ -176,6 +186,18 @@ class PgpReaderTest < Minitest::Test
         it "is required to decrypt a file without integrity protection" do
           error = assert_raises(IOStreams::Pgp::Failure) do
             IOStreams::Pgp::Reader.file(without_mdc, passphrase: "legacy", &:read)
+          end
+
+          assert_includes error.message, "--ignore-mdc-error"
+          assert_kind_of IOStreams::Errors::Corrupt, error
+        end
+
+        it "is required when the block leaves early" do
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.file(without_mdc, passphrase: "legacy") do |io|
+              io.read(1)
+              break
+            end
           end
 
           assert_includes error.message, "--ignore-mdc-error"
@@ -266,6 +288,40 @@ class PgpReaderTest < Minitest::Test
         refute_predicate input, :closed?
       end
 
+      it "stops reading the stream when its thread is killed" do
+        input  = StringIO.new(encrypt(large_data))
+        read   = Queue.new
+        thread = Thread.new do
+          IOStreams::Pgp::Reader.stream(input, passphrase: "receiver_passphrase") do |io|
+            io.read(10)
+            read << true
+            sleep
+          end
+        end
+        read.pop
+        thread.kill.join
+
+        assert_operator input.pos, :<, input.size
+      end
+
+      it "raises when the rest of the stream was changed, when the block leaves early" do
+        encrypted = encrypt(large_data)
+        index     = encrypted.bytesize * 9 / 10
+        encrypted.setbyte(index, encrypted.getbyte(index) ^ 1)
+        received  = nil
+        error     = Timeout.timeout(30) do
+          assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.stream(StringIO.new(encrypted), passphrase: "receiver_passphrase") do |io|
+              received = io.read(10)
+              break
+            end
+          end
+        end
+
+        assert_equal large_data.byteslice(0, 10), received
+        assert_match(/\AGPG Failed to decrypt stream: /, error.message)
+      end
+
       it "does not stop part way through reading the stream when the block raises" do
         input = SlowInput.new(encrypt(large_data))
 
@@ -347,6 +403,67 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_match(/\AGPG Failed to decrypt stream: /, error.message)
+        assert_kind_of IOStreams::Errors::Corrupt, error
+      end
+
+      describe "the kind of failure" do
+        # Yields the email address of a new key, whose secret key has been deleted once the block wrote data for it,
+        # and deletes its public key afterwards.
+        def with_temporary_key
+          email = "temporary-#{SecureRandom.hex(4)}@example.org"
+          IOStreams::Pgp.generate_key(name: "Temporary", email: email, passphrase: "temporary_passphrase",
+                                      key_type: "EDDSA", key_curve: "ed25519", key_usage: "sign",
+                                      subkey_type: "ECDH", subkey_curve: "cv25519")
+          yield(email)
+        ensure
+          IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if IOStreams::Pgp.key?(email: email)
+        end
+
+        it "is Corrupt for data that was changed" do
+          encrypted = encrypt(decrypted)
+          middle    = encrypted.bytesize / 2
+          encrypted.setbyte(middle, encrypted.getbyte(middle) ^ 0x10)
+
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.stream(StringIO.new(encrypted), passphrase: "receiver_passphrase", &:read)
+          end
+          assert_kind_of IOStreams::Errors::Corrupt, error
+        end
+
+        it "is MissingKey for data encrypted for a key whose secret key is not in the keyring" do
+          with_temporary_key do |email|
+            IOStreams::Pgp::Writer.file(temp_file.path, recipient: email) { |io| io.write(decrypted) }
+            IOStreams::Pgp.delete_keys(email: email, public: false, private: true)
+
+            error = assert_raises(IOStreams::Pgp::Failure) do
+              IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "temporary_passphrase", &:read)
+            end
+            assert_kind_of IOStreams::Errors::MissingKey, error
+            assert_includes error.message, "No secret key"
+          end
+        end
+
+        it "is MissingKey for data signed by a key that is not in the keyring" do
+          with_temporary_key do |email|
+            IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org", signer: email,
+                                                        signer_passphrase: "temporary_passphrase") { |io| io.write(decrypted) }
+            IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
+
+            error = assert_raises(IOStreams::Pgp::Failure) do
+              IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase", &:read)
+            end
+            assert_kind_of IOStreams::Errors::MissingKey, error
+          end
+        end
+
+        it "names the file that is read, as the stream names it" do
+          stream = IOStreams.stream(StringIO.new("Not a PGP file")).file_name("archive/data.csv.pgp").
+                   option(:pgp, passphrase: "receiver_passphrase")
+
+          error = assert_raises(IOStreams::Errors::Corrupt) { stream.read }
+          assert_equal "archive/data.csv.pgp", error.display_name
+          assert_match(%r{\Aarchive/data.csv.pgp: GPG Failed to decrypt stream: }, error.message)
+        end
       end
 
       it "checks who signed the stream" do
@@ -356,6 +473,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_equal "PGP stream was not signed by receiver2@example.org", error.message
+        refute_kind_of IOStreams::Errors::StreamError, error
       end
 
       it "verifies the stream before passing it to the block with verify_first" do
@@ -484,7 +602,7 @@ class PgpReaderTest < Minitest::Test
             echo "[GNUPG:] #{trust} 0 pgp" >&3
             cat
           SCRIPT
-          IOStreams::Pgp.stub(:primary_fingerprints, [fingerprint]) do
+          IOStreams::Pgp::Gpg.stub(:primary_fingerprints, [fingerprint]) do
             with_gpg_stub(script) { IOStreams::Pgp::Reader.stream(StringIO.new("data"), signer: "jack@example.org", &:read) }
           end
         end
@@ -543,6 +661,7 @@ class PgpReaderTest < Minitest::Test
           end
 
           assert_match(/\AGPG Failed to decrypt stream: /, error.message)
+          assert_kind_of IOStreams::Errors::Corrupt, error
         end
       end
 
@@ -644,6 +763,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_match(/BAD signature/, error.message)
+        assert_kind_of IOStreams::Errors::Corrupt, error
         refute called
       end
 
@@ -685,7 +805,7 @@ class PgpReaderTest < Minitest::Test
       end
 
       it "identifies the signer by fingerprint" do
-        fingerprint = IOStreams::Pgp.primary_fingerprints("sender@example.org").first
+        fingerprint = IOStreams::Pgp::Gpg.primary_fingerprints("sender@example.org").first
 
         assert_equal decrypted, read(signed_by_sender, signer: fingerprint)
       end
@@ -740,6 +860,31 @@ class PgpReaderTest < Minitest::Test
         assert_equal decrypted, path.read
       end
 
+      describe "when the block leaves early" do
+        # Returns [String] the first line of the file, leaving the block that reads the lines with `break`.
+        def first_line(file_name, **options)
+          path = IOStreams.path(file_name).stream(:pgp, passphrase: "receiver_passphrase", **options)
+          path.each(:line) { |line| break line } # rubocop:disable Lint/UnreachableLoop -- leaves on its first line on purpose
+        end
+
+        it "reads a file signed by the signer" do
+          assert_equal "Hello World", first_line(signed_by_sender, signer: "sender@example.org")
+        end
+
+        it "raises for a file signed by someone else" do
+          file_name = write(signer: "receiver2@example.org", signer_passphrase: "receiver2_passphrase")
+          error     = assert_raises(IOStreams::Pgp::Failure) { first_line(file_name, signer: "sender@example.org") }
+
+          assert_match(/\APGP file was not signed by sender@example.org: /, error.message)
+        end
+
+        it "raises for a file that was not signed" do
+          error = assert_raises(IOStreams::Pgp::Failure) { first_line(write, signer: "sender@example.org") }
+
+          assert_match(/\APGP file was not signed by sender@example.org: /, error.message)
+        end
+      end
+
       describe "import_and_trust_key" do
         let :signed_by_untrusted do
           key = untrusted_pgp_key
@@ -784,7 +929,7 @@ class PgpReaderTest < Minitest::Test
 
         it "does not change the trust of the imported key by default" do
           key         = untrusted_pgp_key
-          fingerprint = IOStreams::Pgp.primary_fingerprints("untrusted@example.org").first
+          fingerprint = IOStreams::Pgp::Gpg.primary_fingerprints("untrusted@example.org").first
           levels      = []
           import      = lambda do |key:, trust_level:|
             levels << [key, trust_level]

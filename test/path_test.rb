@@ -78,7 +78,7 @@ module IOStreams
 
       describe "#builder=" do
         it "is not public" do
-          path = IOStreams.path("a.csv.gz").stream(:none)
+          path = IOStreams.path("a.csv.gz").raw
 
           assert_raises(NoMethodError) { path.builder = nil }
           assert_equal({}, path.pipeline)
@@ -94,6 +94,8 @@ module IOStreams
       end
 
       describe "#format" do
+        allow_deprecation(/#format_options is deprecated/)
+
         let(:path) { IOStreams.path("/data/a.txt").format(:fixed).format_options(layout: [{size: 2, key: "id"}]) }
 
         it "is cleared by #join and #directory, with the format options" do
@@ -144,6 +146,23 @@ module IOStreams
           end
         end
 
+        it "creates its directories with #mkpath and #mkdir, or returns a copy that creates them, on every scheme" do
+          Dir.mktmpdir do |dir|
+            [::File.join(dir, "data"), "s3://bucket/data", "sftp://example.org/data", "https://example.org/data"].each do |name|
+              root = IOStreams.path(name).freeze
+
+              %i[mkpath mkdir].each do |operation|
+                created = root.public_send(operation)
+
+                assert_equal root, created, "#{name} #{operation}"
+                assert_predicate root, :frozen?
+              end
+            end
+
+            assert_predicate IOStreams.path(dir, "data"), :directory?
+          end
+        end
+
         it "explains a change in the error" do
           root  = IOStreams.path("/data").freeze
           error = assert_raises(FrozenError) { root.stream(:gz) }
@@ -167,7 +186,7 @@ module IOStreams
         end
       end
 
-      describe "#relatve?" do
+      describe "#relative?" do
         it "true on relative" do
           assert_equal true, IOStreams::Path.new("a/b/c/d").relative?
         end
@@ -186,7 +205,7 @@ module IOStreams
 
       describe "#cleanpath" do
         it "removes . and .. and repeated slashes without accessing the file, keeping the options" do
-          path  = IOStreams.path("a/./b/../c//d.csv").option(:encode, encoding: "BINARY")
+          path  = IOStreams.path("a/./b/../c//d.csv").encoding("BINARY")
           clean = path.cleanpath
 
           assert_equal "a/c/d.csv", clean.to_s
@@ -200,6 +219,22 @@ module IOStreams
 
         it "keeps the host of an SFTP path within the login directory" do
           assert_equal "sftp://host/~/b.csv", IOStreams.path("sftp://host/~/a/../b.csv").cleanpath.to_s
+          assert_equal "sftp://host/~", IOStreams.path("sftp://host/~/a/..").cleanpath.to_s
+        end
+
+        it "keeps a .. that leaves the login directory of an SFTP path, so that its url names the same file" do
+          clean = IOStreams.path("sftp://host/~/a/../../x.csv").cleanpath
+
+          assert_equal "~/../x.csv", clean.path
+          assert_equal "sftp://host/~/../x.csv", clean.to_s
+          assert_equal clean.path, IOStreams.path(clean.to_s).path
+        end
+
+        it "keeps the trailing / of an S3 key or an HTTP url, which name another object or url, but not of a file" do
+          assert_equal "s3://bucket/a/b/", IOStreams.path("s3://bucket/a/./b/").cleanpath.to_s
+          assert_equal "https://example.com/a/b/", IOStreams.path("https://example.com/a/./b/").cleanpath.to_s
+          assert_equal "https://example.com/", IOStreams.path("https://example.com/a/..").cleanpath.to_s
+          assert_equal "a/b", IOStreams.path("a/./b/").cleanpath.to_s
         end
       end
 
@@ -211,7 +246,7 @@ module IOStreams
         end
 
         it "clears the streams and options, which were for the old file name" do
-          path = IOStreams.path("data.csv").option(:encode, encoding: "BINARY").sub_ext(".csv.gz")
+          path = IOStreams.path("data.csv").encoding("BINARY").sub_ext(".csv.gz")
 
           assert_nil path.setting(:encode)
           assert_equal({gz: {}}, path.pipeline)
@@ -249,6 +284,16 @@ module IOStreams
           path = IOStreams.path("a/b/c")
 
           IOStreams::Path::OPERATIONS.each { |operation| assert_respond_to path, operation }
+          IOStreams::Path::DERIVED_OPERATIONS.each_key { |operation| assert_respond_to path, operation }
+        end
+
+        it "is false for an operation built on one that the path class does not implement" do
+          path = IOStreams::Path.new("a/b/c")
+
+          refute_respond_to path, :size?
+          refute_respond_to path, :children
+          refute_respond_to path, :move_to
+          assert_raises(NotImplementedError) { path.size? }
         end
       end
 
@@ -312,16 +357,14 @@ module IOStreams
           refute_equal IOStreams::Path.new("a/b"), IOStreams::Path.new("a/c")
         end
 
-        it "is equal to a String of its name" do
-          path = IOStreams.path("/home/user/a.txt")
+        it "is not equal to a String, even of its name" do
+          %w[/home/user/a.txt s3://bucket/a.txt sftp://example.org/a.txt https://example.org/a.txt].each do |name|
+            path = IOStreams.path(name)
 
-          # The path must be the receiver, since `String#==` is false for anything that is not a String.
-          # rubocop:disable Minitest/AssertEqual, Minitest/RefuteEqual
-          assert_operator path, :==, "/home/user/a.txt"
-          refute_operator path, :==, "/home/user/b.txt"
-          refute_operator IOStreams.path("a.txt"), :==, "/home/user/a.txt"
-          assert_operator IOStreams.path("s3://bucket/a.txt"), :==, "s3://bucket/a.txt"
-          # rubocop:enable Minitest/AssertEqual, Minitest/RefuteEqual
+            refute_equal path, name, name
+            refute path.eql?(name), name
+            assert_nil path <=> name, name
+          end
         end
 
         it "is not equal to anything else" do
@@ -333,6 +376,17 @@ module IOStreams
           assert_nil path <=> 1
         end
 
+        it "is not equal to a path of another class with the same name" do
+          refute_equal_paths IOStreams::Path.new("a.csv"), IOStreams.path("a.csv")
+        end
+
+        it "sorts equal paths together, by the name that they compare" do
+          paths = [IOStreams.path("SFTP://example.org/a.csv"), IOStreams.path("other.csv"), IOStreams.path("sftp://example.org/a.csv")]
+
+          assert_equal ["other.csv", "SFTP://example.org/a.csv"], paths.uniq.sort.map(&:to_s)
+          assert_equal 0, paths.first <=> paths.last
+        end
+
         it "is not equal to a path in another location with the same name" do
           refute_equal IOStreams.path("s3://bucket-a/reports/x.csv"), IOStreams.path("s3://bucket-b/reports/x.csv")
           refute_equal IOStreams.path("s3://bucket/reports/x.csv"), IOStreams.path("reports/x.csv")
@@ -342,7 +396,7 @@ module IOStreams
         end
 
         it "ignores the streams" do
-          assert_equal IOStreams.path("a.csv.gz"), IOStreams.path("a.csv.gz").stream(:none)
+          assert_equal IOStreams.path("a.csv.gz"), IOStreams.path("a.csv.gz").raw
         end
 
         it "is a hash key for its location" do
@@ -379,8 +433,8 @@ module IOStreams
 
         it "does not include credentials in the url" do
           {
-            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "sftp://example.org/a.csv",
-            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "https://example.org/a.csv"
+            "sftp://jack:TOP-SECRET@example.org/a.csv"                     => "sftp://example.org/a.csv",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x" => "https://example.org/a.csv"
           }.each_pair do |url, name|
             assert_equal name, IOStreams.path(url).display_name
           end
@@ -417,10 +471,21 @@ module IOStreams
           assert_includes IOStreams.path("s3://bucket/a.csv").directory.join("b.csv").inspect, "S3:s3://bucket/b.csv "
         end
 
+        it "shows the streams, options, encoding and options of the rows that are set, and then the pipeline" do
+          options = IOStreams.path("/data/a.parquet.gz").option(:gz, level: 1).encoding("UTF-8").option(:parquet, compression: "zstd")
+          streams = IOStreams.path("/data/a").stream(:gz, level: 1)
+
+          assert_equal "#<IOStreams::Paths::File:/data/a.parquet.gz @options=#{{gz: {level: 1}}.inspect} " \
+                       "@encoding=#{{encoding: 'UTF-8'}.inspect} @row_options=#{{parquet: {compression: 'zstd'}}.inspect} " \
+                       "pipeline=#{{encode: {encoding: 'UTF-8'}, gz: {level: 1}}.inspect}>", options.inspect
+          assert_equal "#<IOStreams::Paths::File:/data/a @builder=#{{gz: {level: 1}}.inspect} pipeline=#{{gz: {level: 1}}.inspect}>",
+                       streams.inspect
+        end
+
         it "does not display credentials in the url" do
           {
-            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "SFTP:sftp://example.org/a.csv ",
-            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "HTTP:https://example.org/a.csv "
+            "sftp://jack:TOP-SECRET@example.org/a.csv"                     => "SFTP:sftp://example.org/a.csv ",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x" => "HTTP:https://example.org/a.csv "
           }.each_pair do |url, name|
             str = IOStreams.path(url).inspect
 
@@ -492,11 +557,13 @@ module IOStreams
       end
 
       describe "abstract methods" do
-        it "raise NotImplementedError" do
+        it "raise NotImplementedError for every operation that a storage implements" do
           path = IOStreams::Path.new("a/b/c")
 
-          %i[mkpath mkdir exist? size delete delete_all each_child].each do |method|
-            assert_raises(NotImplementedError, method.to_s) { path.public_send(method) }
+          IOStreams::Path::OPERATIONS.each do |method|
+            error = assert_raises(NotImplementedError, method.to_s) { path.public_send(method) }
+
+            assert_equal "IOStreams::Path does not support ##{method}: a/b/c", error.message
           end
         end
       end

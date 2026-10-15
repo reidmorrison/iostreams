@@ -3,9 +3,18 @@ layout: default
 title: Configuring IOStreams
 description: >-
   Keeping paths in configuration so the same code targets different storage per
-  environment, named roots via IOStreams.add_root, plus the temp directory, when
-  temp files are used, and logger settings.
+  environment, named roots via IOStreams.add_root, the temp directory, when temp
+  files are used, the logger, and the process-wide settings.
 ---
+
+**Contents**
+
+* TOC
+{:toc}
+
+Most applications set up IOStreams once, at startup, in an initializer: where their files are stored, with
+[roots](#add_root), where temp files go, with [temp_dir](#temp_dir), and where IOStreams logs, with [logger](#logger).
+[Process-wide settings](#process-wide-settings) lists them all.
 
 ## Paths are configuration
 
@@ -47,81 +56,43 @@ IOStreams.join("exports", "daily.csv").write(report)
 
 ## add_root
 
-Roots allow paths to reference a particular root directory, so that all path names are appended to that root.
-Their primary purpose is to allow the exact same code to run in production and development, yet use completely
-different data sources in each. For example, in production a root can point to an S3 bucket, while in
-development it points to the local file system.
+A root names a location once, at startup, such as the directory or bucket that the application keeps its files in,
+so that the code joins file names to it, and never names the store. Add the roots in an initializer:
 
-Roots are configured via an initializer at startup. `IOStreams.join` then joins the supplied path
-elements onto the named root, using the `:default` root whenever a root is not supplied.
-
-Set the default root for this environment in an initializer:
 ~~~ruby
+# config/initializers/iostreams.rb
 IOStreams.add_root(:default, "/var/my_app/files")
-~~~
-
-Now the default root path is available:
-~~~ruby
-IOStreams.root
-# => #<IOStreams::Paths::File:/var/my_app/files pipeline={}>
- 
-IOStreams.root.to_s
-# => "/var/my_app/files"
-~~~
-
-Comparing the final path using `path` and then `join` that uses a root path:
-~~~ruby
-IOStreams.path("/var/my_app/files", "my_test_file.txt").to_s
-# => "/var/my_app/files/my_test_file.txt"
-
-IOStreams.join("my_test_file.txt").to_s
-# => "/var/my_app/files/my_test_file.txt"
-~~~
-
-
-Using `path`:
-~~~ruby
-IOStreams.path("/var/my_app/files", "my_test_file.txt").write("Hello World")
-~~~
-
-With the default root path configured the above code can be simplified by using `join` since it resolves to the same path.
-~~~ruby
-IOStreams.join("my_test_file.txt").write("Hello World")
-~~~
-
-Multiple roots can be setup, for example one for input files, another for output files, another for
-reports, etc. During development the roots can all point to a common location, while in production
-they could be completely different S3 buckets.
-
-For example add special paths for `downloads` and `uploads`.
-~~~ruby
-IOStreams.add_root(:downloads, "/var/my_app/downloads")
 IOStreams.add_root(:uploads, "/var/my_app/uploads")
 ~~~
 
-An example that writes a file into the `/var/my_app/downloads` directory:
+`IOStreams.join` joins names to the `:default` root, or to the root that `root:` names:
+
 ~~~ruby
-IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
+IOStreams.join("exports", "daily.csv").to_s
+# => "/var/my_app/files/exports/daily.csv"
+
+IOStreams.join("orders.csv", root: :uploads).to_s
+# => "/var/my_app/uploads/orders.csv"
+
+IOStreams.root(:uploads).to_s
+# => "/var/my_app/uploads"
 ~~~
 
-The other benefit is that the root paths used in an application are externalized from the code base. That way the
-roots can be changed to different locations depending on the environment.
+In production the same initializer can name S3 buckets instead, such as `"s3://my-app-bucket/uploads"`, or read each
+location from configuration, such as `ENV.fetch("UPLOADS_ROOT")`, so that the code that reads and writes the files does
+not change. In development the roots can all point to one local directory. See
+[Using root paths](path#using-root-paths).
 
-We can also change the storage mechanism by changing the root:
-~~~ruby
-IOStreams.add_root(:downloads, "s3://my-app-bucket-name/downloads")
-IOStreams.add_root(:uploads, "s3://my-app-bucket-name/uploads")
-~~~
+A root is shared by the whole process, so `IOStreams.add_root` freezes it, and returns it frozen. `IOStreams.root`,
+`IOStreams.roots` and `IOStreams.join` return copies of it, which can be changed without changing the root. A path
+joined to a root keeps the arguments of the root, such as its credentials, S3 options or ssh options, but not the
+streams, options, encoding, format or schema set on the root, which describe the file that the root names, so set
+those on each path:
 
-Now the application will write to S3 and the code does not change at all.
 ~~~ruby
-IOStreams.join("my_test_file.txt", root: :downloads).write("Hello World")
-~~~
+IOStreams.add_root(:partner, IOStreams.path("sftp://sftp.example.org/outbound", username: "jack", password: "secret"))
 
-To use or query a configured root path:
-~~~ruby
-IOStreams.root(:downloads).to_s
-# => "s3://my-app-bucket-name/downloads"
+IOStreams.join("daily.csv.pgp", root: :partner).option(:pgp, recipient: "partner@example.org").write(report)
 ~~~
 
 ## temp_dir
@@ -140,7 +111,7 @@ By default IOStreams looks up the location to store temp files in the following 
 * `/tmp` (if it exists)
 * Otherwise `.`
 
-To explicity set the temp file location the following config option can be used:
+To set the temp file location explicitly:
 
 ~~~ruby
 IOStreams.temp_dir = "/var/really_big_temp"
@@ -167,10 +138,11 @@ supplied in a `StringIO`.
 
 | Format | Reading | Writing | Why |
 | --- | --- | --- | --- |
-| `.gz`, `.gzip`, `.bz2`, `.enc` | No temp file | No temp file | Streamed |
+| `.gz`, `.gzip`, `.bz2`, `.zst`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
 | `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | No temp file | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read. Writing streams the spreadsheet with `xlsxtream` |
 | `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads a local file itself, and any other stream through its stdin, and writes through its stdout |
+| `.parquet` | No temp file for a local file, otherwise a temp file holding the Parquet file | A temp file holding the Parquet file, which is copied to the path once the block completes | A Parquet file records its columns at its end, and the `parquet` gem writes the whole file before it can be copied |
 
 So a zip or spreadsheet stream only has a local file when it is the stream closest to the stored data: the
 last extension in the file name, or the last stream set with `#stream`. `#pipeline` lists the streams in order
@@ -210,8 +182,8 @@ Deleting temp file /tmp/iostreams-sftp-reader20261008-41-1x5yq2, which held 5251
 Notes:
 * `#copy_from` and `#copy_to` read the source while they write the target, so copying from SFTP to SFTP or
   HTTP holds two temp files at once, each holding the whole file: the download and the upload. S3 copies an
-  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for an object smaller
-  than 5GB.
+  object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for
+  an object smaller than 5GB.
 * An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp
   files, since `sftp` and `gpg` read them from files.
 * Only the current user can read a temp file, and it is deleted when the block returns or raises. A temp file can
@@ -241,8 +213,8 @@ implies are applied, so writing to a temp file with the extension `.csv.gz` comp
 IOStreams can log debug information, such as the external commands it runs for PGP and SFTP, and each temp
 file that it uses, see [When temp files are used](#when-temp-files-are-used).
 
-When [Semantic Logger](https://logger.reidmorrison.com) is loaded it is detected automatically, and IOStreams
-logs to it without any additional configuration.
+When [Semantic Logger](https://logger.reidmorrison.com) is loaded before IOStreams, IOStreams logs to it without
+any additional configuration.
 
 To use a different logger, or to log when Semantic Logger is not present, assign any logger that
 responds to the standard logging methods:
@@ -257,3 +229,20 @@ To disable logging entirely, set the logger to `nil`:
 ~~~ruby
 IOStreams.logger = nil
 ~~~
+
+## Process-wide settings
+
+Each of these applies to the whole process, so set them once, in an initializer, at startup:
+
+| Setting | What it does | See |
+|---------|--------------|-----|
+| `IOStreams.add_root(name, path)` | Names a location that `IOStreams.join` joins paths onto | [add_root](#add_root) |
+| `IOStreams.add_allowed_path(path)` | Restricts IOStreams to the allowed paths | [Allowed paths](security#allowed-paths) |
+| `IOStreams.temp_dir = dir` | Where IOStreams creates its temp files | [temp_dir](#temp_dir) |
+| `IOStreams.logger = logger` | Where IOStreams logs | [logger](#logger) |
+| `IOStreams.register_extension(extension, format)` | Reads and writes a file name extension with a format | [Extending IOStreams](extending#registering-a-format) |
+| `IOStreams.register_scheme(scheme, path_class)` | Reads and writes the urls of a scheme with a path class | [Extending IOStreams](extending#registering-a-storage-scheme) |
+| `IOStreams::Pgp.executable = "gpg2"` | The name or path of the `gpg` program | [PGP](pgp) |
+| `IOStreams::Pgp::Writer.default_signer = email` and `.default_signer_passphrase = passphrase` | Signs every PGP file written | [PGP](pgp) |
+| `IOStreams::Pgp::Writer.audit_recipient = email` | Also encrypts every PGP file written for this recipient | [PGP](pgp) |
+| `IOStreams::Pgp::Reader.default_passphrase = passphrase` | The passphrase of the private key when a read supplies none | [PGP](pgp) |

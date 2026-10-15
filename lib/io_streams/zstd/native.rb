@@ -25,6 +25,7 @@ module IOStreams
         Encoder.new(output_stream, level: level)
       end
 
+      # Loads the `zstd-ruby` gem, from version 2.0.0, which added `Zstd::StreamingDecompress#decompress_with_pos`.
       def self.load_dependency
         Utils.load_soft_dependency("zstd-ruby", "Zstandard") unless defined?(::Zstd::StreamingCompress)
       end
@@ -33,21 +34,65 @@ module IOStreams
         def initialize(input_stream)
           @input_stream = input_stream
           @zstd         = ::Zstd::StreamingDecompress.new
+          # The input that zstd has not read yet.
+          @input        = String.new(encoding: Encoding::BINARY)
+          @end_of_input = false
+          @read         = false
         end
 
-        # Returns [String] the data decompressed from the next block of the input stream, which can be empty,
-        # or [nil] at the end of the input stream.
+        # Returns [String] the next data decompressed, at most one block of zstd, 128KB, however well the data
+        # compresses, or [nil] at the end of the input stream.
+        #
+        # `#decompress_with_pos` fills one output buffer of zstd, and returns how much of the input it read, so that
+        # the rest is decompressed by the next call, where `#decompress` returns all of the data of the input block at
+        # once, which could be gigabytes for 64KB of data that compresses well.
         #
         # A frame cut short at the end of the input stream is not detected, since `zstd-ruby` does not report it.
+        #
+        # Raises [RuntimeError] tagged as `IOStreams::Errors::Corrupt` for data that is not zstd, see `Zstd.corrupt`.
         def read_block
-          block = @input_stream.read(BLOCK_SIZE)
-          block && @zstd.decompress(block)
+          loop do
+            read_input if @input.empty? && !@end_of_input
+            data, read = decompress
+            @input     = @input.byteslice(read..)
+            return data unless data.empty?
+            # Without any input to read, zstd has also written out all of the data it holds.
+            return if @end_of_input && @input.empty?
+            # zstd reads some of the input whenever it writes no data, so this would loop forever.
+            raise(Zstd.corrupt("none of the input was read")) if read.zero? && !@input.empty?
+          end
         end
 
         def close
         end
+
+        private
+
+        # Returns [Array(String, Integer)] the data that zstd decompressed from the input, and how much of the input it
+        # read. Tags the RuntimeError that `zstd-ruby` raises for data that is not zstd as `IOStreams::Errors::Corrupt`.
+        def decompress
+          @zstd.decompress_with_pos(@input)
+        rescue RuntimeError => e
+          raise(Errors::Corrupt.tag(e))
+        end
+
+        # Raises [RuntimeError] at the end of an input stream without any data, which is not zstd, like `zstd -d`.
+        def read_input
+          block = @input_stream.read(BLOCK_SIZE)
+          if block.nil?
+            raise(Zstd.corrupt("the data is empty")) unless @read
+
+            @end_of_input = true
+          else
+            @read ||= !block.empty?
+            @input  = block
+          end
+        end
       end
 
+      # Writes zstd frames without a checksum of their content, since `zstd-ruby`, upto version 2.0.10 at least, has no
+      # option to write one. Reading checks the checksum of a frame that has one, such as a frame that the zstd command
+      # or zstd-jni on JRuby wrote.
       class Encoder
         def initialize(output_stream, level: nil)
           @output_stream = output_stream
@@ -64,7 +109,8 @@ module IOStreams
           @output_stream.write(@zstd.finish)
         end
 
-        # Nothing to free, since zstd-ruby frees the compression context when it is garbage collected.
+        # Ends writing without the end of the zstd frame, when writing did not finish. Nothing to free, since zstd-ruby
+        # frees the compression context when it is garbage collected.
         def close
         end
       end

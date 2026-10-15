@@ -14,39 +14,14 @@ module IOStreams
       #
       # Responds to the methods of IO that write: `write`, `<<`, `print`, `puts`, `printf` and `flush`.
       class StdinWriter
+        include IOStreams::Writable
+
         def initialize(stdin, stdout, output, process)
           @stdin   = stdin
           @stdout  = stdout
           @output  = output
           @process = process
           @eof     = false
-        end
-
-        # Like IO#write: writes each object as a string, and returns the number of bytes written.
-        def write(*objects)
-          objects.sum { |object| write_data(object.to_s) }
-        end
-
-        def <<(object)
-          write(object)
-          self
-        end
-
-        def print(*)
-          write(*)
-          nil
-        end
-
-        def puts(*)
-          lines = StringIO.new(+"")
-          lines.puts(*)
-          write(lines.string)
-          nil
-        end
-
-        def printf(format, *)
-          write(Kernel.format(format, *))
-          nil
         end
 
         # gpg's stdin is not buffered, so there is nothing to flush.
@@ -70,6 +45,8 @@ module IOStreams
 
         private
 
+        # Writes the data to gpg's stdin, see `IOStreams::Writable`, which writes `#write`, `#<<`, `#print`, `#puts` and
+        # `#printf` through it.
         def write_data(data)
           remaining = data
           until remaining.empty?

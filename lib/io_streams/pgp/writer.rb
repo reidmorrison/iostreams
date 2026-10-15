@@ -32,11 +32,11 @@ module IOStreams
         private
 
         attr_reader :default_signer_passphrase, :default_signer
-
-        @default_signer_passphrase = nil
-        @default_signer            = nil
-        @audit_recipient           = nil
       end
+
+      @default_signer_passphrase = nil
+      @default_signer            = nil
+      @audit_recipient           = nil
 
       # Write to a PGP / GPG stream, encrypting and/or signing the contents as it is written.
       #
@@ -45,10 +45,14 @@ module IOStreams
       # is never written to a temp file, see `IOStreams::Pgp::GpgProcess`. The output stream is not closed, since it
       # belongs to the caller.
       #
+      # Once the block returns, including when it leaves early, such as with `break`, gpg completes the PGP message
+      # with what the block wrote, as any other stream keeps what was written.
+      #
       # Since the data is streamed, when gpg fails part way, or when the block raises, the output stream holds what
-      # gpg wrote until then, which is not a valid PGP message: when the block raises, gpg is stopped, so that it never
-      # completes a PGP message from partial data, and `IOStreams::Pgp::Reader` raises for the start of a message.
-      # As with any other stream, discard the output after a failure; a local path does so already.
+      # gpg wrote until then, which is not a valid PGP message: when the block raises, or its thread is killed, gpg is
+      # stopped, so that it never completes a PGP message from partial data, and `IOStreams::Pgp::Reader` raises for
+      # the start of a message. As with any other stream, discard the output after a failure; a local path does so
+      # already.
       #
       # output_stream: [IO]
       #   The stream to write the PGP data to.
@@ -119,12 +123,7 @@ module IOStreams
                       compress: :zip,
                       compress_level: 6,
                       &block)
-        if encrypt
-          raise(ArgumentError, "Requires either :recipient or :import_and_trust_key") unless recipient || import_and_trust_key
-        elsif !signer
-          raise(ArgumentError, "Requires a :signer when encrypt is false")
-        end
-
+        check(encrypt: encrypt, recipient: recipient, import_and_trust_key: import_and_trust_key, signer: signer)
         compress_level = 0 if compress == :none
 
         recipients, imported = encrypt ? collect_recipients(recipient, import_and_trust_key, import_and_trust_level) : [[], []]
@@ -143,6 +142,37 @@ module IOStreams
         end
       end
 
+      # Raises ArgumentError for the options that .stream cannot write with, which it raises for too, so that a path
+      # raises before it opens its output, which would replace an existing file, see
+      # `IOStreams::StreamFormat#check_stream`: no recipient when encrypting, including an empty list, a blank
+      # recipient, key or signer, and no signer when not encrypting.
+      #
+      # Takes the same options as .stream. Only gpg can check the others, such as whether a key exists.
+      # rubocop:disable Lint/UnusedMethodArgument -- the options of .stream that only gpg can check
+      def self.check(encrypt: true, recipient: nil, import_and_trust_key: nil, import_and_trust_level: 5,
+                     signer: default_signer, signer_passphrase: default_signer_passphrase, compress: :zip,
+                     compress_level: 6)
+        # rubocop:enable Lint/UnusedMethodArgument
+        if encrypt
+          recipients = Array(recipient)
+          keys       = Array(import_and_trust_key)
+          # Supplying neither raises, even with an audit recipient, as it always has. An empty list leaves gpg without
+          # any recipient, unless there is an audit recipient, which is then the only one, as before.
+          if !(recipient || import_and_trust_key) || (recipients.empty? && keys.empty? && !audit_recipient)
+            raise(ArgumentError, "Requires either :recipient or :import_and_trust_key")
+          end
+          if recipients.any? { |value| Utils.blank?(value) }
+            raise(ArgumentError, ":recipient cannot be blank: #{recipient.inspect}")
+          end
+          raise(ArgumentError, ":import_and_trust_key cannot be blank") if keys.any? { |key| Utils.blank?(key) }
+        elsif !signer
+          raise(ArgumentError, "Requires a :signer when encrypt is false")
+        end
+        raise(ArgumentError, ":signer cannot be blank: #{signer.inspect}") if signer && Utils.blank?(signer)
+
+        nil
+      end
+
       # Runs gpg with the supplied arguments, yielding the stream that it encrypts, and returns the result of the block.
       # Raises Pgp::Failure once gpg finishes when it fails.
       def self.run(output_stream, args, signer_passphrase)
@@ -154,9 +184,9 @@ module IOStreams
         passphrases = signer_passphrase ? {PASSPHRASE_FD => signer_passphrase} : {}
         IOStreams::Pgp::GpgProcess.run(command, failure: "GPG Failed to create encrypted", output: output_stream,
                                                 passphrases: passphrases) do |gpg|
-          result = yield(gpg.writer)
-          gpg.finish
-          result
+          # Also when the block leaves early, such as with `break`, which keeps what was written, as for any other
+          # stream. When the block raises, or its thread is killed, gpg is stopped instead, see GpgProcess.run.
+          Utils.finish_or_abort(finish: -> { gpg.finish }) { yield(gpg.writer) }
         end
       end
       private_class_method :run
@@ -164,11 +194,11 @@ module IOStreams
       def self.build_args(encrypt:, signer:, signer_passphrase:, compress:, compress_level:, recipients:, recipient_files:)
         args = ["--batch", "--no-tty", "--yes"]
         args << "--encrypt" if encrypt
-        args += ["--sign", "--local-user", IOStreams::Pgp.user_id(signer)] if signer
-        args += [*IOStreams::Pgp.passphrase_args, "--passphrase-fd", PASSPHRASE_FD.to_s] if signer_passphrase
+        args += ["--sign", "--local-user", IOStreams::Pgp::Gpg.user_id(signer)] if signer
+        args += [*IOStreams::Pgp::Gpg.passphrase_args, "--passphrase-fd", PASSPHRASE_FD.to_s] if signer_passphrase
         args += ["-z", compress_level.to_s] if compress_level != 6
         args += ["--compress-algo", compress.to_s] unless compress == :none
-        recipients.each { |address| args += ["--recipient", IOStreams::Pgp.user_id(address)] }
+        recipients.each { |address| args += ["--recipient", IOStreams::Pgp::Gpg.user_id(address)] }
         recipient_files.each { |recipient_file| args += ["--recipient-file", recipient_file] }
         args
       end
@@ -177,8 +207,8 @@ module IOStreams
       # Returns [Array<Array<String>>] the recipients, and the fingerprints of the keys imported via
       # `import_and_trust_key`, or other recipients for them when gpg does not supply a fingerprint.
       def self.collect_recipients(recipient, import_and_trust_key, import_and_trust_level)
-        recipients = Array(recipient)
-        recipients << audit_recipient if audit_recipient
+        # A new Array, since `Array` returns the caller's own Array of recipients, which can be frozen.
+        recipients = Array(recipient) + Array(audit_recipient)
 
         imported = Array(import_and_trust_key).map do |key|
           IOStreams::Pgp.import_and_trust_recipient(key: key, trust_level: import_and_trust_level)
@@ -197,8 +227,8 @@ module IOStreams
       #
       # gpg before v2.1.14 does not support `--recipient-file`, so the imported keys are recipients instead.
       def self.with_recipient_files(recipients, imported, &)
-        files       = IOStreams::Pgp.recipient_file?
-        keys, other = imported.partition { |value| files && IOStreams::Pgp.fingerprint?(value) }
+        files       = IOStreams::Pgp::Gpg.recipient_file?
+        keys, other = imported.partition { |value| files && IOStreams::Pgp::Gpg.fingerprint?(value) }
         write_recipient_files(keys, [], recipients + other, &)
       end
       private_class_method :with_recipient_files
