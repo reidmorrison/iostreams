@@ -245,6 +245,21 @@ class StreamIOTest < Minitest::Test
         assert_equal "id,name\n1,Jack\n2,Jill\n3,Bob\n4,Ann\n5,Zoe\n", result
       end
 
+      # A spreadsheet holds the rows of the lines written to it, as UTF-8 text, rather than bytes.
+      unless format == IOStreams::Xlsx
+        it "writes each object of #puts in its own encoding, like an IO in binary mode, for the #{name.inspect} stream" do
+          # Not an empty Array, for which IO#puts writes a newline on JRuby, and nothing on MRI, as #puts does.
+          objects = ["caf\xE9".b.force_encoding("Windows-1252"), nil, ["a", ["b\n"]], "c".encode("UTF-16LE")]
+          output  = StringIO.new(+"".b)
+          IOStreams.stream(output).stream(name, **writer_options).writer { |io| io.puts(*objects) }
+
+          binary_io = StringIO.new(+"".b)
+          binary_io.puts(*objects)
+
+          assert_equal binary_io.string, IOStreams.stream(StringIO.new(output.string)).stream(name, **reader_options).read.b
+        end
+      end
+
       it "writes nothing for an empty string, like an IO, for the #{name.inspect} stream" do
         output = StringIO.new(+"".b)
         IOStreams.stream(output).stream(name, **writer_options).writer do |io|

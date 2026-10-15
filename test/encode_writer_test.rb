@@ -323,6 +323,24 @@ class EncodeWriterTest < Minitest::Test
       end
     end
 
+    describe "#puts" do
+      it "converts the text of each object to the encoding, whatever encoding it is in" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "Windows-1252") do |io|
+          io.puts("caf\u{e9}", "caf\xE9".b.force_encoding("Windows-1252"), ["na\u{ef}ve"])
+        end
+
+        assert_equal "caf\xE9\ncaf\xE9\nna\xEFve\n".b, output.string
+      end
+
+      it "writes a newline after an object that does not end with one, in the encoding" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16LE") { |io| io.puts("a", "b\n".encode("UTF-16LE"), nil) }
+
+        assert_equal "a\nb\n\n".encode("UTF-16LE").b, output.string
+      end
+    end
+
     describe "UTF-16 and UTF-32, which name no byte order" do
       it "writes the byte order mark once, then the text big-endian, as Ruby writes it" do
         %w[UTF-16 UTF-32].each do |encoding|

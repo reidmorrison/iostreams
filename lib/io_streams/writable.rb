@@ -29,11 +29,12 @@ module IOStreams
     end
 
     # Like `IO#puts`: writes each object, and each element of an Array, followed by a newline unless it already ends
-    # with one. Returns nil.
+    # with one, or a newline without any objects. Returns nil.
+    #
+    # Each one is written with #write, as `IO#puts` writes it, so that its text keeps its encoding, which a writer of
+    # text, such as the encode stream, converts, and a writer of bytes, such as gzip, writes as it is.
     def puts(*objects)
-      lines = ::StringIO.new(+"")
-      lines.puts(*objects)
-      write(lines.string)
+      objects.empty? ? write("\n") : objects.each { |object| puts_object(object, []) }
       nil
     end
 
@@ -41,6 +42,39 @@ module IOStreams
     def printf(format, *objects)
       write(::Kernel.format(format, *objects))
       nil
+    end
+
+    private
+
+    # Writes the object as `IO#puts` does: each element of an Array, and "[...]" for an Array within itself, otherwise
+    # its text, followed by a newline unless it already ends with one.
+    #
+    # Parameters
+    #   arrays: [Array<Array>]
+    #     The Arrays that the object is within.
+    def puts_object(object, arrays)
+      array = ::Array.try_convert(object)
+      return puts_line(object.to_s) if array.nil?
+      return puts_line("[...]") if arrays.any? { |outer| outer.equal?(array) }
+
+      array.each { |item| puts_object(item, [*arrays, array]) }
+    end
+
+    # Writes the text, followed by a newline unless it already ends with one.
+    def puts_line(text)
+      write(text)
+      write("\n") unless newline_at_end?(text)
+    end
+
+    # Returns [true|false] whether the text ends with a newline in its own encoding, which can be one that is not ASCII
+    # compatible, such as UTF-16LE.
+    def newline_at_end?(text)
+      return false if text.empty?
+      return text.end_with?("\n") if text.encoding.ascii_compatible?
+
+      text.end_with?("\n".encode(text.encoding))
+    rescue EncodingError
+      false
     end
 
     # The writer of a gem that responds to `#write`, such as `Bzip2::FFI::Writer`, with the methods of Writable that it
