@@ -394,12 +394,13 @@ module IOStreams
       #
       # S3 has no directories, only keys that contain `/`. With `directories: true` the directories within the
       # keys are also returned, such as `a` and `a/b` for the key `a/b/c.csv`, along with any empty folder
-      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder,
-      # see `Listing#each`.
+      # created with a key ending in `/`. The attributes of a directory are empty, unless it is such a folder found
+      # by listing every key below the directory, see `Listing#each`.
       #
       # Notes:
       # - S3 lists every key below the directory, unless the pattern cannot match a name below it, such as `*.csv`,
-      #   when it only lists the keys directly within it, see `Listing#each`.
+      #   `*` or an exact name that is not found, when it only lists the keys and the directories directly within it,
+      #   see `Listing#each`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false, &)
         unless block_given?
           return to_enum(__method__, pattern,

@@ -1862,7 +1862,9 @@ IOStreams.path("exports").each_child("*", directories: true) { |child| puts chil
   and SFTP a name that is found is returned without listing the directory, so a second name that differs from it only
   in case is not returned with it.
 * With `directories: true`, S3 returns the directories within its keys, such as `a` and `a/b` for the key
-  `a/b/c.csv`, and each folder object, without its trailing `/`.
+  `a/b/c.csv`, and each folder object, without its trailing `/`. A pattern that can only match names within the
+  directory, such as `*`, lists them by name, with the names of the keys within it, so they have empty attributes,
+  while one that lists every key below the directory, such as `**/*`, returns each folder object with its attributes.
 * A path that does not exist, or that is a file, has no children, on every store. A directory that cannot be read
   raises the exception of its store, tagged as `IOStreams::Errors::PermissionDenied`: `Errno::EACCES` for a local
   directory, `Net::SFTP::StatusException` on SFTP, or `Aws::S3::Errors::AccessDenied` on S3. A directory below it that
