@@ -136,6 +136,9 @@ bzip2 uses the `bzip2-ffi` gem, which calls the bzip2 library, libbz2, of the sy
 IOStreams.path("example.csv.bz2").option(:bz2, block_size: 1).write("name,login\nJack Jones,jjones\n")
 ~~~
 
+bzip2 data always starts with its header, even when it holds no data, so an empty file is not bzip2 data, and reading
+one raises `IOStreams::Errors::Corrupt`, as `bzip2 -d` does.
+
 ### Zip
 
 Reading a `.zip` file reads one file within it: the first file, skipping any folders, or the file that

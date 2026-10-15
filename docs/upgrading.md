@@ -467,6 +467,14 @@ Fix: replace calls such as `#rewind` or `#size` on the stream. Read lines with `
 number of bytes with an encoding set, such as a record of a fixed size, read the bytes without the encoding, and
 convert them.
 
+#### An empty `.bz2` file raises `Corrupt`
+
+Reading an empty `.bz2` file raises `IOStreams::Errors::Corrupt`, as `bzip2 -d` does, since bzip2 data always starts
+with its header, even when it holds no data. Previously it read as empty.
+
+Fix: write files that hold no data as bzip2 data, as IOStreams does, rather than as empty files, or rescue
+`IOStreams::Errors::Corrupt`.
+
 #### Reading gzip returns every member
 
 Reading a gzip file that contains several members, for example concatenated gzip files, now returns
