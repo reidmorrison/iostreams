@@ -28,15 +28,17 @@ module IOStreams
     end
 
     # Returns [true|false] whether `#option` and `#stream` take the supplied name, a Symbol, as a stream of this builder:
-    # a reserved keyword, see `RESERVED_KEYWORDS`, or a file name extension registered with `IOStreams.register_extension`.
+    # a reserved keyword, see `RESERVED_KEYWORDS`, or a file name extension registered with `IOStreams.register_extension`,
+    # in any case, see `IOStreams::Utils.extension_name`.
     def self.stream_name?(name)
-      reserved_keyword?(name) || IOStreams.extensions.key?(name)
+      name = Utils.extension_name(name)
+      reserved_keyword?(name) || !IOStreams.extension(name).nil?
     end
 
-    # Returns the format of the stream, such as `IOStreams::Gzip` for `:gz`, or nil when it is not registered.
+    # Returns the format of the stream, such as `IOStreams::Gzip` for `:gz` or `:GZ`, or nil when it is not registered.
     def self.find_format(stream)
-      stream = stream&.to_sym
-      stream == :encode ? Encode : IOStreams.extensions[stream]
+      stream = Utils.extension_name(stream)
+      stream == :encode ? Encode : IOStreams.extension(stream)
     end
 
     def initialize(file_name = nil)
@@ -74,11 +76,14 @@ module IOStreams
     # - Raises ArgumentError for an option that neither the reader nor the writer for the stream accepts,
     #   even when the file name does not include the stream. So a misspelled option raises wherever the code
     #   runs, rather than only where the path, for example from configuration, includes the stream.
+    # - The name of the stream is compared without case, as the extensions of a file name are, so `option(:GZ, ...)`
+    #   sets the options of `:gz`, see `IOStreams::Utils.extension_name`. So do #stream, #setting and
+    #   #remove_from_pipeline.
     #
     # Setting the encode stream with `option(:encode, ...)` is deprecated, see #encoding, which it calls, and reports a
     # deprecation warning, see `IOStreams::Deprecation`.
     def option(stream, **options)
-      stream = stream.to_sym unless stream.is_a?(Symbol)
+      stream = Utils.extension_name(stream)
       raise_if_raw!("#option")
       if stream == :encode
         merge_encoding(options)
@@ -107,7 +112,7 @@ module IOStreams
     #
     # Each reports a deprecation warning, see `IOStreams::Deprecation`.
     def stream(stream, **options)
-      stream = stream.to_sym unless stream.is_a?(Symbol)
+      stream = Utils.extension_name(stream)
       raise_if_raw!("#stream")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @options
 
@@ -202,7 +207,7 @@ module IOStreams
 
     # Return the options set for either a stream or option.
     def setting(stream)
-      stream = stream.to_sym
+      stream = Utils.extension_name(stream)
       return @encoding if stream == :encode
       return streams[stream] if streams
 
@@ -270,7 +275,7 @@ module IOStreams
     # Note: Any options must be set _before_ calling this method.
     def remove_from_pipeline(stream_name)
       @streams ||= build_pipeline
-      stream_name = stream_name.to_sym
+      stream_name = Utils.extension_name(stream_name)
       return @streams.delete(stream_name) unless stream_name == :encode
 
       encoding  = @encoding
@@ -395,10 +400,10 @@ module IOStreams
       parts      = Utils.file_name_extensions(file_name)
       extensions = []
       while (extension = parts.pop)
-        sym = extension.to_sym
-        break unless IOStreams.extensions[sym]
+        name = Utils.extension_name(extension)
+        break unless IOStreams.extension(name)
 
-        extensions.unshift(sym)
+        extensions.unshift(name)
       end
       extensions
     end

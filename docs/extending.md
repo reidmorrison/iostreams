@@ -168,12 +168,15 @@ IOStreams.register_extension(:xls, MyXls::Reader, MyXls::Writer)
 
 ### Another extension for a built-in format
 
-To read and write a built-in format for another extension, register the format that `IOStreams.extensions` returns
+To read and write a built-in format for another extension, register the format that `IOStreams.extension` returns
 for it, for example when a partner names its gzip files `.gzipped`:
 
 ~~~ruby
-IOStreams.register_extension(:gzipped, IOStreams.extensions[:gz])
+IOStreams.register_extension(:gzipped, IOStreams.extension(:gz))
 ~~~
+
+Extensions are compared without case, as they are in file names, so `.GZIPPED` files are read as gzip too, and the
+stream is named `:gzipped` in any case, such as with `option(:Gzipped, level: 9)`.
 
 ## Registering a storage scheme
 
