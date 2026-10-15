@@ -57,6 +57,14 @@ class Bzip2WriterTest < Minitest::Test
 
         assert_equal decompressed + decompressed, data
       end
+
+      it "leaves the supplied stream in its mode, rather than switching it to binary mode, as gzip does" do
+        output = StringIO.new
+        IOStreams.stream(output).stream(:bz2).write(decompressed)
+
+        assert_equal Encoding::UTF_8, output.external_encoding
+        assert_equal decompressed, IOStreams.stream(StringIO.new(output.string.b)).stream(:bz2).read
+      end
     end
 
     describe ".check" do

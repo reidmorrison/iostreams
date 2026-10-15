@@ -5131,7 +5131,7 @@ Start with the changes that apply to your application:
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) |
-| Writes to an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
+| Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
 | Uses `~` in local file names, root paths from `IOStreams.add_root`, or compares paths | [Paths](#paths) and [Local files](#local-files) |
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
@@ -5613,6 +5613,22 @@ since IOStreams opens and closes their files itself.
 
 Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
 reads until it is closed.
+
+#### BZip2 leaves your IO in its mode
+
+When reading or writing `.bz2` with an IO that you supply with `IOStreams.stream(io)`, the `:bz2` stream no longer
+switches `io` to binary mode, like every other stream. So the String of a `StringIO.new` that bzip2 data is
+written into, or read from, keeps its encoding, UTF-8, rather than becoming binary (`ASCII-8BIT`). Its bytes are
+the same, but adding them to binary data, such as data read from a database, raises
+`Encoding::CompatibilityError`.
+
+Fix: supply a `StringIO` of a binary String, or call `.b` on its String:
+
+~~~ruby
+io = StringIO.new(+"".b)
+IOStreams.stream(io).stream(:bz2).write(data)
+io.string.encoding # => #<Encoding:BINARY (ASCII-8BIT)>
+~~~
 
 #### A failed write to your IO is not completed
 
