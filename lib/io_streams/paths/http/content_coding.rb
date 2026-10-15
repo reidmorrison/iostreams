@@ -27,10 +27,9 @@ module IOStreams
         # another name for `gzip`.
         FORMATS = {"gzip" => IOStreams::Gzip, "x-gzip" => IOStreams::Gzip}.freeze
 
-        # The errors that the format raises for a body that it cannot decode: those of Zlib, and on JRuby, whose zlib
-        # raises some of them as an `IOError`, such as `footer is not found`, or as `Errno::EPIPE` for data that ends
-        # early, those too.
-        DECODE_ERRORS = [Zlib::Error, IOError, Errno::EPIPE].freeze
+        # The errors that the format raises for a body that it cannot decode: those of Zlib, on every platform, since the
+        # gzip stream reads a whole block at a time.
+        DECODE_ERRORS = [Zlib::Error].freeze
 
         # The number of bytes read at a time from the format that decodes the body.
         BLOCK_SIZE = 65_536
@@ -114,17 +113,15 @@ module IOStreams
           raise(failure(e))
         end
 
-        # Returns [Exception] the failure to decode the body: an `IOStreams::Errors::CommunicationsFailure` for the
-        # error of the format, unless the error is a failure of the request that the body raised as it was read, such
-        # as `Errno::EPIPE` for a connection that failed, which the request tags with its kind of failure, see
-        # `IOStreams::Errors::StorageError`, and which is then returned as it is.
+        # Returns [IOStreams::Errors::CommunicationsFailure] the failure to decode the body, for the error of the format.
+        # A failure of the request that the body raises as it is read, such as `Errno::EPIPE` for a connection that
+        # failed, is not one of the `DECODE_ERRORS`, so it is raised as it is, tagged by the request with its kind of
+        # failure, see `IOStreams::Errors::StorageError`.
         #
         # The failure to decode is not tagged with a kind of failure, such as `IOStreams::Errors::Unavailable`, since the
         # whole body was received, so the server sent a body that cannot be decoded, which sending the request again
         # does not change. A connection that closes before the whole body was received raises `Unavailable`.
         def failure(error)
-          return error if error.is_a?(Errors::StorageError)
-
           Errors::CommunicationsFailure.new(
             "Cannot decode the Content-Encoding #{@name.inspect} of #{@display_name}: #{error.message}"
           )

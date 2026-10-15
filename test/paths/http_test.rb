@@ -421,18 +421,18 @@ module Paths
           it "raises for a gzip body that is truncated or corrupt, naming the url, with the failure as its cause" do
             truncated = gzipped.byteslice(0, gzipped.bytesize - 4)
             bad_crc   = gzipped.b.tap { |data| data.setbyte(-8, data.getbyte(-8) ^ 0xff) }
-            # The failure of zlib for each body, which on JRuby can be an IOError, or Errno::EPIPE for one that ends early.
+            # The failure of zlib for each body, the same on every platform, since the gzip stream reads whole blocks.
             [
-              [truncated, Zlib::GzipFile::NoFooter, IOError],
-              [gzipped.byteslice(0, 12), Zlib::GzipFile::Error, Errno::EPIPE],
-              [bad_crc, Zlib::GzipFile::CRCError, IOError],
-              ["#{gzipped}trailing garbage", Zlib::GzipFile::Error, Zlib::GzipFile::Error],
-              ["not gzip", Zlib::GzipFile::Error, Zlib::GzipFile::Error]
-            ].each do |data, cause, jruby_cause|
+              [truncated, Zlib::GzipFile::NoFooter],
+              [gzipped.byteslice(0, 12), Zlib::GzipFile::Error],
+              [bad_crc, Zlib::GzipFile::CRCError],
+              ["#{gzipped}trailing garbage", Zlib::GzipFile::Error],
+              ["not gzip", Zlib::GzipFile::Error]
+            ].each do |data, cause|
               start_labeling_server(data, "gzip")
 
               error = assert_raises(IOStreams::Errors::CommunicationsFailure) { IOStreams.path("#{data_url}?token=SECRET").read }
-              assert_instance_of defined?(JRuby) ? jruby_cause : cause, error.cause
+              assert_instance_of cause, error.cause
               assert_equal "Cannot decode the Content-Encoding \"gzip\" of #{data_url}: #{error.cause.message}", error.message
               refute_kind_of IOStreams::Errors::StorageError, error
               @server.shutdown
