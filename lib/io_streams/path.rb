@@ -378,10 +378,21 @@ module IOStreams
     # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
     attr_writer :path
 
-    # Returns [String] the name with `.`, `..` and repeated `/` removed, like `Pathname#cleanpath`, see #cleanpath.
-    # A path class whose names differ, such as a url whose trailing `/` names another url, refines it.
+    # Returns [String] the name with `.`, `..` and repeated `/` removed, like `Pathname#cleanpath`, see #cleanpath,
+    # keeping a trailing `/` when it names another file, see #trailing_slash_significant?. A path class whose names
+    # differ in other ways, such as an SFTP name within the login directory, refines it.
     def clean_name(name)
-      Pathname.new(Utils.matchable(name)).cleanpath.to_s.force_encoding(name.encoding)
+      clean = Pathname.new(Utils.matchable(name)).cleanpath.to_s.force_encoding(name.encoding)
+      return clean unless trailing_slash_significant? && name.end_with?("/") && !clean.end_with?("/")
+
+      "#{clean}/"
+    end
+
+    # Returns [true|false] whether a name that ends with `/` names another file than the same name without it, so
+    # that #clean_name keeps it, such as the key of an S3 folder object, or a url. False for a local or SFTP path,
+    # which names the same directory with or without it.
+    def trailing_slash_significant?
+      false
     end
 
     # Returns [String] the path of the supplied name joined to this path, see #join: the name itself when it is

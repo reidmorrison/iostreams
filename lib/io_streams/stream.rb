@@ -89,13 +89,7 @@ module IOStreams
     # #option, see .row_format, since its rows are not a stream, so they do not stop the streams being taken from the
     # file name.
     def stream(stream, **options)
-      raise_if_frozen!
-      if self.class.row_format(stream)
-        tabular_settings.merge_row_options(stream, options)
-      else
-        builder.stream(stream, **options)
-      end
-      self
+      merge_options(stream, options) { builder.stream(stream, **options) }
     end
 
     # Set the options for an element within the stream for this file.
@@ -122,13 +116,7 @@ module IOStreams
     #
     # IOStreams.path("people.parquet").schema("people.json").option(:parquet, compression: "zstd").writer(:hash)
     def option(stream, **options)
-      raise_if_frozen!
-      if self.class.row_format(stream)
-        tabular_settings.merge_row_options(stream, options)
-      else
-        builder.option(stream, **options)
-      end
-      self
+      merge_options(stream, options) { builder.option(stream, **options) }
     end
 
     # Read and write the data as it is stored: no streams are applied, neither those that the file name implies
@@ -190,13 +178,7 @@ module IOStreams
     # Adds the options for the specified stream as an option,
     # but if streams have already been added it is instead added as a stream.
     def option_or_stream(stream, **options)
-      raise_if_frozen!
-      if self.class.row_format(stream)
-        tabular_settings.merge_row_options(stream, options)
-      else
-        builder.option_or_stream(stream, **options)
-      end
-      self
+      merge_options(stream, options) { builder.option_or_stream(stream, **options) }
     end
 
     # Return the options already set for either a stream or option.
@@ -774,6 +756,19 @@ module IOStreams
       return IOStreams::Tabular::Settings.new.freeze if frozen?
 
       @tabular_settings = IOStreams::Tabular::Settings.new
+    end
+
+    # Sets the options of the rows of a tabular format whose rows are not lines, such as Parquet, see .row_format,
+    # which the tabular settings hold, or otherwise yields to set those of a stream on the builder, for #stream, #option
+    # and #option_or_stream, which differ only in how the builder sets them. Returns self.
+    def merge_options(stream, options)
+      raise_if_frozen!
+      if self.class.row_format(stream)
+        tabular_settings.merge_row_options(stream, options)
+      else
+        yield
+      end
+      self
     end
 
     # Raises [FrozenError] when this stream is frozen, since the methods that change its builder, such as
