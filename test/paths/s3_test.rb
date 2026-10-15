@@ -841,6 +841,15 @@ module Paths
           assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?bogus=1&key=b") }
         end
 
+        it "raises for a part of the query of the url that is not an option, such as the ? of a pattern, naming %3F" do
+          error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/data/file?.csv") }
+
+          assert_equal %(Invalid S3 url "s3://bucket/data/file": its query holds the options of its requests, but ".csv" ) +
+                       %(is not an S3 option. Percent-encode a '?' in a key as '%3F'), error.message
+          error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?acl=private&bogus=1&key=b") }
+          assert_includes error.message, %(but "bogus", "key" are not S3 options)
+        end
+
         it "raises for a request parameter that the path sets" do
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, bucket: "other") }
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, delimiter: "/") }
