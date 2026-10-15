@@ -244,6 +244,14 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "removes the byte order mark at the start of a UTF-16LE file, such as a Windows Unicode Text export" do
+        input = "\uFEFFname,city\r\nJosé,Zürich\r\n".encode("UTF-16LE").b
+        rows  = []
+        IOStreams.stream(StringIO.new(input)).encoding("UTF-16LE:UTF-8").each(:array) { |row| rows << row }
+
+        assert_equal [%w[name city], %w[José Zürich]], rows
+      end
+
       it "keeps the byte order mark when reading the whole file, like File.read" do
         Dir.mktmpdir do |dir|
           path = IOStreams.path(dir, "excel.csv")

@@ -12,8 +12,15 @@ module IOStreams
     class Reader < IOStreams::Reader
       include ChunkReader
 
-      # The byte order mark that some programs, such as Excel, write at the start of UTF-8 text.
+      # The byte order mark that some programs write at the start of Unicode text, such as Excel at the start of a "CSV
+      # UTF-8" file, and Windows programs at the start of UTF-16LE "Unicode Text".
       BYTE_ORDER_MARK = "\uFEFF"
+
+      # The encodings of the text whose byte order mark is removed, see #remove_byte_order_mark. Not the dummy encodings
+      # "UTF-16" and "UTF-32", since Ruby removes the byte order mark that tells their byte order when it converts them.
+      BYTE_ORDER_MARK_ENCODINGS = [
+        Encoding::UTF_8, Encoding::UTF_16LE, Encoding::UTF_16BE, Encoding::UTF_32LE, Encoding::UTF_32BE
+      ].freeze
 
       # The number of bytes read from the input stream at a time, apart from a read with a length, see #read.
       BLOCK_SIZE = 65_536
@@ -54,7 +61,8 @@ module IOStreams
       #     encoding and converts it to the internal encoding. A character that the internal encoding does not have
       #     raises Encoding::UndefinedConversionError, unless `replace` is supplied.
       #
-      #     When reading UTF-8, a byte order mark at the start of the data is removed.
+      #     When reading UTF-8, UTF-16LE, UTF-16BE, UTF-32LE or UTF-32BE, a byte order mark at the start of the data is
+      #     removed.
       #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
@@ -77,8 +85,9 @@ module IOStreams
         @internal           = nil if @internal == @converter.encoding
         @transcode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
         @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
-        # Whether the start of the data, where UTF-8 text can begin with a byte order mark, is still to be read.
-        @at_start           = @converter.encoding == Encoding::UTF_8
+        # The byte order mark in the encoding of the data, while the start of the data, where Unicode text can begin
+        # with one, is still to be read.
+        @byte_order_mark    = byte_order_mark(@converter.encoding)
 
         # More efficient read buffering only supported when the input stream `#read` method supports it.
         # Binary, since `IO#read` keeps the encoding of the buffer that it reads into.
@@ -126,7 +135,7 @@ module IOStreams
       def text(data)
         return if data.nil?
 
-        data = remove_byte_order_mark(data) if @at_start && !data.empty?
+        data = remove_byte_order_mark(data) if @byte_order_mark && !data.empty?
         # Data that is not converted, such as with `encoding: "BINARY"`, is the block that was read, which can be
         # the buffer that the next block is read into.
         data = data.dup if data.equal?(@read_cache_buffer)
@@ -136,11 +145,18 @@ module IOStreams
         data
       end
 
+      # Returns [String] the byte order mark in the encoding of the data, or nil for an encoding whose byte order mark is
+      # not removed, see BYTE_ORDER_MARK_ENCODINGS.
+      def byte_order_mark(encoding)
+        BYTE_ORDER_MARK.encode(encoding) if BYTE_ORDER_MARK_ENCODINGS.include?(encoding)
+      end
+
       # Returns [String] the first characters of the data without a byte order mark. Since the converter returns whole
       # characters, a byte order mark split across reads is in the first data that it returns.
       def remove_byte_order_mark(data)
-        @at_start = false
-        data.start_with?(BYTE_ORDER_MARK) ? data.byteslice(BYTE_ORDER_MARK.bytesize..) : data
+        mark             = @byte_order_mark
+        @byte_order_mark = nil
+        data.start_with?(mark) ? data.byteslice(mark.bytesize..) : data
       end
 
       # Returns [String] the next block of the input stream as binary data, or [nil] at the end of the stream.

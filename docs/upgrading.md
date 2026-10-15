@@ -76,7 +76,8 @@ and write bytes.
 The byte order mark (U+FEFF) that programs such as Excel write at the start of a UTF-8 file is
 removed from the first line, so that a CSV file with a quoted header row no longer raises
 `CSV::MalformedCSVError`. It is also removed when reading through an encode stream with
-`encoding: "UTF-8"`. `read` keeps it, like `File.read`.
+`encoding: "UTF-8"`, and from UTF-16 or UTF-32 text of either byte order, such as
+`encoding("UTF-16LE:UTF-8")`. `read` keeps it, like `File.read`.
 
 Fix: read a file in another encoding by setting it with `#encoding`, for example
 `encoding("Windows-1252:UTF-8")`, which converts it to UTF-8 as it is read, or `encoding("Windows-1252")`, whose
