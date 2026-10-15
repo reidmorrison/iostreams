@@ -214,6 +214,13 @@ module IOStreams
       include StreamError
     end
 
+    # A key that reading the data needs is missing, or cannot be used: the secret key that decrypts PGP data is not in
+    # the keyring, or its passphrase is missing or wrong, the public key that checks its signature is not in the
+    # keyring, or the cipher of the version that encrypted `.enc` data is not configured.
+    module MissingKey
+      include StreamError
+    end
+
     # Every kind of failure of the storage that a path is on, such as `NotFound`, includes StorageError. A path tags
     # the exception that its storage raised with the kind of failure, rather than replacing it, see `docs/errors.md`.
     #

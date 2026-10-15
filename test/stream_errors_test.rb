@@ -18,12 +18,17 @@ class StreamErrorsTest < Minitest::Test
     # creek reads spreadsheets with rubyzip on every platform.
     xlsx: "Zip::Error",
     xlsm: "Zip::Error",
-    zst:  "RuntimeError"
+    zst:  "RuntimeError",
+    # gpg reports why it failed in its status, which the PGP stream reads.
+    pgp:  "IOStreams::Pgp::Failure",
+    gpg:  "IOStreams::Pgp::Failure"
   }.freeze
 
-  # The streams that do not tag the failures of their gem yet. gpg reports why it failed in its status, where a key that
-  # is missing or wrong cannot always be told apart from corrupt data.
-  UNTAGGED = %i[pgp gpg].freeze
+  # Options needed to write and read each stream.
+  STREAM_OPTIONS = {
+    pgp: [{recipient: "receiver@example.org"}, {passphrase: "receiver_passphrase"}],
+    gpg: [{recipient: "receiver@example.org"}, {passphrase: "receiver_passphrase"}]
+  }.freeze
 
   describe "a stream that cannot read the data" do
     let(:data) { Array.new(5000) { |i| "#{i},#{'x' * 20}\n" }.join }
@@ -31,19 +36,19 @@ class StreamErrorsTest < Minitest::Test
     # Returns [String] the data written through the named stream.
     def write(name, data)
       output = StringIO.new(+"".b)
-      IOStreams.stream(output).stream(name).write(data)
+      IOStreams.stream(output).stream(name, **STREAM_OPTIONS.fetch(name, [{}, {}]).first).write(data)
       output.string
     end
 
     # Returns [String] the data read through the named stream from the supplied bytes.
     def read(name, bytes)
-      IOStreams.stream(StringIO.new(bytes)).stream(name).read
+      IOStreams.stream(StringIO.new(bytes)).stream(name, **STREAM_OPTIONS.fetch(name, [{}, {}]).last).read
     end
 
     it "lists every registered stream that reads" do
       readers = IOStreams.extensions.select { |_name, format| format.reader_class }.keys
 
-      assert_equal (readers - UNTAGGED).sort, NOT_THE_FORMAT.keys.sort
+      assert_equal readers.sort, NOT_THE_FORMAT.keys.sort
     end
 
     NOT_THE_FORMAT.each_pair do |name, class_name|

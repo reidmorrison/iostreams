@@ -151,9 +151,10 @@ module IOStreams
         raise(error)
       end
 
-      # Returns [String] what gpg wrote to the supplied file descriptor, once gpg has finished.
+      # Returns [String] what gpg wrote to the supplied file descriptor, once gpg has finished, otherwise nil, such as
+      # when the caller's input failed while gpg was reading it.
       def captured(descriptor)
-        @texts.fetch(@captured.fetch(descriptor))
+        @texts&.fetch(@captured.fetch(descriptor))
       end
 
       # Returns [String] what gpg is processing, for an error message: the named file, or the stream.

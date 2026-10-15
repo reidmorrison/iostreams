@@ -15,6 +15,7 @@ module IOStreams
     autoload :Gpg, "io_streams/pgp/gpg"
     autoload :GpgProcess, "io_streams/pgp/gpg_process"
     autoload :Reader, "io_streams/pgp/reader"
+    autoload :Status, "io_streams/pgp/status"
     autoload :Writer, "io_streams/pgp/writer"
 
     # Returns [Class] the class that decrypts.

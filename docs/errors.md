@@ -19,7 +19,8 @@ exception with the kind of failure: `IOStreams::Errors::NotFound`, `PermissionDe
 
 Likewise, when a stream cannot read the data of a file, for example because a file named `.gz` is not gzip data, or a
 zip file does not contain the file to read, the stream raises the exception of its gem, such as
-`Zlib::GzipFile::Error`, tagged with the kind of failure: `IOStreams::Errors::Corrupt` or `MissingEntry`.
+`Zlib::GzipFile::Error`, tagged with the kind of failure: `IOStreams::Errors::Corrupt`, `MissingEntry` or
+`MissingKey`.
 
 Rescue the kind of failure, rather than the exception from one storage or one gem, so that the same code keeps working
 when the path changes, for example from a local file in development to S3 in production, or from `.gz` to `.zip`. See
@@ -66,13 +67,24 @@ end
 ~~~
 
 The same rescue handles a file that is damaged, cut short, or not what its file name says at all, whether `IMPORT_PATH` is
-`orders.csv.gz`, `orders.csv.bz2`, `orders.csv.zst`, `orders.zip`, `orders.csv.enc` or `orders.xlsx`.
+`orders.csv.gz`, `orders.csv.bz2`, `orders.csv.zst`, `orders.zip`, `orders.csv.enc`, `orders.csv.pgp` or `orders.xlsx`.
 
 Rescuing the exception of one gem only works for that stream:
 
 ~~~ruby
 # Avoid: misses a corrupt file once the file name changes to .bz2 or .zip.
 rescue Zlib::GzipFile::Error
+~~~
+
+A key that is missing, or a passphrase that is wrong, is a problem of the configuration rather than of the file, so it
+raises `IOStreams::Errors::MissingKey` instead, which sending the file again will not fix:
+
+~~~ruby
+begin
+  path.each(:hash) { |record| Order.import(record) }
+rescue IOStreams::Errors::MissingKey => e
+  raise(ConfigurationError, "Check the PGP keys and passphrase for #{e.display_name || path.display_name}")
+end
 ~~~
 
 ## The exception tree
@@ -92,6 +104,9 @@ The kinds of failure are modules that tag the exception that the storage, or the
     not support, such as a zip file encrypted with a password.
   * `IOStreams::Errors::MissingEntry`: the file does not contain the entry to read, such as a zip file without the
     file named by `entry_file_name`, or without any file at all.
+  * `IOStreams::Errors::MissingKey`: a key that reading the data needs is missing, or cannot be used: the secret key
+    that decrypts a PGP file is not in the keyring, or its passphrase is missing or wrong, the public key that checks
+    its signature is not in the keyring, or the cipher of the version that encrypted an `.enc` file is not configured.
 
 A failure of the storage is never a failure of a stream, so rescuing `NotFound` does not rescue a zip file without
 the file to read, which reading again will not fix.
@@ -132,7 +147,8 @@ IOStreams raises these classes itself:
   its `#error_char` is the invalid bytes, and its `#source_encoding` and `#destination_encoding` the encodings that
   they were read and checked as.
 * `IOStreams::Pgp::Failure`, a `StandardError`: gpg failed, for example to decrypt a file or to check its signature,
-  or could not be run.
+  or could not be run. When gpg reports why it could not read a file, it is tagged with the kind of failure, see
+  [What each stream raises](#what-each-stream-raises).
 
 ## What each storage raises
 
@@ -156,17 +172,19 @@ match, or an HTTPS certificate that is not trusted.
 
 The exception that each stream raises when it cannot read the data, which is tagged with the kind of failure:
 
-| Stream | `Corrupt` | `MissingEntry` |
-|--------|-----------|----------------|
-| `.gz`, `.gzip` | `Zlib::GzipFile::Error`, such as its `Zlib::GzipFile::CRCError` or `NoFooter`, or `Zlib::DataError` | Never |
-| `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError` | Never |
-| `.zst` | `RuntimeError` | Never |
-| `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` |
-| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data | Never |
-| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never |
+| Stream | `Corrupt` | `MissingEntry` | `MissingKey` |
+|--------|-----------|----------------|--------------|
+| `.gz`, `.gzip` | `Zlib::GzipFile::Error`, such as its `Zlib::GzipFile::CRCError` or `NoFooter`, or `Zlib::DataError` | Never | Never |
+| `.bz2` | `Bzip2::FFI::Error::DataError`, such as its `MagicDataError`, or `Bzip2::FFI::Error::UnexpectedEofError` | Never | Never |
+| `.zst` | `RuntimeError` | Never | Never |
+| `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
+| `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
+| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which reads the spreadsheet, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet | Never | Never |
+| `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
 
-`.pgp` and `.gpg` do not tag their failures yet: gpg raises `IOStreams::Pgp::Failure`, whose message gives the
-reason, since gpg does not always tell a key that is missing or wrong apart from corrupt data.
+The PGP stream tells why gpg failed from gpg's status, which does not depend on the locale. A PGP file that was not
+signed by the `signer`, or that gpg does not trust, raises `IOStreams::Pgp::Failure` without a kind of failure, since
+only PGP checks who signed a file.
 
 Rescue the kind of failure rather than these exceptions: they belong to the gem of the stream, which a newer
 version of IOStreams can replace with another, and the zip stream already raises different ones on MRI and JRuby.
@@ -322,7 +340,9 @@ also rescue an attempt to access a path that the application does not allow, suc
 * The failure of a stream that reads another stream keeps its tag. For example, data that cannot be decrypted within
   `orders.csv.gz.enc` raises the exception of `.enc`, which the gzip stream reading it does not tag again.
 * A key for `.enc` that is not the one that the data was encrypted with also raises `Corrupt`, since the cipher
-  cannot tell it apart from corrupt data.
+  cannot tell it apart from corrupt data, while a version of the cipher that is not configured raises `MissingKey`.
+  For PGP, gpg tells them apart: a session key that does not decrypt with the key that it names is a damaged packet,
+  which raises `Corrupt`.
 * A stream can only report the corruption that it, or its gem, detects. A frame of `.zst`
   data that is cut short is not detected on MRI, where `zstd-ruby` does not report it, nor is a damaged frame without
   the checksum of its content, which `.zst` written on MRI does not have. An empty `.bz2` or `.enc` file reads as

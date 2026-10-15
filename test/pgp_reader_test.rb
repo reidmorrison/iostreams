@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "securerandom"
 require "timeout"
 
 class PgpReaderTest < Minitest::Test
@@ -156,6 +157,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_includes error.message, "Bad passphrase"
+        assert_kind_of IOStreams::Errors::MissingKey, error
       end
 
       it "fails without a passphrase" do
@@ -164,6 +166,7 @@ class PgpReaderTest < Minitest::Test
         error = assert_raises(IOStreams::Pgp::Failure) { IOStreams::Pgp::Reader.file(temp_file.path, &:read) }
 
         assert_match(/\AGPG Failed to decrypt file: /, error.message)
+        assert_kind_of IOStreams::Errors::MissingKey, error
       end
 
       it "decrypts with the default passphrase when none is supplied" do
@@ -186,6 +189,7 @@ class PgpReaderTest < Minitest::Test
           end
 
           assert_includes error.message, "--ignore-mdc-error"
+          assert_kind_of IOStreams::Errors::Corrupt, error
         end
 
         it "is required when the block leaves early" do
@@ -399,6 +403,67 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_match(/\AGPG Failed to decrypt stream: /, error.message)
+        assert_kind_of IOStreams::Errors::Corrupt, error
+      end
+
+      describe "the kind of failure" do
+        # Yields the email address of a new key, whose secret key has been deleted once the block wrote data for it,
+        # and deletes its public key afterwards.
+        def with_temporary_key
+          email = "temporary-#{SecureRandom.hex(4)}@example.org"
+          IOStreams::Pgp.generate_key(name: "Temporary", email: email, passphrase: "temporary_passphrase",
+                                      key_type: "EDDSA", key_curve: "ed25519", key_usage: "sign",
+                                      subkey_type: "ECDH", subkey_curve: "cv25519")
+          yield(email)
+        ensure
+          IOStreams::Pgp.delete_keys(email: email, public: true, private: true) if IOStreams::Pgp.key?(email: email)
+        end
+
+        it "is Corrupt for data that was changed" do
+          encrypted = encrypt(decrypted)
+          middle    = encrypted.bytesize / 2
+          encrypted.setbyte(middle, encrypted.getbyte(middle) ^ 0x10)
+
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            IOStreams::Pgp::Reader.stream(StringIO.new(encrypted), passphrase: "receiver_passphrase", &:read)
+          end
+          assert_kind_of IOStreams::Errors::Corrupt, error
+        end
+
+        it "is MissingKey for data encrypted for a key whose secret key is not in the keyring" do
+          with_temporary_key do |email|
+            IOStreams::Pgp::Writer.file(temp_file.path, recipient: email) { |io| io.write(decrypted) }
+            IOStreams::Pgp.delete_keys(email: email, public: false, private: true)
+
+            error = assert_raises(IOStreams::Pgp::Failure) do
+              IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "temporary_passphrase", &:read)
+            end
+            assert_kind_of IOStreams::Errors::MissingKey, error
+            assert_includes error.message, "No secret key"
+          end
+        end
+
+        it "is MissingKey for data signed by a key that is not in the keyring" do
+          with_temporary_key do |email|
+            IOStreams::Pgp::Writer.file(temp_file.path, recipient: "receiver@example.org", signer: email,
+                                                        signer_passphrase: "temporary_passphrase") { |io| io.write(decrypted) }
+            IOStreams::Pgp.delete_keys(email: email, public: true, private: true)
+
+            error = assert_raises(IOStreams::Pgp::Failure) do
+              IOStreams::Pgp::Reader.file(temp_file.path, passphrase: "receiver_passphrase", &:read)
+            end
+            assert_kind_of IOStreams::Errors::MissingKey, error
+          end
+        end
+
+        it "names the file that is read, as the stream names it" do
+          stream = IOStreams.stream(StringIO.new("Not a PGP file")).file_name("archive/data.csv.pgp").
+                   option(:pgp, passphrase: "receiver_passphrase")
+
+          error = assert_raises(IOStreams::Errors::Corrupt) { stream.read }
+          assert_equal "archive/data.csv.pgp", error.display_name
+          assert_match(%r{\Aarchive/data.csv.pgp: GPG Failed to decrypt stream: }, error.message)
+        end
       end
 
       it "checks who signed the stream" do
@@ -408,6 +473,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_equal "PGP stream was not signed by receiver2@example.org", error.message
+        refute_kind_of IOStreams::Errors::StreamError, error
       end
 
       it "verifies the stream before passing it to the block with verify_first" do
@@ -595,6 +661,7 @@ class PgpReaderTest < Minitest::Test
           end
 
           assert_match(/\AGPG Failed to decrypt stream: /, error.message)
+          assert_kind_of IOStreams::Errors::Corrupt, error
         end
       end
 
@@ -696,6 +763,7 @@ class PgpReaderTest < Minitest::Test
         end
 
         assert_match(/BAD signature/, error.message)
+        assert_kind_of IOStreams::Errors::Corrupt, error
         refute called
       end
 

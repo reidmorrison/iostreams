@@ -44,6 +44,33 @@ class SymmetricEncryptionReaderTest < Minitest::Test
       end
     end
 
+    describe "the kind of failure" do
+      it "is MissingKey for data encrypted with the version of a cipher that is not configured" do
+        primary = ::SymmetricEncryption.cipher
+        ::SymmetricEncryption.cipher = ::SymmetricEncryption::Cipher.new(
+          cipher_name: "aes-128-cbc", key: "ABCDEF1234567890", iv: "1234567890ABCDEF", version: 7
+        )
+        begin
+          ::SymmetricEncryption::Writer.open(file_name) { |io| io.write(decrypted) }
+        ensure
+          ::SymmetricEncryption.cipher = primary
+        end
+
+        error = assert_raises(::SymmetricEncryption::CipherError) do
+          IOStreams::SymmetricEncryption::Reader.file(file_name, &:read)
+        end
+        assert_kind_of IOStreams::Errors::MissingKey, error
+        assert_includes error.message, "version:7"
+      end
+
+      it "is Corrupt for data that is not encrypted" do
+        File.write(file_name, "Not encrypted data\n" * 10)
+
+        error = assert_raises(OpenSSL::Cipher::CipherError) { IOStreams::SymmetricEncryption::Reader.file(file_name, &:read) }
+        assert_kind_of IOStreams::Errors::Corrupt, error
+      end
+    end
+
     describe ".file" do
       it "reads an encrypted file" do
         result = IOStreams::SymmetricEncryption::Reader.file(file_name, &:read)

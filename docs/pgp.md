@@ -145,6 +145,10 @@ IOStreams.path("sample/example.csv.pgp").option(:pgp, passphrase: "sender_passph
 # gpg: decryption failed: Bad passphrase
 ~~~
 
+Both failures are tagged as `IOStreams::Errors::MissingKey`, which `rescue IOStreams::Errors::MissingKey` handles,
+while a file that is damaged or cut short is tagged as `IOStreams::Errors::Corrupt`, see
+[What each stream raises](errors#what-each-stream-raises).
+
 The receiver's passphrase decrypts it:
 
 ~~~ruby

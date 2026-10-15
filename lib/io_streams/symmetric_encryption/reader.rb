@@ -7,10 +7,15 @@ module IOStreams
         %i[buffer_size version]
       end
 
-      # Returns [Module] `IOStreams::Errors::Corrupt` for `OpenSSL::Cipher::CipherError`, which the cipher raises for data
-      # that it cannot decrypt, see `IOStreams::Reader.failure_kind`: data that is not encrypted, or is damaged or cut
-      # short, or, since the cipher cannot tell them apart, data that was encrypted with another key.
+      # Returns [Module] the kind of failure that an exception of symmetric-encryption means, see
+      # `IOStreams::Reader.failure_kind`: `IOStreams::Errors::MissingKey` for `SymmetricEncryption::CipherError`, which it
+      # raises for data whose header names the version of a cipher that is not configured, and
+      # `IOStreams::Errors::Corrupt` for `OpenSSL::Cipher::CipherError`, which the cipher raises for data that it cannot
+      # decrypt: data that is not encrypted, or is damaged or cut short, or, since the cipher cannot tell them apart,
+      # data that was encrypted with another key.
       def self.failure_kind(exception)
+        return Errors::MissingKey if exception.is_a?(::SymmetricEncryption::CipherError)
+
         Errors::Corrupt if exception.is_a?(::OpenSSL::Cipher::CipherError)
       end
 
