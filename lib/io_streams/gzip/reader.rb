@@ -57,12 +57,13 @@ module IOStreams
           end
         end
 
-        # Returns [String] the next data decompressed from the current member, or nil at its end, which MRI raises
-        # EOFError for, and JRuby returns nil for.
+        # Returns [String] the next data decompressed from the current member, or nil at its end.
+        #
+        # Reads a whole block, rather than `#readpartial`, which returns only the data that one read of the input
+        # decompresses to, about 5KB, so that each block passes through `IOStreams::ChunkReader` once.
         def read_member
-          @gzip.readpartial(BLOCK_SIZE)
-        rescue EOFError
-          nil
+          data = @gzip.read(BLOCK_SIZE)
+          data unless data.nil? || data.empty?
         end
 
         # Starts reading the next member, returning [false] when there are no more members.
