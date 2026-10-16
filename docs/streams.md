@@ -108,7 +108,8 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
   compressed or encrypted stream does not end its data, so that it cannot be mistaken for a complete file.
 * A write that cannot succeed raises before the file is opened, so that an existing file is kept: an option that a
   stream cannot write with, such as a compression level that is out of range, an encoding that Ruby does not know, or
-  a gem that a stream needs and that is not installed.
+  cannot convert text to, such as UTF-7, see [Character encoding](#character-encoding), or a gem that a stream needs
+  and that is not installed.
 
 ## Lines
 
@@ -200,8 +201,12 @@ end
 ~~~
 
 Each call to `#encoding` merges its options with those already set, and `#encoding` without arguments returns the
-encoding that was set. An encoding that Ruby does not know, or a cleaner that is neither a built-in rule nor a Proc,
-raises `ArgumentError` when it is set.
+encoding that was set. An encoding that Ruby does not know, a conversion that Ruby has no converter for, such as
+`"Windows-1258:UTF-8"`, an encoding that is not ASCII compatible and that Ruby cannot convert text to or from, such
+as UTF-7, or a cleaner that is neither a built-in rule nor a Proc, raises `ArgumentError` when it is set. The text of
+an ASCII compatible encoding that Ruby cannot convert, such as `"Windows-1258"`, is read and written as it is, while
+writing text in another encoding to it, such as UTF-8 text that is not ASCII, raises
+`Encoding::ConverterNotFoundError`.
 
 The encoding of the text is converted closest to your code, after the file is decompressed or decrypted, so
 `IOStreams.path("data.csv.gz").encoding("BINARY")` still decompresses the file, and reads its text as bytes.

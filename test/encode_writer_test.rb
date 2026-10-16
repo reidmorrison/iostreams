@@ -303,6 +303,15 @@ class EncodeWriterTest < Minitest::Test
       end
     end
 
+    describe "an ASCII compatible encoding that Ruby cannot convert" do
+      it "writes ASCII text and binary data as they are, as v2.1 did" do
+        output = StringIO.new(String.new(encoding: Encoding::BINARY))
+        IOStreams::Encode::Writer.stream(output, encoding: "Windows-1258") { |io| io << "name\n" << "caf\xE9\n".b }
+
+        assert_equal "name\ncaf\xE9\n".b, output.string
+      end
+    end
+
     describe "external:internal encoding" do
       it "writes in the external encoding, like File.write, so the same option reads it back" do
         # Binary, since a StringIO converts the data written to it to the encoding of its String.

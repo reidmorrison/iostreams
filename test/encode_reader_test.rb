@@ -403,6 +403,14 @@ class EncodeReaderTest < Minitest::Test
           assert_equal "Jos\u00e9,M\u00e1laga", data.encode("UTF-8")
         end
 
+        it "reads lines in an ASCII compatible encoding that Ruby cannot convert as they are, as v2.1 did" do
+          lines = []
+          IOStreams.stream(StringIO.new("caf\xE9\nb\n".b)).encoding("Windows-1258").each(:line) { |line| lines << line }
+
+          assert_equal ["caf\xE9".b, "b".b], lines.map(&:b)
+          assert_equal [Encoding::Windows_1258], lines.map(&:encoding).uniq
+        end
+
         it "reads lines from a file unchanged with encoding: BINARY" do
           Tempfile.create(%w[iostreams .csv]) do |file|
             file.binmode
