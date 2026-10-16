@@ -213,7 +213,7 @@ when they are already the names of their columns, such as the Symbol keys of a f
 Fix: check that the JSON files you read with these options have the expected keys. See
 [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated). To keep the
 previous behavior, set `IOStreams.enforce_column_restrictions = false` in an initializer, which defaulted to false in
-v2.1.
+v2.1, and is deprecated, see [enforce_column_restrictions](#enforce_column_restrictions).
 Renaming an uploaded file from `.csv` to `.json` then bypasses the restrictions.
 
 #### Rows of JSON, fixed width and Parquet files are Arrays
@@ -1483,6 +1483,11 @@ including with `cleanse_header: false`. The header row is yielded as it was read
 still contains every value.
 
 ##### enforce_column_restrictions
+
+`IOStreams.enforce_column_restrictions=` is deprecated, since it only applies to the column options above, which are
+deprecated: a schema applies to every input. Setting it still works, and reports a deprecation warning. It defaults
+to true, so remove a line that sets it to true, such as the one that v2.1 suggested, see
+[Column restrictions on uploaded files](#column-restrictions-on-uploaded-files).
 
 `IOStreams.enforce_column_restrictions` applies `allowed_columns`, `required_columns` and `skip_unknown` to every
 input when reading records and rows, including JSON records, so that renaming an uploaded file from `.csv` to `.json`
