@@ -149,12 +149,14 @@ module IOStreams
         # with one, is still to be read.
         @byte_order_mark = byte_order_mark(@converter.encoding)
         # Ruby calls an encoding that keeps state from one character to the next, such as ISO-2022-JP, whose escape
-        # sequences switch the character set of the characters after them, a dummy encoding. So its data is converted
-        # to the internal encoding by one converter, which keeps that state from one block to the next, see
-        # #to_internal.
-        return unless @internal && @converter.encoding&.dummy?
+        # sequences switch the character set of the characters after them, a dummy encoding, as it does "UTF-16" and
+        # "UTF-32", whose byte order mark starts the text. So data is converted from or to one by a single converter,
+        # which keeps that state from one block to the next, see #transcode.
+        return unless @internal && (@converter.encoding&.dummy? || @internal.dummy?)
 
         @transcoder = Encoding::Converter.new(@converter.encoding, @internal, **@transcode_options)
+        # The number of bytes of the data that the transcoder has converted, for the byte offset of invalid data.
+        @transcoded = 0
       end
 
       # Reads data in "UTF-16" or "UTF-32" in the encoding of the byte order that the byte order mark at its start tells,
@@ -207,19 +209,55 @@ module IOStreams
       end
 
       # Returns [String] the data in the internal encoding. The converter returns whole characters, so each block is
-      # converted on its own, apart from the data of a dummy encoding, whose converter keeps its state, see #read_as.
+      # converted on its own, apart from the data of a dummy encoding, or into one, see #transcode.
       def to_internal(data)
-        @transcoder ? @transcoder.convert(data) : data.encode(@internal, **@transcode_options)
+        @transcoder ? transcode(data) : data.encode(@internal, **@transcode_options)
+      end
+
+      # Returns [String] the data in the internal encoding, converted by the converter that keeps the state of a dummy
+      # encoding from one block to the next, see #read_as, which holds back a character or an escape sequence that the
+      # data ends within for the next block, unless the data is `final`.
+      #
+      # Raises IOStreams::Errors::InvalidEncoding for data that is not valid, with its byte offset, as the converter of
+      # the data does for the other encodings, and Encoding::UndefinedConversionError for a character that the internal
+      # encoding does not have, as String#encode does for the other encodings, once the text before it has been
+      # returned, and again each time after.
+      def transcode(data, final: false)
+        raise(@transcode_error) if @transcode_error
+
+        source = data.dup
+        text   = String.new(encoding: @internal)
+        result = @transcoder.primitive_convert(source, text, nil, nil, partial_input: !final)
+        @transcoded     += data.bytesize - source.bytesize
+        @transcode_error = transcode_error(result)
+        raise(@transcode_error) if @transcode_error && text.empty?
+
+        text
+      end
+
+      # Returns the error for the data that the transcoder stopped at, see #transcode, or nil when it converted all of
+      # the data: IOStreams::Errors::InvalidEncoding for data that is not valid, or Encoding::UndefinedConversionError
+      # for a character that the internal encoding does not have.
+      def transcode_error(result)
+        return @transcoder.last_error if result == :undefined_conversion
+        return unless %i[invalid_byte_sequence incomplete_input].include?(result)
+
+        _result, source_encoding, _destination, error_bytes, readagain_bytes = @transcoder.primitive_errinfo
+        Errors::InvalidEncoding.new(
+          "#{error_bytes.b.dump} is not valid #{source_encoding}",
+          byte_offset: @transcoded - error_bytes.bytesize - readagain_bytes.bytesize, error_char: error_bytes.b,
+          source_encoding: Encoding::BINARY, destination_encoding: @converter.encoding
+        )
       end
 
       # Returns [String] the end of the text that the converter of a dummy encoding still holds once the data has been
-      # read, in the internal encoding, and cleansed, or nil when it holds none, see #read_as. Raises
-      # Encoding::InvalidByteSequenceError when the data ends within a character or an escape sequence, as converting
-      # the whole of the data with String#encode does.
+      # read, in the internal encoding, and cleansed, or nil when it holds none, see #transcode. Raises
+      # IOStreams::Errors::InvalidEncoding when the data ends within a character or an escape sequence, unless
+      # `replace` is supplied, as converting the whole of the data with String#encode raises.
       def finish_transcoder
         return if @transcoder.nil?
 
-        rest        = @transcoder.finish
+        rest        = transcode(String.new, final: true)
         @transcoder = nil
         return if rest.empty?
 
