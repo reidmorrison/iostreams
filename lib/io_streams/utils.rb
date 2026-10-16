@@ -194,12 +194,14 @@ module IOStreams
       end
     end
 
-    # Returns [File] the open local file that the IO reads or writes: the IO itself when it is a `File`, or the file that
-    # it delegates to, such as that of a `Tempfile`, including one that `IOStreams::BytesOutput` delegates to. Returns
-    # nil for any other IO, such as a pipe, a socket or a StringIO, and for a file that is closed.
+    # Returns [File] the open local file that the IO reads or writes: the IO itself when it is a `File`, or the file of a
+    # `Tempfile`, which delegates to it, also within the `IOStreams::BytesOutput` that the streams write the IO
+    # supplied to `IOStreams.stream` through. Returns nil for any other IO, such as a pipe, a socket or a StringIO, and
+    # for a file that is closed. A delegator of a `Tempfile` is not unwrapped any further, since it can change what is
+    # read, such as by decoding it, so that it is read through its own methods.
     def self.local_file(io)
-      file = io
-      file = file.__getobj__ while defined?(::Delegator) && file.is_a?(::Delegator)
+      io   = io.__getobj__ if io.is_a?(BytesOutput)
+      file = defined?(::Delegator) && io.is_a?(::Delegator) ? io.__getobj__ : io
       file if file.is_a?(::File) && !file.closed?
     end
 

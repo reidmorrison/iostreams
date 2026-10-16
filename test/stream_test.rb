@@ -641,6 +641,53 @@ class StreamTest < Minitest::Test
         assert_same io, IOStreams::BytesOutput.for(io)
         assert_instance_of IOStreams::BytesOutput, IOStreams::BytesOutput.for(StringIO.new)
       end
+
+      it "writes text through an encode stream that sets no encoding to the IO, which converts it, as without one" do
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:Windows-1252") { |io| IOStreams.stream(io).encoding(cleaner: :printable).write(text) }
+
+          assert_equal "caf\xE9\n".b, File.binread(file.path)
+        end
+      end
+
+      it "leaves an IO whose encoding is not ASCII compatible to convert what is written to it, by way of UTF-8" do
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:UTF-16") do |io|
+            assert_same io, IOStreams::BytesOutput.for(io)
+            IOStreams.stream(io).encoding("UTF-8").writer(:line) { |lines| lines << "caf\u{e9}" }
+          end
+
+          assert_equal "caf\u{e9}\n", IOStreams.path(file.path).encoding("UTF-16:UTF-8").read
+        end
+      end
+
+      it "raises rather than corrupt binary data for an IO that changes the bytes written to it, such as newline: :crlf" do
+        # Random bytes, which gzip cannot compress, so that its data holds a newline byte.
+        data = Random.new(42).bytes(20_000)
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:UTF-8", newline: :crlf) do |io|
+            error = assert_raises(ArgumentError) { IOStreams.stream(io).file_name("data.bin.gz").write(data) }
+
+            assert_includes error.message, "The IO supplied to IOStreams.stream wrote"
+          end
+          File.open(file.path, "w:UTF-8", newline: :crlf) { |io| IOStreams.stream(io).encoding("UTF-8").write("a\nb\n") }
+
+          assert_equal "a\r\nb\r\n".b, File.binread(file.path)
+        end
+      end
+
+      it "writes to an IO whose #write does not return the number of bytes written" do
+        output = Class.new(SimpleDelegator) do
+          def write(data)
+            __getobj__.write(data)
+            nil
+          end
+        end
+        io = StringIO.new
+        IOStreams.stream(output.new(io)).file_name("people.csv.gz").write(text)
+
+        assert_equal text, IOStreams.stream(StringIO.new(io.string)).file_name("people.csv.gz").read
+      end
     end
 
     describe "a writer supplied to IOStreams.stream" do

@@ -909,9 +909,9 @@ module IOStreams
     end
 
     # The streams write bytes, which the supplied IO stores as they are, even when it converts the text written to it,
-    # see `IOStreams::BytesOutput`. Without any streams the block writes to the IO itself.
+    # see `IOStreams::Builder#writer`. Without any streams the block writes to the IO itself.
     def stream_writer(&)
-      builder.writer(builder.pipeline.empty? ? io_stream : BytesOutput.for(io_stream), &)
+      builder.writer(io_stream, &)
     end
 
     # Yields the stream that writes the data through the streams, see #stream_writer, once each stream has checked its

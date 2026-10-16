@@ -439,7 +439,12 @@ IOStreams never closes an IO that you supply, so close it yourself when you are 
 The streams write their data to your IO as it is, the bytes of a compressed or encrypted stream, or of text in the
 encoding set with `#encoding`, even when your IO converts the text written to it to its external encoding, as a
 `StringIO` does, a file opened with an encoding, such as `File.open(name, "w:UTF-8")`, and any file opened in text
-mode, such as a `Tempfile`, in a Rails process. Without any streams, what you write goes to your IO itself.
+mode, such as a `Tempfile`, in a Rails process. Without any streams, or with `#encoding` options that set no
+encoding, such as `encoding(cleaner: :printable)`, what you write goes to your IO as text, which it converts. An IO
+whose encoding is not ASCII compatible, such as `File.open(name, "w:UTF-16LE")`, converts what is written to it by
+way of UTF-8, so it can only store text, and one that changes the bytes written to it otherwise, such as
+`File.open(name, "w:UTF-8", newline: :crlf)`, raises `ArgumentError` for the bytes of a compressed or encrypted
+stream, so open it in binary mode, such as `File.open(name, "wb")`.
 
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
 that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with
