@@ -87,18 +87,19 @@ module IOStreams
         false
       end
 
-      # Returns [true|false] whether the next row written is the header row of the rows after it, for a file with a
-      # header row, until it is written, so that the rows read from a file with a header row, which start with it, can be
-      # written, see `IOStreams::Schema::Columns#match_written`.
+      # Returns [false] the schema writes the header row of a file with one, the names of its fields, before the rows
+      # written, see `IOStreams::Tabular#start_rows`, so that every row written is a row of the values of the fields, in
+      # order, as for a file without a header row.
       def first_row_header?
-        @requires_header && !@columns.written?
+        false
       end
 
-      # Returns [true|false] whether the header row written before the rows copied from a file with one gives the
-      # columns of the rows, see #render_header, rather than being written as a row: for a file without a header row,
-      # whose header row is the names of the fields.
+      # Returns [true] a header row written before the rows after it, such as the header row that
+      # `IOStreams::Stream#each(:array)` yields, an `IOStreams::Row::HeaderRow`, gives the columns of those rows, see
+      # #render_header, rather than being written as a row, since the header row of the file is the names of the fields,
+      # which the schema writes, or the file has none.
       def columns_from_header_row?
-        !@requires_header
+        true
       end
 
       # Returns [Array] the header row parsed from the line, once its columns are matched to the fields, see
