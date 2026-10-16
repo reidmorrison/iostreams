@@ -197,8 +197,12 @@ module IOStreams
 
         # A copy of each option, so that a Hash supplied as an option, such as `metadata:`, is not shared, see #options.
         @options = Utils.deep_copy(args)
-        @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
-        Sdk.check_options(options.keys)
+        Sdk.check_options(@options.keys)
+        if uri.query
+          query = uri.query.transform_keys(&:to_sym)
+          check_query!(query, url)
+          @options.merge!(query)
+        end
 
         super(key)
       end
@@ -640,6 +644,22 @@ module IOStreams
             "it cannot have a user name or password. Supply the credentials with access_key_id: and secret_access_key:"
           end
         raise(Utils::URI.invalid("S3", url, problem)) if problem
+      end
+
+      # Raises ArgumentError for a name in the query of the url that no S3 request accepts. A name without a value is
+      # more likely part of a key than a misspelled option, such as the `?` of the pattern `s3://bucket/data/file?.csv`,
+      # so that the message then also says how to write a `?` in a key, rather than only that `.csv` is not an option.
+      # An empty query, of a url that ends with `?`, sets no options. The options are only checked with the AWS SDK, see
+      # `IOStreams::Paths::S3::Sdk.unknown_options`.
+      def check_query!(query, url)
+        unknown = Sdk.unknown_options(query.keys)
+        return if unknown.empty?
+
+        names   = unknown.map { |name| name.to_s.inspect }.join(", ")
+        problem = "its query holds the options of its requests, but #{names} " \
+                  "#{unknown.size == 1 ? 'is not an S3 option' : 'are not S3 options'}"
+        problem = "#{problem}. Percent-encode a '?' in a key as '%3F'" if unknown.any? { |name| query[name].to_s.empty? }
+        raise(Utils::URI.invalid("S3", url, problem))
       end
 
       # Returns [Listing] the listing of the objects in the bucket, which makes each request of this path.
