@@ -245,6 +245,42 @@ class StreamIOTest < Minitest::Test
         assert_equal "id,name\n1,Jack\n2,Jill\n3,Bob\n4,Ann\n5,Zoe\n", result
       end
 
+      # A String that IO#puts writes as it is, rather than as its #to_s.
+      let(:subclass) do
+        Class.new(String) do
+          def to_s
+            "not this"
+          end
+        end
+      end
+
+      # An object whose #to_s is not a String, which IO#puts writes as Object#to_s writes it.
+      let(:not_text) do
+        Class.new do
+          def to_s
+            nil
+          end
+        end.new
+      end
+
+      # A spreadsheet holds the rows of the lines written to it, as UTF-8 text, rather than bytes.
+      unless format == IOStreams::Xlsx
+        it "writes each object of #puts in its own encoding, like an IO in binary mode, for the #{name.inspect} stream" do
+          # Not an empty Array, for which IO#puts writes a newline on JRuby, and nothing on MRI, as #puts does.
+          objects = [
+            "caf\xE9".b.force_encoding("Windows-1252"), nil, ["a", ["b\n"]], "c".encode("UTF-16LE"), "d\n".encode("UTF-16"),
+            subclass.new("e"), not_text
+          ]
+          output = StringIO.new(+"".b)
+          IOStreams.stream(output).stream(name, **writer_options).writer { |io| io.puts(*objects) }
+
+          binary_io = StringIO.new(+"".b)
+          binary_io.puts(*objects)
+
+          assert_equal binary_io.string, IOStreams.stream(StringIO.new(output.string)).stream(name, **reader_options).read.b
+        end
+      end
+
       it "writes nothing for an empty string, like an IO, for the #{name.inspect} stream" do
         output = StringIO.new(+"".b)
         IOStreams.stream(output).stream(name, **writer_options).writer do |io|
