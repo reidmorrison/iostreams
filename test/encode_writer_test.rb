@@ -333,6 +333,23 @@ class EncodeWriterTest < Minitest::Test
         assert_equal "caf\xE9\ncaf\xE9\nna\xEFve\n".b, output.string
       end
 
+      it "treats binary data as already in the encoding, as #write does" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "Windows-1252") { |io| io.puts("caf\xE9".b, "b") }
+
+        assert_equal "caf\xE9\nb\n".b, output.string
+      end
+
+      it "writes the lines of objects whose text Ruby combines without changing it with one write" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-8") do |io|
+          io.puts(%w[a b], "c".encode("US-ASCII"), "d\n")
+          io.puts("caf\u{e9}", "caf\xE9".b.force_encoding("Windows-1252"), "f")
+        end
+
+        assert_equal %W[a\nb\nc\nd\n caf\u{e9}\n caf\u{e9}\nf\n], output.blocks
+      end
+
       it "writes a newline after an object that does not end with one, in the encoding" do
         output = BlockRecorder.new
         IOStreams::Encode::Writer.stream(output, encoding: "UTF-16LE") { |io| io.puts("a", "b\n".encode("UTF-16LE"), nil) }

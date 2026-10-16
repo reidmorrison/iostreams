@@ -123,6 +123,12 @@ class XlsxWriterTest < Minitest::Test
         assert_equal [%w[Zoë é]], read_rows(data)
       end
 
+      it "writes text in another encoding as UTF-8, such as that of #puts, which writes each object in its own encoding" do
+        data = write { |io| io.puts("name", "caf\xE9".b.force_encoding("Windows-1252"), "a,b".encode("UTF-16LE")) }
+
+        assert_equal [["name"], ["caf\u{e9}"], %w[a b]], read_rows(data)
+      end
+
       it "returns the number of bytes written" do
         write { |io| assert_equal "Zoë,é\n".bytesize, io.write("Zoë,é\n") }
       end
