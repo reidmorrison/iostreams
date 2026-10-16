@@ -28,6 +28,19 @@ class Bzip2ReaderTest < Minitest::Test
 
         assert_equal decompressed, result
       end
+
+      it "leaves the supplied stream in its mode, rather than switching it to binary mode, as gzip does" do
+        input  = StringIO.new(File.binread(file_name).force_encoding(Encoding::UTF_8))
+        result = IOStreams::Bzip2::Reader.stream(input, &:read)
+
+        assert_equal decompressed, result
+        assert_equal Encoding::UTF_8, input.external_encoding
+        File.open(file_name) do |file|
+          IOStreams::Bzip2::Reader.stream(file, &:read)
+
+          refute_predicate file, :binmode?
+        end
+      end
     end
 
     describe "data that holds nothing" do
