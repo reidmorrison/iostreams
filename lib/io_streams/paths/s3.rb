@@ -197,12 +197,12 @@ module IOStreams
 
         # A copy of each option, so that a Hash supplied as an option, such as `metadata:`, is not shared, see #options.
         @options = Utils.deep_copy(args)
+        Sdk.check_options(@options.keys)
         if uri.query
           query = uri.query.transform_keys(&:to_sym)
-          check_query!(query.keys, url)
+          check_query!(query, url)
           @options.merge!(query)
         end
-        Sdk.check_options(options.keys)
 
         super(key)
       end
@@ -646,18 +646,20 @@ module IOStreams
         raise(Utils::URI.invalid("S3", url, problem)) if problem
       end
 
-      # Raises ArgumentError for a name in the query of the url that no S3 request accepts, which is more likely part of a
-      # key than a misspelled option, such as the `?` of the pattern `s3://bucket/data/file?.csv`, so that the message
-      # says how to write a `?` in a key, rather than that `.csv` is an unknown option. The options are only checked
-      # with the AWS SDK, see `IOStreams::Paths::S3::Sdk.check_options`.
-      def check_query!(names, url)
-        unknown = Sdk.available? ? Sdk.unknown_options(names) : []
+      # Raises ArgumentError for a name in the query of the url that no S3 request accepts. A name without a value is
+      # more likely part of a key than a misspelled option, such as the `?` of the pattern `s3://bucket/data/file?.csv`,
+      # so that the message then also says how to write a `?` in a key, rather than only that `.csv` is not an option.
+      # An empty query, of a url that ends with `?`, sets no options. The options are only checked with the AWS SDK, see
+      # `IOStreams::Paths::S3::Sdk.unknown_options`.
+      def check_query!(query, url)
+        unknown = Sdk.unknown_options(query.keys)
         return if unknown.empty?
 
-        options = unknown.size == 1 ? "is not an S3 option" : "are not S3 options"
-        raise(Utils::URI.invalid("S3", url, "its query holds the options of its requests, but " \
-                                            "#{unknown.map { |name| name.to_s.inspect }.join(', ')} #{options}. " \
-                                            "Percent-encode a '?' in a key as '%3F'"))
+        names   = unknown.map { |name| name.to_s.inspect }.join(", ")
+        problem = "its query holds the options of its requests, but #{names} " \
+                  "#{unknown.size == 1 ? 'is not an S3 option' : 'are not S3 options'}"
+        problem = "#{problem}. Percent-encode a '?' in a key as '%3F'" if unknown.any? { |name| query[name].to_s.empty? }
+        raise(Utils::URI.invalid("S3", url, problem))
       end
 
       # Returns [Listing] the listing of the objects in the bucket, which makes each request of this path.

@@ -58,6 +58,10 @@ class S3DependencyTest < Minitest::Test
       assert_equal "ArgumentError loaded", run_s3('IOStreams.path("s3://bucket/a.csv?acll=private")')
     end
 
+    it "is not loaded for a url with an empty query, which supplies no options" do
+      assert_equal "s3://bucket/a.csv", run_s3('print IOStreams.path("s3://bucket/a.csv?").display_name')
+    end
+
     it "is not needed to display a path with options" do
       code = <<~RUBY
         print IOStreams.path("s3://bucket/a.csv?acl=private", request_payer: "requester").display_name

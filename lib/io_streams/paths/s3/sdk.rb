@@ -91,16 +91,18 @@ module IOStreams
         # Without the AWS SDK the options cannot be checked, but a path can still be displayed, for example by a
         # process that only enqueues work. Every request needs the SDK, so the options are never used unchecked.
         def self.check_options(names)
-          return if names.empty? || !available?
-
           unknown = unknown_options(names)
           return if unknown.empty?
 
           raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
         end
 
-        # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts.
+        # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts, see .check_options. None
+        # without any names, so that the AWS SDK is not loaded, nor without the SDK, which the names cannot be checked
+        # without.
         def self.unknown_options(names)
+          return [] if names.empty? || !available?
+
           @known_options ||= OPERATIONS.flat_map { |operation| operation_options(operation) }.uniq.freeze
           names - @known_options
         end
