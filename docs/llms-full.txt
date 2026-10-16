@@ -2486,13 +2486,23 @@ A column that could be either of two fields raises `IOStreams::Errors::InvalidHe
 are the same field, such as `email` and `Email`, rather than lose the value of one of them.
 
 When writing, the header row is the names of the fields, in order, and the keys of each record written are matched
-to the fields in the same way. `writer(:array)` takes the first row written as a header row, as `each(:array)`
-returns one, and matches its columns to the fields in the same way, so that the values of each row after it can be in
-any order, and the rows read from another file can be written as they are, such as by
-`copy_from(source, mode: :array)`. A field that the header row does not have is written as empty. A file without a
-header row, such as JSON, or a schema with `header: false`, takes rows of the values of the fields, in order, except
-that `copy_from(source, mode: :array)` from a file with a header row, such as CSV, takes the columns of the rows from
-its header row, rather than write it as a row of values.
+to the fields in the same way. `writer(:array)` writes that header row itself, before the rows, and takes each row
+written as the values of the fields, in order, whatever the format:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+path.writer(:array) do |io|
+  io << ["Jack", 21]
+end
+path.read
+# => "name,age\nJack,21\n"
+~~~
+
+A header row written to it, such as the `IOStreams::Row::HeaderRow` that `each(:array)` yields, gives the columns of
+the rows after it instead, without a line of its own, and its columns are matched to the fields in the same way, so
+that the values of each row after it can be in any order, and the rows read from another file can be written as they
+are, by a loop over `each(:array)`, or by `copy_from(source, mode: :array)`. A field that the header row does not have
+is written as empty.
 
 So a file can have readable column names, while the code uses its own keys:
 

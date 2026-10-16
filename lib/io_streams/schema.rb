@@ -272,7 +272,7 @@ module IOStreams
     # `IOStreams::Schema::Columns#match_written`, match the fields: a column that is not a field raises, unless
     # `fieldsMatch` skips it, see #check_unknown, and so does a header row without a column that is a field, whatever
     # `fieldsMatch` is, as reading with "partial" needs at least one, since the rows after it would have no value for
-    # any field, such as when the first row written is a row of values rather than a header row.
+    # any field, such as a row of values written as a header row.
     #
     # Parameters:
     #   found: [Array<IOStreams::Schema::Field>]
@@ -294,9 +294,9 @@ module IOStreams
           "#{describe(unknown, 'column')} #{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the schema"
         end
       raise(IOStreams::Errors::InvalidHeader, "#{subject('column')} #{columns}, so the rows after it would have no value " \
-                                              "for any field. The first row written is the header row of the rows after " \
-                                              "it, which names the column of each of their values, so write the names " \
-                                              "of the fields, or of their columns, first")
+                                              "for any field. A header row names the column of each value of the rows " \
+                                              "after it, so give it the names of the fields, or of their columns, or " \
+                                              "write rows of the values of the fields, in order, without one")
     end
 
     # Raises ArgumentError unless the columns of a file can be the fields in order, as they are for a format with a

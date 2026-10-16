@@ -9,13 +9,21 @@ module IOStreams
     #     stream << ['Joe', 'Lost', 32443]
     #   end
     #
-    # The first row is the header row, as `each(:array)` returns it, unless the columns are supplied. With a schema, the
-    # header row of the file is the names of its fields, and the first row is still the header row of the rows after
-    # it, whose columns are matched to the fields, so that a row is written in the order of the fields, and the rows
-    # read from another file can be written as they are, see `IOStreams::Schema::Columns#match_written`. Unless the file
-    # has no header row, such as JSON or fixed width with a schema, or a schema with `header: false`, whose rows are the
-    # values of the fields, in order. Without a schema, the first row written to JSON is the header row too, which names
-    # the key of each value of the rows after it, without a line of its own.
+    # Without a schema, the first row is the header row, as `each(:array)` returns it, unless the columns are supplied.
+    # The first row written to JSON is the header row too, which names the key of each value of the rows after it,
+    # without a line of its own.
+    #
+    # With a schema, the header row of a file with one is the names of its fields, which the writer writes before the
+    # rows, so every row written is the values of the fields, in order, as for a file without a header row:
+    #
+    #   IOStreams.path("file.csv").schema(fields: [{name: "name"}, {name: "zip", type: "integer"}]).writer(:array) do |io|
+    #     io << ["Jack", 12345]
+    #   end
+    #   # => "name,zip\nJack,12345\n"
+    #
+    # A header row written to it, such as the `IOStreams::Row::HeaderRow` that `each(:array)` yields, gives the columns
+    # of the rows after it instead, which are matched to the fields, so that the rows read from another file can be
+    # written as they are, see #write_header and `IOStreams::Schema::Columns#match_written`.
     #
     # `IOStreams::Stream#writer(:array)` creates it with the tabular of the stream.
     class Writer
@@ -73,8 +81,9 @@ module IOStreams
         self
       end
 
-      # Supply a hash or an array to render. The first row is the header row, unless the columns were supplied, see
-      # `IOStreams::Tabular#render_row`. A header row that `IOStreams::Stream#each(:array)` yields, an
+      # Supply a hash or an array to render. Without a schema, the first row is the header row, unless the columns were
+      # supplied, see `IOStreams::Tabular#render_row`, and with one, every row is the values of the fields, in order, see
+      # above. A header row that `IOStreams::Stream#each(:array)` yields, an
       # `IOStreams::Row::HeaderRow`, is written as the header row of the rows after it, see #write_header, so that the
       # rows read from one file can be written to another as they are, whatever their formats.
       #
@@ -85,16 +94,6 @@ module IOStreams
 
         @tabular.render_row(array) { |line| @line_writer << line }
         self
-      end
-
-      # Writes the header row once the rows have been written, when no row was written, so that a file with a header
-      # row has one, as a writer of records writes it when it starts, see `IOStreams::Tabular#finish_rows`.
-      #
-      # Called once the block that writes the rows returns, including when it leaves early, such as with `break`,
-      # rather than when it raises, see `IOStreams::Utils.finish_or_abort`.
-      def finish
-        @tabular.finish_rows { |line| @line_writer << line }
-        nil
       end
 
       # Returns [String] the class and the format of the rows, see `IOStreams::Tabular#format`, rather than every instance
