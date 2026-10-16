@@ -93,6 +93,22 @@ class SchemaTest < Minitest::Test
         assert_raises(ArgumentError) { field(constraints: [:required]) }
       end
 
+      it "accepts allowBlank for a required field, which is still required" do
+        assert_predicate field(constraints: {required: true}, allowBlank: true), :required?
+        assert_predicate field("constraints" => {"required" => true}, "allowBlank" => true), :required?
+        refute_predicate field(allowBlank: false), :required?
+      end
+
+      it "raises for allowBlank on a field that is not required, or that is not true or false" do
+        error = assert_raises(ArgumentError) { field(allowBlank: true) }
+        assert_equal 'Field "value": allowBlank only applies to a field whose constraints are required, since the values ' \
+                     "of any other field can be blank", error.message
+        assert_raises(ArgumentError) { field(constraints: {required: false}, allowBlank: true) }
+
+        error = assert_raises(ArgumentError) { field(constraints: {required: true}, allowBlank: "yes") }
+        assert_equal 'Field "value": allowBlank must be true or false: "yes"', error.message
+      end
+
       it "accepts aliases, which are names" do
         assert_equal ["DOB", "Birth Date"], field(aliases: ["DOB", "Birth Date"]).aliases
         assert_empty field.aliases
@@ -924,6 +940,17 @@ class SchemaTest < Minitest::Test
           assert_nil field(type: "integer").cast("")
           assert_equal "", field(type: "string").cast("")
           assert_nil field.cast(nil)
+        end
+
+        it "accepts no value for a required field that allows blank values, when reading and writing" do
+          %w[any string integer date].each do |type|
+            blank = field(type: type, constraints: {required: true}, allowBlank: true)
+
+            assert_nil blank.cast(nil)
+            assert_nil blank.render(nil, :text)
+          end
+          assert_equal "", field(type: "string", constraints: {required: true}, allowBlank: true).cast("")
+          assert_nil field(type: "integer", constraints: {required: true}, allowBlank: true).cast("  ")
         end
       end
     end

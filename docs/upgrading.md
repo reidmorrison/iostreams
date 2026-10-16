@@ -1353,7 +1353,7 @@ a schema that replaces each one:
 | `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
 | `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "equal"`, or `"superset"` when a field can be missing |
 | `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "subset"`, or `"partial"` when a field can be missing |
-| `required_columns:` | `constraints: {required: true}` on each field, or a `fieldsMatch` that needs every field |
+| `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
 | `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
 
 ~~~ruby
