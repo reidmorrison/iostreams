@@ -675,6 +675,59 @@ class EncodeReaderTest < Minitest::Test
         it "raises ArgumentError for an unknown encoding" do
           assert_raises(ArgumentError) { IOStreams::Encode::Reader.stream(StringIO.new(windows1252), encoding: "Nope:UTF-8", &:read) }
         end
+
+        describe "from an encoding that keeps state from one character to the next" do
+          # ISO-2022-JP switches the character set of the characters after each of its escape sequences, so text of more
+          # than one block has characters at the start of a block that are only read correctly after the escape
+          # sequence in the block before it.
+          let(:text) { Array.new(8_000) { |i| "#{i} \u{65e5}\u{672c}\u{8a9e}\u{306e}\u{30c6}\u{30ad}\u{30b9}\u{30c8}\n" }.join }
+
+          it "converts the data across blocks, as Ruby converts the whole of it" do
+            %w[ISO-2022-JP CP50221].each do |encoding|
+              input = text.encode(encoding).b
+              data  = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "#{encoding}:UTF-8", &:read)
+
+              assert_equal text, data, encoding
+            end
+          end
+
+          it "raises InvalidEncoding for data that ends within a character, as Ruby raises" do
+            error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+              IOStreams::Encode::Reader.stream(StringIO.new("abc\e$BF".b), encoding: "ISO-2022-JP:UTF-8", &:read)
+            end
+
+            assert_equal '"F" is not valid ISO-2022-JP at byte offset 6', error.message
+            assert_raises(Encoding::InvalidByteSequenceError) { "abc\e$BF".dup.force_encoding("ISO-2022-JP").encode("UTF-8") }
+          end
+
+          it "raises InvalidEncoding for data that is not valid, with its byte offset, once the text before it is read" do
+            input = "#{'a' * 70_000}\xFFb".b
+            reads = []
+            IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "ISO-2022-JP:UTF-8") do |io|
+              3.times do
+                reads << io.read(40_000).size
+              rescue IOStreams::Errors::InvalidEncoding => e
+                reads << e.byte_offset
+              end
+            end
+
+            assert_equal [40_000, 30_000, 70_000], reads
+          end
+
+          it "replaces a character that the data ends within when replace is supplied" do
+            data = IOStreams::Encode::Reader.stream(StringIO.new("abc\e$BF".b), encoding: "ISO-2022-JP:UTF-8", replace: "?", &:read)
+
+            assert_equal "abc?", data
+          end
+        end
+
+        it "converts text into an encoding whose text starts with a byte order mark across blocks, so it has one" do
+          text = "caf\u{e9}\n" * 20_000
+          data = IOStreams::Encode::Reader.stream(StringIO.new(text.b), encoding: "UTF-8:UTF-16", &:read)
+
+          assert_equal text.encode("UTF-16"), data
+          assert_equal text, data.encode("UTF-8")
+        end
       end
     end
 
