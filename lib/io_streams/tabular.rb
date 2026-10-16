@@ -385,13 +385,16 @@ module IOStreams
     # format of keyed records whose columns are not known, see #rows_header?, such as JSON without a schema, yields its
     # keys as the header row before its row, since they name the column of each value of the rows.
     #
+    # The header row is an `IOStreams::Row::HeaderRow`, so that a writer of rows takes it as the header row of the rows
+    # after it, see `IOStreams::Row::Writer#<<`.
+    #
     # Returns the result of the block.
     def read_row(line)
       # Once the header row is read, every line is a row, so that is asked first.
       return yield(@mapping.row_parse(line)) unless @mapping.rows_header?
-      return yield(@mapping.read_header(line)) if @mapping.header?
+      return yield(header_row(@mapping.read_header(line))) if @mapping.header?
 
-      columns = @mapping.read_header(line)
+      columns = header_row(@mapping.read_header(line))
       yield columns if columns
       yield @mapping.row_parse(line)
     end
@@ -547,6 +550,12 @@ module IOStreams
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 
     private
+
+    # Returns [IOStreams::Row::HeaderRow] the columns of a header row that #read_row yields, or nil when there are none,
+    # such as for a blank line.
+    def header_row(columns)
+      IOStreams::Row::HeaderRow.new(columns) if columns
+    end
 
     # Raises ArgumentError for the options of the header, such as `columns:` and `allowed_columns:`, which describe the
     # columns of a file without a schema, since the schema describes them, see `IOStreams::Schema`, rather than apply one

@@ -74,11 +74,14 @@ module IOStreams
       end
 
       # Supply a hash or an array to render. The first row is the header row, unless the columns were supplied, see
-      # `IOStreams::Tabular#render_row`.
+      # `IOStreams::Tabular#render_row`. A header row that `IOStreams::Stream#each(:array)` yields, an
+      # `IOStreams::Row::HeaderRow`, is written as the header row of the rows after it, see #write_header, so that the
+      # rows read from one file can be written to another as they are, whatever their formats.
       #
       # Returns self, so that calls can be chained.
       def <<(array)
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
+        return write_header(array) if array.is_a?(HeaderRow)
 
         @tabular.render_row(array) { |line| @line_writer << line }
         self

@@ -76,6 +76,26 @@ class RowWriterTest < Minitest::Test
 
         assert_equal "name,zip\nname,zip\nJack,12345\n", io_string.string
       end
+
+      it "takes the header row that each(:array) yields as the header row of the rows after it" do
+        source = IOStreams.stream(StringIO.new("name,id\nJack,1\n")).format(:csv)
+        output = StringIO.new
+        IOStreams.stream(output).format(:json).schema(fields: [{name: "id", type: "integer"}, {name: "name"}]).writer(:array) do |io|
+          source.each(:array) { |row| io << row }
+        end
+
+        assert_equal %({"id":1,"name":"Jack"}\n), output.string
+      end
+
+      it "writes an Array of the names of the columns as a row of values, after the header row" do
+        output = StringIO.new
+        IOStreams.stream(output).format(:json).schema(fields: [{name: "id"}, {name: "name"}]).writer(:array) do |io|
+          assert_same io, io << %w[name id]
+          assert_same io, io << IOStreams::Row::HeaderRow.new(%w[name id]) << %w[Jack 1]
+        end
+
+        assert_equal %({"id":"name","name":"id"}\n{"id":"1","name":"Jack"}\n), output.string
+      end
     end
 
     describe "#inspect" do

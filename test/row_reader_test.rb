@@ -43,6 +43,40 @@ class RowReaderTest < Minitest::Test
 
         assert_equal CSV.read(embedded_file_name), rows
       end
+
+      it "yields the header row as an IOStreams::Row::HeaderRow, and each other row as an Array" do
+        rows = []
+        IOStreams.stream(StringIO.new("name,zip\nJack,1\n")).each(:array) { |row| rows << row }
+
+        assert_equal [%w[name zip], %w[Jack 1]], rows
+        assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        assert_instance_of Array, rows.last
+      end
+
+      it "yields the keys of the first record of JSON without a schema as an IOStreams::Row::HeaderRow" do
+        rows = []
+        IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).each(:array) { |row| rows << row }
+
+        assert_equal [%w[name], %w[Jack]], rows
+        assert_instance_of IOStreams::Row::HeaderRow, rows.first
+      end
+
+      it "yields the names of the fields of the header row read with a schema as an IOStreams::Row::HeaderRow" do
+        rows   = []
+        schema = {fields: [{name: "name"}, {name: "zip"}], fieldsMatch: "equal"}
+        IOStreams.stream(StringIO.new("Zip,Name\n1,Jack\n")).schema(schema).each(:array) { |row| rows << row }
+
+        assert_equal [%w[name zip], %w[Jack 1]], rows
+        assert_instance_of IOStreams::Row::HeaderRow, rows.first
+      end
+
+      it "makes a row of values from a header row with the methods of an Array that return a new one" do
+        header = IOStreams::Row::HeaderRow.new(%w[name zip])
+
+        assert_instance_of Array, header.map(&:upcase)
+        assert_instance_of Array, header + ["x"]
+        assert_equal %w[name zip], header
+      end
     end
 
     describe "#header?" do
