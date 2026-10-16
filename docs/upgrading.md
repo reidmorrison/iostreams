@@ -522,9 +522,9 @@ reads until it is closed.
 #### BZip2 leaves your IO in its mode
 
 When reading or writing `.bz2` with an IO that you supply with `IOStreams.stream(io)`, the `:bz2` stream no longer
-switches `io` to binary mode, like every other stream. So the String of a `StringIO.new` that bzip2 data is
-written into, or read from, keeps its encoding, UTF-8, rather than becoming binary (`ASCII-8BIT`). Its bytes are
-the same, but adding them to binary data, such as data read from a database, raises
+switches `io` to binary mode, like the gzip, zip, zstd and `.enc` streams. So the String of a `StringIO.new` that
+bzip2 data is written into, or read from, keeps its encoding, UTF-8, rather than becoming binary (`ASCII-8BIT`).
+Its bytes are the same, but adding them to binary data, such as data read from a database, raises
 `Encoding::CompatibilityError`.
 
 Fix: supply a `StringIO` of a binary String, or call `.b` on its String:
@@ -534,6 +534,9 @@ io = StringIO.new(+"".b)
 IOStreams.stream(io).stream(:bz2).write(data)
 io.string.encoding # => #<Encoding:BINARY (ASCII-8BIT)>
 ~~~
+
+Writing PGP or Parquet, and copying without any streams, to a `File` still switch it to binary mode, as
+`IO.copy_stream`, which writes it, does.
 
 #### A failed write to your IO is not completed
 
