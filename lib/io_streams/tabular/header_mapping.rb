@@ -50,8 +50,8 @@ module IOStreams
 
       # Returns [true|false] whether the rows read start with a header row, which names the column of each value of the
       # rows after it: the header row of a file with one, until it is read, see #header?, or for a format of keyed
-      # records, such as JSON, the keys of its first record, until they are read, see #read_header, unless the columns
-      # were supplied.
+      # records, such as JSON, the keys of its first record, until they are read, see #read_rows_header, unless the
+      # columns were supplied.
       def rows_header?
         header? || (@keyed && @rows.nil? && @keys.nil?)
       end
@@ -120,6 +120,13 @@ module IOStreams
           cleanse ? header.cleanse! : restrict_columns(rename: false)
         end
         columns
+      end
+
+      # Returns [Array] the header row of the rows, which is not a line of its own, see #rows_header?: the keys of the
+      # record of the line of a format of keyed records, such as JSON, whose columns were not supplied, see #read_header,
+      # or nil when the line is blank, such as a JSON line of `null`, which gives no keys.
+      def read_rows_header(line)
+        read_header(line)
       end
 
       # Applies the column restrictions to the columns once they are known, such as the columns supplied in place of a

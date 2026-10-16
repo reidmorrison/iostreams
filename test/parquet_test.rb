@@ -157,18 +157,18 @@ class ParquetTest < Minitest::Test
                    read
     end
 
-    it "reads each row as the value of every field of the schema, in order, without a header row" do
+    it "reads each row as the value of every field of the schema, in order, after a header row of the names of the fields" do
       write
       rows = []
       path.schema(schema).each(:array) { |row| rows << row }
 
-      assert_equal expected.map(&:values), rows
-      refute path.schema(schema).reader(:array, &:header?)
+      assert_equal [schema[:fields].map { |field| field[:name] }, *expected.map(&:values)], rows
+      assert path.schema(schema).reader(:array, &:header?)
 
       rows = []
       path.schema(fieldsMatch: "subset", fields: [{name: "Name", type: "string"}, {name: "ID", type: "integer"}]).each(:array) { |row| rows << row }
 
-      assert_equal [["Jack", 1], [nil, 2]], rows
+      assert_equal [%w[Name ID], ["Jack", 1], [nil, 2]], rows
     end
 
     it "reads the rows of a file without a schema after a header row of its columns" do
