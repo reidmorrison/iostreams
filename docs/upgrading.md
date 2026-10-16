@@ -1383,6 +1383,12 @@ and punctuation, or to one of the `aliases` of a field, see [Matching columns to
 So the keys no longer depend on how the cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which
 are both `amount_`.
 
+To keep the keys of the records that the code reads, name each field as that key. The names that `allowed_columns:`
+and `required_columns:` list already are, since they were compared to the columns once cleansed, such as `first_name`
+for the column `First Name`, so use them as the names of the fields: the schema matches each column to the field
+named as the column was cleansed. With `cleanse_header: false`, they are the columns as they are in the file, so use
+them as they are.
+
 With a schema, the options raise `ArgumentError`, unless they are nil. `skip_unknown:` only applies to
 `allowed_columns:`, so it is accepted, so that code can supply the same options with and without a schema. The layout
 of a fixed width file set with the deprecated `#format_options` still accepts them, as it did before. The property of
@@ -1390,7 +1396,7 @@ a schema that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|
-| `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
+| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write |
 | `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
 | `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
@@ -1398,13 +1404,17 @@ a schema that replaces each one:
 
 ~~~ruby
 # Before (deprecated)
-path.each(:hash, cleanse_header: false, required_columns: ["Zip Code"]) { |row| p row }
+path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) { |record| p record }
 
 # After
 path.schema(
   fieldsMatch: "partial",
-  fields:      [{name: "First Name"}, {name: "Zip Code", constraints: {required: true}}]
-).each(:hash) { |row| p row }
+  fields:      [{name: "first_name"}, {name: "zip_code", constraints: {required: true}, allowBlank: true}]
+).each(:hash) { |record| p record }
+
+# Both read "First Name,Zip Code,Notes\nJack,12345,x\nJill,,y\n" as:
+# {"first_name" => "Jack", "zip_code" => "12345"}
+# {"first_name" => "Jill", "zip_code" => nil}
 ~~~
 
 Example, reading a headerless CSV file:
@@ -1438,6 +1448,42 @@ path.writer(:hash) do |io|
   io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
 end
 ~~~
+
+With a schema, `writer(:array)` writes the names of the fields as the header row, and takes each row as the values of
+the fields, in order, as `columns:` did:
+
+~~~ruby
+# Before (deprecated)
+path.writer(:array, columns: %w[name zip]) { |io| io << ["Jack Jones", 12345] }
+
+# After
+path.schema(fields: [{name: "name"}, {name: "zip"}]).writer(:array) { |io| io << ["Jack Jones", 12345] }
+~~~
+
+##### What a schema reads differently
+
+A schema reads the same records as the options it replaces, named as above, except that:
+
+* A column is matched to a field whatever its case, spaces and punctuation, so a column that `allowed_columns:` did
+  not list once cleansed, such as `FirstName` for `first_name`, is read.
+* Two columns that are the same field, such as `Email` and `email`, or `Amount ($)` and `Amount (€)` for the field
+  `amount_`, raise `IOStreams::Errors::InvalidHeader`, where the value of the last one was kept.
+* The keys of each record are in the order of the fields, rather than of the columns of the file.
+* `each(:array)` yields a header row of the names of the fields, and each row holds only the values of the fields,
+  where the column options left the header row and the rows as they are in the file.
+* A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
+  is `"subset"` or `"partial"`, where it was dropped.
+* JSON writes every field of each record, `null` for a key that the record does not have, where `columns:` wrote only
+  the keys that it had, so that the file reads back with the same schema.
+* `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.
+
+##### When to keep the deprecated options
+
+The options still work without a schema, so keep them where a schema does not describe the file yet:
+
+* `required_columns:` without `allowed_columns:`, or `cleanse_header: false` on its own, read every column of the
+  file, while a schema reads only its fields. List every column of the file as a field to replace them.
+* `columns:` with `nil` for a column to skip, in a file without a header row, since a field must have a name.
 
 ##### The deprecated options
 
