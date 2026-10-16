@@ -178,6 +178,8 @@ class RowReaderTest < Minitest::Test
       end
 
       describe "when enforce_column_restrictions is false" do
+        allow_deprecation(/enforce_column_restrictions= is deprecated/)
+
         # Returns [Array] the rows read, and the warnings logged.
         def read_with_warnings(**args)
           output   = StringIO.new
