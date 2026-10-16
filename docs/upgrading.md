@@ -1389,8 +1389,8 @@ a schema that replaces each one:
 | Option | With a schema |
 |--------|---------------|
 | `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
-| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "equal"`, or `"superset"` when a field can be missing |
-| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "subset"`, or `"partial"` when a field can be missing |
+| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
+| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` on each field, or a `fieldsMatch` that needs every field |
 | `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
 
