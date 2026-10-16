@@ -2225,11 +2225,14 @@ Without a [schema](#schema), every value is read as text, and written as its tex
   A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are.
 * `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
   its first row is a header row of the keys of its first record, and each row after it the values of a record in
-  that order, see [JSON files](#json-files).
+  that order, see [JSON files](#json-files). The header row is an `IOStreams::Row::HeaderRow`, an Array that says
+  that it is the header row, so that a loop can skip it with `next if row.is_a?(IOStreams::Row::HeaderRow)`.
 * `writer(:hash)` takes the header row from the keys of the first record, so the values of a key that only a later
   record has are not written, except in JSON, where each record is written with its own keys.
 * `writer(:array)` takes the first row written as the header row, which JSON writes no line for, since it only names
-  the key of each value of the rows after it.
+  the key of each value of the rows after it. It takes an `IOStreams::Row::HeaderRow`, such as the header row that
+  `each(:array)` yields, as the header row of the rows after it too, so that the rows read from one file can be
+  written to another, whatever their formats.
 * A blank line is yielded as `nil`.
 
 ## CSV and PSV files
