@@ -70,6 +70,59 @@ class RowReaderTest < Minitest::Test
         assert_instance_of IOStreams::Row::HeaderRow, rows.first
       end
 
+      describe "a file without a header row" do
+        let(:fixed) { {fields: [{name: "name", width: 4}, {name: "zip", type: "integer", width: 5}]} }
+
+        # Returns [Array] the rows read from the fixed width text.
+        def read_fixed(text)
+          rows = []
+          IOStreams.stream(StringIO.new(text)).format(:fixed).schema(fixed).each(:array) { |row| rows << row }
+          rows
+        end
+
+        it "yields the names of the fields as an IOStreams::Row::HeaderRow, before the first row" do
+          rows = read_fixed("Jack12345\nJill00042\n")
+
+          assert_equal [%w[name zip], ["Jack", 12_345], ["Jill", 42]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "yields the header row before a blank first line, and nothing for a file without lines" do
+          assert_equal [%w[name zip], nil, ["Jack", 12_345]], read_fixed("\nJack12345\n")
+          assert_empty read_fixed("")
+        end
+
+        it "yields the keys of a layout, or the columns supplied for it, as the header row" do
+          layout = {layout: [{size: 4, key: "name"}, {size: 5, key: :zip, type: :integer}]}
+          rows   = []
+          assert_deprecated(/#format_options is deprecated/) do
+            IOStreams.stream(StringIO.new("Jack12345\n")).format(:fixed).format_options(layout).each(:array) { |row| rows << row }
+          end
+
+          assert_equal [["name", :zip], ["Jack", 12_345]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "writes the rows that a loop copies into a file with a header row, which it writes once" do
+          output = StringIO.new
+          IOStreams.stream(output).format(:csv).writer(:array) do |io|
+            IOStreams.stream(StringIO.new("Jack12345\n")).format(:fixed).schema(fixed).each(:array) { |row| io << row }
+          end
+
+          assert_equal "name,zip\nJack,12345\n", output.string
+        end
+
+        it "copies the rows into a file whose columns are supplied, which name them instead of the fields, as before" do
+          source = IOStreams.stream(StringIO.new("Jack12345\n")).format(:fixed).schema(fixed)
+          output = StringIO.new
+          assert_deprecated(/describe the columns of the file with #schema instead/) do
+            IOStreams.stream(output).format(:csv).copy_from(source, mode: :array, columns: %w[who where])
+          end
+
+          assert_equal "who,where\nJack,12345\n", output.string
+        end
+      end
+
       it "makes a row of values from a header row with the methods of an Array that return a new one" do
         header = IOStreams::Row::HeaderRow.new(%w[name zip])
 
@@ -80,11 +133,11 @@ class RowReaderTest < Minitest::Test
     end
 
     describe "#header?" do
-      it "is true when the first row is the header row of the file, or the keys of the first record of JSON without a schema" do
+      it "is true when the first row is the header row of the file, the names of the fields of a file without one, or the keys of the first record of JSON without a schema" do
         assert IOStreams.stream(StringIO.new("name\nJack\n")).reader(:array, &:header?)
         assert IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).reader(:array, &:header?)
-        refute IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).schema(fields: [{name: "name"}]).reader(:array, &:header?)
-        refute IOStreams.stream(StringIO.new("Jack\n")).schema(header: false, fields: [{name: "name"}]).reader(:array, &:header?)
+        assert IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).schema(fields: [{name: "name"}]).reader(:array, &:header?)
+        assert IOStreams.stream(StringIO.new("Jack\n")).schema(header: false, fields: [{name: "name"}]).reader(:array, &:header?)
         refute(assert_deprecated(/describe the columns of the file with #schema instead/) do
           IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).reader(:array, columns: %w[name], &:header?)
         end)

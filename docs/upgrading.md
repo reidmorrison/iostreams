@@ -223,10 +223,11 @@ spreadsheets, so that the rows can be written with `writer(:array)`, and copied 
 `copy_from(source, mode: :array)`. Previously the rows of JSON and fixed width files were the Hashes that
 `each(:hash)` reads, which neither could take.
 
-A fixed width file, and a JSON or Parquet file with a schema, have no header row to yield, so each row is the values
-of the fields, in order, with `nil` for a key that a JSON record does not have. Without a schema, the first row of a
-JSON or Parquet file is a header row of the keys of its first record, and each row after it holds the values of a
-record in that order:
+A fixed width file, and a JSON or Parquet file with a schema, have no header row of their own, so the first row is a
+header row of the names of the fields, and each row after it is the values of the fields, in order, with `nil` for a
+key that a JSON record does not have. Without a schema, the first row of a JSON or Parquet file is a header row of the
+keys of its first record, and each row after it holds the values of a record in that order. The header row is an
+`IOStreams::Row::HeaderRow`, so a loop can skip it with `next if row.is_a?(IOStreams::Row::HeaderRow)`:
 
 ~~~ruby
 # people.json holds:
@@ -256,6 +257,7 @@ IOStreams.path("people.json").each(:hash) { |record| p record }
 
 schema = {fieldsMatch: "superset", fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "zip"}]}
 IOStreams.path("people.json").schema(schema).each(:array) { |row| p row }
+# ["name", "age", "zip"]
 # ["Jack", 21, nil]
 # ["Jill", 22, nil]
 ~~~

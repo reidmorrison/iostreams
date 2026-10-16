@@ -18,13 +18,28 @@ module IOStreams
       #   See `IOStreams::Tabular::HeaderMapping#initialize` for the others.
       def initialize(schema, header:, parser:, format:, cleanse: true)
         super(header: header, parser: parser, format: format, cleanse: cleanse)
-        @fields = SchemaMapping.new(schema, header: header, parser: parser, format: format)
+        @fields       = SchemaMapping.new(schema, header: header, parser: parser, format: format)
+        # Whether the columns of the rows have been read as their header row, see #rows_header?.
+        @columns_read = false
       end
 
       # Returns [Array<String|Symbol>] the columns of the rows, see #row_parse: the keys of the layout, or the columns
-      # supplied, as they are supplied, see `IOStreams::Tabular#headerless_columns`.
+      # supplied, as they are supplied.
       def headerless_columns
         @rows ? @rows.columns.dup : @fields.headerless_columns
+      end
+
+      # Returns [true|false] whether the rows read start with a header row: the columns of the rows, see
+      # #headerless_columns, until they are read, see #read_rows_header, since a fixed width file has none of its own.
+      def rows_header?
+        !@columns_read
+      end
+
+      # Returns [Array<String|Symbol>] the columns of the rows, see #headerless_columns, as the header row of the rows,
+      # whatever the line is, since a fixed width file has none of its own to read, see #rows_header?.
+      def read_rows_header(_line)
+        @columns_read = true
+        headerless_columns
       end
 
       # Returns [Array] the values of the line, in the order of the columns of its rows: the fields of the layout, see
