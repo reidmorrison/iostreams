@@ -389,11 +389,23 @@ module IOStreams
   #
   # Default: true. It defaulted to false before v3.0.
   #
+  # Deprecated, since it only applies to the column options, which are deprecated, see `IOStreams::Tabular.new`: a
+  # schema describes the columns of the file instead, and applies to every input, see `IOStreams::Stream#schema`.
+  # Setting it still works, and reports a deprecation warning, see `IOStreams::Deprecation`.
+  #
   # Example:
   #   IOStreams.enforce_column_restrictions = false
   def self.enforce_column_restrictions=(enforce)
     raise(ArgumentError, "enforce_column_restrictions must be true or false") unless [true, false].include?(enforce)
 
+    Deprecation.warn(
+      if enforce
+        "enforce_column_restrictions= is deprecated, and true is the default, so remove it"
+      else
+        "enforce_column_restrictions= is deprecated, describe the columns of the file with #schema instead, which " \
+          "applies to every input"
+      end
+    )
     @enforce_column_restrictions = enforce
   end
 

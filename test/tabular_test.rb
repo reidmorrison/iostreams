@@ -775,6 +775,8 @@ class TabularTest < Minitest::Test
         end
 
         describe "when enforce_column_restrictions is false" do
+          allow_deprecation(/enforce_column_restrictions= is deprecated/)
+
           before { IOStreams.enforce_column_restrictions = false }
           after { IOStreams.enforce_column_restrictions = true }
 
@@ -824,6 +826,8 @@ class TabularTest < Minitest::Test
         end
 
         describe "when enforce_column_restrictions is false" do
+          allow_deprecation(/enforce_column_restrictions= is deprecated/)
+
           before { IOStreams.enforce_column_restrictions = false }
           after { IOStreams.enforce_column_restrictions = true }
 
