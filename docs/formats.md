@@ -393,6 +393,28 @@ IOStreams.path("upload.csv").schema(schema).each(:hash) { |contact| p contact }
 # {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>}
 ~~~
 
+A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
+many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
+the field still raises, while a value that is `nil`, or empty text, is read and written as it is:
+
+~~~ruby
+schema = {
+  fieldsMatch: "partial",
+  fields:      [
+    {name: "first_name",  constraints: {required: true}},
+    {name: "middle_name", constraints: {required: true}, allowBlank: true}
+  ]
+}
+IOStreams.path("upload.csv").schema(schema).each(:hash) { |person| p person }
+# "First Name,Middle Name\nJack,\n" => {"first_name" => "Jack", "middle_name" => nil}
+# "First Name\nJack\n"               => IOStreams::Errors::InvalidHeader, missing the required field "middle_name"
+~~~
+
+`allowBlank` is a property of the field that IOStreams adds, rather than a constraint, since Frictionless defines
+`required` as `true` or `false`, and a tool reports an error for a constraint that it does not support, while it
+accepts other properties of a field. A field that is not `required` raises `ArgumentError` for it, since its values
+can be blank anyway.
+
 IOStreams does not support the other constraints of Frictionless yet, such as `maxLength`, so they raise
 `ArgumentError`, rather than appear to check values that they do not.
 
@@ -429,6 +451,8 @@ and `#copy_to`, whose options only apply to the target.
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
+* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
+  while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
   of fixed width files always have. IOStreams adds this property.

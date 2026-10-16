@@ -2146,6 +2146,30 @@ class StreamTest < Minitest::Test
 
           assert_equal "id,email\n,j@x.com\n,k@x.com\n", out.string
         end
+
+        describe "that allow blank values" do
+          let(:schema) do
+            {fieldsMatch: "partial", fields: [{name: "id", type: "integer"}, {name: "email", constraints: {required: true}, allowBlank: true}]}
+          end
+
+          it "reads a blank value, but still raises when the header row does not have the field" do
+            assert_equal [{"id" => 1, "email" => nil}], read("id,email\n1,\n", schema: schema)
+            error = assert_raises(IOStreams::Errors::InvalidHeader) { read("id,name\n1,Jack\n", schema: schema) }
+            assert_equal 'The header row does not match the schema: missing the required field "email"', error.message
+          end
+
+          it "reads a JSON record with null, but raises for one without the key" do
+            assert_equal [{"id" => 1, "email" => nil}], read(%({"id":1,"email":null}\n), file_name: "people.json", schema: schema)
+            assert_raises(IOStreams::Errors::InvalidHeader) { read(%({"id":1}\n), file_name: "people.json", schema: schema) }
+          end
+
+          it "writes a record without a value, and a blank record" do
+            assert_equal "id,email\n1,\n", write([{"id" => 1}], schema: schema)
+            assert_equal %({"id":1,"email":null}\n{"id":2,"email":""}\n),
+                         write([{"id" => 1, "email" => nil}, {"id" => 2, "email" => ""}], file_name: "people.json", schema: schema)
+            assert_equal "id,email\n\n", write([{}], schema: schema)
+          end
+        end
       end
 
       describe "the options of each call that describe the columns" do
