@@ -412,9 +412,9 @@ module IOStreams
       end
     end
 
-    # Yields [String] the header line that a writer of rows writes before the first row: the columns supplied, when the
-    # format has a header row, see #requires_header?, otherwise nothing, since the first row written is the header row,
-    # see #render_row.
+    # Yields [String] the header line that a writer of rows writes before the first row, when the file has a header row,
+    # see #requires_header?: the names of the fields of a schema, or the columns supplied, otherwise nothing, since the
+    # first row written is the header row, see #render_row.
     def start_rows
       yield render_header if @mapping.requires_header? && !@mapping.first_row_header?
     end
@@ -450,16 +450,6 @@ module IOStreams
     # which name them instead, when it yields nothing.
     def render_columns(columns, &)
       render_header_row(columns, &) unless @mapping.columns_supplied?
-    end
-
-    # Yields [String] the header line that a writer of rows writes once the rows have been written, when it wrote none:
-    # the names of the fields of a schema, of a file with a header row, when no row was written, since the first row
-    # gives the columns of the rows, see #render_row. Without a schema the first row is the header row, so there is none
-    # to write without it.
-    def finish_rows
-      return unless @mapping.requires_header? && @mapping.first_row_header?
-
-      yield render_header unless @mapping.columns_from_first_row?
     end
 
     # Yields [String] the header line that a writer of records writes before the first record: the names of the fields

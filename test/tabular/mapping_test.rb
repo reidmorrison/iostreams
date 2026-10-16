@@ -183,13 +183,14 @@ module Tabular
           assert_match(/\Acleanse: cannot be supplied with a schema/, error.message)
         end
 
-        it "renders the names of the fields as the header row, and matches the first row written to them" do
+        it "renders the names of the fields as the header row, and matches a header row written to them" do
           csv = mapping
 
-          assert_predicate csv, :first_row_header?
-          refute_predicate csv, :columns_from_first_row?
-          assert_equal "id,pay", csv.render_header(%w[Pay ID])
           refute_predicate csv, :first_row_header?
+          refute_predicate csv, :columns_from_first_row?
+          assert_predicate csv, :columns_from_header_row?
+          assert_equal "1,2.50", csv.render([1, 2.5])
+          assert_equal "id,pay", csv.render_header(%w[Pay ID])
           assert_equal "1,2.50", csv.render([2.5, 1])
           refute_predicate csv, :columns_supplied?
         end
