@@ -190,10 +190,16 @@ module IOStreams
     # digits when it compares them loosely, such as `²`, `½` and `①`, so that the field `area_m`, named as
     # `cleanse_header` named the column, is still the column `Area (m²)`, and the field `area_m2` is too.
     #
+    # A column that is the same as the names or aliases of several fields once compared loosely, or as none, is the
+    # field whose name or alias is the column once cleansed, if there is one, so that a schema whose fields are named as
+    # `cleanse_header` named the columns finds every column that it found, such as `E-mail` for the field `e_mail`
+    # beside the field `email`.
+    #
     # Returns nil when no field is the column.
     #
     # Raises `IOStreams::Errors::InvalidHeader` when the column is the same as the names or aliases of several fields
-    # once compared loosely, since either could be meant. The noun, such as "column" or "key", names it.
+    # once compared loosely, and is not the name or alias of one of them once cleansed, since either could be meant.
+    # The noun, such as "column" or "key", names it.
     def field_for(label, noun = "column")
       return if label.nil?
 
@@ -392,14 +398,18 @@ module IOStreams
     end
 
     # Returns [IOStreams::Schema::Field] the field whose name or alias is the label once both are compared loosely, or
-    # else once both are cleansed and compared loosely, see #field_for.
+    # else once both are cleansed and compared loosely, see #field_for. When that finds no field, or several, the field
+    # whose name or alias is the label once cleansed, if there is one, see .cleansed, as the deprecated `cleanse_header`
+    # named the column, so that `E-mail` is the field `e_mail` rather than either of `e_mail` and `email`, and ` _ ` is
+    # the field `_`, which has no letters or digits to compare loosely.
     def loose_field(label, noun)
-      key = self.class.match_key(label)
-      return unless key
+      key    = self.class.match_key(label)
+      fields = key && (@loose[key] || @cleansed[self.class.match_key(self.class.cleansed(label))])
+      return fields.first if fields&.size == 1
 
-      fields = @loose[key] || @cleansed[self.class.match_key(self.class.cleansed(label))]
+      cleansed = @named[self.class.cleansed(label)]
+      return cleansed if cleansed
       return if fields.nil?
-      return fields.first if fields.size == 1
 
       raise(
         IOStreams::Errors::InvalidHeader,
