@@ -348,8 +348,10 @@ report.read
 | `partial` | include at least one field | are skipped |
 
 A file that does not match raises `IOStreams::Errors::InvalidHeader`, which lists each problem, such as the columns
-that are not fields, and the fields that are missing. A column without a name, such as an empty column that a
-spreadsheet exports after the last one, is a column that the schema does not list.
+that are not fields, and the fields that are missing. The columns without a name at the end of the header row, such
+as the empty column that a spreadsheet exports after the last one, or after a comma at the end of each line, are not
+columns, so a value under one is a value after the last column, see below. A column without a name between other
+columns is a column that the schema does not list.
 
 `partial` is the easiest to start with, and suits a schema that only gives the type of some of the columns. A schema
 for files that are received from elsewhere, such as uploads, is usually stricter: `subset` accepts files with more

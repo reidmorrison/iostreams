@@ -2122,9 +2122,19 @@ class StreamTest < Minitest::Test
           assert_match(/no column is a field of the schema/, records("age\n21\n", "partial"))
         end
 
-        it "skips the columns without a name that a spreadsheet exports, unless it raises for them" do
-          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name,,\n1,Jack,,\n", "subset")
-          assert_match(/2 columns without a name are not fields of the schema/, records("id,name,,\n1,Jack,,\n"))
+        it "ignores the columns without a name at the end of the header row, which a spreadsheet exports" do
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name,,\n1,Jack,,\n")
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name, \n1,Jack,\n", "equal")
+        end
+
+        it "raises for a value in a column without a name at the end of the header row, unless it skips it" do
+          assert_match(/1 value after the last column/, records("id,name,\n1,Jack,x\n"))
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name,\n1,Jack,x\n", "subset")
+        end
+
+        it "raises for a column without a name between other columns, unless it skips it" do
+          assert_match(/a column without a name is not a field of the schema/, records("id,,name\n1,,Jack\n"))
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,,name\n1,x,Jack\n", "subset")
         end
 
         it "applies to the keys of each JSON record, in any order" do
@@ -2153,6 +2163,13 @@ class StreamTest < Minitest::Test
 
           error = assert_raises(IOStreams::Errors::InvalidHeader) { write([%w[id name age], [1, "Jack", 21]], :array, schema: {fields: fields}) }
           assert_match(/\AThe header row does not match the schema: the column "age" is not a field/, error.message)
+        end
+
+        it "ignores the columns without a name at the end of the header row written, as when reading" do
+          assert_equal "id,name\n1,Jack\n", write([["id", "name", nil, ""], [1, "Jack", nil, ""]], :array, schema: {fields: fields})
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([["id", "name", nil], [1, "Jack", 21]], :array, schema: {fields: fields}) }
+          assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
         end
 
         it "raises for a first row written without a column that is a field, such as a row of values, rather than write empty rows" do
