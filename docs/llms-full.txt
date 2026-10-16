@@ -2487,6 +2487,11 @@ Each column of the header row, or key of a JSON record, is matched to the field:
    way. Cleansing drops the characters that Unicode otherwise makes digits, such as `²`, `½` and `①`, so that a
    field named as the cleansed column, such as `area_m` for `Area (m²)`, matches it, as `area_m2` does.
 
+A column that is the same as several fields in step 3, or as none, is the field whose name or alias is the column
+once cleansed, if there is one. So a schema whose fields are named as a header row is cleansed without a schema finds
+every column that the cleansing named, such as the fields `e_mail` and `email`, which are the same once compared
+loosely, for the columns `E-mail` and `Email`.
+
 The columns are matched once, when the header row is read, or once for each set of keys of the JSON records, which
 are usually the same for every record, rather than for each value.
 

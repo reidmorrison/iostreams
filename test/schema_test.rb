@@ -348,6 +348,27 @@ class SchemaTest < Minitest::Test
         assert_equal "Rate (½)", cleansed.field_for("rate").name
       end
 
+      it "finds the field named as the column once cleansed, when several fields are the same loosely" do
+        both = IOStreams::Schema.new(fields: [{name: "e_mail"}, {name: "email"}])
+
+        assert_equal "e_mail", both.field_for("E-mail").name
+        assert_equal "email", both.field_for("Email").name
+        assert_equal "e_mail", both.field_for(" E MAIL ").name
+      end
+
+      it "still raises for a column that is several fields loosely, and none of them once cleansed" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "na_me"}, {name: "n_ame"}]).field_for("Name")
+        end
+        assert_match(/\AThe column "Name" could be any of the fields "na_me" and "n_ame"/, error.message)
+        assert_raises(IOStreams::Errors::InvalidHeader) { schema.field_for("amount_") }
+      end
+
+      it "finds the field named as a column without letters or digits once cleansed" do
+        assert_equal "_", IOStreams::Schema.new(fields: [{name: "_"}, {name: "id"}]).field_for(" _ ").name
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}]).field_for(" _ ")
+      end
+
       it "finds the field whose name keeps the digits that Unicode makes of such characters first" do
         both = IOStreams::Schema.new(fields: [{name: "area_m2"}, {name: "area_m"}])
 
