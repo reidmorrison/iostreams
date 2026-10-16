@@ -232,8 +232,17 @@ module IOStreams
       nil
     end
 
+    # Yields the stream that writes to the supplied stream through this pipeline.
+    #
+    # The streams write bytes, those of a compressed or encrypted stream, or of text in the encoding set with
+    # #encoding, which the supplied stream stores as they are, even when it converts the text written to it, such as a
+    # `StringIO`, see `IOStreams::BytesOutput`. Without any streams, or with only an encode stream that sets no
+    # encoding, such as one that only cleanses the text, the block writes text to the supplied stream itself, which
+    # converts it, as it converts the text written to it without IOStreams.
     def writer(io_stream, &)
-      execute(:writer, pipeline, io_stream, &)
+      pipeline = self.pipeline
+      output   = writes_bytes?(pipeline) ? BytesOutput.for(io_stream) : io_stream
+      execute(:writer, pipeline, output, &)
     end
 
     # Yields a stream that reads the supplied stream, which reads the data through this pipeline, as text,
@@ -409,6 +418,12 @@ module IOStreams
         extensions.unshift(name)
       end
       extensions
+    end
+
+    # Returns [true|false] whether the streams of the pipeline write bytes to the stream that they write to, see #writer:
+    # any stream but the encode stream, or the encode stream with an encoding.
+    def writes_bytes?(pipeline)
+      pipeline.any? { |stream, options| stream != :encode || options.key?(:encoding) }
     end
 
     # Executes the streams that need to be executed.

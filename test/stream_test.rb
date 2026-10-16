@@ -563,6 +563,133 @@ class StreamTest < Minitest::Test
       end
     end
 
+    # An IO converts the Strings written to it to its external encoding, which a StringIO always has, and so does an IO
+    # opened in text mode in a Rails process, which sets Encoding.default_internal.
+    describe "writing through streams to a supplied IO that converts the text written to it" do
+      let(:text) { "caf\u{e9}\n" }
+
+      # Runs the block in a process that sets Encoding.default_internal to UTF-8, as Rails does.
+      def as_in_rails
+        original = Encoding.default_internal
+        Encoding.default_internal = Encoding::UTF_8
+        yield
+      ensure
+        Encoding.default_internal = original
+      end
+
+      it "writes the text in the encoding of the encode stream, rather than converted back to that of the IO" do
+        io = StringIO.new
+        IOStreams.stream(io).encoding("Windows-1252").writer(:line) { |lines| lines << "caf\u{e9}" }
+
+        assert_equal "caf\xE9\n".b, io.string.b
+        assert_equal Encoding::UTF_8, io.string.encoding
+      end
+
+      it "writes the text in the encoding of the encode stream to a file opened with another encoding" do
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:UTF-8") { |io| IOStreams.stream(io).encoding("Windows-1252").write(text) }
+
+          assert_equal "caf\xE9\n".b, File.binread(file.path)
+        end
+      end
+
+      it "writes the text in the encoding of the IO, which it does not convert" do
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:UTF-8") { |io| IOStreams.stream(io).encoding("UTF-8").write(text) }
+
+          assert_equal text.b, File.binread(file.path)
+        end
+      end
+
+      it "writes the bytes of compressed data, rather than raising for them, to a Tempfile in a Rails process" do
+        as_in_rails do
+          Tempfile.create("stream_test") do |file|
+            IOStreams.stream(file).file_name("people.csv.gz").write(text)
+            file.flush
+
+            assert_equal text, IOStreams.path(file.path).stream(:gz).read
+          end
+        end
+      end
+
+      it "writes the text in the encoding of the encode stream to a Tempfile in a Rails process" do
+        as_in_rails do
+          Tempfile.create("stream_test") do |file|
+            IOStreams.stream(file).encoding("Windows-1252").write(text)
+            file.flush
+
+            assert_equal "caf\xE9\n".b, File.binread(file.path)
+          end
+        end
+      end
+
+      it "supplies the IO itself to the block without any streams, which converts the text written to it as before" do
+        io       = StringIO.new
+        supplied = IOStreams.stream(io).writer { |stream| stream }
+
+        assert_same io, supplied
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:UTF-8") { |output| IOStreams.stream(output).write("caf\xE9\n".b.force_encoding("Windows-1252")) }
+
+          assert_equal text.b, File.binread(file.path)
+        end
+      end
+
+      it "leaves an IO that writes Strings as they are, such as a binary StringIO, as it is" do
+        io = StringIO.new(String.new(encoding: Encoding::BINARY))
+
+        assert_same io, IOStreams::BytesOutput.for(io)
+        assert_instance_of IOStreams::BytesOutput, IOStreams::BytesOutput.for(StringIO.new)
+      end
+
+      it "writes text through an encode stream that sets no encoding to the IO, which converts it, as without one" do
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:Windows-1252") { |io| IOStreams.stream(io).encoding(cleaner: :printable).write(text) }
+
+          assert_equal "caf\xE9\n".b, File.binread(file.path)
+        end
+      end
+
+      it "leaves an IO whose encoding is not ASCII compatible to convert what is written to it, by way of UTF-8" do
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:UTF-16") do |io|
+            assert_same io, IOStreams::BytesOutput.for(io)
+            IOStreams.stream(io).encoding("UTF-8").writer(:line) { |lines| lines << "caf\u{e9}" }
+          end
+
+          assert_equal "caf\u{e9}\n", IOStreams.path(file.path).encoding("UTF-16:UTF-8").read
+        end
+      end
+
+      it "raises rather than corrupt binary data for an IO that changes the bytes written to it, such as newline: :crlf" do
+        # Random bytes, which gzip cannot compress, so that its data holds a newline byte.
+        data = Random.new(42).bytes(20_000)
+        Tempfile.create("stream_test") do |file|
+          File.open(file.path, "w:UTF-8", newline: :crlf) do |io|
+            error = assert_raises(ArgumentError) { IOStreams.stream(io).file_name("data.bin.gz").write(data) }
+
+            assert_includes error.message, "The IO supplied to IOStreams.stream wrote"
+          end
+          File.open(file.path, "w:UTF-8", newline: :crlf) { |io| IOStreams.stream(io).encoding("UTF-8").write("a\nb\n") }
+
+          assert_equal "a\r\nb\r\n".b, File.binread(file.path)
+        end
+      end
+
+      it "writes to an IO whose #write does not return the number of bytes written" do
+        output = Class.new(SimpleDelegator) do
+          def write(data)
+            __getobj__.write(data)
+            nil
+          end
+        end
+        io = StringIO.new
+        IOStreams.stream(output.new(io)).file_name("people.csv.gz").write(text)
+
+        assert_equal text, IOStreams.stream(StringIO.new(io.string)).file_name("people.csv.gz").read
+      end
+    end
+
     describe "a writer supplied to IOStreams.stream" do
       it "writes lines into a line writer, rather than through another one" do
         io = StringIO.new

@@ -6,6 +6,7 @@ module IOStreams
   autoload :AbortableOutput,     "io_streams/abortable_output"
   autoload :BlockReader,         "io_streams/block_reader"
   autoload :Builder,             "io_streams/builder"
+  autoload :BytesOutput,         "io_streams/bytes_output"
   autoload :ChunkReader,         "io_streams/chunk_reader"
   autoload :Deprecation,         "io_streams/deprecation"
   autoload :Errors,              "io_streams/errors"
