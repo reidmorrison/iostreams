@@ -62,6 +62,17 @@ module IOStreams
       BYTE_ORDERS[encoding.is_a?(String) ? Encoding.find(encoding) : encoding]
     end
 
+    # Returns [String] the byte order mark in the supplied encoding, such as "\xFF\xFE" in UTF-16LE.
+    def self.byte_order_mark(encoding)
+      BYTE_ORDER_MARK.encode(encoding)
+    end
+
+    # Returns [Encoding|nil] the one of the supplied encodings of the byte orders of "UTF-16" or "UTF-32" text, see
+    # .byte_order_encodings, whose byte order mark starts the supplied binary data, or nil when neither one starts it.
+    def self.byte_order(byte_orders, data)
+      byte_orders.find { |encoding| data.start_with?(byte_order_mark(encoding).b) }
+    end
+
     # Raises ArgumentError for the options that the reader or writer of the encode stream would raise for once the
     # text is read or written: an encoding that Ruby does not know, or that is neither a String nor an Encoding, one
     # whose text Ruby cannot convert as the encode stream converts it, see .check_convertible, a `replace` that is not

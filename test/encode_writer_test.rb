@@ -354,6 +354,76 @@ class EncodeWriterTest < Minitest::Test
         assert_equal "", output.string
       end
 
+      it "writes binary data in the byte order that its byte order mark tells, such as a copy of Windows Unicode Text" do
+        # Each of these characters has a unit whose low byte is a surrogate, D8 to DF, when it is read big-endian.
+        text = "Stra\u{df}e \u{d8} \u{dc}\n"
+        [%w[UTF-16 UTF-16LE], %w[UTF-32 UTF-32LE], %w[UTF-16 UTF-16BE]].each do |encoding, byte_order|
+          input  = "\u{feff}#{text}".encode(byte_order).b
+          output = BlockRecorder.new
+          IOStreams::Encode::Writer.stream(output, encoding: encoding) { |io| io.write(input) }
+
+          assert_equal input, output.string, byte_order
+        end
+      end
+
+      it "writes text in the byte order of binary data that started the text" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io.write("\u{feff}a".encode("UTF-16LE").b)
+          io.write("b")
+        end
+
+        assert_equal "\u{feff}ab".encode("UTF-16LE").b, output.string
+      end
+
+      it "reads the byte order mark of binary data that is split across writes" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io.write("\xFF".b)
+          # A sharp s, whose bytes are a lone surrogate when they are read big-endian.
+          io.write("\xFE\xDF\x00".b)
+        end
+
+        assert_equal "\u{feff}\u{df}".encode("UTF-16LE").b, output.string
+      end
+
+      it "writes binary data without a byte order mark big-endian, after one, so that it reads back" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") { |io| io.write("ab".encode("UTF-16BE").b) }
+
+        assert_equal "\u{feff}ab".encode("UTF-16BE").b, output.string
+        assert_equal "ab", IOStreams::Encode::Reader.stream(StringIO.new(output.string), encoding: "UTF-16:UTF-8", &:read)
+      end
+
+      it "replaces the invalid characters of binary data, in its byte order" do
+        output = BlockRecorder.new
+        input  = "\xFF\xFE".b + "a".encode("UTF-16LE").b + "\x00\xD8".b
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16", replace: "?") { |io| io.write(input) }
+
+        assert_equal "\u{feff}a?".encode("UTF-16LE").b, output.string
+      end
+
+      it "tags the block that starts the text with UTF-16, so that a file that converts to UTF-16 writes one mark" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io << "a"
+          io << "b"
+        end
+
+        assert_equal [Encoding::UTF_16, Encoding::UTF_16BE], output.blocks.map(&:encoding)
+        Tempfile.create("iostreams") do |file|
+          file.close
+          File.open(file.path, "w:UTF-16") do |utf16|
+            IOStreams.stream(utf16).encoding("UTF-16").writer(:line) do |io|
+              io << "caf\u{e9}"
+              io << "b"
+            end
+          end
+
+          assert_equal "caf\u{e9}\nb\n".encode("UTF-16").b, File.binread(file.path)
+        end
+      end
+
       it "writes the rows of a CSV file that are read back as the records written" do
         records = [{"name" => "Jos\u{e9}", "city" => "M\u{e1}laga"}, {"name" => "Jack", "city" => "Paris"}]
         # Binary, since a StringIO converts the data written to it to the encoding of its String.

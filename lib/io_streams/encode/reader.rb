@@ -12,12 +12,10 @@ module IOStreams
     class Reader < IOStreams::Reader
       include ChunkReader
 
-      # The encodings of the text whose byte order mark is removed, see #remove_byte_order_mark. Text in "UTF-16" or
-      # "UTF-32" is read in one of them, the encoding of the byte order that its byte order mark tells, see
+      # The encodings of the text whose byte order mark is removed, see #remove_byte_order_mark: UTF-8, and the encodings
+      # of the byte orders of UTF-16 and UTF-32, one of which text in "UTF-16" or "UTF-32" is read in, see
       # #read_byte_order.
-      BYTE_ORDER_MARK_ENCODINGS = [
-        Encoding::UTF_8, Encoding::UTF_16LE, Encoding::UTF_16BE, Encoding::UTF_32LE, Encoding::UTF_32BE
-      ].freeze
+      BYTE_ORDER_MARK_ENCODINGS = [Encoding::UTF_8, *BYTE_ORDERS.values.flatten].freeze
 
       # The number of bytes read from the input stream at a time, apart from a read with a length, see #read.
       BLOCK_SIZE = 65_536
@@ -60,8 +58,11 @@ module IOStreams
       #
       #     When reading UTF-8, UTF-16LE, UTF-16BE, UTF-32LE or UTF-32BE, a byte order mark at the start of the data is
       #     removed. "UTF-16" and "UTF-32", which name no byte order, read the data in the byte order that the byte
-      #     order mark at its start tells, such as UTF-16LE for "\xFF\xFE", and raise IOStreams::Errors::InvalidEncoding
-      #     when it does not start with one, as Ruby does.
+      #     order mark at its start tells, such as UTF-16LE for "\xFF\xFE", whose mark is removed too, as Ruby reads
+      #     "BOM|UTF-16", so the text read without an internal encoding is in the encoding of that byte order. Data that
+      #     does not start with one raises IOStreams::Errors::InvalidEncoding, as Ruby raises, unless `replace` is
+      #     supplied, which reads it big-endian, as Unicode reads such text. "UTF-16:UTF-16" names the encoding of the
+      #     text twice, so it is read as "UTF-16".
       #
       #   replace: [String]
       #     The character to replace with when a character is invalid, or cannot be converted to the target encoding.
@@ -80,6 +81,8 @@ module IOStreams
         super(input_stream)
 
         external, @internal = Encode.external_and_internal(encoding)
+        # The text is not converted to the encoding that it is in, such as "UTF-16:UTF-16", see #read_as.
+        @internal           = nil if @internal == external
         @replace            = replace
         @transcode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
         @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
@@ -114,10 +117,14 @@ module IOStreams
       private
 
       # Returns [Encoding] the encoding of the text that is read, see `IOStreams::ChunkReader`: the internal encoding, or
-      # the encoding of the data, or binary when the data is read as it is.
+      # the encoding of the data, or binary when the data is read as it is. The encoding of the data of "UTF-16" or
+      # "UTF-32" is that of the byte order that its byte order mark tells, which is read first, so that it is only read
+      # without an internal encoding, see #read_byte_order.
       def chunk_encoding
+        return @internal if @internal
+
         read_byte_order if @byte_orders
-        @internal || @converter.encoding || Encoding::BINARY
+        @converter.encoding || Encoding::BINARY
       end
 
       # Returns [String] the text of the next block of the input stream, in whole characters, or nil at its end, see
@@ -142,20 +149,23 @@ module IOStreams
       end
 
       # Reads data in "UTF-16" or "UTF-32" in the encoding of the byte order that the byte order mark at its start tells,
-      # such as UTF-16LE for "\xFF\xFE", see `IOStreams::Encode.byte_order_encodings`, whose byte order mark is then
-      # removed, as Ruby removes it. Keeps the start of the data that it read, up to the size of a byte order mark, for
-      # #next_chunk. Data without any bytes is read in big-endian, which has no text to read.
+      # such as UTF-16LE for "\xFF\xFE", see `IOStreams::Encode.byte_order`, whose byte order mark is then removed, as
+      # Ruby removes it. Reads only the bytes of a byte order mark, which it keeps for #next_chunk, so that a read of no
+      # text, such as `read(0)`, reads no more. Data without any bytes is read big-endian, which has no text to read.
       #
-      # Raises IOStreams::Errors::InvalidEncoding when the data does not start with a byte order mark, which Ruby also
-      # needs to read it, since only the mark tells its byte order.
+      # Data that does not start with a byte order mark is read big-endian with `replace`, as Unicode reads such text,
+      # and otherwise raises IOStreams::Errors::InvalidEncoding, which Ruby also raises, since only the mark tells its
+      # byte order, again each time that it is called after.
       def read_byte_order
-        size  = BYTE_ORDER_MARK.encode(@byte_orders.first).bytesize
+        raise(@byte_order_error) if @byte_order_error
+
+        size  = Encode.byte_order_mark(@byte_orders.first).bytesize
         start = String.new(encoding: Encoding::BINARY)
-        while start.bytesize < size && (block = read_block)
+        while start.bytesize < size && (block = read_block(size - start.bytesize))
           start << block
         end
-        encoding = @byte_orders.find { |byte_order| start.start_with?(BYTE_ORDER_MARK.encode(byte_order).b) }
-        raise(missing_byte_order_mark(start.byteslice(0, size))) unless encoding || start.empty?
+        encoding = Encode.byte_order(@byte_orders, start)
+        raise(@byte_order_error = missing_byte_order_mark(start)) unless encoding || @replace || start.empty?
 
         @start = start unless start.empty?
         read_as(encoding || @byte_orders.first)
@@ -191,7 +201,7 @@ module IOStreams
       # Returns [String] the byte order mark in the encoding of the data, or nil for an encoding whose byte order mark is
       # not removed, see BYTE_ORDER_MARK_ENCODINGS.
       def byte_order_mark(encoding)
-        BYTE_ORDER_MARK.encode(encoding) if BYTE_ORDER_MARK_ENCODINGS.include?(encoding)
+        Encode.byte_order_mark(encoding) if BYTE_ORDER_MARK_ENCODINGS.include?(encoding)
       end
 
       # Returns [String] the first characters of the data without a byte order mark. Since the converter returns whole
@@ -202,23 +212,24 @@ module IOStreams
         data.start_with?(mark) ? data.byteslice(mark.bytesize..) : data
       end
 
-      # Returns [String] the next block of the input stream as binary data, or [nil] at the end of the stream.
+      # Returns [String] the next block of the input stream, of upto `length` bytes, as binary data, or [nil] at the end
+      # of the stream.
       #
       # The data read is bytes, whatever encoding the input stream tags it with, such as `Encoding.default_external`
       # when the whole of a gzip file is read, so that it is treated the same whichever streams it was read through.
-      def read_block
-        block = read_input
+      def read_block(length = @block_size)
+        block = read_input(length)
         block.nil? || block.encoding == Encoding::BINARY ? block : block.b
       end
 
-      def read_input
-        return @input_stream.read(@block_size) unless @read_cache_buffer
+      def read_input(length)
+        return @input_stream.read(length) unless @read_cache_buffer
 
-        @input_stream.read(@block_size, @read_cache_buffer)
+        @input_stream.read(length, @read_cache_buffer)
       rescue ArgumentError
         # Handle arity of -1 when just 0..1
         @read_cache_buffer = nil
-        @input_stream.read(@block_size)
+        @input_stream.read(length)
       end
     end
   end

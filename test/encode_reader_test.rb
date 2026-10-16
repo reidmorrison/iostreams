@@ -556,6 +556,61 @@ class EncodeReaderTest < Minitest::Test
             assert_equal "\x00a".b, error.error_char
             assert_raises(Encoding::InvalidByteSequenceError) { input.dup.force_encoding("UTF-16").encode("UTF-8") }
           end
+
+          it "raises the same error on every read of data that does not start with a byte order mark" do
+            # More than one block, and big-endian text with U+FFFE, whose bytes are the byte order mark of UTF-16LE.
+            input  = "ab\u{fffe}#{'c' * 70_000}".encode("UTF-16BE").b
+            errors = []
+            IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16:UTF-8") do |io|
+              3.times do
+                io.read(4)
+              rescue IOStreams::Errors::InvalidEncoding => e
+                errors << [e.byte_offset, e.error_char]
+              end
+            end
+
+            assert_equal [[0, "\x00a".b]] * 3, errors
+          end
+
+          it "reads data that does not start with a byte order mark big-endian with replace, as Unicode reads it" do
+            input = "ab\n".encode("UTF-16BE").b
+            data  = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16:UTF-8", replace: "?", &:read)
+
+            assert_equal "ab\n", data
+          end
+
+          it "replaces invalid and incomplete characters with replace, and raises InvalidEncoding for them without it" do
+            # A lone surrogate, then half of a character at the end.
+            input = "\xFF\xFE".b + "a".encode("UTF-16LE").b + "\x00\xD8".b + "b".encode("UTF-16LE").b + "c".b
+            data  = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16:UTF-8", replace: "?", &:read)
+
+            assert_equal "a?b?", data
+            error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+              IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16:UTF-8", &:read)
+            end
+            assert_equal '"\x00\xD8" is not valid UTF-16LE at byte offset 4', error.message
+            utf32 = "\xFF\xFE\x00\x00".b + "a".encode("UTF-32LE").b + "\x00\x00\x11\x00".b
+
+            assert_equal "a?", IOStreams::Encode::Reader.stream(StringIO.new(utf32), encoding: "UTF-32:UTF-8", replace: "?", &:read)
+          end
+
+          it "reads the text as it is when the internal encoding is the same, such as UTF-16:UTF-16" do
+            input = "\u{feff}#{text}".encode("UTF-16LE").b
+            data  = IOStreams::Encode::Reader.stream(StringIO.new(input), encoding: "UTF-16:UTF-16", &:read)
+
+            assert_equal text.encode("UTF-16LE"), data
+          end
+
+          it "reads no data for a read of no text with an internal encoding, and only the byte order mark without one" do
+            input = StringIO.new("\u{feff}ab".encode("UTF-16LE").b)
+
+            assert_equal "", IOStreams::Encode::Reader.stream(input, encoding: "UTF-16:UTF-8") { |io| io.read(0) }
+            assert_equal 0, input.pos
+            data = IOStreams::Encode::Reader.stream(input, encoding: "UTF-16") { |io| io.read(0) }
+
+            assert_equal "".encode("UTF-16LE"), data
+            assert_equal 2, input.pos
+          end
         end
       end
 

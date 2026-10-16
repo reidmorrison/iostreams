@@ -156,11 +156,15 @@ The byte order mark (U+FEFF) that programs such as Excel write at the start of a
 first column name of a CSV file is read as it appears. So is the one at the start of UTF-16 or UTF-32 text, such as
 the "Unicode Text" that Windows programs export, read with `encoding("UTF-16LE:UTF-8")`.
 
-`"UTF-16"` and `"UTF-32"`, which name no byte order, read the text in the byte order that the byte order mark at
-its start tells, such as the little-endian "Unicode Text" of Windows programs read with `encoding("UTF-16:UTF-8")`,
-and write it big-endian, after one byte order mark, as Ruby does. Text in either one that does not start with a byte
-order mark raises `IOStreams::Errors::InvalidEncoding`, since only the mark tells its byte order, so name the byte
-order instead, such as `"UTF-16LE"`.
+`"UTF-16"` and `"UTF-32"`, which name no byte order, read the text in the byte order that the byte order mark at its
+start tells, such as the little-endian "Unicode Text" of Windows programs read with `encoding("UTF-16:UTF-8")`, and
+write it big-endian, after one byte order mark, as Ruby does. The byte order mark is removed, as it is from UTF-16LE
+text, so the text read without an internal encoding is in the encoding of its byte order, such as UTF-16LE, as Ruby
+reads `"BOM|UTF-16"`. To copy such a file as it is, copy it without an encoding, since setting one on the target too
+writes the text big-endian, after a byte order mark. Binary data that is written, such as a copy of a file, keeps the
+byte order that its own byte order mark tells. Text in either one that does not start with a byte order mark raises
+`IOStreams::Errors::InvalidEncoding`, since only the mark tells its byte order, so name the byte order instead, such
+as `"UTF-16LE"`, or supply `replace:`, which reads it big-endian, as Unicode reads such text.
 
 `#read` returns the whole file as UTF-8 without checking it, like `File.read`, so that it can also read a binary
 file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`
