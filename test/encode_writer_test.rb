@@ -303,6 +303,15 @@ class EncodeWriterTest < Minitest::Test
       end
     end
 
+    describe "an ASCII compatible encoding that Ruby cannot convert" do
+      it "writes ASCII text and binary data as they are, as v2.1 did" do
+        output = StringIO.new(String.new(encoding: Encoding::BINARY))
+        IOStreams::Encode::Writer.stream(output, encoding: "Windows-1258") { |io| io << "name\n" << "caf\xE9\n".b }
+
+        assert_equal "name\ncaf\xE9\n".b, output.string
+      end
+    end
+
     describe "external:internal encoding" do
       it "writes in the external encoding, like File.write, so the same option reads it back" do
         # Binary, since a StringIO converts the data written to it to the encoding of its String.
@@ -311,6 +320,159 @@ class EncodeWriterTest < Minitest::Test
 
         assert_equal "caf\xE9\n".b, output.string.b
         assert_equal "caf\u00e9\n", IOStreams::Encode::Reader.stream(StringIO.new(output.string), encoding: "Windows-1252:UTF-8", &:read)
+      end
+    end
+
+    describe "#puts" do
+      it "converts the text of each object to the encoding, whatever encoding it is in" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "Windows-1252") do |io|
+          io.puts("caf\u{e9}", "caf\xE9".b.force_encoding("Windows-1252"), ["na\u{ef}ve"])
+        end
+
+        assert_equal "caf\xE9\ncaf\xE9\nna\xEFve\n".b, output.string
+      end
+
+      it "treats binary data as already in the encoding, as #write does" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "Windows-1252") { |io| io.puts("caf\xE9".b, "b") }
+
+        assert_equal "caf\xE9\nb\n".b, output.string
+      end
+
+      it "writes the lines of objects whose text Ruby combines without changing it with one write" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-8") do |io|
+          io.puts(%w[a b], "c".encode("US-ASCII"), "d\n")
+          io.puts("caf\u{e9}", "caf\xE9".b.force_encoding("Windows-1252"), "f")
+        end
+
+        assert_equal %W[a\nb\nc\nd\n caf\u{e9}\n caf\u{e9}\nf\n], output.blocks
+      end
+
+      it "writes a newline after an object that does not end with one, in the encoding" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16LE") { |io| io.puts("a", "b\n".encode("UTF-16LE"), nil) }
+
+        assert_equal "a\nb\n\n".encode("UTF-16LE").b, output.string
+      end
+    end
+
+    describe "UTF-16 and UTF-32, which name no byte order" do
+      it "writes the byte order mark once, then the text big-endian, as Ruby writes it" do
+        %w[UTF-16 UTF-32].each do |encoding|
+          output = BlockRecorder.new
+          IOStreams::Encode::Writer.stream(output, encoding: encoding) do |io|
+            io << "caf\u{e9}\n"
+            io << "na\u{ef}ve\n"
+          end
+
+          assert_equal "caf\u{e9}\nna\u{ef}ve\n".encode(encoding).b, output.string, encoding
+        end
+      end
+
+      it "writes no byte order mark before binary data that starts the text, which already starts with its own" do
+        input  = "\u{feff}ab".encode("UTF-16BE").b
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io.write(input)
+          io.write("c")
+        end
+
+        assert_equal "\u{feff}abc".encode("UTF-16BE").b, output.string
+      end
+
+      it "writes nothing for no text" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") { |io| io.write("") }
+
+        assert_equal "", output.string
+      end
+
+      it "writes binary data in the byte order that its byte order mark tells, such as a copy of Windows Unicode Text" do
+        # Each of these characters has a unit whose low byte is a surrogate, D8 to DF, when it is read big-endian.
+        text = "Stra\u{df}e \u{d8} \u{dc}\n"
+        [%w[UTF-16 UTF-16LE], %w[UTF-32 UTF-32LE], %w[UTF-16 UTF-16BE]].each do |encoding, byte_order|
+          input  = "\u{feff}#{text}".encode(byte_order).b
+          output = BlockRecorder.new
+          IOStreams::Encode::Writer.stream(output, encoding: encoding) { |io| io.write(input) }
+
+          assert_equal input, output.string, byte_order
+        end
+      end
+
+      it "writes text in the byte order of binary data that started the text" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io.write("\u{feff}a".encode("UTF-16LE").b)
+          io.write("b")
+        end
+
+        assert_equal "\u{feff}ab".encode("UTF-16LE").b, output.string
+      end
+
+      it "reads the byte order mark of binary data that is split across writes" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io.write("\xFF".b)
+          # A sharp s, whose bytes are a lone surrogate when they are read big-endian.
+          io.write("\xFE\xDF\x00".b)
+        end
+
+        assert_equal "\u{feff}\u{df}".encode("UTF-16LE").b, output.string
+      end
+
+      it "writes binary data without a byte order mark big-endian, after one, so that it reads back" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") { |io| io.write("ab".encode("UTF-16BE").b) }
+
+        assert_equal "\u{feff}ab".encode("UTF-16BE").b, output.string
+        assert_equal "ab", IOStreams::Encode::Reader.stream(StringIO.new(output.string), encoding: "UTF-16:UTF-8", &:read)
+      end
+
+      it "replaces the invalid characters of binary data, in its byte order" do
+        output = BlockRecorder.new
+        input  = "\xFF\xFE".b + "a".encode("UTF-16LE").b + "\x00\xD8".b
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16", replace: "?") { |io| io.write(input) }
+
+        assert_equal "\u{feff}a?".encode("UTF-16LE").b, output.string
+      end
+
+      it "tags the block that starts the text with UTF-16, so that a file that converts to UTF-16 writes one mark" do
+        output = BlockRecorder.new
+        IOStreams::Encode::Writer.stream(output, encoding: "UTF-16") do |io|
+          io << "a"
+          io << "b"
+        end
+
+        assert_equal [Encoding::UTF_16, Encoding::UTF_16BE], output.blocks.map(&:encoding)
+        Tempfile.create("iostreams") do |file|
+          file.close
+          File.open(file.path, "w:UTF-16") do |utf16|
+            IOStreams.stream(utf16).encoding("UTF-16").writer(:line) do |io|
+              io << "caf\u{e9}"
+              io << "b"
+            end
+          end
+
+          assert_equal "caf\u{e9}\nb\n".encode("UTF-16").b, File.binread(file.path)
+        end
+      end
+
+      it "writes the rows of a CSV file that are read back as the records written" do
+        records = [{"name" => "Jos\u{e9}", "city" => "M\u{e1}laga"}, {"name" => "Jack", "city" => "Paris"}]
+        # Binary, since a StringIO converts the data written to it to the encoding of its String.
+        output  = StringIO.new(String.new(encoding: Encoding::BINARY))
+        IOStreams.stream(output).file_name("people.csv").encoding("UTF-16").writer(:hash) do |io|
+          records.each { |record| io << record }
+        end
+        read = []
+        IOStreams.stream(StringIO.new(output.string)).file_name("people.csv").encoding("UTF-16:UTF-8").each(:hash) do |record|
+          read << record
+        end
+
+        assert_equal "name,city\nJos\u{e9},M\u{e1}laga\nJack,Paris\n".encode("UTF-16").b, output.string
+        assert_equal records, read
       end
     end
   end

@@ -122,7 +122,12 @@ module IOStreams
       #
       # A record ends with a line break, "\r\n", "\n" or "\r", outside a quoted value, whichever line ending the CSV
       # was written with, such as with `writer(:line, delimiter: "\r")`.
+      #
+      # The text of a spreadsheet is UTF-8, so text in another encoding is converted to UTF-8, such as a Windows-1252
+      # String written with `#puts`, which writes each object in its own encoding, while binary data, such as the
+      # bytes of a file being copied, is UTF-8 already.
       def write_data(data)
+        data = data.encode(Encoding::UTF_8) unless [Encoding::BINARY, Encoding::UTF_8].include?(data.encoding)
         @buffer << data.b
 
         record_start = 0

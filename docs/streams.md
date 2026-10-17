@@ -108,7 +108,8 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
   compressed or encrypted stream does not end its data, so that it cannot be mistaken for a complete file.
 * A write that cannot succeed raises before the file is opened, so that an existing file is kept: an option that a
   stream cannot write with, such as a compression level that is out of range, an encoding that Ruby does not know, or
-  a gem that a stream needs and that is not installed.
+  cannot convert text to, such as UTF-7, see [Character encoding](#character-encoding), or a gem that a stream needs
+  and that is not installed.
 
 ## Lines
 
@@ -155,6 +156,16 @@ The byte order mark (U+FEFF) that programs such as Excel write at the start of a
 first column name of a CSV file is read as it appears. So is the one at the start of UTF-16 or UTF-32 text, such as
 the "Unicode Text" that Windows programs export, read with `encoding("UTF-16LE:UTF-8")`.
 
+`"UTF-16"` and `"UTF-32"`, which name no byte order, read the text in the byte order that the byte order mark at its
+start tells, such as the little-endian "Unicode Text" of Windows programs read with `encoding("UTF-16:UTF-8")`, and
+write it big-endian, after one byte order mark, as Ruby does. The byte order mark is removed, as it is from UTF-16LE
+text, so the text read without an internal encoding is in the encoding of its byte order, such as UTF-16LE, as Ruby
+reads `"BOM|UTF-16"`. To copy such a file as it is, copy it without an encoding, since setting one on the target too
+writes the text big-endian, after a byte order mark. Binary data that is written, such as a copy of a file, keeps the
+byte order that its own byte order mark tells. Text in either one that does not start with a byte order mark raises
+`IOStreams::Errors::InvalidEncoding`, since only the mark tells its byte order, so name the byte order instead, such
+as `"UTF-16LE"`, or supply `replace:`, which reads it big-endian, as Unicode reads such text.
+
 `#read` returns the whole file as UTF-8 without checking it, like `File.read`, so that it can also read a binary
 file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`
 returns up to 128 bytes of binary data, whether the file is plain, compressed or encrypted.
@@ -200,8 +211,12 @@ end
 ~~~
 
 Each call to `#encoding` merges its options with those already set, and `#encoding` without arguments returns the
-encoding that was set. An encoding that Ruby does not know, or a cleaner that is neither a built-in rule nor a Proc,
-raises `ArgumentError` when it is set.
+encoding that was set. An encoding that Ruby does not know, a conversion that Ruby has no converter for, such as
+`"Windows-1258:UTF-8"`, an encoding that is not ASCII compatible and that Ruby cannot convert text to or from, such
+as UTF-7, or a cleaner that is neither a built-in rule nor a Proc, raises `ArgumentError` when it is set. The text of
+an ASCII compatible encoding that Ruby cannot convert, such as `"Windows-1258"`, is read and written as it is, while
+writing text in another encoding to it, such as UTF-8 text that is not ASCII, raises
+`Encoding::ConverterNotFoundError`.
 
 The encoding of the text is converted closest to your code, after the file is decompressed or decrypted, so
 `IOStreams.path("data.csv.gz").encoding("BINARY")` still decompresses the file, and reads its text as bytes.
@@ -420,6 +435,16 @@ end
 ~~~
 
 IOStreams never closes an IO that you supply, so close it yourself when you are done with it.
+
+The streams write their data to your IO as it is, the bytes of a compressed or encrypted stream, or of text in the
+encoding set with `#encoding`, even when your IO converts the text written to it to its external encoding, as a
+`StringIO` does, a file opened with an encoding, such as `File.open(name, "w:UTF-8")`, and any file opened in text
+mode, such as a `Tempfile`, in a Rails process. Without any streams, or with `#encoding` options that set no
+encoding, such as `encoding(cleaner: :printable)`, what you write goes to your IO as text, which it converts. An IO
+whose encoding is not ASCII compatible, such as `File.open(name, "w:UTF-16LE")`, converts what is written to it by
+way of UTF-8, so it can only store text, and one that changes the bytes written to it otherwise, such as
+`File.open(name, "w:UTF-8", newline: :crlf)`, raises `ArgumentError` for the bytes of a compressed or encrypted
+stream, so open it in binary mode, such as `File.open(name, "wb")`.
 
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
 that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with

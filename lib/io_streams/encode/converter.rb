@@ -29,6 +29,8 @@ module IOStreams
         @encoding         = encoding.nil? || encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding)
         @replace          = replace
         @encoding_options = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
+        # The replacement of the invalid characters of data in the target encoding, see #validate.
+        @scrub_replace    = scrub_replace(replace)
         @pending          = nil
         # The number of bytes of the data supplied before the data held back in `@pending`.
         @offset           = 0
@@ -88,7 +90,7 @@ module IOStreams
         position = @offset
         @offset += text.bytesize
         return text if text.valid_encoding?
-        return text.scrub(@replace) unless @replace.nil?
+        return text.scrub(@scrub_replace) unless @replace.nil?
 
         valid    = valid_prefix(text)
         @invalid = invalid_error(text.byteslice(valid.bytesize..), position + valid.bytesize, source: Encoding::BINARY)
@@ -118,14 +120,27 @@ module IOStreams
         invalid = nil
         text.scrub do |sequence|
           invalid ||= sequence
-          ""
+          # No replacement, in the encoding of the text, which `String#scrub` needs for one that is not ASCII compatible.
+          sequence.byteslice(0, 0)
         end
         prefix   = valid_prefix(text).bytesize
         encoding = text.encoding == Encoding::BINARY ? @encoding : text.encoding
         Errors::InvalidEncoding.new(
-          "#{invalid.dump} is not valid #{encoding}",
+          "#{invalid.b.dump} is not valid #{encoding}",
           byte_offset: byte_offset + prefix, error_char: invalid.b, source_encoding: source, destination_encoding: @encoding
         )
+      end
+
+      # Returns [String] the replacement in the target encoding, since `String#scrub` cannot replace the invalid
+      # characters of text in an encoding that is not ASCII compatible, such as UTF-16LE, with a UTF-8 replacement. Or
+      # the replacement as it is when Ruby cannot convert it, such as a character that the target encoding does not
+      # have, which raises Encoding::CompatibilityError once it would replace a character, as it did before.
+      def scrub_replace(replace)
+        return replace if replace.nil? || @encoding.nil? || @encoding == Encoding::BINARY
+
+        replace.encode(@encoding)
+      rescue EncodingError
+        replace
       end
 
       # Returns [Integer] the number of bytes at the end of the data that are the start of an incomplete character.

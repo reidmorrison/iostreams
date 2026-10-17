@@ -733,7 +733,8 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
   compressed or encrypted stream does not end its data, so that it cannot be mistaken for a complete file.
 * A write that cannot succeed raises before the file is opened, so that an existing file is kept: an option that a
   stream cannot write with, such as a compression level that is out of range, an encoding that Ruby does not know, or
-  a gem that a stream needs and that is not installed.
+  cannot convert text to, such as UTF-7, see [Character encoding](#character-encoding), or a gem that a stream needs
+  and that is not installed.
 
 ## Lines
 
@@ -780,6 +781,16 @@ The byte order mark (U+FEFF) that programs such as Excel write at the start of a
 first column name of a CSV file is read as it appears. So is the one at the start of UTF-16 or UTF-32 text, such as
 the "Unicode Text" that Windows programs export, read with `encoding("UTF-16LE:UTF-8")`.
 
+`"UTF-16"` and `"UTF-32"`, which name no byte order, read the text in the byte order that the byte order mark at its
+start tells, such as the little-endian "Unicode Text" of Windows programs read with `encoding("UTF-16:UTF-8")`, and
+write it big-endian, after one byte order mark, as Ruby does. The byte order mark is removed, as it is from UTF-16LE
+text, so the text read without an internal encoding is in the encoding of its byte order, such as UTF-16LE, as Ruby
+reads `"BOM|UTF-16"`. To copy such a file as it is, copy it without an encoding, since setting one on the target too
+writes the text big-endian, after a byte order mark. Binary data that is written, such as a copy of a file, keeps the
+byte order that its own byte order mark tells. Text in either one that does not start with a byte order mark raises
+`IOStreams::Errors::InvalidEncoding`, since only the mark tells its byte order, so name the byte order instead, such
+as `"UTF-16LE"`, or supply `replace:`, which reads it big-endian, as Unicode reads such text.
+
 `#read` returns the whole file as UTF-8 without checking it, like `File.read`, so that it can also read a binary
 file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`
 returns up to 128 bytes of binary data, whether the file is plain, compressed or encrypted.
@@ -825,8 +836,12 @@ end
 ~~~
 
 Each call to `#encoding` merges its options with those already set, and `#encoding` without arguments returns the
-encoding that was set. An encoding that Ruby does not know, or a cleaner that is neither a built-in rule nor a Proc,
-raises `ArgumentError` when it is set.
+encoding that was set. An encoding that Ruby does not know, a conversion that Ruby has no converter for, such as
+`"Windows-1258:UTF-8"`, an encoding that is not ASCII compatible and that Ruby cannot convert text to or from, such
+as UTF-7, or a cleaner that is neither a built-in rule nor a Proc, raises `ArgumentError` when it is set. The text of
+an ASCII compatible encoding that Ruby cannot convert, such as `"Windows-1258"`, is read and written as it is, while
+writing text in another encoding to it, such as UTF-8 text that is not ASCII, raises
+`Encoding::ConverterNotFoundError`.
 
 The encoding of the text is converted closest to your code, after the file is decompressed or decrypted, so
 `IOStreams.path("data.csv.gz").encoding("BINARY")` still decompresses the file, and reads its text as bytes.
@@ -1045,6 +1060,16 @@ end
 ~~~
 
 IOStreams never closes an IO that you supply, so close it yourself when you are done with it.
+
+The streams write their data to your IO as it is, the bytes of a compressed or encrypted stream, or of text in the
+encoding set with `#encoding`, even when your IO converts the text written to it to its external encoding, as a
+`StringIO` does, a file opened with an encoding, such as `File.open(name, "w:UTF-8")`, and any file opened in text
+mode, such as a `Tempfile`, in a Rails process. Without any streams, or with `#encoding` options that set no
+encoding, such as `encoding(cleaner: :printable)`, what you write goes to your IO as text, which it converts. An IO
+whose encoding is not ASCII compatible, such as `File.open(name, "w:UTF-16LE")`, converts what is written to it by
+way of UTF-8, so it can only store text, and one that changes the bytes written to it otherwise, such as
+`File.open(name, "w:UTF-8", newline: :crlf)`, raises `ArgumentError` for the bytes of a compressed or encrypted
+stream, so open it in binary mode, such as `File.open(name, "wb")`.
 
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
 that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with
@@ -5106,7 +5131,7 @@ Start with the changes that apply to your application:
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) |
-| Writes to an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
+| Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
 | Uses `~` in local file names, root paths from `IOStreams.add_root`, or compares paths | [Paths](#paths) and [Local files](#local-files) |
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
@@ -5155,6 +5180,25 @@ strings are then in that encoding, or supply `replace:` to replace invalid chara
 binary strings, as before, supply `encoding("BINARY")`, which also works for a stream without a file name. See
 [`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that v2 used, and
 [Text and binary data](streams#text-and-binary-data).
+
+#### Text written with an encoding to your IO keeps it
+
+When writing with an encoding, such as `encoding("Windows-1252")`, to an IO that you supply with
+`IOStreams.stream(io)`, the text is written as the bytes of that encoding, as it is to a file, even when `io`
+converts the text written to it to its own encoding, as a `StringIO` does, a file opened with an encoding, such as
+`File.open(name, "w:UTF-8")`, and any file opened in text mode in a Rails process. Previously `io` converted the text
+back to its own encoding. So the String of a `StringIO.new` now holds the bytes of Windows-1252, while it is still
+tagged UTF-8.
+
+Fix: read the String in the encoding that was written, or supply a `StringIO` of a binary String:
+
+~~~ruby
+io = StringIO.new
+IOStreams.stream(io).encoding("Windows-1252").write("café\n")
+io.string.force_encoding("Windows-1252").encode("UTF-8") # => "café\n"
+~~~
+
+To write the text in the encoding of `io` instead, as before, do not set an encoding.
 
 #### The encode stream validates every read
 
@@ -5569,6 +5613,25 @@ since IOStreams opens and closes their files itself.
 
 Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
 reads until it is closed.
+
+#### BZip2 leaves your IO in its mode
+
+When reading or writing `.bz2` with an IO that you supply with `IOStreams.stream(io)`, the `:bz2` stream no longer
+switches `io` to binary mode, like the gzip, zip, zstd and `.enc` streams. So the String of a `StringIO.new` that
+bzip2 data is written into, or read from, keeps its encoding, UTF-8, rather than becoming binary (`ASCII-8BIT`).
+Its bytes are the same, but adding them to binary data, such as data read from a database, raises
+`Encoding::CompatibilityError`.
+
+Fix: supply a `StringIO` of a binary String, or call `.b` on its String:
+
+~~~ruby
+io = StringIO.new(+"".b)
+IOStreams.stream(io).stream(:bz2).write(data)
+io.string.encoding # => #<Encoding:BINARY (ASCII-8BIT)>
+~~~
+
+Writing PGP or Parquet, and copying without any streams, to a `File` still switch it to binary mode, as
+`IO.copy_stream`, which writes it, does.
 
 #### A failed write to your IO is not completed
 
@@ -6421,8 +6484,8 @@ a schema that replaces each one:
 | Option | With a schema |
 |--------|---------------|
 | `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
-| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "equal"`, or `"superset"` when a field can be missing |
-| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "subset"`, or `"partial"` when a field can be missing |
+| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
+| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` on each field, or a `fieldsMatch` that needs every field |
 | `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
 

@@ -841,6 +841,30 @@ module Paths
           assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?bogus=1&key=b") }
         end
 
+        it "raises for a part of the query of the url that is not an option, such as the ? of a pattern, naming %3F" do
+          error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/data/file?.csv") }
+
+          assert_equal %(Invalid S3 url "s3://bucket/data/file": its query holds the options of its requests, but ".csv" ) +
+                       %(is not an S3 option. Percent-encode a '?' in a key as '%3F'), error.message
+          error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?acl=private&bogus=1&key=b") }
+          assert_equal %(Invalid S3 url "s3://bucket/a.txt": its query holds the options of its requests, but "bogus", ) +
+                       %("key" are not S3 options), error.message
+        end
+
+        it "names %3F only for a part of the query without a value, which is more likely part of a key than an option" do
+          error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?bucket=other") }
+
+          assert_equal %(Invalid S3 url "s3://bucket/a.txt": its query holds the options of its requests, but "bucket" ) +
+                       "is not an S3 option", error.message
+        end
+
+        it "sets no options for an empty query" do
+          path = IOStreams.path("s3://bucket/a.csv?")
+
+          assert_equal "a.csv", path.path
+          assert_empty path.options
+        end
+
         it "raises for a request parameter that the path sets" do
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, bucket: "other") }
           assert_raises(ArgumentError) { IOStreams::Paths::S3.new("s3://bucket/a.txt", client: client, delimiter: "/") }

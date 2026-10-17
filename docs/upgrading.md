@@ -36,7 +36,7 @@ Start with the changes that apply to your application:
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) |
-| Writes to an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
+| Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
 | Uses `~` in local file names, root paths from `IOStreams.add_root`, or compares paths | [Paths](#paths) and [Local files](#local-files) |
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
@@ -85,6 +85,25 @@ strings are then in that encoding, or supply `replace:` to replace invalid chara
 binary strings, as before, supply `encoding("BINARY")`, which also works for a stream without a file name. See
 [`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that v2 used, and
 [Text and binary data](streams#text-and-binary-data).
+
+#### Text written with an encoding to your IO keeps it
+
+When writing with an encoding, such as `encoding("Windows-1252")`, to an IO that you supply with
+`IOStreams.stream(io)`, the text is written as the bytes of that encoding, as it is to a file, even when `io`
+converts the text written to it to its own encoding, as a `StringIO` does, a file opened with an encoding, such as
+`File.open(name, "w:UTF-8")`, and any file opened in text mode in a Rails process. Previously `io` converted the text
+back to its own encoding. So the String of a `StringIO.new` now holds the bytes of Windows-1252, while it is still
+tagged UTF-8.
+
+Fix: read the String in the encoding that was written, or supply a `StringIO` of a binary String:
+
+~~~ruby
+io = StringIO.new
+IOStreams.stream(io).encoding("Windows-1252").write("café\n")
+io.string.force_encoding("Windows-1252").encode("UTF-8") # => "café\n"
+~~~
+
+To write the text in the encoding of `io` instead, as before, do not set an encoding.
 
 #### The encode stream validates every read
 
@@ -499,6 +518,25 @@ since IOStreams opens and closes their files itself.
 
 Fix: close the IO yourself once you are done with it, for example a pipe or socket that the other end
 reads until it is closed.
+
+#### BZip2 leaves your IO in its mode
+
+When reading or writing `.bz2` with an IO that you supply with `IOStreams.stream(io)`, the `:bz2` stream no longer
+switches `io` to binary mode, like the gzip, zip, zstd and `.enc` streams. So the String of a `StringIO.new` that
+bzip2 data is written into, or read from, keeps its encoding, UTF-8, rather than becoming binary (`ASCII-8BIT`).
+Its bytes are the same, but adding them to binary data, such as data read from a database, raises
+`Encoding::CompatibilityError`.
+
+Fix: supply a `StringIO` of a binary String, or call `.b` on its String:
+
+~~~ruby
+io = StringIO.new(+"".b)
+IOStreams.stream(io).stream(:bz2).write(data)
+io.string.encoding # => #<Encoding:BINARY (ASCII-8BIT)>
+~~~
+
+Writing PGP or Parquet, and copying without any streams, to a `File` still switch it to binary mode, as
+`IO.copy_stream`, which writes it, does.
 
 #### A failed write to your IO is not completed
 
@@ -1351,8 +1389,8 @@ a schema that replaces each one:
 | Option | With a schema |
 |--------|---------------|
 | `columns:` | The fields are the columns, in order, with `header: false` for a file without a header row |
-| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "equal"`, or `"superset"` when a field can be missing |
-| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "subset"`, or `"partial"` when a field can be missing |
+| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
+| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` on each field, or a `fieldsMatch` that needs every field |
 | `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
 

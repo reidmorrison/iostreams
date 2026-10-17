@@ -6,7 +6,7 @@ module IOStreams
   class Reader
     # An input stream that notes whether any data was read from it, for a reader whose gem reads empty input as empty
     # data, such as bzip2-ffi, where the format always starts with a header, so that empty input is not the format.
-    # Every other method is the input stream's own, such as `#close` and `#seek`.
+    # Every other method is the input stream's own, such as `#close` and `#seek`, apart from `#binmode`.
     class Input < SimpleDelegator
       def read(...)
         data = __getobj__.read(...)
@@ -17,6 +17,13 @@ module IOStreams
       # Returns [true|false] whether any data was read from the input stream.
       def read?
         @read || false
+      end
+
+      # Returns self, leaving the input stream in its mode, rather than switching it to binary mode for good, as a gem
+      # such as bzip2-ffi asks, since the input stream belongs to the caller. A read with a length, as a gem reads
+      # compressed data, returns bytes whatever the mode of the input stream.
+      def binmode
+        self
       end
     end
 

@@ -908,6 +908,8 @@ module IOStreams
       tabular_settings.rows_format(file_name, builder.text_format)
     end
 
+    # The streams write bytes, which the supplied IO stores as they are, even when it converts the text written to it,
+    # see `IOStreams::Builder#writer`. Without any streams the block writes to the IO itself.
     def stream_writer(&)
       builder.writer(io_stream, &)
     end
