@@ -194,18 +194,23 @@ module IOStreams
     end
 
     # Returns [true|false] whether the rows read start with a header row, which names the column of each value of the
-    # rows after it, see #read_row: the header row of a file with one, until it is read, see #header?, or for a format of
-    # keyed records, such as JSON, without a schema or the columns supplied, the keys of its first record, until they are
-    # read, since the columns of its rows are not known until then.
+    # rows after it, see #read_row, until it is read: the header row of a file with one, see #header?, otherwise the
+    # columns of the rows of a file without one, which are not a line of their own, see
+    # `IOStreams::Tabular::Mapping#read_rows_header`: the names of the fields of a schema, such as of fixed width, of
+    # JSON or Parquet, or of a file whose schema has `header: false`, the keys of the layout of a fixed width file, or
+    # for a format of keyed records, such as JSON, without a schema, the keys of its first record, since the columns of
+    # its rows are not known until then. False when the columns were supplied, which name the values of the rows
+    # instead.
     def rows_header?
       @mapping.rows_header?
     end
 
-    # Returns [Array<String|Symbol>] the columns of the rows that #row_parse returns of a file without a header row,
-    # so that a copy can give them to the target, see `IOStreams::Row::Reader#copy_to`: the names of the fields of a
-    # schema, see `IOStreams::Schema#header?`, such as of fixed width or JSON, or the keys of the layout of a fixed width
-    # file, or the columns supplied for it.
-    # Returns nil for any other file, such as one whose rows start with a header row, see #rows_header?.
+    # Returns [Array<String|Symbol>] the columns of the rows that #row_parse returns of a file without a header row, which
+    # #read_row yields as their header row unless they were supplied, see #rows_header?, so that a copy can give them to
+    # the target, see `IOStreams::Row::Reader#copy_to`: the names of the fields of a schema, see
+    # `IOStreams::Schema#header?`, such as of fixed width or JSON, or the keys of the layout of a fixed width file, or
+    # the columns supplied for it.
+    # Returns nil for any other file, such as one whose rows start with a header row of its own, see #rows_header?.
     def headerless_columns
       @mapping.headerless_columns
     end
@@ -381,17 +386,22 @@ module IOStreams
     # columns answers, see `IOStreams::Tabular::Mapping`, so that the reader or writer only iterates.
 
     # Yields [Array|nil] each row of the line of a file of rows: the header row, while it is expected, see #header?,
-    # which it reads, see #read_header, otherwise the row, see #row_parse, or nil for a blank line. The first record of a
-    # format of keyed records whose columns are not known, see #rows_header?, such as JSON without a schema, yields its
-    # keys as the header row before its row, since they name the column of each value of the rows.
+    # which it reads, see #read_header, otherwise the row, see #row_parse, or nil for a blank line. The rows of a file
+    # whose header row is not a line of its own, see #rows_header?, start with it, before the row of its first line,
+    # since it names the column of each value of the rows: the keys of the first record of a format of keyed records,
+    # such as JSON without a schema, or the names of the fields of a file without a header row, such as fixed width, or
+    # JSON with a schema, see `IOStreams::Tabular::Mapping#read_rows_header`.
+    #
+    # The header row is an `IOStreams::Row::HeaderRow`, so that a writer of rows takes it as the header row of the rows
+    # after it, see `IOStreams::Row::Writer#<<`.
     #
     # Returns the result of the block.
     def read_row(line)
       # Once the header row is read, every line is a row, so that is asked first.
       return yield(@mapping.row_parse(line)) unless @mapping.rows_header?
-      return yield(@mapping.read_header(line)) if @mapping.header?
+      return yield(header_row(@mapping.read_header(line))) if @mapping.header?
 
-      columns = @mapping.read_header(line)
+      columns = header_row(@mapping.read_rows_header(line))
       yield columns if columns
       yield @mapping.row_parse(line)
     end
@@ -407,9 +417,9 @@ module IOStreams
       end
     end
 
-    # Yields [String] the header line that a writer of rows writes before the first row: the columns supplied, when the
-    # format has a header row, see #requires_header?, otherwise nothing, since the first row written is the header row,
-    # see #render_row.
+    # Yields [String] the header line that a writer of rows writes before the first row, when the file has a header row,
+    # see #requires_header?: the names of the fields of a schema, or the columns supplied, otherwise nothing, since the
+    # first row written is the header row, see #render_row.
     def start_rows
       yield render_header if @mapping.requires_header? && !@mapping.first_row_header?
     end
@@ -428,13 +438,14 @@ module IOStreams
     end
 
     # Yields [String|nil] the line that a writer of rows writes for the header row of the rows after it, which were read
-    # from a file with one, such as the file that is copied, see `IOStreams::Row::Reader#copy_to`: as the first row, see
-    # #render_row, unless the header row gives the columns of the rows instead, for a format without a header row, such
-    # as JSON or Parquet, see `IOStreams::Tabular::Mapping#columns_from_header_row?`, when it yields nothing.
+    # from a file with one, such as the file that is copied, see `IOStreams::Row::Reader#copy_to`, or the header row that
+    # `IOStreams::Stream#each(:array)` yields: as the first row, see #render_row, unless the header row gives the
+    # columns of the rows instead, for a format without a header row, such as JSON or Parquet, see
+    # `IOStreams::Tabular::Mapping#columns_from_header_row?`, when it yields nothing.
     def render_header_row(columns, &)
       return render_row(columns, &) unless @mapping.columns_from_header_row?
 
-      render_header(columns)
+      @mapping.take_columns(columns)
       nil
     end
 
@@ -444,16 +455,6 @@ module IOStreams
     # which name them instead, when it yields nothing.
     def render_columns(columns, &)
       render_header_row(columns, &) unless @mapping.columns_supplied?
-    end
-
-    # Yields [String] the header line that a writer of rows writes once the rows have been written, when it wrote none:
-    # the names of the fields of a schema, of a file with a header row, when no row was written, since the first row
-    # gives the columns of the rows, see #render_row. Without a schema the first row is the header row, so there is none
-    # to write without it.
-    def finish_rows
-      return unless @mapping.requires_header? && @mapping.first_row_header?
-
-      yield render_header unless @mapping.columns_from_first_row?
     end
 
     # Yields [String] the header line that a writer of records writes before the first record: the names of the fields
@@ -547,6 +548,12 @@ module IOStreams
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 
     private
+
+    # Returns [IOStreams::Row::HeaderRow] the columns of a header row that #read_row yields, or nil when there are none,
+    # such as for a blank line.
+    def header_row(columns)
+      IOStreams::Row::HeaderRow.new(columns) if columns
+    end
 
     # Raises ArgumentError for the options of the header, such as `columns:` and `allowed_columns:`, which describe the
     # columns of a file without a schema, since the schema describes them, see `IOStreams::Schema`, rather than apply one

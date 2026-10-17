@@ -76,6 +76,41 @@ class RowWriterTest < Minitest::Test
 
         assert_equal "name,zip\nname,zip\nJack,12345\n", io_string.string
       end
+
+      it "takes the header row that each(:array) yields as the header row of the rows after it" do
+        source = IOStreams.stream(StringIO.new("name,id\nJack,1\n")).format(:csv)
+        output = StringIO.new
+        IOStreams.stream(output).format(:json).schema(fields: [{name: "id", type: "integer"}, {name: "name"}]).writer(:array) do |io|
+          source.each(:array) { |row| io << row }
+        end
+
+        assert_equal %({"id":1,"name":"Jack"}\n), output.string
+      end
+
+      it "writes an Array of the names of the columns as a row of values, after the header row" do
+        output = StringIO.new
+        IOStreams.stream(output).format(:json).schema(fields: [{name: "id"}, {name: "name"}]).writer(:array) do |io|
+          assert_same io, io << %w[name id]
+          assert_same io, io << IOStreams::Row::HeaderRow.new(%w[name id]) << %w[Jack 1]
+        end
+
+        assert_equal %({"id":"name","name":"id"}\n{"id":"1","name":"Jack"}\n), output.string
+      end
+
+      it "writes a header row after the first row as a row of values without a schema, which cannot match its columns" do
+        concatenate = lambda do |format|
+          output = StringIO.new
+          IOStreams.stream(output).format(format).writer(:array) do |io|
+            ["name,zip\nJack,1\n", "name,zip\nJill,2\n"].each do |text|
+              IOStreams.stream(StringIO.new(text)).format(:csv).each(:array) { |row| io << row }
+            end
+          end
+          output.string
+        end
+
+        assert_equal "name,zip\nJack,1\nname,zip\nJill,2\n", concatenate.call(:csv)
+        assert_equal %({"name":"Jack","zip":"1"}\n{"name":"name","zip":"zip"}\n{"name":"Jill","zip":"2"}\n), concatenate.call(:json)
+      end
     end
 
     describe "#inspect" do

@@ -100,6 +100,14 @@ module IOStreams
       IOStreams::Tabular::Header.cleanse_column(label)
     end
 
+    # Returns [true|false] whether a column of a header row, or a value after the last column of a row, is blank, so
+    # that it is not a column, nor data: nil, or text that is empty or only whitespace, such as the empty column after a
+    # delimiter at the end of a line, see `IOStreams::Schema::Columns`. Any other value is not blank, such as `false`,
+    # or text whose bytes are not valid in its encoding.
+    def self.blank?(value)
+      value.nil? || (value.is_a?(String) && value.valid_encoding? && IOStreams::Utils.blank?(value))
+    end
+
     # Returns [IOStreams::Schema] the schema of the descriptor read from the supplied path or url, a String or a
     # path, such as `"s3://bucket/schemas/people.json"`, whose text is JSON.
     #
@@ -190,10 +198,17 @@ module IOStreams
     # digits when it compares them loosely, such as `²`, `½` and `①`, so that the field `area_m`, named as
     # `cleanse_header` named the column, is still the column `Area (m²)`, and the field `area_m2` is too.
     #
-    # Returns nil when no field is the column.
+    # A column that is the same as the names or aliases of several fields once compared loosely, or as none, is the
+    # field whose name or alias is the column once cleansed, if there is one, so that a schema whose fields are named as
+    # `cleanse_header` named the columns finds every column that it found, such as `E-mail` for the field `e_mail`
+    # beside the field `email`.
+    #
+    # Returns nil when no field is the column, including a column whose bytes are not valid in its encoding, which is
+    # only the field whose name it is.
     #
     # Raises `IOStreams::Errors::InvalidHeader` when the column is the same as the names or aliases of several fields
-    # once compared loosely, since either could be meant. The noun, such as "column" or "key", names it.
+    # once compared loosely, and is not the name or alias of one of them once cleansed, since either could be meant.
+    # The noun, such as "column" or "key", names it.
     def field_for(label, noun = "column")
       return if label.nil?
 
@@ -266,7 +281,7 @@ module IOStreams
     # `IOStreams::Schema::Columns#match_written`, match the fields: a column that is not a field raises, unless
     # `fieldsMatch` skips it, see #check_unknown, and so does a header row without a column that is a field, whatever
     # `fieldsMatch` is, as reading with "partial" needs at least one, since the rows after it would have no value for
-    # any field, such as when the first row written is a row of values rather than a header row.
+    # any field, such as a row of values written as a header row.
     #
     # Parameters:
     #   found: [Array<IOStreams::Schema::Field>]
@@ -288,9 +303,9 @@ module IOStreams
           "#{describe(unknown, 'column')} #{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the schema"
         end
       raise(IOStreams::Errors::InvalidHeader, "#{subject('column')} #{columns}, so the rows after it would have no value " \
-                                              "for any field. The first row written is the header row of the rows after " \
-                                              "it, which names the column of each of their values, so write the names " \
-                                              "of the fields, or of their columns, first")
+                                              "for any field. A header row names the column of each value of the rows " \
+                                              "after it, so give it the names of the fields, or of their columns, or " \
+                                              "write rows of the values of the fields, in order, without one")
     end
 
     # Raises ArgumentError unless the columns of a file can be the fields in order, as they are for a format with a
@@ -370,9 +385,9 @@ module IOStreams
       "#{text}, which fieldsMatch #{fields_match.inspect} does not accept; \"subset\" and \"partial\" skip them"
     end
 
-    # Returns [String] the columns, with those without a name counted, since they cannot be named.
+    # Returns [String] the columns, with those without a name counted, since they cannot be named, see .blank?.
     def describe(labels, noun)
-      blank, named = labels.partition { |label| IOStreams::Utils.blank?(label) }
+      blank, named = labels.partition { |label| self.class.blank?(label) }
       parts = []
       parts << "the #{plural(noun, named)} #{sentence(named.map(&:inspect))}" unless named.empty?
       parts << (blank.size == 1 ? "a #{noun} without a name" : "#{blank.size} #{noun}s without a name") unless blank.empty?
@@ -392,14 +407,26 @@ module IOStreams
     end
 
     # Returns [IOStreams::Schema::Field] the field whose name or alias is the label once both are compared loosely, or
-    # else once both are cleansed and compared loosely, see #field_for.
+    # else once both are cleansed and compared loosely, see #field_for. When that finds no field, or several, the field
+    # whose name or alias is the label once cleansed, if there is one, see .cleansed, as the deprecated `cleanse_header`
+    # named the column, so that `E-mail` is the field `e_mail` rather than either of `e_mail` and `email`, and ` _ ` is
+    # the field `_`, which has no letters or digits to compare loosely. A label whose bytes are not valid in its
+    # encoding is no field, since its text cannot be compared, nor cleansed.
     def loose_field(label, noun)
-      key = self.class.match_key(label)
-      return unless key
+      text = label.is_a?(String) ? label : label.to_s
+      return unless text.valid_encoding?
 
-      fields = @loose[key] || @cleansed[self.class.match_key(self.class.cleansed(label))]
+      key    = self.class.match_key(text)
+      fields = key && @loose[key]
+      return fields.first if fields&.size == 1
+
+      cleansed = self.class.cleansed(text)
+      fields ||= key && @cleansed[self.class.match_key(cleansed)]
+      return fields.first if fields&.size == 1
+
+      named = @named[cleansed]
+      return named if named
       return if fields.nil?
-      return fields.first if fields.size == 1
 
       raise(
         IOStreams::Errors::InvalidHeader,

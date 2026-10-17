@@ -636,11 +636,10 @@ class TabularTest < Minitest::Test
     end
 
     describe "#render_row" do
-      # Returns [Array] the lines that rendering the rows yields, and finishing them, see IOStreams::Tabular#finish_rows.
+      # Returns [Array] the lines that rendering the rows yields.
       def lines_of(tabular, *rows)
         lines = []
         rows.each { |row| tabular.render_row(row) { |line| lines << line } }
-        tabular.finish_rows { |line| lines << line }
         lines
       end
 
@@ -775,6 +774,8 @@ class TabularTest < Minitest::Test
         end
 
         describe "when enforce_column_restrictions is false" do
+          allow_deprecation(/enforce_column_restrictions= is deprecated/)
+
           before { IOStreams.enforce_column_restrictions = false }
           after { IOStreams.enforce_column_restrictions = true }
 
@@ -824,6 +825,8 @@ class TabularTest < Minitest::Test
         end
 
         describe "when enforce_column_restrictions is false" do
+          allow_deprecation(/enforce_column_restrictions= is deprecated/)
+
           before { IOStreams.enforce_column_restrictions = false }
           after { IOStreams.enforce_column_restrictions = true }
 
@@ -1257,24 +1260,22 @@ class TabularTest < Minitest::Test
         assert_equal "id,pay", tabular.render_header
       end
 
-      it "takes the first row written as the header row of the rows after it, whose columns it matches to the fields" do
+      it "writes the header row of the fields before the rows, each of which is the values of the fields, in order" do
         tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
         lines   = []
         tabular.start_rows { |line| lines << line }
 
-        assert_empty lines
-        assert_equal ["id,pay", "1,2.50"], rendered_rows(tabular, %w[Pay ID], [2.5, 1])
-        tabular.finish_rows { |line| lines << line }
-
-        assert_empty lines
+        assert_equal ["id,pay"], lines
+        assert_equal ["1,2.50"], rendered_rows(tabular, [1, 2.5])
       end
 
-      it "writes the header row of the fields once the rows are written, when no row was written" do
+      it "takes a header row written as the columns of the rows after it, whose columns it matches to the fields" do
         tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
         lines   = []
-        tabular.finish_rows { |line| lines << line }
+        tabular.render_header_row(%w[Pay ID]) { |line| lines << line }
 
-        assert_equal ["id,pay"], lines
+        assert_empty lines
+        assert_equal ["1,2.50"], rendered_rows(tabular, [2.5, 1])
       end
 
       it "writes no value for a field that the header row written does not have" do

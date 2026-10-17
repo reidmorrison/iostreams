@@ -1186,18 +1186,20 @@ class StreamTest < Minitest::Test
         assert_equal "", out.string
       end
 
-      it "reads each row as the values of the layout, in order, or of the columns supplied, by their keys" do
+      it "reads each row as the values of the layout, in order, after a header row of its keys, or of the columns supplied, by their keys, without one" do
         layout = {layout: [{size: 4, key: "name"}, {size: 2}, {size: 5, key: :zip, type: :integer}]}
         rows   = []
         IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).each(:array) { |row| rows << row }
 
-        assert_equal [["Jack", 12_345]], rows
+        assert_equal [["name", :zip], ["Jack", 12_345]], rows
 
         rows = []
         IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).
           each(:array, columns: %w[Zip name], allowed_columns: %w[name]) { |row| rows << row }
 
+        # The columns supplied name the values of the rows, so that no header row names them, as for any other format.
         assert_equal [[12_345, "Jack"]], rows
+        refute IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).reader(:array, columns: %w[Zip name], &:header?)
       end
 
       it "copies its rows into a file with a header row of the keys of the layout" do
@@ -1667,6 +1669,12 @@ class StreamTest < Minitest::Test
         out.string
       end
 
+      # Returns [IOStreams::Row::HeaderRow] the columns as a header row, as each(:array) yields it, which a writer of rows
+      # takes as the header row of the rows after it.
+      def header_row(*columns)
+        IOStreams::Row::HeaderRow.new(columns)
+      end
+
       it "returns the schema that was set" do
         assert_nil stream.schema
         assert_same stream, stream.schema(people)
@@ -1778,7 +1786,7 @@ class StreamTest < Minitest::Test
       end
 
       it "writes rows in the text form of the type of each field, after a header row of the names of the fields" do
-        written = write([%w[id pay joined active], ["0042", 12.5, Date.new(2026, 10, 13), "1"]], :array)
+        written = write([["0042", 12.5, Date.new(2026, 10, 13), "1"]], :array)
 
         assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", written
       end
@@ -1794,10 +1802,12 @@ class StreamTest < Minitest::Test
 
         assert_equal "id,pay,joined,active\n", out.string
 
-        out = StringIO.new
-        assert_raises(RuntimeError) { IOStreams::Stream.new(out).file_name("people.csv").schema(people).writer(:array) { |_io| raise "boom" } }
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.csv").schema(people)
+          assert_raises(RuntimeError) { path.writer(:array) { |_io| raise "boom" } }
 
-        assert_equal "", out.string
+          refute_predicate path, :exist?
+        end
       end
 
       it "copies a file without rows into a file with a header row, which still has its header row" do
@@ -1810,8 +1820,8 @@ class StreamTest < Minitest::Test
         end
       end
 
-      it "matches the columns of the first row written, a header row, so that the rows after it can be in any order" do
-        written = write([%w[Active ID Joined Pay], ["1", "0042", Date.new(2026, 10, 13), 12.5]], :array)
+      it "matches the columns of a header row written, as each(:array) yields it, so that the rows after it can be in any order" do
+        written = write([header_row("Active", "ID", "Joined", "Pay"), ["1", "0042", Date.new(2026, 10, 13), 12.5]], :array)
 
         assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", written
       end
@@ -1855,23 +1865,24 @@ class StreamTest < Minitest::Test
         schema = {fields: [{name: "id", type: "integer"}]}
         json   = %({"id":1}\nnull\n{"id":2}\n{}\n)
 
-        assert_equal [[1], nil, [2], nil], read(json, :array, file_name: "people.json", schema: schema)
+        assert_equal [%w[id], [1], nil, [2], nil], read(json, :array, file_name: "people.json", schema: schema)
         assert_equal [{"id" => 1}, nil, {"id" => 2}, nil], read(json, file_name: "people.json", schema: schema)
       end
 
-      it "reads each JSON row as the value of every field, in order, without a header row, nil for a key that its record does not have" do
+      it "reads each JSON row as the value of every field, in order, after a header row of the names of the fields, nil for a key that its record does not have" do
         superset = people.merge(fieldsMatch: "superset")
         json     = %({"active":"1","id":"0042"}\n{"pay":12.5,"joined":"2026-10-13","id":7,"active":false}\n)
 
-        assert_equal [[42, nil, nil, true], [7, BigDecimal("12.5"), Date.new(2026, 10, 13), false]],
+        assert_equal [%w[id pay joined active], [42, nil, nil, true], [7, BigDecimal("12.5"), Date.new(2026, 10, 13), false]],
                      read(json, :array, file_name: "people.json", schema: superset)
-        refute IOStreams::Stream.new(StringIO.new(json)).file_name("people.json").schema(superset).reader(:array, &:header?)
+        assert IOStreams::Stream.new(StringIO.new(json)).file_name("people.json").schema(superset).reader(:array, &:header?)
       end
 
       it "matches the keys of each JSON record read as a row to the fields, as for records" do
         json = %({"id":1,"pay":2,"joined":"2026-10-13","active":true,"name":"Jack"}\n)
 
-        assert_equal [[1, BigDecimal("2"), Date.new(2026, 10, 13), true]], read(json, :array, file_name: "people.json", schema: people.merge(fieldsMatch: "subset"))
+        assert_equal [%w[id pay joined active], [1, BigDecimal("2"), Date.new(2026, 10, 13), true]],
+                     read(json, :array, file_name: "people.json", schema: people.merge(fieldsMatch: "subset"))
         error = assert_raises(IOStreams::Errors::InvalidHeader) { read(json, :array, file_name: "people.json") }
         assert_match(/\AThe keys of a record do not match the schema: the key "name" is not a field/, error.message)
 
@@ -2122,9 +2133,19 @@ class StreamTest < Minitest::Test
           assert_match(/no column is a field of the schema/, records("age\n21\n", "partial"))
         end
 
-        it "skips the columns without a name that a spreadsheet exports, unless it raises for them" do
-          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name,,\n1,Jack,,\n", "subset")
-          assert_match(/2 columns without a name are not fields of the schema/, records("id,name,,\n1,Jack,,\n"))
+        it "ignores the columns without a name at the end of the header row, which a spreadsheet exports" do
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name,,\n1,Jack,,\n")
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name, \n1,Jack,\n", "equal")
+        end
+
+        it "raises for a value in a column without a name at the end of the header row, unless it skips it" do
+          assert_match(/1 value after the last column/, records("id,name,\n1,Jack,x\n"))
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,name,\n1,Jack,x\n", "subset")
+        end
+
+        it "raises for a column without a name between other columns, unless it skips it" do
+          assert_match(/a column without a name is not a field of the schema/, records("id,,name\n1,,Jack\n"))
+          assert_equal [{"id" => 1, "name" => "Jack"}], records("id,,name\n1,x,Jack\n", "subset")
         end
 
         it "applies to the keys of each JSON record, in any order" do
@@ -2139,8 +2160,9 @@ class StreamTest < Minitest::Test
           schema = {fields: fields, fieldsMatch: "subset"}
 
           assert_equal "id,name\n1,Jack\n", write([{"age" => 21, "name" => "Jack", "id" => 1}], schema: schema)
-          assert_equal "id,name\n1,Jack\n", write([%w[id name age], [1, "Jack", 21]], :array, schema: schema)
-          assert_equal "id,name\n1,Jack\n", write([%w[id name], [1, "Jack", 21]], :array, schema: schema)
+          assert_equal "id,name\n1,Jack\n", write([header_row("id", "name", "age"), [1, "Jack", 21]], :array, schema: schema)
+          assert_equal "id,name\n1,Jack\n", write([header_row("id", "name"), [1, "Jack", 21]], :array, schema: schema)
+          assert_equal "id,name\n1,Jack\n", write([[1, "Jack", 21]], :array, schema: schema)
           assert_equal %({"id":1,"name":null}\n), write([{id: 1, age: 2}], file_name: "people.json", schema: schema)
         end
 
@@ -2148,35 +2170,64 @@ class StreamTest < Minitest::Test
           error = assert_raises(IOStreams::Errors::InvalidHeader) { write([{"id" => 1, "age" => 21}], schema: {fields: fields}) }
           assert_match(/\AThe keys of a record do not match the schema: the key "age" is not a field/, error.message)
 
-          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([%w[id name], [1, "Jack", 21]], :array, schema: {fields: fields}) }
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name"), [1, "Jack", 21]], :array, schema: {fields: fields}) }
           assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
 
-          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([%w[id name age], [1, "Jack", 21]], :array, schema: {fields: fields}) }
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([[1, "Jack", 21]], :array, schema: {fields: fields}) }
+          assert_match(/\AThe values of a row do not match the schema: 1 value after the last field/, error.message)
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name", "age"), [1, "Jack", 21]], :array, schema: {fields: fields}) }
           assert_match(/\AThe header row does not match the schema: the column "age" is not a field/, error.message)
         end
 
-        it "raises for a first row written without a column that is a field, such as a row of values, rather than write empty rows" do
+        it "ignores the columns without a name at the end of the header row written, as when reading" do
+          assert_equal "id,name\n1,Jack\n", write([header_row("id", "name", nil, ""), [1, "Jack", nil, ""]], :array, schema: {fields: fields})
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name", nil), [1, "Jack", 21]], :array, schema: {fields: fields}) }
+          assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
+        end
+
+        it "takes a column at the end of the header row that is not blank text as a column, as it takes a value there" do
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name", false), [1, "Jack"]], :array, schema: {fields: fields}) }
+          assert_match(/\AThe header row does not match the schema: the column false is not a field/, error.message)
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name"), [1, "Jack", false]], :array, schema: {fields: fields}) }
+          assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
+        end
+
+        it "skips a column whose bytes are not valid in its encoding when it skips the others, rather than raise" do
+          invalid = (+"Caf\xE9").force_encoding(Encoding::UTF_8)
+          schema  = {fields: fields, fieldsMatch: "subset"}
+
+          assert_equal "id,name\n1,Jack\n", write([header_row("id", "name", invalid), [1, "Jack", 2]], :array, schema: schema)
+          assert_equal "id,name\n1,Jack\n", write([{"id" => 1, "name" => "Jack", invalid => 2}], schema: schema)
+          assert_equal "id,name\n1,Jack\n", write([header_row("id", "name"), [1, "Jack", invalid]], :array, schema: schema)
+        end
+
+        it "raises for a header row written without a column that is a field, such as a row of values, rather than write empty rows" do
           %w[subset partial].each do |fields_match|
             error = assert_raises(IOStreams::Errors::InvalidHeader, fields_match) do
-              write([["Jack", 21], ["Jill", 22]], :array, schema: {fields: fields, fieldsMatch: fields_match})
+              write([header_row("Jack", 21), ["Jill", 22]], :array, schema: {fields: fields, fieldsMatch: fields_match})
             end
             assert_equal 'The header row does not match the schema: the columns "Jack" and 21 are not fields of the schema, ' \
-                         "so the rows after it would have no value for any field. The first row written is the header row " \
-                         "of the rows after it, which names the column of each of their values, so write the names of the " \
-                         "fields, or of their columns, first", error.message
+                         "so the rows after it would have no value for any field. A header row names the column of each " \
+                         "value of the rows after it, so give it the names of the fields, or of their columns, or write " \
+                         "rows of the values of the fields, in order, without one", error.message
           end
-          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([[], [1, "Jack"]], :array, schema: {fields: fields, fieldsMatch: "subset"}) }
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row, [1, "Jack"]], :array, schema: {fields: fields, fieldsMatch: "subset"}) }
           assert_match(/\AThe header row does not match the schema: it has no columns, so the rows after it would have no value/, error.message)
-          assert_equal "id,name\n,Jack\n", write([%w[name x], %w[Jack 21]], :array, schema: {fields: fields, fieldsMatch: "subset"})
+          assert_equal "id,name\n,Jack\n", write([header_row("name", "x"), %w[Jack 21]], :array, schema: {fields: fields, fieldsMatch: "subset"})
         end
 
         it "ignores a blank value after the last field or column when writing, as reading does, but not false" do
           schema = {fields: fields}
 
-          assert_equal "id,name\n1,Jack\n2,Jill\n", write([%w[id name], [1, "Jack", nil], [2, "Jill", " "]], :array, schema: schema)
+          assert_equal "id,name\n1,Jack\n2,Jill\n", write([[1, "Jack", nil], [2, "Jill", " "]], :array, schema: schema)
           assert_equal "1,Jack\n", write([[1, "Jack", ""]], :array, schema: schema.merge(header: false))
           assert_equal %({"id":1,"name":"Jack"}\n), write([[1, "Jack", nil]], :array, file_name: "people.json", schema: schema)
-          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([%w[id name], [1, "Jack", false]], :array, schema: schema) }
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([[1, "Jack", false]], :array, schema: schema) }
+          assert_match(/\AThe values of a row do not match the schema: 1 value after the last field/, error.message)
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name"), [1, "Jack", false]], :array, schema: schema) }
           assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
         end
 
@@ -2255,6 +2306,30 @@ class StreamTest < Minitest::Test
           end
 
           assert_equal "id,email\n,j@x.com\n,k@x.com\n", out.string
+        end
+
+        describe "that allow blank values" do
+          let(:schema) do
+            {fieldsMatch: "partial", fields: [{name: "id", type: "integer"}, {name: "email", constraints: {required: true}, allowBlank: true}]}
+          end
+
+          it "reads a blank value, but still raises when the header row does not have the field" do
+            assert_equal [{"id" => 1, "email" => nil}], read("id,email\n1,\n", schema: schema)
+            error = assert_raises(IOStreams::Errors::InvalidHeader) { read("id,name\n1,Jack\n", schema: schema) }
+            assert_equal 'The header row does not match the schema: missing the required field "email"', error.message
+          end
+
+          it "reads a JSON record with null, but raises for one without the key" do
+            assert_equal [{"id" => 1, "email" => nil}], read(%({"id":1,"email":null}\n), file_name: "people.json", schema: schema)
+            assert_raises(IOStreams::Errors::InvalidHeader) { read(%({"id":1}\n), file_name: "people.json", schema: schema) }
+          end
+
+          it "writes a record without a value, and a blank record" do
+            assert_equal "id,email\n1,\n", write([{"id" => 1}], schema: schema)
+            assert_equal %({"id":1,"email":null}\n{"id":2,"email":""}\n),
+                         write([{"id" => 1, "email" => nil}, {"id" => 2, "email" => ""}], file_name: "people.json", schema: schema)
+            assert_equal "id,email\n\n", write([{}], schema: schema)
+          end
         end
       end
 
@@ -2351,7 +2426,8 @@ class StreamTest < Minitest::Test
 
         it "reads every line as a record of the fields" do
           assert_equal [record], read("0042,12.5,2026-10-13,true\n", schema: headerless)
-          assert_equal [[42, BigDecimal("12.5"), Date.new(2026, 10, 13), true]], read("0042,12.5,2026-10-13,true\n", :array, schema: headerless)
+          assert_equal [%w[id pay joined active], [42, BigDecimal("12.5"), Date.new(2026, 10, 13), true]],
+                       read("0042,12.5,2026-10-13,true\n", :array, schema: headerless)
         end
 
         it "writes no header row, and the fields in order" do
@@ -2490,9 +2566,9 @@ class StreamTest < Minitest::Test
           assert_equal [{"name" => "Jack", "zip" => 12_345, "pay" => BigDecimal("-12.5")}], read_fixed("#{line}\n")
         end
 
-        it "reads each row as the values of the fields, in order, without a header row" do
-          assert_equal [["Jack", 12_345, BigDecimal("-12.5")], nil], read_fixed("#{line}\n#{' ' * 24}\n", :array)
-          refute IOStreams::Stream.new(StringIO.new("#{line}\n")).format(:fixed).schema(fixed).reader(:array, &:header?)
+        it "reads each row as the values of the fields, in order, after a header row of the names of the fields" do
+          assert_equal [%w[name zip pay], ["Jack", 12_345, BigDecimal("-12.5")], nil], read_fixed("#{line}\n#{' ' * 24}\n", :array)
+          assert IOStreams::Stream.new(StringIO.new("#{line}\n")).format(:fixed).schema(fixed).reader(:array, &:header?)
         end
 
         it "writes the rows that it reads, and copies them into a file with a header row of the names of the fields" do

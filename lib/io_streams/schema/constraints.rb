@@ -8,8 +8,9 @@ module IOStreams
     # Constraints:
     #   required: [true|false]
     #     Whether the field must have a value: a value that is nil, or empty text, raises
-    #     `IOStreams::Errors::InvalidValue`, see #no_value. A header row or record without the field raises
-    #     `IOStreams::Errors::InvalidHeader`, see `IOStreams::Schema#check_columns`.
+    #     `IOStreams::Errors::InvalidValue`, see #no_value, unless the field allows blank values, see `allowBlank` in
+    #     `IOStreams::Schema::Field`. A header row or record without the field raises `IOStreams::Errors::InvalidHeader`,
+    #     see `IOStreams::Schema#check_columns`, whether or not it allows blank values.
     #     Default: false
     #
     # The other constraints of Frictionless, such as `maxLength`, are not supported yet, so they raise ArgumentError,
@@ -26,22 +27,37 @@ module IOStreams
       #   name: [String|Symbol]
       #     The name of the field, for the messages of its errors.
       #
-      # Raises ArgumentError for constraints that are not supported, or are not valid.
-      def initialize(constraints, name)
-        @name     = name
-        @required = check(constraints)
+      #   allow_blank: [true|false]
+      #     Whether a required field can have no value, see `allowBlank` in `IOStreams::Schema::Field`.
+      #     Default: false
+      #
+      # Raises ArgumentError for constraints that are not supported, or are not valid, and for `allow_blank` when the
+      # field is not required, whose values can be blank anyway.
+      def initialize(constraints, name, allow_blank: false)
+        @name        = name
+        @required    = check(constraints)
+        @allow_blank = check_allow_blank(allow_blank)
         freeze
       end
 
-      # Returns [true|false] whether the field must have a value, see `required` above.
+      # Returns [true|false] whether the header row, or each record, must have the field, see `required` above, and,
+      # unless it allows blank values, a value, see #value_required?.
       def required?
         @required
       end
 
-      # Returns nil, the value of a field that has none, unless it is required, which raises
-      # `IOStreams::Errors::InvalidValue`.
+      # Returns [true|false] whether each value of the field must be present: when it is required, see `required`
+      # above, unless it allows blank values, so that a value of nil, or empty text, raises, see #no_value.
+      def value_required?
+        @required && !@allow_blank
+      end
+
+      # Returns nil, the value of a field that has none, unless each value of the field must be present, see
+      # #value_required?, which raises `IOStreams::Errors::InvalidValue`.
       def no_value
-        raise(IOStreams::Errors::InvalidValue, "Field #{@name.inspect} is required, but has no value") if @required
+        return unless value_required?
+
+        raise(IOStreams::Errors::InvalidValue, "Field #{@name.inspect} is required, but has no value")
       end
 
       # Returns [String] the empty text of a field whose type keeps it as its value, such as a string, unless the field is
@@ -69,6 +85,14 @@ module IOStreams
         return required if [true, false].include?(required)
 
         raise(ArgumentError, "Field #{@name.inspect}: constraints required must be true or false: #{required.inspect}")
+      end
+
+      # Returns [true|false] whether the field allows blank values, which only a required field can.
+      def check_allow_blank(allow_blank)
+        return allow_blank if !allow_blank || @required
+
+        raise(ArgumentError, "Field #{@name.inspect}: allowBlank only applies to a field whose constraints are required, " \
+                             "since the values of any other field can be blank")
       end
 
       # Returns [String] why a constraint other than `required` raises.

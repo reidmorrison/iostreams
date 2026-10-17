@@ -140,7 +140,7 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "allowed_columns when enforce_column_restrictions is false" do
-      allow_deprecation(/describe the columns of the file with #schema instead/)
+      allow_deprecation(/enforce_column_restrictions= is deprecated/, /describe the columns of the file with #schema instead/)
 
       def read(input, format: nil, **args)
         records = []

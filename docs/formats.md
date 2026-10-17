@@ -64,11 +64,15 @@ Without a [schema](#schema), every value is read as text, and written as its tex
   A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are.
 * `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
   its first row is a header row of the keys of its first record, and each row after it the values of a record in
-  that order, see [JSON files](#json-files).
+  that order, see [JSON files](#json-files). The header row is an `IOStreams::Row::HeaderRow`, an Array that says
+  that it is the header row, so that a loop can skip it with `next if row.is_a?(IOStreams::Row::HeaderRow)`.
 * `writer(:hash)` takes the header row from the keys of the first record, so the values of a key that only a later
   record has are not written, except in JSON, where each record is written with its own keys.
 * `writer(:array)` takes the first row written as the header row, which JSON writes no line for, since it only names
-  the key of each value of the rows after it.
+  the key of each value of the rows after it, so that the rows that `each(:array)` reads from one file, starting with
+  its header row, can be written to another, whatever their formats. A header row after the first row, such as that
+  of a second file, is written as a row of values, since its columns cannot be matched to those of the file without a
+  [schema](#schema), which takes it as the header row of the rows after it.
 * A blank line is yielded as `nil`.
 
 ## CSV and PSV files
@@ -118,8 +122,8 @@ IOStreams.path("people.json").each(:array) { |row| p row }
 
 A record with a key that the first record does not have raises `IOStreams::Errors::InvalidHeader`, since no row has a
 column for it, so read records whose keys vary with `each(:hash)`, or describe them with a [schema](#schema) whose
-[`fieldsMatch`](#fieldsmatch) is `"superset"`. With a schema, each row is the values of its fields, in order, without
-a header row.
+[`fieldsMatch`](#fieldsmatch) is `"superset"`. With a schema, the header row is the names of its fields, and each
+row after it is the values of the fields, in order.
 `writer(:array)` takes the first row written as the header row, which names the key of each value of the rows after
 it, without a line of its own, so that the rows read can be written again, or copied into another format, see
 [Copying and moving](copy_files):
@@ -301,6 +305,11 @@ Each column of the header row, or key of a JSON record, is matched to the field:
    way. Cleansing drops the characters that Unicode otherwise makes digits, such as `²`, `½` and `①`, so that a
    field named as the cleansed column, such as `area_m` for `Area (m²)`, matches it, as `area_m2` does.
 
+A column that is the same as several fields in step 3, or as none, is the field whose name or alias is the column
+once cleansed, if there is one. So a schema whose fields are named as a header row is cleansed without a schema finds
+every column that the cleansing named, such as the fields `e_mail` and `email`, which are the same once compared
+loosely, for the columns `E-mail` and `Email`.
+
 The columns are matched once, when the header row is read, or once for each set of keys of the JSON records, which
 are usually the same for every record, rather than for each value.
 
@@ -308,21 +317,32 @@ The keys of the records read are the names of their fields as they are given, so
 `name: :id`, returns the key `:id`, whatever the column of the file is called. For a format with a header row, such
 as CSV, `each(:array)` returns a header row of the names of the fields of its columns, and then the values of those
 fields of each row, in the order of the fields. A file without a header row, such as JSON, Parquet or fixed width,
-returns no header row: each row is the values of every field, in order, `nil` for a key that a JSON record does not
-have. A column that the schema does not list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
+or with a schema whose `header` is false, returns the names of the fields as its header row, and then the values of
+every field of each row, in order, `nil` for a key that a JSON record does not have. A column that the schema does not
+list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
 
 A column that could be either of two fields raises `IOStreams::Errors::InvalidHeader`, rather than guess, such as
 `amount` for the fields `Amount ($)` and `Amount (€)`, which match their own columns exactly. So do two columns that
 are the same field, such as `email` and `Email`, rather than lose the value of one of them.
 
 When writing, the header row is the names of the fields, in order, and the keys of each record written are matched
-to the fields in the same way. `writer(:array)` takes the first row written as a header row, as `each(:array)`
-returns one, and matches its columns to the fields in the same way, so that the values of each row after it can be in
-any order, and the rows read from another file can be written as they are, such as by
-`copy_from(source, mode: :array)`. A field that the header row does not have is written as empty. A file without a
-header row, such as JSON, or a schema with `header: false`, takes rows of the values of the fields, in order, except
-that `copy_from(source, mode: :array)` from a file with a header row, such as CSV, takes the columns of the rows from
-its header row, rather than write it as a row of values.
+to the fields in the same way. `writer(:array)` writes that header row itself, before the rows, and takes each row
+written as the values of the fields, in order, whatever the format:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+path.writer(:array) do |io|
+  io << ["Jack", 21]
+end
+path.read
+# => "name,age\nJack,21\n"
+~~~
+
+A header row written to it, such as the `IOStreams::Row::HeaderRow` that `each(:array)` yields, gives the columns of
+the rows after it instead, without a line of its own, and its columns are matched to the fields in the same way, so
+that the values of each row after it can be in any order, and the rows read from another file can be written as they
+are, by a loop over `each(:array)`, or by `copy_from(source, mode: :array)`. A field that the header row does not have
+is written as empty.
 
 So a file can have readable column names, while the code uses its own keys:
 
@@ -348,8 +368,10 @@ report.read
 | `partial` | include at least one field | are skipped |
 
 A file that does not match raises `IOStreams::Errors::InvalidHeader`, which lists each problem, such as the columns
-that are not fields, and the fields that are missing. A column without a name, such as an empty column that a
-spreadsheet exports after the last one, is a column that the schema does not list.
+that are not fields, and the fields that are missing. The columns without a name at the end of the header row, such
+as the empty column that a spreadsheet exports after the last one, or after a comma at the end of each line, are not
+columns, so a value under one is a value after the last column, see below. A column without a name between other
+columns is a column that the schema does not list.
 
 `partial` is the easiest to start with, and suits a schema that only gives the type of some of the columns. A schema
 for files that are received from elsewhere, such as uploads, is usually stricter: `subset` accepts files with more
@@ -391,6 +413,28 @@ IOStreams.path("upload.csv").schema(schema).each(:hash) { |contact| p contact }
 # {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>}
 ~~~
 
+A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
+many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
+the field still raises, while a value that is `nil`, or empty text, is read and written as it is:
+
+~~~ruby
+schema = {
+  fieldsMatch: "partial",
+  fields:      [
+    {name: "first_name",  constraints: {required: true}},
+    {name: "middle_name", constraints: {required: true}, allowBlank: true}
+  ]
+}
+IOStreams.path("upload.csv").schema(schema).each(:hash) { |person| p person }
+# "First Name,Middle Name\nJack,\n" => {"first_name" => "Jack", "middle_name" => nil}
+# "First Name\nJack\n"               => IOStreams::Errors::InvalidHeader, missing the required field "middle_name"
+~~~
+
+`allowBlank` is a property of the field that IOStreams adds, rather than a constraint, since Frictionless defines
+`required` as `true` or `false`, and a tool reports an error for a constraint that it does not support, while it
+accepts other properties of a field. A field that is not `required` raises `ArgumentError` for it, since its values
+can be blank anyway.
+
 IOStreams does not support the other constraints of Frictionless yet, such as `maxLength`, so they raise
 `ArgumentError`, rather than appear to check values that they do not.
 
@@ -399,8 +443,9 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
 * `fields` The fields of the file, in the order of its columns. Required.
 * `fieldsMatch` How the columns of the file must match the fields, see [fieldsMatch](#fieldsmatch). Default: `exact`
 * `header` `false` when the file has no header row, as in a Frictionless Table Dialect. The columns of the file are
-  then the fields, in order: reading takes every line as a row, and writing writes no header row, and the fields in
-  order. A format without a header row, such as JSON or fixed width, ignores it. Default: `true`
+  then the fields, in order: reading takes every line as a row, after the names of the fields as the header row that
+  `each(:array)` yields, and writing writes no header row, and the fields in order. A format without a header row, such
+  as JSON or fixed width, ignores it. Default: `true`
 * `width` The length of every line of a fixed width file, see [Fixed width files](#fixed-width-files).
 
 `$schema`, `title` and `description` describe the schema to people and have no effect.
@@ -427,6 +472,8 @@ and `#copy_to`, whose options only apply to the target.
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
+* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
+  while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
   of fixed width files always have. IOStreams adds this property.
@@ -486,7 +533,7 @@ each type is written as:
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
 its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
-`required` is written as a column that cannot be null.
+`required` is written as a column that cannot be null, unless it has `allowBlank: true`.
 
 ~~~ruby
 schema = {
@@ -534,8 +581,8 @@ written: an integer outside the range of an `int64`, or a number with more digit
 
 A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
-UTF-8. Like JSON, it has no header row, so without a schema the first row that `each(:array)` yields is a header row
-of its columns, and with a schema each row is the values of its fields, in order, without a header row:
+UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yields is a header row of its columns,
+or with a schema of the names of its fields, and each row after it is the values of the fields, in order:
 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:array) { |row| p row }
@@ -567,11 +614,14 @@ path.writer(:hash) do |io|
 end
 ~~~
 
-A fixed width file has no header row, so each row that `each(:array)` yields is the values of the fields, in order,
-and `writer(:array)` takes rows the same way:
+A fixed width file has no header row, so `each(:array)` yields the names of the fields as its header row, and then
+the values of the fields of each line, in order. `writer(:array)` takes rows of the values of the fields, in order, and
+takes the header row that `each(:array)` yields as the header row of the rows after it, so that the rows read from a
+file in another format, such as CSV, can be written as they are:
 
 ~~~ruby
 path.each(:array) { |row| p row }
+# ["name", "address", "zip"]
 # ["Jack Jones", "Somewhere", 12345]
 ~~~
 

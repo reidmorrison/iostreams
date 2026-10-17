@@ -18,13 +18,30 @@ module IOStreams
       #   See `IOStreams::Tabular::HeaderMapping#initialize` for the others.
       def initialize(schema, header:, parser:, format:, cleanse: true)
         super(header: header, parser: parser, format: format, cleanse: cleanse)
-        @fields = SchemaMapping.new(schema, header: header, parser: parser, format: format)
+        @fields       = SchemaMapping.new(schema, header: header, parser: parser, format: format)
+        # Whether the columns of the rows have been read as their header row, see #rows_header?.
+        @columns_read = false
       end
 
       # Returns [Array<String|Symbol>] the columns of the rows, see #row_parse: the keys of the layout, or the columns
-      # supplied, as they are supplied, see `IOStreams::Tabular#headerless_columns`.
+      # supplied, as they are supplied.
       def headerless_columns
         @rows ? @rows.columns.dup : @fields.headerless_columns
+      end
+
+      # Returns [true|false] whether the rows read start with a header row: the keys of the layout, which are the columns
+      # of the rows, see #headerless_columns, until they are read, see #read_rows_header, since a fixed width file has
+      # none of its own. False when the columns were supplied, which name the values of the rows instead, as for any
+      # other format, see `IOStreams::Tabular::HeaderMapping#rows_header?`.
+      def rows_header?
+        !(@columns_read || columns_supplied?)
+      end
+
+      # Returns [Array<String|Symbol>] the columns of the rows, see #headerless_columns, as the header row of the rows,
+      # whatever the line is, since a fixed width file has none of its own to read, see #rows_header?.
+      def read_rows_header(_line)
+        @columns_read = true
+        headerless_columns
       end
 
       # Returns [Array] the values of the line, in the order of the columns of its rows: the fields of the layout, see
@@ -61,6 +78,12 @@ module IOStreams
       # fields of the layout, see `IOStreams::Tabular::SchemaMapping#render_header`.
       def render_header(columns = nil)
         @fields.render_header(columns)
+      end
+
+      # Takes the columns of the rows written after them from a header row written before them, matched to the fields of
+      # the layout, see `IOStreams::Tabular::SchemaMapping#take_columns`.
+      def take_columns(columns)
+        @fields.take_columns(columns)
       end
     end
   end

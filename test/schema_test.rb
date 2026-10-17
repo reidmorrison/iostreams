@@ -93,6 +93,22 @@ class SchemaTest < Minitest::Test
         assert_raises(ArgumentError) { field(constraints: [:required]) }
       end
 
+      it "accepts allowBlank for a required field, which is still required" do
+        assert_predicate field(constraints: {required: true}, allowBlank: true), :required?
+        assert_predicate field("constraints" => {"required" => true}, "allowBlank" => true), :required?
+        refute_predicate field(allowBlank: false), :required?
+      end
+
+      it "raises for allowBlank on a field that is not required, or that is not true or false" do
+        error = assert_raises(ArgumentError) { field(allowBlank: true) }
+        assert_equal 'Field "value": allowBlank only applies to a field whose constraints are required, since the values ' \
+                     "of any other field can be blank", error.message
+        assert_raises(ArgumentError) { field(constraints: {required: false}, allowBlank: true) }
+
+        error = assert_raises(ArgumentError) { field(constraints: {required: true}, allowBlank: "yes") }
+        assert_equal 'Field "value": allowBlank must be true or false: "yes"', error.message
+      end
+
       it "accepts aliases, which are names" do
         assert_equal ["DOB", "Birth Date"], field(aliases: ["DOB", "Birth Date"]).aliases
         assert_empty field.aliases
@@ -323,6 +339,13 @@ class SchemaTest < Minitest::Test
         assert_nil schema.field_for(nil)
       end
 
+      it "returns nil for a column whose bytes are not valid in its encoding, rather than raise as it cleanses it" do
+        invalid = (+"Caf\xE9").force_encoding(Encoding::UTF_8)
+
+        assert_nil schema.field_for(invalid)
+        assert_nil IOStreams::Schema.new(fields: [{name: "_"}, {name: "id"}]).field_for(invalid)
+      end
+
       it "finds the field named as the column once cleansed, whose characters that Unicode makes digits it drops" do
         cleansed = IOStreams::Schema.new(fields: [{name: "area_m"}, {name: "score"}, {name: "Rate (½)"}])
 
@@ -330,6 +353,27 @@ class SchemaTest < Minitest::Test
         assert_equal "score", cleansed.field_for("Score ①").name
         assert_equal "Rate (½)", cleansed.field_for("rate_").name
         assert_equal "Rate (½)", cleansed.field_for("rate").name
+      end
+
+      it "finds the field named as the column once cleansed, when several fields are the same loosely" do
+        both = IOStreams::Schema.new(fields: [{name: "e_mail"}, {name: "email"}])
+
+        assert_equal "e_mail", both.field_for("E-mail").name
+        assert_equal "email", both.field_for("Email").name
+        assert_equal "e_mail", both.field_for(" E MAIL ").name
+      end
+
+      it "still raises for a column that is several fields loosely, and none of them once cleansed" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "na_me"}, {name: "n_ame"}]).field_for("Name")
+        end
+        assert_match(/\AThe column "Name" could be any of the fields "na_me" and "n_ame"/, error.message)
+        assert_raises(IOStreams::Errors::InvalidHeader) { schema.field_for("amount_") }
+      end
+
+      it "finds the field named as a column without letters or digits once cleansed" do
+        assert_equal "_", IOStreams::Schema.new(fields: [{name: "_"}, {name: "id"}]).field_for(" _ ").name
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}]).field_for(" _ ")
       end
 
       it "finds the field whose name keeps the digits that Unicode makes of such characters first" do
@@ -924,6 +968,17 @@ class SchemaTest < Minitest::Test
           assert_nil field(type: "integer").cast("")
           assert_equal "", field(type: "string").cast("")
           assert_nil field.cast(nil)
+        end
+
+        it "accepts no value for a required field that allows blank values, when reading and writing" do
+          %w[any string integer date].each do |type|
+            blank = field(type: type, constraints: {required: true}, allowBlank: true)
+
+            assert_nil blank.cast(nil)
+            assert_nil blank.render(nil, :text)
+          end
+          assert_equal "", field(type: "string", constraints: {required: true}, allowBlank: true).cast("")
+          assert_nil field(type: "integer", constraints: {required: true}, allowBlank: true).cast("  ")
         end
       end
     end

@@ -40,6 +40,9 @@ module IOStreams
         else
           @columns.match_in_order
         end
+        # Whether the names of the fields have been read as the header row of the rows of a file without one, see
+        # #rows_header?.
+        @names_read = false
       end
 
       # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, unless the schema
@@ -55,10 +58,11 @@ module IOStreams
       end
 
       # Returns [true|false] whether the rows read start with a header row, see `IOStreams::Tabular#rows_header?`: the
-      # header row of a file with one, until it is read, see #header?, since the fields are the columns of the rows of a
-      # file without one.
+      # header row of a file with one, until it is read, see #header?, or for a file without one, the names of the
+      # fields, which are the columns of its rows, until they are read, see #read_rows_header, so that the rows of every
+      # file start with a header row.
       def rows_header?
-        header?
+        @requires_header ? header? : !@names_read
       end
 
       # Returns [true] the keys of the records read are the names of the fields, see `IOStreams::Tabular#field_names?`.
@@ -83,23 +87,34 @@ module IOStreams
         false
       end
 
-      # Returns [true|false] whether the next row written is the header row of the rows after it, for a file with a
-      # header row, until it is written, so that the rows read from a file with a header row, which start with it, can be
-      # written, see `IOStreams::Schema::Columns#match_written`.
+      # Returns [false] the schema writes the header row of a file with one, the names of its fields, before the rows
+      # written, see `IOStreams::Tabular#start_rows`, so that every row written is a row of the values of the fields, in
+      # order, as for a file without a header row.
       def first_row_header?
-        @requires_header && !@columns.written?
+        false
       end
 
-      # Returns [true|false] whether the header row written before the rows copied from a file with one gives the
-      # columns of the rows, see #render_header, rather than being written as a row: for a file without a header row,
-      # whose header row is the names of the fields.
+      # Returns [true] a header row written before the rows after it, such as the header row that
+      # `IOStreams::Stream#each(:array)` yields, an `IOStreams::Row::HeaderRow`, gives the columns of those rows, see
+      # #take_columns, rather than being written as a row, since the header row of the file is the names of the fields,
+      # which the schema writes, or the file has none.
       def columns_from_header_row?
-        !@requires_header
+        true
+      end
+
+      # Takes the columns of the rows written after them from a header row written before them, see
+      # #columns_from_header_row?, once they are matched to the fields, see `IOStreams::Schema::Columns#match_written`,
+      # without a line, since the header row of the file is the names of the fields, which the schema writes, see
+      # #render_header.
+      def take_columns(columns)
+        @columns.match_written(columns)
+        nil
       end
 
       # Returns [Array] the header row parsed from the line, once its columns are matched to the fields, see
       # `IOStreams::Schema::Columns#match`.
-      # Returns nil when the line is blank, or the format has no header row.
+      # Returns nil when the line is blank, or the file has no header row, see #requires_header?, such as with a schema
+      # whose `header` is false, whose lines are all rows.
       def parse_header(line)
         match_header(line)&.first
       end
@@ -107,7 +122,7 @@ module IOStreams
       # Matches the columns of the header row to the fields, see #parse_header.
       #
       # Returns [Array<String|Symbol>] the names of the fields of its columns, in the order of the fields.
-      # Returns nil when the line is blank, or the format has no header row.
+      # Returns nil when the line is blank, or the file has no header row.
       #
       # Raises ArgumentError for `cleanse`, other than nil or `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which leave the
       # header row as it is, since the keys of the records are the names of the fields, which its columns are matched to
@@ -119,6 +134,13 @@ module IOStreams
         end
 
         match_header(line)&.last
+      end
+
+      # Returns [Array<String|Symbol>] the header row of the rows of a file without one, which is not a line of the
+      # file, see #rows_header?: the names of the fields, which are the columns of its rows, whatever the line is.
+      def read_rows_header(_line)
+        @names_read = true
+        @columns.names
       end
 
       # Returns nil: no column options apply, since the schema describes the columns instead.
@@ -194,7 +216,7 @@ module IOStreams
       # names of the fields of its columns, once they are matched to the fields, or nil when the line is blank, or the
       # format has no header row.
       def match_header(line)
-        return if IOStreams::Utils.blank?(line) || !@parser.requires_header?
+        return if IOStreams::Utils.blank?(line) || !@requires_header
 
         columns        = @parser.parse(line)
         names          = @columns.match(columns)

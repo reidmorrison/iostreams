@@ -157,18 +157,18 @@ class ParquetTest < Minitest::Test
                    read
     end
 
-    it "reads each row as the value of every field of the schema, in order, without a header row" do
+    it "reads each row as the value of every field of the schema, in order, after a header row of the names of the fields" do
       write
       rows = []
       path.schema(schema).each(:array) { |row| rows << row }
 
-      assert_equal expected.map(&:values), rows
-      refute path.schema(schema).reader(:array, &:header?)
+      assert_equal [schema[:fields].map { |field| field[:name] }, *expected.map(&:values)], rows
+      assert path.schema(schema).reader(:array, &:header?)
 
       rows = []
       path.schema(fieldsMatch: "subset", fields: [{name: "Name", type: "string"}, {name: "ID", type: "integer"}]).each(:array) { |row| rows << row }
 
-      assert_equal [["Jack", 1], [nil, 2]], rows
+      assert_equal [%w[Name ID], ["Jack", 1], [nil, 2]], rows
     end
 
     it "reads the rows of a file without a schema after a header row of its columns" do
@@ -300,6 +300,13 @@ class ParquetTest < Minitest::Test
 
     it "raises when a required field has no value" do
       assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"name" => "Jack"}]) }
+    end
+
+    it "writes a required field that allows blank values as a column that can be null" do
+      blank = {fields: [{name: "id", type: "integer"}, {name: "email", type: "string", constraints: {required: true}, allowBlank: true}]}
+      write(path.schema(blank), [{"id" => 1, "email" => nil}, {"id" => 2, "email" => "jack@example.org"}])
+
+      assert_equal [{"id" => 1, "email" => nil}, {"id" => 2, "email" => "jack@example.org"}], read(path.schema(blank))
     end
 
     it "raises when writing without a schema, before it replaces an existing file" do

@@ -15,7 +15,8 @@ module IOStreams
     #
     #   constraints: [Hash]
     #     The rules that the values of the field must follow, such as `{required: true}` for a field that must have a
-    #     value, both when reading and when writing, see `IOStreams::Schema::Constraints`.
+    #     value, both when reading and when writing, see `IOStreams::Schema::Constraints`, unless it allows blank
+    #     values, see `allowBlank` below.
     #
     #   type: [String]
     #     "string":   a String. Any other value is written as its text, except a Hash or an Array, which raise.
@@ -47,6 +48,15 @@ module IOStreams
     #     files whose columns are not named the same way, such as spreadsheets made by hand. A column is matched to an
     #     alias as it is to the name, see `IOStreams::Schema#field_for`. The header row that is written has the name.
     #     Default: []
+    #
+    #   allowBlank: [true|false]
+    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text. The
+    #     header row, or each JSON record, must still have the field, as the deprecated `required_columns:` checked, but
+    #     a value is not required, both when reading and when writing. A property of the field rather than a constraint,
+    #     since Frictionless defines `required` as a boolean, and a tool reports an error for a constraint that it does
+    #     not support, while it accepts other properties of a field. Raises ArgumentError for a field that is not
+    #     required, whose values can be blank anyway.
+    #     Default: false
     #
     #   decimals: [Integer]
     #     For a number, the number of digits written after the decimal point, rounding the value to them.
@@ -86,7 +96,7 @@ module IOStreams
       }.freeze
 
       # The properties that every field accepts.
-      PROPERTIES = %w[name type format width start constraints aliases].freeze
+      PROPERTIES = %w[name type format width start constraints aliases allowBlank].freeze
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
@@ -167,7 +177,8 @@ module IOStreams
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
-        @constraints  = Constraints.new(descriptor["constraints"], @name)
+        @constraints  = Constraints.new(descriptor["constraints"], @name,
+                                        allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
         require_bigdecimal if @type == "number" && !@float
         freeze
       end
@@ -287,8 +298,13 @@ module IOStreams
       # Returns [true|false] whether a number is a Float rather than a BigDecimal, see `floatNumber` above.
       def float? = @float
 
-      # Returns [true|false] whether the field must have a value, see `constraints` above.
+      # Returns [true|false] whether the header row, or each record, must have the field, and, unless it allows blank
+      # values, a value, see `constraints` and `allowBlank` above.
       def required? = @constraints.required?
+
+      # Returns [true|false] whether each value of the field must be present: when it is required, unless it allows
+      # blank values, see `constraints` and `allowBlank` above, so that a value of nil, or empty text, raises.
+      def value_required? = @constraints.value_required?
 
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, or nil
       # when the value is nil, or is text that is empty once its leading and trailing whitespace is removed, except
