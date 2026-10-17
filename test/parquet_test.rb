@@ -302,6 +302,13 @@ class ParquetTest < Minitest::Test
       assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"name" => "Jack"}]) }
     end
 
+    it "writes a required field that allows blank values as a column that can be null" do
+      blank = {fields: [{name: "id", type: "integer"}, {name: "email", type: "string", constraints: {required: true}, allowBlank: true}]}
+      write(path.schema(blank), [{"id" => 1, "email" => nil}, {"id" => 2, "email" => "jack@example.org"}])
+
+      assert_equal [{"id" => 1, "email" => nil}, {"id" => 2, "email" => "jack@example.org"}], read(path.schema(blank))
+    end
+
     it "raises when writing without a schema, before it replaces an existing file" do
       File.write(File.join(dir, "people.parquet"), "existing")
       error = assert_raises(ArgumentError) { write(path) }

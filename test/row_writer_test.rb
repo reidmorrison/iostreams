@@ -96,6 +96,21 @@ class RowWriterTest < Minitest::Test
 
         assert_equal %({"id":"name","name":"id"}\n{"id":"1","name":"Jack"}\n), output.string
       end
+
+      it "writes a header row after the first row as a row of values without a schema, which cannot match its columns" do
+        concatenate = lambda do |format|
+          output = StringIO.new
+          IOStreams.stream(output).format(format).writer(:array) do |io|
+            ["name,zip\nJack,1\n", "name,zip\nJill,2\n"].each do |text|
+              IOStreams.stream(StringIO.new(text)).format(:csv).each(:array) { |row| io << row }
+            end
+          end
+          output.string
+        end
+
+        assert_equal "name,zip\nJack,1\nname,zip\nJill,2\n", concatenate.call(:csv)
+        assert_equal %({"name":"Jack","zip":"1"}\n{"name":"name","zip":"zip"}\n{"name":"Jill","zip":"2"}\n), concatenate.call(:json)
+      end
     end
 
     describe "#inspect" do

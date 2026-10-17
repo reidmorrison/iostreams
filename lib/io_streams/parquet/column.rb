@@ -15,8 +15,9 @@ module IOStreams
     #   "date"      date32
     #   "datetime"  timestamp_micros, adjusted to UTC, so the time read back is in UTC, and has whole microseconds.
     #
-    # A field whose `constraints` are `required` cannot be null. A field of type "any" raises ArgumentError, since
-    # Parquet needs the type of every column.
+    # A field whose `constraints` are `required` cannot be null, unless it allows blank values, see `allowBlank` in
+    # `IOStreams::Schema::Field`. A field of type "any" raises ArgumentError, since Parquet needs the type of every
+    # column.
     class Column
       # The precision of a Parquet decimal: the most digits that a decimal of 16 bytes holds.
       PRECISION = 38
@@ -42,7 +43,7 @@ module IOStreams
 
       # Returns [Hash] the field of the schema of the `parquet` gem that describes this column.
       def descriptor
-        descriptor = {name: @field.name.to_s, type: @type, nullable: !@field.required?}
+        descriptor = {name: @field.name.to_s, type: @type, nullable: !@field.value_required?}
         descriptor.merge!(precision: PRECISION, scale: @field.decimals) if @type == :decimal
         descriptor[:timezone] = "UTC" if @type == :timestamp_micros
         descriptor

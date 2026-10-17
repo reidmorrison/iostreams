@@ -191,11 +191,11 @@ module IOStreams
       private
 
       # Returns [Array] the columns of a header row up to the last one with a name, without the columns without a name
-      # after it, which are blank, such as the empty column after a delimiter at the end of each line. A column without
-      # a name between other columns is still a column, which holds a position, so that it is a column that the schema
-      # does not list.
+      # after it, which are blank, see `IOStreams::Schema.blank?`, such as the empty column after a delimiter at the end
+      # of each line. A column without a name between other columns is still a column, which holds a position, so that
+      # it is a column that the schema does not list.
       def named(labels)
-        last = labels.rindex { |label| !IOStreams::Utils.blank?(label) }
+        last = labels.rindex { |label| !Schema.blank?(label) }
         last ? labels[0..last] : []
       end
 
@@ -211,13 +211,14 @@ module IOStreams
       # of its header row, or the last field of a file without one, which `last` names, unless `fieldsMatch` skips them,
       # since they are not the value of any field, such as when a value read holds a delimiter that is not quoted.
       #
-      # A value there that is nil, or text that is blank, is not data, such as the empty value after a delimiter at the
-      # end of a line, so it is ignored, both when reading and when writing, so that the rows read can be written. Any
-      # other value, such as `false`, is data, so it raises.
+      # A value there that is blank, see `IOStreams::Schema.blank?`, as a column without a name after the last column
+      # is, see #named, is not data, such as the empty value after a delimiter at the end of a line, so it is ignored,
+      # both when reading and when writing, so that the rows read can be written. Any other value, such as `false`, is
+      # data, so it raises.
       def check_extra(values, width, last)
         return unless values.size > width
 
-        extra = values.drop(width).reject { |value| value.nil? || (value.is_a?(String) && IOStreams::Utils.blank?(value)) }
+        extra = values.drop(width).reject { |value| Schema.blank?(value) }
         @schema.check_unknown(extra, noun: "value", last: last, fields_in_order: @fields_in_order)
       end
 

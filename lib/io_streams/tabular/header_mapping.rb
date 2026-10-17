@@ -86,10 +86,20 @@ module IOStreams
       end
 
       # Returns [true|false] whether the header row written before the rows copied from a file with one gives the
-      # columns of the rows, see #render_header, rather than being written as a row: for a format without a header row,
+      # columns of the rows, see #take_columns, rather than being written as a row: for a format without a header row,
       # such as JSON, unless the columns are known, which it does not replace.
       def columns_from_header_row?
         !@requires_header && header.columns.nil?
+      end
+
+      # Takes the columns of the rows written after them from a header row written before them, see
+      # #columns_from_header_row?, which become the columns, see #render_header, without a line, since a format that
+      # takes them, such as JSON, has no header row.
+      #
+      # Raises `IOStreams::Errors::MissingHeader` when the columns of a format of keyed records are empty.
+      def take_columns(columns)
+        render_header(columns)
+        nil
       end
 
       # Returns [Array] the header row parsed from the line, which becomes the columns of the header, before it is

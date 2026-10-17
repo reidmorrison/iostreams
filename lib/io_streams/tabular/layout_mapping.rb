@@ -29,10 +29,12 @@ module IOStreams
         @rows ? @rows.columns.dup : @fields.headerless_columns
       end
 
-      # Returns [true|false] whether the rows read start with a header row: the columns of the rows, see
-      # #headerless_columns, until they are read, see #read_rows_header, since a fixed width file has none of its own.
+      # Returns [true|false] whether the rows read start with a header row: the keys of the layout, which are the columns
+      # of the rows, see #headerless_columns, until they are read, see #read_rows_header, since a fixed width file has
+      # none of its own. False when the columns were supplied, which name the values of the rows instead, as for any
+      # other format, see `IOStreams::Tabular::HeaderMapping#rows_header?`.
       def rows_header?
-        !@columns_read
+        !(@columns_read || columns_supplied?)
       end
 
       # Returns [Array<String|Symbol>] the columns of the rows, see #headerless_columns, as the header row of the rows,
@@ -76,6 +78,12 @@ module IOStreams
       # fields of the layout, see `IOStreams::Tabular::SchemaMapping#render_header`.
       def render_header(columns = nil)
         @fields.render_header(columns)
+      end
+
+      # Takes the columns of the rows written after them from a header row written before them, matched to the fields of
+      # the layout, see `IOStreams::Tabular::SchemaMapping#take_columns`.
+      def take_columns(columns)
+        @fields.take_columns(columns)
       end
     end
   end

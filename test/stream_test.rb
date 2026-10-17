@@ -1186,7 +1186,7 @@ class StreamTest < Minitest::Test
         assert_equal "", out.string
       end
 
-      it "reads each row as the values of the layout, in order, or of the columns supplied, by their keys, after a header row of them" do
+      it "reads each row as the values of the layout, in order, after a header row of its keys, or of the columns supplied, by their keys, without one" do
         layout = {layout: [{size: 4, key: "name"}, {size: 2}, {size: 5, key: :zip, type: :integer}]}
         rows   = []
         IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).each(:array) { |row| rows << row }
@@ -1197,7 +1197,9 @@ class StreamTest < Minitest::Test
         IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).
           each(:array, columns: %w[Zip name], allowed_columns: %w[name]) { |row| rows << row }
 
-        assert_equal [%w[Zip name], [12_345, "Jack"]], rows
+        # The columns supplied name the values of the rows, so that no header row names them, as for any other format.
+        assert_equal [[12_345, "Jack"]], rows
+        refute IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).reader(:array, columns: %w[Zip name], &:header?)
       end
 
       it "copies its rows into a file with a header row of the keys of the layout" do
@@ -2183,6 +2185,23 @@ class StreamTest < Minitest::Test
 
           error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name", nil), [1, "Jack", 21]], :array, schema: {fields: fields}) }
           assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
+        end
+
+        it "takes a column at the end of the header row that is not blank text as a column, as it takes a value there" do
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name", false), [1, "Jack"]], :array, schema: {fields: fields}) }
+          assert_match(/\AThe header row does not match the schema: the column false is not a field/, error.message)
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row("id", "name"), [1, "Jack", false]], :array, schema: {fields: fields}) }
+          assert_match(/\AThe values of a row do not match the schema: 1 value after the last column/, error.message)
+        end
+
+        it "skips a column whose bytes are not valid in its encoding when it skips the others, rather than raise" do
+          invalid = (+"Caf\xE9").force_encoding(Encoding::UTF_8)
+          schema  = {fields: fields, fieldsMatch: "subset"}
+
+          assert_equal "id,name\n1,Jack\n", write([header_row("id", "name", invalid), [1, "Jack", 2]], :array, schema: schema)
+          assert_equal "id,name\n1,Jack\n", write([{"id" => 1, "name" => "Jack", invalid => 2}], schema: schema)
+          assert_equal "id,name\n1,Jack\n", write([header_row("id", "name"), [1, "Jack", invalid]], :array, schema: schema)
         end
 
         it "raises for a header row written without a column that is a field, such as a row of values, rather than write empty rows" do

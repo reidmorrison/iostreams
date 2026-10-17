@@ -11,7 +11,8 @@ module IOStreams
     #
     # Without a schema, the first row is the header row, as `each(:array)` returns it, unless the columns are supplied.
     # The first row written to JSON is the header row too, which names the key of each value of the rows after it,
-    # without a line of its own.
+    # without a line of its own. A header row after the first row, even an `IOStreams::Row::HeaderRow`, is written as a
+    # row of values, since without a schema its columns cannot be matched to those of the file.
     #
     # With a schema, the header row of a file with one is the names of its fields, which the writer writes before the
     # rows, so every row written is the values of the fields, in order, as for a file without a header row:
@@ -83,9 +84,10 @@ module IOStreams
 
       # Supply a hash or an array to render. Without a schema, the first row is the header row, unless the columns were
       # supplied, see `IOStreams::Tabular#render_row`, and with one, every row is the values of the fields, in order, see
-      # above. A header row that `IOStreams::Stream#each(:array)` yields, an
-      # `IOStreams::Row::HeaderRow`, is written as the header row of the rows after it, see #write_header, so that the
-      # rows read from one file can be written to another as they are, whatever their formats.
+      # above. A header row that `IOStreams::Stream#each(:array)` yields, an `IOStreams::Row::HeaderRow`, is written as
+      # the header row of the rows after it, see #write_header: with a schema, whichever row it is, otherwise as the first
+      # row, as any first row is, so that the rows read from one file can be written to another as they are, whatever
+      # their formats.
       #
       # Returns self, so that calls can be chained.
       def <<(array)

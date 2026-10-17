@@ -339,6 +339,13 @@ class SchemaTest < Minitest::Test
         assert_nil schema.field_for(nil)
       end
 
+      it "returns nil for a column whose bytes are not valid in its encoding, rather than raise as it cleanses it" do
+        invalid = (+"Caf\xE9").force_encoding(Encoding::UTF_8)
+
+        assert_nil schema.field_for(invalid)
+        assert_nil IOStreams::Schema.new(fields: [{name: "_"}, {name: "id"}]).field_for(invalid)
+      end
+
       it "finds the field named as the column once cleansed, whose characters that Unicode makes digits it drops" do
         cleansed = IOStreams::Schema.new(fields: [{name: "area_m"}, {name: "score"}, {name: "Rate (½)"}])
 

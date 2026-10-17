@@ -25,8 +25,8 @@ module IOStreams
     #   `#header?`, whether the rows read start with a header row, `#rows_header?`, which `#read_rows_header` reads when
     #   it is not a line of its own, such as the keys of the first record of JSON without a schema, or the names of the
     #   fields of a file without a header row, whether the next row written is the header row, `#first_row_header?`, and
-    #   where the columns of the rows written come from, `#columns_from_first_row?`, `#columns_from_header_row?` and
-    #   `#columns_supplied?`.
+    #   where the columns of the rows written come from, `#columns_from_first_row?`, `#columns_from_header_row?`, which
+    #   `#take_columns` takes, and `#columns_supplied?`.
     # * Answers whether the keys of the records read are the names of fields, `#field_names?`, and the columns of the
     #   rows of a file without a header row, `#headerless_columns`.
     #

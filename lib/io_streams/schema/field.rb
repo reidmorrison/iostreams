@@ -302,6 +302,10 @@ module IOStreams
       # values, a value, see `constraints` and `allowBlank` above.
       def required? = @constraints.required?
 
+      # Returns [true|false] whether each value of the field must be present: when it is required, unless it allows
+      # blank values, see `constraints` and `allowBlank` above, so that a value of nil, or empty text, raises.
+      def value_required? = @constraints.value_required?
+
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, or nil
       # when the value is nil, or is text that is empty once its leading and trailing whitespace is removed, except
       # for a string or any field, which returns the text as it is.

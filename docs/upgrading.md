@@ -1473,6 +1473,9 @@ A schema reads the same records as the options it replaces, named as above, exce
   where the column options left the header row and the rows as they are in the file.
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
+* A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
+  `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
+  read it as an empty record, `{}`.
 * JSON writes every field of each record, `null` for a key that the record does not have, where `columns:` wrote only
   the keys that it had, so that the file reads back with the same schema.
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.

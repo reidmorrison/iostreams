@@ -96,10 +96,19 @@ module IOStreams
 
       # Returns [true] a header row written before the rows after it, such as the header row that
       # `IOStreams::Stream#each(:array)` yields, an `IOStreams::Row::HeaderRow`, gives the columns of those rows, see
-      # #render_header, rather than being written as a row, since the header row of the file is the names of the fields,
+      # #take_columns, rather than being written as a row, since the header row of the file is the names of the fields,
       # which the schema writes, or the file has none.
       def columns_from_header_row?
         true
+      end
+
+      # Takes the columns of the rows written after them from a header row written before them, see
+      # #columns_from_header_row?, once they are matched to the fields, see `IOStreams::Schema::Columns#match_written`,
+      # without a line, since the header row of the file is the names of the fields, which the schema writes, see
+      # #render_header.
+      def take_columns(columns)
+        @columns.match_written(columns)
+        nil
       end
 
       # Returns [Array] the header row parsed from the line, once its columns are matched to the fields, see

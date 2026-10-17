@@ -194,17 +194,22 @@ module IOStreams
     end
 
     # Returns [true|false] whether the rows read start with a header row, which names the column of each value of the
-    # rows after it, see #read_row: the header row of a file with one, until it is read, see #header?, or for a format of
-    # keyed records, such as JSON, without a schema or the columns supplied, the keys of its first record, until they are
-    # read, since the columns of its rows are not known until then.
+    # rows after it, see #read_row, until it is read: the header row of a file with one, see #header?, otherwise the
+    # columns of the rows of a file without one, which are not a line of their own, see
+    # `IOStreams::Tabular::Mapping#read_rows_header`: the names of the fields of a schema, such as of fixed width, of
+    # JSON or Parquet, or of a file whose schema has `header: false`, the keys of the layout of a fixed width file, or
+    # for a format of keyed records, such as JSON, without a schema, the keys of its first record, since the columns of
+    # its rows are not known until then. False when the columns were supplied, which name the values of the rows
+    # instead.
     def rows_header?
       @mapping.rows_header?
     end
 
     # Returns [Array<String|Symbol>] the columns of the rows that #row_parse returns of a file without a header row, which
-    # #read_row yields as their header row, so that a copy can give them to the target, see
-    # `IOStreams::Row::Reader#copy_to`: the names of the fields of a schema, see `IOStreams::Schema#header?`, such as of
-    # fixed width or JSON, or the keys of the layout of a fixed width file, or the columns supplied for it.
+    # #read_row yields as their header row unless they were supplied, see #rows_header?, so that a copy can give them to
+    # the target, see `IOStreams::Row::Reader#copy_to`: the names of the fields of a schema, see
+    # `IOStreams::Schema#header?`, such as of fixed width or JSON, or the keys of the layout of a fixed width file, or
+    # the columns supplied for it.
     # Returns nil for any other file, such as one whose rows start with a header row of its own, see #rows_header?.
     def headerless_columns
       @mapping.headerless_columns
@@ -440,7 +445,7 @@ module IOStreams
     def render_header_row(columns, &)
       return render_row(columns, &) unless @mapping.columns_from_header_row?
 
-      render_header(columns)
+      @mapping.take_columns(columns)
       nil
     end
 

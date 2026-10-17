@@ -100,6 +100,14 @@ module IOStreams
       IOStreams::Tabular::Header.cleanse_column(label)
     end
 
+    # Returns [true|false] whether a column of a header row, or a value after the last column of a row, is blank, so
+    # that it is not a column, nor data: nil, or text that is empty or only whitespace, such as the empty column after a
+    # delimiter at the end of a line, see `IOStreams::Schema::Columns`. Any other value is not blank, such as `false`,
+    # or text whose bytes are not valid in its encoding.
+    def self.blank?(value)
+      value.nil? || (value.is_a?(String) && value.valid_encoding? && IOStreams::Utils.blank?(value))
+    end
+
     # Returns [IOStreams::Schema] the schema of the descriptor read from the supplied path or url, a String or a
     # path, such as `"s3://bucket/schemas/people.json"`, whose text is JSON.
     #
@@ -195,7 +203,8 @@ module IOStreams
     # `cleanse_header` named the columns finds every column that it found, such as `E-mail` for the field `e_mail`
     # beside the field `email`.
     #
-    # Returns nil when no field is the column.
+    # Returns nil when no field is the column, including a column whose bytes are not valid in its encoding, which is
+    # only the field whose name it is.
     #
     # Raises `IOStreams::Errors::InvalidHeader` when the column is the same as the names or aliases of several fields
     # once compared loosely, and is not the name or alias of one of them once cleansed, since either could be meant.
@@ -376,9 +385,9 @@ module IOStreams
       "#{text}, which fieldsMatch #{fields_match.inspect} does not accept; \"subset\" and \"partial\" skip them"
     end
 
-    # Returns [String] the columns, with those without a name counted, since they cannot be named.
+    # Returns [String] the columns, with those without a name counted, since they cannot be named, see .blank?.
     def describe(labels, noun)
-      blank, named = labels.partition { |label| IOStreams::Utils.blank?(label) }
+      blank, named = labels.partition { |label| self.class.blank?(label) }
       parts = []
       parts << "the #{plural(noun, named)} #{sentence(named.map(&:inspect))}" unless named.empty?
       parts << (blank.size == 1 ? "a #{noun} without a name" : "#{blank.size} #{noun}s without a name") unless blank.empty?
@@ -401,14 +410,22 @@ module IOStreams
     # else once both are cleansed and compared loosely, see #field_for. When that finds no field, or several, the field
     # whose name or alias is the label once cleansed, if there is one, see .cleansed, as the deprecated `cleanse_header`
     # named the column, so that `E-mail` is the field `e_mail` rather than either of `e_mail` and `email`, and ` _ ` is
-    # the field `_`, which has no letters or digits to compare loosely.
+    # the field `_`, which has no letters or digits to compare loosely. A label whose bytes are not valid in its
+    # encoding is no field, since its text cannot be compared, nor cleansed.
     def loose_field(label, noun)
-      key    = self.class.match_key(label)
-      fields = key && (@loose[key] || @cleansed[self.class.match_key(self.class.cleansed(label))])
+      text = label.is_a?(String) ? label : label.to_s
+      return unless text.valid_encoding?
+
+      key    = self.class.match_key(text)
+      fields = key && @loose[key]
       return fields.first if fields&.size == 1
 
-      cleansed = @named[self.class.cleansed(label)]
-      return cleansed if cleansed
+      cleansed = self.class.cleansed(text)
+      fields ||= key && @cleansed[self.class.match_key(cleansed)]
+      return fields.first if fields&.size == 1
+
+      named = @named[cleansed]
+      return named if named
       return if fields.nil?
 
       raise(

@@ -153,10 +153,11 @@ module Tabular
           json = mapping(:json)
 
           assert_predicate json, :columns_from_header_row?
-          assert_nil json.render_header(%w[a b])
+          assert_nil json.take_columns(%w[a b])
           refute_predicate json, :columns_from_header_row?
           assert_equal %({"a":1,"b":2}), json.render([1, 2])
           refute_predicate mapping, :columns_from_header_row?
+          assert_raises(IOStreams::Errors::MissingHeader) { mapping(:json).take_columns([]) }
         end
       end
 
@@ -193,6 +194,10 @@ module Tabular
           assert_equal "id,pay", csv.render_header(%w[Pay ID])
           assert_equal "1,2.50", csv.render([2.5, 1])
           refute_predicate csv, :columns_supplied?
+
+          # Without a line, since the schema writes the header row of the file itself.
+          assert_nil csv.take_columns(%w[ID Pay])
+          assert_equal "1,2.50", csv.render([1, 2.5])
         end
 
         it "arranges each row that it renders by whether the rows of the format are keyed, whether or not it has a header row" do
@@ -262,6 +267,8 @@ module Tabular
           supplied.restrict_columns
 
           assert_equal %w[__rejected__Code id], supplied.header.columns
+          refute_predicate supplied, :rows_header?
+          assert_predicate mapping, :rows_header?
           assert_equal ["abc", 7], supplied.row_parse("07abc")
           assert_equal %w[Code id], supplied.headerless_columns
           assert_equal({"id" => 7}, supplied.record_parse(["abc", 7]))
@@ -290,6 +297,8 @@ module Tabular
           assert_predicate fixed, :columns_from_header_row?
           assert_nil fixed.render_header(%w[code id])
           assert_equal "07abc", fixed.render(%w[abc 7])
+          assert_nil fixed.take_columns(%w[id code])
+          assert_equal "07abc", fixed.render([7, "abc"])
           refute_predicate mapping(columns: %w[id code]), :columns_from_header_row?
         end
       end

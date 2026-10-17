@@ -41,15 +41,21 @@ module IOStreams
       end
 
       # Returns [true|false] whether the header row, or each record, must have the field, see `required` above, and,
-      # unless it allows blank values, a value.
+      # unless it allows blank values, a value, see #value_required?.
       def required?
         @required
       end
 
-      # Returns nil, the value of a field that has none, unless it is required, and does not allow blank values, which
-      # raises `IOStreams::Errors::InvalidValue`.
+      # Returns [true|false] whether each value of the field must be present: when it is required, see `required`
+      # above, unless it allows blank values, so that a value of nil, or empty text, raises, see #no_value.
+      def value_required?
+        @required && !@allow_blank
+      end
+
+      # Returns nil, the value of a field that has none, unless each value of the field must be present, see
+      # #value_required?, which raises `IOStreams::Errors::InvalidValue`.
       def no_value
-        return unless @required && !@allow_blank
+        return unless value_required?
 
         raise(IOStreams::Errors::InvalidValue, "Field #{@name.inspect} is required, but has no value")
       end

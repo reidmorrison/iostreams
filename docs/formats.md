@@ -69,9 +69,10 @@ Without a [schema](#schema), every value is read as text, and written as its tex
 * `writer(:hash)` takes the header row from the keys of the first record, so the values of a key that only a later
   record has are not written, except in JSON, where each record is written with its own keys.
 * `writer(:array)` takes the first row written as the header row, which JSON writes no line for, since it only names
-  the key of each value of the rows after it. It takes an `IOStreams::Row::HeaderRow`, such as the header row that
-  `each(:array)` yields, as the header row of the rows after it too, so that the rows read from one file can be
-  written to another, whatever their formats.
+  the key of each value of the rows after it, so that the rows that `each(:array)` reads from one file, starting with
+  its header row, can be written to another, whatever their formats. A header row after the first row, such as that
+  of a second file, is written as a row of values, since its columns cannot be matched to those of the file without a
+  [schema](#schema), which takes it as the header row of the rows after it.
 * A blank line is yielded as `nil`.
 
 ## CSV and PSV files
@@ -532,7 +533,7 @@ each type is written as:
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
 its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
-`required` is written as a column that cannot be null.
+`required` is written as a column that cannot be null, unless it has `allowBlank: true`.
 
 ~~~ruby
 schema = {
