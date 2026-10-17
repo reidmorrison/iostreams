@@ -1694,6 +1694,22 @@ class TabularTest < Minitest::Test
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: "5", key: "id", type: "integer"}]))
       end
 
+      it "translates a layout whose properties are strings, such as one read from JSON" do
+        layout = JSON.parse('[{"size": 5, "key": "id", "type": "integer"}, {"size": 2}, {"size": "remainder", "key": "rest"}]')
+
+        assert_equal({fields:      [{name: "id", type: "integer", width: 5},
+                                    {name: "rest", type: "string", width: "remainder", truncate: true, start: 8}],
+                      fieldsMatch: "subset"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: layout))
+      end
+
+      it "raises for a column with a property both as a string and as a symbol" do
+        error = assert_raises(IOStreams::Errors::InvalidLayout) do
+          IOStreams::Tabular::Parser::Fixed.schema(layout: [{:size => 5, "size" => 6, :key => "id"}])
+        end
+        assert_match(/both as a String and as a Symbol/, error.message)
+      end
+
       it "skips the keys of a record written that the layout does not have, as a layout did" do
         layout = [{size: 10, key: :name}, {size: 3, key: :age, type: :integer}]
         fixed  = IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})

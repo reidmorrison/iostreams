@@ -172,31 +172,93 @@ end
 
 ## Common tasks
 
-* **Read a CSV, JSON or Excel file a record at a time:**
-  `IOStreams.path("people.csv").each(:hash) { |record| p record }`, see [Reading](streams#reading).
-* **Write a file compressed with gzip:** `IOStreams.path("people.csv.gz").writer(:hash) { |io| io << record }`, see
-  [gzip](extensions#gzip).
-* **Convert CSV to JSON:** `IOStreams.path("people.json").copy_from("people.csv", mode: :hash)`, see
-  [Converting rows and records](copy_files#converting-rows-and-records).
-* **Upload a file to S3:** `IOStreams.path("s3://my-bucket/people.csv").copy_from("people.csv")`, see
-  [Copying and moving](copy_files).
-* **Encrypt a file with PGP:**
-  `IOStreams.path("people.csv.pgp").option(:pgp, recipient: "partner@example.org").copy_from("people.csv")`, see
-  [PGP](pgp).
-* **Decrypt a PGP file:** `IOStreams.path("people.csv.pgp").option(:pgp, passphrase: ENV.fetch("PGP_PASSPHRASE")).read`,
-  see [PGP](pgp).
-* **Read numbers and dates as their types, and skip the other columns:**
-  `path.schema(fieldsMatch: "partial", fields: [{name: "born", type: "date"}])`, see [Schema](formats#schema).
-* **Read a Windows-1252 file as UTF-8:** `path.encoding("Windows-1252:UTF-8")`, see
-  [Character encoding](streams#character-encoding).
-* **List the CSV files in a directory or bucket:**
-  `IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }`, see
-  [Listing files](path#listing-files).
-* **Keep the location of the files in configuration:** `IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))` at
-  startup, then `IOStreams.join("people.csv")`, see [Configuration](config#add_root).
-* **Handle a missing file wherever it is stored:** `rescue IOStreams::Errors::NotFound`, see [Errors](errors).
-* **Keep untrusted file names within a directory:** `IOStreams.add_allowed_path("/var/my_app/uploads")`, see
-  [Security](security#allowed-paths).
+**Read a CSV, JSON or Excel file a record at a time**, see [Reading](streams#reading):
+
+~~~ruby
+IOStreams.path("people.csv").each(:hash) { |record| p record }
+~~~
+
+**Write a file compressed with gzip**, see [gzip](extensions#gzip):
+
+~~~ruby
+IOStreams.path("people.csv.gz").writer(:hash) do |io|
+  io << {name: "Jack", born: "1990-02-14"}
+end
+~~~
+
+**Convert CSV to JSON**, see [Converting rows and records](copy_files#converting-rows-and-records):
+
+~~~ruby
+IOStreams.path("people.json").copy_from("people.csv", mode: :hash)
+~~~
+
+**Upload a file to S3**, see [Copying and moving](copy_files):
+
+~~~ruby
+IOStreams.path("s3://my-bucket/people.csv").copy_from("people.csv")
+~~~
+
+**Encrypt a file with PGP**, see [PGP](pgp):
+
+~~~ruby
+IOStreams.path("people.csv.pgp").
+  option(:pgp, recipient: "partner@example.org").
+  copy_from("people.csv")
+~~~
+
+**Decrypt a PGP file**, see [PGP](pgp):
+
+~~~ruby
+IOStreams.path("people.csv.pgp").
+  option(:pgp, passphrase: ENV.fetch("PGP_PASSPHRASE")).
+  read
+~~~
+
+**Read numbers and dates as their types, and skip the other columns**, see [Schema](formats#schema):
+
+~~~ruby
+IOStreams.path("people.csv").
+  schema(fieldsMatch: "partial", fields: [{name: "born", type: "date"}]).
+  each(:hash) { |record| p record }
+~~~
+
+**Read a Windows-1252 file as UTF-8**, see [Character encoding](streams#character-encoding):
+
+~~~ruby
+IOStreams.path("people.csv").encoding("Windows-1252:UTF-8").each(:hash) { |record| p record }
+~~~
+
+**List the CSV files in a directory or bucket**, see [Listing files](path#listing-files):
+
+~~~ruby
+IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }
+~~~
+
+**Keep the location of the files in configuration**, see [Configuration](config#add_root):
+
+~~~ruby
+# At startup
+IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))
+
+# Then anywhere in the application
+IOStreams.join("people.csv").each(:hash) { |record| p record }
+~~~
+
+**Handle a missing file wherever it is stored**, see [Errors](errors):
+
+~~~ruby
+begin
+  IOStreams.path("s3://my-bucket/people.csv").read
+rescue IOStreams::Errors::NotFound
+  puts "people.csv has not arrived yet"
+end
+~~~
+
+**Keep untrusted file names within a directory**, see [Security](security#allowed-paths):
+
+~~~ruby
+IOStreams.add_allowed_path("/var/my_app/uploads")
+~~~
 
 ## What IOStreams supports
 

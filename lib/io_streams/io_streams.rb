@@ -514,6 +514,13 @@ module IOStreams
     @extensions[Utils.extension_name(name)]
   end
 
+  # Returns [Array<Symbol>] the names of the formats of the rows and records of a file that `IOStreams::Stream#format`
+  # accepts, such as `:csv`, `:json` or `:fixed`, frozen. The list grows as formats are added, so check whether a name
+  # is included, rather than rely on its order or its length.
+  def self.tabular_formats
+    Tabular.registered_formats.freeze
+  end
+
   # Register a URI scheme and the path class that handles it
   #
   # Example:

@@ -54,6 +54,17 @@ The format describes the file, so it is set on the path, rather than supplied to
 `#writer`, which raises `ArgumentError` for `format:`. `#format` without an argument returns the format of the path,
 or nil when neither the file name nor `#format` names one, and the file is read as CSV.
 
+`IOStreams.tabular_formats` returns the names of the formats that `#format` accepts, for example to check a format
+held in configuration before it is used. The list grows as formats are added, so check whether a name is included:
+
+~~~ruby
+IOStreams.tabular_formats
+# => [:array, :csv, :fixed, :hash, :json, :parquet, :psv]
+
+IOStreams.tabular_formats.include?(:json)
+# => true
+~~~
+
 ## Records and rows without a schema
 
 Without a [schema](#schema), every value is read as text, and written as its text:

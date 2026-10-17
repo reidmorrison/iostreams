@@ -87,7 +87,7 @@ module IOStreams
       # layout does not have, as soon as it is set, since the schema that it is translated into is checked.
       def format_options=(format_options)
         if layout?(format_options)
-          IOStreams::Schema.new(IOStreams::Tabular::Parser::Fixed.schema(**format_options))
+          IOStreams::Schema.from_layout(**format_options)
           @schema        = nil
           @schema_source = nil
         end

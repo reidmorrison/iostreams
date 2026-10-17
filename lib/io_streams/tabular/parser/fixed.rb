@@ -45,7 +45,7 @@ module IOStreams
         #
         # Parameters:
         #   layout: [Array<Hash>]
-        #     Each column of the file, in order:
+        #     Each column of the file, in order, a Hash whose keys are Symbols or Strings:
         #       size:     [Integer|:remainder] The number of characters of the column, or `:remainder` to take the
         #                 rest of the line, for the last column only. Required.
         #       key:      [String|Symbol] The key of the column in each record, which must be its own. A column without
@@ -74,6 +74,7 @@ module IOStreams
               raise(Errors::InvalidLayout, "Each column of the layout must be a Hash, such as {size: 10, key: :name}: " \
                                            "#{column.inspect}")
             end
+            column = layout_properties(column)
             raise(Errors::InvalidLayout, "Missing required :size in: #{column.inspect}") unless column.key?(:size)
             raise(Errors::InvalidLayout, "Only the last :size can be '-1' or :remainder in: #{column.inspect}") if last == -1
 
@@ -123,6 +124,19 @@ module IOStreams
           [width, field]
         end
 
+        # Returns [Hash] the properties of a column of a layout with Symbol keys, so that a layout read from JSON or
+        # YAML, whose keys are Strings, such as `{"size" => 5, "key" => "zip"}`, is the same layout.
+        #
+        # Raises `IOStreams::Errors::InvalidLayout` when the column has a property both as a String and as a Symbol,
+        # since either could be meant.
+        def self.layout_properties(column)
+          properties = column.transform_keys { |name| name.is_a?(String) ? name.to_sym : name }
+          return properties if properties.size == column.size
+
+          raise(Errors::InvalidLayout, "A column of the layout has a property both as a String and as a Symbol: " \
+                                       "#{column.inspect}")
+        end
+
         # Returns [Array] the properties of a column of a layout, raising ArgumentError for any other.
         def self.layout_column(size:, key: nil, type: :string, decimals: 2)
           [size, key, type, decimals]
@@ -155,7 +169,7 @@ module IOStreams
                                        "column without a key is a filler, which is skipped when reading and written as " \
                                        "spaces, so remove the key of a filler.")
         end
-        private_class_method :layout_field, :layout_column, :layout_decimals, :check_key
+        private_class_method :layout_properties, :layout_field, :layout_column, :layout_decimals, :check_key
 
         # Returns [Integer] the length of every line, or -1 when a line can be any length, after a field or a schema
         # width of "remainder", or 0 when there are no fields.
