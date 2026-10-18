@@ -521,6 +521,25 @@ module IOStreams
     Tabular.registered_formats.freeze
   end
 
+  # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which `IOStreams::Slice#to_h` returned, such
+  # as one that a job stored, with its rows, the header row of its file and the format of its rows, so that its rows
+  # can be parsed where the slice is processed.
+  #
+  # Parameters:
+  #   hash: [Hash]
+  #     What `IOStreams::Slice#to_h` returned, as it was stored, with String or Symbol keys.
+  #
+  # Raises ArgumentError when it does not describe a slice, see `IOStreams::Slice.from_h`.
+  #
+  # Example:
+  #   IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) { |slice| store << slice.to_h }
+  #
+  #   # Elsewhere:
+  #   slice = IOStreams.slice(store.pop)
+  def self.slice(hash)
+    Slice.from_h(hash)
+  end
+
   # Register a URI scheme and the path class that handles it
   #
   # Example:
