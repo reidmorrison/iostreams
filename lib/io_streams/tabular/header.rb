@@ -102,7 +102,7 @@ module IOStreams
       # They become the header row, see #row, which #cleanse! does not change.
       def columns=(columns)
         change_columns(columns)
-        @row = @columns&.map { |column| column.nil? || column.frozen? ? column : column.dup.freeze }&.freeze
+        @row = IOStreams::Utils.frozen_copy(@columns)
       end
 
       def allowed_columns=(allowed_columns)
