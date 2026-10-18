@@ -521,6 +521,24 @@ module IOStreams
     Tabular.registered_formats.freeze
   end
 
+  # Returns [IOStreams::Schema] the schema of the rows and records of a file, see `IOStreams::Stream#schema`, from a
+  # Hash, or from the path or url of a JSON file, which is read now, so that one schema can be set on many paths and
+  # streams without each one reading its file. A schema is frozen, so threads can share it.
+  #
+  # Parameters:
+  #   source: [Hash|String|IOStreams::Path|IOStreams::Schema]
+  #     A Frictionless Table Schema as a Hash, or the path or url of a JSON file that holds one, in any store. A schema
+  #     already read is returned as it is.
+  #
+  # Raises ArgumentError when the Hash, or the JSON of the file, is not a valid schema.
+  #
+  # Example:
+  #   schema = IOStreams.schema("s3://bucket/schemas/people.json")
+  #   IOStreams.path("people.csv").schema(schema).each(:hash) { |person| p person }
+  def self.schema(source)
+    Schema::Source.new(source).schema
+  end
+
   # Register a URI scheme and the path class that handles it
   #
   # Example:

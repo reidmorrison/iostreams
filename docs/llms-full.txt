@@ -2551,6 +2551,15 @@ A schema in a Hash is checked when it is set. A schema file is read the first ti
 so that setting it does not read the file, and the copies of a path read it once. `#schema` returns the schema
 that was set.
 
+To read a schema once, and set it on many paths, such as every file of a directory, or every slice of a file, see
+[Slices](streams#slices), read it with `IOStreams.schema`, which returns an `IOStreams::Schema`. It is frozen, so
+threads can share it:
+
+~~~ruby
+schema = IOStreams.schema(ENV["PEOPLE_SCHEMA"])
+IOStreams.each_child("incoming/*.csv") { |path| path.schema(schema).each(:hash) { |person| p person } }
+~~~
+
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
 `#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. Since it describes the columns of the
 file, the deprecated options of each call that describe them without a schema, such as `columns:`, raise

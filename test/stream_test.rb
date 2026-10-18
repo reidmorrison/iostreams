@@ -1675,6 +1675,29 @@ class StreamTest < Minitest::Test
         IOStreams::Row::HeaderRow.new(columns)
       end
 
+      it "takes a schema already read, and returns it as it was set" do
+        schema = IOStreams.schema(people)
+
+        assert_same schema, stream.schema(schema).schema
+        assert_equal [record], read(csv, schema: schema)
+      end
+
+      it "shares a schema read from a file between paths, which do not read the file again" do
+        IOStreams.temp_file("stream_test", ".json") do |path|
+          path.write(JSON.generate(people))
+          schema = IOStreams.schema(path.to_s)
+          path.delete
+
+          assert_equal [record], read(csv, schema: schema)
+          assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", write([record], schema: schema)
+        end
+      end
+
+      it "raises for a schema that is not a Hash, a String, a path or an IOStreams::Schema" do
+        error = assert_raises(ArgumentError) { stream.schema(42) }
+        assert_match(/an IOStreams::Schema/, error.message)
+      end
+
       it "returns the schema that was set" do
         assert_nil stream.schema
         assert_same stream, stream.schema(people)
@@ -1729,7 +1752,7 @@ class StreamTest < Minitest::Test
 
       it "raises when the schema is not a Hash, or a path or url" do
         error = assert_raises(ArgumentError) { stream.schema([{name: "id"}]) }
-        assert_match(/\AA schema must be a Hash, or the path or url of a JSON file/, error.message)
+        assert_match(/\AA schema must be a Hash, an IOStreams::Schema, or the path or url of a JSON file/, error.message)
       end
 
       it "raises for a frozen path" do

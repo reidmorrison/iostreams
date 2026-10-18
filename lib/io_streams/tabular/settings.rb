@@ -103,12 +103,14 @@ module IOStreams
 
       # Sets the schema of the rows and records, see `IOStreams::Stream#schema`, which replaces a layout: a Hash, which is
       # checked now, or the path or url of a JSON file that holds one, which is read the first time that a reader or
-      # writer needs it, see `IOStreams::Schema::Source`, or nil to remove it.
+      # writer needs it, see `IOStreams::Schema::Source`, or a schema already read, `IOStreams::Schema`, which is
+      # frozen, so it is held as it is, or nil to remove it.
       #
       # A frozen copy of it is held, so that the caller changing the object that it supplied changes neither #schema nor
       # the schema that is read.
       #
-      # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+      # Raises ArgumentError when the schema is not a Hash, a String, a path or an `IOStreams::Schema`, or is a Hash that
+      # is not a valid schema.
       def schema=(schema)
         schema          = schema.is_a?(IOStreams::Stream) ? schema.dup.freeze : Utils.frozen_copy(schema)
         @schema_source  = schema.nil? ? nil : IOStreams::Schema::Source.new(schema)

@@ -811,6 +811,39 @@ module IOStreams
         end
       end
 
+      describe ".schema" do
+        let(:people) { {"fields" => [{"name" => "name"}, {"name" => "age", "type" => "integer"}]} }
+
+        it "returns the schema of a Hash, frozen" do
+          schema = IOStreams.schema(people)
+
+          assert_instance_of IOStreams::Schema, schema
+          assert_equal %w[name age], schema.fields.map(&:name)
+          assert_predicate schema, :frozen?
+        end
+
+        it "reads the schema of a JSON file now" do
+          IOStreams.temp_file("io_streams_test", ".json") do |path|
+            path.write(JSON.generate(people))
+            schema = IOStreams.schema(path.to_s)
+            path.delete
+
+            assert_equal %w[name age], schema.fields.map(&:name)
+          end
+        end
+
+        it "returns a schema as it is" do
+          schema = IOStreams.schema(people)
+
+          assert_same schema, IOStreams.schema(schema)
+        end
+
+        it "raises for a Hash that is not a schema, and for anything else" do
+          assert_raises(ArgumentError) { IOStreams.schema("fields" => "name") }
+          assert_raises(ArgumentError) { IOStreams.schema(42) }
+        end
+      end
+
       describe ".schemes" do
         it "includes the registered schemes" do
           %i[file http https sftp s3].each do |scheme|

@@ -514,14 +514,15 @@ module IOStreams
     # a fixed width file. See docs/formats.md, and `IOStreams::Schema` for its properties.
     #
     # Parameters:
-    #   schema: [Hash|String|IOStreams::Path]
+    #   schema: [Hash|String|IOStreams::Path|IOStreams::Schema]
     #     A Frictionless Table Schema as a Hash, which is checked now, or the path or url of a JSON file that holds
-    #     one, in any store, which is read the first time that a reader or writer needs it.
+    #     one, in any store, which is read the first time that a reader or writer needs it, or a schema already read,
+    #     see `IOStreams.schema`, which many paths can share, so that its file is read once.
     #     nil removes the schema.
     #
-    # Returns [Hash|String|IOStreams::Path] the schema as it was set, which is frozen, so that changing the object that
-    # was supplied afterwards does not change it, or the schema of the layout set with the deprecated #format_options,
-    # or [nil] when neither was set.
+    # Returns [Hash|String|IOStreams::Path|IOStreams::Schema] the schema as it was set, which is frozen, so that
+    # changing the object that was supplied afterwards does not change it, or the schema of the layout set with the
+    # deprecated #format_options, or [nil] when neither was set.
     #
     # Examples:
     #
@@ -533,6 +534,10 @@ module IOStreams
     #
     #   path = IOStreams.path("s3://bucket/people.txt").format(:fixed).schema("s3://bucket/schemas/people.json")
     #   path.each(:hash) { |person| p person }
+    #
+    #   # Read the schema once, and set it on every file that it describes.
+    #   schema = IOStreams.schema("s3://bucket/schemas/people.json")
+    #   IOStreams.each_child("s3://bucket/people/*.csv") { |path| path.schema(schema).each(:hash) { |person| p person } }
     def schema(schema = :none)
       if schema == :none
         tabular_settings.schema
@@ -544,7 +549,8 @@ module IOStreams
 
     # Set the schema, see #schema.
     #
-    # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+    # Raises ArgumentError when the schema is not a Hash, a String, a path or an `IOStreams::Schema`, or is a Hash that
+    # is not a valid schema.
     def schema=(schema)
       raise_if_frozen!
       tabular_settings.schema = schema
