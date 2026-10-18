@@ -763,30 +763,45 @@ or `#path`. Where the code needs a `File`, copy the file to a local file first, 
 
 `each(:slice)` yields the rows of the file a slice at a time, as they are in the file, so that they can be parsed
 elsewhere, such as by other threads, processes or jobs, which share the work of a large file. Each slice is an Array of
-up to `size` rows, the lines of a CSV file for example, without its header row, which the slice carries instead, in
-`#header`, as it was read:
+up to `size` rows, the lines of a CSV file for example, without its header row. It describes its rows, so that they can
+be parsed without the file:
+
+* `#header`: the header row of the file, as it was read, or nil for a file without one.
+* `#line_number`: the line of the file that its first row is on, so that a failure names its line in the file.
+* `#format`: the format of its rows, such as `:csv`. A slice does not name the file, nor its streams, such as `.gz`:
+  they were applied when the file was read.
 
 ~~~ruby
-IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) do |slice|
-  queue << {header: slice.header, rows: slice.to_a}
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  queue << slice
 end
 ~~~
 
-Where a slice is parsed, a Tabular with the same format and schema reads its header row, then parses each row:
+Where the slices are parsed, `IOStreams.sliced` sets up a pipeline once, with the schema, which parses each slice. It
+reads the schema once, and matches the header row to its fields once for every slice of the same file, so that a
+slice is parsed as fast as the rows of a file. While the block runs, `#line_number` is the line of the file of the row:
 
 ~~~ruby
-tabular = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(schema))
-tabular.read_header(header) if header
-rows.each { |row| process(tabular.record_parse(row)) }
+sliced = IOStreams.sliced.schema(IOStreams.schema("people.json"))
+queue.each do |slice|
+  rows = sliced.slice(slice)
+  rows.each(:hash) { |person| process(person, rows.line_number) }
+end
 ~~~
+
+Rows read back from where a slice was stored, such as a database, are parsed with what the slice carried:
+`sliced.slice(rows, header: header, line_number: line_number, format: :csv)`. `#each` reads the rows as records
+(`:hash`), as the values of the fields in order (`:array`), or as they are (`:line`). A value that is not valid raises,
+such as `IOStreams::Errors::InvalidValue`, with the line of the file that it is on in its message and its
+`#line_number`. A pipeline keeps what it has matched, so give each thread its own; Fibers on one thread can share one.
 
 The header row is matched to the fields of the schema before the first slice is yielded, so a file whose header row
 does not match raises `IOStreams::Errors::InvalidHeader` before any of its rows are handed on, see
-[Schema](formats#schema). `validate: true` also parses every row, and raises for a value that is not valid, such as
-`IOStreams::Errors::InvalidValue`, while each slice still holds the rows as they are in the file.
+[Schema](formats#schema). `validate: true` also parses every row, and raises for a value that is not valid, naming its
+line, while each slice still holds the rows as they are in the file.
 
-* Blank lines before the header row are skipped. A blank line after it is a row, an empty String, which a Tabular
-  parses as nil.
+* Blank lines before the header row are skipped. A blank line after it is a row, an empty String, which is parsed as
+  nil.
 * A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no header
   row, `nil`.
 * The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError`, since the header row that they

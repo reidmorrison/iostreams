@@ -3,6 +3,20 @@
 module IOStreams
   module Errors
     class Error < StandardError
+      # Returns [Integer] the number of the line of the file that the failure is on, when it is known, such as for a value
+      # that is not valid in a row of a slice, see `IOStreams::Slice::Rows`, or nil.
+      attr_reader :line_number
+
+      # Sets the number of the line of the file that the failure is on, unless it is already set, so that the reader
+      # closest to the line that failed names it.
+      def line_number=(line_number)
+        @line_number ||= line_number
+      end
+
+      # Returns [String] the message, ending with the line that the failure is on, when it is known.
+      def to_s
+        line_number ? "#{super} on line #{line_number}" : super
+      end
     end
 
     class InvalidHeader < Error

@@ -539,6 +539,20 @@ module IOStreams
     Schema::Source.new(source).schema
   end
 
+  # Returns [IOStreams::Slice::Pipeline] a pipeline that parses the rows of slices, see `IOStreams::Slice`, set up once
+  # with a schema, as a path is, so that a worker that processes many slices reads the schema, and matches each header
+  # row to its fields, once, rather than for every slice.
+  #
+  # Example:
+  #   sliced = IOStreams.sliced.schema(IOStreams.schema("people.json"))
+  #   queue.each do |slice|
+  #     rows = sliced.slice(slice)
+  #     rows.each(:hash) { |person| process(person, rows.line_number) }
+  #   end
+  def self.sliced
+    Slice::Pipeline.new
+  end
+
   # Register a URI scheme and the path class that handles it
   #
   # Example:

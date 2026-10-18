@@ -69,19 +69,27 @@ module IOStreams
       end
 
       # Yields each slice of the rows of the file, see `IOStreams::Slice`, after reading its header row, when it has one.
+      # Each slice carries the line of the file that its first row is on, and the format of its rows.
+      #
+      # With `validate`, a row whose values are not valid raises with the line of the file that it is on, see
+      # `IOStreams::Errors::Error#line_number`.
       #
       # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
       def each
         count = 0
         slice = nil
+        line  = 0
         @rows.each do |row|
+          first = line + 1
+          # The line that the row ends on: a quoted line break makes a row span more than one line of the file.
+          line = @rows.respond_to?(:line_number) ? @rows.line_number : first
           if @tabular.header?
             read_header(row)
             next
           end
 
-          @tabular.record_parse(row) if @validate
-          slice ||= Slice.new(header: @header)
+          validate(row, first) if @validate
+          slice ||= Slice.new(header: @header, line_number: first, format: @tabular.format)
           slice << row
           count += 1
           next if slice.size < @size
@@ -107,6 +115,14 @@ module IOStreams
       def read_header(row)
         @tabular.read_header(row)
         @header = @tabular.header_row&.dup&.freeze
+      end
+
+      # Parses the row, which raises when its values are not valid, naming the line of the file that it is on.
+      def validate(row, line_number)
+        @tabular.record_parse(row)
+      rescue IOStreams::Errors::Error => e
+        e.line_number = line_number
+        raise
       end
     end
   end
