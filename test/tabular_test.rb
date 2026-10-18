@@ -90,6 +90,49 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "#header_row" do
+      let(:schema) { IOStreams::Schema.new(fields: [{name: "first_field"}, {name: "second"}]) }
+
+      it "is the header row as it was read, before it is cleansed" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        tabular.read_header("First Field,Second")
+
+        assert_equal ["First Field", "Second"], tabular.header_row
+        assert_equal %w[first_field second], tabular.header.columns
+      end
+
+      it "is the header row as it was read, before it is matched to the fields of a schema" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+        tabular.read_header("First Field,Second")
+
+        assert_equal ["First Field", "Second"], tabular.header_row
+      end
+
+      it "reads the rest of the file by the same columns with another Tabular" do
+        any_order = IOStreams::Schema.new(fields: [{name: "first_field"}, {name: "second"}], fieldsMatch: "equal")
+        tabular   = IOStreams::Tabular.new(format: :csv, schema: any_order)
+        tabular.read_header("Second,First Field")
+        other = IOStreams::Tabular.new(format: :csv, schema: any_order)
+        other.read_header(tabular.header_row)
+
+        assert_equal({"first_field" => "1", "second" => "2"}, other.record_parse("2,1"))
+      end
+
+      it "is nil until the header row is read, and after a blank line" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        assert_nil tabular.header_row
+        tabular.read_header("")
+
+        assert_nil tabular.header_row
+      end
+
+      it "is nil for a file without a header row" do
+        assert_nil IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "a"}], header: false)).header_row
+        assert_nil IOStreams::Tabular.new(format: :json).tap { |tabular| tabular.read_header(%({"a":1})) }.header_row
+      end
+    end
+
     describe "header columns" do
       it "converts symbol column names to strings" do
         tabular = IOStreams::Tabular.new(columns: %i[first_field second third])

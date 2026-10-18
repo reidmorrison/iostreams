@@ -70,6 +70,13 @@ module IOStreams
         true
       end
 
+      # Returns [Array<String>] the header row of the file as it was read, before its columns were matched to the fields,
+      # see `IOStreams::Tabular#header_row`, which the header keeps.
+      # Returns nil until it is read, or when the file has no header row, see #requires_header?.
+      def header_row
+        header.columns if @requires_header
+      end
+
       # Returns [Array<String|Symbol>] the names of the fields of a file without a header row, which are the columns of
       # its rows, see `IOStreams::Tabular#headerless_columns`.
       # Returns nil for a file with a header row.

@@ -709,6 +709,7 @@ reads or writes:
 | `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
 | `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
+| `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
 lines, see [Tabular formats](formats). The extensions of the file name also say how the file is compressed or
@@ -757,6 +758,41 @@ Within a `#reader` block, an S3 object or an HTTP response is read as the block 
 Like the IO of every stream, such as of a `.gz` file, it has the methods of an IO that read, such as `#read`, `#gets`
 and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`, reads it, but not `#rewind`, `#pos`, `#size`
 or `#path`. Where the code needs a `File`, copy the file to a local file first, see [Copying and moving](copy_files).
+
+### Slices
+
+`each(:slice)` yields the rows of the file a slice at a time, as they are in the file, so that they can be parsed
+elsewhere, such as by other threads, processes or jobs, which share the work of a large file. Each slice is an Array of
+up to `size` rows, the lines of a CSV file for example, without its header row, which the slice carries instead, in
+`#header`, as it was read:
+
+~~~ruby
+IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) do |slice|
+  queue << {header: slice.header, rows: slice.to_a}
+end
+~~~
+
+Where a slice is parsed, a Tabular with the same format and schema reads its header row, then parses each row:
+
+~~~ruby
+tabular = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(schema))
+tabular.read_header(header) if header
+rows.each { |row| process(tabular.record_parse(row)) }
+~~~
+
+The header row is matched to the fields of the schema before the first slice is yielded, so a file whose header row
+does not match raises `IOStreams::Errors::InvalidHeader` before any of its rows are handed on, see
+[Schema](formats#schema). `validate: true` also parses every row, and raises for a value that is not valid, such as
+`IOStreams::Errors::InvalidValue`, while each slice still holds the rows as they are in the file.
+
+* Blank lines before the header row are skipped. A blank line after it is a row, an empty String, which a Tabular
+  parses as nil.
+* A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no header
+  row, `nil`.
+* The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError`, since the header row that they
+  cleanse could not be read again where the slice is parsed: describe the columns with a schema instead.
+* `#reader(:slice, size: 100)` yields the reader, whose `#header` is the header row once it has been read, also for a
+  file without any rows.
 
 ## Writing
 

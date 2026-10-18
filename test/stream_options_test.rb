@@ -482,14 +482,16 @@ class StreamOptionsTest < Minitest::Test
           IOStreams::Row::Reader    => [:row_reader, tabular],
           IOStreams::Record::Reader => [:record_reader, tabular],
           IOStreams::Row::Writer    => [:row_writer, tabular - read_only],
-          IOStreams::Record::Writer => [:record_writer, tabular - read_only]
+          IOStreams::Record::Writer => [:record_writer, tabular - read_only],
+          # The tabular of slices takes no options of the call, since the column options are deprecated.
+          IOStreams::Slice::Reader  => [:slice_reader, []]
         }.each_pair do |klass, (method, options)|
           assert_equal (keywords(IOStreams::Stream.instance_method(method)) + options).sort, klass.option_names.sort, klass.name
         end
       end
 
       it "gives the options that only apply when reading" do
-        assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns skip_unknown],
+        assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns size skip_unknown validate],
                      IOStreams::Stream.read_option_names.sort
       end
     end

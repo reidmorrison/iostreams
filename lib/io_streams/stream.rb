@@ -32,7 +32,9 @@ module IOStreams
       @read_option_names ||= [
         [IOStreams::Line::Reader, IOStreams::Line::Writer],
         [IOStreams::Row::Reader, IOStreams::Row::Writer],
-        [IOStreams::Record::Reader, IOStreams::Record::Writer]
+        [IOStreams::Record::Reader, IOStreams::Record::Writer],
+        # Slices are only read, so their options are read options whatever the mode written.
+        [IOStreams::Slice::Reader, IOStreams::Line::Writer]
       ].flat_map { |reader, writer| reader.option_names - writer.option_names }.uniq.freeze
     end
 
@@ -254,6 +256,12 @@ module IOStreams
     #     p hash
     #   end
     #
+    # Example: Read up to 100 rows at a time, as they are in the file, to parse elsewhere, see `IOStreams::Slice`
+    #   IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) do |slice|
+    #     p slice.header
+    #     p slice
+    #   end
+    #
     # Notes:
     # - Newlines embedded within quoted fields are kept within the same line when
     #   1. The tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)`,
@@ -266,7 +274,12 @@ module IOStreams
     # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
     #   ArgumentError when they are supplied to a call, see PATH_SETTINGS. So does any other option that the mode does
     #   not take, before the file is opened, see `IOStreams::Line::Reader.option_names`,
-    #   `IOStreams::Row::Reader.option_names` and `IOStreams::Record::Reader.option_names`.
+    #   `IOStreams::Row::Reader.option_names`, `IOStreams::Record::Reader.option_names` and
+    #   `IOStreams::Slice::Reader.option_names`.
+    # - The `:slice` mode reads the header row, matched to the fields of the schema, which raises
+    #   `IOStreams::Errors::InvalidHeader` before the first slice is yielded when they do not match, and each slice
+    #   carries it, so that the rows of the slice can be parsed on their own, elsewhere. With `validate: true` each row
+    #   is also parsed, and raises when its values are not valid, while each slice still holds the rows as they are.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -289,7 +302,7 @@ module IOStreams
     # Returns a Reader for reading a file / stream
     #
     # The `:stream` mode reads bytes, so for example `read(1024)` on the stream it yields returns binary data, unless
-    # an encode stream is set. The `:line`, `:array` and `:hash` modes read UTF-8 text, see #each.
+    # an encode stream is set. The `:line`, `:array`, `:hash` and `:slice` modes read UTF-8 text, see #each.
     def reader(mode = :stream, **args, &block)
       require_block!(:reader, block)
       case mode
@@ -302,6 +315,8 @@ module IOStreams
         row_reader(**args, &block)
       when :hash
         record_reader(**args, &block)
+      when :slice
+        slice_reader(**args, &block)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
       end
@@ -827,6 +842,20 @@ module IOStreams
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular)
+      end
+    end
+
+    # Iterate over a file / stream returning slices of up to `size` of its rows at a time, as they are in the file, after
+    # its header row, which each slice carries, see `IOStreams::Slice` and `IOStreams::Slice::Reader`.
+    #
+    # The lines are split where the format expects, as for rows and records, see #row_reader. The tabular takes no
+    # options of the call, since the column options are deprecated, and the header row they cleanse could not be read
+    # again where a slice is parsed, see `IOStreams::Slice::Reader.option_names`.
+    def slice_reader(size:, validate: false, delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
+      reject_unknown_options!(:slice, IOStreams::Slice::Reader, args)
+      tabular = tabular(**args)
+      open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |rows|
+        yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate)
       end
     end
 
