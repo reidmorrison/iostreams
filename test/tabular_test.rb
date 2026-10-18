@@ -131,6 +131,92 @@ class TabularTest < Minitest::Test
         assert_nil IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "a"}], header: false)).header_row
         assert_nil IOStreams::Tabular.new(format: :json).tap { |tabular| tabular.read_header(%({"a":1})) }.header_row
       end
+
+      it "is nil for the columns supplied in place of a header row" do
+        assert_nil IOStreams::Tabular.new(format: :csv, columns: %w[a b]).header_row
+      end
+
+      it "is frozen, as are its columns" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        tabular.read_header("First Field,Second")
+
+        assert_predicate tabular.header_row, :frozen?
+        assert(tabular.header_row.all?(&:frozen?))
+      end
+
+      it "is the columns set on the header, which the header keeps, rather than the header row read before them" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        tabular.read_header("First Field,Second")
+        tabular.header.columns = %w[x y]
+
+        assert_equal %w[x y], tabular.header_row
+      end
+
+      it "is the header row written" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        tabular.render_header(%w[a b])
+
+        assert_equal %w[a b], tabular.header_row
+      end
+    end
+
+    describe "#read_line" do
+      let(:schema) { IOStreams::Schema.new(fields: [{name: "name"}, {name: "age", type: "integer"}], fieldsMatch: "equal") }
+
+      # Returns [Array] the lines that #read_line yields for the supplied lines.
+      def read_lines(tabular, lines)
+        yielded = []
+        lines.each { |line| tabular.read_line(line) { |row| yielded << row } }
+        yielded
+      end
+
+      it "yields each line as it is, after reading the header row, which it does not yield" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        assert_equal ["Jack,abc", ""], read_lines(tabular, ["", "Name,AGE", "Jack,abc", ""])
+        assert_equal %w[Name AGE], tabular.header_row
+      end
+
+      it "returns the result of the block, or nil for the header row" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+
+        assert_nil(tabular.read_line("name,age") { |line| line })
+        assert_equal "Jack,21", tabular.read_line("Jack,21") { |line| line }
+      end
+
+      it "raises InvalidHeader for a header row that does not match the schema" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        assert_raises(IOStreams::Errors::InvalidHeader) { tabular.read_line("name,age,extra") { |line| line } }
+      end
+
+      it "cleanses the header row without a schema" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        read_lines(tabular, ["First Field,Second"])
+
+        assert_equal %w[first_field second], tabular.header.columns
+        assert_equal ["First Field", "Second"], tabular.header_row
+      end
+
+      it "matches the keys of the first record of a format of keyed records to the fields of the schema" do
+        tabular = IOStreams::Tabular.new(format: :json, schema: schema)
+
+        assert_raises(IOStreams::Errors::InvalidHeader) { tabular.read_line(%({"x":1})) { |line| line } }
+      end
+
+      it "matches only the keys of the first record that is not blank, without converting its values" do
+        tabular = IOStreams::Tabular.new(format: :json, schema: schema)
+        lines   = ["", %({"name":"Jack","age":"abc"}), %({"x":1})]
+
+        assert_equal lines, read_lines(tabular, lines)
+      end
+
+      it "does not match the keys of the records without a schema" do
+        tabular = IOStreams::Tabular.new(format: :json)
+
+        assert_equal [%({"x":1}), %({"y":2})], read_lines(tabular, [%({"x":1}), %({"y":2})])
+        assert_nil tabular.header.columns
+      end
     end
 
     describe "header columns" do
@@ -1122,6 +1208,39 @@ class TabularTest < Minitest::Test
 
     describe IOStreams::Tabular::Header do
       let(:header) { IOStreams::Tabular::Header.new(columns: %w[Name Secret], allowed_columns: ["name"]) }
+
+      describe "#row" do
+        it "is the columns as they were set, which cleansing does not change" do
+          header = IOStreams::Tabular::Header.new
+          header.columns = ["First Field", :second]
+          header.cleanse!
+
+          assert_equal %w[first_field second], header.columns
+          assert_equal ["First Field", "second"], header.row
+        end
+
+        it "is nil for the columns supplied in place of a header row" do
+          assert_nil header.row
+          header.cleanse!
+
+          assert_nil header.row
+        end
+
+        it "is the columns set last" do
+          header.columns = %w[a b]
+          header.columns = %w[c d]
+
+          assert_equal %w[c d], header.row
+        end
+
+        it "is frozen, as are its columns, while the columns are not" do
+          header.columns = [+"Name", +"Secret"]
+
+          assert_predicate header.row, :frozen?
+          assert(header.row.all?(&:frozen?))
+          refute(header.columns.any?(&:frozen?))
+        end
+      end
 
       describe "#cleanse_changes?" do
         it "is true when cleansing would change the columns, without changing them" do

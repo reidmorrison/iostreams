@@ -17,11 +17,11 @@ class SliceReaderTest < Minitest::Test
       list
     end
 
-    # Returns [Array<Hash>] the records of the slices, each parsed on its own, as a worker elsewhere parses it, by a
-    # Tabular with the same format and schema.
-    def parse(slices, format: :csv, schema: nil)
+    # Returns [Array<Hash>] the records of the slices, each parsed on its own, by the format and header row that it
+    # carries, as a worker elsewhere parses it.
+    def parse(slices, schema: nil)
       slices.flat_map do |slice|
-        tabular = IOStreams::Tabular.new(format: format, schema: schema && IOStreams::Schema.new(schema))
+        tabular = IOStreams::Tabular.new(format: slice.format, schema: schema && IOStreams::Schema.new(schema))
         tabular.read_header(slice.header) if slice.header
         slice.map { |row| tabular.record_parse(row) }
       end
@@ -39,11 +39,18 @@ class SliceReaderTest < Minitest::Test
         assert_equal 3, stream(csv).each(:slice, size: 2) { |_slice| nil }
       end
 
-      it "gives each slice the header row of the file, as it was read, frozen" do
+      it "gives each slice the header row of the file, as it was read, which they share, frozen" do
         list = slices(stream(csv), size: 2)
 
         assert_equal [%w[Name AGE], %w[Name AGE]], list.map(&:header)
+        assert_same list.first.header, list.last.header
         assert_predicate list.first.header, :frozen?
+        assert(list.first.header.all?(&:frozen?))
+      end
+
+      it "gives each slice the format of its rows" do
+        assert_equal %i[csv csv], slices(stream(csv), size: 2).map(&:format)
+        assert_equal [:psv], slices(stream("name|age\nJack|21\n").format(:psv), size: 2).map(&:format)
       end
 
       it "yields no slice for a file with a header row and no rows" do
@@ -89,10 +96,12 @@ class SliceReaderTest < Minitest::Test
       end
 
       it "gives no header row to the slices of a format whose records supply their own keys" do
-        list = slices(stream(%({"name":"Jack"}\n{"name":"Jill"}\n)).format(:json), size: 5)
+        list = slices(stream(%({"name":"Jack"}\n{"age":22}\n)).format(:json), size: 5)
 
-        assert_equal [[%({"name":"Jack"}), %({"name":"Jill"})]], list
+        assert_equal [[%({"name":"Jack"}), %({"age":22})]], list
         assert_nil list.first.header
+        assert_equal :json, list.first.format
+        assert_equal [{"name" => "Jack"}, {"age" => 22}], parse(list)
       end
 
       it "reads a fixed width file by the position of each field of its schema" do
@@ -100,8 +109,7 @@ class SliceReaderTest < Minitest::Test
         list  = slices(stream("Jack21\nJill22\n").format(:fixed).schema(fixed), size: 5)
 
         assert_equal [%w[Jack21 Jill22]], list
-        assert_equal [{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}],
-                     parse(list, format: :fixed, schema: fixed)
+        assert_equal [{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}], parse(list, schema: fixed)
       end
     end
 
@@ -128,11 +136,42 @@ class SliceReaderTest < Minitest::Test
       end
     end
 
+    describe "the keys of the first record" do
+      let(:equal) { schema.merge("fieldsMatch" => "equal") }
+
+      it "are matched to the fields of the schema before the first slice, for a format of keyed records" do
+        source = stream(%({"x":1}\n)).format(:json).schema(equal)
+
+        assert_raises(IOStreams::Errors::InvalidHeader) { source.each(:slice, size: 2) { |_slice| flunk("yielded") } }
+      end
+
+      it "are those of the first record that is not blank, without converting its values" do
+        list = slices(stream(%(\n{"name":"Jack","age":"abc"}\n)).format(:json).schema(equal), size: 5)
+
+        assert_equal [["", %({"name":"Jack","age":"abc"})]], list
+      end
+
+      it "are only those of the first record, since the keys of the others are matched where they are parsed" do
+        list = slices(stream(%({"name":"Jack","age":21}\n{"x":1}\n)).format(:json).schema(equal), size: 5)
+
+        assert_equal [[%({"name":"Jack","age":21}), %({"x":1})]], list
+      end
+    end
+
     describe "validate:" do
       let(:invalid) { "name,age\nJack,21\nJill,abc\n" }
 
       it "parses each row, and raises for a value that is not valid" do
         assert_raises(IOStreams::Errors::InvalidValue) { slices(stream(invalid).schema(schema), size: 1, validate: true) }
+      end
+
+      it "has already yielded the slices before the row that is not valid" do
+        list = []
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          stream(invalid).schema(schema).each(:slice, size: 1, validate: true) { |slice| list << slice }
+        end
+
+        assert_equal [["Jack,21"]], list
       end
 
       it "still yields the rows as they are in the file" do
@@ -159,9 +198,45 @@ class SliceReaderTest < Minitest::Test
         assert_raises(ArgumentError) { slices(stream(csv), size: 2, validate: "yes") }
       end
 
-      it "raises for the column options, which a schema replaces" do
+      it "checks the options before the file is opened" do
+        path = IOStreams.path("/nonexistent/people.csv")
+
+        assert_raises(ArgumentError) { path.each(:slice, size: 0) { |_slice| nil } }
+        assert_raises(ArgumentError) { path.each(:slice, size: 2, validate: "yes") { |_slice| nil } }
+        assert_raises(ArgumentError) { path.each(:slice, size: 2, columns: %w[name age]) { |_slice| nil } }
+      end
+
+      it "accepts the column options when they are nil, as with a schema, so that a caller can supply them in every mode" do
+        list = slices(stream(csv).schema(schema), size: 2, columns: nil, allowed_columns: nil, required_columns: nil)
+
+        assert_equal [["Jack,21", "Jill,22"], ["Bob,23"]], list
+        assert_equal [["Jack,21", "Jill,22"], ["Bob,23"]], slices(stream(csv), size: 2, columns: nil)
+      end
+
+      it "accepts skip_unknown, which only applies to allowed_columns, and is deprecated" do
+        list = assert_deprecated(/skip_unknown: is deprecated/) { slices(stream(csv), size: 5, skip_unknown: false) }
+
+        assert_equal [["Jack,21", "Jill,22", "Bob,23"]], list
+      end
+
+      it "raises for a column option that is not nil, since the header row that it changes is read again elsewhere" do
         error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, columns: %w[name age]) }
-        assert_match(/Unknown option :columns for the :slice mode/, error.message)
+        assert_match(/\Acolumns: cannot be supplied to the :slice mode/, error.message)
+
+        error = assert_raises(ArgumentError) do
+          slices(stream(csv), size: 2, allowed_columns: %w[name], required_columns: %w[name])
+        end
+        assert_match(/\Aallowed_columns:, required_columns: cannot be supplied to the :slice mode/, error.message)
+      end
+
+      it "raises for cleanse_header, since the header row is read again elsewhere" do
+        error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, cleanse_header: false) }
+        assert_match(/Unknown option :cleanse_header for the :slice mode/, error.message)
+      end
+
+      it "lists only the options that are not deprecated" do
+        error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, unknown: 1) }
+        assert_match(/Valid options: :delimiter, :buffer_size, :size, :validate\.\z/, error.message)
       end
 
       it "raises for a setting that describes the file, which is set on the path" do
@@ -185,15 +260,17 @@ class SliceReaderTest < Minitest::Test
   end
 
   describe IOStreams::Slice do
-    it "is an Array of the rows, with the header row" do
-      slice = IOStreams::Slice.new(%w[a b], header: %w[name].freeze)
+    it "is an Array of the rows, with the header row and format" do
+      slice = IOStreams::Slice.new(%w[a b], header: %w[name].freeze, format: :csv)
 
       assert_equal %w[a b], slice
       assert_equal %w[name], slice.header
+      assert_equal :csv, slice.format
     end
 
-    it "has no header row by default" do
+    it "has no header row nor format by default" do
       assert_nil IOStreams::Slice.new.header
+      assert_nil IOStreams::Slice.new.format
     end
   end
 end

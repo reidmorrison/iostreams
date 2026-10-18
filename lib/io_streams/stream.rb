@@ -25,17 +25,15 @@ module IOStreams
 
     attr_reader :io_stream
 
-    # Returns [Array<Symbol>] the options that only the readers of lines, rows and records accept, so that a writer, and
-    # a copy, which uses its options to write its target, raise for them, rather than ignore them. Each reader and
-    # writer declares the options that it accepts.
+    # Returns [Array<Symbol>] the options that only the readers of lines, rows, records and slices accept, which no
+    # writer accepts, so that a writer, and a copy, which uses its options to write its target, raise for them, rather
+    # than ignore them. Each reader and writer declares the options that it accepts.
     def self.read_option_names
-      @read_option_names ||= [
-        [IOStreams::Line::Reader, IOStreams::Line::Writer],
-        [IOStreams::Row::Reader, IOStreams::Row::Writer],
-        [IOStreams::Record::Reader, IOStreams::Record::Writer],
-        # Slices are only read, so their options are read options whatever the mode written.
-        [IOStreams::Slice::Reader, IOStreams::Line::Writer]
-      ].flat_map { |reader, writer| reader.option_names - writer.option_names }.uniq.freeze
+      @read_option_names ||= begin
+        readers = [IOStreams::Line::Reader, IOStreams::Row::Reader, IOStreams::Record::Reader, IOStreams::Slice::Reader]
+        writers = [IOStreams::Line::Writer, IOStreams::Row::Writer, IOStreams::Record::Writer]
+        (readers.flat_map(&:option_names) - writers.flat_map(&:option_names)).uniq.freeze
+      end
     end
 
     # Returns [Module|nil] the format of the rows of the tabular format of the supplied name, such as `IOStreams::Parquet`
@@ -278,8 +276,9 @@ module IOStreams
     #   `IOStreams::Slice::Reader.option_names`.
     # - The `:slice` mode reads the header row, matched to the fields of the schema, which raises
     #   `IOStreams::Errors::InvalidHeader` before the first slice is yielded when they do not match, and each slice
-    #   carries it, so that the rows of the slice can be parsed on their own, elsewhere. With `validate: true` each row
-    #   is also parsed, and raises when its values are not valid, while each slice still holds the rows as they are.
+    #   carries it, and the format of its rows, so that the rows of the slice can be parsed on their own, elsewhere.
+    #   With `validate: true` each row is also parsed before its slice is yielded, and raises when its values are not
+    #   valid, after the slices before it, while each slice still holds the rows as they are.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -848,11 +847,12 @@ module IOStreams
     # Iterate over a file / stream returning slices of up to `size` of its rows at a time, as they are in the file, after
     # its header row, which each slice carries, see `IOStreams::Slice` and `IOStreams::Slice::Reader`.
     #
-    # The lines are split where the format expects, as for rows and records, see #row_reader. The tabular takes no
-    # options of the call, since the column options are deprecated, and the header row they cleanse could not be read
-    # again where a slice is parsed, see `IOStreams::Slice::Reader.option_names`.
+    # The lines are split where the format expects, as for rows and records, see #row_reader. The options are checked
+    # before the file is opened, see `IOStreams::Slice::Reader.check`: the column options are only accepted when they
+    # are nil, since the header row that they would change could not be read again where a slice is parsed.
     def slice_reader(size:, validate: false, delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
       reject_unknown_options!(:slice, IOStreams::Slice::Reader, args)
+      IOStreams::Slice::Reader.check(size: size, validate: validate, **args)
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |rows|
         yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate)

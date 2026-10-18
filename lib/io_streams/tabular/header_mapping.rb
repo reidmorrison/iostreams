@@ -112,15 +112,8 @@ module IOStreams
 
         columns        = @parser.parse(line)
         header.columns = columns
-        @header_row    = header.columns
         columns
       end
-
-      # Returns [Array<String>] the header row of the file as it was read, before it was cleansed, see
-      # `IOStreams::Tabular#header_row`.
-      # Returns nil until it is read, or when the file has no header row, including when the columns were supplied in
-      # place of one, and for a format of keyed records, such as JSON, whose records supply their own keys.
-      attr_reader :header_row
 
       # Parses the header row, see #parse_header, then cleanses its columns when `cleanse` is truthy, otherwise applies
       # the column restrictions to them as they are, see #restrict_columns. For a format without a header row, such as

@@ -763,34 +763,35 @@ or `#path`. Where the code needs a `File`, copy the file to a local file first, 
 
 `each(:slice)` yields the rows of the file a slice at a time, as they are in the file, so that they can be parsed
 elsewhere, such as by other threads, processes or jobs, which share the work of a large file. Each slice is an Array of
-up to `size` rows, the lines of a CSV file for example, without its header row, which the slice carries instead, in
-`#header`, as it was read:
+up to `size` rows, the lines of a CSV file for example, without its header row, and describes them: `#header` is the
+header row of the file as it was read, and `#format` the tabular format of the rows, such as `:csv`, so that whoever
+parses them does not need to know how the file was read:
 
 ~~~ruby
-IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) do |slice|
-  queue << {header: slice.header, rows: slice.to_a}
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  queue << {format: slice.format, header: slice.header, rows: slice.to_a}
 end
 ~~~
 
-Where a slice is parsed, a Tabular with the same format and schema reads its header row, then parses each row:
+The file is checked against its schema before the first slice is yielded, so that a file that does not match raises
+`IOStreams::Errors::InvalidHeader` before any of its rows are handed on, see [Schema](formats#schema): its header row is
+matched to the fields, or for a format of records that supply their own keys, such as JSON or Parquet, the keys of its
+first record. The keys of the other records are matched where they are parsed.
 
-~~~ruby
-tabular = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(schema))
-tabular.read_header(header) if header
-rows.each { |row| process(tabular.record_parse(row)) }
-~~~
+`validate: true` also parses each row before the slice that holds it is yielded, and raises for a value that is not
+valid, such as `IOStreams::Errors::InvalidValue`. The slices before that row have already been yielded. Each slice still
+holds the rows as they are in the file.
 
-The header row is matched to the fields of the schema before the first slice is yielded, so a file whose header row
-does not match raises `IOStreams::Errors::InvalidHeader` before any of its rows are handed on, see
-[Schema](formats#schema). `validate: true` also parses every row, and raises for a value that is not valid, such as
-`IOStreams::Errors::InvalidValue`, while each slice still holds the rows as they are in the file.
-
-* Blank lines before the header row are skipped. A blank line after it is a row, an empty String, which a Tabular
-  parses as nil.
+* Blank lines before the header row are skipped. A blank line after it is a row, an empty String.
 * A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no header
   row, `nil`.
-* The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError`, since the header row that they
-  cleanse could not be read again where the slice is parsed: describe the columns with a schema instead.
+* A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
+* The header row of every slice is the same frozen Array, so change a copy of it.
+* The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError` unless they are nil, as they do
+  with a schema, since the header row that they would change is read again where each slice is parsed: describe the
+  columns with a schema instead. So does `cleanse_header:`.
+* A `size` that is not a positive Integer, or a `validate` that is not true or false, raises `ArgumentError` before the
+  file is opened.
 * `#reader(:slice, size: 100)` yields the reader, whose `#header` is the header row once it has been read, also for a
   file without any rows.
 
