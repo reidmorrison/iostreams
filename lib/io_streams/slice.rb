@@ -26,6 +26,7 @@ module IOStreams
     autoload :Pipeline, "io_streams/slice/pipeline"
     autoload :Reader, "io_streams/slice/reader"
     autoload :Rows, "io_streams/slice/rows"
+    autoload :Serializer, "io_streams/slice/serializer"
 
     # Returns [Array<String>] the header row of the file, as it was read, before it was cleansed or matched to the
     # fields of a schema, see `IOStreams::Tabular#header_row`, which every slice of the file shares, so it is frozen.
@@ -47,6 +48,28 @@ module IOStreams
       @header      = header
       @line_number = line_number
       @format      = format
+    end
+
+    # Returns [String] this slice as binary bytes, to store it or send it elsewhere, which `IOStreams.slice` reads back
+    # as a slice, with its rows, header row, line number and format, so that whoever stores it keeps the bytes as they
+    # are, without knowing what a slice holds. A pipeline also parses the bytes directly, see `IOStreams.sliced`.
+    #
+    # Parameters
+    #   stream: [Symbol]
+    #     The stream to write the slice through, such as `:zst`, `:gz` or `:bz2` to compress it, or `:enc` to encrypt it,
+    #     which the bytes name, so that they are read back through it.
+    #     Default: nil, which writes the slice as it is.
+    #
+    #   The other options are those of the stream, such as `level: 19` for `:zst`.
+    #
+    # Raises ArgumentError for a row that is not text, such as of Parquet, or not valid UTF-8, for a stream that is not
+    # registered, and for options without a stream.
+    #
+    # Example:
+    #   bytes = slice.serialize(stream: :zst)
+    #   slice = IOStreams.slice(bytes)
+    def serialize(stream: nil, **)
+      Serializer.dump(self, stream: stream, **)
     end
   end
 end

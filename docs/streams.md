@@ -102,7 +102,20 @@ queue.each do |slice|
 end
 ~~~
 
-Rows read back from where a slice was stored, such as a database, are parsed with what the slice carried:
+To store a slice, or send it to another process, `#serialize` writes it as bytes, through a stream that compresses or
+encrypts it, such as `stream: :zst`. The bytes hold everything that the slice carries, so whoever stores them keeps them
+as they are, and `IOStreams.slice` reads them back as a slice. A pipeline parses the bytes directly:
+
+~~~ruby
+store[slice_id] = slice.serialize(stream: :zst)
+
+# Elsewhere:
+rows = sliced.slice(store[slice_id])
+rows.each(:hash) { |person| process(person, rows.line_number) }
+~~~
+
+Only a slice of lines of text, such as CSV, can be serialized. Bytes that are not a serialized slice, or that were cut
+short, raise `IOStreams::Errors::Corrupt`. Rows stored some other way are parsed with what the slice carried:
 `sliced.slice(rows, header: header, line_number: line_number, format: :csv)`. `#each` reads the rows as records
 (`:hash`), as the values of the fields in order (`:array`), or as they are (`:line`). A value that is not valid raises,
 such as `IOStreams::Errors::InvalidValue`, with the line of the file that it is on in its message and its

@@ -17,6 +17,10 @@ module IOStreams
     # A pipeline keeps what it has matched for the slices, so give each thread its own. Fibers on one thread can share
     # one, since a row is parsed before it is yielded.
     class Pipeline
+      # The default of the options of #slice, which take what the slice carries, distinct from nil, which is not known.
+      FROM_SLICE = Object.new.freeze
+      private_constant :FROM_SLICE
+
       def initialize
         @format   = nil
         @schema   = nil
@@ -60,8 +64,9 @@ module IOStreams
       # Returns [IOStreams::Slice::Rows] the rows of the supplied slice, which its #each reads in this pipeline's schema.
       #
       # Parameters
-      #   rows: [IOStreams::Slice|#each]
-      #     A slice, or the rows of one, such as an Array of lines read back from where a slice was stored.
+      #   rows: [IOStreams::Slice|String|#each]
+      #     A slice, the bytes of a slice, see `IOStreams::Slice#serialize`, which are read back first, see
+      #     `IOStreams.slice`, or the rows of one, such as an Array of lines read back from where they were stored.
       #
       #   header: [Array<String>]
       #     The header row of the file that the rows came from, as it was read, see `IOStreams::Slice#header`.
@@ -74,8 +79,11 @@ module IOStreams
       #   format: [Symbol]
       #     The tabular format of the rows, see `IOStreams::Slice#format`.
       #     Default: the format of the slice, otherwise the format of this pipeline, see #format.
-      def slice(rows, header: (rows.header if rows.is_a?(Slice)), line_number: (rows.line_number if rows.is_a?(Slice)),
-                format: (rows.format if rows.is_a?(Slice)))
+      def slice(rows, header: FROM_SLICE, line_number: FROM_SLICE, format: FROM_SLICE)
+        rows        = IOStreams.slice(rows) if rows.is_a?(String)
+        header      = from_slice(rows, :header) if header.equal?(FROM_SLICE)
+        line_number = from_slice(rows, :line_number) if line_number.equal?(FROM_SLICE)
+        format      = from_slice(rows, :format) if format.equal?(FROM_SLICE)
         Rows.new(rows, tabular: tabular(format || @format || :csv, header), line_number: line_number)
       end
 
@@ -86,6 +94,11 @@ module IOStreams
       end
 
       private
+
+      # What the slice carries, when the rows are a slice, otherwise nil, see #slice.
+      def from_slice(rows, name)
+        rows.public_send(name) if rows.is_a?(Slice)
+      end
 
       # Returns [IOStreams::Tabular] that parses the rows of the format, once it has read the header row, which is kept
       # for every slice of the same format and header row.

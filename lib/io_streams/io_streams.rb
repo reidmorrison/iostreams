@@ -553,6 +553,27 @@ module IOStreams
     Slice::Pipeline.new
   end
 
+  # Returns [IOStreams::Slice] the slice that the supplied bytes hold, which `IOStreams::Slice#serialize` wrote, with
+  # its rows, the header row of its file, the line of its first row and its format, read through the stream that the
+  # bytes name, such as `:zst`.
+  #
+  # Parameters
+  #   serialized: [String]
+  #     The bytes of a slice, see `IOStreams::Slice#serialize`.
+  #
+  #   The other options are those of the reader of the stream that the bytes name, such as the passphrase of a PGP key.
+  #
+  # Raises `IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, for bytes that are not a serialized
+  # slice, or of a version that this IOStreams does not read.
+  #
+  # Example:
+  #   store[slice_id] = slice.serialize(stream: :zst)
+  #   # Elsewhere:
+  #   slice = IOStreams.slice(store[slice_id])
+  def self.slice(serialized, **)
+    Slice::Serializer.load(serialized, **)
+  end
+
   # Register a URI scheme and the path class that handles it
   #
   # Example:
