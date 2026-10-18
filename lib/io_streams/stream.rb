@@ -463,7 +463,7 @@ module IOStreams
     # the text of that stream, such as `:json` for a spreadsheet, rather than read or write them in the wrong format.
     def format(format = :none)
       if format == :none
-        tabular_settings.format(file_name) { builder.text_format }
+        tabular_settings.format(file_name) { text_format }
       else
         self.format = format
         self
@@ -926,7 +926,7 @@ module IOStreams
     # been checked, see #reject_unknown_options!, as its tabular settings describe them, see
     # `IOStreams::Tabular::Settings#tabular`.
     def tabular(**)
-      tabular_settings.tabular(file_name: file_name, text_format: builder.text_format, **)
+      tabular_settings.tabular(file_name: file_name, text_format: text_format, **)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.
@@ -934,7 +934,14 @@ module IOStreams
     # Raises ArgumentError when the format set with #format is not the format of the text that the stream closest to the
     # application reads and writes, see `IOStreams::Tabular::Settings#rows_format`.
     def rows_format
-      tabular_settings.rows_format(file_name, builder.text_format)
+      tabular_settings.rows_format(file_name, text_format)
+    end
+
+    # Returns [Symbol|nil] the format of the text that the source of the rows decides, such as `:csv` for a spreadsheet,
+    # whose cells the stream closest to the application reads and writes as CSV, see `IOStreams::Builder#text_format`,
+    # or nil when it does not decide it. A slice decides it instead, see `IOStreams::Slice::Stream`.
+    def text_format
+      builder.text_format
     end
 
     # The streams write bytes, which the supplied IO stores as they are, even when it converts the text written to it,

@@ -89,9 +89,15 @@ module IOStreams
   # A stream supplied is copied, keeping its streams and options, so that changing the
   # returned stream does not change the stream supplied.
   #
+  # A slice of the rows of a file, see `IOStreams::Stream#each(:slice)` and `IOStreams.slice`, returns the stream of its
+  # rows, which reads them as the rows of the file, by its header row and format, in the `:array` and `:hash` modes,
+  # see `IOStreams::Slice::Stream`:
+  #   IOStreams.stream(slice).schema("people.json").each(:hash) { |person| p person }
+  #
   # Raises ArgumentError for a String or a Pathname, which name a file: see `IOStreams.path`.
   def self.stream(io_stream)
     return io_stream.dup if io_stream.is_a?(Stream)
+    return Slice::Stream.new(io_stream) if io_stream.is_a?(Slice)
 
     Stream.new(io_stream)
   end

@@ -8,6 +8,9 @@ module IOStreams
   #
   #   IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) { |slice| queue << slice }
   #
+  #   # Elsewhere:
+  #   IOStreams.stream(queue.pop).schema("people.json").each(:hash) { |person| p person }
+  #
   # It is an Array of the rows: lines of text for a format of lines, such as CSV, including a blank line, or for a
   # format whose rows are not lines, such as Parquet, the rows that its reader returns. The methods of an Array that
   # return a new Array, such as `map`, return an Array rather than a slice.
@@ -19,6 +22,7 @@ module IOStreams
   # turns back into a slice.
   class Slice < ::Array
     autoload :Reader, "io_streams/slice/reader"
+    autoload :Stream, "io_streams/slice/stream"
 
     # The keys of the Hash of a slice, see #to_h.
     KEYS = %w[rows header format].freeze
