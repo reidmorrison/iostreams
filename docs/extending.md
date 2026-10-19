@@ -190,7 +190,9 @@ A path class reads and writes the files of a store, such as another cloud store,
 ~~~ruby
 IOStreams.register_scheme(:gcs, MyCloudStoragePath)
 
-IOStreams.path("gcs://bucket/data.csv").each(:hash) { |record| p record }
+IOStreams.path("gcs://bucket/data.csv").each(:hash) do |record|
+  p record
+end
 ~~~
 
 The path class is a subclass of `IOStreams::Path`, whose `#path` is the name of the file within the store. It

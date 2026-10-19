@@ -168,7 +168,9 @@ schema = {
     {name: "name"}
   ]
 }
-IOStreams.path(upload_path).schema(schema).each(:hash) { |contact| p contact }
+IOStreams.path(upload_path).schema(schema).each(:hash) do |contact|
+  p contact
+end
 ~~~
 
 The records that are read only hold the fields of the schema, so an upload cannot set any other column. A file

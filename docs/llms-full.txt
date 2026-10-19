@@ -98,7 +98,9 @@ end
 Read it back a record at a time, as a Hash, while it is decompressed:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").each(:hash) { |person| p person }
+IOStreams.path("people.csv.gz").each(:hash) do |person|
+  p person
+end
 # {"name" => "Jack", "born" => "1990-02-01"}
 # {"name" => "Jill", "born" => "1992-07-14"}
 ~~~
@@ -110,9 +112,14 @@ Describe the columns of the file with a [schema](formats#schema), so that each v
 
 ~~~ruby
 people = IOStreams.path("people.csv.gz").schema(
-  fields: [{name: "name", type: "string"}, {name: "born", type: "date"}]
+  fields: [
+    {name: "name", type: "string"},
+    {name: "born", type: "date"}
+  ]
 )
-people.each(:hash) { |person| p person }
+people.each(:hash) do |person|
+  p person
+end
 # {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
 # {"name" => "Jill", "born" => #<Date: 1992-07-14 ((2448818j,0s,0n),+0s,2299161j)>}
 ~~~
@@ -149,7 +156,9 @@ Rescue a missing file the same way wherever it is stored, so that the path can c
 
 ~~~ruby
 begin
-  IOStreams.path("missing.csv").each(:hash) { |record| p record }
+  IOStreams.path("missing.csv").each(:hash) do |record|
+    p record
+  end
 rescue IOStreams::Errors::NotFound => e
   puts "Nothing to process: #{e.message}"
 end
@@ -179,7 +188,9 @@ end
 **Read a CSV, JSON or Excel file a record at a time**, see [Reading](streams#reading):
 
 ~~~ruby
-IOStreams.path("people.csv").each(:hash) { |record| p record }
+IOStreams.path("people.csv").each(:hash) do |record|
+  p record
+end
 ~~~
 
 **Write a file compressed with gzip**, see [gzip](extensions#gzip):
@@ -223,19 +234,25 @@ IOStreams.path("people.csv.pgp").
 ~~~ruby
 IOStreams.path("people.csv").
   schema(fieldsMatch: "partial", fields: [{name: "born", type: "date"}]).
-  each(:hash) { |record| p record }
+  each(:hash) do |record|
+    p record
+  end
 ~~~
 
 **Read a Windows-1252 file as UTF-8**, see [Character encoding](streams#character-encoding):
 
 ~~~ruby
-IOStreams.path("people.csv").encoding("Windows-1252:UTF-8").each(:hash) { |record| p record }
+IOStreams.path("people.csv").encoding("Windows-1252:UTF-8").each(:hash) do |record|
+  p record
+end
 ~~~
 
 **List the CSV files in a directory or bucket**, see [Listing files](path#listing-files):
 
 ~~~ruby
-IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }
+IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") do |path|
+  p path
+end
 ~~~
 
 **Keep the location of the files in configuration**, see [Configuration](config#add_root):
@@ -245,7 +262,9 @@ IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }
 IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))
 
 # Then anywhere in the application
-IOStreams.join("people.csv").each(:hash) { |record| p record }
+IOStreams.join("people.csv").each(:hash) do |record|
+  p record
+end
 ~~~
 
 **Handle a missing file wherever it is stored**, see [Errors](errors):
@@ -534,7 +553,9 @@ end
 path.read
 # => "name,born,salary\nJack Jones,1990-02-01,1234.50\n"
 
-path.each(:hash) { |person| p person }
+path.each(:hash) do |person|
+  p person
+end
 # => {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
 ~~~
 
@@ -768,7 +789,9 @@ header row of the file as it was read, and `#format` the tabular format of the r
 parses them does not need to know how the file was read:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) { |slice| queue << slice }
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  queue << slice
+end
 ~~~
 
 `IOStreams.stream(slice)` reads the rows of a slice as the rows of its file, by its header row and in its format, with
@@ -776,7 +799,9 @@ the same settings, such as the schema, in the `:array` and `:hash` modes:
 
 ~~~ruby
 # Elsewhere, such as in another thread:
-IOStreams.stream(queue.pop).schema("people.json").each(:hash) { |person| p person }
+IOStreams.stream(queue.pop).schema("people.json").each(:hash) do |person|
+  p person
+end
 ~~~
 
 The file is checked against its schema before the first slice is yielded, so that a file that does not match raises
@@ -806,7 +831,9 @@ JSON and BSON keep as they are, and `IOStreams.slice` turns that Hash back into 
 not need to know what a slice holds:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) { |slice| store << slice.to_h }
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  store << slice.to_h
+end
 
 slice = IOStreams.slice(store.pop)
 slice.to_h  # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
@@ -817,7 +844,9 @@ describe a slice, such as one with a key that a slice does not have. Read the sl
 `IOStreams.stream(slice)`:
 
 ~~~ruby
-IOStreams.stream(IOStreams.slice(store.pop)).schema("people.json").each(:hash) { |person| p person }
+IOStreams.stream(IOStreams.slice(store.pop)).schema("people.json").each(:hash) do |person|
+  p person
+end
 ~~~
 
 The stream of a slice is like any other, apart from what needs the bytes of a file, which a slice does not have:
@@ -1059,10 +1088,19 @@ IOStreams checks where each setting is supplied:
 people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHEMA"])
 
 # The code says what it wants from it: records, whose columns the schema checks.
-people.each(:hash) { |person| p person }
+people.each(:hash) do |person|
+  p person
+end
 
 # A copy reads the source with the settings of its path, and writes the target with the settings of its own.
-IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}]).copy_from(people, mode: :hash)
+target = IOStreams.path("people.json").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "age"}
+  ]
+)
+target.copy_from(people, mode: :hash)
 ~~~
 
 ## Streams from the file name
@@ -1383,9 +1421,13 @@ environment variables or credential files, or from the instance profile, unless 
 
 ~~~ruby
 path.write("name,login\nJack Jones,jjones\n")
-path.each(:hash) { |record| p record }
+path.each(:hash) do |record|
+  p record
+end
 
-IOStreams.path("s3://my-bucket/exports").each_child("*.csv") { |child| puts child }
+IOStreams.path("s3://my-bucket/exports").each_child("*.csv") do |child|
+  puts child
+end
 ~~~
 
 S3 needs the `aws-sdk-s3` gem, which IOStreams loads when it is first needed. So a process without the gem, such as a
@@ -1641,7 +1683,9 @@ path = IOStreams.path(
   username:    "jack",
   ssh_options: {IdentityKey: ENV.fetch("SFTP_IDENTITY_KEY"), HostKey: ENV.fetch("SFTP_HOST_KEY")}
 )
-path.each(:hash) { |record| p record }
+path.each(:hash) do |record|
+  p record
+end
 ~~~
 
 ### ssh options
@@ -1684,7 +1728,9 @@ An `http://` or `https://` url names a file on a web server. Reading downloads i
 it with a PUT request, `#exist?`, `#size` and `#mtime` make a HEAD request, and `#delete` a DELETE request:
 
 ~~~ruby
-IOStreams.path("https://example.com/files/data.csv").each(:hash) { |record| p record }
+IOStreams.path("https://example.com/files/data.csv").each(:hash) do |record|
+  p record
+end
 
 IOStreams.path("https://example.com/upload/report.csv", headers: {"Authorization" => "Bearer #{token}"}).write(report)
 ~~~
@@ -2000,13 +2046,17 @@ The pattern is matched like `Dir.glob`:
 IOStreams.path("exports").children("*.csv", case_sensitive: true)
 # => [#<IOStreams::Paths::File:exports/daily.csv pipeline={}>]
 
-IOStreams.path("exports").each_child("**/*.csv") { |child| puts child }
+IOStreams.path("exports").each_child("**/*.csv") do |child|
+  puts child
+end
 # exports/2026/01/daily.csv
 # exports/2026/02/daily.csv
 # exports/SUMMARY.CSV
 # exports/daily.csv
 
-IOStreams.path("exports").each_child("*", directories: true) { |child| puts child }
+IOStreams.path("exports").each_child("*", directories: true) do |child|
+  puts child
+end
 # exports/2026
 # exports/SUMMARY.CSV
 # exports/daily.csv
@@ -2065,12 +2115,16 @@ returned as a file on a local path, and only with `directories: true` on SFTP.
 `IOStreams.each_child` takes the whole pattern, including the path, and the same options as `#each_child`:
 
 ~~~ruby
-IOStreams.each_child("exports/**/daily.csv") { |path| puts path }
+IOStreams.each_child("exports/**/daily.csv") do |path|
+  puts path
+end
 # exports/2026/01/daily.csv
 # exports/2026/02/daily.csv
 # exports/daily.csv
 
-IOStreams.each_child("s3://my-bucket/exports/*.csv") { |path, attributes| puts path }
+IOStreams.each_child("s3://my-bucket/exports/*.csv") do |path, attributes|
+  puts path
+end
 ~~~
 
 The directory before the first element with a pattern character is the path that is listed, such as
@@ -2353,8 +2407,13 @@ The format of a file comes from the extensions of its name, after its first `.`,
 that is a format wins, so `people.csv.gz` and `PEOPLE.CSV.PGP` are CSV, and `data.json.txt` is JSON:
 
 ~~~ruby
-IOStreams.path("sample.csv").each(:hash) { |record| p record }
-IOStreams.path("sample.json.gz").each(:hash) { |record| p record }
+IOStreams.path("sample.csv").each(:hash) do |record|
+  p record
+end
+
+IOStreams.path("sample.json.gz").each(:hash) do |record|
+  p record
+end
 ~~~
 
 The name of a directory, and the name of the file before its first `.`, are never its format, so `json/data.txt` and
@@ -2367,9 +2426,13 @@ When the file name does not name the format, set it on the path with `#format`, 
 format as a String, such as one held in configuration:
 
 ~~~ruby
-IOStreams.path("sample_data").format(:json).each(:hash) { |record| p record }
+IOStreams.path("sample_data").format(:json).each(:hash) do |record|
+  p record
+end
 
-IOStreams.path(ENV.fetch("PEOPLE_PATH")).format(ENV.fetch("PEOPLE_FORMAT", "csv")).each(:hash) { |person| p person }
+IOStreams.path(ENV.fetch("PEOPLE_PATH")).format(ENV.fetch("PEOPLE_FORMAT", "csv")).each(:hash) do |person|
+  p person
+end
 ~~~
 
 The format describes the file, so it is set on the path, rather than supplied to each call of `#each`, `#reader` or
@@ -2447,7 +2510,9 @@ record, and each row after it holds the values of a record in that order, `nil` 
 # people.json holds:
 # {"name":"Jack","age":21}
 # {"name":"Jill"}
-IOStreams.path("people.json").each(:array) { |row| p row }
+IOStreams.path("people.json").each(:array) do |row|
+  p row
+end
 # ["name", "age"]
 # ["Jack", 21]
 # ["Jill", nil]
@@ -2550,7 +2615,9 @@ path = IOStreams.path("people.csv").schema(
     {name: "joined", type: "date"}
   ]
 )
-path.each(:hash) { |person| p person }
+path.each(:hash) do |person|
+  p person
+end
 # => {"id" => 42, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>}
 ~~~
 
@@ -2558,7 +2625,9 @@ Or as the path or url of a JSON file that holds it, in any store that IOStreams 
 in configuration, like the path of the file:
 
 ~~~ruby
-IOStreams.path(ENV["PEOPLE_PATH"]).schema(ENV["PEOPLE_SCHEMA"]).each(:hash) { |person| p person }
+IOStreams.path(ENV["PEOPLE_PATH"]).schema(ENV["PEOPLE_SCHEMA"]).each(:hash) do |person|
+  p person
+end
 ~~~
 
 The columns of the file are matched to the fields, and the keys of each record read are the names of its fields,
@@ -2581,7 +2650,9 @@ end
 path.read
 # => "id,pay,joined,active\n42,12.50,2026-10-13,true\n"
 
-path.each(:hash) { |person| p person }
+path.each(:hash) do |person|
+  p person
+end
 # => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>, "active" => true}
 ~~~
 
@@ -2663,7 +2734,12 @@ to the fields in the same way. `writer(:array)` writes that header row itself, b
 written as the values of the fields, in order, whatever the format:
 
 ~~~ruby
-path = IOStreams.path("people.csv").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+path = IOStreams.path("people.csv").schema(
+  fields: [
+    {name: "name"},
+    {name: "age", type: "integer"}
+  ]
+)
 path.writer(:array) do |io|
   io << ["Jack", 21]
 end
@@ -2680,7 +2756,12 @@ is written as empty.
 So a file can have readable column names, while the code uses its own keys:
 
 ~~~ruby
-report = IOStreams.path("report.csv").schema(fields: [{name: "First Name"}, {name: "Date of Birth", type: "date"}])
+report = IOStreams.path("report.csv").schema(
+  fields: [
+    {name: "First Name"},
+    {name: "Date of Birth", type: "date"}
+  ]
+)
 report.writer(:hash) do |io|
   io << {first_name: "Jack", date_of_birth: Date.new(2001, 2, 3)}
 end
@@ -2741,7 +2822,9 @@ schema = {
     {name: "date_of_birth", type: "date", aliases: ["DOB", "Birth Date"]}
   ]
 }
-IOStreams.path("upload.csv").schema(schema).each(:hash) { |contact| p contact }
+IOStreams.path("upload.csv").schema(schema).each(:hash) do |contact|
+  p contact
+end
 # "E-mail Address,FIRST NAME,DOB,Notes" =>
 # {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>}
 ~~~
@@ -2758,7 +2841,9 @@ schema = {
     {name: "middle_name", constraints: {required: true}, allowBlank: true}
   ]
 }
-IOStreams.path("upload.csv").schema(schema).each(:hash) { |person| p person }
+IOStreams.path("upload.csv").schema(schema).each(:hash) do |person|
+  p person
+end
 # "First Name,Middle Name\nJack,\n" => {"first_name" => "Jack", "middle_name" => nil}
 # "First Name\nJack\n"               => IOStreams::Errors::InvalidHeader, missing the required field "middle_name"
 ~~~
@@ -2785,8 +2870,16 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
 
 ~~~ruby
 # A CSV file without a header row.
-path = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
-path.each(:hash) { |person| p person }
+path = IOStreams.path("people.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "age", type: "integer"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
 # => {"name" => "Jack", "age" => 21}
 ~~~
 
@@ -2918,7 +3011,9 @@ UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yie
 or with a schema of the names of its fields, and each row after it is the values of the fields, in order:
 
 ~~~ruby
-IOStreams.path("s3://bucket/people.parquet").each(:array) { |row| p row }
+IOStreams.path("s3://bucket/people.parquet").each(:array) do |row|
+  p row
+end
 # ["id", "name", "amount", "born"]
 # [1, "Jack", 0.1235e2, #<Date: 2000-02-29 ((2451604j,0s,0n),+0s,2299161j)>]
 ~~~
@@ -2936,7 +3031,9 @@ path = IOStreams.path("sample_data").format(:fixed).schema(
     {name: "zip",     type: "integer", width: 5}
   ]
 )
-path.each(:hash) { |record| p record }
+path.each(:hash) do |record|
+  p record
+end
 ~~~
 
 Writing a fixed width file uses the same schema to render each record:
@@ -2953,7 +3050,9 @@ takes the header row that `each(:array)` yields as the header row of the rows af
 file in another format, such as CSV, can be written as they are:
 
 ~~~ruby
-path.each(:array) { |row| p row }
+path.each(:array) do |row|
+  p row
+end
 # ["name", "address", "zip"]
 # ["Jack Jones", "Somewhere", 12345]
 ~~~
@@ -2974,7 +3073,9 @@ The schema can be held in a file, such as this `people.schema.json`:
 ~~~
 
 ~~~ruby
-IOStreams.path("people.txt").format(:fixed).schema("people.schema.json").each(:hash) { |person| p person }
+IOStreams.path("people.txt").format(:fixed).schema("people.schema.json").each(:hash) do |person|
+  p person
+end
 ~~~
 
 The properties that place each field:
@@ -3044,8 +3145,15 @@ writing a line that is longer than the schema in bytes. Set the encoding of the 
 
 ~~~ruby
 path = IOStreams.path("people.txt").encoding("ISO-8859-1")
-path.format(:fixed).schema(fields: [{name: "name", width: 10}, {name: "zip", width: 5}])
-path.writer(:hash) { |io| io << {"name" => "José", "zip" => "12345"} }
+path.format(:fixed).schema(
+  fields: [
+    {name: "name", width: 10},
+    {name: "zip", width: 5}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"name" => "José", "zip" => "12345"}
+end
 ~~~
 
 ### Cleaning fixed width files
@@ -3309,7 +3417,9 @@ IOStreams.path("example.csv.enc").writer(:hash) do |io|
   io << {"name" => "Jack Jones", "ssn" => "123-45-6789"}
 end
 
-IOStreams.path("example.csv.enc").each(:hash) { |record| p record }
+IOStreams.path("example.csv.enc").each(:hash) do |record|
+  p record
+end
 # => {"name" => "Jack Jones", "ssn" => "123-45-6789"}
 ~~~
 
@@ -3540,7 +3650,13 @@ so describe each file on its own path: its format, encoding and [schema](formats
 are written, and their order, set a schema on the target, whose fields are the columns written:
 
 ~~~ruby
-target = IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}])
+target = IOStreams.path("people.json").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "age"}
+  ]
+)
 target.copy_from("people.csv", mode: :hash)
 ~~~
 
@@ -3548,7 +3664,13 @@ target.copy_from("people.csv", mode: :hash)
 schema with `header: false` on its path, whose fields are its columns, in order:
 
 ~~~ruby
-source = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
+source = IOStreams.path("people.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "age", type: "integer"}
+  ]
+)
 IOStreams.path("people.json").copy_from(source, mode: :hash)
 ~~~
 
@@ -3618,7 +3740,9 @@ files with Java.
 path = IOStreams.path(ENV.fetch("IMPORT_PATH"))
 
 begin
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
 rescue IOStreams::Errors::NotFound => e
   logger.info("Nothing to import yet: #{e.display_name}")
 end
@@ -3644,7 +3768,9 @@ rescue Errno::ENOENT, Aws::S3::Errors::NoSuchKey, IOStreams::Errors::Communicati
 path = IOStreams.path(ENV.fetch("IMPORT_PATH"))
 
 begin
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
 rescue IOStreams::Errors::Corrupt => e
   logger.error("#{path.display_name} cannot be read, ask for it to be sent again", e)
 end
@@ -3665,7 +3791,9 @@ raises `IOStreams::Errors::MissingKey` instead, which sending the file again wil
 
 ~~~ruby
 begin
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
 rescue IOStreams::Errors::MissingKey => e
   raise(ConfigurationError, "Check the PGP keys and passphrase for #{e.display_name || path.display_name}")
 end
@@ -3815,7 +3943,9 @@ Skip a file that has not arrived yet, and process it on the next run:
 
 ~~~ruby
 def import(path)
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
   path.delete
 rescue IOStreams::Errors::NotFound
   logger.info("Waiting for #{path.display_name}")
@@ -4329,7 +4459,9 @@ IOStreams.path("outbound/orders.csv.pgp").option(:pgp, import_and_trust_key: par
 # Require that the file was signed by the partner's key.
 IOStreams.path("inbound/invoices.csv.pgp").
   option(:pgp, passphrase: ENV.fetch("PGP_PASSPHRASE"), import_and_trust_key: partner_key).
-  each(:hash) { |invoice| p invoice }
+  each(:hash) do |invoice|
+    p invoice
+  end
 ~~~
 
 * When writing, the key is imported, its owner trust is set to `import_and_trust_level`, 5 by default, and the file is
@@ -5001,7 +5133,9 @@ schema = {
     {name: "name"}
   ]
 }
-IOStreams.path(upload_path).schema(schema).each(:hash) { |contact| p contact }
+IOStreams.path(upload_path).schema(schema).each(:hash) do |contact|
+  p contact
+end
 ~~~
 
 The records that are read only hold the fields of the schema, so an upload cannot set any other column. A file
@@ -5215,7 +5349,9 @@ A path class reads and writes the files of a store, such as another cloud store,
 ~~~ruby
 IOStreams.register_scheme(:gcs, MyCloudStoragePath)
 
-IOStreams.path("gcs://bucket/data.csv").each(:hash) { |record| p record }
+IOStreams.path("gcs://bucket/data.csv").each(:hash) do |record|
+  p record
+end
 ~~~
 
 The path class is a subclass of `IOStreams::Path`, whose `#path` is the name of the file within the store. It
@@ -5525,7 +5661,9 @@ keys of its first record, and each row after it holds the values of a record in 
 # people.json holds:
 # {"name":"Jack","age":21}
 # {"age":22,"name":"Jill"}
-IOStreams.path("people.json").each(:array) { |row| p row }
+IOStreams.path("people.json").each(:array) do |row|
+  p row
+end
 # ["name", "age"]
 # ["Jack", 21]
 # ["Jill", 22]
@@ -5543,12 +5681,23 @@ Fix: read Hashes with `each(:hash)`. For JSON records that leave out keys, descr
 `fieldsMatch` is `"superset"`, so that every row has the same columns, the fields:
 
 ~~~ruby
-IOStreams.path("people.json").each(:hash) { |record| p record }
+IOStreams.path("people.json").each(:hash) do |record|
+  p record
+end
 # {"name" => "Jack", "age" => 21}
 # {"age" => 22, "name" => "Jill"}
 
-schema = {fieldsMatch: "superset", fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "zip"}]}
-IOStreams.path("people.json").schema(schema).each(:array) { |row| p row }
+schema = {
+  fieldsMatch: "superset",
+  fields:      [
+    {name: "name"},
+    {name: "age", type: "integer"},
+    {name: "zip"}
+  ]
+}
+IOStreams.path("people.json").schema(schema).each(:array) do |row|
+  p row
+end
 # ["name", "age", "zip"]
 # ["Jack", 21, nil]
 # ["Jill", 22, nil]
@@ -5577,14 +5726,30 @@ Fix: set the format on the path with `#format`, and the layout of a fixed width 
 
 ~~~ruby
 # Before
-path.each(:hash, format: :json) { |row| p row }
-path.each(:hash, format: :fixed, format_options: {layout: layout}) { |row| p row }
-IOStreams.stream(io).each(:hash, original_file_name: "data.json") { |row| p row }
+path.each(:hash, format: :json) do |row|
+  p row
+end
+
+path.each(:hash, format: :fixed, format_options: {layout: layout}) do |row|
+  p row
+end
+
+IOStreams.stream(io).each(:hash, original_file_name: "data.json") do |row|
+  p row
+end
 
 # After
-path.format(:json).each(:hash) { |row| p row }
-path.format(:fixed).schema(fields: fields).each(:hash) { |row| p row }
-IOStreams.stream(io).file_name("data.json").each(:hash) { |row| p row }
+path.format(:json).each(:hash) do |row|
+  p row
+end
+
+path.format(:fixed).schema(fields: fields).each(:hash) do |row|
+  p row
+end
+
+IOStreams.stream(io).file_name("data.json").each(:hash) do |row|
+  p row
+end
 ~~~
 
 #### Options that only apply when reading raise when writing or copying
@@ -5603,7 +5768,14 @@ read the source of a copy in a particular way, set what describes it on its path
 target.copy_from(source, mode: :hash, allowed_columns: %w[name zip])
 
 # After
-target.schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}]).copy_from(source, mode: :hash)
+target.schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
+target.copy_from(source, mode: :hash)
 ~~~
 
 #### `BigDecimal` and `Time` values are written as their usual text
@@ -6589,11 +6761,15 @@ these matches why it was used:
 ~~~ruby
 # Before (deprecated)
 Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
-IOStreams.path("data.txt.gz").stream(:none).each(:hash) { |row| p row }
+IOStreams.path("data.txt.gz").stream(:none).each(:hash) do |row|
+  p row
+end
 
 # After
 Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
-IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) { |row| p row }
+IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) do |row|
+  p row
+end
 ~~~
 
 #### `#format_options` is replaced by `#schema`
@@ -6616,7 +6792,13 @@ A schema gives the type of each field of every format, and can be held in a JSON
 
 ~~~ruby
 # Before (deprecated)
-path.format(:fixed).format_options(layout: [{size: 23, key: "name"}, {size: 2}, {size: 5, key: "zip", type: :integer}])
+path.format(:fixed).format_options(
+  layout: [
+    {size: 23, key: "name"},
+    {size: 2},
+    {size: 5, key: "zip", type: :integer}
+  ]
+)
 
 # After
 path.format(:fixed).schema(
@@ -6696,13 +6878,20 @@ a schema that replaces each one:
 
 ~~~ruby
 # Before (deprecated)
-path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) { |record| p record }
+path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) do |record|
+  p record
+end
 
 # After
 path.schema(
   fieldsMatch: "partial",
-  fields:      [{name: "first_name"}, {name: "zip_code", constraints: {required: true}, allowBlank: true}]
-).each(:hash) { |record| p record }
+  fields:      [
+    {name: "first_name"},
+    {name: "zip_code", constraints: {required: true}, allowBlank: true}
+  ]
+).each(:hash) do |record|
+  p record
+end
 
 # Both read "First Name,Zip Code,Notes\nJack,12345,x\nJill,,y\n" as:
 # {"first_name" => "Jack", "zip_code" => "12345"}
@@ -6719,8 +6908,17 @@ path.each(:hash, columns: ["name", "address", "zip"]) do |record|
 end
 
 # After
-path = IOStreams.path("no_header.csv").schema(header: false, fields: [{name: "name"}, {name: "address"}, {name: "zip"}])
-path.each(:hash) { |record| p record }
+path = IOStreams.path("no_header.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "address"},
+    {name: "zip"}
+  ]
+)
+path.each(:hash) do |record|
+  p record
+end
 ~~~
 
 Example, writing only specific columns in a fixed order:
@@ -6735,7 +6933,13 @@ path.read
 # => "name,zip\nJack Jones,12345\n"
 
 # After
-path = IOStreams.path("sample.csv").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}])
+path = IOStreams.path("sample.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
 path.writer(:hash) do |io|
   io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
 end
@@ -6746,10 +6950,20 @@ the fields, in order, as `columns:` did:
 
 ~~~ruby
 # Before (deprecated)
-path.writer(:array, columns: %w[name zip]) { |io| io << ["Jack Jones", 12345] }
+path.writer(:array, columns: %w[name zip]) do |io|
+  io << ["Jack Jones", 12345]
+end
 
 # After
-path.schema(fields: [{name: "name"}, {name: "zip"}]).writer(:array) { |io| io << ["Jack Jones", 12345] }
+path.schema(
+  fields: [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
+path.writer(:array) do |io|
+  io << ["Jack Jones", 12345]
+end
 ~~~
 
 ##### What a schema reads differently

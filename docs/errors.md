@@ -34,7 +34,9 @@ files with Java.
 path = IOStreams.path(ENV.fetch("IMPORT_PATH"))
 
 begin
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
 rescue IOStreams::Errors::NotFound => e
   logger.info("Nothing to import yet: #{e.display_name}")
 end
@@ -60,7 +62,9 @@ rescue Errno::ENOENT, Aws::S3::Errors::NoSuchKey, IOStreams::Errors::Communicati
 path = IOStreams.path(ENV.fetch("IMPORT_PATH"))
 
 begin
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
 rescue IOStreams::Errors::Corrupt => e
   logger.error("#{path.display_name} cannot be read, ask for it to be sent again", e)
 end
@@ -81,7 +85,9 @@ raises `IOStreams::Errors::MissingKey` instead, which sending the file again wil
 
 ~~~ruby
 begin
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
 rescue IOStreams::Errors::MissingKey => e
   raise(ConfigurationError, "Check the PGP keys and passphrase for #{e.display_name || path.display_name}")
 end
@@ -231,7 +237,9 @@ Skip a file that has not arrived yet, and process it on the next run:
 
 ~~~ruby
 def import(path)
-  path.each(:hash) { |record| Order.import(record) }
+  path.each(:hash) do |record|
+    Order.import(record)
+  end
   path.delete
 rescue IOStreams::Errors::NotFound
   logger.info("Waiting for #{path.display_name}")

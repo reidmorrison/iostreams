@@ -81,7 +81,9 @@ header row of the file as it was read, and `#format` the tabular format of the r
 parses them does not need to know how the file was read:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) { |slice| queue << slice }
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  queue << slice
+end
 ~~~
 
 `IOStreams.stream(slice)` reads the rows of a slice as the rows of its file, by its header row and in its format, with
@@ -89,7 +91,9 @@ the same settings, such as the schema, in the `:array` and `:hash` modes:
 
 ~~~ruby
 # Elsewhere, such as in another thread:
-IOStreams.stream(queue.pop).schema("people.json").each(:hash) { |person| p person }
+IOStreams.stream(queue.pop).schema("people.json").each(:hash) do |person|
+  p person
+end
 ~~~
 
 The file is checked against its schema before the first slice is yielded, so that a file that does not match raises
@@ -119,7 +123,9 @@ JSON and BSON keep as they are, and `IOStreams.slice` turns that Hash back into 
 not need to know what a slice holds:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) { |slice| store << slice.to_h }
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  store << slice.to_h
+end
 
 slice = IOStreams.slice(store.pop)
 slice.to_h  # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
@@ -130,7 +136,9 @@ describe a slice, such as one with a key that a slice does not have. Read the sl
 `IOStreams.stream(slice)`:
 
 ~~~ruby
-IOStreams.stream(IOStreams.slice(store.pop)).schema("people.json").each(:hash) { |person| p person }
+IOStreams.stream(IOStreams.slice(store.pop)).schema("people.json").each(:hash) do |person|
+  p person
+end
 ~~~
 
 The stream of a slice is like any other, apart from what needs the bytes of a file, which a slice does not have:
@@ -372,10 +380,19 @@ IOStreams checks where each setting is supplied:
 people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHEMA"])
 
 # The code says what it wants from it: records, whose columns the schema checks.
-people.each(:hash) { |person| p person }
+people.each(:hash) do |person|
+  p person
+end
 
 # A copy reads the source with the settings of its path, and writes the target with the settings of its own.
-IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}]).copy_from(people, mode: :hash)
+target = IOStreams.path("people.json").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "age"}
+  ]
+)
+target.copy_from(people, mode: :hash)
 ~~~
 
 ## Streams from the file name

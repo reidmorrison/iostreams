@@ -247,7 +247,9 @@ IOStreams.path("example.csv.enc").writer(:hash) do |io|
   io << {"name" => "Jack Jones", "ssn" => "123-45-6789"}
 end
 
-IOStreams.path("example.csv.enc").each(:hash) { |record| p record }
+IOStreams.path("example.csv.enc").each(:hash) do |record|
+  p record
+end
 # => {"name" => "Jack Jones", "ssn" => "123-45-6789"}
 ~~~
 
