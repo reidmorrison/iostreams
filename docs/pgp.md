@@ -390,7 +390,9 @@ IOStreams.path("outbound/orders.csv.pgp").option(:pgp, import_and_trust_key: par
 # Require that the file was signed by the partner's key.
 IOStreams.path("inbound/invoices.csv.pgp").
   option(:pgp, passphrase: ENV.fetch("PGP_PASSPHRASE"), import_and_trust_key: partner_key).
-  each(:hash) { |invoice| p invoice }
+  each(:hash) do |invoice|
+    p invoice
+  end
 ~~~
 
 * When writing, the key is imported, its owner trust is set to `import_and_trust_level`, 5 by default, and the file is

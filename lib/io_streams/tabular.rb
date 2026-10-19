@@ -215,6 +215,16 @@ module IOStreams
       @mapping.headerless_columns
     end
 
+    # Returns [Array<String>] the header row of the file as it was read, see #read_header, before it was cleansed or
+    # matched to the fields of a schema, which the header keeps, see `IOStreams::Tabular::Header#row`, so that another
+    # Tabular with the same format and schema, such as one that parses a slice of the file elsewhere, see
+    # `IOStreams::Slice`, reads the rest of the file by the same columns with `read_header(header_row)`. It is frozen.
+    # Returns nil until it is read, or when the file has no header row, see #requires_header?, such as fixed width, JSON,
+    # or a schema whose `header` is false, or when the columns were supplied in place of one.
+    def header_row
+      header.row if requires_header?
+    end
+
     # Returns [true|false] whether the keys of the records read are the names of the fields of a schema, rather than the
     # columns of the file, so that cleansing the header row does not apply, see `IOStreams::Schema::Columns`.
     def field_names?
@@ -399,9 +409,9 @@ module IOStreams
     def read_row(line)
       # Once the header row is read, every line is a row, so that is asked first.
       return yield(@mapping.row_parse(line)) unless @mapping.rows_header?
-      return yield(header_row(@mapping.read_header(line))) if @mapping.header?
+      return yield(as_header_row(@mapping.read_header(line))) if @mapping.header?
 
-      columns = header_row(@mapping.read_rows_header(line))
+      columns = as_header_row(@mapping.read_rows_header(line))
       yield columns if columns
       yield @mapping.row_parse(line)
     end
@@ -414,6 +424,26 @@ module IOStreams
         @mapping.read_header(line)
       else
         yield @mapping.read_record(line)
+      end
+    end
+
+    # Yields [String|Object] the line as it is, for a reader that hands on the rows of a file without parsing them, to be
+    # parsed later, or elsewhere, such as in slices, see `IOStreams::Slice::Reader`, unless the line is the header row,
+    # while it is expected, see #header?, which it reads instead, see #read_header, so that the header row is matched to
+    # the fields of the schema, or cleansed, before any row is handed on. A row of a format whose rows are not lines,
+    # such as Parquet, is yielded as its reader returns it, see #read_rows.
+    #
+    # With a schema, the keys of the first record of a format of keyed records, such as JSON or Parquet, which has no
+    # header row, are matched to the fields in the same way, see `IOStreams::Tabular::Mapping#check_keys`.
+    #
+    # Returns the result of the block, or nil for the header row.
+    def read_line(line)
+      if @mapping.header?
+        @mapping.read_header(line)
+        nil
+      else
+        @mapping.check_keys(line)
+        yield line
       end
     end
 
@@ -551,7 +581,7 @@ module IOStreams
 
     # Returns [IOStreams::Row::HeaderRow] the columns of a header row that #read_row yields, or nil when there are none,
     # such as for a blank line.
-    def header_row(columns)
+    def as_header_row(columns)
       IOStreams::Row::HeaderRow.new(columns) if columns
     end
 

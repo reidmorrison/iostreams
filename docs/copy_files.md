@@ -98,7 +98,13 @@ so describe each file on its own path: its format, encoding and [schema](formats
 are written, and their order, set a schema on the target, whose fields are the columns written:
 
 ~~~ruby
-target = IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}])
+target = IOStreams.path("people.json").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "age"}
+  ]
+)
 target.copy_from("people.csv", mode: :hash)
 ~~~
 
@@ -106,7 +112,13 @@ target.copy_from("people.csv", mode: :hash)
 schema with `header: false` on its path, whose fields are its columns, in order:
 
 ~~~ruby
-source = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
+source = IOStreams.path("people.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "age", type: "integer"}
+  ]
+)
 IOStreams.path("people.json").copy_from(source, mode: :hash)
 ~~~
 

@@ -29,6 +29,8 @@ module IOStreams
     #   `#take_columns` takes, and `#columns_supplied?`.
     # * Answers whether the keys of the records read are the names of fields, `#field_names?`, and the columns of the
     #   rows of a file without a header row, `#headerless_columns`.
+    # * Checks the keys of the first record of a file whose rows are handed on without being parsed, `#check_keys`, see
+    #   `IOStreams::Tabular#read_line`.
     #
     # Each row is an Array, whatever the format: the values of the columns of the rows, in order, which a parser of
     # keyed records, such as JSON, gives by their keys. A row already read, an Array, is read as such, see
@@ -53,6 +55,13 @@ module IOStreams
         @header = header
         @parser = parser
         @format = format
+      end
+
+      # Checks the keys of the first record of a file whose rows are handed on without being parsed, see
+      # `IOStreams::Tabular#read_line`: nothing, since without a schema the keys of each record are its columns. A
+      # schema matches them to its fields, see `IOStreams::Tabular::SchemaMapping#check_keys`.
+      def check_keys(_line)
+        nil
       end
 
       private

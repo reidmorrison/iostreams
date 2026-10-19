@@ -43,6 +43,9 @@ module IOStreams
         # Whether the names of the fields have been read as the header row of the rows of a file without one, see
         # #rows_header?.
         @names_read = false
+        # Whether the keys of the first record of a format of keyed records have been matched to the fields, see
+        # #check_keys.
+        @keys_checked = false
       end
 
       # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, unless the schema
@@ -134,6 +137,23 @@ module IOStreams
         end
 
         match_header(line)&.last
+      end
+
+      # Matches the keys of the first record of a format of keyed records, such as JSON or Parquet, that is not blank to
+      # the fields, as #record_parse would, without converting its values, so that a file whose records do not match the
+      # schema raises before its rows are handed on without being parsed, see `IOStreams::Tabular#read_line`. The keys of
+      # the other records are matched when they are parsed. A row already read, an Array, has no keys.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` when they do not match, see `IOStreams::Schema::Columns#check_keys`.
+      def check_keys(line)
+        return if !@keyed || @keys_checked
+
+        values = parse_values(line)
+        return if values.nil?
+
+        @columns.check_keys(values.keys) if values.is_a?(::Hash)
+        @keys_checked = true
+        nil
       end
 
       # Returns [Array<String|Symbol>] the header row of the rows of a file without one, which is not a line of the

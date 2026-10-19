@@ -13,6 +13,7 @@ module IOStreams
   autoload :Path,                "io_streams/path"
   autoload :Reader,              "io_streams/reader"
   autoload :Schema,              "io_streams/schema"
+  autoload :Slice,               "io_streams/slice"
   autoload :Stream,              "io_streams/stream"
   autoload :StreamFormat,        "io_streams/stream_format"
   autoload :Tabular,             "io_streams/tabular"

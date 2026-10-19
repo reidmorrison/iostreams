@@ -15,7 +15,9 @@ IOStreams.path("people.csv.gz").writer(:hash) do |io|
 end
 
 # Read it back a record at a time, as it is decompressed.
-IOStreams.path("people.csv.gz").each(:hash) { |person| p person }
+IOStreams.path("people.csv.gz").each(:hash) do |person|
+  p person
+end
 # {"name" => "Jack", "city" => "Oslo"}
 # {"name" => "Jill", "city" => "Lima"}
 ~~~

@@ -31,8 +31,13 @@ The format of a file comes from the extensions of its name, after its first `.`,
 that is a format wins, so `people.csv.gz` and `PEOPLE.CSV.PGP` are CSV, and `data.json.txt` is JSON:
 
 ~~~ruby
-IOStreams.path("sample.csv").each(:hash) { |record| p record }
-IOStreams.path("sample.json.gz").each(:hash) { |record| p record }
+IOStreams.path("sample.csv").each(:hash) do |record|
+  p record
+end
+
+IOStreams.path("sample.json.gz").each(:hash) do |record|
+  p record
+end
 ~~~
 
 The name of a directory, and the name of the file before its first `.`, are never its format, so `json/data.txt` and
@@ -45,9 +50,13 @@ When the file name does not name the format, set it on the path with `#format`, 
 format as a String, such as one held in configuration:
 
 ~~~ruby
-IOStreams.path("sample_data").format(:json).each(:hash) { |record| p record }
+IOStreams.path("sample_data").format(:json).each(:hash) do |record|
+  p record
+end
 
-IOStreams.path(ENV.fetch("PEOPLE_PATH")).format(ENV.fetch("PEOPLE_FORMAT", "csv")).each(:hash) { |person| p person }
+IOStreams.path(ENV.fetch("PEOPLE_PATH")).format(ENV.fetch("PEOPLE_FORMAT", "csv")).each(:hash) do |person|
+  p person
+end
 ~~~
 
 The format describes the file, so it is set on the path, rather than supplied to each call of `#each`, `#reader` or
@@ -125,7 +134,9 @@ record, and each row after it holds the values of a record in that order, `nil` 
 # people.json holds:
 # {"name":"Jack","age":21}
 # {"name":"Jill"}
-IOStreams.path("people.json").each(:array) { |row| p row }
+IOStreams.path("people.json").each(:array) do |row|
+  p row
+end
 # ["name", "age"]
 # ["Jack", 21]
 # ["Jill", nil]
@@ -228,7 +239,9 @@ path = IOStreams.path("people.csv").schema(
     {name: "joined", type: "date"}
   ]
 )
-path.each(:hash) { |person| p person }
+path.each(:hash) do |person|
+  p person
+end
 # => {"id" => 42, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>}
 ~~~
 
@@ -236,7 +249,9 @@ Or as the path or url of a JSON file that holds it, in any store that IOStreams 
 in configuration, like the path of the file:
 
 ~~~ruby
-IOStreams.path(ENV["PEOPLE_PATH"]).schema(ENV["PEOPLE_SCHEMA"]).each(:hash) { |person| p person }
+IOStreams.path(ENV["PEOPLE_PATH"]).schema(ENV["PEOPLE_SCHEMA"]).each(:hash) do |person|
+  p person
+end
 ~~~
 
 The columns of the file are matched to the fields, and the keys of each record read are the names of its fields,
@@ -259,7 +274,9 @@ end
 path.read
 # => "id,pay,joined,active\n42,12.50,2026-10-13,true\n"
 
-path.each(:hash) { |person| p person }
+path.each(:hash) do |person|
+  p person
+end
 # => {"id" => 42, "pay" => 0.125e2, "joined" => #<Date: 2026-10-13 ((2461327j,0s,0n),+0s,2299161j)>, "active" => true}
 ~~~
 
@@ -341,7 +358,12 @@ to the fields in the same way. `writer(:array)` writes that header row itself, b
 written as the values of the fields, in order, whatever the format:
 
 ~~~ruby
-path = IOStreams.path("people.csv").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+path = IOStreams.path("people.csv").schema(
+  fields: [
+    {name: "name"},
+    {name: "age", type: "integer"}
+  ]
+)
 path.writer(:array) do |io|
   io << ["Jack", 21]
 end
@@ -358,7 +380,12 @@ is written as empty.
 So a file can have readable column names, while the code uses its own keys:
 
 ~~~ruby
-report = IOStreams.path("report.csv").schema(fields: [{name: "First Name"}, {name: "Date of Birth", type: "date"}])
+report = IOStreams.path("report.csv").schema(
+  fields: [
+    {name: "First Name"},
+    {name: "Date of Birth", type: "date"}
+  ]
+)
 report.writer(:hash) do |io|
   io << {first_name: "Jack", date_of_birth: Date.new(2001, 2, 3)}
 end
@@ -419,7 +446,9 @@ schema = {
     {name: "date_of_birth", type: "date", aliases: ["DOB", "Birth Date"]}
   ]
 }
-IOStreams.path("upload.csv").schema(schema).each(:hash) { |contact| p contact }
+IOStreams.path("upload.csv").schema(schema).each(:hash) do |contact|
+  p contact
+end
 # "E-mail Address,FIRST NAME,DOB,Notes" =>
 # {"first_name" => "Jack", "email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>}
 ~~~
@@ -436,7 +465,9 @@ schema = {
     {name: "middle_name", constraints: {required: true}, allowBlank: true}
   ]
 }
-IOStreams.path("upload.csv").schema(schema).each(:hash) { |person| p person }
+IOStreams.path("upload.csv").schema(schema).each(:hash) do |person|
+  p person
+end
 # "First Name,Middle Name\nJack,\n" => {"first_name" => "Jack", "middle_name" => nil}
 # "First Name\nJack\n"               => IOStreams::Errors::InvalidHeader, missing the required field "middle_name"
 ~~~
@@ -463,8 +494,16 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
 
 ~~~ruby
 # A CSV file without a header row.
-path = IOStreams.path("people.csv").schema(header: false, fields: [{name: "name"}, {name: "age", type: "integer"}])
-path.each(:hash) { |person| p person }
+path = IOStreams.path("people.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "age", type: "integer"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
 # => {"name" => "Jack", "age" => 21}
 ~~~
 
@@ -596,7 +635,9 @@ UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yie
 or with a schema of the names of its fields, and each row after it is the values of the fields, in order:
 
 ~~~ruby
-IOStreams.path("s3://bucket/people.parquet").each(:array) { |row| p row }
+IOStreams.path("s3://bucket/people.parquet").each(:array) do |row|
+  p row
+end
 # ["id", "name", "amount", "born"]
 # [1, "Jack", 0.1235e2, #<Date: 2000-02-29 ((2451604j,0s,0n),+0s,2299161j)>]
 ~~~
@@ -614,7 +655,9 @@ path = IOStreams.path("sample_data").format(:fixed).schema(
     {name: "zip",     type: "integer", width: 5}
   ]
 )
-path.each(:hash) { |record| p record }
+path.each(:hash) do |record|
+  p record
+end
 ~~~
 
 Writing a fixed width file uses the same schema to render each record:
@@ -631,7 +674,9 @@ takes the header row that `each(:array)` yields as the header row of the rows af
 file in another format, such as CSV, can be written as they are:
 
 ~~~ruby
-path.each(:array) { |row| p row }
+path.each(:array) do |row|
+  p row
+end
 # ["name", "address", "zip"]
 # ["Jack Jones", "Somewhere", 12345]
 ~~~
@@ -652,7 +697,9 @@ The schema can be held in a file, such as this `people.schema.json`:
 ~~~
 
 ~~~ruby
-IOStreams.path("people.txt").format(:fixed).schema("people.schema.json").each(:hash) { |person| p person }
+IOStreams.path("people.txt").format(:fixed).schema("people.schema.json").each(:hash) do |person|
+  p person
+end
 ~~~
 
 The properties that place each field:
@@ -722,8 +769,15 @@ writing a line that is longer than the schema in bytes. Set the encoding of the 
 
 ~~~ruby
 path = IOStreams.path("people.txt").encoding("ISO-8859-1")
-path.format(:fixed).schema(fields: [{name: "name", width: 10}, {name: "zip", width: 5}])
-path.writer(:hash) { |io| io << {"name" => "José", "zip" => "12345"} }
+path.format(:fixed).schema(
+  fields: [
+    {name: "name", width: 10},
+    {name: "zip", width: 5}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"name" => "José", "zip" => "12345"}
+end
 ~~~
 
 ### Cleaning fixed width files

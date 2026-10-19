@@ -25,15 +25,15 @@ module IOStreams
 
     attr_reader :io_stream
 
-    # Returns [Array<Symbol>] the options that only the readers of lines, rows and records accept, so that a writer, and
-    # a copy, which uses its options to write its target, raise for them, rather than ignore them. Each reader and
-    # writer declares the options that it accepts.
+    # Returns [Array<Symbol>] the options that only the readers of lines, rows, records and slices accept, which no
+    # writer accepts, so that a writer, and a copy, which uses its options to write its target, raise for them, rather
+    # than ignore them. Each reader and writer declares the options that it accepts.
     def self.read_option_names
-      @read_option_names ||= [
-        [IOStreams::Line::Reader, IOStreams::Line::Writer],
-        [IOStreams::Row::Reader, IOStreams::Row::Writer],
-        [IOStreams::Record::Reader, IOStreams::Record::Writer]
-      ].flat_map { |reader, writer| reader.option_names - writer.option_names }.uniq.freeze
+      @read_option_names ||= begin
+        readers = [IOStreams::Line::Reader, IOStreams::Row::Reader, IOStreams::Record::Reader, IOStreams::Slice::Reader]
+        writers = [IOStreams::Line::Writer, IOStreams::Row::Writer, IOStreams::Record::Writer]
+        (readers.flat_map(&:option_names) - writers.flat_map(&:option_names)).uniq.freeze
+      end
     end
 
     # Returns [Module|nil] the format of the rows of the tabular format of the supplied name, such as `IOStreams::Parquet`
@@ -254,6 +254,12 @@ module IOStreams
     #     p hash
     #   end
     #
+    # Example: Read up to 100 rows at a time, as they are in the file, to parse elsewhere, see `IOStreams::Slice`
+    #   IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) do |slice|
+    #     p slice.header
+    #     p slice
+    #   end
+    #
     # Notes:
     # - Newlines embedded within quoted fields are kept within the same line when
     #   1. The tabular format quotes its fields, such as CSV, whether set explicitly via `.format(:csv)`,
@@ -266,7 +272,13 @@ module IOStreams
     # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
     #   ArgumentError when they are supplied to a call, see PATH_SETTINGS. So does any other option that the mode does
     #   not take, before the file is opened, see `IOStreams::Line::Reader.option_names`,
-    #   `IOStreams::Row::Reader.option_names` and `IOStreams::Record::Reader.option_names`.
+    #   `IOStreams::Row::Reader.option_names`, `IOStreams::Record::Reader.option_names` and
+    #   `IOStreams::Slice::Reader.option_names`.
+    # - The `:slice` mode reads the header row, matched to the fields of the schema, which raises
+    #   `IOStreams::Errors::InvalidHeader` before the first slice is yielded when they do not match, and each slice
+    #   carries it, and the format of its rows, so that the rows of the slice can be parsed on their own, elsewhere.
+    #   With `validate: true` each row is also parsed before its slice is yielded, and raises when its values are not
+    #   valid, after the slices before it, while each slice still holds the rows as they are.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -289,7 +301,7 @@ module IOStreams
     # Returns a Reader for reading a file / stream
     #
     # The `:stream` mode reads bytes, so for example `read(1024)` on the stream it yields returns binary data, unless
-    # an encode stream is set. The `:line`, `:array` and `:hash` modes read UTF-8 text, see #each.
+    # an encode stream is set. The `:line`, `:array`, `:hash` and `:slice` modes read UTF-8 text, see #each.
     def reader(mode = :stream, **args, &block)
       require_block!(:reader, block)
       case mode
@@ -302,6 +314,8 @@ module IOStreams
         row_reader(**args, &block)
       when :hash
         record_reader(**args, &block)
+      when :slice
+        slice_reader(**args, &block)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
       end
@@ -449,7 +463,7 @@ module IOStreams
     # the text of that stream, such as `:json` for a spreadsheet, rather than read or write them in the wrong format.
     def format(format = :none)
       if format == :none
-        tabular_settings.format(file_name) { builder.text_format }
+        tabular_settings.format(file_name) { text_format }
       else
         self.format = format
         self
@@ -830,6 +844,21 @@ module IOStreams
       end
     end
 
+    # Iterate over a file / stream returning slices of up to `size` of its rows at a time, as they are in the file, after
+    # its header row, which each slice carries, see `IOStreams::Slice` and `IOStreams::Slice::Reader`.
+    #
+    # The lines are split where the format expects, as for rows and records, see #row_reader. The options are checked
+    # before the file is opened, see `IOStreams::Slice::Reader.check`: the column options are only accepted when they
+    # are nil, since the header row that they would change could not be read again where a slice is parsed.
+    def slice_reader(size:, validate: false, delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
+      reject_unknown_options!(:slice, IOStreams::Slice::Reader, args)
+      IOStreams::Slice::Reader.check(size: size, validate: validate, **args)
+      tabular = tabular(**args)
+      open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |rows|
+        yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate)
+      end
+    end
+
     # Yields [#each] the rows of the format of the tabular: its lines, split where the format expects, or the rows of a
     # format that holds them in a binary layout of its own, such as Parquet, read from its bytes, see
     # `IOStreams::Tabular#read_rows`.
@@ -897,7 +926,7 @@ module IOStreams
     # been checked, see #reject_unknown_options!, as its tabular settings describe them, see
     # `IOStreams::Tabular::Settings#tabular`.
     def tabular(**)
-      tabular_settings.tabular(file_name: file_name, text_format: builder.text_format, **)
+      tabular_settings.tabular(file_name: file_name, text_format: text_format, **)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.
@@ -905,7 +934,14 @@ module IOStreams
     # Raises ArgumentError when the format set with #format is not the format of the text that the stream closest to the
     # application reads and writes, see `IOStreams::Tabular::Settings#rows_format`.
     def rows_format
-      tabular_settings.rows_format(file_name, builder.text_format)
+      tabular_settings.rows_format(file_name, text_format)
+    end
+
+    # Returns [Symbol|nil] the format of the text that the source of the rows decides, such as `:csv` for a spreadsheet,
+    # whose cells the stream closest to the application reads and writes as CSV, see `IOStreams::Builder#text_format`,
+    # or nil when it does not decide it. A slice decides it instead, see `IOStreams::Slice::Stream`.
+    def text_format
+      builder.text_format
     end
 
     # The streams write bytes, which the supplied IO stores as they are, even when it converts the text written to it,

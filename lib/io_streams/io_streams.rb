@@ -89,9 +89,15 @@ module IOStreams
   # A stream supplied is copied, keeping its streams and options, so that changing the
   # returned stream does not change the stream supplied.
   #
+  # A slice of the rows of a file, see `IOStreams::Stream#each(:slice)` and `IOStreams.slice`, returns the stream of its
+  # rows, which reads them as the rows of the file, by its header row and format, in the `:array` and `:hash` modes,
+  # see `IOStreams::Slice::Stream`:
+  #   IOStreams.stream(slice).schema("people.json").each(:hash) { |person| p person }
+  #
   # Raises ArgumentError for a String or a Pathname, which name a file: see `IOStreams.path`.
   def self.stream(io_stream)
     return io_stream.dup if io_stream.is_a?(Stream)
+    return Slice::Stream.new(io_stream) if io_stream.is_a?(Slice)
 
     Stream.new(io_stream)
   end
@@ -519,6 +525,25 @@ module IOStreams
   # is included, rather than rely on its order or its length.
   def self.tabular_formats
     Tabular.registered_formats.freeze
+  end
+
+  # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which `IOStreams::Slice#to_h` returned, such
+  # as one that a job stored, with its rows, the header row of its file and the format of its rows, so that its rows
+  # can be parsed where the slice is processed.
+  #
+  # Parameters:
+  #   hash: [Hash]
+  #     What `IOStreams::Slice#to_h` returned, as it was stored, with String or Symbol keys.
+  #
+  # Raises ArgumentError when it does not describe a slice, see `IOStreams::Slice.from_h`.
+  #
+  # Example:
+  #   IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) { |slice| store << slice.to_h }
+  #
+  #   # Elsewhere:
+  #   slice = IOStreams.slice(store.pop)
+  def self.slice(hash)
+    Slice.from_h(hash)
   end
 
   # Register a URI scheme and the path class that handles it

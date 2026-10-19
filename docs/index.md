@@ -94,7 +94,9 @@ end
 Read it back a record at a time, as a Hash, while it is decompressed:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").each(:hash) { |person| p person }
+IOStreams.path("people.csv.gz").each(:hash) do |person|
+  p person
+end
 # {"name" => "Jack", "born" => "1990-02-01"}
 # {"name" => "Jill", "born" => "1992-07-14"}
 ~~~
@@ -106,9 +108,14 @@ Describe the columns of the file with a [schema](formats#schema), so that each v
 
 ~~~ruby
 people = IOStreams.path("people.csv.gz").schema(
-  fields: [{name: "name", type: "string"}, {name: "born", type: "date"}]
+  fields: [
+    {name: "name", type: "string"},
+    {name: "born", type: "date"}
+  ]
 )
-people.each(:hash) { |person| p person }
+people.each(:hash) do |person|
+  p person
+end
 # {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
 # {"name" => "Jill", "born" => #<Date: 1992-07-14 ((2448818j,0s,0n),+0s,2299161j)>}
 ~~~
@@ -145,7 +152,9 @@ Rescue a missing file the same way wherever it is stored, so that the path can c
 
 ~~~ruby
 begin
-  IOStreams.path("missing.csv").each(:hash) { |record| p record }
+  IOStreams.path("missing.csv").each(:hash) do |record|
+    p record
+  end
 rescue IOStreams::Errors::NotFound => e
   puts "Nothing to process: #{e.message}"
 end
@@ -175,7 +184,9 @@ end
 **Read a CSV, JSON or Excel file a record at a time**, see [Reading](streams#reading):
 
 ~~~ruby
-IOStreams.path("people.csv").each(:hash) { |record| p record }
+IOStreams.path("people.csv").each(:hash) do |record|
+  p record
+end
 ~~~
 
 **Write a file compressed with gzip**, see [gzip](extensions#gzip):
@@ -219,19 +230,25 @@ IOStreams.path("people.csv.pgp").
 ~~~ruby
 IOStreams.path("people.csv").
   schema(fieldsMatch: "partial", fields: [{name: "born", type: "date"}]).
-  each(:hash) { |record| p record }
+  each(:hash) do |record|
+    p record
+  end
 ~~~
 
 **Read a Windows-1252 file as UTF-8**, see [Character encoding](streams#character-encoding):
 
 ~~~ruby
-IOStreams.path("people.csv").encoding("Windows-1252:UTF-8").each(:hash) { |record| p record }
+IOStreams.path("people.csv").encoding("Windows-1252:UTF-8").each(:hash) do |record|
+  p record
+end
 ~~~
 
 **List the CSV files in a directory or bucket**, see [Listing files](path#listing-files):
 
 ~~~ruby
-IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }
+IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") do |path|
+  p path
+end
 ~~~
 
 **Keep the location of the files in configuration**, see [Configuration](config#add_root):
@@ -241,7 +258,9 @@ IOStreams.path("s3://my-bucket/inbound").each_child("*.csv") { |path| p path }
 IOStreams.add_root(:default, ENV.fetch("FILES_ROOT"))
 
 # Then anywhere in the application
-IOStreams.join("people.csv").each(:hash) { |record| p record }
+IOStreams.join("people.csv").each(:hash) do |record|
+  p record
+end
 ~~~
 
 **Handle a missing file wherever it is stored**, see [Errors](errors):

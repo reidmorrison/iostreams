@@ -482,14 +482,16 @@ class StreamOptionsTest < Minitest::Test
           IOStreams::Row::Reader    => [:row_reader, tabular],
           IOStreams::Record::Reader => [:record_reader, tabular],
           IOStreams::Row::Writer    => [:row_writer, tabular - read_only],
-          IOStreams::Record::Writer => [:record_writer, tabular - read_only]
+          IOStreams::Record::Writer => [:record_writer, tabular - read_only],
+          # The column options of slices, which are only accepted when they are nil, see IOStreams::Slice::Reader.check.
+          IOStreams::Slice::Reader  => [:slice_reader, IOStreams::Tabular::Header::OPTION_NAMES]
         }.each_pair do |klass, (method, options)|
           assert_equal (keywords(IOStreams::Stream.instance_method(method)) + options).sort, klass.option_names.sort, klass.name
         end
       end
 
       it "gives the options that only apply when reading" do
-        assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns skip_unknown],
+        assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns size skip_unknown validate],
                      IOStreams::Stream.read_option_names.sort
       end
     end
@@ -531,6 +533,8 @@ class StreamOptionsTest < Minitest::Test
                        IOStreams.const_get(name)::Reader.deprecated_option_names.sort
           assert_equal %i[columns], IOStreams.const_get(name)::Writer.deprecated_option_names
         end
+        assert_equal %i[allowed_columns columns embedded_within required_columns skip_unknown],
+                     IOStreams::Slice::Reader.deprecated_option_names.sort
       end
 
       it "are the options that report a deprecation warning when a call supplies them" do

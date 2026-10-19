@@ -22,6 +22,7 @@ reads or writes:
 | `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
 | `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
+| `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
 lines, see [Tabular formats](formats). The extensions of the file name also say how the file is compressed or
@@ -70,6 +71,87 @@ Within a `#reader` block, an S3 object or an HTTP response is read as the block 
 Like the IO of every stream, such as of a `.gz` file, it has the methods of an IO that read, such as `#read`, `#gets`
 and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`, reads it, but not `#rewind`, `#pos`, `#size`
 or `#path`. Where the code needs a `File`, copy the file to a local file first, see [Copying and moving](copy_files).
+
+### Slices
+
+`each(:slice)` yields the rows of the file a slice at a time, as they are in the file, so that they can be parsed
+elsewhere, such as by other threads, processes or jobs, which share the work of a large file. Each slice is an Array of
+up to `size` rows, the lines of a CSV file for example, without its header row, and describes them: `#header` is the
+header row of the file as it was read, and `#format` the tabular format of the rows, such as `:csv`, so that whoever
+parses them does not need to know how the file was read:
+
+~~~ruby
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  queue << slice
+end
+~~~
+
+`IOStreams.stream(slice)` reads the rows of a slice as the rows of its file, by its header row and in its format, with
+the same settings, such as the schema, in the `:array` and `:hash` modes:
+
+~~~ruby
+# Elsewhere, such as in another thread:
+IOStreams.stream(queue.pop).schema("people.json").each(:hash) do |person|
+  p person
+end
+~~~
+
+The file is checked against its schema before the first slice is yielded, so that a file that does not match raises
+`IOStreams::Errors::InvalidHeader` before any of its rows are handed on, see [Schema](formats#schema): its header row is
+matched to the fields, or for a format of records that supply their own keys, such as JSON or Parquet, the keys of its
+first record. The keys of the other records are matched where they are parsed.
+
+`validate: true` also parses each row before the slice that holds it is yielded, and raises for a value that is not
+valid, such as `IOStreams::Errors::InvalidValue`. The slices before that row have already been yielded. Each slice still
+holds the rows as they are in the file.
+
+* Blank lines before the header row are skipped. A blank line after it is a row, an empty String.
+* A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no header
+  row, `nil`.
+* A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
+* The header row of every slice is the same frozen Array, so change a copy of it.
+* The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError` unless they are nil, as they do
+  with a schema, since the header row that they would change is read again where each slice is parsed: describe the
+  columns with a schema instead. So does `cleanse_header:`.
+* A `size` that is not a positive Integer, or a `validate` that is not true or false, raises `ArgumentError` before the
+  file is opened.
+* `#reader(:slice, size: 100)` yields the reader, whose `#header` is the header row once it has been read, also for a
+  file without any rows.
+
+To store a slice, or send it to another process, `#to_h` returns what it holds as a Hash of Strings and Arrays, which
+JSON and BSON keep as they are, and `IOStreams.slice` turns that Hash back into a slice, so that whoever stores it does
+not need to know what a slice holds:
+
+~~~ruby
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+  store << slice.to_h
+end
+
+slice = IOStreams.slice(store.pop)
+slice.to_h  # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
+~~~
+
+`IOStreams.slice` also takes the keys, and the format, as Symbols, and raises `ArgumentError` for a Hash that does not
+describe a slice, such as one with a key that a slice does not have. Read the slice it returns with
+`IOStreams.stream(slice)`:
+
+~~~ruby
+IOStreams.stream(IOStreams.slice(store.pop)).schema("people.json").each(:hash) do |person|
+  p person
+end
+~~~
+
+The stream of a slice is like any other, apart from what needs the bytes of a file, which a slice does not have:
+
+* Its rows start with the header row that the slice carries, so `each(:array)` yields it first, as for a file, and the
+  header row is matched to the schema, raising `IOStreams::Errors::InvalidHeader` when they do not match.
+* `#format` is the format of the slice. Setting another format raises `ArgumentError`. A slice without a format, such as
+  one turned back from a Hash without one, is read as CSV unless its format is set.
+* The `:stream` and `:line` modes, `#read`, `#stream`, `#option`, `#encoding`, `#raw`, and the options of lines, such as
+  `delimiter:`, raise `ArgumentError`, since the rows of a slice are already split and decoded. Iterate the slice for
+  its rows as they are in the file.
+* A slice is only read, so `#writer`, `#write` and `#copy_from` raise `ArgumentError`. Copy its records to a file with
+  `copy_to(path, mode: :hash)`.
 
 ## Writing
 
@@ -298,10 +380,19 @@ IOStreams checks where each setting is supplied:
 people = IOStreams.path(ENV["PEOPLE_PATH"]).format(:csv).schema(ENV["PEOPLE_SCHEMA"])
 
 # The code says what it wants from it: records, whose columns the schema checks.
-people.each(:hash) { |person| p person }
+people.each(:hash) do |person|
+  p person
+end
 
 # A copy reads the source with the settings of its path, and writes the target with the settings of its own.
-IOStreams.path("people.json").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "age"}]).copy_from(people, mode: :hash)
+target = IOStreams.path("people.json").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "age"}
+  ]
+)
+target.copy_from(people, mode: :hash)
 ~~~
 
 ## Streams from the file name

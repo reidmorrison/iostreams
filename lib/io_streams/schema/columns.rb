@@ -188,6 +188,16 @@ module IOStreams
         nil
       end
 
+      # Matches the keys of a record read to the fields, as #read_hash does, without reading its values, such as those of
+      # the first record of a file whose records are handed on without being parsed, see
+      # `IOStreams::Tabular::SchemaMapping#check_keys`.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` when they do not match the fields, see `IOStreams::Schema#check_columns`.
+      def check_keys(keys)
+        read_plan(keys)
+        nil
+      end
+
       private
 
       # Returns [Array] the columns of a header row up to the last one with a name, without the columns without a name

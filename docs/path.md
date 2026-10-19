@@ -180,9 +180,13 @@ environment variables or credential files, or from the instance profile, unless 
 
 ~~~ruby
 path.write("name,login\nJack Jones,jjones\n")
-path.each(:hash) { |record| p record }
+path.each(:hash) do |record|
+  p record
+end
 
-IOStreams.path("s3://my-bucket/exports").each_child("*.csv") { |child| puts child }
+IOStreams.path("s3://my-bucket/exports").each_child("*.csv") do |child|
+  puts child
+end
 ~~~
 
 S3 needs the `aws-sdk-s3` gem, which IOStreams loads when it is first needed. So a process without the gem, such as a
@@ -438,7 +442,9 @@ path = IOStreams.path(
   username:    "jack",
   ssh_options: {IdentityKey: ENV.fetch("SFTP_IDENTITY_KEY"), HostKey: ENV.fetch("SFTP_HOST_KEY")}
 )
-path.each(:hash) { |record| p record }
+path.each(:hash) do |record|
+  p record
+end
 ~~~
 
 ### ssh options
@@ -481,7 +487,9 @@ An `http://` or `https://` url names a file on a web server. Reading downloads i
 it with a PUT request, `#exist?`, `#size` and `#mtime` make a HEAD request, and `#delete` a DELETE request:
 
 ~~~ruby
-IOStreams.path("https://example.com/files/data.csv").each(:hash) { |record| p record }
+IOStreams.path("https://example.com/files/data.csv").each(:hash) do |record|
+  p record
+end
 
 IOStreams.path("https://example.com/upload/report.csv", headers: {"Authorization" => "Bearer #{token}"}).write(report)
 ~~~
@@ -797,13 +805,17 @@ The pattern is matched like `Dir.glob`:
 IOStreams.path("exports").children("*.csv", case_sensitive: true)
 # => [#<IOStreams::Paths::File:exports/daily.csv pipeline={}>]
 
-IOStreams.path("exports").each_child("**/*.csv") { |child| puts child }
+IOStreams.path("exports").each_child("**/*.csv") do |child|
+  puts child
+end
 # exports/2026/01/daily.csv
 # exports/2026/02/daily.csv
 # exports/SUMMARY.CSV
 # exports/daily.csv
 
-IOStreams.path("exports").each_child("*", directories: true) { |child| puts child }
+IOStreams.path("exports").each_child("*", directories: true) do |child|
+  puts child
+end
 # exports/2026
 # exports/SUMMARY.CSV
 # exports/daily.csv
@@ -862,12 +874,16 @@ returned as a file on a local path, and only with `directories: true` on SFTP.
 `IOStreams.each_child` takes the whole pattern, including the path, and the same options as `#each_child`:
 
 ~~~ruby
-IOStreams.each_child("exports/**/daily.csv") { |path| puts path }
+IOStreams.each_child("exports/**/daily.csv") do |path|
+  puts path
+end
 # exports/2026/01/daily.csv
 # exports/2026/02/daily.csv
 # exports/daily.csv
 
-IOStreams.each_child("s3://my-bucket/exports/*.csv") { |path, attributes| puts path }
+IOStreams.each_child("s3://my-bucket/exports/*.csv") do |path, attributes|
+  puts path
+end
 ~~~
 
 The directory before the first element with a pattern character is the path that is listed, such as

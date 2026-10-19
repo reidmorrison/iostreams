@@ -22,6 +22,14 @@ module IOStreams
 
       attr_reader :columns, :allowed_columns, :required_columns, :skip_unknown
 
+      # Returns [Array<String>] the header row of the file: the columns as they were set with #columns=, such as the header
+      # row read, before #cleanse! renamed or rejected them, so that another header, or another Tabular, reads the rest
+      # of the file by the same columns. It is frozen, as are its columns, since it is shared, such as by every slice of
+      # the file, see `IOStreams::Slice#header`.
+      # Returns nil until the columns are set, including when they were supplied in place of a header row, see
+      # #initialize.
+      attr_reader :row
+
       # Returns [Array<Symbol>] the names of the supplied options, see #initialize, that describe the columns of a file:
       # those that are not nil, other than `skip_unknown`, which only applies to `allowed_columns`, so that on its own it
       # never changes the columns. Any other option is left to #initialize, which raises for it.
@@ -72,6 +80,7 @@ module IOStreams
       #       Raises IOStreams::Errors::InvalidHeader for a column that is not in `allowed_columns`, see #cleanse!.
       def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
         @columns          = stringify(columns)
+        @row              = nil
         @required_columns = required_columns
         @allowed_columns  = allowed_columns
         @skip_unknown     = skip_unknown
@@ -89,10 +98,11 @@ module IOStreams
       #
       # Change the columns with this method, rather than by changing the array that #columns returns, since the
       # header works out from them which columns #to_hash returns.
+      #
+      # They become the header row, see #row, which #cleanse! does not change.
       def columns=(columns)
-        @columns      = stringify(columns)
-        @hash_columns = nil
-        clear_plans
+        change_columns(columns)
+        @row = IOStreams::Utils.frozen_copy(@columns)
       end
 
       def allowed_columns=(allowed_columns)
@@ -134,15 +144,17 @@ module IOStreams
         return [] if columns.nil? || columns.empty?
 
         ignored_columns = []
-        self.columns    = columns.collect do |column|
-          cleansed = rename ? cleanse_column(column) : column
-          if allowed_columns.nil? || allowed_columns.include?(cleansed)
-            cleansed
+        cleansed        = columns.collect do |column|
+          name = rename ? cleanse_column(column) : column
+          if allowed_columns.nil? || allowed_columns.include?(name)
+            name
           else
             ignored_columns << column
             "#{IGNORE_PREFIX}#{column}"
           end
         end
+        # The header row, see #row, stays as it was set.
+        change_columns(cleansed)
 
         if !skip_unknown && !ignored_columns.empty?
           raise(IOStreams::Errors::InvalidHeader, "Unknown columns after cleansing: #{ignored_columns.join(',')}")
@@ -322,6 +334,14 @@ module IOStreams
         @restrict_keys   = keys
         @restrict_rename = rename
         @restrict_plan   = plan
+      end
+
+      # Changes the columns, converting the column names to strings, and forgets what was worked out from them, see
+      # #hash_columns and #clear_plans.
+      def change_columns(columns)
+        @columns      = stringify(columns)
+        @hash_columns = nil
+        clear_plans
       end
 
       # Forgets the plans of the records restricted and matched to the columns, see #restrict_plan and #cleanse_plan,

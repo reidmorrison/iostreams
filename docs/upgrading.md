@@ -233,7 +233,9 @@ keys of its first record, and each row after it holds the values of a record in 
 # people.json holds:
 # {"name":"Jack","age":21}
 # {"age":22,"name":"Jill"}
-IOStreams.path("people.json").each(:array) { |row| p row }
+IOStreams.path("people.json").each(:array) do |row|
+  p row
+end
 # ["name", "age"]
 # ["Jack", 21]
 # ["Jill", 22]
@@ -251,12 +253,23 @@ Fix: read Hashes with `each(:hash)`. For JSON records that leave out keys, descr
 `fieldsMatch` is `"superset"`, so that every row has the same columns, the fields:
 
 ~~~ruby
-IOStreams.path("people.json").each(:hash) { |record| p record }
+IOStreams.path("people.json").each(:hash) do |record|
+  p record
+end
 # {"name" => "Jack", "age" => 21}
 # {"age" => 22, "name" => "Jill"}
 
-schema = {fieldsMatch: "superset", fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "zip"}]}
-IOStreams.path("people.json").schema(schema).each(:array) { |row| p row }
+schema = {
+  fieldsMatch: "superset",
+  fields:      [
+    {name: "name"},
+    {name: "age", type: "integer"},
+    {name: "zip"}
+  ]
+}
+IOStreams.path("people.json").schema(schema).each(:array) do |row|
+  p row
+end
 # ["name", "age", "zip"]
 # ["Jack", 21, nil]
 # ["Jill", 22, nil]
@@ -285,14 +298,30 @@ Fix: set the format on the path with `#format`, and the layout of a fixed width 
 
 ~~~ruby
 # Before
-path.each(:hash, format: :json) { |row| p row }
-path.each(:hash, format: :fixed, format_options: {layout: layout}) { |row| p row }
-IOStreams.stream(io).each(:hash, original_file_name: "data.json") { |row| p row }
+path.each(:hash, format: :json) do |row|
+  p row
+end
+
+path.each(:hash, format: :fixed, format_options: {layout: layout}) do |row|
+  p row
+end
+
+IOStreams.stream(io).each(:hash, original_file_name: "data.json") do |row|
+  p row
+end
 
 # After
-path.format(:json).each(:hash) { |row| p row }
-path.format(:fixed).schema(fields: fields).each(:hash) { |row| p row }
-IOStreams.stream(io).file_name("data.json").each(:hash) { |row| p row }
+path.format(:json).each(:hash) do |row|
+  p row
+end
+
+path.format(:fixed).schema(fields: fields).each(:hash) do |row|
+  p row
+end
+
+IOStreams.stream(io).file_name("data.json").each(:hash) do |row|
+  p row
+end
 ~~~
 
 #### Options that only apply when reading raise when writing or copying
@@ -311,7 +340,14 @@ read the source of a copy in a particular way, set what describes it on its path
 target.copy_from(source, mode: :hash, allowed_columns: %w[name zip])
 
 # After
-target.schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}]).copy_from(source, mode: :hash)
+target.schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
+target.copy_from(source, mode: :hash)
 ~~~
 
 #### `BigDecimal` and `Time` values are written as their usual text
@@ -1297,11 +1333,15 @@ these matches why it was used:
 ~~~ruby
 # Before (deprecated)
 Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
-IOStreams.path("data.txt.gz").stream(:none).each(:hash) { |row| p row }
+IOStreams.path("data.txt.gz").stream(:none).each(:hash) do |row|
+  p row
+end
 
 # After
 Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
-IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) { |row| p row }
+IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) do |row|
+  p row
+end
 ~~~
 
 #### `#format_options` is replaced by `#schema`
@@ -1324,7 +1364,13 @@ A schema gives the type of each field of every format, and can be held in a JSON
 
 ~~~ruby
 # Before (deprecated)
-path.format(:fixed).format_options(layout: [{size: 23, key: "name"}, {size: 2}, {size: 5, key: "zip", type: :integer}])
+path.format(:fixed).format_options(
+  layout: [
+    {size: 23, key: "name"},
+    {size: 2},
+    {size: 5, key: "zip", type: :integer}
+  ]
+)
 
 # After
 path.format(:fixed).schema(
@@ -1404,13 +1450,20 @@ a schema that replaces each one:
 
 ~~~ruby
 # Before (deprecated)
-path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) { |record| p record }
+path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) do |record|
+  p record
+end
 
 # After
 path.schema(
   fieldsMatch: "partial",
-  fields:      [{name: "first_name"}, {name: "zip_code", constraints: {required: true}, allowBlank: true}]
-).each(:hash) { |record| p record }
+  fields:      [
+    {name: "first_name"},
+    {name: "zip_code", constraints: {required: true}, allowBlank: true}
+  ]
+).each(:hash) do |record|
+  p record
+end
 
 # Both read "First Name,Zip Code,Notes\nJack,12345,x\nJill,,y\n" as:
 # {"first_name" => "Jack", "zip_code" => "12345"}
@@ -1427,8 +1480,17 @@ path.each(:hash, columns: ["name", "address", "zip"]) do |record|
 end
 
 # After
-path = IOStreams.path("no_header.csv").schema(header: false, fields: [{name: "name"}, {name: "address"}, {name: "zip"}])
-path.each(:hash) { |record| p record }
+path = IOStreams.path("no_header.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "address"},
+    {name: "zip"}
+  ]
+)
+path.each(:hash) do |record|
+  p record
+end
 ~~~
 
 Example, writing only specific columns in a fixed order:
@@ -1443,7 +1505,13 @@ path.read
 # => "name,zip\nJack Jones,12345\n"
 
 # After
-path = IOStreams.path("sample.csv").schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}])
+path = IOStreams.path("sample.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
 path.writer(:hash) do |io|
   io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
 end
@@ -1454,10 +1522,20 @@ the fields, in order, as `columns:` did:
 
 ~~~ruby
 # Before (deprecated)
-path.writer(:array, columns: %w[name zip]) { |io| io << ["Jack Jones", 12345] }
+path.writer(:array, columns: %w[name zip]) do |io|
+  io << ["Jack Jones", 12345]
+end
 
 # After
-path.schema(fields: [{name: "name"}, {name: "zip"}]).writer(:array) { |io| io << ["Jack Jones", 12345] }
+path.schema(
+  fields: [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
+path.writer(:array) do |io|
+  io << ["Jack Jones", 12345]
+end
 ~~~
 
 ##### What a schema reads differently

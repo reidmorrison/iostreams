@@ -159,6 +159,13 @@ module Tabular
           refute_predicate mapping, :columns_from_header_row?
           assert_raises(IOStreams::Errors::MissingHeader) { mapping(:json).take_columns([]) }
         end
+
+        it "does not match the keys of the records, which are their own columns" do
+          json = mapping(:json)
+
+          assert_nil json.check_keys(%({"x":1}))
+          assert_nil json.header.columns
+        end
       end
 
       describe IOStreams::Tabular::SchemaMapping do
@@ -177,6 +184,19 @@ module Tabular
           assert_equal %w[ID Pay], csv.header.columns
           assert_equal [1, BigDecimal("2.5")], csv.row_parse("1,2.5")
           assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, csv.record_parse("1,2.5"))
+        end
+
+        it "matches the keys of the first record of a format of keyed records to the fields, once" do
+          equal = IOStreams::Schema.new(fields: [{name: "id", type: "integer"}], fieldsMatch: "equal")
+          json  = mapping(:json, schema: equal)
+
+          assert_raises(IOStreams::Errors::InvalidHeader) { json.check_keys(%({"x":1})) }
+          assert_nil json.check_keys("")
+          assert_nil json.check_keys(%({"id":"abc"}))
+          # Only the first record that is not blank: the keys of the others are matched when they are parsed.
+          assert_nil json.check_keys(%({"x":1}))
+          # Nothing to match for a format whose rows are the values of the columns in order.
+          assert_nil mapping.check_keys("x,y")
         end
 
         it "raises for cleansing the header row, whose columns it matches to the fields instead" do
