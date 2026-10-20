@@ -51,9 +51,11 @@ module IOStreams
 
       # Returns the value, of the type of the field, see `IOStreams::Schema::Field#render`, in the form that the
       # `parquet` gem writes it: a number rounded to the decimals of its field, as the field rounds it, see
-      # `IOStreams::Schema::Field#round`, which for a decimal is its scale, since the gem drops the digits after it, and
-      # a Date as its text, since the gem only converts a String or a Time into a date32. A double that is not finite,
-      # such as NaN, is written as it is.
+      # `IOStreams::Schema::Field#round`, which for a decimal is its scale, since the gem drops the digits after it. A Date
+      # is the Time at the start of its day in UTC, since the gem converts the text of a date at midnight in the time zone
+      # of the process, which writes the day before east of UTC, and for a date before 1970 the day after west of UTC.
+      # A time is a Time in UTC, since the gem only converts a Time itself, not a time that only acts as one, such as the
+      # `ActiveSupport::TimeWithZone` of a Rails app. A double that is not finite, such as NaN, is written as it is.
       #
       # Raises `IOStreams::Errors::InvalidValue` for a value that the column cannot hold: an integer outside the range
       # of an int64, or a decimal that is not finite, or that has more digits before its decimal point than its decimal
@@ -65,7 +67,8 @@ module IOStreams
         when :int64 then int64(value)
         when :decimal then decimal(value)
         when :double then @field.round(value)
-        when :date32 then value.iso8601
+        when :date32 then Time.utc(value.year, value.month, value.day)
+        when :timestamp_micros then value.getutc
         else value
         end
       end
