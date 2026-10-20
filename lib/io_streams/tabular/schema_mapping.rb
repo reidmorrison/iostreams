@@ -277,7 +277,7 @@ module IOStreams
         invalid = utf8.each_char.find { |char| !char.valid_encoding? }.b
         raise(
           IOStreams::Errors::InvalidEncoding.new(
-            "#{invalid.inspect} is not valid UTF-8. Set the encoding of the file with option(:encode, encoding: ...)",
+            "#{invalid.inspect} is not valid UTF-8. Set the encoding of the file with #encoding",
             error_char:           invalid,
             source_encoding:      ::Encoding::BINARY,
             destination_encoding: ::Encoding::UTF_8

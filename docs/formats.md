@@ -277,7 +277,7 @@ so does the layout of a fixed width file in `#format_options`, when a reader or 
 
 The text of a file read with a schema is UTF-8, so that its values are UTF-8 strings, and text that is not valid
 UTF-8 raises `IOStreams::Errors::InvalidEncoding`, which is an `Encoding::UndefinedConversionError`. An encoding set
-with `option(:encode, ...)` or `stream(:encode, ...)` decodes the text instead, as it does without a schema.
+with `encoding`, such as `encoding("BINARY")`, is used instead, without checking the text, as it is without a schema.
 
 ### Types
 

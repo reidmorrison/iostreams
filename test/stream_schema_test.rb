@@ -86,7 +86,7 @@ class StreamSchemaTest < Minitest::Test
           supplied = IOStreams.path(dir, "people.json")
           supplied.write(JSON.generate(people))
           stream.schema(supplied)
-          supplied.path = ::File.join(dir, "other.json")
+          assert_deprecated(/#path= is deprecated/) { supplied.path = ::File.join(dir, "other.json") }
 
           assert_equal ::File.join(dir, "people.json"), stream.schema.to_s
           assert_equal [record], read(csv, schema: stream.schema)

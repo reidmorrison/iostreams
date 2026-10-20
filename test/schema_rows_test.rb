@@ -175,7 +175,7 @@ class SchemaRowsTest < Minitest::Test
         Dir.mktmpdir do |dir|
           path = IOStreams.path(dir, "people.csv")
           path.write("area,name\n12,Jos\xE9\n".b)
-          records = read(path.option(:encode, encoding: "BINARY").schema(fields: [{name: "area"}, {name: "name"}]), :hash)
+          records = read(path.encoding("BINARY").schema(fields: [{name: "area"}, {name: "name"}]), :hash)
 
           assert_equal [{"area" => "12", "name" => "Jos\xE9".b}], records
           assert_equal Encoding::BINARY, records.first["name"].encoding

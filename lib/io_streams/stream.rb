@@ -353,7 +353,7 @@ module IOStreams
     # - A schema cannot be supplied to each call of #each, #reader or #writer, nor with the layout of a fixed width
     #   file in #format_options, which raise ArgumentError.
     # - With a schema, the text of the file is read as UTF-8, unless an encoding is set with
-    #   `option(:encode, encoding: ...)`, and text that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`.
+    #   #encoding, and text that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`.
     #
     # Examples:
     #
