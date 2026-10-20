@@ -209,6 +209,60 @@ class SchemaTest < Minitest::Test
       end
     end
 
+    describe ".from_layout" do
+      let(:layout) { [{size: 10, key: :name}, {size: 2}, {size: 5, key: :zip, type: :integer}] }
+
+      it "returns the schema of the layout as a Hash" do
+        expected = {
+          fields:      [{name: :name, type: "string", width: 10, truncate: true}, {name: :zip, type: "integer", width: 5, start: 13}],
+          fieldsMatch: "subset"
+        }
+
+        assert_equal expected, IOStreams::Schema.from_layout(layout: layout)
+      end
+
+      it "reads the same records as the layout" do
+        data = "Jack      xx01234\nJill      yy00042\n"
+        layout_records = []
+        IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
+          each(:hash) { |record| layout_records << record }
+        schema_records = []
+        IOStreams.stream(StringIO.new(data)).format(:fixed).schema(IOStreams::Schema.from_layout(layout: layout)).
+          each(:hash) { |record| schema_records << record }
+
+        assert_equal [{name: "Jack", zip: 1234}, {name: "Jill", zip: 42}], layout_records
+        assert_equal layout_records, schema_records
+      end
+
+      it "translates a layout read from JSON" do
+        layout = JSON.parse('[{"size": 10, "key": "name"}, {"size": 5, "key": "zip", "type": "integer"}]')
+        path   = IOStreams.stream(StringIO.new("Jack      01234\n")).format(:fixed).schema(IOStreams::Schema.from_layout(layout: layout))
+
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_equal [{"name" => "Jack", "zip" => 1234}], records
+      end
+
+      it "raises for a column of the schema that holds no number, which the layout reads as zero" do
+        data = "Jack      xxN/A  \n"
+        layout_records = []
+        IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
+          each(:hash) { |record| layout_records << record }
+
+        assert_equal [{name: "Jack", zip: 0}], layout_records
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(StringIO.new(data)).format(:fixed).schema(IOStreams::Schema.from_layout(layout: layout)).
+            each(:hash) { |record| record }
+        end
+      end
+
+      it "raises for an invalid layout" do
+        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Schema.from_layout(layout: [{key: "id"}]) }
+        assert_raises(ArgumentError) { IOStreams::Schema.from_layout(layout: [{size: 2, key: "id", bogus: 1}]) }
+      end
+    end
+
     describe ".read" do
       it "reads the schema from a JSON file" do
         Dir.mktmpdir do |dir|

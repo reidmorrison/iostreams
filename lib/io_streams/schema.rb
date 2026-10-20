@@ -135,6 +135,18 @@ module IOStreams
       end
     end
 
+    # Returns [Hash] the descriptor of the schema of the layout of a fixed width file, set with
+    # `IOStreams::Stream#format_options`, so that the layout held by an application, such as the format options of a
+    # Rocket Job category, can be replaced with its schema. The names of its fields are the keys of the layout, so that
+    # the records read with it have the same keys. See `IOStreams::Tabular::Parser::Fixed.schema` for the layout,
+    # whose columns can have String keys, such as a layout read from JSON.
+    #
+    # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, and ArgumentError for a property that a
+    # column of a layout does not have, or when its schema is not valid.
+    def self.from_layout(layout:, truncate: true)
+      IOStreams::Tabular::Parser::Fixed.schema(layout: layout, truncate: truncate).tap { |descriptor| new(descriptor) }
+    end
+
     # Returns [String|nil] the text by which a column is compared loosely to the names and aliases of the fields, see
     # #field_for: its letters and digits, in every language, without their case, and with the forms of a character that
     # Unicode treats as the same made the same, such as the full width `ＩＤ` and `ID`. So `First Name`, `first_name`,
