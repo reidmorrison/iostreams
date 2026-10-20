@@ -56,9 +56,6 @@ IOStreams.add_root(:downloads, File.join(root, "downloads"))
 # fails the test, see DeprecationCheck, so that IOStreams never uses its own deprecated methods and options, and every
 # test of one says so. Minitest turns deprecation warnings on.
 module DeprecationCollector
-  # The message that `Kernel#warn` passes to `Warning.warn`, after the location of the caller.
-  MESSAGE = /(?:\A|: warning: )IOStreams: /
-
   @mutex    = Mutex.new
   @warnings = nil
 
@@ -81,9 +78,10 @@ module DeprecationCollector
     @mutex.synchronize { @warnings = outer }
   end
 
-  # Returns [true|false] whether the warning was collected: one reported by IOStreams while a test runs.
+  # Returns [true|false] whether the warning was collected: one reported by IOStreams while a test runs, which
+  # `IOStreams::Deprecation` tells from the others.
   def self.add(message)
-    return false unless message.match?(MESSAGE)
+    return false unless IOStreams::Deprecation.warning?(message)
 
     @mutex.synchronize { @warnings ? @warnings.push(message) && true : false }
   end
@@ -101,8 +99,10 @@ Warning.extend(DeprecationCollector::Warn)
 # class, such as a describe block, does not allow, see ClassMethods#allow_deprecation.
 module DeprecationCheck
   module ClassMethods
-    # Allows each test of this class, such as a describe block, and of the classes within it, to report the IOStreams
-    # deprecation warnings that match the patterns, for the tests of something deprecated that use it throughout.
+    # Allows each test of this class, such as a describe block, and of its subclasses, such as the describe blocks
+    # within a describe block, to report the IOStreams deprecation warnings that match the patterns, for the tests of
+    # something deprecated that use it throughout. A describe block within a `Minitest::Test` class is not one of its
+    # subclasses, but one of `Minitest::Spec`, so call it in the describe block instead.
     def allow_deprecation(*patterns)
       @allowed_deprecations = patterns
     end
