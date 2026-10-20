@@ -1,7 +1,16 @@
 module IOStreams
   class Stream
+    # The settings of the file that the readers and writers of rows and records accept for each call, which v3.0
+    # only accepts on the path, and the method of the path that sets each one.
+    PATH_SETTINGS = {
+      format:             "#format",
+      file_name:          "#file_name",
+      original_file_name: "#file_name",
+      default_format:     "#format"
+    }.freeze
+    private_constant :PATH_SETTINGS
+
     attr_reader :io_stream
-    attr_writer :builder
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
@@ -158,9 +167,14 @@ module IOStreams
     end
 
     # Returns a Reader for reading a file / stream
+    #
+    # Supplying options to the `:stream` mode, which ignores them, is deprecated, and reports a deprecation warning,
+    # see `IOStreams::Deprecation`. So is supplying the settings of the file, such as `format:`, to the `:array` and
+    # `:hash` modes, which are set on the path instead, such as with #format.
     def reader(mode = :stream, **args, &)
       case mode
       when :stream
+        warn_ignored_options(args.keys, "in the :stream mode")
         stream_reader(&)
       when :line
         line_reader(**args, &)
@@ -184,9 +198,15 @@ module IOStreams
     end
 
     # Returns a Writer for writing to a file / stream
+    #
+    # Supplying options to the `:stream` mode, which ignores them, is deprecated, as are the settings of the file,
+    # such as `format:`, for the `:array` and `:hash` modes, see #reader, and the options that only apply when
+    # reading, such as `allowed_columns:`, which a writer ignores. Each reports a deprecation warning, see
+    # `IOStreams::Deprecation`.
     def writer(mode = :stream, **args, &)
       case mode
       when :stream
+        warn_ignored_options(args.keys, "in the :stream mode")
         stream_writer(&)
       when :line
         line_writer(**args, &)
@@ -246,6 +266,7 @@ module IOStreams
           end
         end
       else
+        warn_unconverted_copy_options(mode, args)
         stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
         dup.no_streams.writer do |target|
           stream.no_streams.reader { |src| IO.copy_stream(src, target) }
@@ -376,12 +397,34 @@ module IOStreams
       extname&.sub(/^\./, "")
     end
 
+    # Deprecated: it takes an internal object. To start again without the streams and options set with #stream or
+    # #option, create the path again with `IOStreams.path`. Reports a deprecation warning, see
+    # `IOStreams::Deprecation`.
+    def builder=(builder)
+      Deprecation.warn("#builder= is deprecated, since it takes an internal object, create the path again with " \
+                       "IOStreams.path to start without the streams and options set with #stream or #option")
+      @builder = builder
+    end
+
     protected
 
     # Applies no streams, as `stream(:none)` does, for IOStreams itself, which never uses its own deprecated methods.
     def no_streams
       builder.no_streams
       self
+    end
+
+    # Starts again without the streams and options set with #stream or #option, for IOStreams itself, see #builder=.
+    def reset_builder
+      @builder = nil
+      self
+    end
+
+    # Options supplied to a copy with `convert: false`, which ignores them, are deprecated, including `mode:`.
+    def warn_unconverted_copy_options(mode, args)
+      names = args.keys
+      names.unshift(:mode) unless mode.nil?
+      warn_ignored_options(names, "for a copy with convert: false")
     end
 
     private
@@ -414,6 +457,7 @@ module IOStreams
     # Supplying `embedded_within:` is deprecated, since the format of the file decides where its lines are split, and
     # reports a deprecation warning, see `IOStreams::Deprecation`.
     def row_reader(delimiter: nil, embedded_within: :auto, **args)
+      warn_path_settings(args)
       warn_embedded_within(embedded_within)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Row::Reader.new(
@@ -430,6 +474,7 @@ module IOStreams
     #
     # Supplying `embedded_within:` is deprecated, see #row_reader.
     def record_reader(delimiter: nil, embedded_within: :auto, **args)
+      warn_path_settings(args)
       warn_embedded_within(embedded_within)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(
@@ -440,6 +485,36 @@ module IOStreams
           **args
         )
       end
+    end
+
+    # The settings of the file supplied for each call, see PATH_SETTINGS, are deprecated.
+    def warn_path_settings(args)
+      (args.keys & PATH_SETTINGS.keys).each do |name|
+        Deprecation.warn("#{name}: is deprecated for each call, set it on the path with #{PATH_SETTINGS[name]} instead")
+      end
+    end
+
+    # The options that only apply when reading, which a writer ignores, are deprecated when writing.
+    def warn_read_options(args)
+      names = args.keys & IOStreams::Tabular::Header.read_option_names
+      return if names.empty?
+
+      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated when writing, since " \
+                       "#{names.size == 1 ? 'it only applies' : 'they only apply'} when reading and " \
+                       "#{names.size == 1 ? 'is' : 'are'} ignored, supply columns: to choose the columns that are " \
+                       "written")
+    end
+
+    # Options that are ignored, such as those supplied to the `:stream` mode, are deprecated.
+    def warn_ignored_options(names, where)
+      return if names.empty?
+
+      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated #{where}, which ignores " \
+                       "#{names.size == 1 ? 'it' : 'them'}, so remove #{names.size == 1 ? 'it' : 'them'}")
+    end
+
+    def keywords(names)
+      names.map { |name| "#{name}:" }.join(", ")
     end
 
     def warn_embedded_within(embedded_within)
@@ -463,6 +538,8 @@ module IOStreams
     end
 
     def row_writer(delimiter: $/, **args, &block)
+      warn_path_settings(args)
+      warn_read_options(args)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
       line_writer(delimiter: delimiter) do |io|
@@ -478,6 +555,8 @@ module IOStreams
     end
 
     def record_writer(delimiter: $/, **args, &block)
+      warn_path_settings(args)
+      warn_read_options(args)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
       line_writer(delimiter: delimiter) do |io|

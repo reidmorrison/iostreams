@@ -7,7 +7,11 @@ module IOStreams
 
       # When writing to a file, default the entry name within the zip to the file name
       # without the `.zip` extension, unless an entry name was explicitly supplied.
+      #
+      # `zip_file_name` is deprecated, see `entry_file_name`, and reports a deprecation warning, see
+      # `IOStreams::Deprecation`.
       def self.file(file_name, zip_file_name: nil, entry_file_name: zip_file_name, &)
+        warn_zip_file_name unless zip_file_name.nil?
         entry_file_name = file_name.to_s[0..-5] if entry_file_name.nil? && file_name.to_s =~ /\.zip\z/i
 
         super(file_name, entry_file_name: entry_file_name, &)
@@ -35,6 +39,7 @@ module IOStreams
       #   data descriptors instead, so we can write straight to the output stream and
       #   avoid the temp file round-trip.
       def self.stream(output_stream, zip_file_name: nil, entry_file_name: zip_file_name)
+        warn_zip_file_name unless zip_file_name.nil?
         entry_file_name ||= "file"
 
         Utils.load_soft_dependency("zip_kit", "Zip") unless defined?(ZipKit::Streamer)
@@ -45,6 +50,11 @@ module IOStreams
         end
         result
       end
+
+      def self.warn_zip_file_name
+        Deprecation.warn("zip_file_name: is deprecated, use entry_file_name: instead")
+      end
+      private_class_method :warn_zip_file_name
     end
   end
 end

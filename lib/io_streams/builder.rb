@@ -139,10 +139,12 @@ module IOStreams
     end
 
     def reader(io_stream, &)
+      warn_encode_extension
       execute(:reader, pipeline, io_stream, &)
     end
 
     def writer(io_stream, &)
+      warn_encode_extension
       execute(:writer, pipeline, io_stream, &)
     end
 
@@ -188,6 +190,14 @@ module IOStreams
     end
 
     private
+
+    # A file name ending in `.encode` is deprecated, since file names do not name the encode stream, see #encoding.
+    def warn_encode_extension
+      return if streams || file_name.nil? || !parse_extensions.include?(:encode)
+
+      Deprecation.warn("a file name ending in .encode is deprecated, since file names do not name the encode " \
+                       "stream, use #encoding instead")
+    end
 
     def raise_if_raw!(method_name)
       return unless @raw

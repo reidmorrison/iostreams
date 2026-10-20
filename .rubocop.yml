@@ -64,6 +64,8 @@ Metrics/ClassLength:
   Max: 250
   Exclude:
     - "test/**/*"
+    # Holds the public API of every path and stream, see CLAUDE.md, so it has a method for each setting.
+    - "lib/io_streams/stream.rb"
 
 # TODO: Soften Limits for phase 1 only
 Metrics/CyclomaticComplexity:

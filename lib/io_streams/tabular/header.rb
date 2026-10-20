@@ -32,6 +32,11 @@ module IOStreams
       #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
       #     false:
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
+      # Returns [Array<Symbol>] the options that only apply when reading, which a writer ignores.
+      def self.read_option_names
+        %i[allowed_columns required_columns skip_unknown]
+      end
+
       def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
         @columns          = stringify(columns)
         @required_columns = required_columns

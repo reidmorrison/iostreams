@@ -4,7 +4,7 @@ module IOStreams
     SENSITIVE_OPTION = /pass(phrase|word)|secret/i
     private_constant :SENSITIVE_OPTION
 
-    attr_accessor :path
+    attr_reader :path
 
     def initialize(path)
       raise(ArgumentError, "Path cannot be nil") if path.nil?
@@ -23,10 +23,9 @@ module IOStreams
       elements = elements.collect(&:to_s)
       relative = ::File.join(*elements)
 
-      new_path         = dup
-      new_path.builder = nil
-      new_path.path    = contains?(relative) ? relative : ::File.join(path, relative)
-      new_path
+      new_path = dup
+      new_path.reset_builder
+      new_path.replace_path(contains?(relative) ? relative : ::File.join(path, relative))
     end
 
     def relative?
@@ -139,10 +138,9 @@ module IOStreams
     #   IOStreams.path("test").directory            #=> "."
     #   IOStreams.path(".profile").directory        #=> "."
     def directory
-      new_path         = dup
-      new_path.builder = nil
-      new_path.path    = ::File.dirname(path)
-      new_path
+      new_path = dup
+      new_path.reset_builder
+      new_path.replace_path(::File.dirname(path))
     end
 
     # When path is a file, deletes this file.
@@ -216,7 +214,22 @@ module IOStreams
       str << " pipeline=#{redact(pipeline).inspect}>"
     end
 
+    # Deprecated: changing a path in place also changes its #hash, so a path used as a Hash key, or in a Set, could
+    # no longer be found. Use #join or #directory, which return a new path with the same settings, or `IOStreams.path`
+    # with the new name. Reports a deprecation warning, see `IOStreams::Deprecation`.
+    def path=(path)
+      Deprecation.warn("#path= is deprecated, use #join or #directory, which return a new path, or IOStreams.path " \
+                       "with the new name")
+      @path = path
+    end
+
     protected
+
+    # Returns [self] after setting its path in place, for IOStreams itself, see #path=.
+    def replace_path(path)
+      @path = path
+      self
+    end
 
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
     # and this path is not within any of them.

@@ -63,6 +63,19 @@ Each of these still works as before in v2.2, and reports a deprecation warning:
 | `option(:encode, ...)` and `stream(:encode, ...)` | `#encoding`, with the same options and the same results, see [Character encoding](extensions#character-encoding) |
 | `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
 
+v3.0 removes these, or raises `ArgumentError` for them, so in v2.2 each still works as before, and reports a
+deprecation warning:
+
+| Deprecated | Use instead |
+|------------|-------------|
+| `format:`, `file_name:`, `original_file_name:` or `default_format:` supplied to `#each`, `#reader`, `#writer` or a copy, such as `each(:hash, format: :json)` | Set them on the path, such as `format(:json).each(:hash)`, or `file_name("data.json")`, so that every reader and writer of the path uses them |
+| `allowed_columns:`, `required_columns:` or `skip_unknown:` supplied to `#writer` or a copy, which ignores them | `columns:` to choose the columns that are written |
+| Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
+| The Zip writer's `zip_file_name` | `entry_file_name` |
+| A file name ending in `.encode` | `#encoding` |
+| `#path=` | `#join` or `#directory`, which return a new path, or `IOStreams.path` with the new name |
+| `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
+
 ## Upgrading to v2.1
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,

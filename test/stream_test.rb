@@ -910,6 +910,156 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "options that v3.0 rejects" do
+      let :csv do
+        "name,zip\nJack,12345\n"
+      end
+
+      it "reports a deprecation warning for format: when reading records, which still applies" do
+        records = []
+        assert_deprecated(/format: is deprecated for each call, set it on the path with #format instead/) do
+          IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).each(:hash, format: :json) { |record| records << record }
+        end
+
+        assert_equal [{"name" => "Jack"}], records
+      end
+
+      it "reports a deprecation warning for file_name: and original_file_name: when reading rows" do
+        rows = []
+        assert_deprecated(/file_name: is deprecated for each call, set it on the path with #file_name instead/,
+                          /original_file_name: is deprecated for each call/) do
+          IOStreams.stream(StringIO.new("a|b\n")).
+            each(:array, file_name: "a.psv", original_file_name: "a.psv") { |row| rows << row }
+        end
+
+        assert_equal [%w[a b]], rows
+      end
+
+      it "reports a deprecation warning for default_format: when reading records" do
+        records = []
+        assert_deprecated(/default_format: is deprecated for each call, set it on the path with #format instead/) do
+          IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).each(:hash, default_format: :json) { |record| records << record }
+        end
+
+        assert_equal [{"name" => "Jack"}], records
+      end
+
+      it "reports a deprecation warning for format: when writing records, which still applies" do
+        io = StringIO.new
+        assert_deprecated(/format: is deprecated for each call/) do
+          IOStreams.stream(io).writer(:hash, format: :json) { |writer| writer << {"name" => "Jack"} }
+        end
+
+        assert_equal %({"name":"Jack"}\n), io.string
+      end
+
+      it "reports a deprecation warning for the options that only apply when reading, which a writer still ignores" do
+        io = StringIO.new
+        assert_deprecated(/allowed_columns: is deprecated when writing, since it only applies when reading and is ignored, supply columns:/) do
+          IOStreams.stream(io).writer(:hash, allowed_columns: ["name"]) { |writer| writer << {"name" => "Jack", "zip" => 12_345} }
+        end
+
+        assert_equal csv, io.string
+      end
+
+      it "names each option that only applies when reading in one warning" do
+        io = StringIO.new
+        assert_deprecated(/required_columns:, skip_unknown: are deprecated when writing, since they only apply/) do
+          IOStreams.stream(io).writer(:array, required_columns: ["name"], skip_unknown: true) { |writer| writer << %w[name zip] }
+        end
+      end
+
+      it "reports a deprecation warning for the options that only apply when reading supplied to a copy" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "source.csv")
+          source.write(csv)
+          target = IOStreams.path(dir, "target.csv")
+          assert_deprecated(/allowed_columns: is deprecated when writing/) do
+            target.copy_from(source, mode: :hash, allowed_columns: ["name"])
+          end
+
+          assert_equal csv, target.read
+        end
+      end
+
+      it "reports no deprecation warning for columns: when writing" do
+        io = StringIO.new
+        refute_deprecated do
+          IOStreams.stream(io).writer(:hash, columns: ["name"]) { |writer| writer << {"name" => "Jack", "zip" => 12_345} }
+        end
+
+        assert_equal "name\nJack\n", io.string
+      end
+
+      it "reports a deprecation warning for an option supplied to the :stream mode, which still ignores it" do
+        data = assert_deprecated(/delimiter: is deprecated in the :stream mode, which ignores it, so remove it/) do
+          IOStreams.stream(StringIO.new(csv)).reader(:stream, delimiter: "|", &:read)
+        end
+
+        assert_equal csv, data
+      end
+
+      it "reports a deprecation warning for options supplied when writing in the :stream mode" do
+        io = StringIO.new
+        assert_deprecated(/delimiter:, columns: are deprecated in the :stream mode, which ignores them, so remove them/) do
+          IOStreams.stream(io).writer(delimiter: "|", columns: ["a"]) { |stream| stream.write(csv) }
+        end
+
+        assert_equal csv, io.string
+      end
+
+      it "reports a deprecation warning for options supplied to a copy without a mode" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "source.csv")
+          source.write(csv)
+          target = IOStreams.path(dir, "target.csv")
+          assert_deprecated(/columns: is deprecated in the :stream mode/) { target.copy_from(source, columns: ["name"]) }
+
+          assert_equal csv, target.read
+        end
+      end
+
+      it "reports a deprecation warning for mode: and other options supplied to a copy with convert: false" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "source.csv.gz")
+          source.write(csv)
+          target = IOStreams.path(dir, "target.csv.gz")
+          assert_deprecated(/mode:, columns: are deprecated for a copy with convert: false, which ignores them/) do
+            target.copy_from(source, convert: false, mode: :hash, columns: ["name"])
+          end
+
+          assert_equal csv, target.read
+        end
+      end
+
+      it "reports a deprecation warning for a file name ending in .encode, which still applies the encode stream" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(File.join(dir, "notes.encode"), "cafe\n".b)
+          data = assert_deprecated(/a file name ending in \.encode is deprecated, .* use #encoding instead/) do
+            IOStreams.path(dir, "notes.encode").read
+          end
+
+          assert_equal Encoding::UTF_8, data.encoding
+        end
+      end
+
+      it "reports a deprecation warning for #builder=" do
+        path = IOStreams.path("data.csv.gz")
+        assert_deprecated(/#builder= is deprecated, since it takes an internal object/) { path.builder = nil }
+
+        assert_equal({gz: {}}, path.pipeline)
+      end
+
+      it "reports no deprecation warning for #join and #directory" do
+        path = IOStreams.path("/data/a.csv.gz").option(:gz, level: 1)
+        joined, directory = refute_deprecated { [path.join("b.csv"), path.directory] }
+
+        assert_equal "/data/a.csv.gz/b.csv", joined.to_s
+        assert_equal({}, joined.pipeline)
+        assert_equal "/data", directory.to_s
+      end
+    end
+
     describe "#encoding" do
       it "returns nil when no encoding is set" do
         assert_nil IOStreams.path("data.csv").encoding
