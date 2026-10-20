@@ -67,6 +67,15 @@ class ParquetTest < Minitest::Test
       list
     end
 
+    # Runs the block with the local time zone of the process.
+    def in_time_zone(zone)
+      original  = ENV.fetch("TZ", nil)
+      ENV["TZ"] = zone
+      yield
+    ensure
+      ENV["TZ"] = original
+    end
+
     describe "a file that cannot be read" do
       it "raises Corrupt for a file that is not Parquet" do
         File.write(path.to_s, "id,name\n1,Jack\n")
@@ -141,6 +150,47 @@ class ParquetTest < Minitest::Test
           "at" => Time.utc(2026, 10, 13), "active" => false}],
         read
       )
+    end
+
+    it "writes each date as the same day, whatever the time zone of the process" do
+      dates = [Date.new(1950, 1, 12), Date.new(1969, 12, 31), Date.new(1970, 1, 1), Date.new(1970, 1, 2),
+               Date.new(2026, 10, 20)]
+      born  = {fields: [{name: "born", type: "date"}]}
+
+      %w[America/New_York Europe/Berlin Asia/Tokyo Pacific/Honolulu].each do |zone|
+        in_time_zone(zone) do
+          write(path.schema(born), dates.map { |date| {"born" => date} })
+
+          assert_equal dates, read.map { |record| record["born"] }, zone
+        end
+      end
+    end
+
+    it "writes a time before 1970 with its fraction of a second" do
+      times = [Time.utc(1969, 12, 31, 23, 59, 59.5r), Time.new(1950, 1, 12, 6, 30, 15.123456r, "+05:30")]
+      at    = {fields: [{name: "at", type: "datetime"}]}
+
+      in_time_zone("America/New_York") { write(path.schema(at), times.map { |time| {"at" => time} }) }
+
+      assert_equal(
+        [Time.utc(1969, 12, 31, 23, 59, 59.5r), Time.utc(1950, 1, 12, 1, 0, 15.123456r)],
+        read.map { |record| record["at"] }
+      )
+    end
+
+    it "writes a time that acts as a Time without being one, such as the ActiveSupport::TimeWithZone of Rails" do
+      # Answers is_a?(Time), as ActiveSupport::TimeWithZone does, which a gem that checks the class itself does not take.
+      zoned = Class.new(SimpleDelegator) do
+        def is_a?(klass)
+          klass == Time || super
+        end
+        alias_method :kind_of?, :is_a?
+      end
+      time = zoned.new(Time.new(2026, 10, 20, 9, 30, 0.25r, "-04:00"))
+
+      write(path.schema(schema), [{"id" => 1, "at" => time}])
+
+      assert_equal Time.utc(2026, 10, 20, 13, 30, 0.25r), read.first["at"]
     end
 
     it "writes the fields that a record does not have as null" do
