@@ -21,8 +21,8 @@ module IOStreams
       #     Default: true
       #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
-      def initialize(header:, parser:, format:, cleanse: true)
-        super(header: header, parser: parser, format: format)
+      def initialize(header:, parser:, format:, cleanse: true, blank_rows: true)
+        super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @cleanse         = cleanse
         @requires_header = parser.requires_header?
         @keyed           = parser.class.keyed?

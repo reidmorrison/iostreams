@@ -392,6 +392,13 @@ module IOStreams
 
           assert_includes error.message, "see IOStreams.path"
         end
+
+        it "rejects an Enumerator, such as the one that find_each returns, which is not an IO" do
+          error = assert_raises(ArgumentError) { IOStreams.stream([1, 2].each) }
+
+          assert_match(/\Aio_stream must be an IO, not an Enumerator, /, error.message)
+          assert_raises(ArgumentError) { IOStreams.new([1, 2].each_slice(1)) }
+        end
       end
 
       describe ".new" do

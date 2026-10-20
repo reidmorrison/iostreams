@@ -22,8 +22,8 @@ module IOStreams
       #
       # Raises ArgumentError when the schema describes a file without a header row, of a format with one, such as CSV,
       # that it cannot describe, see `IOStreams::Schema#check_fields_in_order`.
-      def initialize(schema, header:, parser:, format:)
-        super(header: header, parser: parser, format: format)
+      def initialize(schema, header:, parser:, format:, blank_rows: true)
+        super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
         @columns         = schema.columns
         @requires_header = parser.requires_header? && schema.header?

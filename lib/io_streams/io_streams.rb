@@ -94,10 +94,17 @@ module IOStreams
   # see `IOStreams::Slice::Stream`:
   #   IOStreams.stream(slice).schema("people.json").each(:hash) { |person| p person }
   #
-  # Raises ArgumentError for a String or a Pathname, which name a file: see `IOStreams.path`.
+  # An Active Record relation returns the stream of the rows of its query, which reads them as one query, typed by its
+  # columns, and `relation.in_batches(...)` reads them in those batches, see `IOStreams::Query::Stream`:
+  #   IOStreams.stream(Order.where(paid: true)).each(:hash) { |order| p order }
+  #   IOStreams.path("orders.parquet").copy_from(Order.where(paid: true).order(:created_at), mode: :hash)
+  #
+  # Raises ArgumentError for a String or a Pathname, which name a file: see `IOStreams.path`, and for an Enumerator,
+  # such as the one that `find_each` returns, which is not an IO.
   def self.stream(io_stream)
     return io_stream.dup if io_stream.is_a?(Stream)
     return Slice::Stream.new(io_stream) if io_stream.is_a?(Slice)
+    return Query::Stream.new(io_stream) if Query.query?(io_stream)
 
     Stream.new(io_stream)
   end

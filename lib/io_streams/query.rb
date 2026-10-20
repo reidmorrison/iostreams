@@ -1,0 +1,217 @@
+# frozen_string_literal: true
+
+module IOStreams
+  # The query of an Active Record relation, whose rows `IOStreams.stream(relation)` reads, see
+  # `IOStreams::Query::Stream`, as one query, which the driver of its database streams, or in the batches of Rails when
+  # the caller supplies `relation.in_batches(...)`:
+  #
+  #   IOStreams.path("orders.parquet").copy_from(Order.where(paid: true).order(:created_at), mode: :hash)
+  #   IOStreams.path("orders.csv").copy_from(Order.where(paid: true).in_batches(of: 5_000), mode: :array)
+  #
+  # The object that the caller supplies is the choice, so that IOStreams has no settings for batches of its own: a
+  # relation is read as one query, so that a sorted or grouped query is not run again for every batch, and the batches
+  # of Rails keep their own settings, such as `of:` and `cursor:`.
+  #
+  # Each row is cast as `pluck` casts it, see `IOStreams::Query::Columns`. The query is read with a connection that it
+  # borrows from the pool of its model, and hands back when it finishes, and its queries skip the query cache, which
+  # would keep every row read, or return the same rows again. The rows are yielded within the loop that reads them, in
+  # the fiber of the caller, so that the block runs its own queries on the connection of the caller.
+  #
+  # Active Record 7.2 or later is needed. The application loads Active Record and the driver of its database; IOStreams
+  # does not depend on them.
+  class Query
+    autoload :Batches,         "io_streams/query/batches"
+    autoload :Columns,         "io_streams/query/columns"
+    autoload :Failure,         "io_streams/query/failure"
+    autoload :SqliteStatement, "io_streams/query/sqlite_statement"
+    autoload :Stream,          "io_streams/query/stream"
+
+    # The sources that each read a relation as one query on their database, see #source.
+    SOURCES = %i[SqliteStatement].freeze
+
+    # The earliest version of Active Record that a query is read with.
+    MINIMUM_VERSION = "7.2"
+
+    # Returns [true|false] whether the object is a query that `IOStreams.stream` reads: an `ActiveRecord::Relation`, or
+    # the batches of one that `relation.in_batches` returns without a block, an
+    # `ActiveRecord::Batches::BatchEnumerator`. Active Record is not loaded to find out.
+    def self.query?(object)
+      return false unless defined?(::ActiveRecord::Relation)
+
+      object.is_a?(::ActiveRecord::Relation) || object.is_a?(::ActiveRecord::Batches::BatchEnumerator)
+    end
+
+    # Parameters:
+    #   query: [ActiveRecord::Relation|ActiveRecord::Batches::BatchEnumerator]
+    #     The relation to read as one query, or the batches of one to read in those batches.
+    #
+    # Raises ArgumentError for any other object, for a version of Active Record before 7.2, and for a relation that loads
+    # the associations of models, with `includes`, `preload` or `eager_load`, since its rows are not models.
+    def initialize(query)
+      unless self.class.query?(query)
+        raise(ArgumentError, "Not an Active Record relation: #{query.class.name}, see IOStreams.stream")
+      end
+
+      check_version
+      @batches  = query.is_a?(::ActiveRecord::Batches::BatchEnumerator) ? query : nil
+      @relation = @batches ? @batches.relation : query
+      @model    = @relation.klass
+      reject_associations
+      @columns = nil
+    end
+
+    # Returns [IOStreams::Query::Columns] the columns of the result of the query, which a query of no rows, with
+    # `LIMIT 0`, describes, the first time that they are needed, so that the schema of the rows is known before they are
+    # read, see `IOStreams::Query::Stream#schema`.
+    #
+    # The type of each column is the type of the attribute of the model of the same name, otherwise the type that the
+    # result gives it, as `pluck` chooses it. A column of the table of the model that is `NOT NULL` is never null, when
+    # the query selects only the columns of that table, see #plain_columns?.
+    def columns
+      @columns ||= tag_failure { describe }
+    end
+
+    # Yields [Array] each row of the query, its values cast as `pluck` casts them, see
+    # `IOStreams::Query::Columns#cast`.
+    #
+    # Raises the exception of a failure of the database, tagged with the kind of failure that it means, such as
+    # `IOStreams::Errors::Unavailable`, see #failure_kind, but not an exception that the block raises.
+    def each
+      yielding = false
+      tag_failure(-> { yielding }) do
+        read do |values|
+          row      = columns.cast(values)
+          yielding = true
+          yield row
+          yielding = false
+        end
+      end
+    end
+
+    # Returns [String] the name of the query in the message of a failure, such as "Order query".
+    def display_name
+      "#{@model.name} query"
+    end
+
+    # Returns [String] the name of the query, and the size of its batches when it is read in batches.
+    def inspect
+      @batches ? "#{display_name} in batches of #{@batches.batch_size}" : display_name
+    end
+
+    private
+
+    # Yields [Array] each row of the query, its raw values as the driver of its database returns them: in the batches
+    # supplied, see `IOStreams::Query::Batches`, otherwise as one query, by the source that reads it on its database, see
+    # #source, with a connection borrowed from the pool for the whole query.
+    def read(&)
+      return Batches.new(@batches).each(columns, &) if @batches
+
+      @model.with_connection(prevent_permanent_checkout: true) do |connection|
+        source(connection).new(connection).each(@relation.to_sql, columns, &)
+      end
+    end
+
+    # Returns [Class] the source that reads a query as one query on the database of the connection, see SOURCES.
+    #
+    # Raises ArgumentError when none can, such as for MySQL with trilogy, whose queries return every row at once,
+    # suggesting batches, so that a query is only run once for each batch when the caller asks for it.
+    def source(connection)
+      SOURCES.each do |name|
+        source = Query.const_get(name)
+        return source if source.reads?(connection)
+      end
+
+      raise(ArgumentError, "IOStreams cannot stream a query on #{connection.adapter_name}, so read it in batches, such " \
+                           "as with `IOStreams.stream(relation.in_batches(of: 10_000))`")
+    end
+
+    # Returns [IOStreams::Query::Columns] the columns that the query returns, from its result for no rows.
+    def describe
+      result = @model.uncached do
+        @model.with_connection(prevent_permanent_checkout: true) do |connection|
+          connection.select_all(@relation.limit(0).arel, "IOStreams Columns")
+        end
+      end
+      names    = result.columns
+      plain    = plain_columns?
+      types    = names.map do |name|
+        @model.attribute_types.fetch(name) { result.column_types[name] || ::ActiveRecord::Type.default_value }
+      end
+      not_null = names.map { |name| plain && @model.columns_hash[name]&.null == false }
+      Columns.new(names: names, types: types, not_null: not_null)
+    end
+
+    # Returns [true|false] whether every column of the result is a column of the table of the model, so that one that
+    # is `NOT NULL` is never null: a query without joins, a common table expression, or another source of its rows, that
+    # selects every column of the table, or only columns of it by their names, and groups only by them. A column that
+    # the query computes, such as with `select("NULLIF(status, '') AS status")`, that another table has, or that a
+    # grouping such as `ROLLUP` makes null in its subtotals, can be null although it is named like a column of the
+    # model, which `pluck` takes the type of.
+    def plain_columns?
+      return false unless @relation.joins_values.empty? && @relation.left_outer_joins_values.empty? &&
+                          @relation.from_clause.empty? && @relation.with_values.empty?
+
+      [*@relation.select_values, *@relation.group_values].all? { |value| table_column?(value) }
+    end
+
+    # Returns [true|false] whether the selected value is a column of the table of the model by its name, or its
+    # attribute of Arel.
+    def table_column?(value)
+      case value
+      when Symbol, String
+        @model.columns_hash.key?(value.to_s)
+      when ::Arel::Attributes::Attribute
+        value.relation == @model.arel_table && @model.columns_hash.key?(value.name.to_s)
+      else
+        false
+      end
+    end
+
+    # Yields, tagging an exception of the database that the block raises with the kind of failure that it means, see
+    # #failure_kind, and the name of the query, unless `yielding` returns true, when the exception was raised by the
+    # block that the rows are yielded to, which is not a failure of the query.
+    def tag_failure(yielding = nil)
+      yield
+    rescue StandardError => e
+      raise if yielding&.call
+
+      kind = failure_kind(e)
+      raise unless kind
+
+      raise(kind.tag(e, display_name))
+    end
+
+    # Returns [Module] the kind of failure that an exception raised while reading the query means, such as
+    # `IOStreams::Errors::Unavailable`, or nil when it is none of them, see `IOStreams::Query::Failure`, which asks the
+    # sources for an exception of the driver of their database, see #driver_failure_kind.
+    def failure_kind(exception)
+      Failure.kind(exception) { |driver_exception| driver_failure_kind(driver_exception) }
+    end
+
+    # Returns [Module] the kind of failure that an exception of the driver of a database means, which the source of
+    # that database knows, see SOURCES, or nil when it is none of them.
+    def driver_failure_kind(exception)
+      SOURCES.each do |name|
+        kind = Query.const_get(name).failure_kind(exception)
+        return kind if kind
+      end
+      nil
+    end
+
+    def check_version
+      return if ::ActiveRecord.version >= Gem::Version.new(MINIMUM_VERSION)
+
+      raise(ArgumentError, "IOStreams reads Active Record queries with Active Record #{MINIMUM_VERSION} or later, not " \
+                           "#{::ActiveRecord.version}")
+    end
+
+    # Raises ArgumentError for a relation that loads the associations of its models, which have no effect on its rows.
+    def reject_associations
+      names = %i[includes preload eager_load].reject { |name| @relation.public_send(:"#{name}_values").empty? }
+      return if names.empty?
+
+      raise(ArgumentError, "#{names.join(', ')} cannot be read as rows, since they load the associations of models: " \
+                           "join their tables with `joins` and select their columns instead")
+    end
+  end
+end

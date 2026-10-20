@@ -4031,6 +4031,26 @@ SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem
 A failure that is none of these kinds raises its exception without a tag, such as an SFTP host key that does not
 match, or an HTTPS certificate that is not trusted.
 
+## What a query raises
+
+Reading the rows of an Active Record query, such as with `IOStreams.stream(relation)` or
+`path.copy_from(relation, mode: :hash)`, tags the exception that its database raised in the same way, so that an export
+can be retried on `Unavailable`, whether it reads a query or a file:
+
+| Kind of failure | Any database, through Active Record | SQLite |
+|-----------------|-------------------------------------|--------|
+| `NotFound` | Never | Never |
+| `PermissionDenied` | `ActiveRecord::DatabaseConnectionError` for a user name or password that the database rejects, when its driver does not say otherwise | `SQLite3::PermissionException` or `SQLite3::AuthorizationException` |
+| `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
+
+The exception of a driver is tagged whether Active Record raised it, or an exception whose `#cause` it is. A
+connection that could not be made is tagged as its driver says of the exception that caused it, since Active Record
+names the host in the message of a connection that the server refused, as well as of a host that does not resolve.
+Its `#display_name` names the model of the query, such as `"Order query"`. A table, column or database that does not
+exist, a host that does not resolve, and a role or shard without a database are mistakes in the code or the
+configuration, so they raise their exception without a tag. As for a path, an exception that the block raises is
+never tagged.
+
 ## What each stream raises
 
 The exception that each stream raises when it cannot read the data, which is tagged with the kind of failure:

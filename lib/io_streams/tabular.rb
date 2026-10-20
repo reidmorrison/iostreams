@@ -69,6 +69,11 @@ module IOStreams
     # The options of #initialize that only apply when reading: whether to cleanse the header row read, see #read_header.
     READ_OPTION_NAMES = %i[cleanse_header].freeze
 
+    # The options of #initialize that the stream of a source of rows that is not a file supplies, rather than the path
+    # or a call: whether a row whose every value is blank is a blank row, which the rows of a database query are not, see
+    # `IOStreams::Query::Stream`.
+    SOURCE_OPTION_NAMES = %i[blank_rows].freeze
+
     # Returns [Array<Symbol>] the options of #initialize that a call to read rows or records supplies, see
     # `IOStreams::Row::Reader.option_names`: those that only apply when reading, and those of the header, see
     # `IOStreams::Tabular::Header`, but not those that describe the format of the file, see FORMAT_OPTION_NAMES.
@@ -149,6 +154,12 @@ module IOStreams
     #     such as those set with `option(:parquet, compression: "zstd")`, see `IOStreams::Tabular::Settings`.
     #     Default: none
     #
+    #   blank_rows: [true|false]
+    #     Whether a row whose every value is blank, such as a line of CSV of only commas, is a blank row, read as nil, see
+    #     `IOStreams::Tabular::Mapping`. False for rows that are each a record whatever their values, such as the rows of
+    #     a database query, see `IOStreams::Query::Stream`. Not an option of a call that reads or writes rows.
+    #     Default: true
+    #
     #   cleanse_header: [true|false|nil]
     #     Deprecated: a schema names the keys of the records read instead, see `schema:`.
     #     Like `columns`, `allowed_columns`, `required_columns` and `skip_unknown`, it reports a deprecation warning when
@@ -159,7 +170,7 @@ module IOStreams
     #     before it was deprecated. With a schema it raises ArgumentError, including for nil, since it would have no effect.
     #     Default: CLEANSE_BY_DEFAULT, which cleanses it.
     def initialize(format: nil, file_name: nil, schema: nil, default_format: :csv, row_format_options: nil,
-                   cleanse_header: CLEANSE_BY_DEFAULT, **args)
+                   blank_rows: true, cleanse_header: CLEANSE_BY_DEFAULT, **args)
       if schema
         reject_header_options(args)
         reject_header_cleansing(cleanse_header)
@@ -172,7 +183,7 @@ module IOStreams
       @schema             = schema
       @row_format_options = row_format_options || {}
       @parser             = self.class.parser_class(@format).new(schema: @schema)
-      @mapping            = build_mapping(header, schema, cleanse_header ? true : false)
+      @mapping            = build_mapping(header, schema, cleanse_header ? true : false, blank_rows)
       warn_deprecated_options(args, cleanse_header, schema)
     end
 
@@ -630,12 +641,12 @@ module IOStreams
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the
     # schema supplied, otherwise by the header, which applies the options of the header, and cleanses the header row
-    # read when `cleanse`.
-    def build_mapping(header, schema, cleanse)
+    # read when `cleanse`. A row whose every value is blank is a blank row unless `blank_rows` is false.
+    def build_mapping(header, schema, cleanse, blank_rows)
       if schema
-        SchemaMapping.new(schema, header: header, parser: parser, format: format)
+        SchemaMapping.new(schema, header: header, parser: parser, format: format, blank_rows: blank_rows)
       else
-        HeaderMapping.new(header: header, parser: parser, format: format, cleanse: cleanse)
+        HeaderMapping.new(header: header, parser: parser, format: format, cleanse: cleanse, blank_rows: blank_rows)
       end
     end
   end

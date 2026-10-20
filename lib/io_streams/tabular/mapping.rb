@@ -51,10 +51,17 @@ module IOStreams
       #
       #   format: [Symbol]
       #     The name of the format, for the messages of errors.
-      def initialize(header:, parser:, format:)
-        @header = header
-        @parser = parser
-        @format = format
+      #
+      #   blank_rows: [true|false]
+      #     Whether a row whose every value is blank is a blank row, read as nil, see #parse, as in a file. False for rows
+      #     that are each a record, whatever their values, such as the rows of a database query, see
+      #     `IOStreams::Query::Stream`.
+      #     Default: true
+      def initialize(header:, parser:, format:, blank_rows: true)
+        @header     = header
+        @parser     = parser
+        @format     = format
+        @blank_rows = blank_rows
       end
 
       # The methods of the role, which each mapping implements in its own way, see above, and which
@@ -154,12 +161,12 @@ module IOStreams
       # Returns nil when it is blank, the same way in every format, so that a file holds the same rows whichever format it
       # is in: a line that is blank, see `IOStreams::Utils.blank_text?`, or a row or record whose every value is blank,
       # see `IOStreams::Utils.blank_row?`, such as a line of CSV of only commas, a spreadsheet row of empty cells, or a
-      # JSON record of `null`, `{}`, or whose every value is null.
+      # JSON record of `null`, `{}`, or whose every value is null, unless blank rows are records, see #initialize.
       def parse(line)
         return if IOStreams::Utils.blank?(line)
 
         values = @parser.parse(line)
-        values unless IOStreams::Utils.blank_row?(values)
+        values unless @blank_rows && IOStreams::Utils.blank_row?(values)
       end
     end
   end

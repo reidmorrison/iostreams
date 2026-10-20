@@ -11,6 +11,7 @@ module IOStreams
   autoload :Deprecation,         "io_streams/deprecation"
   autoload :Errors,              "io_streams/errors"
   autoload :Path,                "io_streams/path"
+  autoload :Query,               "io_streams/query"
   autoload :Reader,              "io_streams/reader"
   autoload :Schema,              "io_streams/schema"
   autoload :Slice,               "io_streams/slice"
@@ -55,6 +56,7 @@ module IOStreams
   module Row
     autoload :HeaderRow, "io_streams/row/header_row"
     autoload :Reader, "io_streams/row/reader"
+    autoload :Stream, "io_streams/row/stream"
     autoload :Writer, "io_streams/row/writer"
   end
 end

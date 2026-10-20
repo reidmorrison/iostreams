@@ -124,12 +124,16 @@ module IOStreams
       #   text_format: [Symbol|nil]
       #     The format of the text of the stream closest to the application, see `IOStreams::Builder#text_format`.
       #
+      #   default_schema: [IOStreams::Schema|nil]
+      #     The schema of the rows when none is set, which the source of the rows describes, such as that of the columns
+      #     of a database query, see `IOStreams::Query::Stream`.
+      #
       #   The other options are those of the call that reads or writes the rows, such as `columns:`, see
       #   `IOStreams::Tabular.new`.
-      def tabular(file_name:, text_format:, **)
+      def tabular(file_name:, text_format:, default_schema: nil, **)
         format = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
-        IOStreams::Tabular.new(file_name: file_name, format: format, schema: @schema_source&.schema,
+        IOStreams::Tabular.new(file_name: file_name, format: format, schema: @schema_source&.schema || default_schema,
                                row_format_options: row_format_options, **)
       end
 

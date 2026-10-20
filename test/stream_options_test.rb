@@ -489,7 +489,8 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "matches the keyword arguments of the tabular and its header, with the settings that describe the file" do
-        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize))
+        # The options that the stream of a source of rows that is not a file supplies, which neither a path nor a call does.
+        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize)) - IOStreams::Tabular::SOURCE_OPTION_NAMES
         header    = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
         read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
 
@@ -498,7 +499,7 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "are the options of each call of the mode, which the stream takes for the lines, and passes on to the tabular" do
-        file      = IOStreams::Tabular::FORMAT_OPTION_NAMES
+        file      = IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular::SOURCE_OPTION_NAMES
         tabular   = keywords(IOStreams::Tabular.instance_method(:initialize)) + keywords(IOStreams::Tabular::Header.instance_method(:initialize)) - file
         read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
 

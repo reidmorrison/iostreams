@@ -36,7 +36,7 @@ jobs:
         run: bundle exec rubocop --format github
 
   test:
-    name: "Test: Ruby ${{ matrix.ruby }}"
+    name: "Test: Ruby ${{ matrix.ruby }}${{ matrix.activerecord && format(', Active Record {0}', matrix.activerecord) || '' }}"
     runs-on: ubuntu-latest
     # Tests take about 7 minutes; without a limit a hang runs for six hours.
     timeout-minutes: 30
@@ -51,6 +51,11 @@ jobs:
         include:
           - ruby: 3.4
             coverage: true
+          # The earliest Ruby with the earliest Active Record that IOStreams reads queries with, see the Gemfile.
+          - ruby: 3.3
+            activerecord: "7.2.3"
+    env:
+      ACTIVERECORD_VERSION: ${{ matrix.activerecord }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Ruby

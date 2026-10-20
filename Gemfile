@@ -12,6 +12,16 @@ gem "rake"
 # Gems used by the library.
 # These are not required for all features, so they are not listed in the gemspec dependencies.
 # Instead, they are soft dependencies that are only loaded when needed.
+# To read the rows of an Active Record query, see IOStreams::Query. CI also tests the earliest version that it supports,
+# with ACTIVERECORD_VERSION="7.2.3": the latest 7.2 that minitest 6 allows, which needs json 2, since it passes an
+# option to JSON that json 3 removed.
+activerecord = ENV.fetch("ACTIVERECORD_VERSION", "")
+if activerecord.empty?
+  gem "activerecord", "~> 8.1.0"
+else
+  gem "activerecord", activerecord
+  gem "json", "< 3" if activerecord.start_with?("7.")
+end
 gem "aws-sdk-s3"
 # A bundled gem from Ruby 3.4, for the number fields of a schema.
 gem "bigdecimal"
@@ -24,6 +34,7 @@ gem "ed25519"
 gem "nokogiri"
 gem "parquet", platform: :ruby # A Rust extension, which JRuby cannot load.
 gem "rubyzip"
+gem "sqlite3", platform: :ruby # A C extension, which JRuby cannot load, so the query tests skip on JRuby.
 gem "symmetric-encryption"
 gem "xlsxtream"
 gem "zip_kit"

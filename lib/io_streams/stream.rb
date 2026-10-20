@@ -61,6 +61,11 @@ module IOStreams
       if Utils.file_name?(io_stream)
         raise(ArgumentError, "io_stream must be an IO, not the name of a file: #{io_stream.inspect}, see IOStreams.path")
       end
+      if io_stream.is_a?(Enumerator)
+        raise(ArgumentError, "io_stream must be an IO, not an Enumerator, such as the one that `find_each` returns, " \
+                             "which cannot say how it reads its rows. Supply the relation, to read it as one query, or " \
+                             "`relation.in_batches(...)`, to read it in batches, see IOStreams.stream")
+      end
 
       @io_stream = io_stream
       clear_configuration
@@ -402,11 +407,18 @@ module IOStreams
     # source = IOStreams.path("source_file").encoding("BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
     #
+    # # Copy the rows of an Active Record query, typed by its columns, see IOStreams.stream
+    # IOStreams.path("orders.parquet").copy_from(Order.where(paid: true), mode: :hash)
+    #
     # Returns [Integer] the number of bytes copied, when copying without a `mode:`.
     #
     # Notes:
     # - The source is opened before the target, so that the target is not changed when the source
     #   cannot be read, for example when it does not exist.
+    # - A target without a schema, see #schema, writes the rows of an Active Record query by the schema of its columns,
+    #   such as the decimals of a number, which a Parquet file needs, see `IOStreams::Query::Stream#schema`, unless the
+    #   copy supplies its columns, with the deprecated `columns:`. The schema of a file is not given to the target, since
+    #   it describes the text of that file, such as the format of its dates.
     def copy_from(source, convert: true, mode: nil, **args)
       unless mode.nil? || COPY_MODES.include?(mode)
         raise(ArgumentError, "Invalid mode: #{mode.inspect}. A copy converts lines, rows or records with mode: " \
@@ -421,7 +433,7 @@ module IOStreams
           )
           reject_unknown_options!(mode, mode_writer(mode), args)
           stream.reader(mode) do |rows|
-            writer(mode, **args) { |target| rows.copy_to(target) }
+            with_copy_schema(stream, args).writer(mode, **args) { |output| rows.copy_to(output) }
           end
         else
           reject_copy_options!("when copying without a `mode:`", **args)
@@ -642,6 +654,13 @@ module IOStreams
       open_writer(&)
     end
 
+    # Returns [Hash|String|IOStreams::Path|nil] the schema that a copy of the rows of this stream gives a target without
+    # one, see #copy_from, and #rows_schema. Protected, so that the target asks the source, and defined only here, so
+    # that a target of any class can ask a source of any class.
+    def copy_schema
+      rows_schema
+    end
+
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
     # changing the streams or options of this one.
     def without_streams
@@ -651,6 +670,29 @@ module IOStreams
     end
 
     private
+
+    # Returns [Hash|String|IOStreams::Path|nil] the schema of the rows that this stream reads, which a copy gives a target
+    # without one, see #copy_schema: none, since the schema of a file describes its text, such as the format of its
+    # dates, rather than the values that the copy writes. The stream of an Active Record query gives the schema of its
+    # columns, see `IOStreams::Query::Stream#rows_schema`.
+    def rows_schema
+      nil
+    end
+
+    # Returns [IOStreams::Stream] this stream, unless it has no schema, and a copy of the rows of the supplied source
+    # gives it one, see #copy_schema, when it returns a copy of this stream with that schema, so that the schema of this
+    # stream is not changed. The columns that the options of the copy supply, such as the deprecated `columns:`, describe
+    # the columns written instead, so they keep this stream as it is.
+    def with_copy_schema(source, options)
+      return self unless schema.nil? && IOStreams::Tabular::Header.column_option_names(options).empty?
+
+      copied = source.copy_schema
+      return self if copied.nil?
+
+      copy        = dup
+      copy.schema = copied
+      copy
+    end
 
     # Returns [IOStreams::Stream] the supplied stream or path itself, otherwise a new one for the
     # file name or IO, so that a copy or move uses, and returns, the path the caller supplied.
