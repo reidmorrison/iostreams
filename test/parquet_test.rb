@@ -586,7 +586,9 @@ class ParquetTest < Minitest::Test
         requested, list = read_columns(path.schema(partial))
 
         assert_equal [%w[born]], requested
-        assert_equal [{"born" => Date.new(2000, 2, 29)}, {"born" => nil}], list
+        # The record of the second row holds no value in the only column read, so it is blank, as a line of CSV of only
+        # commas is.
+        assert_equal [{"born" => Date.new(2000, 2, 29)}, nil], list
       end
 
       it "reads every column when the schema checks the others" do

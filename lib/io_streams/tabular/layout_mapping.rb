@@ -59,7 +59,10 @@ module IOStreams
       # supplied, see `IOStreams::Tabular::Header#to_hash`, otherwise by the keys of the layout, or nil when it is blank.
       # The record of a row already read, an Array, is by the columns of the rows, see #row_parse.
       def record_parse(line)
-        return header.to_hash(line) if @rows && line.is_a?(::Array)
+        if @rows && line.is_a?(::Array)
+          row = parse(line)
+          return row && header.to_hash(row)
+        end
 
         record = @fields.record_parse(line)
         record.nil? || header.columns.nil? ? record : header.to_hash(record)

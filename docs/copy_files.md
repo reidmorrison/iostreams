@@ -88,8 +88,8 @@ IOStreams.path("people.csv").copy_from("people.json", mode: :array)
 ~~~
 
 Use `:hash` for JSON whose records do not all have the same keys, since a row has no column for a key that the first
-record does not have, so the `:array` mode raises `IOStreams::Errors::InvalidHeader` for it. A blank line of the
-source is skipped.
+record does not have, so the `:array` mode raises `IOStreams::Errors::InvalidHeader` for it. A blank row of the
+source, such as an empty line or a line of only commas, is skipped, see [Blank rows](streams#blank-rows).
 
 ## Choosing the columns
 

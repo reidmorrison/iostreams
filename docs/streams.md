@@ -72,6 +72,38 @@ Like the IO of every stream, such as of a `.gz` file, it has the methods of an I
 and `#each_line`, so a library that reads an IO, such as `CSV.new(io)`, reads it, but not `#rewind`, `#pos`, `#size`
 or `#path`. Where the code needs a `File`, copy the file to a local file first, see [Copying and moving](copy_files).
 
+### Blank rows
+
+A blank row holds no data. It is the same in every format, so that a file holds the same rows whichever format it is
+in:
+
+* a line that is empty, or only whitespace, including Unicode whitespace such as a no-break space, as Rails'
+  `String#blank?` matches it;
+* a row or record whose every value is `nil` or such text, such as a line of CSV of only commas, a row of empty
+  spreadsheet cells, a fixed width line whose every field is spaces, a JSON line of `null` or `{}`, or a JSON or
+  Parquet record whose every value is null.
+
+A value such as `false` or `0` is data, so a row that holds one is not blank. `each(:array)` and `each(:hash)` yield
+`nil` for each blank row, so that the rows yielded count the lines of the file, for example to report the line of a
+row that is not valid. Supply `skip_blanks: true` to skip them instead:
+
+~~~ruby
+IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
+  p person
+end
+~~~
+
+* The header row is the first row that is not blank, with or without `skip_blanks`.
+* A blank row is not checked against a [schema](formats#schema), so it does not raise for a field that is required, as
+  a row with other values does.
+* Only the values that are read count: the fields of a fixed width line, not its filler, and of a Parquet file read
+  with a schema that skips columns, only the columns of its fields.
+* A copy always skips blank rows, so `#copy_from` and `#writer` raise `ArgumentError` for `skip_blanks:`, which only
+  applies when reading.
+* `each(:line)` and `each(:slice)` hand on every row as it is in the file, so they do not take `skip_blanks:`. Supply it
+  where the rows of a slice are read, such as `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
+* A `skip_blanks` that is not true or false raises `ArgumentError` before the file is opened.
+
 ### Slices
 
 `each(:slice)` yields the rows of the file a slice at a time, as they are in the file, so that they can be parsed
@@ -105,7 +137,9 @@ first record. The keys of the other records are matched where they are parsed.
 valid, such as `IOStreams::Errors::InvalidValue`. The slices before that row have already been yielded. Each slice still
 holds the rows as they are in the file.
 
-* Blank lines before the header row are skipped. A blank line after it is a row, an empty String.
+* Blank lines before the header row are skipped. A blank row after it is a row of its slice, as it is in the file, such
+  as an empty String, as `each(:line)` yields every line. Read the slice with
+  `IOStreams.stream(slice).each(:hash, skip_blanks: true)` to skip it there, see [Blank rows](#blank-rows).
 * A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no header
   row, `nil`.
 * A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
@@ -218,7 +252,8 @@ end
 
 Other notes:
 
-* A blank line is yielded as an empty String by `each(:line)`, and as `nil` by `each(:array)` and `each(:hash)`.
+* A blank line is yielded as an empty String by `each(:line)`, and as `nil` by `each(:array)` and `each(:hash)`, see
+  [Blank rows](#blank-rows).
 * Lines are read 64KB at a time, which `buffer_size:` changes, such as `each(:hash, buffer_size: 1_048_576)`.
 * A line without a delimiter within 100 blocks, 6.4MB by default, raises `IOStreams::Errors::DelimiterNotFound`, rather
   than reading the whole of a file that has no line endings into memory.

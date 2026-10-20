@@ -279,6 +279,11 @@ module IOStreams
     #   carries it, and the format of its rows, so that the rows of the slice can be parsed on their own, elsewhere.
     #   With `validate: true` each row is also parsed before its slice is yielded, and raises when its values are not
     #   valid, after the slices before it, while each slice still holds the rows as they are.
+    # - The `:array` and `:hash` modes skip each blank row with `skip_blanks: true`, rather than yield nil for it: a line
+    #   that is empty or only whitespace, or a row or record whose every value is nil or blank text, the same way in every
+    #   format, see `IOStreams::Tabular::Mapping`. It defaults to false, so that the rows yielded count the lines of the
+    #   file. The `:slice` mode, like the `:line` mode, hands on every row as it is in the file, so that the rows of each
+    #   slice can be read with `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -825,22 +830,24 @@ module IOStreams
     #
     # The other options, such as `cleanse_header:` and `columns:`, are those of the tabular that reads the rows, see
     # `IOStreams::Tabular.new`.
-    def row_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
+    def row_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, skip_blanks: false, **args)
       reject_unknown_options!(:array, IOStreams::Row::Reader, args)
+      IOStreams::Row::Reader.check(skip_blanks: skip_blanks)
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
-        yield IOStreams::Row::Reader.new(io, tabular: tabular)
+        yield IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks)
       end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
+    def record_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, skip_blanks: false, **args)
       reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
+      IOStreams::Record::Reader.check(skip_blanks: skip_blanks)
       tabular = tabular(**args)
       open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
-        yield IOStreams::Record::Reader.new(io, tabular: tabular)
+        yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks)
       end
     end
 

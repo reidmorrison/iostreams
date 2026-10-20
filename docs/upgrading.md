@@ -34,6 +34,7 @@ Start with the changes that apply to your application:
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Uses `allowed_columns`, `required_columns`, `columns:` or `cleanse_header:` | [Column restrictions apply to every input](#column-restrictions-apply-to-every-input), and [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
+| Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) |
 | Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
@@ -273,6 +274,32 @@ end
 # ["name", "age", "zip"]
 # ["Jack", 21, nil]
 # ["Jill", 22, nil]
+~~~
+
+#### Blank rows are the same in every format
+
+A row whose every value is `nil` or blank text is now read as `nil`, as a blank line already was, in every format, see
+[Blank rows](streams#blank-rows). Previously `each(:array)` and `each(:hash)` returned a row or record of `nil` values
+for a line of CSV of only commas, such as those that Excel writes after the last row, a JSON or Parquet record whose
+every value is null, and a fixed width line whose every field is blank, while a row of empty spreadsheet cells was
+already `nil`. Text of only Unicode whitespace, such as a no-break space, is now blank as well, as Rails'
+`String#blank?` matches it, where only spaces, tabs and line endings were.
+
+* A copy skips these rows too, so they are no longer written to the target.
+* A header row of only blank values is skipped, so the header row is the next row that is not blank.
+* A blank row is not checked against a schema, so a field that is required no longer raises
+  `IOStreams::Errors::InvalidValue` for it.
+* Rocket Job parses the blank rows of its slices as `nil` too, through `IOStreams::Tabular#record_parse`.
+
+Fix: code that already handles the `nil` of a blank line needs no change. Code that relied on a record of `nil`
+values, such as one that counts the rows of a spreadsheet export, now receives `nil` for it. To skip blank rows, rather
+than handle `nil`, supply `skip_blanks: true` to `each(:array)` or `each(:hash)`, including where the rows of a slice
+are read with `IOStreams.stream(slice)`:
+
+~~~ruby
+IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
+  p person
+end
 ~~~
 
 #### Hash keys match columns once cleansed

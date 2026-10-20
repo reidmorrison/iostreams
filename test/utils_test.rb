@@ -128,6 +128,85 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".blank?" do
+      it "is true for nil, false, blank text, and anything else that is empty, as Rails' Object#blank? is" do
+        [nil, false, "", " \t\r\n", [], {}].each { |value| assert IOStreams::Utils.blank?(value), "#{value.inspect} is blank" }
+      end
+
+      it "is false for any other value" do
+        [true, 0, 0.0, "a", [nil], {a: nil}, Object.new].each { |value| refute IOStreams::Utils.blank?(value), value.inspect }
+      end
+    end
+
+    describe ".blank_text?" do
+      it "is true for text that is empty, or only whitespace, including Unicode whitespace, as Rails' String#blank? is" do
+        ["", " ", "\t\n\v\f\r", " ", "　", " ", "\u0085", "  \t"].each do |text|
+          assert IOStreams::Utils.blank_text?(text), "#{text.inspect} is blank"
+        end
+      end
+
+      it "is false for text with a character that is not whitespace, such as a zero width space or a byte order mark" do
+        ["a", " a ", "​", "﻿", "."].each { |text| refute IOStreams::Utils.blank_text?(text), text.inspect }
+      end
+
+      it "matches text in an encoding that is not ASCII compatible in its own encoding, as Rails does" do
+        assert IOStreams::Utils.blank_text?("  ".encode("UTF-16LE"))
+        assert IOStreams::Utils.blank_text?(" ".encode("UTF-32BE"))
+        refute IOStreams::Utils.blank_text?(" a".encode("UTF-16LE"))
+      end
+
+      it "matches binary text by its ASCII whitespace" do
+        assert IOStreams::Utils.blank_text?(" \t".b)
+        refute IOStreams::Utils.blank_text?("\xA0".b)
+      end
+
+      it "raises ArgumentError for text whose bytes are not valid in its encoding, as Rails does" do
+        assert_raises(ArgumentError) { IOStreams::Utils.blank_text?(+"\xFF ") }
+      end
+    end
+
+    describe ".blank_value?" do
+      it "is true for nil and blank text" do
+        [nil, "", " ", " "].each { |value| assert IOStreams::Utils.blank_value?(value), "#{value.inspect} is blank" }
+      end
+
+      it "is false for any other value, which is data, such as false, 0, an empty Array, or text that is not valid" do
+        [false, 0, [], {}, "a", +"\xFF"].each { |value| refute IOStreams::Utils.blank_value?(value), value.inspect }
+      end
+    end
+
+    describe ".blank_row?" do
+      it "is true for nil, and a row or record without values, or whose every value is blank" do
+        [nil, [], {}, [nil, ""], [" ", " "], {"a" => nil, "b" => " "}].each do |row|
+          assert IOStreams::Utils.blank_row?(row), "#{row.inspect} is blank"
+        end
+      end
+
+      it "is false for a row or record with a value that is not blank" do
+        [[nil, "a"], [false], [0, nil], {"a" => nil, "b" => false}, {"a" => []}].each do |row|
+          refute IOStreams::Utils.blank_row?(row), row.inspect
+        end
+      end
+
+      it "is false for anything else, such as a line, which is not a row" do
+        refute IOStreams::Utils.blank_row?("")
+      end
+    end
+
+    describe ".check_boolean" do
+      it "accepts true and false" do
+        assert_nil IOStreams::Utils.check_boolean(:skip_blanks, true)
+        assert_nil IOStreams::Utils.check_boolean(:skip_blanks, false)
+      end
+
+      it "raises ArgumentError for any other value, naming the option" do
+        [nil, "true", 1].each do |value|
+          error = assert_raises(ArgumentError) { IOStreams::Utils.check_boolean(:skip_blanks, value) }
+          assert_equal "Invalid skip_blanks #{value.inspect}: supply true or false", error.message
+        end
+      end
+    end
+
     describe ".file_name_extensions" do
       it "returns the extensions of a name that is not valid UTF-8" do
         assert_equal %w[csv gz], IOStreams::Utils.file_name_extensions("caf\xE9.CSV.gz".dup.force_encoding(Encoding::UTF_8))
