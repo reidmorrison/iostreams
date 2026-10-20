@@ -256,6 +256,22 @@ module Paths
         end
       end
 
+      describe "#copy_to" do
+        it "reports a deprecation warning for mode: and other options supplied to a copy within S3 with convert: false" do
+          source = root_path.join("copy_test_source.txt")
+          target = root_path.join("copy_test_target.txt")
+          source.write("Hello World")
+          assert_deprecated(/mode:, columns: are deprecated for a copy with convert: false, which ignores them/) do
+            source.copy_to(target, convert: false, mode: :hash, columns: ["name"])
+          end
+
+          assert_equal "Hello World", target.read
+        ensure
+          source&.delete
+          target&.delete
+        end
+      end
+
       describe "#partial_files_visible?" do
         it "visible only after upload" do
           refute_predicate root_path, :partial_files_visible?
