@@ -42,21 +42,17 @@ module IOStreams
         @tabular     = IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
         @line_writer = line_writer
 
-        # Render header line when `columns` is supplied.
-        line_writer << @tabular.render_header if columns && @tabular.requires_header?
+        # Render header line when `columns` is supplied, see `IOStreams::Tabular#start_rows`.
+        @tabular.start_rows { |line| @line_writer << line }
       end
 
       # Supply a hash or an array to render
+      #
+      # The first row is the header row, unless the columns were supplied.
       def <<(array)
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
 
-        if @tabular.header?
-          # If header (columns) was not supplied as an argument, assume first line is the header.
-          @tabular.header.columns = array
-          @line_writer << @tabular.render_header
-        else
-          @line_writer << @tabular.render(array)
-        end
+        @tabular.render_row(array) { |line| @line_writer << line }
       end
     end
   end

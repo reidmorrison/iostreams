@@ -64,19 +64,16 @@ module IOStreams
         @tabular     = IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
         @line_writer = line_writer
 
-        # Render header line when `columns` is supplied.
-        @line_writer << @tabular.render_header if columns && @tabular.requires_header?
+        # Render header line when `columns` is supplied, see `IOStreams::Tabular#start_records`.
+        @tabular.start_records { |line| @line_writer << line }
       end
 
+      # Writes the record, after the header line that the keys of the first record give, when the columns supplied do
+      # not give it, see `IOStreams::Tabular#render_record`.
       def <<(hash)
         raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
 
-        if @tabular.header?
-          # Extract header from the keys from the first row when not supplied above.
-          @tabular.header.columns = hash.keys
-          @line_writer << @tabular.render_header
-        end
-        @line_writer << @tabular.render(hash)
+        @tabular.render_record(hash) { |line| @line_writer << line }
       end
     end
   end

@@ -29,6 +29,8 @@ module IOStreams
   #   # => "1,,3"
   class Tabular
     autoload :Header, "io_streams/tabular/header"
+    autoload :HeaderMapping, "io_streams/tabular/header_mapping"
+    autoload :Mapping, "io_streams/tabular/mapping"
 
     module Parser
       autoload :Array, "io_streams/tabular/parser/array"
@@ -40,7 +42,15 @@ module IOStreams
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
 
-    attr_reader :format, :header, :parser
+    # The default of the `cleanse_header` option of a reader of rows or records, see `IOStreams::Row::Reader`, which
+    # cleanses the header row.
+    CLEANSE_BY_DEFAULT = :default
+
+    attr_reader :format, :parser
+
+    # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file to the values of its rows and records,
+    # by the header row or the columns supplied, which is chosen when the Tabular is created, see #initialize.
+    attr_reader :mapping
 
     # Parse a delimited data source.
     #
@@ -83,23 +93,30 @@ module IOStreams
     #     Default: :csv
     #     Set to nil to force it to raise an exception when the format is undefined.
     def initialize(format: nil, file_name: nil, format_options: nil, default_format: :csv, **args)
-      @header = Header.new(**args)
+      header  = Header.new(**args)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
 
-      klass   = self.class.parser_class(@format)
-      @parser = format_options ? klass.new(**format_options) : klass.new
+      klass    = self.class.parser_class(@format)
+      @parser  = format_options ? klass.new(**format_options) : klass.new
+      @mapping = HeaderMapping.new(header: header, parser: @parser, format: @format)
+    end
+
+    # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the columns supplied in
+    # place of one, and their restrictions, see `IOStreams::Tabular::Header`.
+    def header
+      @mapping.header
     end
 
     # Returns [true|false] whether a header is still required in order to parse or render the current format.
     def header?
-      parser.requires_header? && IOStreams::Utils.blank?(header.columns)
+      @mapping.header?
     end
 
     # Returns [true|false] whether a header row show be rendered on output.
     def requires_header?
-      parser.requires_header?
+      @mapping.requires_header?
     end
 
     # Returns [Array] the header row/line after parsing and cleansing.
@@ -109,52 +126,98 @@ module IOStreams
     # * Call `header?` first to determine if the header should be parsed first.
     # * The header columns are set after parsing the row, but the header is not cleansed.
     def parse_header(line)
-      return if IOStreams::Utils.blank?(line) || !parser.requires_header?
+      @mapping.parse_header(line)
+    end
 
-      header.columns = parser.parse(line)
+    # Parses the header row, then cleanses its columns when `cleanse:` is truthy, otherwise applies the column
+    # restrictions to them, as a reader of records does, see `IOStreams::Record::Reader`.
+    #
+    # Returns [Array] the header row as read, before it is cleansed.
+    # Returns nil when the line is blank, or the format does not have a header row.
+    def read_header(line, cleanse: CLEANSE_BY_DEFAULT)
+      @mapping.read_header(line, cleanse: cleanse)
     end
 
     # Returns [Hash<String,Object>] the line as a hash.
     # Returns nil if the line is blank.
     def record_parse(line)
-      line = row_parse(line)
-      header.to_hash(line) if line
+      @mapping.record_parse(line)
     end
 
     # Returns [Array] the row/line as a parsed Array of values.
     # Returns nil if the row/line is blank.
     def row_parse(line)
-      return if IOStreams::Utils.blank?(line)
-
-      parser.parse(line)
+      @mapping.row_parse(line)
     end
 
     # Renders the output row
     def render(row)
-      return if IOStreams::Utils.blank?(row)
-
-      parser.render(row, header)
+      @mapping.render(row)
     end
 
     # Returns [String] the header rendered for the output format
     # Return nil if no header is required.
     def render_header
-      return unless requires_header?
-
-      if IOStreams::Utils.blank?(header.columns)
-        raise(
-          Errors::MissingHeader,
-          "Header columns must be set before attempting to render a header for format: #{format.inspect}"
-        )
-      end
-
-      parser.render(header.columns, header)
+      @mapping.render_header
     end
 
     # Returns [Array<String>] the cleansed columns
     def cleanse_header!
       header.cleanse!
       header.columns
+    end
+
+    # Reading and writing a line at a time: a reader or writer of rows or records, see `IOStreams::Row::Reader` and the
+    # others, hands each line or value to these, which the mapping of the columns reads or renders, see
+    # `IOStreams::Tabular::Mapping`, so that the reader or writer only iterates. Each reading method takes the
+    # `cleanse_header` option of the reader as `cleanse:`.
+
+    # Yields [Array|nil] each row of the line of a file of rows: the header row, while it is expected, see #header?,
+    # otherwise the row, see #row_parse, or nil for a blank line.
+    #
+    # Returns the result of the block.
+    def read_row(line, cleanse: CLEANSE_BY_DEFAULT, &)
+      @mapping.read_row(line, cleanse: cleanse, &)
+    end
+
+    # Yields [Hash|nil] the record of the line of a file of records, see #record_parse, or nil for a blank line, unless
+    # the line is the header row, while it is expected, see #header?, which it reads instead, see #read_header.
+    def read_record_line(line, cleanse: CLEANSE_BY_DEFAULT, &)
+      @mapping.read_record_line(line, cleanse: cleanse, &)
+    end
+
+    # Applies the column restrictions to the columns supplied in place of a header row, before a reader of records
+    # reads the file, see `IOStreams::Record::Reader#initialize`.
+    def restrict_columns(cleanse: CLEANSE_BY_DEFAULT)
+      @mapping.restrict_columns(cleanse: cleanse)
+    end
+
+    # Yields [String] the header line that a writer of rows writes before the first row: the columns supplied, when the
+    # file has a header row.
+    def start_rows(&)
+      @mapping.start_rows(&)
+    end
+
+    # Yields [String|nil] the line that a writer of rows writes for the row. The first row is the header row, unless the
+    # columns were supplied.
+    #
+    # Returns the result of the block.
+    def render_row(row, &)
+      @mapping.render_row(row, &)
+    end
+
+    # Yields [String] the header line that a writer of records writes before the first record: the columns supplied,
+    # when the file has a header row.
+    def start_records(&)
+      @mapping.start_records(&)
+    end
+
+    # Yields [String|nil] each line that a writer of records writes for the record. The header line of the keys of the
+    # first record comes first, unless the columns were supplied.
+    #
+    # Returns the result of the block.
+    def render_record(record, &)
+      @mapping.render_record(record, &)
     end
 
     # Register a format and the parser class for it.

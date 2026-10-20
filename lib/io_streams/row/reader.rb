@@ -28,8 +28,12 @@ module IOStreams
       #   format: [Symbol]
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
+      #   cleanse_header: [true|false]
+      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`.
+      #     Default: `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which cleanses it.
+      #
       #   For all other parameters, see Tabular::Header.new
-      def initialize(line_reader, cleanse_header: true, original_file_name: nil, **args)
+      def initialize(line_reader, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, original_file_name: nil, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
@@ -39,16 +43,10 @@ module IOStreams
         @cleanse_header = cleanse_header
       end
 
-      def each
-        @line_reader.each do |line|
-          if @tabular.header?
-            columns = @tabular.parse_header(line)
-            @tabular.cleanse_header! if @cleanse_header
-            yield columns
-          else
-            yield @tabular.row_parse(line)
-          end
-        end
+      # Yields each row, an Array, after the header row of a file with one, which it yields first, see
+      # `IOStreams::Tabular#read_row`.
+      def each(&block)
+        @line_reader.each { |line| @tabular.read_row(line, cleanse: @cleanse_header, &block) }
       end
     end
   end
