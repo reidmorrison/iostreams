@@ -12,16 +12,42 @@ module IOStreams
       raise(LoadError, "Please install the gem '#{gem_name}' to support #{stream_type}. #{e.message}")
     end
 
-    # Log a warning for options that a stream ignores, until they raise `ArgumentError` in v3.0.
-    def self.warn_unknown_options(unknown, stream, direction, valid)
+    # Log a warning for options that a stream ignores, until they raise `ArgumentError` in v3.0, when reading
+    # (type: :reader) or writing (:writer).
+    #
+    # Those that the stream does not take in the other direction either are deprecated, and also report a deprecation
+    # warning, see `IOStreams::Deprecation`. One option hash is shared by the reader and the writer of a stream, so v3.0
+    # accepts an option of the other direction, and ignores it, which the class registered for the other direction
+    # answers with its `known_option_names`, see `IOStreams.register_extension`.
+    def self.warn_unknown_options(unknown, stream, type, valid)
       return if unknown.empty?
 
       names = unknown.keys.map(&:inspect).join(", ")
       IOStreams.logger&.warn(
-        "Ignoring unknown #{unknown.size == 1 ? 'option' : 'options'} #{names} when #{direction} a #{stream.inspect} " \
-        "stream. Valid options: #{valid.map(&:inspect).join(', ')}. In v3.0 this will raise ArgumentError."
+        "Ignoring unknown #{unknown.size == 1 ? 'option' : 'options'} #{names} when " \
+        "#{type == :reader ? 'reading' : 'writing'} a #{stream.inspect} stream. " \
+        "Valid options: #{valid.map(&:inspect).join(', ')}. In v3.0 this will raise ArgumentError."
       )
+      warn_deprecated_options(unknown.keys - other_option_names(stream, type), stream)
     end
+
+    # Reports that the options, which the stream ignores in both directions, are deprecated.
+    def self.warn_deprecated_options(names, stream)
+      return if names.empty?
+
+      keywords = names.map { |name| "#{name}:" }.join(", ")
+      Deprecation.warn("#{keywords} #{names.size == 1 ? 'is' : 'are'} deprecated for a #{stream.inspect} stream, " \
+                       "which ignores #{names.size == 1 ? 'it' : 'them'}, so remove #{names.size == 1 ? 'it' : 'them'}")
+    end
+    private_class_method :warn_deprecated_options
+
+    # Returns [Array<Symbol>] the options that the class registered for the stream in the other direction takes, or
+    # none when it does not answer them.
+    def self.other_option_names(stream, type)
+      other = IOStreams.extensions[stream]&.public_send(type == :reader ? :writer_class : :reader_class)
+      other.respond_to?(:known_option_names) ? other.known_option_names : []
+    end
+    private_class_method :other_option_names
 
     # Helper method: Returns [true|false] if a value is blank?
     def self.blank?(value)

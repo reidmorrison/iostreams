@@ -1811,7 +1811,8 @@ IOStreams.path("example.csv.pgp").
 
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
 that lists the valid options. The exception is BZip2, which ignores options it does not accept and
-logs a warning instead. In v3.0 it will raise an `ArgumentError` too.
+logs a warning instead. One that neither reading nor writing takes also reports a deprecation warning,
+since in v3.0 it will raise an `ArgumentError` too.
 
 Options for a stream that is not in the pipeline are still ignored, as described above,
 since they are not passed to any reader or writer.
@@ -1944,7 +1945,8 @@ IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
 
 Options are strict, so an option that a stream does not accept raises an `ArgumentError`.
 See [Streams](streams#reading-and-writing-need-separate-options). The exception is BZip2, which
-ignores any other option and logs a warning. In v3.0 it will raise an `ArgumentError` too.
+ignores any other option and logs a warning. One that neither reading nor writing takes also reports a
+deprecation warning, since in v3.0 it will raise an `ArgumentError` too.
 
 ## Reading an Excel Spreadsheet
 
@@ -3425,6 +3427,7 @@ deprecation warning:
 | Options supplied to `#writer` when the stream is a line, row or record writer that is already open, such as the one that `writer(:line)` yields, handed to `IOStreams.stream`, which writes with its own settings, and ignores them | Set them where that writer is opened, or remove them |
 | Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
 | The Zip writer's `zip_file_name`, even when it is nil | `entry_file_name` |
+| An option of `.bz2` that neither reading nor writing takes, which BZip2 ignores | Remove it |
 | A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
 | `#path=` | `#join` or `#directory`, which return a new path, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |

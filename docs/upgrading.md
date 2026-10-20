@@ -101,6 +101,7 @@ deprecation warning:
 | Options supplied to `#writer` when the stream is a line, row or record writer that is already open, such as the one that `writer(:line)` yields, handed to `IOStreams.stream`, which writes with its own settings, and ignores them | Set them where that writer is opened, or remove them |
 | Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
 | The Zip writer's `zip_file_name`, even when it is nil | `entry_file_name` |
+| An option of `.bz2` that neither reading nor writing takes, which BZip2 ignores | Remove it |
 | A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
 | `#path=` | `#join` or `#directory`, which return a new path, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
