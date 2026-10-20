@@ -141,6 +141,12 @@ module IOStreams
     # the records read with it have the same keys. See `IOStreams::Tabular::Parser::Fixed.schema` for the layout,
     # whose columns can have String keys, such as a layout read from JSON.
     #
+    # The schema reads and writes the file as IOStreams 3.0 does, which is not always as the layout does: for
+    # example, the width of each field counts the characters of the UTF-8 text of the line, where the layout counts its
+    # bytes, and a number field that holds no number raises, where the layout reads it as zero. So check that the
+    # schema reads the files of the application before it replaces the layout. See "Moving a layout to a schema" in
+    # docs/upgrading.md for each difference.
+    #
     # Unlike `IOStreams::Stream#format_options`, it reports no deprecation warning, since it replaces the layout.
     #
     # Parameters:

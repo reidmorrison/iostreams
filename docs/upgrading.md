@@ -143,6 +143,11 @@ path.format(:fixed).schema(
 )
 ~~~
 
+`IOStreams::Schema.from_layout` returns the schema of a layout as a Hash, to set with `#schema` or to save as a JSON
+file, such as `IOStreams::Schema.from_layout(layout: layout)`, with `truncate: false` too when the layout has it. The
+columns of the layout can have String keys, such as a layout read from JSON. A column after the column with
+`size: :remainder` is left out, since the layout never reads it.
+
 The keys of the records read are the names of the fields, so a layout with Symbol keys, such as `key: :name`, reads
 Symbol keys, as does a schema whose field is named with that Symbol, while a schema saved as a JSON file names its
 fields with Strings, so the keys of its records are Strings. Without `fieldsMatch: "subset"`, a schema has
@@ -150,18 +155,42 @@ fields with Strings, so the keys of its records are Strings. Without `fieldsMatc
 than skip it as a layout does. A schema and a layout cannot both be set on a path: reading or writing it raises
 `ArgumentError`.
 
-The schema reads the same records as the layout, as it does in v3.0, except that:
+The schema reads and writes the file as v3.0 does, which is not always as the layout does, so check that it reads
+the files of the application before it replaces the layout. What reads differently:
 
-* An `integer` or `number` field that holds no number, such as `N/A`, raises `IOStreams::Errors::InvalidValue`,
-  where the layout reads it as `0`, or as the number that its leading digits make, such as `12` for `12-`. A fraction
-  in an `integer` field raises too, where the layout truncates it, while a whole number with a decimal point, such as
-  `12.0`, is still read as `12`.
-* The text read is UTF-8, so a value that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, and the
-  `width` of each field counts characters, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
-* A filler is written as spaces, also where a layout gives it a `type:` of `:integer` or `:float`.
-* A `string` field writes a `BigDecimal` as `12.5`, and a `Date` or `Time` in ISO 8601, such as
-  `2026-10-13T09:30:00Z`, and raises `IOStreams::Errors::InvalidValue` for a `Hash` or an `Array`, where the layout
-  writes their `to_s`.
+* The `width` of each field counts the characters of the line, which is read as UTF-8, while the layout counts its
+  bytes. So a line with a character that is not ASCII, such as `é`, raises `IOStreams::Errors::InvalidLineLength`
+  when the program that wrote it counted bytes, and text that is not valid UTF-8, such as Latin-1, raises
+  `IOStreams::Errors::InvalidEncoding`. To count bytes, set the encoding of the file: `encoding("ISO-8859-1")` for
+  Latin-1, whose values are then ISO-8859-1 strings, or the name of another single-byte code page, or
+  `encoding("BINARY")` to read binary strings, as the layout does, such as for UTF-8 text whose sizes count bytes. See
+  [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
+* An `integer` or `number` field that holds no number, such as `N/A` or `1,234.50`, raises
+  `IOStreams::Errors::InvalidValue`, where the layout reads it as `0`, or as the number that its leading digits make,
+  such as `12` for `12-` and `1.0` for `1,234.50`. A fraction in an `integer` field, such as `12.5`, raises too, where
+  the layout truncates it, while a whole number with a decimal point, such as `12.0`, is still read as `12`.
+* A `number` field reads `NaN` and `Inf`, which the layout writes for a `Float` that is not finite, as `Float::NAN`
+  and `Float::INFINITY`, where the layout reads them as `0.0`.
+* A line whose fields are all blank, even where a filler holds text, is a blank row, `nil`, which a copy skips, where
+  the layout reads a record of blank values, such as `{name: "", zip: nil}`.
+* `each(:array)` yields the names of the fields first, as an `IOStreams::Row::HeaderRow`, and then an Array of the
+  values of each line, where the layout yields a Hash for each line, as `each(:hash)` does.
+
+What writes differently:
+
+* An `integer` or `number` field raises `IOStreams::Errors::InvalidValue` for a value that is not a number, such as
+  `"abc"`, and an `integer` field for a fraction, such as `12.7`, where the layout writes zeros, or truncates the
+  fraction.
+* A `string` field writes a `BigDecimal` as `12.5`, and a `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where
+  the layout writes their `to_s`, such as `0.125e2` and `2026-10-13 09:30:00 UTC`. It raises
+  `IOStreams::Errors::InvalidValue` for a `Hash` or an `Array`, where the layout writes their `to_s`: to write their
+  JSON text, such as `{"a":1}`, give the field the type `object` or `array`.
+* A `number` field writes infinity as `INF`, where the layout writes `Inf`.
+* A filler is written as spaces, also where the layout gives it a `type:` of `:integer` or `:float`, which writes
+  zeros.
+* A record whose keys are Strings, such as `"name"`, is written to fields named with Symbols, such as `:name`, and
+  the other way around, where the layout writes spaces for each of its columns, or zeros for a number.
+* A column after the column with `size: :remainder` is not written, since it is not in the schema.
 
 ### Moving the column options to a schema
 

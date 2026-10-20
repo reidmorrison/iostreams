@@ -630,9 +630,15 @@ uses one works the same way after an upgrade, apart from these differences, whic
   they are. An encoding set on the encode stream decodes the text as it does without a schema, and its text is not
   checked.
 * The positions of the fields of a fixed width file count the characters of its UTF-8 text, while IOStreams 3.0 reads
-  a fixed width file as ASCII, so that a character that is not ASCII raises.
+  a fixed width file as ASCII, so that a character that is not ASCII raises. Set the encoding of a file that is not
+  ASCII with `#encoding`, so that both read it the same way: `encoding("UTF-8")` for UTF-8 text whose sizes count
+  characters, `encoding("BINARY")` to read binary strings, whose positions count bytes, or the name of a single-byte
+  code page, such as `encoding("ISO-8859-1")` for Latin-1, whose values are then strings in that encoding.
+  IOStreams 3.0 also takes `encoding("ISO-8859-1:UTF-8")`, to read UTF-8 strings.
 * A file without a schema is read and written as before: its `each(:array)` yields its header row as an Array,
   rather than an `IOStreams::Row::HeaderRow`, so a loop that writes its rows to a writer with a schema writes the
   header row as a row of values, while `copy_from(source, mode: :array)` hands it over as the header row. A copy
   between two files without a schema copies each row as before.
-* Parquet files, and the translation of the layout of `format_options` into a schema, are only in IOStreams 3.0.
+* Parquet files are only in IOStreams 3.0, which also reads and writes the layout of `format_options` with its
+  schema, while IOStreams 2.2 reads and writes it with the layout, as before, and `IOStreams::Schema.from_layout`
+  returns its schema, see [Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema).

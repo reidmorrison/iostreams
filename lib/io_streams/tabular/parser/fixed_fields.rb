@@ -18,7 +18,8 @@ module IOStreams
       # line break replaced with a space, so that a value cannot add records. The characters that no field covers,
       # such as fillers, are spaces.
       #
-      # The positions count characters, as the layout does.
+      # The positions count the characters of the line, which a schema reads as UTF-8, unless an encoding is set,
+      # while the layout counts the bytes of the binary line, see `IOStreams::Schema.from_layout`.
       class FixedFields < Base
         LINE_BREAK = /\r\n|\r|\n/
         DIGIT      = /\d/
