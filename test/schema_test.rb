@@ -956,6 +956,69 @@ class SchemaTest < Minitest::Test
         end
       end
 
+      describe "object" do
+        let(:object) { field(type: "object") }
+
+        it "reads the text of a JSON object, with its numbers as JSON reads them without a schema" do
+          assert_equal({"a" => 1, "b" => [1.5, "x", nil]}, object.cast(' {"a":1,"b":[1.5,"x",null]} '))
+        end
+
+        it "keeps a Hash as it is" do
+          prefs = {"a" => 1}
+
+          assert_same prefs, object.cast(prefs)
+        end
+
+        it "reads blank text as nil" do
+          assert_nil object.cast("  ")
+        end
+
+        it "raises for text that is not a JSON object, and for a value that is not a Hash" do
+          ["[1]", "5", '"a"', "{a:1}", "not json"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue) { object.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid object", error.message
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast([1]) }
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast(1) }
+        end
+
+        it "writes its JSON text, or itself in JSON, with a BigDecimal, Date or Time within it as text" do
+          prefs = {"limit" => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "tags" => [1, nil]}
+
+          assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}), object.render(prefs, :text)
+          assert_equal({"limit" => "12.5", "on" => "2026-10-13", "tags" => [1, nil]}, object.render(prefs, :json))
+          assert_same prefs, object.render(prefs, :typed)
+        end
+
+        it "raises for a format, which only a date or a datetime has" do
+          assert_raises(ArgumentError) { field(type: "object", format: "%Y") }
+        end
+      end
+
+      describe "array" do
+        let(:array) { field(type: "array") }
+
+        it "reads the text of a JSON array" do
+          assert_equal [1, "a", nil, {"b" => 2.5}], array.cast('[1,"a",null,{"b":2.5}]')
+        end
+
+        it "keeps an Array as it is, and raises for a Hash, or the text of a JSON object" do
+          list = [1, 2]
+
+          assert_same list, array.cast(list)
+          assert_raises(IOStreams::Errors::InvalidValue) { array.cast({"a" => 1}) }
+          error = assert_raises(IOStreams::Errors::InvalidValue) { array.cast('{"a":1}') }
+          assert_equal %(Field "value": "{\\"a\\":1}" is not a valid array), error.message
+        end
+
+        it "writes its JSON text, or itself in JSON" do
+          list = [BigDecimal("1.5"), Time.utc(2026, 10, 13, 9, 30), "x"]
+
+          assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), array.render(list, :text)
+          assert_equal ["1.5", "2026-10-13T09:30:00Z", "x"], array.render(list, :json)
+        end
+      end
+
       describe "any" do
         it "returns the value as it is" do
           any = field

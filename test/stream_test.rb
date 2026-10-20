@@ -1675,6 +1675,41 @@ class StreamTest < Minitest::Test
         IOStreams::Row::HeaderRow.new(columns)
       end
 
+      describe "object and array fields" do
+        let(:accounts) do
+          {
+            fields: [
+              {name: "id", type: "integer"},
+              {name: "prefs", type: "object"},
+              {name: "tags", type: "array"}
+            ]
+          }
+        end
+
+        let(:account) { {"id" => 1, "prefs" => {"theme" => "dark", "size" => 2}, "tags" => ["a", 1]} }
+
+        it "writes them to CSV as JSON text, and reads the text back" do
+          csv = write([account], file_name: "accounts.csv", schema: accounts)
+
+          assert_equal %(id,prefs,tags\n1,"{""theme"":""dark"",""size"":2}","[""a"",1]"\n), csv
+          assert_equal [account], read(csv, file_name: "accounts.csv", schema: accounts)
+        end
+
+        it "writes them to JSON as an object and an array, and reads them back" do
+          json = write([account], file_name: "accounts.json", schema: accounts)
+
+          assert_equal %({"id":1,"prefs":{"theme":"dark","size":2},"tags":["a",1]}\n), json
+          assert_equal [account], read(json, file_name: "accounts.json", schema: accounts)
+        end
+
+        it "raises for text that is not the JSON of the type of its field, naming the field" do
+          error = assert_raises(IOStreams::Errors::InvalidValue) do
+            read(%(id,prefs,tags\n1,"[1]",[]\n), file_name: "accounts.csv", schema: accounts)
+          end
+          assert_includes error.message, 'Field "prefs"'
+        end
+      end
+
       it "returns the schema that was set" do
         assert_nil stream.schema
         assert_same stream, stream.schema(people)

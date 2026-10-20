@@ -2711,6 +2711,8 @@ file, the deprecated options of each call that describe them without a schema, s
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
+| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
+| `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
 A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
@@ -2721,8 +2723,8 @@ A value that is not one of the type of its field, such as `N/A` for an `integer`
 or `datetime` that does not exist, such as `2026-02-30`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
-digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, and every other value as
-text, such as a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby
+digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
+as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby
 writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
 the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
 values themselves.
@@ -2995,6 +2997,7 @@ each type is written as:
 | `boolean` | `boolean` |
 | `date` | `date32` |
 | `datetime` | `timestamp_micros`, adjusted to UTC, so it is read back in UTC |
+| `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
 its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
