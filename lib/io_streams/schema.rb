@@ -144,7 +144,9 @@ module IOStreams
     # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, and ArgumentError for a property that a
     # column of a layout does not have, or when its schema is not valid.
     def self.from_layout(layout:, truncate: true)
-      IOStreams::Tabular::Parser::Fixed.schema(layout: layout, truncate: truncate).tap { |descriptor| new(descriptor) }
+      descriptor = IOStreams::Tabular::Parser::Fixed.schema(layout: layout, truncate: truncate)
+      new(descriptor)
+      descriptor
     end
 
     # Returns [String|nil] the text by which a column is compared loosely to the names and aliases of the fields, see
