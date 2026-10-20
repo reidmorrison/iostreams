@@ -19,6 +19,16 @@ module IOStreams
       @schema_source = nil
     end
 
+    # A copy has its own streams, options and encoding, so that changing them does not change the original. It shares
+    # the schema, which #schema= replaces rather than changes, so that the copies read its file once, see
+    # `IOStreams::Schema::Source`.
+    def initialize_copy(source)
+      super
+      @streams  = @streams&.transform_values(&:dup)
+      @options  = @options&.transform_values(&:dup)
+      @encoding = @encoding&.dup
+    end
+
     # Sets the schema of the rows and records, see `IOStreams::Stream#schema`: a Hash, which is checked now, or the path
     # or url of a JSON file that holds one, which is read the first time that a reader or writer needs it, see
     # `IOStreams::Schema::Source`, or nil to remove it.

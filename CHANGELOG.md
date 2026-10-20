@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [2.2.0] - Unreleased
 
 v2.2 prepares applications for v3.0: it adds the methods that replace those that v3.0 deprecates or removes, so that
-an application can move to them before it upgrades. It changes no existing behavior.
+an application can move to them before it upgrades. It changes no existing behavior, other than the fixes under Fixed.
 
 It adds `#schema`, which describes the rows and records of a file as v3.0 does, so that code that uses one keeps
 working after an upgrade. Without a schema, files are read and written as before: the same results, exceptions and
@@ -43,6 +43,10 @@ Each still works as before, and reports a deprecation warning, see Added.
 - **`#format_options`, and `format_options:` supplied to each call.** Use `#schema`, see Added, which gives the `width` of each field of a fixed width file. `#format_options` still reads and writes the file with its layout, as before, and a schema with a layout raises `ArgumentError`. See [Moving a layout to a schema](https://iostreams.reidmorrison.com/upgrading#moving-a-layout-to-a-schema).
 - **`columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:`, and `cleanse_header:`.** A schema describes the columns of the file on its path instead, see Added: its fields are the columns, in order, and with `header: false` the columns of a file without a header row, `fieldsMatch` says which other columns the file can have, and `constraints: {required: true}` which fields it must have. They still work without a schema, and report a deprecation warning unless they are nil, apart from `cleanse_header:`, which reports one even when it is nil, since nil does not cleanse the header row. With a schema, they raise `ArgumentError` instead, unless they are nil, see Added, apart from `skip_unknown:`, which a schema accepts, and which still reports a deprecation warning. Supplied to `IOStreams::Tabular`, as Rocket Job 7.0 does, they report nothing. `IOStreams.enforce_column_restrictions=` is not deprecated in v2.2, and still applies to them. See [Moving the column options to a schema](https://iostreams.reidmorrison.com/upgrading#moving-the-column-options-to-a-schema).
 - **`embedded_within:` when reading rows and records.** The format of the file splits the lines of its rows and records, since its parser must agree with where they are split, so set the format with `#format` instead, such as `format(:psv)` for values that are not quoted. It is still the way to choose the lines that `each(:line)` returns.
+
+### Fixed
+
+- **A copy of a path or stream has its own streams, options and encoding.** Changing a copy made with `dup`, such as with `#option`, `#encoding` or `#raw`, no longer changes the path that it was copied from, and `#copy_from` and `#copy_to` with `convert: false`, and `#move_to`, no longer change the streams of the source or the target. In v2.1, once the settings of a path had been read, such as with `#pipeline`, a copy with `convert: false` left it reading and writing the data as it is stored. A copy with `convert: false` from a source with options set with `#option` now copies it, where v2.1 raised `ArgumentError`.
 
 ## [2.1.0] - 2026-10-04
 

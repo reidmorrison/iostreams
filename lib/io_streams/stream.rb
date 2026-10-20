@@ -25,6 +25,13 @@ module IOStreams
       @builder   = nil
     end
 
+    # A copy has its own streams, options and encoding, so that changing them does not change the original, see
+    # `IOStreams::Builder#initialize_copy`.
+    def initialize_copy(source)
+      super
+      @builder = @builder&.dup
+    end
+
     # Ignore the filename and use only the supplied streams.
     #
     # See #option to set an option for one of the streams included based on the file name extensions.

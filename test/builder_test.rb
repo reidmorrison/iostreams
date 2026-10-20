@@ -74,6 +74,37 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe "#dup" do
+      it "gives a copy its own options" do
+        streams.option(:pgp, passphrase: "unlock-me")
+        copy = streams.dup
+        copy.option(:pgp, signer: "sender@example.org")
+        copy.option(:gz)
+
+        assert_equal({pgp: {passphrase: "unlock-me"}}, streams.options)
+      end
+
+      it "gives a copy its own streams" do
+        streams.stream(:pgp, passphrase: "unlock-me")
+        copy = streams.dup
+        copy.stream(:pgp, signer: "sender@example.org")
+        copy.stream(:gz)
+        copy.remove_from_pipeline(:pgp)
+
+        assert_equal({pgp: {passphrase: "unlock-me"}}, streams.streams)
+      end
+
+      it "gives a copy its own encoding, and its own streams when it reads the data as stored" do
+        streams.encoding("BINARY")
+        streams.dup.encoding(replace: "")
+        streams.dup.raw
+
+        assert_equal({encoding: "BINARY"}, streams.setting(:encode))
+        refute_predicate streams, :raw?
+        assert_equal({encode: {encoding: "BINARY"}, xlsx: {}, zip: {}, gz: {}, pgp: {}}, streams.pipeline)
+      end
+    end
+
     describe "#format" do
       it "detects the format from the file name" do
         streams = IOStreams::Builder.new("abc.json")

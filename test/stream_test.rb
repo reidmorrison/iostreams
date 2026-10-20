@@ -1293,6 +1293,36 @@ class StreamTest < Minitest::Test
         # The target retains the GZip compressed contents of the source.
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").stream(:gz).read
       end
+
+      it "copies without conversions from a source with options, leaving its streams and options unchanged" do
+        source_path.write("Hello World")
+        source = IOStreams.join("copy_test", "source.csv.gz").option(:gz)
+        target_path.copy_from(source, convert: false)
+
+        assert_equal "Hello World", target_path.stream(:gz).read
+        assert_equal({gz: {}}, source.pipeline)
+        assert_equal "Hello World", source.read
+        source.option(:gz)
+      end
+
+      it "copies without conversions without changing the streams, options or encoding of either path" do
+        source_path.write("Hello World")
+        source = IOStreams.join("copy_test", "source.csv.gz").option(:gz).encoding("UTF-8")
+        target = IOStreams.join("copy_test", "target.csv.gz").option(:gz)
+        target.copy_from(source, convert: false)
+
+        assert_equal({encode: {encoding: "UTF-8"}, gz: {}}, source.pipeline)
+        assert_equal "UTF-8", source.encoding
+        assert_equal "Hello World", source.read
+        assert_equal({gz: {}}, target.pipeline)
+        assert_equal "Hello World", target.read
+
+        target.write("Changed")
+
+        assert_equal "Changed", IOStreams.join("copy_test", "target.csv.gz").read
+      ensure
+        target&.delete
+      end
     end
 
     describe "#copy_to" do
@@ -1314,6 +1344,67 @@ class StreamTest < Minitest::Test
         source_path.copy_to(IOStreams.join("copy_test", "target.csv"))
 
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
+      end
+
+      it "copies without conversions without changing the encoding or streams of the source" do
+        source_path.write("Hello World")
+        source = IOStreams.join("copy_test", "source.csv.gz").encoding("BINARY")
+        source.copy_to(target_path, convert: false)
+
+        assert_equal "BINARY", source.encoding
+        assert_equal({encode: {encoding: "BINARY"}, gz: {}}, source.pipeline)
+        assert_equal "Hello World", source.read
+        assert_equal "Hello World", target_path.stream(:gz).read
+      end
+    end
+
+    describe "#dup" do
+      it "gives a copy its own streams and options" do
+        path = IOStreams.path("data.csv.pgp").option(:pgp, passphrase: "secret")
+        path.dup.option(:pgp, signer: "sender@example.org")
+        path.dup.raw
+
+        assert_equal({pgp: {passphrase: "secret"}}, path.pipeline)
+        refute_predicate path, :raw?
+
+        path = IOStreams.path("data").stream(:pgp, passphrase: "secret")
+        path.dup.stream(:pgp, signer: "sender@example.org").stream(:gz)
+
+        assert_equal({pgp: {passphrase: "secret"}}, path.pipeline)
+      end
+
+      it "gives a copy its own encoding" do
+        path = IOStreams.path("data.csv").encoding("UTF-8")
+        path.dup.encoding(replace: "")
+        path.dup.raw
+
+        assert_equal({encoding: "UTF-8"}, path.setting(:encode))
+      end
+
+      it "gives a copy its own streams when the original only read its settings" do
+        path = IOStreams.path("data.csv.gz")
+
+        refute_predicate path, :raw?
+        path.dup.raw
+
+        refute_predicate path, :raw?
+        assert_equal({gz: {}}, path.pipeline)
+
+        assert_nil path.encoding
+        path.dup.encoding("BINARY")
+
+        assert_nil path.encoding
+      end
+
+      it "keeps the schema, which a copy replaces without changing the original" do
+        schema = {fields: [{name: "name"}]}
+        path   = IOStreams.path("data.csv").schema(schema)
+        copy   = path.dup
+
+        assert_equal schema, copy.schema
+        copy.schema(nil)
+
+        assert_equal schema, path.schema
       end
     end
   end
