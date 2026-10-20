@@ -1709,9 +1709,28 @@ class TabularTest < Minitest::Test
                      IOStreams::Tabular.new(format: :psv, columns: columns).render(values)
       end
 
-      it "writes a PSV Array value as its text, rather than its items as more columns" do
-        assert_equal "[1, 2]|x", IOStreams::Tabular.new(format: :psv, columns: %w[list name]).render({"list" => [1, 2], "name" => "x"})
-        assert_equal "[1, 2]|x", IOStreams::Tabular.new(format: :psv).render([[1, 2], "x"])
+      it "writes a PSV Array value as one column, rather than its items as more columns" do
+        assert_equal "[1,2]|x", IOStreams::Tabular.new(format: :psv, columns: %w[list name]).render({"list" => [1, 2], "name" => "x"})
+        assert_equal "[1,2]|x", IOStreams::Tabular.new(format: :psv).render([[1, 2], "x"])
+      end
+
+      it "writes a Hash or an Array in CSV and PSV as the JSON that the JSON format writes for it" do
+        prefs  = {"theme" => "dark", "limit" => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "tags" => [1, nil]}
+        record = {"prefs" => prefs, "list" => [1, "two", nil]}
+
+        assert_equal %("{""theme"":""dark"",""limit"":""12.5"",""on"":""2026-10-13"",""tags"":[1,null]}","[1,""two"",null]"),
+                     IOStreams::Tabular.new(format: :csv, columns: %w[prefs list]).render(record)
+        assert_equal %({"theme":"dark","limit":"12.5","on":"2026-10-13","tags":[1,null]}|[1,"two",null]),
+                     IOStreams::Tabular.new(format: :psv, columns: %w[prefs list]).render(record)
+        assert_equal IOStreams::Tabular.new(format: :json).render(prefs), IOStreams::Schema::Field.any_text(prefs)
+      end
+
+      it "writes a Hash or an Array in a fixed width any field as JSON" do
+        schema = IOStreams::Schema.new(fields: [{name: "prefs", width: 12}, {name: "list", width: 7}])
+
+        assert_equal %({"a":[1,2]} [1,"x"]), IOStreams::Tabular.new(format: :fixed, schema: schema).render(
+          {"prefs" => {"a" => [1, 2]}, "list" => [1, "x"]}
+        )
       end
 
       it "writes JSON with a BigDecimal, Date or Time as text, within a Hash or an Array too, and other values as they are" do

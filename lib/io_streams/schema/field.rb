@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "date"
+require "json"
 require "time"
 
 module IOStreams
@@ -196,10 +197,14 @@ module IOStreams
       # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
       # as a plain decimal, such as "12.5" rather than "0.125e2", a Time or DateTime in ISO 8601, such as
       # "2026-10-13T09:30:00Z", with as many digits of its fraction of a second as it needs, a Date in ISO 8601, such as
-      # "2026-10-13", and any other value with `to_s`.
+      # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which is what the JSON format writes
+      # for it, see .any_json, and any other value with `to_s`.
       #
       # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
       # without a schema.
+      #
+      # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, is handled as writing it to a
+      # JSON file handles it: the json gem raises, while ActiveSupport, which replaces how Ruby writes JSON, writes null.
       def self.any_text(value)
         return value if value.is_a?(String)
         # The most common values first, so that they skip the checks below.
@@ -209,6 +214,8 @@ module IOStreams
         return time_text(time_of(value)) if value.is_a?(DateTime)
         return value.iso8601 if value.is_a?(Date)
         return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+        # The JSON that the JSON format writes, rather than `to_s`, whose text only Ruby reads, and which Ruby 3.4 changed.
+        return any_json(value).to_json if value.is_a?(::Hash) || value.is_a?(::Array)
 
         value.to_s
       end
