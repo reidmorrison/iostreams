@@ -16,21 +16,9 @@ class QueryStreamTest < Minitest::Test
       let(:db) { database }
       let(:orders) { db.order.order(:id) }
 
+      include QueryTestMethods
+
       before { db.load }
-
-      def each(stream, mode = :hash, **)
-        list = []
-        stream.each(mode, **) { |row| list << row }
-        list
-      end
-
-      # Returns [Array<String>] the names of the SQL statements that Active Record runs within the block.
-      def statements(&)
-        names    = []
-        callback = ->(_name, _start, _finish, _id, payload) { names << payload[:name] unless payload[:name] == "SCHEMA" }
-        ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &)
-        names
-      end
 
       # Returns [Array<Hash>] the payload of each `sql.active_record` event of the supplied name within the block.
       def events(name, &)
@@ -191,13 +179,7 @@ class QueryStreamTest < Minitest::Test
           assert_empty unordered
         end
 
-        it "reads a relation with one query, and its columns with another of no rows" do
-          names = statements { each(IOStreams.stream(orders)) }
-
-          assert_equal ["IOStreams Columns", "IOStreams Query"], names
-        end
-
-        it "describes the columns once for each stream" do
+        it "describes the columns once for each stream, with a query of no rows" do
           stream = IOStreams.stream(orders)
           names  = statements do
             stream.schema
@@ -205,7 +187,8 @@ class QueryStreamTest < Minitest::Test
             each(stream, :array)
           end
 
-          assert_equal ["IOStreams Columns", "IOStreams Query", "IOStreams Query"], names
+          assert_equal 1, names.count("IOStreams Columns")
+          refute_includes names, "IOStreams Batch"
         end
 
         it "reads the rows in slices" do
@@ -422,10 +405,12 @@ class QueryStreamTest < Minitest::Test
 
           assert_equal 1, read.size
           assert_match(%r{ /\* exported \*/\z}, read.first[:sql])
-          assert_equal load.first[:sql], read.first[:sql]
+          # A source that declares a cursor for the query, such as on PostgreSQL, runs its SQL within that statement.
+          assert_operator read.first[:sql], :end_with?, load.first[:sql]
           assert_equal load.first[:binds], read.first[:binds]
           assert_equal load.first[:type_casted_binds], read.first[:type_casted_binds]
-          assert_empty load.first.keys - read.first.keys
+          # Active Record names a statement that it prepares, which a DECLARE never is.
+          assert_empty load.first.keys - read.first.keys - [:statement_name]
         ensure
           ActiveRecord.query_transformers.delete(transformer)
         end

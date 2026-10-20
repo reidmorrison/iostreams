@@ -18,6 +18,9 @@ module IOStreams
       # The most digits that a 64-bit integer holds, whatever they are, see #integer_properties.
       INTEGER_DIGITS = 18
 
+      # The type that casts the value of a column as the text that the database returns, see #initialize.
+      TEXT = ActiveModel::Type::String.new
+
       # Returns [Array<String>] the names of the columns, in the order of the result.
       attr_reader :names
 
@@ -27,7 +30,9 @@ module IOStreams
       #
       #   types: [Array<ActiveModel::Type::Value>]
       #     The Active Record type of each column, which casts its raw values, as `pluck` chooses it, see
-      #     `IOStreams::Query::CastTypes`.
+      #     `IOStreams::Query::CastTypes`. A PostgreSQL `inet` or `cidr` address is cast as the text that PostgreSQL
+      #     returns instead, such as "10.0.0.0/8", since its type casts an IPAddr, whose text drops the prefix, and which
+      #     drops the host of an address with one.
       #
       #   not_null: [Array<true|false>]
       #     Whether each column is never null, such as a column of the table of the model with `NOT NULL`.
@@ -47,7 +52,7 @@ module IOStreams
         end
 
         @names            = names.map(&:-@).freeze
-        @types            = types.dup.freeze
+        @types            = types.map { |type| postgresql_address?(type) ? TEXT : type }.freeze
         @not_null         = not_null.dup.freeze
         @requirable_types = (requirable_types - EMPTY_TEXT_TYPES).freeze
         freeze
@@ -99,6 +104,8 @@ module IOStreams
         # names of its values, and a serialized column answers :text, while it casts any object.
         return {type: "string"} if enum?(type)
         return {type: "any"} if serialized?(type) || !own?(type)
+        # Before the type itself, since an array answers the type of its elements.
+        return {type: "array"} if postgresql_array?(type)
         # Such as a decimal without a scale, which casts an Integer.
         return integer_properties(type) if type.is_a?(::ActiveModel::Type::Integer)
 
@@ -119,6 +126,18 @@ module IOStreams
       # such as Parquet, could not hold, while a number holds them in any format, as a BigDecimal.
       def integer_properties(type)
         type.precision && type.precision > INTEGER_DIGITS ? {type: "number", decimals: 0} : {type: "integer"}
+      end
+
+      # Returns [true|false] whether the type is a PostgreSQL address, `inet` or `cidr`, which casts an IPAddr.
+      def postgresql_address?(type)
+        defined?(::ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Cidr) &&
+          type.is_a?(::ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Cidr)
+      end
+
+      # Returns [true|false] whether the type is a PostgreSQL array, which casts an Array.
+      def postgresql_array?(type)
+        defined?(::ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Array) &&
+          type.is_a?(::ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Array)
       end
 
       # Returns [Hash] a number with the decimals of the scale of its column, or without decimals when it has no scale,

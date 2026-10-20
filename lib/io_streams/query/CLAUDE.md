@@ -77,7 +77,9 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   that holds others, such as an array). The `type` that a type answers is trusted only when its class is in the
   namespace of Active Model or Active Record (`#own?`), so a type of the application is `any`. An integer column of
   more than 18 digits (`INTEGER_DIGITS`), such as `decimal(20, 0)`, is a number without decimals, whose values are
-  BigDecimals, since Parquet's int64 cannot hold it. A column is required only when it is `NOT NULL`, the query
+  BigDecimals, since Parquet's int64 cannot hold it. A PostgreSQL `inet` or `cidr` address is cast as the text that
+  PostgreSQL returns (`TEXT`), such as "10.0.0.0/8", since its type casts an `IPAddr`, whose text drops the prefix, and
+  a PostgreSQL array (`OID::Array`) is an `array` field. A column is required only when it is `NOT NULL`, the query
   selects and groups by only the columns of the table of the model (`Query#plain_columns?`), and its type is one that
   the source of its database says always has a value once Active Record casts it (`.requirable_types`, asked by
   `Query#requirable_types` whether or not the query is read in batches, none when no source reads the database), and
@@ -115,6 +117,14 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   |reader| }`, which runs the statement, checks the names of its columns, and steps to its first row before it yields,
   and closes the statement in an `ensure`, and whose reader's `#each` yields the raw values of each row, from the row
   after the last one that it yielded.
+- `Query::PostgresqlCursor`: reads PostgreSQL with `DECLARE ... NO SCROLL CURSOR` and `FETCH FORWARD`, through the API
+  of Active Record, so that each statement is logged and its result typed by PostgreSQL, and any driver of PostgreSQL
+  works. A cursor needs a transaction, and within it the cursor sets `cursor_tuple_fraction` to 1.0, so that the query
+  is planned for every row rather than its first 10%, and `idle_in_transaction_session_timeout` to 0, so that a slow
+  target does not get the connection closed; `statement_timeout` applies to each fetch rather than the whole query.
+  Its statements run within `uncached(dirties: false)`. It tells the failures of a connection apart by the message of
+  `PG::ConnectionBad` (`CONNECTION_KINDS`), and those of a statement by the class of the pg gem's exception
+  (`FAILURE_KINDS`).
 - `Query::SqliteStatement`: reads SQLite with a statement of the sqlite3 gem (`prepare`, `bind_params`, `step`), which
   steps through the result one row at a time. `.reads?` asks the name of the adapter and whether the sqlite3 gem is
   loaded, which it cannot be on JRuby; `.own_connection?` only in WAL mode (`journal_mode`, the default of Rails), whose
@@ -149,11 +159,14 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
 
 - The tests in `test/query/` load Active Record, which changes how ActiveSupport writes JSON, so they run in a process
   of their own (`rake query_test`, which `rake` also runs, its coverage merged as "Query").
-- `test/query/query_helper.rb` builds `QueryDatabase`: SQLite, a file of each process, which `Minitest.after_run`
-  removes with its `-wal` and `-shm` files once the pools are disconnected (an `at_exit` would run before Minitest's,
-  since they run in reverse); each database has a namespace of models of its own (`Record`, `Customer`, `Order`), and
-  its pools have two connections, since a read checks out one of its own. `QueryDatabase.memory` is an in-memory
-  SQLite database. Tests are defined for each database with `QueryDatabase.each { |database| describe ... }`.
+- `test/query/query_helper.rb` builds `QueryDatabase`: SQLite, a file of each process, and PostgreSQL when
+  `POSTGRES_URL` is set, such as `postgres://postgres:postgres@localhost:5432/iostreams_test`, which CI runs as a
+  service. Each database has a namespace of models of its own (`Record`, `Customer`, `Order`), and its pools have two
+  connections, since a read checks out one of its own. `Minitest.after_run` removes the SQLite file, with its `-wal`
+  and `-shm` files, once the pools are disconnected (an `at_exit` would run before Minitest's, since they run in
+  reverse). `QueryDatabase.memory` is an in-memory SQLite database. Tests are defined for each database with
+  `QueryDatabase.each { |database| describe ... }`, and `QueryTestMethods` holds the helpers that the test files share,
+  such as `#each` and `#statements`.
 - Active Record 8.1 by default; CI's Ruby 3.3 job runs 7.2.3 (`ACTIVERECORD_VERSION`), the latest 7.2 that minitest 6
   allows, with json < 3, see the Gemfile. To run it locally without touching the worktree's Gemfile.lock, copy the
   Gemfile to tmp/ with `gemspec path: ".."` and run `ACTIVERECORD_VERSION=7.2.3 BUNDLE_GEMFILE=tmp/Gemfile.ar72 bundle

@@ -21,13 +21,14 @@ module IOStreams
   # Active Record 7.2 or later is needed. The application loads Active Record and the driver of its database; IOStreams
   # does not depend on them.
   class Query
-    autoload :Batches,         "io_streams/query/batches"
-    autoload :CastTypes,       "io_streams/query/cast_types"
-    autoload :Columns,         "io_streams/query/columns"
-    autoload :Failure,         "io_streams/query/failure"
-    autoload :SqliteStatement, "io_streams/query/sqlite_statement"
-    autoload :Statement,       "io_streams/query/statement"
-    autoload :Stream,          "io_streams/query/stream"
+    autoload :Batches,          "io_streams/query/batches"
+    autoload :CastTypes,        "io_streams/query/cast_types"
+    autoload :Columns,          "io_streams/query/columns"
+    autoload :Failure,          "io_streams/query/failure"
+    autoload :PostgresqlCursor, "io_streams/query/postgresql_cursor"
+    autoload :SqliteStatement,  "io_streams/query/sqlite_statement"
+    autoload :Statement,        "io_streams/query/statement"
+    autoload :Stream,           "io_streams/query/stream"
 
     # The sources that each read a relation as one query on their database, see #source. Each one answers:
     #   `.reads?(connection)`: whether it reads the database of the connection.
@@ -37,7 +38,7 @@ module IOStreams
     #   `IOStreams::Query::Statement`, is open on the connection, and the names of its columns are checked, see
     #   `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw values of each row, from the row after
     #   the last one that it yielded, until the block ends, and closes the statement when it does.
-    SOURCES = %i[SqliteStatement].freeze
+    SOURCES = %i[PostgresqlCursor SqliteStatement].freeze
 
     # The earliest version of Active Record that a query is read with.
     MINIMUM_VERSION = "7.2"

@@ -180,11 +180,11 @@ Reading the rows of an Active Record query, such as with `IOStreams.stream(relat
 `path.copy_from(relation, mode: :hash)`, tags the exception that its database raised in the same way, so that an export
 can be retried on `Unavailable`, whether it reads a query or a file:
 
-| Kind of failure | Any database, through Active Record | SQLite |
-|-----------------|-------------------------------------|--------|
-| `NotFound` | Never | Never |
-| `PermissionDenied` | `ActiveRecord::DatabaseConnectionError` for a user name or password that the database rejects, when its driver does not say otherwise | `SQLite3::PermissionException` or `SQLite3::AuthorizationException` |
-| `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
+| Kind of failure | Any database, through Active Record | PostgreSQL | SQLite |
+|-----------------|-------------------------------------|------------|--------|
+| `NotFound` | Never | Never | Never |
+| `PermissionDenied` | `ActiveRecord::DatabaseConnectionError` for a user name or password that the database rejects, when its driver does not say otherwise | `PG::InsufficientPrivilege`, for a table or column that the user may not read, or `PG::ConnectionBad` for a password, user or host that the server does not accept | `SQLite3::PermissionException` or `SQLite3::AuthorizationException` |
+| `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `PG::ConnectionBad` for a server that refused the connection, could not be reached, timed out, is starting up or shutting down, or has no connection free, or a temporary failure to resolve its host, and `PG::AdminShutdown` or `PG::CrashShutdown` for a server that ended the query | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
 
 The exception of a driver is tagged whether Active Record raised it, or an exception whose `#cause` it is. A
 connection that could not be made is tagged as its driver says of the exception that caused it, since Active Record

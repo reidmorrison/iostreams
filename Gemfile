@@ -33,6 +33,7 @@ gem "bcrypt_pbkdf", platform: :ruby # Not needed on JRuby.
 gem "ed25519"
 gem "nokogiri"
 gem "parquet", platform: :ruby # A Rust extension, which JRuby cannot load.
+gem "pg", platform: :ruby # A C extension, which JRuby cannot load, so the PostgreSQL query tests skip on JRuby.
 gem "rubyzip"
 gem "sqlite3", platform: :ruby # A C extension, which JRuby cannot load, so the query tests skip on JRuby.
 gem "symmetric-encryption"

@@ -54,8 +54,24 @@ jobs:
           # The earliest Ruby with the earliest Active Record that IOStreams reads queries with, see the Gemfile.
           - ruby: 3.3
             activerecord: "7.2.3"
+    # The databases that the query tests read, see test/query/query_helper.rb. JRuby cannot load their drivers, so its
+    # query tests skip them.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: iostreams_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       ACTIVERECORD_VERSION: ${{ matrix.activerecord }}
+      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/iostreams_test
     steps:
       - uses: actions/checkout@v4
       - name: Set up Ruby

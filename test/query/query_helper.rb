@@ -36,15 +36,16 @@ module QueryDatabase
   end
 
   # Returns [Hash<String, Hash>] the configuration of each database that the tests can read: SQLite, unless its gem
-  # cannot be loaded, as on JRuby. Each pool has two connections: the one that a query is read on, which it checks out
-  # of the pool, and the one of the caller, which the block that the rows are yielded to queries on, see
-  # `IOStreams::Query#open`.
+  # cannot be loaded, as on JRuby, and PostgreSQL, at the url of POSTGRES_URL, such as
+  # `postgres://postgres:postgres@localhost:5432/iostreams_test`, when it is set. Each pool has two connections: the
+  # one that a query is read on, which it checks out of the pool, and the one of the caller, which the block that the
+  # rows are yielded to queries on, see `IOStreams::Query#open`.
   #
   # The file of the SQLite database, and its WAL files, are removed once the tests have run, after every connection to
   # them is closed, rather than at exit, which would run before the tests do, since Minitest runs them at exit too.
   def self.configs
     configs = {}
-    if sqlite?
+    if driver?("sqlite3")
       file = File.join(Dir.tmpdir, "iostreams_query_#{Process.pid}.sqlite3")
       Minitest.after_run do
         ActiveRecord::Base.connection_handler.connection_pool_list(:all).each(&:disconnect!)
@@ -52,16 +53,23 @@ module QueryDatabase
       end
       configs["SQLite"] = {adapter: "sqlite3", database: file, pool: 2}
     end
+    configs["PostgreSQL"] = {url: ENV.fetch("POSTGRES_URL"), pool: 2} if ENV["POSTGRES_URL"] && driver?("pg")
     configs
   end
 
-  def self.sqlite?
+  # Returns [true|false] whether Active Record and the driver of the supplied name can be loaded.
+  def self.driver?(name)
     return false unless defined?(ActiveRecord)
 
-    require "sqlite3"
+    require name
     true
   rescue LoadError
     false
+  end
+
+  # Returns [Database|nil] the database of the supplied name, when the tests can read it.
+  def self.find(name)
+    all.find { |database| database.name == name }
   end
 
   # Returns [Array<Database>] the databases that the tests can read, each set up once.
@@ -158,5 +166,23 @@ module QueryDatabase
     )
     database.order.create!(customer: globex, name: "b", amount: "3", paid: false, data: [1, 2])
     database.order.create!(name: "c", amount: "100.25", status: :shipped, shipped_on: Date.new(1969, 12, 31))
+  end
+end
+
+# The methods of the tests of a query.
+module QueryTestMethods
+  # Returns [Array] the rows or records that the stream reads in the supplied mode.
+  def each(stream, mode = :hash, **)
+    list = []
+    stream.each(mode, **) { |row| list << row }
+    list
+  end
+
+  # Returns [Array<String>] the names of the SQL statements that Active Record runs within the block.
+  def statements(&)
+    names    = []
+    callback = ->(_name, _start, _finish, _id, payload) { names << payload[:name] unless payload[:name] == "SCHEMA" }
+    ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &)
+    names
   end
 end

@@ -4,8 +4,10 @@ require_relative "query_helper"
 
 # Reads a query on SQLite with a statement of the sqlite3 gem, see `IOStreams::Query::SqliteStatement`.
 class SqliteStatementTest < Minitest::Test
-  if (database = QueryDatabase.all.find { |db| db.name == "SQLite" })
+  if (database = QueryDatabase.find("SQLite"))
     describe IOStreams::Query::SqliteStatement do
+      include QueryTestMethods
+
       let(:db) { database }
       let(:orders) { db.order.order(:id) }
 
@@ -81,14 +83,13 @@ class SqliteStatementTest < Minitest::Test
         assert_equal "integer overflow", error.message
       end
 
-      it "reads the query with one statement, which it closes" do
-        capture_statements(orders) do |statements|
-          records = []
-          IOStreams.stream(orders).each(:hash) { |order| records << order }
+      it "reads the query with one statement, which it closes, and its columns with Active Record" do
+        capture_statements(orders) do |prepared|
+          names = statements { assert_equal 3, each(IOStreams.stream(orders)).size }
 
-          assert_equal 3, records.size
-          assert_equal 1, statements.size
-          assert_predicate statements.first, :closed?
+          assert_equal ["IOStreams Columns", "IOStreams Query"], names
+          assert_equal 1, prepared.size
+          assert_predicate prepared.first, :closed?
         end
       end
 
