@@ -186,8 +186,8 @@ class AllowedPathsTest < Minitest::Test
       end
 
       it "checks the path after it is changed" do
-        path      = IOStreams.path(allowed_file)
-        path.path = outside_file
+        path = IOStreams.path(allowed_file)
+        assert_deprecated(/#path= is deprecated/) { path.path = outside_file }
 
         assert_denied { path.read }
       end

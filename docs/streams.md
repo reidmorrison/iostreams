@@ -50,8 +50,13 @@ Notes:
   tabular format quotes its fields, such as CSV (detected from a `.csv` file name or set explicitly via
   `.format(:csv)`). `embedded_within` only needs to be supplied for quoted formats that are not
   auto-detected, or to override the quote character.
+* When reading rows or records, with `each(:array)` or `each(:hash)`, the format of the file decides where
+  its lines are split, since its parser must agree with them, so set the format with `format` instead.
+  Supplying `embedded_within` there is deprecated, and reports a deprecation warning, see
+  [Seeing deprecation warnings](upgrading#seeing-deprecation-warnings).
 * A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
-  real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
+  real format with `.format(:psv)`, or when reading lines, by passing `embedded_within: nil` to disable it
+  explicitly:
 ~~~ruby
 IOStreams.path("pipe_delimited.csv").format(:psv).each(:line) do |line|
   puts line
@@ -70,6 +75,23 @@ Display each row from the csv file as a hash, where the first line in the CSV fi
 IOStreams.path("example.csv").each(:hash) do |hash|
   p hash
 end
+~~~
+
+The tabular format of the rows and records, such as CSV or JSON, is detected from the file name, or set with
+`#format`, see [File Formats](formats). Set a schema on the path with `#schema` to read each value as the type of
+its field, such as an `Integer` or a `Date`, with the names of the fields as the keys of each record, see
+[Schema](formats#schema):
+~~~ruby
+IOStreams.path("example.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip_code", type: "integer"}
+  ]
+).each(:hash) do |hash|
+  p hash
+end
+# => {"name" => "Jack", "zip_code" => 1234}
 ~~~
 
 Write data to the file.
@@ -305,7 +327,8 @@ In this example the file contains JSON data that was compressed with Zip, and si
 ~~~ruby 
 IOStreams.path("tempfile2527").
   stream(:zip).
-  each(:hash, format: :json) do |row|
+  format(:json).
+  each(:hash) do |row|
     p row
   end
 ~~~
@@ -329,9 +352,22 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-To ensure no streams are inferred or applied use stream `:none` 
-~~~ruby 
-path = IOStreams.path("file.zip")
-path.stream(:none)
-path.read
+#### Raw
+
+To read or write the data as it is stored, applying no streams, neither those that the file name implies nor any
+set with `option` or `stream`, and no encoding, use `raw`. For example, to checksum a compressed file as it is
+stored, or to write data that is already compressed:
+
+~~~ruby
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+
+IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
+
+Setting a stream, option or encoding after `raw` raises `ArgumentError`, since the data is as stored.
+`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which still works.
+
+To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+`copy_to(target, convert: false)` instead, since the target applies its own streams. To read a file that is not
+named for its format, such as a CSV file called `data.txt`, set the file name that names its format, for example
+`file_name("data.csv")`.

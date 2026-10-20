@@ -61,9 +61,13 @@ Metrics/BlockLength:
 
 # Soften limits
 Metrics/ClassLength:
-  Max: 250
+  Max: 300
   Exclude:
     - "test/**/*"
+    # Holds the public API of every path and stream, see CLAUDE.md, so it has a method for each setting.
+    - "lib/io_streams/stream.rb"
+    # Checks and converts each property and type of a Frictionless field, and the values of type any.
+    - "lib/io_streams/schema/field.rb"
 
 # TODO: Soften Limits for phase 1 only
 Metrics/CyclomaticComplexity:

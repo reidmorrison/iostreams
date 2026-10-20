@@ -243,6 +243,7 @@ module IOStreams
           return super(source, convert: convert, **args)
         end
 
+        warn_unconverted_copy_options(args[:mode], args.except(:mode))
         authorize!
         source.authorize!
         source_name = ::File.join(source.bucket_name, source.path)
@@ -391,9 +392,8 @@ module IOStreams
       #
       # The child uses this path's client, so that it has the same credentials and region.
       def child_path(bucket_name, key)
-        child      = self.class.new("s3://#{bucket_name}", client: client)
-        child.path = key.dup.freeze
-        child
+        child = self.class.new("s3://#{bucket_name}", client: client)
+        child.replace_path(key.dup.freeze)
       end
     end
   end

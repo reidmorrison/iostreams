@@ -66,6 +66,14 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe "#encoding" do
+      it "raises without an encoding or options" do
+        error = assert_raises(ArgumentError) { IOStreams::Builder.new.encoding }
+
+        assert_equal "Supply the encoding, or options for the encode stream", error.message
+      end
+    end
+
     describe "#format" do
       it "detects the format from the file name" do
         streams = IOStreams::Builder.new("abc.json")
@@ -138,7 +146,7 @@ class BuilderTest < Minitest::Test
       it "directly calls block for an empty stream" do
         string_io = StringIO.new
         value     = nil
-        streams.stream(:none)
+        streams.raw
         streams.reader(string_io) do |io|
           assert_equal io, string_io
           value = 32
@@ -158,7 +166,7 @@ class BuilderTest < Minitest::Test
 
       it "returns the last reader" do
         string_io = StringIO.new(gzip_string)
-        streams.stream(:encode)
+        streams.encoding("UTF-8")
         streams.stream(:gz)
 
         streams.reader(string_io) do |io|
@@ -171,7 +179,7 @@ class BuilderTest < Minitest::Test
       it "directly calls block for an empty stream" do
         string_io = StringIO.new
         value     = nil
-        streams.stream(:none)
+        streams.raw
         streams.writer(string_io) do |io|
           assert_equal io, string_io
           value = 32
@@ -191,7 +199,7 @@ class BuilderTest < Minitest::Test
 
       it "returns the last reader" do
         string_io = StringIO.new
-        streams.stream(:encode)
+        streams.encoding("UTF-8")
         streams.stream(:zip)
 
         streams.writer(string_io) do |io|
@@ -267,7 +275,16 @@ class BuilderTest < Minitest::Test
 
       it "file name with encode option" do
         expected = {encode: {encoding: "BINARY"}, xlsx: {}, zip: {}, gz: {}, pgp: {}}
-        streams.option(:encode, encoding: "BINARY")
+        assert_deprecated(/option\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+          streams.option(:encode, encoding: "BINARY")
+        end
+
+        assert_equal expected, streams.pipeline
+      end
+
+      it "file name with an encoding" do
+        expected = {encode: {encoding: "BINARY"}, xlsx: {}, zip: {}, gz: {}, pgp: {}}
+        streams.encoding("BINARY")
 
         assert_equal expected, streams.pipeline
       end

@@ -5,6 +5,18 @@ module IOStreams
       # Column names that begin with this prefix have been rejected and should be ignored.
       IGNORE_PREFIX = "__rejected__".freeze
 
+      # The options of a header, see #initialize: the columns, and the restrictions of the columns read, which only
+      # apply when reading.
+      OPTION_NAMES      = %i[columns allowed_columns required_columns skip_unknown].freeze
+      READ_OPTION_NAMES = %i[allowed_columns required_columns skip_unknown].freeze
+
+      # Returns [Array<Symbol>] the names of the supplied options, see #initialize, that describe the columns of a file:
+      # those that are not nil, other than `skip_unknown`, which only applies to `allowed_columns`, so that on its own it
+      # never changes the columns. Any other option is left to #initialize, which raises for it.
+      def self.column_option_names(options)
+        (options.compact.keys & OPTION_NAMES) - %i[skip_unknown]
+      end
+
       attr_accessor :allowed_columns, :required_columns, :skip_unknown
       attr_reader :columns
 

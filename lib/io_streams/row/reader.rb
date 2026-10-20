@@ -28,25 +28,67 @@ module IOStreams
       #   format: [Symbol]
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
+      #   cleanse_header: [true|false]
+      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`.
+      #     With a schema it raises ArgumentError, even when nil, since the fields of the schema name the keys of the
+      #     records instead.
+      #     Default: `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which cleanses it.
+      #
+      #   tabular: [IOStreams::Tabular]
+      #     The tabular that parses each line, such as one with a schema, see `IOStreams::Stream#schema`, in place of the
+      #     other options, which create it.
+      #
       #   For all other parameters, see Tabular::Header.new
-      def initialize(line_reader, cleanse_header: true, original_file_name: nil, **args)
+      def initialize(line_reader, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, original_file_name: nil,
+                     tabular: nil, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
 
-        @tabular        = IOStreams::Tabular.new(file_name: original_file_name, **args)
+        if tabular && (original_file_name || !args.empty?)
+          raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
+        end
+
+        @tabular        = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
         @line_reader    = line_reader
         @cleanse_header = cleanse_header
       end
 
-      def each
+      # Returns [true|false] whether the first row that #each yields is a header row, which names the column of each
+      # value of the rows after it, see `IOStreams::Tabular#rows_header?`: the header row of the file, or with a schema,
+      # the names of its fields, of a file without one, such as fixed width or JSON. False when the columns were
+      # supplied, which name the values of the rows instead. Asked before #each.
+      def header?
+        @tabular.rows_header?
+      end
+
+      # Yields each row, an Array, after the header row of a file with one, which it yields first, see
+      # `IOStreams::Tabular#read_row`. With a schema, the header row is an `IOStreams::Row::HeaderRow` of the names of
+      # the fields, also for a file without a header row, such as fixed width or JSON.
+      def each(&block)
+        @line_reader.each { |line| @tabular.read_row(line, cleanse: @cleanse_header, &block) }
+      end
+
+      # Writes each row to the writer, see `IOStreams::Row::Writer`, as a copy with a schema does, see
+      # `IOStreams::Stream#copy_from`, telling it the column of each value of the rows: it writes the header row of the
+      # file as the header row of the rows after it, see `IOStreams::Row::Writer#write_header`, so that a target with a
+      # schema matches its columns to the fields, rather than write it as a row of values, or, for a file without a
+      # header row, whose header row #each yields from the names of the fields of its schema, those columns instead, see
+      # `IOStreams::Row::Writer#write_columns`. The header row is the row of the line read while it is expected, see
+      # `IOStreams::Tabular#header?`, which is an `IOStreams::Row::HeaderRow` with a schema, and an Array without one, as
+      # before. A blank line, which #each yields as nil, is not a row, so it is not written.
+      #
+      # Returns the result of #each.
+      def copy_to(writer)
+        columns = @tabular.headerless_columns
+        writer.write_columns(columns) if columns
         @line_reader.each do |line|
-          if @tabular.header?
-            columns = @tabular.parse_header(line)
-            @tabular.cleanse_header! if @cleanse_header
-            yield columns
-          else
-            yield @tabular.row_parse(line)
+          header = @tabular.header?
+          @tabular.read_row(line, cleanse: @cleanse_header) do |row|
+            # The header row of a file without one is the columns, which were written above.
+            next if row.nil? || (columns && row.is_a?(HeaderRow))
+
+            header || row.is_a?(HeaderRow) ? writer.write_header(row) : writer << row
           end
         end
       end

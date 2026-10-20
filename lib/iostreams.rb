@@ -1,15 +1,17 @@
 require "io_streams/version"
 # @formatter:off
 module IOStreams
-  autoload :Builder,  "io_streams/builder"
-  autoload :Errors,   "io_streams/errors"
-  autoload :Path,     "io_streams/path"
-  autoload :Pgp,      "io_streams/pgp"
-  autoload :Reader,   "io_streams/reader"
-  autoload :Stream,   "io_streams/stream"
-  autoload :Tabular,  "io_streams/tabular"
-  autoload :Utils,    "io_streams/utils"
-  autoload :Writer,   "io_streams/writer"
+  autoload :Builder,     "io_streams/builder"
+  autoload :Deprecation, "io_streams/deprecation"
+  autoload :Errors,      "io_streams/errors"
+  autoload :Path,        "io_streams/path"
+  autoload :Pgp,         "io_streams/pgp"
+  autoload :Reader,      "io_streams/reader"
+  autoload :Schema,      "io_streams/schema"
+  autoload :Stream,      "io_streams/stream"
+  autoload :Tabular,     "io_streams/tabular"
+  autoload :Utils,       "io_streams/utils"
+  autoload :Writer,      "io_streams/writer"
 
   module Paths
     autoload :File,    "io_streams/paths/file"
@@ -45,6 +47,7 @@ module IOStreams
   end
 
   module Row
+    autoload :HeaderRow, "io_streams/row/header_row"
     autoload :Reader, "io_streams/row/reader"
     autoload :Writer, "io_streams/row/writer"
   end

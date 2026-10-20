@@ -35,28 +35,60 @@ module IOStreams
       #   format: [Symbol]
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
+      #   tabular: [IOStreams::Tabular]
+      #     The tabular that renders each row, such as one with a schema, see `IOStreams::Stream#schema`, in place of the
+      #     other options, which create it.
+      #
       #   For all other parameters, see Tabular::Header.new
-      def initialize(line_writer, columns: nil, original_file_name: nil, **args)
+      def initialize(line_writer, columns: nil, original_file_name: nil, tabular: nil, **args)
         raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
-        @tabular     = IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
+        if tabular && (columns || original_file_name || !args.empty?)
+          raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
+        end
+
+        @tabular     = tabular || IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
         @line_writer = line_writer
 
-        # Render header line when `columns` is supplied.
-        line_writer << @tabular.render_header if columns && @tabular.requires_header?
+        # Render header line when `columns` is supplied, or with a schema the names of its fields, see
+        # `IOStreams::Tabular#start_rows`.
+        @tabular.start_rows { |line| @line_writer << line }
       end
 
       # Supply a hash or an array to render
+      #
+      # Without a schema, the first row is the header row, unless the columns were supplied. With a schema, the header
+      # row of a file with one is the names of its fields, which is written before the rows, so every row written is
+      # the values of the fields, in order. A header row that `IOStreams::Stream#each(:array)` yields with a schema, an
+      # `IOStreams::Row::HeaderRow`, is written as the header row of the rows after it, see #write_header.
       def <<(array)
         raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
+        return write_header(array) if array.is_a?(HeaderRow)
 
-        if @tabular.header?
-          # If header (columns) was not supplied as an argument, assume first line is the header.
-          @tabular.header.columns = array
-          @line_writer << @tabular.render_header
-        else
-          @line_writer << @tabular.render(array)
-        end
+        @tabular.render_row(array) { |line| @line_writer << line }
+      end
+
+      # Writes the header row of the rows after it, such as that of the file that is copied, see
+      # `IOStreams::Row::Reader#copy_to`, so that the value of each column of the rows after it is written to its
+      # column, or to its field with a schema, whose columns it matches to the fields, without a line. Without a schema,
+      # as the first row, see #<<, unless the format has no header row, such as JSON, and the columns are not known,
+      # when it gives the columns of the rows after it, see `IOStreams::Tabular#render_header_row`.
+      #
+      # Returns self, so that calls can be chained.
+      def write_header(columns)
+        @tabular.render_header_row(columns) { |line| @line_writer << line }
+        self
+      end
+
+      # Takes the columns of the rows written after it, which are not a row of the file that they are read from, such as
+      # the fields of a file without a header row, see `IOStreams::Row::Reader#copy_to`: like its header row, see
+      # #write_header, they name the column, or with a schema the field, of each value of the rows, unless the columns
+      # were supplied, which name them instead, see `IOStreams::Tabular#render_columns`.
+      #
+      # Returns self, so that calls can be chained.
+      def write_columns(columns)
+        @tabular.render_columns(columns) { |line| @line_writer << line }
+        self
       end
     end
   end

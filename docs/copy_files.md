@@ -59,7 +59,7 @@ Custom stream conversions can be applied to both the source and the target in a 
 Here the source is read as binary and the target is PGP encrypted:
 
 ~~~ruby
-source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
+source = IOStreams.path("source_file").encoding("BINARY")
 IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
 ~~~
 

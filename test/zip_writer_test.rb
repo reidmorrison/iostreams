@@ -70,6 +70,32 @@ class ZipWriterTest < Minitest::Test
       end
     end
 
+    describe "zip_file_name" do
+      it "reports a deprecation warning, and still names the file within the zip file" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "data.zip").option(:zip, zip_file_name: "legacy.txt")
+          assert_deprecated(/zip_file_name: is deprecated, use entry_file_name: instead/) { path.write(decompressed) }
+
+          entry_names = []
+          Zip::File.open(path.to_s) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+          assert_equal ["legacy.txt"], entry_names
+        end
+      end
+
+      it "reports a deprecation warning when writing a stream" do
+        io_string = StringIO.new("".b)
+        assert_deprecated(/zip_file_name: is deprecated/) do
+          IOStreams::Zip::Writer.stream(io_string, zip_file_name: "legacy.txt") { |io| io.write(decompressed) }
+        end
+
+        entry_names = []
+        Zip::File.open_buffer(StringIO.new(io_string.string)) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+        assert_equal ["legacy.txt"], entry_names
+      end
+    end
+
     describe ".stream" do
       it "defaults the entry name to 'file'" do
         io_string = StringIO.new("".b)

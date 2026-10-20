@@ -111,9 +111,11 @@ module IOStreams
 
         it "array writer detects json format from file name" do
           path = IOStreams.path("/tmp/io_streams/abc.json")
-          path.writer(:array, columns: %w[name login]) do |io|
-            io << ["Jack Jones", "jjones"]
-            io << ["Jill Smith", "jsmith"]
+          assert_deprecated(/columns: is deprecated/) do
+            path.writer(:array, columns: %w[name login]) do |io|
+              io << ["Jack Jones", "jjones"]
+              io << ["Jill Smith", "jsmith"]
+            end
           end
           actual = path.read
           path.delete
@@ -138,6 +140,12 @@ module IOStreams
           refute_equal path1.to_s, path2.to_s
           assert_kind_of IOStreams::Paths::File, path1, path1
           assert_kind_of IOStreams::Paths::File, path2, path2
+        end
+
+        it "applies no streams, without a deprecation warning" do
+          pipeline = refute_deprecated { IOStreams.temp_file("base", ".csv.gz", &:pipeline) }
+
+          assert_empty pipeline
         end
       end
 
@@ -239,6 +247,28 @@ module IOStreams
           %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm encode].each do |extension|
             assert_includes IOStreams.extensions.keys, extension
           end
+        end
+      end
+
+      describe ".tabular_formats" do
+        it "includes the registered formats" do
+          %i[array csv fixed hash json psv].each do |format|
+            assert_includes IOStreams.tabular_formats, format
+          end
+        end
+
+        it "does not include the formats of the streams, which are extensions" do
+          refute_includes IOStreams.tabular_formats, :gz
+        end
+
+        it "includes each format that a path accepts" do
+          IOStreams.tabular_formats.each do |format|
+            assert_equal format, IOStreams.path("sample").format(format).format
+          end
+        end
+
+        it "is frozen, so that it cannot change the formats" do
+          assert_predicate IOStreams.tabular_formats, :frozen?
         end
       end
 

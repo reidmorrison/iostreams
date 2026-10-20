@@ -35,14 +35,14 @@ module IOStreams
   #    # => "files/file.xls"
   #
   # For Files
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'BINARY').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:line) { |line| puts line }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').each(:hash) { |hash| p hash }
-  # IOStreams.path('blah.zip').option(:encode, encoding: 'UTF-8').read
+  # IOStreams.path('blah.zip').encoding('BINARY').each(:line) { |line| puts line }
+  # IOStreams.path('blah.zip').encoding('UTF-8').each(:line) { |line| puts line }
+  # IOStreams.path('blah.zip').encoding('UTF-8').each(:hash) { |hash| p hash }
+  # IOStreams.path('blah.zip').encoding('UTF-8').read
   # IOStreams.path('blah.csv.zip').each(:line) { |line| puts line }
   # IOStreams.path('blah.zip').option(:pgp, passphrase: 'receiver_passphrase').read
   # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
-  # IOStreams.path('blah.zip').stream(:zip).stream(:encode, encoding: 'BINARY').read
+  # IOStreams.path('blah.zip').stream(:zip).encoding('BINARY').read
   #
   def self.path(*elements, **args)
     return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
@@ -123,7 +123,7 @@ module IOStreams
   # Note: The temp file is accessible even when it is not within the allowed paths, see `IOStreams.add_allowed_path`.
   def self.temp_file(basename, extension = "")
     Utils.temp_file_name(basename, extension) do |file_name|
-      yield(Paths::File.new(file_name).send(:permit!).stream(:none))
+      yield(Paths::File.new(file_name).send(:permit!).send(:no_streams))
     end
   end
 
@@ -408,6 +408,13 @@ module IOStreams
   # Registered file extensions
   def self.extensions
     @extensions.dup
+  end
+
+  # Returns [Array<Symbol>] the names of the formats of the rows and records of a file that `IOStreams::Stream#format`
+  # accepts, such as `:csv`, `:json` or `:fixed`, frozen. The list grows as formats are added, so check whether a name
+  # is included, rather than rely on its order or its length.
+  def self.tabular_formats
+    Tabular.registered_formats.freeze
   end
 
   # Register a URI scheme and the path class that handles it

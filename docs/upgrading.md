@@ -3,13 +3,274 @@ layout: default
 title: Upgrading
 heading: Upgrading IOStreams
 description: >-
-  What changes when upgrading IOStreams to v2.1 or v2.0, and the security
-  settings to review in your application when upgrading.
+  What changes when upgrading IOStreams to v2.2, v2.1 or v2.0, how to prepare
+  for v3.0, and the security settings to review in your application when upgrading.
 ---
 
 This page covers the changes that may need updates to your application when upgrading IOStreams,
 and the security issues to check. For every change in each release, see the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md).
+
+## Upgrading to v2.2
+
+v2.2 prepares applications for v3.0, and changes no existing behavior. It adds the methods that replace those that
+v3.0 deprecates or removes, and reports a deprecation warning when the application uses one of those, so that it
+can move to the replacement while it still runs v2.2, and then upgrade to v3.0 with fewer changes:
+
+* `#raw` reads and writes the data as it is stored, in place of `stream(:none)`, see [Raw](streams#raw).
+* `#encoding` sets the encoding of the text, in place of `option(:encode, ...)` and `stream(:encode, ...)`, see
+  [Character encoding](extensions#character-encoding).
+* `#schema` describes the rows and records of a file, as v3.0 does: the type of each field, the columns that the file
+  must and can have, and the position of each field of a fixed width file, in place of `#format_options` and the
+  column options of each call, see [Schema](formats#schema). A schema in v2.2 reads and writes as one in v3.0 does,
+  apart from the differences that v3.0 makes to every file, such as its encoding, see
+  [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
+* `IOStreams.tabular_formats` returns the formats that `#format` accepts.
+
+To prepare for v3.0: upgrade to v2.2, run your tests, which show the deprecation warnings, see below, and move each
+use to what replaces it. Then read the changes that v3.0 makes in its own
+[upgrading guide](https://github.com/reidmorrison/iostreams/blob/main/docs/upgrading.md#upgrading-to-v30), since it
+also changes behavior that cannot be reported as a deprecation, such as reading text as UTF-8 by default.
+
+### Seeing deprecation warnings
+
+IOStreams reports the use of a deprecated method or option as a Ruby deprecation warning, the same way that Ruby
+reports its own, which names the line of your application that used it, and what to use instead:
+
+~~~
+app/jobs/export_job.rb:12: warning: IOStreams: stream(:none) is deprecated, use #raw to read or write the data as it is stored, or #file_name to read a file that is not named for its format
+~~~
+
+Ruby only shows deprecation warnings while `Warning[:deprecated]` is true, which it is not by default, so production
+stays quiet without any configuration:
+
+| Where | Deprecation warnings |
+|-------|----------------------|
+| Tests run with Minitest or test-unit | On, since both turn them on |
+| Tests run with RSpec | Off, unless run with `rspec --warnings`, or `Warning[:deprecated] = true` is set in `spec_helper.rb` |
+| Development | Off, unless `RUBYOPT=-W:deprecated` is set in the environment, or `Warning[:deprecated] = true` in code that only runs in development, such as `config/environments/development.rb` |
+| Production | Off |
+
+Rails settings such as `config.active_support.deprecation` only apply to the deprecation warnings of Rails, not to
+those that Ruby reports.
+
+Ruby writes each warning to `$stderr`. To send them elsewhere, such as to your log, or to raise them in your tests so
+that each use is found, extend `Warning` with your own `warn`:
+
+~~~ruby
+module IOStreamsDeprecations
+  def warn(message, *, **)
+    return super unless message.include?("IOStreams: ")
+
+    Rails.logger.warn(message.chomp)
+  end
+end
+Warning.extend(IOStreamsDeprecations)
+~~~
+
+### Deprecated, and what replaces it
+
+Each of these still works as before in v2.2, and reports a deprecation warning:
+
+| Deprecated | Use instead |
+|------------|-------------|
+| `stream(:none)` | `#raw` to read or write the data as it is stored, or `#file_name` to read a file that is not named for its format, such as `file_name("data.csv")` for a CSV file named `data.txt` |
+| `option(:encode, ...)` and `stream(:encode, ...)` | `#encoding`, with the same options and the same results, see [Character encoding](extensions#character-encoding) |
+| `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
+| `#format_options`, and `format_options:` supplied to each call | `#schema`, which gives the `width` of each field of a fixed width file, see [Moving a layout to a schema](#moving-a-layout-to-a-schema) |
+| `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:`, unless they are nil, and `cleanse_header:`, even when it is nil | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
+
+`IOStreams.enforce_column_restrictions=` is not deprecated in v2.2, which still follows it, so keep setting it to
+true as [v2.1 recommends](#column-restrictions-on-uploaded-files) until the column options are replaced with a
+schema, to which it does not apply.
+
+v3.0 removes these, or raises `ArgumentError` for them, so in v2.2 each still works as before, and reports a
+deprecation warning:
+
+| Deprecated | Use instead |
+|------------|-------------|
+| `format:`, `file_name:`, `original_file_name:` or `default_format:` supplied to `#each`, `#reader`, `#writer` or a copy, such as `each(:hash, format: :json)` | Set them on the path, such as `format(:json).each(:hash)`, or `file_name("data.json")`, so that every reader and writer of the path uses them |
+| `allowed_columns:`, `required_columns:` or `skip_unknown:` supplied to `#writer` or a copy, which ignores them | A schema, which describes the columns that are written, such as with `fieldsMatch: "subset"` to skip the other keys of each record |
+| Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
+| The Zip writer's `zip_file_name` | `entry_file_name` |
+| A file name ending in `.encode` | `#encoding` |
+| `#path=` | `#join` or `#directory`, which return a new path, or `IOStreams.path` with the new name |
+| `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
+
+### Moving a layout to a schema
+
+`#format_options` is deprecated. It still works, and still reads and writes the file with its layout, as before, so
+no change is needed yet. A schema gives the type of each field of every format, and can be held in a JSON file, see
+[Schema](formats#schema). Each column of a layout is a field of the schema:
+
+| Layout | Schema |
+|--------|--------|
+| `key:` | `name` |
+| `size:` | `width` |
+| `size: :remainder` | `width: "remainder"` |
+| A column without a `key:`, a filler | `start` on the field after it, or the `width` of the schema at the end of the line |
+| `type: :string` | `type: "string"`, with `truncate: true` unless the layout has `truncate: false` |
+| `type: :integer` | `type: "integer"` |
+| `type: :float` and `decimals:` | `type: "number"`, with `floatNumber: true` and `decimals:`, without `decimals` for a column with `size: :remainder`, which writes the digits that the value has |
+| A record written with keys that the layout does not have, which are skipped | `fieldsMatch: "subset"` |
+
+~~~ruby
+# Before (deprecated)
+path.format(:fixed).format_options(
+  layout: [
+    {size: 23, key: "name"},
+    {size: 2},
+    {size: 5, key: "zip", type: :integer}
+  ]
+)
+
+# After
+path.format(:fixed).schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name", type: "string",  width: 23, truncate: true},
+    {name: "zip",  type: "integer", width: 5,  start: 26}
+  ]
+)
+~~~
+
+The keys of the records read are the names of the fields, so a layout with Symbol keys, such as `key: :name`, reads
+Symbol keys, as does a schema whose field is named with that Symbol, while a schema saved as a JSON file names its
+fields with Strings, so the keys of its records are Strings. Without `fieldsMatch: "subset"`, a schema has
+`"exact"`, so that writing a record with a key that is not a field raises `IOStreams::Errors::InvalidHeader`, rather
+than skip it as a layout does. A schema and a layout cannot both be set on a path: reading or writing it raises
+`ArgumentError`.
+
+The schema reads the same records as the layout, as it does in v3.0, except that:
+
+* An `integer` or `number` field that holds no number, such as `N/A`, raises `IOStreams::Errors::InvalidValue`,
+  where the layout reads it as `0`, or as the number that its leading digits make, such as `12` for `12-`. A fraction
+  in an `integer` field raises too, where the layout truncates it, while a whole number with a decimal point, such as
+  `12.0`, is still read as `12`.
+* The text read is UTF-8, so a value that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, and the
+  `width` of each field counts characters, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
+* A filler is written as spaces, also where a layout gives it a `type:` of `:integer` or `:float`.
+* A `string` field writes a `BigDecimal` as `12.5`, and a `Date` or `Time` in ISO 8601, such as
+  `2026-10-13T09:30:00Z`, and raises `IOStreams::Errors::InvalidValue` for a `Hash` or an `Array`, where the layout
+  writes their `to_s`.
+
+### Moving the column options to a schema
+
+`columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` are deprecated. They still
+work without a schema, so no change is needed yet. A [schema](formats#schema) describes the columns of the file on its
+path instead, so that every reader and writer of the path, including a copy, checks them the same way. Its fields
+name the keys of the records read, and each column of the header row is matched to a field whatever its case, spaces
+and punctuation, or to one of the `aliases` of a field, see [Matching columns to fields](formats#matching-columns-to-fields).
+So the keys no longer depend on how the cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which
+are both `amount_`.
+
+To keep the keys of the records that the code reads, name each field as that key. The names that `allowed_columns:`
+and `required_columns:` list already are, since they were compared to the columns once cleansed, such as `first_name`
+for the column `First Name`, so use them as the names of the fields: the schema matches each column to the field
+named as the column was cleansed. With `cleanse_header: false`, they are the columns as they are in the file, so use
+them as they are.
+
+With a schema, the options raise `ArgumentError`, unless they are nil. `skip_unknown:` only applies to
+`allowed_columns:`, so it is accepted, so that code can supply the same options with and without a schema. The
+property of a schema that replaces each one:
+
+| Option | With a schema |
+|--------|---------------|
+| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write |
+| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
+| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
+| `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
+| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
+
+~~~ruby
+# Before (deprecated)
+path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) do |record|
+  p record
+end
+
+# After
+path.schema(
+  fieldsMatch: "partial",
+  fields:      [
+    {name: "first_name"},
+    {name: "zip_code", constraints: {required: true}, allowBlank: true}
+  ]
+).each(:hash) do |record|
+  p record
+end
+
+# Both read "First Name,Zip Code,Notes\nJack,12345,x\nJill,,y\n" as:
+# {"first_name" => "Jack", "zip_code" => "12345"}
+# {"first_name" => "Jill", "zip_code" => nil}
+~~~
+
+Reading a CSV file without a header row:
+
+~~~ruby
+# Before (deprecated)
+IOStreams.path("no_header.csv").each(:hash, columns: ["name", "address", "zip"]) do |record|
+  p record
+end
+
+# After
+path = IOStreams.path("no_header.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "address"},
+    {name: "zip"}
+  ]
+)
+path.each(:hash) do |record|
+  p record
+end
+~~~
+
+Writing only some of the keys of each record, in a fixed order:
+
+~~~ruby
+# Before (deprecated)
+path = IOStreams.path("sample.csv")
+path.writer(:hash, columns: ["name", "zip"]) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+
+# After
+path = IOStreams.path("sample.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+~~~
+
+With a schema, `writer(:array)` writes the names of the fields as the header row, and takes each row as the values of
+the fields, in order, as `columns:` did.
+
+A schema reads the same records as the options it replaces, named as above, as it does in v3.0, except that:
+
+* A column is matched to a field whatever its case, spaces and punctuation, so a column that `allowed_columns:` did
+  not list once cleansed, such as `FirstName` for `first_name`, is read.
+* Two columns that are the same field, such as `Email` and `email`, or `Amount ($)` and `Amount (€)` for the field
+  `amount_`, raise `IOStreams::Errors::InvalidHeader`, where the value of the last one was kept.
+* The keys of each record are in the order of the fields, rather than of the columns of the file.
+* `each(:array)` yields a header row of the names of the fields, an `IOStreams::Row::HeaderRow`, and each row holds
+  only the values of the fields, where the column options left the header row and the rows as they are in the file.
+* A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
+  is `"subset"` or `"partial"`, where it was dropped.
+* JSON writes every field of each record, `null` for a key that the record does not have, where `columns:` wrote only
+  the keys that it had, so that the file reads back with the same schema.
+* The text read is UTF-8, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
+* `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.
+
+Keep the deprecated options where a schema does not describe the file yet: `required_columns:` without
+`allowed_columns:`, or `cleanse_header: false` on its own, read every column of the file, while a schema reads only
+its fields, so list every column of the file as a field to replace them; and `columns:` with `nil` for a column to
+skip, in a file without a header row, since a field must have a name.
 
 ## Upgrading to v2.1
 
@@ -165,7 +426,10 @@ it changes.
 ## Coming in v3.0
 
 These changes are postponed to v3.0 since they could break existing code. Each one logs a warning
-in v2.1 via `IOStreams.logger` when it would change the result, so check your logs for them.
+in v2.1 and v2.2 via `IOStreams.logger` when it would change the result, so check your logs for them.
+v3.0 makes many more changes, see its
+[upgrading guide](https://github.com/reidmorrison/iostreams/blob/main/docs/upgrading.md#upgrading-to-v30), and
+[Upgrading to v2.2](#upgrading-to-v22) for the deprecations that v2.2 reports to prepare for it.
 
 ### Column restrictions apply to every input
 
