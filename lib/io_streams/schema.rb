@@ -135,11 +135,13 @@ module IOStreams
       end
     end
 
-    # Returns [Hash] the descriptor of the schema of the layout of a fixed width file, set with
+    # Returns [Hash] the descriptor of the schema of the layout of a fixed width file, set with the deprecated
     # `IOStreams::Stream#format_options`, so that the layout held by an application, such as the format options of a
     # Rocket Job category, can be replaced with its schema. The names of its fields are the keys of the layout, so that
     # the records read with it have the same keys. See `IOStreams::Tabular::Parser::Fixed.schema` for the layout,
     # whose columns can have String keys, such as a layout read from JSON.
+    #
+    # Unlike `IOStreams::Stream#format_options`, it reports no deprecation warning, since it replaces the layout.
     #
     # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, and ArgumentError for a property that a
     # column of a layout does not have, or when its schema is not valid.
