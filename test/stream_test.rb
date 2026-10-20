@@ -84,6 +84,19 @@ class StreamTest < Minitest::Test
         assert_equal stripped_data.lines.map(&:strip), lines
         assert_equal stripped_data.lines.count, count
       end
+
+      it "strips non-printable characters with the deprecated stream(:encode, ...)" do
+        input  = StringIO.new(bad_data)
+        lines  = []
+        stream = IOStreams::Stream.new(input)
+        assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+          stream.stream(:encode, encoding: "UTF-8", cleaner: :printable, replace: "")
+        end
+        count = stream.each(:line) { |line| lines << line }
+
+        assert_equal stripped_data.lines.map(&:strip), lines
+        assert_equal stripped_data.lines.count, count
+      end
     end
 
     describe "#each(:array)" do
@@ -870,6 +883,22 @@ class StreamTest < Minitest::Test
 
         assert_equal "Cannot call #encoding after #raw, which reads and writes the data as it is stored", error.message
       end
+
+      it "names option_or_stream when it is called afterwards" do
+        path  = IOStreams.path("data.csv.gz").raw
+        error = assert_raises(ArgumentError) { path.option_or_stream(:gz) }
+
+        assert_equal "Cannot call #option_or_stream after #raw, which reads and writes the data as it is stored",
+                     error.message
+      end
+
+      it "accepts stream(:none) afterwards, which does the same, and still reports its deprecation" do
+        path = IOStreams.path("data.csv.gz").raw
+        assert_deprecated(/stream\(:none\) is deprecated, use #raw/) { path.stream(:none) }
+
+        assert_predicate path, :raw?
+        assert_empty path.pipeline
+      end
     end
 
     describe "deprecated streams" do
@@ -883,19 +912,42 @@ class StreamTest < Minitest::Test
       end
 
       it "reports a deprecation warning for stream(:encode, ...), which still replaces the streams of the file name" do
-        path = assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+        message = "stream(:encode, ...) is deprecated, use #encoding instead, which keeps the streams that the file " \
+                  "name implies, #raw to read or write the data as it is stored, or #file_name to read a file that " \
+                  "is not named for its format"
+        path    = assert_deprecated(/#{Regexp.escape(message)}/) do
           IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")
         end
 
         assert_equal({encode: {encoding: "BINARY"}}, path.pipeline)
       end
 
-      it "reports a deprecation warning for option(:encode, ...) supplied to option_or_stream" do
-        path = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+      it "reads the data as it is stored with stream(:encode, ...) and BINARY, as #raw does, and #encoding does not" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "data.csv.gz").write("name\nJack\n")
+          stored = assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) do
+            IOStreams.path(dir, "data.csv.gz").stream(:encode, encoding: "BINARY").read
+          end
+
+          assert_equal IOStreams.path(dir, "data.csv.gz").raw.read, stored
+          assert_equal "name\nJack\n", IOStreams.path(dir, "data.csv.gz").encoding("BINARY").read
+        end
+      end
+
+      it "reports a deprecation warning for option_or_stream(:encode, ...) that names it" do
+        path = assert_deprecated(/option_or_stream\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
           IOStreams.path("data.csv").option_or_stream(:encode, encoding: "UTF-8", replace: "")
         end
 
         assert_equal({encoding: "UTF-8", replace: ""}, path.setting(:encode))
+      end
+
+      it "reports a deprecation warning for option_or_stream(:encode, ...) that names it when it adds a stream" do
+        stream = assert_deprecated(/option_or_stream\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+          IOStreams.stream(StringIO.new).option_or_stream(:encode, encoding: "UTF-8", replace: "")
+        end
+
+        assert_equal({encode: {encoding: "UTF-8", replace: ""}}, stream.pipeline)
       end
 
       it "reports no deprecation warning for a copy without conversions" do
@@ -1042,6 +1094,31 @@ class StreamTest < Minitest::Test
           end
 
           assert_equal Encoding::UTF_8, data.encoding
+        end
+      end
+
+      it "reports no deprecation warning for a file name ending in .encode once #encoding is set" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(File.join(dir, "notes.encode"), "cafe\n".b)
+          path = IOStreams.path(dir, "notes.encode").encoding("UTF-8")
+          data = refute_deprecated { path.read }
+
+          assert_equal "cafe\n", data
+          assert_equal Encoding::UTF_8, data.encoding
+          assert_equal({encode: {encoding: "UTF-8"}}, path.pipeline)
+        end
+      end
+
+      it "reports no deprecation warning for a file name ending in .encode on reading after option(:encode, ...)" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(File.join(dir, "notes.encode"), "cafe\n".b)
+          path = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) do
+            IOStreams.path(dir, "notes.encode").option(:encode, encoding: "UTF-8")
+          end
+
+          data = refute_deprecated { path.read }
+
+          assert_equal "cafe\n", data
         end
       end
 
@@ -1261,6 +1338,78 @@ class StreamTest < Minitest::Test
         error = assert_raises(ArgumentError) { IOStreams.path("data.csv").encoding("UTF-8", replac: "") }
 
         assert_equal "Unknown encoding option :replac. Valid options: :encoding, :cleaner, :replace.", error.message
+      end
+
+      it "raises for an encoding that Ruby does not know when it is set, so the file is not replaced" do
+        Dir.mktmpdir do |dir|
+          file_name = File.join(dir, "keep.csv")
+          ::File.write(file_name, "kept\n")
+          error = assert_raises(ArgumentError) { IOStreams.path(file_name).encoding("UTF8x").write("new") }
+
+          assert_equal "unknown encoding name - UTF8x", error.message
+          assert_equal "kept\n", ::File.read(file_name)
+        end
+      end
+
+      it "raises for a cleaner that is not a built-in rule when it is set, so the file is not replaced" do
+        Dir.mktmpdir do |dir|
+          file_name = File.join(dir, "keep.csv")
+          ::File.write(file_name, "kept\n")
+          error = assert_raises(ArgumentError) do
+            IOStreams.path(file_name).encoding(cleaner: :bogus).writer(:line) { |io| io << "new" }
+          end
+
+          assert_equal "Invalid cleansing rule :bogus", error.message
+          assert_equal "kept\n", ::File.read(file_name)
+        end
+      end
+
+      it "raises for a value that the encode stream does not accept" do
+        path = IOStreams.path("data.csv")
+
+        {
+          {encoding: nil}           => "Invalid encoding nil: supply the name of an encoding",
+          {encoding: :utf8}         => "Invalid encoding :utf8: supply the name of an encoding",
+          {encoding: "UTF-7"}       => 'Invalid encoding "UTF-7": Ruby cannot convert text to or from UTF-7',
+          {replace: 5}              => "Invalid replace 5: supply the String that replaces each invalid character",
+          {cleaner: "printable"}    => 'Invalid cleaner "printable": supply the name of a built-in rule',
+          {cleaner: :replace_bogus} => "Invalid cleansing rule :replace_bogus"
+        }.each_pair do |options, message|
+          error = assert_raises(ArgumentError, options.inspect) { path.encoding(**options) }
+
+          assert_includes error.message, message
+        end
+        assert_nil path.encoding
+      end
+
+      it "checks the options that it merges with, and changes nothing when it raises" do
+        path = IOStreams.path("data.csv").encoding("UTF-16LE", replace: "?")
+        assert_raises(ArgumentError) { path.encoding(cleaner: :bogus) }
+
+        assert_equal({encoding: "UTF-16LE", replace: "?"}, path.setting(:encode))
+      end
+
+      it "accepts the values that the encode stream accepts" do
+        cleaner = ->(data, _replace) { data }
+
+        [
+          {encoding: "BINARY"},
+          {encoding: Encoding::UTF_16LE},
+          # Ruby has no converter for Windows-1258, whose ASCII text is still read and written as it is.
+          {encoding: "Windows-1258"},
+          {replace: "?", cleaner: :replace_non_printable},
+          {cleaner: cleaner}
+        ].each do |options|
+          assert_equal options, IOStreams.path("data.csv").encoding(**options).setting(:encode)
+        end
+      end
+
+      it "does not check the values of option(:encode, ...), which raise when the data is read or written, as in v2.1" do
+        path = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) do
+          IOStreams.path("data.csv").option(:encode, encoding: "UTF8x")
+        end
+
+        assert_equal "UTF8x", path.encoding
       end
     end
 

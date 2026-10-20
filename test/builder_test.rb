@@ -197,7 +197,7 @@ class BuilderTest < Minitest::Test
 
       it "returns the last reader" do
         string_io = StringIO.new(gzip_string)
-        streams.encoding("UTF-8")
+        assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) { streams.stream(:encode) }
         streams.stream(:gz)
 
         streams.reader(string_io) do |io|
@@ -230,7 +230,7 @@ class BuilderTest < Minitest::Test
 
       it "returns the last reader" do
         string_io = StringIO.new
-        streams.encoding("UTF-8")
+        assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) { streams.stream(:encode) }
         streams.stream(:zip)
 
         streams.writer(string_io) do |io|

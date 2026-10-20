@@ -87,7 +87,8 @@ module IOStreams
     # for its format, such as a CSV file called `data.txt`, set the file name that names its format instead, for
     # example `file_name("data.csv")`.
     #
-    # Replaces `stream(:none)`, which still works.
+    # Replaces `stream(:none)`, which is deprecated: it still works, and reports a deprecation warning, see
+    # `IOStreams::Deprecation`.
     def raw
       builder.raw
       self
@@ -103,6 +104,10 @@ module IOStreams
     # in the file name, the encoding stays with the path, whichever streams it has, and works for a stream without a
     # file name too. Each call merges its options with those already set.
     #
+    # Raises ArgumentError when it is set, rather than when the data is read or written, for an option that the
+    # encode stream does not take, or a value that it does not accept, such as an encoding that Ruby does not know, see
+    # `IOStreams::Encode.check`.
+    #
     # Examples:
     #
     # # Read binary lines from a compressed file, which is still decompressed.
@@ -111,8 +116,12 @@ module IOStreams
     # # Read UTF-8 text, removing the characters that are not printable.
     # IOStreams.path("export.csv").encoding("UTF-8", cleaner: :printable).each(:hash) { |hash| p hash }
     #
-    # Replaces `option(:encode, ...)` and `stream(:encode, ...)`, which still work, with the same options and the
-    # same results.
+    # Replaces `option(:encode, ...)`, with the same options and the same results. Also replaces
+    # `stream(:encode, ...)`, which, like any other stream set with #stream, stops the streams being taken from the
+    # file name, which #encoding keeps: so to read or write the data as it is stored, as
+    # `stream(:encode, encoding: "BINARY")` does for a file name such as `data.csv.gz`, use #raw instead, and to read a
+    # file that is not named for its format, #file_name, then #encoding. Both are deprecated: they still work, and
+    # report a deprecation warning, see `IOStreams::Deprecation`.
     #
     # Without any arguments, returns [String|Encoding|nil] the encoding that was set, or nil when none was, like
     # `IO#encoding`.

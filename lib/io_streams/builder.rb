@@ -59,47 +59,22 @@ module IOStreams
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
       raise_if_raw!("#option")
-      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
-      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @streams
-      raise(ArgumentError, "Cannot call #option unless the `file_name` was already set}") unless file_name
-
-      @options ||= {}
-      if (opts = @options[stream])
-        opts.merge!(options)
-      else
-        @options[stream] = options.dup
-      end
-      Deprecation.warn("option(:encode, ...) is deprecated, use #encoding instead") if stream == :encode
+      add_option(stream, options)
+      warn_deprecated_stream("option", stream)
       self
     end
 
     # Setting the encode stream with `stream(:encode, ...)` is deprecated, see #encoding. Like any other stream set
-    # with `#stream`, it still stops the streams being taken from the file name.
+    # with `#stream`, it still stops the streams being taken from the file name, which #encoding keeps.
     #
-    # Supplying `:none` is deprecated, see #raw.
+    # Supplying `:none` is deprecated, see #raw. Since it does what #raw does, it can still be supplied after #raw.
     #
     # Each reports a deprecation warning, see `IOStreams::Deprecation`.
     def stream(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
-      raise_if_raw!("#stream")
-      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @options
-
-      # To prevent any streams from being applied, including an encoding set with #encoding, supply a stream named
-      # `:none`
-      if stream == :none
-        Deprecation.warn("stream(:none) is deprecated, use #raw to read or write the data as it is stored, " \
-                         "or #file_name to read a file that is not named for its format")
-        return no_streams
-      end
-      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
-
-      @streams ||= {}
-      if (opts = @streams[stream])
-        opts.merge!(options)
-      else
-        @streams[stream] = options.dup
-      end
-      Deprecation.warn("stream(:encode, ...) is deprecated, use #encoding instead") if stream == :encode
+      raise_if_raw!("#stream") unless stream == :none
+      add_stream(stream, options)
+      warn_deprecated_stream("stream", stream)
       self
     end
 
@@ -112,7 +87,10 @@ module IOStreams
     # these on top of them.
     #
     # Raises ArgumentError when neither an encoding nor any options are supplied, when the encoding is supplied both
-    # as an argument and as the `encoding:` option, or for an option that the encode stream does not take.
+    # as an argument and as the `encoding:` option, or for an option that the encode stream does not take, or a value
+    # that it does not accept, see `IOStreams::Encode.check`. They are checked when they are set, since a writer that
+    # raised for them would have replaced its file. The options set with `#option` or `#stream` for `:encode` are
+    # deprecated, and are still only checked when the stream is opened, as before.
     def encoding(encoding = nil, **options)
       raise_if_raw!("#encoding")
       if encoding
@@ -122,13 +100,9 @@ module IOStreams
       end
       raise(ArgumentError, "Supply the encoding, or options for the encode stream") if options.empty?
 
-      unknown = options.keys - encode_option_names
-      if unknown.any?
-        raise(ArgumentError, "Unknown encoding #{unknown.size == 1 ? 'option' : 'options'} #{list(unknown)}. " \
-                             "Valid options: #{list(encode_option_names)}.")
-      end
-
-      @encoding = (@encoding || {}).merge(options)
+      merged = (@encoding || {}).merge(options)
+      Encode.check(**merged)
+      @encoding = merged
       self
     end
 
@@ -164,14 +138,17 @@ module IOStreams
       self
     end
 
-    def option_or_stream(stream, **)
-      if streams
-        stream(stream, **)
-      elsif file_name
-        option(stream, **)
-      else
-        stream(stream, **)
-      end
+    # Sets the options of a stream as #option does, unless streams were already set with #stream, or no file name is
+    # set, when it adds the stream as #stream does.
+    #
+    # Setting the encode stream with `option_or_stream(:encode, ...)` is deprecated, see #encoding, and reports a
+    # deprecation warning, see `IOStreams::Deprecation`.
+    def option_or_stream(stream, **options)
+      stream = stream.to_sym unless stream.is_a?(Symbol)
+      raise_if_raw!("#option_or_stream") unless stream == :none
+      streams || file_name.nil? ? add_stream(stream, options) : add_option(stream, options)
+      warn_deprecated_stream("option_or_stream", stream)
+      self
     end
 
     # Return the options set for either a stream or option.
@@ -235,9 +212,61 @@ module IOStreams
 
     private
 
+    # Sets the options of a stream that is applied once the file name extensions have been parsed, see #option.
+    def add_option(stream, options)
+      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
+      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @streams
+      raise(ArgumentError, "Cannot call #option unless the `file_name` was already set}") unless file_name
+
+      @options ||= {}
+      if (opts = @options[stream])
+        opts.merge!(options)
+      else
+        @options[stream] = options.dup
+      end
+    end
+
+    # Adds a stream, in place of the streams that the file name implies, see #stream.
+    def add_stream(stream, options)
+      raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @options
+      # `:none` applies no streams, including an encoding set with #encoding. It is the deprecated form of #raw.
+      return no_streams if stream == :none
+      raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
+
+      @streams ||= {}
+      if (opts = @streams[stream])
+        opts.merge!(options)
+      else
+        @streams[stream] = options.dup
+      end
+    end
+
+    # Reports a deprecation warning for supplying `:none`, see #raw, or for setting the encode stream, see #encoding,
+    # which names the method that the application called.
+    def warn_deprecated_stream(method, stream)
+      case stream
+      when :none
+        Deprecation.warn("#{method}(:none) is deprecated, use #raw to read or write the data as it is stored, " \
+                         "or #file_name to read a file that is not named for its format")
+      when :encode
+        # Like any other stream set with #stream, stream(:encode, ...) stops the streams being taken from the file
+        # name, which #encoding keeps.
+        if method == "stream"
+          Deprecation.warn("stream(:encode, ...) is deprecated, use #encoding instead, which keeps the streams that " \
+                           "the file name implies, #raw to read or write the data as it is stored, or #file_name to " \
+                           "read a file that is not named for its format")
+        else
+          Deprecation.warn("#{method}(:encode, ...) is deprecated, use #encoding instead")
+        end
+      end
+    end
+
     # A file name ending in `.encode` is deprecated, since file names do not name the encode stream, see #encoding.
+    # Once the encode stream is set, with #encoding or `option(:encode, ...)`, the file name adds nothing to it, so it
+    # is only reported when the file name is what applies the encode stream.
     def warn_encode_extension
-      return if streams || file_name.nil? || !parse_extensions.include?(:encode)
+      return if streams || @encoding || options&.key?(:encode)
+      return if file_name.nil? || !parse_extensions.include?(:encode)
 
       Deprecation.warn("a file name ending in .encode is deprecated, since file names do not name the encode " \
                        "stream, use #encoding instead")
@@ -260,13 +289,7 @@ module IOStreams
     def with_encoding(pipeline)
       return pipeline unless @encoding
 
-      encode = (pipeline[:encode] || {}).merge(@encoding)
-      pipeline.delete(:encode)
-      {encode: encode}.merge(pipeline)
-    end
-
-    def encode_option_names
-      (Encode::Reader.option_names + Encode::Writer.option_names).uniq
+      {encode: encode_setting}.merge(pipeline.except(:encode))
     end
 
     def build_pipeline
