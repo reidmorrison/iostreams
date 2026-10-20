@@ -58,10 +58,11 @@ module IOStreams
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
       #
       #   cleanse_header: [true|false]
-      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`.
+      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, which the tabular that it
+      #     creates does, see `IOStreams::Tabular.new`.
       #     With a schema it raises ArgumentError, even when nil, since the fields of the schema name the keys of the
       #     records instead.
-      #     Default: `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which cleanses it.
+      #     Default: cleanses it.
       #
       #   tabular: [IOStreams::Tabular]
       #     The tabular that parses each line, such as one with a schema, see `IOStreams::Stream#schema`, in place of the
@@ -70,8 +71,7 @@ module IOStreams
       # Note:
       # * `allowed_columns`, `required_columns` and `skip_unknown` only apply to every input, including JSON records,
       #   supplied `columns` and `cleanse_header: false`, when `IOStreams.enforce_column_restrictions?` is true.
-      def initialize(line_reader, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, original_file_name: nil,
-                     tabular: nil, **args)
+      def initialize(line_reader, original_file_name: nil, tabular: nil, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
@@ -80,17 +80,16 @@ module IOStreams
           raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
         end
 
-        @tabular        = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
-        @line_reader    = line_reader
-        @cleanse_header = cleanse_header
+        @tabular     = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
+        @line_reader = line_reader
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
-        @tabular.restrict_columns(cleanse: @cleanse_header)
+        @tabular.restrict_columns
       end
 
       # Yields each record, after the header row, which names their keys, see `IOStreams::Tabular#read_record_line`.
       def each(&block)
-        @line_reader.each { |line| @tabular.read_record_line(line, cleanse: @cleanse_header, &block) }
+        @line_reader.each { |line| @tabular.read_record_line(line, &block) }
       end
 
       # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy with a schema does, see

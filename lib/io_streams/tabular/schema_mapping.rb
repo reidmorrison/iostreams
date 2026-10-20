@@ -100,11 +100,14 @@ module IOStreams
       # Returns [Array<String|Symbol>] the names of the fields of its columns, in the order of the fields.
       # Returns nil when the line is blank, or the file has no header row.
       #
-      # Raises ArgumentError for `cleanse`, other than nil or `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which leave the
-      # header row as it is, since the keys of the records are the names of the fields, which its columns are matched to
-      # instead.
+      # Raises ArgumentError for `cleanse` that is supplied, other than nil, which leaves the header row as it is, since
+      # the keys of the records are the names of the fields, which its columns are matched to instead.
       def read_header(line, cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse, "cleanse") unless cleanse.nil?
+        unless cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT)
+          raise(ArgumentError, "cleanse: cannot be supplied with a schema, since the keys of its records are the names " \
+                               "of its fields, which the columns of the header row are matched to, see " \
+                               "IOStreams::Schema#field_for")
+        end
 
         match_header(line)&.last
       end
@@ -159,12 +162,8 @@ module IOStreams
       # The header row is an `IOStreams::Row::HeaderRow`, so that a writer of rows takes it as the header row of the
       # rows after it, see `IOStreams::Row::Writer#<<`.
       #
-      # Raises ArgumentError for `cleanse`, the `cleanse_header` option of the reader, other than the default, see
-      # #read_header.
-      #
       # Returns the result of the block.
-      def read_row(line, cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse)
+      def read_row(line)
         # Once the header row is read, every line is a row, so that is asked first.
         return yield(row_parse(line)) unless rows_header?
         return yield(as_header_row(read_header(line))) if header?
@@ -177,10 +176,7 @@ module IOStreams
       # Yields [Hash|nil] the record of the line of a file of records, see #record_parse, or nil for a blank line, unless
       # the line is the header row, while it is expected, see #header?, which it reads instead, see #read_header, since
       # it names the keys of the records after it.
-      #
-      # Raises ArgumentError for `cleanse` other than the default, see #read_row.
-      def read_record_line(line, cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse)
+      def read_record_line(line)
         if header?
           read_header(line)
           nil
@@ -190,10 +186,7 @@ module IOStreams
       end
 
       # Returns nil: no column options apply, since the schema describes the columns instead.
-      #
-      # Raises ArgumentError for `cleanse` other than the default, see #read_row.
-      def restrict_columns(cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse)
+      def restrict_columns
         nil
       end
 
@@ -291,16 +284,6 @@ module IOStreams
       # such as for a blank line.
       def as_header_row(columns)
         IOStreams::Row::HeaderRow.new(columns) if columns
-      end
-
-      # Raises ArgumentError for the `cleanse_header` option of a reader, other than the default, since the keys of the
-      # records are the names of the fields, which the columns of the header row are matched to instead.
-      def reject_cleanse(cleanse, name = "cleanse_header")
-        return if cleanse.equal?(CLEANSE_BY_DEFAULT)
-
-        raise(ArgumentError, "#{name}: cannot be supplied with a schema, since the keys of its records are the " \
-                             "names of its fields, which the columns of the header row are matched to, see " \
-                             "IOStreams::Schema#field_for")
       end
     end
   end

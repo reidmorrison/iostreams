@@ -69,6 +69,7 @@ module IOStreams
           raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
         end
 
+        IOStreams::Tabular.check_write_options(args)
         @tabular     = tabular || IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
         @line_writer = line_writer
 

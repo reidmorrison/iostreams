@@ -29,18 +29,18 @@ module IOStreams
       #     :csv, :hash, :array, :json, :psv, :fixed
       #
       #   cleanse_header: [true|false]
-      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`.
+      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, which the tabular that it
+      #     creates does, see `IOStreams::Tabular.new`.
       #     With a schema it raises ArgumentError, even when nil, since the fields of the schema name the keys of the
       #     records instead.
-      #     Default: `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which cleanses it.
+      #     Default: cleanses it.
       #
       #   tabular: [IOStreams::Tabular]
       #     The tabular that parses each line, such as one with a schema, see `IOStreams::Stream#schema`, in place of the
       #     other options, which create it.
       #
-      #   For all other parameters, see Tabular::Header.new
-      def initialize(line_reader, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, original_file_name: nil,
-                     tabular: nil, **args)
+      #   For all other parameters, see IOStreams::Tabular.new
+      def initialize(line_reader, original_file_name: nil, tabular: nil, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
@@ -49,9 +49,8 @@ module IOStreams
           raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
         end
 
-        @tabular        = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
-        @line_reader    = line_reader
-        @cleanse_header = cleanse_header
+        @tabular     = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
+        @line_reader = line_reader
       end
 
       # Returns [true|false] whether the first row that #each yields is a header row, which names the column of each
@@ -66,7 +65,7 @@ module IOStreams
       # `IOStreams::Tabular#read_row`. With a schema, the header row is an `IOStreams::Row::HeaderRow` of the names of
       # the fields, also for a file without a header row, such as fixed width or JSON.
       def each(&block)
-        @line_reader.each { |line| @tabular.read_row(line, cleanse: @cleanse_header, &block) }
+        @line_reader.each { |line| @tabular.read_row(line, &block) }
       end
 
       # Writes each row to the writer, see `IOStreams::Row::Writer`, as a copy with a schema does, see
@@ -84,7 +83,7 @@ module IOStreams
         writer.write_columns(columns) if columns
         @line_reader.each do |line|
           header = @tabular.header?
-          @tabular.read_row(line, cleanse: @cleanse_header) do |row|
+          @tabular.read_row(line) do |row|
             # The header row of a file without one is the columns, which were written above.
             next if row.nil? || (columns && row.is_a?(HeaderRow))
 

@@ -388,10 +388,12 @@ class SchemaRowsTest < Minitest::Test
       end
 
       it "raise for cleanse_header: when writing, and for options that only apply with a schema, as before" do
-        error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).writer(:hash, cleanse_header: true) { |io| io << {"a" => 1} } }
-        assert_equal "unknown keyword: :cleanse_header", error.message
-        error = assert_raises(ArgumentError) { IOStreams::Tabular.new(cleanse_header: true) }
-        assert_equal "unknown keyword: :cleanse_header", error.message
+        %i[hash array].each do |mode|
+          error = assert_raises(ArgumentError, mode.inspect) do
+            IOStreams.stream(StringIO.new).writer(mode, cleanse_header: true) { |io| io << (mode == :hash ? {"a" => 1} : ["a"]) }
+          end
+          assert_match(/\Acleanse_header: only applies when reading the header row/, error.message)
+        end
         error = assert_raises(ArgumentError) { IOStreams::Tabular.new(decoded: true) }
         assert_match(/\Adecoded: only applies with a schema/, error.message)
       end

@@ -55,10 +55,12 @@ module IOStreams
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
 
-    # The default of the `cleanse_header` option of a reader of rows or records, see `IOStreams::Row::Reader`, which
-    # cleanses the header row without a schema. Distinct from true, so that a schema, whose fields name the keys of the
-    # records instead, can tell that the option was supplied, see `IOStreams::Tabular::SchemaMapping#read_row`.
-    CLEANSE_BY_DEFAULT = :default
+    # The default of the `cleanse_header` option, see #initialize, which cleanses the header row without a schema, and
+    # of the `cleanse:` of `IOStreams::Tabular::SchemaMapping#read_header`. An object of its own, which no caller can
+    # supply, so that an option that is supplied, whatever its value, such as `:default`, is told apart from one that is
+    # not, since with a schema, whose fields name the keys of the records instead, one that is supplied raises.
+    CLEANSE_BY_DEFAULT = Object.new.freeze
+    private_constant :CLEANSE_BY_DEFAULT
 
     # The options of #initialize that describe the file, rather than its columns: its format, the file name that names
     # the format, and the schema or the layout of its fields. `IOStreams::Stream` sets them from its path, see
@@ -141,8 +143,8 @@ module IOStreams
     #     field of a fixed width file.
     #     Since the schema describes the columns of the file, the options above that describe them without one,
     #     `columns`, `allowed_columns` and `required_columns`, raise ArgumentError with it, unless they are nil, and so
-    #     do `format_options`, unless they are empty, and the `cleanse_header` option of a reader, see
-    #     `IOStreams::Row::Reader`. `skip_unknown` only applies to `allowed_columns`, so it does not, and has no effect.
+    #     do `format_options`, unless they are empty, and `cleanse_header`, see below. `skip_unknown` only applies to
+    #     `allowed_columns`, so it does not, and has no effect.
     #     Optional. Default: nil
     #
     #   decoded: [true|false]
@@ -151,9 +153,20 @@ module IOStreams
     #     stream reads it without an encoding, is taken as UTF-8, see `IOStreams::Tabular::SchemaMapping`. Raises
     #     ArgumentError without a schema, whose lines are taken as they are.
     #     Default: false
-    def initialize(format: nil, file_name: nil, format_options: nil, default_format: :csv, schema: nil, decoded: nil, **args)
+    #
+    #   cleanse_header: [true|false]
+    #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, as the `cleanse_header`
+    #     option of a reader of rows or records says, see `IOStreams::Row::Reader`, which #read_header, #read_row,
+    #     #read_record_line and #restrict_columns apply, unless #read_header is told otherwise. nil does not cleanse it,
+    #     as before. It only applies when reading, so a writer of rows or records does not accept it, see
+    #     .check_write_options. With a schema it raises ArgumentError, even when nil, since the fields of the schema name
+    #     the keys of the records instead.
+    #     Default: cleanses it.
+    def initialize(format: nil, file_name: nil, format_options: nil, default_format: :csv, schema: nil, decoded: nil,
+                   cleanse_header: CLEANSE_BY_DEFAULT, **args)
       if schema
         reject_schema_options(format_options, args)
+        reject_header_cleansing(cleanse_header)
       elsif !decoded.nil?
         raise(ArgumentError, "decoded: only applies with a schema, without which the lines are taken as they are")
       end
@@ -174,7 +187,7 @@ module IOStreams
         @mapping = SchemaMapping.new(schema, header: header, parser: @parser, format: @format, decoded: decoded || false)
       else
         @parser  = format_options ? klass.new(**format_options) : klass.new
-        @mapping = HeaderMapping.new(header: header, parser: @parser, format: @format)
+        @mapping = HeaderMapping.new(header: header, parser: @parser, format: @format, cleanse: cleanse_header ? true : false)
       end
     end
 
@@ -211,7 +224,7 @@ module IOStreams
       @mapping.headerless_columns
     end
 
-    # Returns [Array] the header row/line after parsing and cleansing.
+    # Returns [Array] the header row/line after parsing.
     # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
     #
     # Notes:
@@ -223,18 +236,19 @@ module IOStreams
     end
 
     # Parses the header row, then cleanses its columns when `cleanse:` is truthy, otherwise applies the column
-    # restrictions to them, as a reader of records does, see `IOStreams::Record::Reader`.
+    # restrictions to them, as a reader of records does, see `IOStreams::Record::Reader`. `cleanse:` defaults to the
+    # `cleanse_header` option, see #initialize.
     #
     # With a schema, matches its columns to the fields instead, see `IOStreams::Schema::Columns#match`, so `cleanse:`
-    # cannot be supplied. The header columns are the header row as it was read, so that another Tabular with the same
-    # schema, such as one that parses the rest of the file elsewhere, matches the same columns with
+    # cannot be supplied, other than nil. The header columns are the header row as it was read, so that another Tabular
+    # with the same schema, such as one that parses the rest of the file elsewhere, matches the same columns with
     # `read_header(header.columns)`.
     #
     # Returns [Array] the header row as read, before it is cleansed, or with a schema, the names of the fields of its
     # columns, in the order of the fields.
     # Returns nil when the line is blank, or the format does not have a header row.
-    def read_header(line, cleanse: CLEANSE_BY_DEFAULT)
-      @mapping.read_header(line, cleanse: cleanse)
+    def read_header(line, **)
+      @mapping.read_header(line, **)
     end
 
     # Returns [Hash<String,Object>] the line as a hash.
@@ -275,29 +289,29 @@ module IOStreams
 
     # Reading and writing a line at a time: a reader or writer of rows or records, see `IOStreams::Row::Reader` and the
     # others, hands each line or value to these, which the mapping of the columns reads or renders, see
-    # `IOStreams::Tabular::Mapping`, so that the reader or writer only iterates. Each reading method takes the
-    # `cleanse_header` option of the reader as `cleanse:`.
+    # `IOStreams::Tabular::Mapping`, so that the reader or writer only iterates. The reading methods cleanse the header
+    # row as the `cleanse_header` option says, see #initialize.
 
-    # Yields [Array|nil] each row of the line of a file of rows: the header row, while it is expected, see #header?,
-    # otherwise the row, see #row_parse, or nil for a blank line. With a schema, the header row is an
+    # Yields [Array|nil] each row of the line of a file of rows: the header row as it is parsed, while it is expected,
+    # see #header?, otherwise the row, see #row_parse, or nil for a blank line. With a schema, the header row is an
     # `IOStreams::Row::HeaderRow`, and the rows of a file without one start with the names of the fields, see
     # `IOStreams::Tabular::SchemaMapping#read_row`.
     #
     # Returns the result of the block.
-    def read_row(line, cleanse: CLEANSE_BY_DEFAULT, &)
-      @mapping.read_row(line, cleanse: cleanse, &)
+    def read_row(line, &)
+      @mapping.read_row(line, &)
     end
 
     # Yields [Hash|nil] the record of the line of a file of records, see #record_parse, or nil for a blank line, unless
     # the line is the header row, while it is expected, see #header?, which it reads instead, see #read_header.
-    def read_record_line(line, cleanse: CLEANSE_BY_DEFAULT, &)
-      @mapping.read_record_line(line, cleanse: cleanse, &)
+    def read_record_line(line, &)
+      @mapping.read_record_line(line, &)
     end
 
     # Applies the column restrictions to the columns supplied in place of a header row, before a reader of records
     # reads the file, see `IOStreams::Record::Reader#initialize`. With a schema no column options apply.
-    def restrict_columns(cleanse: CLEANSE_BY_DEFAULT)
-      @mapping.restrict_columns(cleanse: cleanse)
+    def restrict_columns
+      @mapping.restrict_columns
     end
 
     # Yields [String] the header line that a writer of rows writes before the first row: the columns supplied, or with
@@ -385,6 +399,15 @@ module IOStreams
         raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
     end
 
+    # Raises ArgumentError for the options of #initialize that a writer of rows or records does not accept, see
+    # `IOStreams::Row::Writer#initialize`, as before: `cleanse_header`, which only applies when reading, so that it
+    # would have no effect.
+    def self.check_write_options(options)
+      return unless options.key?(:cleanse_header)
+
+      raise(ArgumentError, "cleanse_header: only applies when reading the header row, so it cannot be supplied when writing")
+    end
+
     register_format(:array, IOStreams::Tabular::Parser::Array)
     register_format(:csv, IOStreams::Tabular::Parser::Csv)
     register_format(:fixed, IOStreams::Tabular::Parser::Fixed)
@@ -396,9 +419,8 @@ module IOStreams
 
     # Raises ArgumentError for the options that describe the columns of a file without a schema, since the schema
     # describes them, see `IOStreams::Schema`, rather than apply one and ignore the other: the options of the header
-    # that are not nil, see `IOStreams::Tabular::Header.column_option_names`, the `cleanse_header` option of a reader,
-    # even when it is nil, since nil does not cleanse the header row, and the layout of a fixed width file in format
-    # options that are not empty.
+    # that are not nil, see `IOStreams::Tabular::Header.column_option_names`, and the layout of a fixed width file in
+    # format options that are not empty.
     #
     # An option that is nil is not supplied, and `skip_unknown` only applies to `allowed_columns`, so they are accepted,
     # and have no effect, so that a caller, such as Rocket Job, can supply its options whether or not there is a schema.
@@ -408,15 +430,20 @@ module IOStreams
       end
 
       names = Header.column_option_names(args)
-      unless names.empty?
-        raise(
-          ArgumentError,
-          "#{names.map { |name| "#{name}:" }.join(', ')} cannot be supplied with a schema, which describes the columns " \
-          "of the file: its fields are the columns, `fieldsMatch` says which other columns the file can have, and " \
-          "`constraints: {required: true}` which fields it must have, see IOStreams::Schema"
-        )
-      end
-      return unless args.key?(:cleanse_header)
+      return if names.empty?
+
+      raise(
+        ArgumentError,
+        "#{names.map { |name| "#{name}:" }.join(', ')} cannot be supplied with a schema, which describes the columns " \
+        "of the file: its fields are the columns, `fieldsMatch` says which other columns the file can have, and " \
+        "`constraints: {required: true}` which fields it must have, see IOStreams::Schema"
+      )
+    end
+
+    # Raises ArgumentError for `cleanse_header:` with a schema, whose fields name the keys of the records read instead,
+    # including nil, which does not cleanse the header row, since it would have no effect.
+    def reject_header_cleansing(cleanse_header)
+      return if cleanse_header.equal?(CLEANSE_BY_DEFAULT)
 
       raise(ArgumentError, "cleanse_header: cannot be supplied with a schema, since the keys of its records are the " \
                            "names of its fields, which the columns of the header row are matched to, see " \

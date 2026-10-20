@@ -47,6 +47,7 @@ module IOStreams
           raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
         end
 
+        IOStreams::Tabular.check_write_options(args)
         @tabular     = tabular || IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
         @line_writer = line_writer
 
@@ -55,7 +56,7 @@ module IOStreams
         @tabular.start_rows { |line| @line_writer << line }
       end
 
-      # Supply a hash or an array to render
+      # Supply an array to render, otherwise it raises ArgumentError.
       #
       # Without a schema, the first row is the header row, unless the columns were supplied. With a schema, the header
       # row of a file with one is the names of its fields, which is written before the rows, so every row written is

@@ -9,7 +9,7 @@ module IOStreams
     #   supplied in place of one, and the column options, held by its header, see `IOStreams::Tabular::Header`.
     # * `IOStreams::Tabular::SchemaMapping`, with a schema: by its fields, see `IOStreams::Schema::Columns`.
     #
-    # Each one does the same things, in its own way:
+    # Each one does the same things, in its own way, by the methods below, which each one implements:
     # * Reads the lines of a file: its header row, `#parse_header` and `#read_header`, and its rows and records,
     #   `#row_parse` and `#record_parse`, which its parser parses.
     # * Renders the rows and records written into lines, `#render`, and the header row, `#render_header`.
@@ -20,9 +20,6 @@ module IOStreams
     # * Answers the questions of the protocol: whether the file has a header row, `#requires_header?`, whether it is
     #   still to be read, `#header?`, whether the rows read start with a header row, `#rows_header?`, and the columns of
     #   the rows of a file without one, `#headerless_columns`.
-    #
-    # The reading methods take the `cleanse_header` option of the reader that reads the lines, as `cleanse:`, since the
-    # reader holds it, see `IOStreams::Row::Reader#initialize`.
     #
     # Each reader and writer has its own, through its Tabular, since it holds the columns of one file.
     class Mapping
@@ -43,6 +40,102 @@ module IOStreams
         @header = header
         @parser = parser
         @format = format
+      end
+
+      # Returns [true|false] whether the header row is still to be read, see `IOStreams::Tabular#header?`.
+      def header?
+        raise NotImplementedError
+      end
+
+      # Returns [true|false] whether the file has a header row, see `IOStreams::Tabular#requires_header?`.
+      def requires_header?
+        raise NotImplementedError
+      end
+
+      # Returns [true|false] whether the rows read start with a header row, see `IOStreams::Tabular#rows_header?`.
+      def rows_header?
+        raise NotImplementedError
+      end
+
+      # Returns [Array<String|Symbol>|nil] the columns of the rows of a file without a header row, see
+      # `IOStreams::Tabular#headerless_columns`.
+      def headerless_columns
+        raise NotImplementedError
+      end
+
+      # Returns [Array|nil] the header row parsed from the line, see `IOStreams::Tabular#parse_header`.
+      def parse_header(line)
+        raise NotImplementedError
+      end
+
+      # Returns [Array|nil] the header row read from the line, see `IOStreams::Tabular#read_header`.
+      def read_header(line, cleanse: nil)
+        raise NotImplementedError
+      end
+
+      # Returns [Array|nil] the row of the line, see `IOStreams::Tabular#row_parse`.
+      def row_parse(line)
+        raise NotImplementedError
+      end
+
+      # Returns [Hash|nil] the record of the line, see `IOStreams::Tabular#record_parse`.
+      def record_parse(line)
+        raise NotImplementedError
+      end
+
+      # Returns [String|Array|Hash|nil] the line of the row or record written, see `IOStreams::Tabular#render`.
+      def render(row)
+        raise NotImplementedError
+      end
+
+      # Returns [String|nil] the header row written, see `IOStreams::Tabular#render_header`.
+      def render_header
+        raise NotImplementedError
+      end
+
+      # Yields each row of the line of a file of rows, see `IOStreams::Tabular#read_row`.
+      def read_row(line)
+        raise NotImplementedError
+      end
+
+      # Yields the record of the line of a file of records, see `IOStreams::Tabular#read_record_line`.
+      def read_record_line(line)
+        raise NotImplementedError
+      end
+
+      # Applies the column restrictions to the columns supplied, see `IOStreams::Tabular#restrict_columns`.
+      def restrict_columns
+        raise NotImplementedError
+      end
+
+      # Yields the header line written before the first row, see `IOStreams::Tabular#start_rows`.
+      def start_rows
+        raise NotImplementedError
+      end
+
+      # Yields the line written for the row, see `IOStreams::Tabular#render_row`.
+      def render_row(row)
+        raise NotImplementedError
+      end
+
+      # Yields the line written for the header row of the rows after it, see `IOStreams::Tabular#render_header_row`.
+      def render_header_row(columns)
+        raise NotImplementedError
+      end
+
+      # Yields the line written for the columns of the rows after them, see `IOStreams::Tabular#render_columns`.
+      def render_columns(columns)
+        raise NotImplementedError
+      end
+
+      # Yields the header line written before the first record, see `IOStreams::Tabular#start_records`.
+      def start_records
+        raise NotImplementedError
+      end
+
+      # Yields each line written for the record, see `IOStreams::Tabular#render_record`.
+      def render_record(record)
+        raise NotImplementedError
       end
     end
   end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   class Tabular
     # Maps the columns of a file without a schema, see `IOStreams::Tabular::Mapping`, by its header: the columns of its
@@ -8,9 +10,17 @@ module IOStreams
     # held the code of its reading and writing methods, see `IOStreams::Row::Reader` and the others, so that a file
     # without a schema is read and written as before.
     class HeaderMapping < Mapping
-      # See `IOStreams::Tabular::Mapping#initialize`.
-      def initialize(header:, parser:, format:)
-        super
+      # Parameters:
+      #   cleanse: [true|false]
+      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, as the `cleanse_header`
+      #     option of `IOStreams::Tabular.new` says, which #read_header, #read_row, #read_record_line and
+      #     #restrict_columns apply, unless #read_header is told otherwise.
+      #     Default: true
+      #
+      #   See `IOStreams::Tabular::Mapping#initialize` for the others.
+      def initialize(header:, parser:, format:, cleanse: true)
+        super(header: header, parser: parser, format: format)
+        @cleanse  = cleanse
         # Whether the columns were supplied, which a writer writes as the header row before the first row or record,
         # see #start_rows.
         @supplied = !header.columns.nil?
@@ -41,7 +51,7 @@ module IOStreams
         nil
       end
 
-      # Returns [Array] the header row/line after parsing and cleansing.
+      # Returns [Array] the header row/line after parsing.
       # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
       #
       # Notes:
@@ -54,15 +64,15 @@ module IOStreams
       end
 
       # Parses the header row, see #parse_header, then cleanses its columns when `cleanse`, otherwise applies the column
-      # restrictions to them, as a reader of records reads its header row, see #read_record_line.
+      # restrictions to them, as a reader of records reads its header row, see #read_record_line. `cleanse` defaults to
+      # whether to cleanse the header row read, see #initialize.
       #
       # Returns [Array] the header row as read, before it is cleansed, or nil when the line is blank, or the format does
       # not have a header row.
-      def read_header(line, cleanse: CLEANSE_BY_DEFAULT)
-        cleanse = cleanse?(cleanse)
+      def read_header(line, cleanse: @cleanse)
         columns = parse_header(line)
         if cleanse
-          cleanse_columns(cleanse)
+          header.cleanse!(rename: cleanse)
         elsif restricted?
           restrict_header(cleanse)
         end
@@ -106,12 +116,13 @@ module IOStreams
         @parser.render(header.columns, header)
       end
 
-      # Yields [Array] each row of the line of a file of rows: the header row, while it is expected, see #header?, once
-      # it is cleansed when `cleanse`, otherwise the row, see #row_parse, or nil for a blank line.
-      def read_row(line, cleanse: CLEANSE_BY_DEFAULT)
+      # Yields [Array] each row of the line of a file of rows: the header row as it was parsed, see #parse_header, while
+      # it is expected, see #header?, otherwise the row, see #row_parse, or nil for a blank line. The header columns are
+      # then cleansed, when the header row read is cleansed, see #initialize, but the header row yielded is left as it is.
+      def read_row(line)
         if header?
           columns = parse_header(line)
-          header.cleanse! if cleanse?(cleanse)
+          header.cleanse! if @cleanse
           yield columns
         else
           yield row_parse(line)
@@ -122,19 +133,20 @@ module IOStreams
       # line is the header row, while it is expected, see #header?, which it reads instead, see #read_header. The column
       # restrictions are applied to the keys of each record of a format without a header row, such as JSON, when
       # `IOStreams.enforce_column_restrictions?`, see #restrict.
-      def read_record_line(line, cleanse: CLEANSE_BY_DEFAULT)
+      def read_record_line(line)
         if header?
-          read_header(line, cleanse: cleanse)
+          read_header(line)
           nil
         else
-          yield restrict(record_parse(line), cleanse?(cleanse))
+          yield restrict(record_parse(line))
         end
       end
 
       # Applies the column restrictions to the columns supplied, which take the place of a header row, as a reader of
-      # records does before it reads the file, see `IOStreams::Record::Reader#initialize`.
-      def restrict_columns(cleanse: CLEANSE_BY_DEFAULT)
-        restrict_header(cleanse?(cleanse)) if restricted? && !header?
+      # records does before it reads the file, see `IOStreams::Record::Reader#initialize`, renaming them when the header
+      # row read is cleansed, see #initialize.
+      def restrict_columns
+        restrict_header(@cleanse) if restricted? && !header?
       end
 
       # Yields [String] the header line of the columns supplied, which a writer of rows or records writes before the
@@ -199,25 +211,15 @@ module IOStreams
 
       private
 
-      # Returns [true|false] whether to cleanse the header row read, the `cleanse_header` option of the reader:
-      # true for `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, the default.
-      def cleanse?(cleanse)
-        cleanse.equal?(CLEANSE_BY_DEFAULT) || cleanse
-      end
-
       def restricted?
         header.restricted?
       end
 
-      def cleanse_columns(cleanse)
-        header.cleanse!(rename: cleanse)
-      end
-
       # Apply the allowed and required columns to supplied columns, or to a header row read with
-      # `cleanse_header: false`. Unless `IOStreams.enforce_column_restrictions?`, only warn when they would
-      # change the columns.
+      # `cleanse_header: false`, renaming them when `cleanse`. Unless `IOStreams.enforce_column_restrictions?`, only warn
+      # when they would change the columns.
       def restrict_header(cleanse)
-        return cleanse_columns(cleanse) if IOStreams.enforce_column_restrictions?
+        return header.cleanse!(rename: cleanse) if IOStreams.enforce_column_restrictions?
         return if @warned
 
         columns = header.columns
@@ -234,14 +236,15 @@ module IOStreams
         warn_restriction if changed
       end
 
-      # Formats such as JSON have no header row, so apply the allowed and required columns to each record's keys.
-      # Unless `IOStreams.enforce_column_restrictions?`, only warn when they would change the record.
-      def restrict(record, cleanse)
+      # Formats such as JSON have no header row, so apply the allowed and required columns to each record's keys,
+      # renaming them when the header row read is cleansed, see #initialize. Unless
+      # `IOStreams.enforce_column_restrictions?`, only warn when they would change the record.
+      def restrict(record)
         return record unless record.is_a?(Hash) && restricted? && header.columns.nil?
-        return header.restrict_hash(record, rename: cleanse) if IOStreams.enforce_column_restrictions?
+        return header.restrict_hash(record, rename: @cleanse) if IOStreams.enforce_column_restrictions?
         return record if @warned
 
-        warn_restriction if changed_by_restriction? { header.restrict_hash(record, rename: cleanse) != record }
+        warn_restriction if changed_by_restriction? { header.restrict_hash(record, rename: @cleanse) != record }
         record
       end
 
