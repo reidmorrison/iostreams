@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - Unreleased
+
+v2.2 prepares applications for v3.0: it adds the methods that replace those that v3.0 deprecates or removes, so that
+an application can move to them before it upgrades. It changes no existing behavior.
+
+### Added
+
+- **`#raw` reads and writes the data as it is stored**, applying no streams, neither those that the file name implies nor any set with `#stream` or `#option`, and no encoding, for example to checksum a compressed file as it is stored, `Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)`, or to write data that is already compressed, `IOStreams.path("data.csv.gz").raw.write(gzipped)`. Setting a stream, option or encoding after it raises `ArgumentError`, since the data is as stored. `#raw?` returns whether `#raw` was called. It replaces `stream(:none)`, which still works.
+- **`#encoding` sets the encoding of the text that the application reads or writes**, and the other options of the encode stream, for example `IOStreams.path("export.csv").encoding("UTF-8", cleaner: :printable, replace: "")`. Unlike `option(:encode, ...)`, it keeps working after `#stream`, and for a stream without a file name, and unlike `stream(:encode, ...)`, it keeps the streams taken from the file name, so `IOStreams.path("data.csv.gz").encoding("BINARY")` is still decompressed. The encode stream is applied closest to the application, with the same options and the same results as `option(:encode, ...)`. Each call merges its options with those already set, `stream(:none)` and `remove_from_pipeline(:encode)` remove them, and an option that the encode stream does not take raises `ArgumentError`. Without any arguments, `#encoding` returns the encoding that was set, or nil, like `IO#encoding`. It replaces `option(:encode, ...)` and `stream(:encode, ...)`, which still work.
+- **`IOStreams.tabular_formats` returns the names of the formats that `#format` accepts**, such as `:csv`, `:json` and `:fixed`, so that an application can check a format held in configuration, or offer a choice of formats, without using the internal `IOStreams::Tabular.registered_formats`.
+
 ## [2.1.0] - 2026-10-04
 
 ### Breaking

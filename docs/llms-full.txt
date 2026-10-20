@@ -1848,12 +1848,25 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-To ensure no streams are inferred or applied use stream `:none` 
-~~~ruby 
-path = IOStreams.path("file.zip")
-path.stream(:none)
-path.read
+#### Raw
+
+To read or write the data as it is stored, applying no streams, neither those that the file name implies nor any
+set with `option` or `stream`, and no encoding, use `raw`. For example, to checksum a compressed file as it is
+stored, or to write data that is already compressed:
+
+~~~ruby
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+
+IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
+
+Setting a stream, option or encoding after `raw` raises `ArgumentError`, since the data is as stored.
+`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which still works.
+
+To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+`copy_to(target, convert: false)` instead, since the target applies its own streams. To read a file that is not
+named for its format, such as a CSV file called `data.txt`, set the file name that names its format, for example
+`file_name("data.csv")`.
 
 ---
 
@@ -1915,16 +1928,22 @@ Notes:
 
 ## Character encoding
 
-The special `:encode` stream converts the character encoding of the data being read or written.
-It is applied with `option` or `stream` rather than a file name extension:
+The encode stream converts the character encoding of the text that the application reads or writes.
+File names do not name it, so set it with `encoding`, which keeps the streams that the file name implies, and
+also works for a stream without a file name, or with streams set with `stream`:
 
 ~~~ruby
 IOStreams.path("sample.csv.gz").
-  option(:encode, encoding: "UTF-8", cleaner: :printable, replace: "").
+  encoding("UTF-8", cleaner: :printable, replace: "").
   each do |line|
     puts line
   end
 ~~~
+
+The encode stream is applied closest to the application, so above the data is decompressed first, and then
+converted. Each call to `encoding` merges its options with those already set, and `encoding` without any
+arguments returns the encoding that was set, or nil. `encoding` replaces `option(:encode, ...)` and
+`stream(:encode, ...)`, which still work, with the same options and the same results.
 
 Options:
 
@@ -2009,6 +2028,14 @@ path.each(:hash) { |record| p record }
 
 ~~~ruby
 IOStreams.path("sample_data").format(:json).each(:hash) { |record| p record }
+~~~
+
+`IOStreams.tabular_formats` returns the names of the formats that `format` accepts, such as `:csv`, `:json` and
+`:fixed`, for example to check a format held in configuration:
+
+~~~ruby
+IOStreams.tabular_formats.include?(:json)
+# => true
 ~~~
 
 ## Format options
@@ -2205,7 +2232,7 @@ Custom stream conversions can be applied to both the source and the target in a 
 Here the source is read as binary and the target is PGP encrypted:
 
 ~~~ruby
-source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
+source = IOStreams.path("source_file").encoding("BINARY")
 IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
 ~~~
 

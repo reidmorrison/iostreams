@@ -66,6 +66,14 @@ class BuilderTest < Minitest::Test
       end
     end
 
+    describe "#encoding" do
+      it "raises without an encoding or options" do
+        error = assert_raises(ArgumentError) { IOStreams::Builder.new.encoding }
+
+        assert_equal "Supply the encoding, or options for the encode stream", error.message
+      end
+    end
+
     describe "#format" do
       it "detects the format from the file name" do
         streams = IOStreams::Builder.new("abc.json")

@@ -10,6 +10,8 @@ module IOStreams
       @options       = nil
       @format        = nil
       @format_option = nil
+      @encoding      = nil
+      @raw           = false
     end
 
     # Supply an option that is only applied once the file name extensions have been parsed.
@@ -17,6 +19,7 @@ module IOStreams
     # - Cannot set both `stream` and `option`
     def option(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
+      raise_if_raw!("#option")
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set}") unless file_name
@@ -32,13 +35,12 @@ module IOStreams
 
     def stream(stream, **options)
       stream = stream.to_sym unless stream.is_a?(Symbol)
+      raise_if_raw!("#stream")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance}") if @options
 
-      # To prevent any streams from being applied supply a stream named `:none`
-      if stream == :none
-        @streams = {}
-        return self
-      end
+      # To prevent any streams from being applied, including an encoding set with #encoding, supply a stream named
+      # `:none`
+      return no_streams if stream == :none
       raise(ArgumentError, "Invalid stream: #{stream.inspect}") unless IOStreams.extensions.include?(stream)
 
       @streams ||= {}
@@ -47,6 +49,59 @@ module IOStreams
       else
         @streams[stream] = options.dup
       end
+      self
+    end
+
+    # Sets the encoding of the text that the application reads or writes, and the other options of the encode
+    # stream, see `IOStreams::Encode`, merging them with those already set.
+    #
+    # Unlike `#option`, it can be combined with `#stream`, and needs no file name. Unlike `#stream`, it does not stop
+    # the streams being taken from the file name. The encode stream is applied closest to the application, after
+    # every other stream when reading, with the options set by `#option` or `#stream` for `:encode`, if any, and
+    # these on top of them.
+    #
+    # Raises ArgumentError when neither an encoding nor any options are supplied, when the encoding is supplied both
+    # as an argument and as the `encoding:` option, or for an option that the encode stream does not take.
+    def encoding(encoding = nil, **options)
+      raise_if_raw!("#encoding")
+      if encoding
+        raise(ArgumentError, "Supply the encoding as an argument or as `encoding:`, not both") if options.key?(:encoding)
+
+        options = {encoding: encoding, **options}
+      end
+      raise(ArgumentError, "Supply the encoding, or options for the encode stream") if options.empty?
+
+      unknown = options.keys - encode_option_names
+      if unknown.any?
+        raise(ArgumentError, "Unknown encoding #{unknown.size == 1 ? 'option' : 'options'} #{list(unknown)}. " \
+                             "Valid options: #{list(encode_option_names)}.")
+      end
+
+      @encoding = (@encoding || {}).merge(options)
+      self
+    end
+
+    # Reads and writes the data as it is stored: applies no streams, neither those that the file name implies nor any
+    # already set with #stream or #option, and no encoding set with #encoding. For example, to download a zip file
+    # without unzipping it, or to write data that is already compressed.
+    #
+    # Since the data is as stored, setting a stream, option or encoding afterwards raises ArgumentError.
+    def raw
+      no_streams
+      @options = nil
+      @raw     = true
+      self
+    end
+
+    # Returns [true|false] whether the data is read and written as it is stored, see #raw.
+    def raw?
+      @raw
+    end
+
+    # Applies no streams, including an encoding set with #encoding, as `stream(:none)` does, for IOStreams itself.
+    def no_streams
+      @streams  = {}
+      @encoding = nil
       self
     end
 
@@ -62,6 +117,7 @@ module IOStreams
 
     # Return the options set for either a stream or option.
     def setting(stream)
+      return encode_setting if stream == :encode && @encoding
       return streams[stream] if streams
 
       options[stream] if options
@@ -78,9 +134,7 @@ module IOStreams
     # Returns [Hash<Symbol:Hash>] the pipeline of streams
     # with their options that will be applied when the reader or writer is invoked.
     def pipeline
-      return streams.dup.freeze if streams
-
-      build_pipeline.freeze
+      with_encoding(streams ? streams.dup : build_pipeline).freeze
     end
 
     # Removes the named stream from the current pipeline.
@@ -88,6 +142,7 @@ module IOStreams
     # Note: Any options must be set _before_ calling this method.
     def remove_from_pipeline(stream_name)
       @streams ||= build_pipeline
+      @encoding  = nil if stream_name.to_sym == :encode
       @streams.delete(stream_name.to_sym)
     end
 
@@ -118,6 +173,32 @@ module IOStreams
     end
 
     private
+
+    def raise_if_raw!(method_name)
+      return unless @raw
+
+      raise(ArgumentError, "Cannot call #{method_name} after #raw, which reads and writes the data as it is stored")
+    end
+
+    # Returns [Hash] the options of the encode stream set with #option or #stream, if any, and those of #encoding.
+    def encode_setting
+      setting = streams ? streams[:encode] : options&.[](:encode)
+      (setting || {}).merge(@encoding)
+    end
+
+    # Returns [Hash<Symbol:Hash>] the pipeline, with the encode stream first, closest to the application, when an
+    # encoding was set with #encoding.
+    def with_encoding(pipeline)
+      return pipeline unless @encoding
+
+      encode = (pipeline[:encode] || {}).merge(@encoding)
+      pipeline.delete(:encode)
+      {encode: encode}.merge(pipeline)
+    end
+
+    def encode_option_names
+      (Encode::Reader.option_names + Encode::Writer.option_names).uniq
+    end
 
     def build_pipeline
       return {} unless file_name

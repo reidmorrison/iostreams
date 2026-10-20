@@ -123,7 +123,7 @@ module IOStreams
   # Note: The temp file is accessible even when it is not within the allowed paths, see `IOStreams.add_allowed_path`.
   def self.temp_file(basename, extension = "")
     Utils.temp_file_name(basename, extension) do |file_name|
-      yield(Paths::File.new(file_name).send(:permit!).stream(:none))
+      yield(Paths::File.new(file_name).send(:permit!).send(:no_streams))
     end
   end
 
@@ -408,6 +408,13 @@ module IOStreams
   # Registered file extensions
   def self.extensions
     @extensions.dup
+  end
+
+  # Returns [Array<Symbol>] the names of the formats of the rows and records of a file that `IOStreams::Stream#format`
+  # accepts, such as `:csv`, `:json` or `:fixed`, frozen. The list grows as formats are added, so check whether a name
+  # is included, rather than rely on its order or its length.
+  def self.tabular_formats
+    Tabular.registered_formats.freeze
   end
 
   # Register a URI scheme and the path class that handles it

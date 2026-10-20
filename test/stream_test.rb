@@ -788,6 +788,147 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#raw?" do
+      it "returns whether the data is read and written as it is stored" do
+        refute_predicate IOStreams.path("a.csv.gz"), :raw?
+        assert_predicate IOStreams.path("a.csv.gz").raw, :raw?
+      end
+    end
+
+    describe "#raw" do
+      it "reads the data as it is stored, without the streams that the file name implies" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "data.csv.gz")
+          path.write("name\nJack\n")
+          stored = ::File.binread(path.to_s)
+
+          assert_equal stored, IOStreams.path(dir, "data.csv.gz").raw.read
+          refute_equal "name\nJack\n", stored
+        end
+      end
+
+      it "writes the data as it is supplied" do
+        Dir.mktmpdir do |dir|
+          data = Zlib.gzip("Hello")
+          IOStreams.path(dir, "data.csv.gz").raw.write(data)
+
+          assert_equal data.b, ::File.binread(File.join(dir, "data.csv.gz"))
+          assert_equal "Hello", IOStreams.path(dir, "data.csv.gz").read
+        end
+      end
+
+      it "applies no streams set with #stream or #option, and no encoding" do
+        assert_empty IOStreams.path("data.csv.pgp").option(:pgp, passphrase: "secret").raw.pipeline
+        assert_empty IOStreams.path("data.csv").stream(:gz).raw.pipeline
+        assert_empty IOStreams.path("data.csv").encoding("UTF-8").raw.pipeline
+      end
+
+      it "reads the same data as stream(:none)" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "data.csv.gz").write("name\nJack\n")
+          none = IOStreams.path(dir, "data.csv.gz").stream(:none).read
+
+          assert_equal none, IOStreams.path(dir, "data.csv.gz").raw.read
+        end
+      end
+
+      it "raises when a stream, option or encoding is set afterwards" do
+        path = IOStreams.path("data.csv.gz").raw
+
+        assert_raises(ArgumentError) { path.stream(:gz) }
+        assert_raises(ArgumentError) { path.option(:gz) }
+        error = assert_raises(ArgumentError) { path.encoding("UTF-8") }
+
+        assert_equal "Cannot call #encoding after #raw, which reads and writes the data as it is stored", error.message
+      end
+    end
+
+    describe "#encoding" do
+      it "returns nil when no encoding is set" do
+        assert_nil IOStreams.path("data.csv").encoding
+      end
+
+      it "returns the encoding that was set" do
+        assert_equal "BINARY", IOStreams.path("data.csv").encoding("BINARY").encoding
+        assert_equal "UTF-8", IOStreams.path("data.csv").encoding(encoding: "UTF-8", replace: "").encoding
+      end
+
+      it "returns the encoding set with the encode stream" do
+        path = IOStreams.path("data.csv").option(:encode, encoding: "BINARY")
+
+        assert_equal "BINARY", path.encoding
+      end
+
+      it "keeps the streams that the file name implies, closest to the application" do
+        assert_equal({encode: {encoding: "BINARY"}, gz: {}, pgp: {}}, IOStreams.path("data.csv.gz.pgp").encoding("BINARY").pipeline)
+      end
+
+      it "keeps the streams set with #stream" do
+        path = IOStreams.path("tempfile2527").stream(:gz).encoding("UTF-8", replace: "")
+
+        assert_equal({encode: {encoding: "UTF-8", replace: ""}, gz: {}}, path.pipeline)
+      end
+
+      it "works for a stream without a file name" do
+        io = StringIO.new("New M\xE9xico\n".b)
+
+        assert_equal "New Mxico\n", IOStreams.stream(io).encoding("UTF-8", replace: "").read
+      end
+
+      it "merges each call with the options already set" do
+        path = IOStreams.path("data.csv").encoding("UTF-8").encoding(cleaner: :printable)
+
+        assert_equal({encoding: "UTF-8", cleaner: :printable}, path.setting(:encode))
+      end
+
+      it "reads the same data as option(:encode, ...)" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(File.join(dir, "data.csv"), bad_data)
+          options = {encoding: "UTF-8", cleaner: :printable, replace: ""}
+          encoded = IOStreams.path(dir, "data.csv").option(:encode, **options).read
+
+          assert_equal stripped_data, encoded
+          assert_equal encoded, IOStreams.path(dir, "data.csv").encoding(**options).read
+        end
+      end
+
+      it "merges its options with those of the encode stream" do
+        path = IOStreams.path("data.csv.gz").option(:encode, encoding: "UTF-8", replace: "")
+        path.encoding(cleaner: :printable)
+
+        assert_equal({encoding: "UTF-8", replace: "", cleaner: :printable}, path.setting(:encode))
+        assert_equal({encode: {encoding: "UTF-8", replace: "", cleaner: :printable}, gz: {}}, path.pipeline)
+      end
+
+      it "is removed by stream(:none)" do
+        path = IOStreams.path("data.csv.gz").encoding("BINARY")
+        path.stream(:none)
+
+        assert_empty path.pipeline
+        assert_nil path.encoding
+      end
+
+      it "is removed by remove_from_pipeline" do
+        path = IOStreams.path("data.csv.gz").encoding("BINARY")
+        path.remove_from_pipeline(:encode)
+
+        assert_equal({gz: {}}, path.pipeline)
+        assert_nil path.encoding
+      end
+
+      it "raises for an encoding supplied twice" do
+        error = assert_raises(ArgumentError) { IOStreams.path("data.csv").encoding("UTF-8", encoding: "BINARY") }
+
+        assert_equal "Supply the encoding as an argument or as `encoding:`, not both", error.message
+      end
+
+      it "raises for an option that the encode stream does not take" do
+        error = assert_raises(ArgumentError) { IOStreams.path("data.csv").encoding("UTF-8", replac: "") }
+
+        assert_equal "Unknown encoding option :replac. Valid options: :encoding, :cleaner, :replace.", error.message
+      end
+    end
+
     describe "#copy_from" do
       let :source_path do
         IOStreams.join("copy_test", "source.csv.gz")

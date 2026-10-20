@@ -45,6 +45,59 @@ module IOStreams
       self
     end
 
+    # Read and write the data as it is stored: no streams are applied, neither those that the file name implies
+    # nor any set with #stream or #option, and no encoding set with #encoding.
+    # Setting a stream, option or encoding afterwards raises ArgumentError.
+    #
+    # Examples:
+    #
+    # # Checksum a compressed file as it is stored.
+    # Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+    #
+    # # Write data that is already compressed.
+    # IOStreams.path("data.csv.gz").raw.write(gzipped_data)
+    #
+    # To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+    # `copy_to(target, convert: false)`, since the target applies its own streams. To read a file that is not named
+    # for its format, such as a CSV file called `data.txt`, set the file name that names its format instead, for
+    # example `file_name("data.csv")`.
+    #
+    # Replaces `stream(:none)`, which still works.
+    def raw
+      builder.raw
+      self
+    end
+
+    # Returns [true|false] whether the data is read and written as it is stored, see #raw.
+    def raw?
+      builder.raw?
+    end
+
+    # Set the character encoding of the text that the application reads or writes, which the encode stream
+    # converts, and its other options, `replace:` and `cleaner:`, see `IOStreams::Encode::Reader`. Unlike the streams
+    # in the file name, the encoding stays with the path, whichever streams it has, and works for a stream without a
+    # file name too. Each call merges its options with those already set.
+    #
+    # Examples:
+    #
+    # # Read binary lines from a compressed file, which is still decompressed.
+    # IOStreams.path("data.csv.gz").encoding("BINARY").each(:line) { |line| p line }
+    #
+    # # Read UTF-8 text, removing the characters that are not printable.
+    # IOStreams.path("export.csv").encoding("UTF-8", cleaner: :printable).each(:hash) { |hash| p hash }
+    #
+    # Replaces `option(:encode, ...)` and `stream(:encode, ...)`, which still work, with the same options and the
+    # same results.
+    #
+    # Without any arguments, returns [String|Encoding|nil] the encoding that was set, or nil when none was, like
+    # `IO#encoding`.
+    def encoding(encoding = nil, **options)
+      return builder.setting(:encode)&.[](:encoding) if encoding.nil? && options.empty?
+
+      builder.encoding(encoding, **options)
+      self
+    end
+
     # Return the options already set for either a stream or option.
     def setting(stream)
       builder.setting(stream)
@@ -194,8 +247,8 @@ module IOStreams
         end
       else
         stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
-        dup.stream(:none).writer do |target|
-          stream.stream(:none).reader { |src| IO.copy_stream(src, target) }
+        dup.no_streams.writer do |target|
+          stream.no_streams.reader { |src| IO.copy_stream(src, target) }
         end
       end
     end
@@ -321,6 +374,14 @@ module IOStreams
     #   IOStreams.path(".profile.sh").extension     #=> "sh"
     def extension
       extname&.sub(/^\./, "")
+    end
+
+    protected
+
+    # Applies no streams, as `stream(:none)` does, for IOStreams itself, which never uses its own deprecated methods.
+    def no_streams
+      builder.no_streams
+      self
     end
 
     private

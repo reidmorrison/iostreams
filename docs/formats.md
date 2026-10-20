@@ -50,6 +50,14 @@ path.each(:hash) { |record| p record }
 IOStreams.path("sample_data").format(:json).each(:hash) { |record| p record }
 ~~~
 
+`IOStreams.tabular_formats` returns the names of the formats that `format` accepts, such as `:csv`, `:json` and
+`:fixed`, for example to check a format held in configuration:
+
+~~~ruby
+IOStreams.tabular_formats.include?(:json)
+# => true
+~~~
+
 ## Format options
 
 Format specific options are supplied with `format_options`. They are passed to the parser

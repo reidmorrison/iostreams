@@ -329,9 +329,22 @@ path.setting(:pgp)
 # => {:passphrase=>"receiver_passphrase"}
 ~~~
 
-To ensure no streams are inferred or applied use stream `:none` 
-~~~ruby 
-path = IOStreams.path("file.zip")
-path.stream(:none)
-path.read
+#### Raw
+
+To read or write the data as it is stored, applying no streams, neither those that the file name implies nor any
+set with `option` or `stream`, and no encoding, use `raw`. For example, to checksum a compressed file as it is
+stored, or to write data that is already compressed:
+
+~~~ruby
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+
+IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
+
+Setting a stream, option or encoding after `raw` raises `ArgumentError`, since the data is as stored.
+`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which still works.
+
+To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+`copy_to(target, convert: false)` instead, since the target applies its own streams. To read a file that is not
+named for its format, such as a CSV file called `data.txt`, set the file name that names its format, for example
+`file_name("data.csv")`.

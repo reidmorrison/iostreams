@@ -62,16 +62,22 @@ Notes:
 
 ## Character encoding
 
-The special `:encode` stream converts the character encoding of the data being read or written.
-It is applied with `option` or `stream` rather than a file name extension:
+The encode stream converts the character encoding of the text that the application reads or writes.
+File names do not name it, so set it with `encoding`, which keeps the streams that the file name implies, and
+also works for a stream without a file name, or with streams set with `stream`:
 
 ~~~ruby
 IOStreams.path("sample.csv.gz").
-  option(:encode, encoding: "UTF-8", cleaner: :printable, replace: "").
+  encoding("UTF-8", cleaner: :printable, replace: "").
   each do |line|
     puts line
   end
 ~~~
+
+The encode stream is applied closest to the application, so above the data is decompressed first, and then
+converted. Each call to `encoding` merges its options with those already set, and `encoding` without any
+arguments returns the encoding that was set, or nil. `encoding` replaces `option(:encode, ...)` and
+`stream(:encode, ...)`, which still work, with the same options and the same results.
 
 Options:
 
