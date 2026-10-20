@@ -7,6 +7,7 @@ module IOStreams
   autoload :Path,        "io_streams/path"
   autoload :Pgp,         "io_streams/pgp"
   autoload :Reader,      "io_streams/reader"
+  autoload :Schema,      "io_streams/schema"
   autoload :Stream,      "io_streams/stream"
   autoload :Tabular,     "io_streams/tabular"
   autoload :Utils,       "io_streams/utils"

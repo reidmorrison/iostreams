@@ -31,6 +31,70 @@ module IOStreams
       value.respond_to?(:empty?) ? value.empty? : !value
     end
 
+    # Text that is blank, see .blank_text?: empty, or only whitespace, as Rails' `String#blank?` matches it.
+    BLANK_TEXT = /\A[[:space:]]*\z/
+    private_constant :BLANK_TEXT
+
+    # The pattern of BLANK_TEXT in each encoding that it cannot be matched against, such as UTF-16, see .blank_text?.
+    @encoded_blank_texts = {}
+    @encoded_blank_texts_mutex = Mutex.new
+
+    # The rules below of what is blank apply to the rows and records read and written with a schema, see
+    # `IOStreams::Tabular::SchemaMapping`, as IOStreams 3.0 applies them to every file, while a file without a schema
+    # keeps those of .blank?.
+
+    # Returns [true|false] whether the text is blank, by the rules of Rails' `String#blank?`: empty, or only whitespace,
+    # which is any Unicode whitespace, such as a no-break space (U+00A0) or an ideographic space (U+3000), not only a
+    # space, tab, or line ending. Text in an encoding that is not ASCII compatible, such as UTF-16, is matched in its own
+    # encoding, as Rails matches it.
+    #
+    # Raises ArgumentError for text whose bytes are not valid in its encoding, as Rails does.
+    def self.blank_text?(text)
+      text.empty? || BLANK_TEXT.match?(text)
+    rescue Encoding::CompatibilityError
+      encoded_blank_text(text.encoding).match?(text)
+    end
+
+    # Returns [true|false] whether a value within a row or record is blank, so that it holds no data: nil, or text that
+    # is blank, see .blank_text?. Any other value is data, such as false, 0, an empty Array, or text whose bytes are not
+    # valid in its encoding, since it is not text that is known to be blank.
+    def self.blank_value?(value)
+      value.nil? || (value.is_a?(String) && value.valid_encoding? && blank_text?(value))
+    end
+
+    # Returns [true|false] whether a row or record is blank, so that it holds no data: nil, or an Array or Hash without
+    # values, or whose every value is blank, see .blank_value?, such as the row of a line of CSV of only commas, or a
+    # record of JSON whose every value is null.
+    def self.blank_row?(row)
+      case row
+      when nil then true
+      when ::Hash then row.each_value.all? { |value| blank_value?(value) }
+      when ::Array then row.all? { |value| blank_value?(value) }
+      else false
+      end
+    end
+
+    # Returns [Regexp] the pattern of blank text in the supplied encoding, see .blank_text?, created once for each one.
+    def self.encoded_blank_text(encoding)
+      @encoded_blank_texts_mutex.synchronize do
+        @encoded_blank_texts[encoding] ||=
+          Regexp.new(BLANK_TEXT.source.encode(encoding), BLANK_TEXT.options | Regexp::FIXEDENCODING)
+      end
+    end
+    private_class_method :encoded_blank_text
+
+    # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that holding a
+    # setting, such as a schema, does not freeze the objects that the caller supplied, and the caller changing them
+    # does not change the setting. Any other value, such as a Symbol, is returned as it is.
+    def self.frozen_copy(value)
+      case value
+      when Hash then value.to_h { |key, item| [frozen_copy(key), frozen_copy(item)] }.freeze
+      when Array then value.map { |item| frozen_copy(item) }.freeze
+      when String then value.frozen? ? value : value.dup.freeze
+      else value
+      end
+    end
+
     # Yields the path to a temporary file_name.
     #
     # File is deleted upon completion if present.
