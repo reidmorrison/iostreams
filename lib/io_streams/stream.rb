@@ -511,14 +511,22 @@ module IOStreams
       # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or
       # `'"'` (force). Centralizing this in the builder keeps all format-based decisions there.
       embedded_within = builder.quote_character if embedded_within == :auto
+      reader_class    = utf8_lines? ? IOStreams::Line::Utf8Reader : IOStreams::Line::Reader
 
       stream_reader do |io|
-        yield IOStreams::Line::Reader.new(
+        yield reader_class.new(
           io,
           embedded_within: embedded_within,
           **args
         )
       end
+    end
+
+    # Returns [true|false] whether the lines read are taken as UTF-8, see `IOStreams::Line::Utf8Reader`: those of a file
+    # with a schema, whose text is UTF-8, see #schema, unless an encoding is set on the encode stream, which decodes it
+    # instead, as the rows and records of the file are read, see #schema_tabular.
+    def utf8_lines?
+      !builder.schema.nil? && builder.setting(:encode).nil?
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.

@@ -83,6 +83,28 @@ module IOStreams
     end
     private_class_method :encoded_blank_text
 
+    # Returns [String] the text, taken as UTF-8 when it is binary, as IOStreams 2 reads a file without an encoding,
+    # see `IOStreams::Stream#encoding`, such as a file read with a schema, whose text is UTF-8, see
+    # `IOStreams::Stream#schema`. Text in any other encoding is returned as it is.
+    #
+    # Raises `IOStreams::Errors::InvalidEncoding` when it is not valid UTF-8.
+    def self.utf8(text)
+      return text unless text.encoding == ::Encoding::BINARY
+
+      utf8 = text.dup.force_encoding(::Encoding::UTF_8)
+      return utf8 if utf8.valid_encoding?
+
+      invalid = utf8.each_char.find { |char| !char.valid_encoding? }.b
+      raise(
+        IOStreams::Errors::InvalidEncoding.new(
+          "#{invalid.inspect} is not valid UTF-8. Set the encoding of the file with #encoding",
+          error_char:           invalid,
+          source_encoding:      ::Encoding::BINARY,
+          destination_encoding: ::Encoding::UTF_8
+        )
+      )
+    end
+
     # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that holding a
     # setting, such as a schema, does not freeze the objects that the caller supplied, and the caller changing them
     # does not change the setting. Any other value, such as a Symbol, is returned as it is.

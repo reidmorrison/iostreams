@@ -262,27 +262,13 @@ module IOStreams
         values unless IOStreams::Utils.blank_row?(values)
       end
 
-      # Returns [String] the text, taken as UTF-8 when it is binary, as IOStreams 2 reads a file without an encoding,
-      # see `IOStreams::Stream#option`, so that its values are UTF-8 strings, and their labels can be matched to the
-      # names of the fields, which compares the letters of every language only in Unicode, see
-      # `IOStreams::Schema.match_key`.
+      # Returns [String] the text, taken as UTF-8 when it is binary, see `IOStreams::Utils.utf8`, so that its values are
+      # UTF-8 strings, and their labels can be matched to the names of the fields, which compares the letters of every
+      # language only in Unicode, see `IOStreams::Schema.match_key`.
       #
       # Raises `IOStreams::Errors::InvalidEncoding` when it is not valid UTF-8.
       def utf8(text)
-        return text unless text.encoding == ::Encoding::BINARY
-
-        utf8 = text.dup.force_encoding(::Encoding::UTF_8)
-        return utf8 if utf8.valid_encoding?
-
-        invalid = utf8.each_char.find { |char| !char.valid_encoding? }.b
-        raise(
-          IOStreams::Errors::InvalidEncoding.new(
-            "#{invalid.inspect} is not valid UTF-8. Set the encoding of the file with #encoding",
-            error_char:           invalid,
-            source_encoding:      ::Encoding::BINARY,
-            destination_encoding: ::Encoding::UTF_8
-          )
-        )
+        IOStreams::Utils.utf8(text)
       end
 
       # Returns [Array|Hash] the row or record, whose text that is binary and not ASCII is taken as UTF-8, see #utf8,

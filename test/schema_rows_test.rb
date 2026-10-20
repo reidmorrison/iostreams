@@ -202,6 +202,47 @@ class SchemaRowsTest < Minitest::Test
         assert_equal [["Área".b, "Name"], ["12", "Jos\xE9".b]], rows
         assert_equal Encoding::BINARY, rows.last.last.encoding
       end
+
+      describe "in lines" do
+        it "is UTF-8, as the rows and records are" do
+          lines = read(stream("Área,Name\n12,José\n".b).schema(schema), :line)
+
+          assert_equal ["Área,Name", "12,José"], lines
+          assert_equal [Encoding::UTF_8, Encoding::UTF_8], lines.map(&:encoding)
+        end
+
+        it "keeps a newline within a quoted value in its line" do
+          lines = read(stream(%(Área,Name\n12,"José\nJack"\n).b).format(:csv).schema(schema), :line)
+
+          assert_equal ["Área,Name", %(12,"José\nJack")], lines
+          assert_equal Encoding::UTF_8, lines.last.encoding
+        end
+
+        it "raises for a line that is not valid UTF-8" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            read(stream("área,name\n12,Jos\xE9\n".b).schema(schema), :line)
+          end
+          assert_equal "\xE9".b, error.error_char
+        end
+
+        it "is decoded by an encoding set on the stream instead" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.csv")
+            path.write("area,name\n12,Jos\xE9\n".b)
+            lines = read(path.encoding("BINARY").schema(fields: [{name: "area"}, {name: "name"}]), :line)
+
+            assert_equal ["area,name", "12,Jos\xE9".b], lines
+            assert_equal Encoding::BINARY, lines.last.encoding
+          end
+        end
+
+        it "is read as before without a schema" do
+          lines = read(stream("Área,Name\n12,Jos\xE9\n".b), :line)
+
+          assert_equal ["Área,Name".b, "12,Jos\xE9".b], lines
+          assert_equal Encoding::BINARY, lines.last.encoding
+        end
+      end
     end
 
     describe "copying" do
