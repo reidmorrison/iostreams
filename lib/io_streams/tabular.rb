@@ -60,11 +60,6 @@ module IOStreams
     # records instead, can tell that the option was supplied, see `IOStreams::Tabular::SchemaMapping#read_row`.
     CLEANSE_BY_DEFAULT = :default
 
-    # The options of the header that describe the columns of a file without a schema, see `IOStreams::Tabular::Header`,
-    # which raise with a schema, unless they are nil, see #initialize. `skip_unknown` only applies to `allowed_columns`,
-    # so it is not one of them.
-    COLUMN_OPTION_NAMES = %i[columns allowed_columns required_columns].freeze
-
     attr_reader :format, :parser
 
     # Returns [IOStreams::Schema|nil] the schema of the rows and records, see #initialize.
@@ -378,8 +373,9 @@ module IOStreams
 
     # Raises ArgumentError for the options that describe the columns of a file without a schema, since the schema
     # describes them, see `IOStreams::Schema`, rather than apply one and ignore the other: the options of the header
-    # that are not nil, see COLUMN_OPTION_NAMES, the `cleanse_header` option of a reader, even when it is nil, since nil
-    # does not cleanse the header row, and the layout of a fixed width file in format options that are not empty.
+    # that are not nil, see `IOStreams::Tabular::Header.column_option_names`, the `cleanse_header` option of a reader,
+    # even when it is nil, since nil does not cleanse the header row, and the layout of a fixed width file in format
+    # options that are not empty.
     #
     # An option that is nil is not supplied, and `skip_unknown` only applies to `allowed_columns`, so they are accepted,
     # so that a caller, such as Rocket Job, can supply its options whether or not there is a schema.
@@ -388,7 +384,7 @@ module IOStreams
         raise(ArgumentError, "Supply either schema: or format_options:, not both")
       end
 
-      names = args.compact.keys & COLUMN_OPTION_NAMES
+      names = Header.column_option_names(args)
       unless names.empty?
         raise(
           ArgumentError,
