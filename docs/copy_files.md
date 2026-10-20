@@ -52,6 +52,13 @@ IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "receiver@example.org").co
 
 A copy without a mode returns the number of bytes copied, as written to the target before its streams.
 
+The source of a copy in the `:array` or `:hash` mode can also be an Active Record relation, whose rows are read with
+one query, and written by the types of its columns, see [Exporting queries](queries):
+
+~~~ruby
+IOStreams.path("s3://my-bucket/exports/orders.parquet").copy_from(Order.where(paid: true), mode: :hash)
+~~~
+
 ## Copying as stored
 
 `convert: false` copies the data as it is stored, without applying the streams of either file name, such as to

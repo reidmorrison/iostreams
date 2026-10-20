@@ -203,6 +203,12 @@ end
 IOStreams.path("people.json").copy_from("people.csv", mode: :hash)
 ~~~
 
+**Export a database query to CSV, keeping the types of its columns**, see [Exporting queries](queries):
+
+~~~ruby
+IOStreams.path("orders.csv").copy_from(Order.where(paid: true), mode: :hash)
+~~~
+
 **Upload a file to S3**, see [Copying and moving](copy_files):
 
 ~~~ruby
@@ -328,6 +334,7 @@ gems of the features that your application uses:
 | PGP | The `gpg` program of GnuPG 2.1 or later, see [PGP](pgp#installation) |
 | Symmetric Encryption | `symmetric-encryption` |
 | Parquet | `parquet`, which is not available on JRuby |
+| [Active Record queries](queries) | `activerecord` 7.2 or later, and the driver of the database: `pg`, `mysql2` or `sqlite3` |
 | The `number` fields of a schema | `bigdecimal`, a bundled gem from Ruby 3.4 |
 
 When a gem is missing, the feature that needs it raises `LoadError`, naming the gem to install.
@@ -340,6 +347,7 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 * [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
 * [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.
+* [Exporting queries](queries): exporting the rows of an Active Record query to any format and store.
 * [Errors](errors): rescuing a missing file the same way wherever it is stored.
 * [PGP](pgp): encrypting, decrypting, signing and verifying files, and managing keys.
 * [Configuration](config): roots, temp files and logging.
