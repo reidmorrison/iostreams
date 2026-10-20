@@ -2662,9 +2662,9 @@ uses one works the same way after an upgrade, apart from these differences, whic
   rather than an `IOStreams::Row::HeaderRow`, so a loop that writes its rows to a writer with a schema writes the
   header row as a row of values, while `copy_from(source, mode: :array)` hands it over as the header row. A copy
   between two files without a schema copies each row as before.
-* Parquet files are only in IOStreams 3.0, which also reads and writes the layout of `format_options` with its
-  schema, while IOStreams 2.2 reads and writes it with the layout, as before, and `IOStreams::Schema.from_layout`
-  returns its schema, see [Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema).
+* Parquet files are only in IOStreams 3.0, which removes the layout of `format_options`, while IOStreams 2.2 reads and
+  writes it with the layout, as before, and `IOStreams::Schema.from_layout` returns its schema, see
+  [Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema).
 
 ---
 
@@ -3478,7 +3478,8 @@ path.format(:fixed).schema(
 `IOStreams::Schema.from_layout` returns the schema of a layout as a Hash, to set with `#schema` or to save as a JSON
 file, such as `IOStreams::Schema.from_layout(layout: layout)`, with `truncate: false` too when the layout has it. The
 columns of the layout can have String keys, such as a layout read from JSON. A column after the column with
-`size: :remainder` is left out, since the layout never reads it.
+`size: :remainder` is left out, since the layout never reads it. It is only for moving off a layout: v3.0 removes it,
+with `#format_options`, so keep the schema that it returns rather than call it each time.
 
 The keys of the records read are the names of the fields, so a layout with Symbol keys, such as `key: :name`, reads
 Symbol keys, as does a schema whose field is named with that Symbol, while a schema saved as a JSON file names its

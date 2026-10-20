@@ -146,7 +146,8 @@ path.format(:fixed).schema(
 `IOStreams::Schema.from_layout` returns the schema of a layout as a Hash, to set with `#schema` or to save as a JSON
 file, such as `IOStreams::Schema.from_layout(layout: layout)`, with `truncate: false` too when the layout has it. The
 columns of the layout can have String keys, such as a layout read from JSON. A column after the column with
-`size: :remainder` is left out, since the layout never reads it.
+`size: :remainder` is left out, since the layout never reads it. It is only for moving off a layout: v3.0 removes it,
+with `#format_options`, so keep the schema that it returns rather than call it each time.
 
 The keys of the records read are the names of the fields, so a layout with Symbol keys, such as `key: :name`, reads
 Symbol keys, as does a schema whose field is named with that Symbol, while a schema saved as a JSON file names its

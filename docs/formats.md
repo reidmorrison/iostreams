@@ -639,6 +639,6 @@ uses one works the same way after an upgrade, apart from these differences, whic
   rather than an `IOStreams::Row::HeaderRow`, so a loop that writes its rows to a writer with a schema writes the
   header row as a row of values, while `copy_from(source, mode: :array)` hands it over as the header row. A copy
   between two files without a schema copies each row as before.
-* Parquet files are only in IOStreams 3.0, which also reads and writes the layout of `format_options` with its
-  schema, while IOStreams 2.2 reads and writes it with the layout, as before, and `IOStreams::Schema.from_layout`
-  returns its schema, see [Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema).
+* Parquet files are only in IOStreams 3.0, which removes the layout of `format_options`, while IOStreams 2.2 reads and
+  writes it with the layout, as before, and `IOStreams::Schema.from_layout` returns its schema, see
+  [Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema).
