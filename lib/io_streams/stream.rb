@@ -511,7 +511,7 @@ module IOStreams
       # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or
       # `'"'` (force). Centralizing this in the builder keeps all format-based decisions there.
       embedded_within = builder.quote_character if embedded_within == :auto
-      reader_class    = utf8_lines? ? IOStreams::Line::Utf8Reader : IOStreams::Line::Reader
+      reader_class    = builder.utf8_text? ? IOStreams::Line::Utf8Reader : IOStreams::Line::Reader
 
       stream_reader do |io|
         yield reader_class.new(
@@ -520,13 +520,6 @@ module IOStreams
           **args
         )
       end
-    end
-
-    # Returns [true|false] whether the lines read are taken as UTF-8, see `IOStreams::Line::Utf8Reader`: those of a file
-    # with a schema, whose text is UTF-8, see #schema, unless an encoding is set on the encode stream, which decodes it
-    # instead, as the rows and records of the file are read, see #schema_tabular.
-    def utf8_lines?
-      !builder.schema.nil? && builder.setting(:encode).nil?
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
@@ -625,7 +618,9 @@ module IOStreams
     # schema file is read, and an option that the schema does not accept raises, before the file is opened, or a writer
     # replaces it. Returns nil without a schema, see #tabular_options.
     #
-    # The text that it reads is UTF-8, unless an encoding is set on the encode stream, which decodes it instead.
+    # The lines that it reads are already in the encoding of their text, since the line reader takes them as UTF-8, see
+    # #line_reader and `IOStreams::Builder#utf8_text?`, unless the application chose their encoding, so it takes them as
+    # they are.
     #
     # Raises ArgumentError for `schema:`, which is set on the path.
     def schema_tabular(args)
@@ -638,7 +633,7 @@ module IOStreams
         format:         builder.format,
         format_options: builder.format_options,
         schema:         schema,
-        decoded:        !builder.setting(:encode).nil?,
+        decoded:        true,
         **args
       )
     end

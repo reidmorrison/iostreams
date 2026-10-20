@@ -47,6 +47,14 @@ module IOStreams
     #   IOStreams.path("data.csv").schema("people.json").each(:hash) { |hash| p hash }
     #   # => IOStreams::Errors::InvalidEncoding: "\xFF" is not valid UTF-8
     class InvalidEncoding < ::Encoding::UndefinedConversionError
+      # Returns [Integer] the offset of the first invalid byte within the data, which IOStreams 3.0 gives, or [nil] in
+      # IOStreams 2.2, which does not count the bytes of the data read.
+      attr_reader :byte_offset
+
+      # Returns [Integer] the number of the line that the invalid data is on, counting from 1,
+      # or [nil] when the data is not read a line at a time.
+      attr_reader :line_number
+
       # Returns [String] the invalid bytes, as binary, like `Encoding::UndefinedConversionError#error_char`.
       attr_reader :error_char
 
@@ -55,7 +63,10 @@ module IOStreams
       # `#destination_encoding`.
       attr_reader :source_encoding, :destination_encoding
 
-      def initialize(message, error_char: nil, source_encoding: nil, destination_encoding: nil)
+      def initialize(message, byte_offset: nil, line_number: nil, error_char: nil, source_encoding: nil,
+                     destination_encoding: nil)
+        @byte_offset          = byte_offset
+        @line_number          = line_number
         @error_char           = error_char
         @source_encoding      = source_encoding
         @destination_encoding = destination_encoding

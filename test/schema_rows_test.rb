@@ -218,11 +218,81 @@ class SchemaRowsTest < Minitest::Test
           assert_equal Encoding::UTF_8, lines.last.encoding
         end
 
-        it "raises for a line that is not valid UTF-8" do
+        it "raises for a line that is not valid UTF-8, naming its line, as IOStreams 3.0 does" do
           error = assert_raises(IOStreams::Errors::InvalidEncoding) do
             read(stream("área,name\n12,Jos\xE9\n".b).schema(schema), :line)
           end
           assert_equal "\xE9".b, error.error_char
+          assert_equal 2, error.line_number
+          assert_nil error.byte_offset
+          assert_equal %("\\xE9" is not valid UTF-8 on line 2. Set the encoding of the file with #encoding), error.message
+        end
+
+        it "names the line of an invalid character within a quoted value" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            read(stream(%(área,name\n12,"Jack\nJos\xE9"\n).b).format(:csv).schema(schema), :line)
+          end
+          assert_equal 3, error.line_number
+        end
+
+        it "names the line of an invalid character in a row or record, which are read by their lines" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            read(stream("área,name\n12,José\n13,Jos\xE9\n".b).schema(schema), :hash)
+          end
+          assert_equal 3, error.line_number
+        end
+
+        it "reads the lines as they are stored with #raw, as binary" do
+          Dir.mktmpdir do |dir|
+            stored = Zlib.gzip("área,name\n12,Jos\xE9\n".b)
+            ::File.binwrite(File.join(dir, "people.csv.gz"), stored)
+            lines = read(IOStreams.path(dir, "people.csv.gz").schema(schema).raw, :line)
+
+            assert_equal stored.b, lines.join("\n").b
+            assert_equal Encoding::BINARY, lines.first.encoding
+          end
+        end
+
+        it "reads the rows as they are stored with #raw, as binary, as IOStreams 3.0 does" do
+          rows = read(stream("area,name\n12,Jos\xE9\n".b).schema(fields: [{name: "area"}, {name: "name"}]).raw, :hash)
+
+          assert_equal [{"area" => "12", "name" => "Jos\xE9".b}], rows
+          assert_equal Encoding::BINARY, rows.first["name"].encoding
+        end
+
+        it "is UTF-8 after stream(:none), which reads the text in its default encoding, as IOStreams 3.0 does" do
+          lines = assert_deprecated(/stream\(:none\) is deprecated/) do
+            read(stream("área,name\n12,José\n".b).schema(schema).stream(:none), :line)
+          end
+
+          assert_equal ["área,name", "12,José"], lines
+          assert_equal Encoding::UTF_8, lines.last.encoding
+        end
+
+        it "is decoded by the encode stream of a file named .encode instead" do
+          Dir.mktmpdir do |dir|
+            ::File.binwrite(File.join(dir, "people.csv.encode"), "área,name\n12,José\n".b)
+            lines = assert_deprecated(/a file name ending in \.encode is deprecated/) do
+              read(IOStreams.path(dir, "people.csv.encode").schema(schema), :line)
+            end
+
+            assert_equal ["área,name", "12,José"], lines
+          end
+        end
+
+        it "copies the lines of a file with a schema as UTF-8" do
+          Dir.mktmpdir do |dir|
+            source = IOStreams.path(dir, "people.csv").schema(schema)
+            ::File.binwrite(source.to_s, "área,name\n12,José\n".b)
+            target = IOStreams.path(dir, "copy.csv")
+            target.copy_from(source, mode: :line)
+
+            assert_equal "área,name\n12,José\n", ::File.read(target.to_s, encoding: "UTF-8")
+
+            ::File.binwrite(source.to_s, "área,name\n12,Jos\xE9\n".b)
+            error = assert_raises(IOStreams::Errors::InvalidEncoding) { target.copy_from(source, mode: :line) }
+            assert_equal 2, error.line_number
+          end
         end
 
         it "is decoded by an encoding set on the stream instead" do

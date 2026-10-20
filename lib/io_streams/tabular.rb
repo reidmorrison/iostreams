@@ -123,10 +123,10 @@ module IOStreams
     #     Optional. Default: nil
     #
     #   decoded: [true|false]
-    #     With a schema, whether the text of the lines read was decoded by an encoding set on the stream, see
-    #     `IOStreams::Stream#option`, so that it is taken as it is. Otherwise a binary line, as a stream reads it without
-    #     an encoding, is taken as UTF-8, see `IOStreams::Tabular::SchemaMapping`. Raises ArgumentError without a schema,
-    #     whose lines are taken as they are.
+    #     With a schema, whether the lines read are already in the encoding of their text, as `IOStreams::Stream` reads
+    #     them, see `IOStreams::Builder#utf8_text?`, so that they are taken as they are. Otherwise a binary line, as a
+    #     stream reads it without an encoding, is taken as UTF-8, see `IOStreams::Tabular::SchemaMapping`. Raises
+    #     ArgumentError without a schema, whose lines are taken as they are.
     #     Default: false
     def initialize(format: nil, file_name: nil, format_options: nil, default_format: :csv, schema: nil, decoded: nil, **args)
       if schema

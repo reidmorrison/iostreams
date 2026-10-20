@@ -288,8 +288,9 @@ so does the layout of a fixed width file in `#format_options`, when a reader or 
 
 The text of a file read with a schema is UTF-8, so that its values are UTF-8 strings, and so are its lines read with
 `each(:line)`, and text that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, which is an
-`Encoding::UndefinedConversionError`. An encoding set
-with `encoding`, such as `encoding("BINARY")`, is used instead, without checking the text, as it is without a schema.
+`Encoding::UndefinedConversionError`, naming the line that it is on, which its `#line_number` returns. An encoding set
+with `encoding`, such as `encoding("BINARY")`, is used instead, without checking the text, as it is without a schema,
+and `raw` reads the data as it is stored. Lines written with `writer(:line)` are written as they are.
 
 ### Types
 

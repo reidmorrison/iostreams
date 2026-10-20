@@ -15,17 +15,18 @@ module IOStreams
     # `read_header(header.columns)`.
     #
     # Its text is UTF-8, as IOStreams 3.0 reads and writes the text of every file by default: a line read as binary,
-    # as a file is read without an encoding, see `IOStreams::Stream#option`, is taken as UTF-8, unless the text was
-    # decoded by an encoding set on the stream, and so is binary text written, such as the values of rows read from a
-    # file without a schema, see #utf8.
+    # as a file is read without an encoding, is taken as UTF-8, unless it is already in the encoding of its text, see
+    # `decoded:`, and so is binary text written, such as the values of rows read from a file without a schema, see
+    # `IOStreams::Utils.utf8`.
     class SchemaMapping < Mapping
       # Parameters:
       #   schema: [IOStreams::Schema]
       #     The fields of the rows and records.
       #
       #   decoded: [true|false]
-      #     Whether the text of the lines read was decoded by an encoding set on the stream, so that it is taken as it
-      #     is, rather than a binary line as UTF-8, see #utf8.
+      #     Whether the lines read are already in the encoding of their text, as `IOStreams::Stream` reads them, see
+      #     `IOStreams::Builder#utf8_text?`, so that they are taken as they are, rather than a binary line as UTF-8,
+      #     see `IOStreams::Utils.utf8`, as for the lines that a caller of `IOStreams::Tabular` reads itself.
       #     Default: false
       #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
@@ -254,7 +255,7 @@ module IOStreams
         return if line.nil?
 
         if line.is_a?(String)
-          line = utf8(line) unless @decoded
+          line = IOStreams::Utils.utf8(line) unless @decoded
           return if IOStreams::Utils.blank_text?(line)
         end
 
@@ -262,17 +263,9 @@ module IOStreams
         values unless IOStreams::Utils.blank_row?(values)
       end
 
-      # Returns [String] the text, taken as UTF-8 when it is binary, see `IOStreams::Utils.utf8`, so that its values are
-      # UTF-8 strings, and their labels can be matched to the names of the fields, which compares the letters of every
-      # language only in Unicode, see `IOStreams::Schema.match_key`.
-      #
-      # Raises `IOStreams::Errors::InvalidEncoding` when it is not valid UTF-8.
-      def utf8(text)
-        IOStreams::Utils.utf8(text)
-      end
-
-      # Returns [Array|Hash] the row or record, whose text that is binary and not ASCII is taken as UTF-8, see #utf8,
-      # such as that of a row read from a file without a schema, which is binary, or the row itself when it has none.
+      # Returns [Array|Hash] the row or record, whose text that is binary and not ASCII is taken as UTF-8, see
+      # `IOStreams::Utils.utf8`, such as that of a row read from a file without a schema, which is binary, or the row
+      # itself when it has none.
       def utf8_row(row)
         case row
         when ::Array
@@ -287,7 +280,7 @@ module IOStreams
       end
 
       def utf8_text(value)
-        binary_text?(value) ? utf8(value) : value
+        binary_text?(value) ? IOStreams::Utils.utf8(value) : value
       end
 
       def binary_text?(value)

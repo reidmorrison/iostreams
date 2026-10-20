@@ -94,14 +94,28 @@ module IOStreams
       utf8 = text.dup.force_encoding(::Encoding::UTF_8)
       return utf8 if utf8.valid_encoding?
 
-      invalid = utf8.each_char.find { |char| !char.valid_encoding? }.b
-      raise(
-        IOStreams::Errors::InvalidEncoding.new(
-          "#{invalid.inspect} is not valid UTF-8. Set the encoding of the file with #encoding",
-          error_char:           invalid,
-          source_encoding:      ::Encoding::BINARY,
-          destination_encoding: ::Encoding::UTF_8
-        )
+      raise(invalid_utf8(utf8))
+    end
+
+    # Returns [IOStreams::Errors::InvalidEncoding] the error for text taken as UTF-8 that is not valid UTF-8, naming
+    # its first invalid character, and the line that it is on when the number of the line that the text starts on is
+    # supplied, counting the line breaks within the text, such as within a quoted CSV value.
+    def self.invalid_utf8(utf8, line_number: nil)
+      invalid = nil
+      utf8.each_char do |char|
+        unless char.valid_encoding?
+          invalid = char.b
+          break
+        end
+        line_number += 1 if line_number && char == "\n"
+      end
+      on_line = line_number ? " on line #{line_number}" : ""
+      IOStreams::Errors::InvalidEncoding.new(
+        "#{invalid.inspect} is not valid UTF-8#{on_line}. Set the encoding of the file with #encoding",
+        line_number:          line_number,
+        error_char:           invalid,
+        source_encoding:      ::Encoding::BINARY,
+        destination_encoding: ::Encoding::UTF_8
       )
     end
 
