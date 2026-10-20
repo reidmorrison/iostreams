@@ -2136,6 +2136,11 @@ end
 Note: The keys in the hashes being written must match the layout `:key` values exactly,
 including whether they are strings or symbols.
 
+A layout does not take the columns of the rows written from a header row, such as the `IOStreams::Row::HeaderRow`
+that `each(:array)` yields with a schema, or that `copy_from(source, mode: :array)` hands it from a source with a
+schema, since it does not match them to its keys, so it raises `IOStreams::Errors::InvalidHeader`, rather than write
+blank values. Give the target a [schema](#fixed-width-files-with-a-schema) instead, which matches them to its fields.
+
 Layout column definitions:
 
 * `:size` The number of characters this column occupies.
@@ -2314,7 +2319,10 @@ The text of a file read with a schema is UTF-8, so that its values are UTF-8 str
 `each(:line)`, and text that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`, which is an
 `Encoding::UndefinedConversionError`, naming the line that it is on, which its `#line_number` returns. An encoding set
 with `encoding`, such as `encoding("BINARY")`, is used instead, without checking the text, as it is without a schema,
-and `raw` reads the data as it is stored. Lines written with `writer(:line)` are written as they are.
+and `raw` reads the data as it is stored. Binary text written to rows and records with a schema, such as the values of
+a file without one that is copied, is written as UTF-8, and raises `IOStreams::Errors::InvalidEncoding` when it is not
+valid UTF-8, unless an encoding is set, which writes it instead, as it does without a schema. Lines written with
+`writer(:line)` are written as they are.
 
 ### Types
 

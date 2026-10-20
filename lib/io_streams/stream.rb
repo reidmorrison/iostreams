@@ -705,9 +705,10 @@ module IOStreams
     # the file name of the path, or from the `original_file_name:` of the call, which replaces it, or from the
     # `file_name:` of the call, which replaces both.
     #
-    # The lines that it reads are already in the encoding of their text, since the line reader takes them as UTF-8, see
-    # #line_reader and `IOStreams::Builder#utf8_text?`, unless the application chose their encoding, so it takes them as
-    # they are.
+    # Its text is taken as UTF-8, see `IOStreams::Builder#utf8_text?`, unless the application chose its encoding, or read
+    # it as it is stored, when it is `decoded:`, so that the text read is taken as it is, and binary text written that
+    # is not valid UTF-8 is left for the encoding. The lines that it reads are UTF-8 already, see #line_reader, so it
+    # only checks them.
     #
     # Raises ArgumentError for `schema:`, which is set on the path.
     def schema_tabular(args)
@@ -720,7 +721,7 @@ module IOStreams
         format:         builder.format,
         format_options: builder.format_options,
         schema:         schema,
-        decoded:        true,
+        decoded:        !builder.utf8_text?,
         **args.except(:original_file_name)
       )
     end

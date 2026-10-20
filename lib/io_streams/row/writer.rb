@@ -73,22 +73,12 @@ module IOStreams
       # `IOStreams::Row::Reader#copy_to`, so that the value of each column of the rows after it is written to its
       # column, or to its field with a schema, whose columns it matches to the fields, without a line. Without a schema,
       # as the first row, see #<<, unless the format has no header row, such as JSON, and the columns are not known,
-      # when it gives the columns of the rows after it, see `IOStreams::Tabular#render_header_row`.
+      # when it gives the columns of the rows after it, or the columns were supplied, which name them instead, see
+      # `IOStreams::Tabular#render_header_row`.
       #
       # Returns self, so that calls can be chained.
       def write_header(columns)
         @tabular.render_header_row(columns) { |line| @line_writer << line }
-        self
-      end
-
-      # Takes the columns of the rows written after it, which are not a row of the file that they are read from, such as
-      # the fields of a file without a header row, see `IOStreams::Row::Reader#copy_to`: like its header row, see
-      # #write_header, they name the column, or with a schema the field, of each value of the rows, unless the columns
-      # were supplied, which name them instead, see `IOStreams::Tabular#render_columns`.
-      #
-      # Returns self, so that calls can be chained.
-      def write_columns(columns)
-        @tabular.render_columns(columns) { |line| @line_writer << line }
         self
       end
     end

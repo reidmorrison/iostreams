@@ -15,8 +15,10 @@ module IOStreams
     # * Renders the rows and records written into lines, `#render`, and the header row, `#render_header`.
     # * Reads and writes a line at a time for the readers and writers of rows and records, see `IOStreams::Row::Reader`
     #   and the others, which only iterate: `#read_row`, `#read_record_line` and `#restrict_columns` when reading,
-    #   `#start_rows`, `#render_row`, `#start_records` and `#render_record` when writing, and `#render_header_row` and
-    #   `#render_columns` for the header row of the rows written, such as that of the file that is copied.
+    #   `#start_copy` and `#copy_row` when the rows read are copied, `#start_rows`, `#render_row`, `#start_records` and
+    #   `#render_record` when writing, and `#render_header_row` for the header row of the rows written, such as that of
+    #   the file that is copied.
+    # * Cleanses the header row, `#cleanse_header!`, when the keys of the records are the columns of the file.
     # * Answers the questions of the protocol: whether the file has a header row, `#requires_header?`, whether it is
     #   still to be read, `#header?`, whether the rows read start with a header row, `#rows_header?`, and the columns of
     #   the rows of a file without one, `#headerless_columns`.
@@ -108,6 +110,21 @@ module IOStreams
         raise NotImplementedError
       end
 
+      # Returns [Array<String>] the header columns once they are cleansed, see `IOStreams::Tabular#cleanse_header!`.
+      def cleanse_header!
+        raise NotImplementedError
+      end
+
+      # Yields the header row that a copy writes before the first line, see `IOStreams::Tabular#start_copy`.
+      def start_copy
+        raise NotImplementedError
+      end
+
+      # Yields each row of the line that a copy writes, see `IOStreams::Tabular#copy_row`.
+      def copy_row(line)
+        raise NotImplementedError
+      end
+
       # Yields the header line written before the first row, see `IOStreams::Tabular#start_rows`.
       def start_rows
         raise NotImplementedError
@@ -120,11 +137,6 @@ module IOStreams
 
       # Yields the line written for the header row of the rows after it, see `IOStreams::Tabular#render_header_row`.
       def render_header_row(columns)
-        raise NotImplementedError
-      end
-
-      # Yields the line written for the columns of the rows after them, see `IOStreams::Tabular#render_columns`.
-      def render_columns(columns)
         raise NotImplementedError
       end
 

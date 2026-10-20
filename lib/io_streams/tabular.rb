@@ -217,8 +217,8 @@ module IOStreams
     end
 
     # Returns [Array<String|Symbol>] the columns of the rows of a file without a header row, which #read_row yields as
-    # their header row, so that a copy can give them to the target, see `IOStreams::Row::Reader#copy_to`: the names of
-    # the fields of a schema, see `IOStreams::Schema#header?`, such as of fixed width or JSON.
+    # their header row, so that a copy can give them to the target, see #start_copy: the names of the fields of a
+    # schema, see `IOStreams::Schema#header?`, such as of fixed width or JSON.
     # Returns nil for any other file, such as one whose rows start with a header row of its own, or without a schema.
     def headerless_columns
       @mapping.headerless_columns
@@ -282,9 +282,11 @@ module IOStreams
     end
 
     # Returns [Array<String>] the cleansed columns
+    #
+    # With a schema it raises ArgumentError, as `cleanse_header:` does, see #initialize, since the keys of the records
+    # are the names of the fields, which the columns of the header row are matched to instead, see #read_header.
     def cleanse_header!
-      header.cleanse!
-      header.columns
+      @mapping.cleanse_header!
     end
 
     # Reading and writing a line at a time: a reader or writer of rows or records, see `IOStreams::Row::Reader` and the
@@ -314,6 +316,25 @@ module IOStreams
       @mapping.restrict_columns
     end
 
+    # Yields [IOStreams::Row::HeaderRow] the header row that a copy of the rows of the file writes before its first line,
+    # see `IOStreams::Row::Reader#copy_to`, so that the target has the columns of the rows even when the file has no
+    # lines: with a schema, the names of the fields of a file without a header row, such as fixed width or JSON, see
+    # #headerless_columns, which #copy_row then does not yield again. Yields nothing for any other file, whose header row
+    # is a line of its own, if it has one.
+    def start_copy(&)
+      @mapping.start_copy(&)
+    end
+
+    # Yields [Array|nil] each row of the line that a copy of the rows of the file writes, see
+    # `IOStreams::Row::Reader#copy_to`, as #read_row yields it, or nil for a blank line, but with the header row as an
+    # `IOStreams::Row::HeaderRow`, also without a schema, so that the writer takes it as the header row of the rows after
+    # it, see `IOStreams::Row::Writer#<<`, rather than as a row of values.
+    #
+    # Returns the result of the block.
+    def copy_row(line, &)
+      @mapping.copy_row(line, &)
+    end
+
     # Yields [String] the header line that a writer of rows writes before the first row: the columns supplied, or with
     # a schema, the names of its fields, when the file has a header row.
     def start_rows(&)
@@ -330,17 +351,11 @@ module IOStreams
 
     # Yields [String|nil] the line that a writer of rows writes for the header row of the rows after it, such as the
     # `IOStreams::Row::HeaderRow` that `IOStreams::Stream#each(:array)` yields with a schema, or the header row of the
-    # file that is copied, see `IOStreams::Row::Reader#copy_to`. With a schema, it gives the columns of the rows after
-    # it, which are matched to the fields, without a line.
+    # file that is copied, see #copy_row, or the names of the fields of a file without one, see #start_copy. With a
+    # schema, it gives the columns of the rows after it, which are matched to the fields, without a line. Without one,
+    # it yields nothing when the columns were supplied, which name the values of the rows instead.
     def render_header_row(columns, &)
       @mapping.render_header_row(columns, &)
-    end
-
-    # Yields [String|nil] the line that a writer of rows writes for the columns of the rows after it, which are not a row
-    # of the file that they are read from, such as the fields of a file without a header row, see
-    # `IOStreams::Row::Reader#copy_to`, as their header row, see #render_header_row, unless the columns were supplied.
-    def render_columns(columns, &)
-      @mapping.render_columns(columns, &)
     end
 
     # Yields [String] the header line that a writer of records writes before the first record: the columns supplied,

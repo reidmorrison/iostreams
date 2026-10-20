@@ -185,14 +185,26 @@ module IOStreams
       end
 
       # Yields [String|nil] the line that a writer of rows writes for the header row of the rows after it, such as an
-      # `IOStreams::Row::HeaderRow` that `IOStreams::Stream#each(:array)` yields with a schema: as the first row, see
-      # #render_row, unless the format has no header row, such as JSON, and the columns are not known, when it takes
-      # them as the columns of the rows after it, without a line.
+      # `IOStreams::Row::HeaderRow` that `IOStreams::Stream#each(:array)` yields with a schema, or that a copy hands it,
+      # see `IOStreams::Tabular#copy_row`: as the first row, see #render_row, unless the format has no header row, such
+      # as JSON, and the columns are not known, when it takes them as the columns of the rows after it, without a line.
+      # Yields nothing when the columns were supplied, which name the values of the rows instead.
       #
       # Raises `IOStreams::Errors::MissingHeader` when the columns that it takes are empty.
+      # Raises `IOStreams::Errors::InvalidHeader` for a format without a header row whose rows are not records, see
+      # `IOStreams::Tabular::Parser::Base.keyed?`, such as fixed width, whose layout gives its columns by their keys,
+      # which the columns of a header row are not matched to, rather than write blank values. IOStreams 2.1 wrote it
+      # as a row, which raised it too.
       def render_header_row(columns, &)
+        return if @supplied
         return render_row(columns, &) if requires_header? || !header.columns.nil?
 
+        unless @parser.class.keyed?
+          raise(Errors::InvalidHeader, "The header row of the rows written to the #{@format.inspect} format cannot give " \
+                                       "its columns, which its layout gives by their keys. Describe the columns of the " \
+                                       "file with #schema instead, whose fields the columns of the header row are " \
+                                       "matched to")
+        end
         if IOStreams::Utils.blank?(columns)
           raise(Errors::MissingHeader, "The header row of the rows written to the #{@format.inspect} format has no columns")
         end
@@ -201,12 +213,27 @@ module IOStreams
         nil
       end
 
-      # Yields [String|nil] the line that a writer of rows writes for the columns of the rows after it, which are not a
-      # row of the file that they are read from, such as the fields of a file without a header row, see
-      # `IOStreams::Row::Reader#copy_to`: as their header row, see #render_header_row, unless the columns were supplied,
-      # which name them instead, when it yields nothing.
-      def render_columns(columns, &)
-        render_header_row(columns, &) unless @supplied
+      # Returns [Array<String>] the header columns once they are cleansed, see `IOStreams::Tabular::Header#cleanse!`.
+      def cleanse_header!
+        header.cleanse!
+        header.columns
+      end
+
+      # Yields nothing: only the fields of a schema are the columns of a file without a header row, see
+      # `IOStreams::Tabular#start_copy`.
+      def start_copy
+        nil
+      end
+
+      # Yields [Array|nil] each row of the line that a copy writes, see `IOStreams::Tabular#copy_row`: as #read_row yields
+      # it, but the header row as an `IOStreams::Row::HeaderRow`, which #read_row yields as an Array, as IOStreams 2.1
+      # does.
+      #
+      # Returns the result of the block.
+      def copy_row(line, &)
+        return read_row(line, &) unless header?
+
+        read_row(line) { |columns| yield(columns && IOStreams::Row::HeaderRow.new(columns)) }
       end
 
       private

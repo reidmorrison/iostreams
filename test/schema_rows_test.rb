@@ -74,6 +74,43 @@ class SchemaRowsTest < Minitest::Test
         end
       end
 
+      describe "#copy_to" do
+        # Returns [Array] the rows that copying the lines hands to the writer, through its #<<, see IOStreams::Row::Writer.
+        def copied(lines, **)
+          written = []
+          writer  = Object.new
+          writer.define_singleton_method(:<<) { |row| written << row }
+          IOStreams::Row::Reader.new(lines, **).copy_to(writer)
+          written
+        end
+
+        it "hands the header row to the writer as an IOStreams::Row::HeaderRow without a schema, and skips the blank lines" do
+          rows = copied(["First Name,Age", "", "Jack,21"], format: :csv)
+
+          assert_equal [["First Name", "Age"], %w[Jack 21]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+          assert_instance_of Array, rows.last
+        end
+
+        it "hands the header row of a file with a schema to the writer as an IOStreams::Row::HeaderRow" do
+          schema  = IOStreams::Schema.new(fields: [{name: "name"}, {name: "age", type: "integer"}], fieldsMatch: "equal")
+          tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+          rows    = copied(["Age,Name", "21,Jack"], tabular: tabular)
+
+          assert_equal [%w[name age], ["Jack", 21]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "hands the names of the fields of a file without a header row to the writer once, before its first line" do
+          fixed = IOStreams::Schema.new(fields: [{name: "name", width: 4}, {name: "age", type: "integer", width: 2}])
+          rows  = copied(%w[Jack21 Jill22], tabular: IOStreams::Tabular.new(format: :fixed, schema: fixed))
+
+          assert_equal [%w[name age], ["Jack", 21], ["Jill", 22]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+          assert_equal [%w[name age]], copied([], tabular: IOStreams::Tabular.new(format: :fixed, schema: fixed))
+        end
+      end
+
       it "makes a row of values from a header row with the methods of an Array that return a new one" do
         header = IOStreams::Row::HeaderRow.new(%w[name zip])
 
@@ -124,6 +161,31 @@ class SchemaRowsTest < Minitest::Test
         end
 
         assert_equal "name,zip\nJack,1\nname,zip\nJill,2\n", output.string
+      end
+
+      it "skips a header row written to a file whose columns are supplied, which name the values of the rows instead" do
+        {csv: "who,number\nJack,1\n", json: %({"who":"Jack","number":1}\n)}.each do |format, expected|
+          source = stream("name,id\nJack,1\n").format(:csv).schema(fields: [{name: "name"}, {name: "id", type: "integer"}])
+          output = StringIO.new
+          assert_deprecated(/columns: is deprecated/) do
+            IOStreams.stream(output).format(format).writer(:array, columns: %w[who number]) do |io|
+              source.each(:array) { |row| io << row }
+            end
+          end
+
+          assert_equal expected, output.string, format.inspect
+        end
+      end
+
+      it "raises for a header row written to a fixed width layout, which gives the columns by its keys, rather than write blanks" do
+        layout = [{key: :id, size: 3, type: :integer}, {key: :name, size: 5}]
+        output = StringIO.new
+        target = assert_deprecated(/#format_options is deprecated/) { IOStreams.stream(output).format(:fixed).format_options(layout: layout) }
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          target.writer(:array) { |io| io << IOStreams::Row::HeaderRow.new(%w[id name]) }
+        end
+        assert_match(/\AThe header row of the rows written to the :fixed format cannot give its columns/, error.message)
       end
 
       it "takes a header row written to a format without one, without a schema, as the columns of the rows after it" do
@@ -194,6 +256,22 @@ class SchemaRowsTest < Minitest::Test
           IOStreams.stream(StringIO.new).schema(schema).writer(:array) { |io| io << ["12", "Jos\xE9".b] }
         end
         assert_equal "\xE9".b, error.error_char
+      end
+
+      it "leaves binary text written that is not UTF-8 for an encoding set on the stream, which reads it as it is" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.psv").encoding("BINARY").schema(fields: [{name: "id", type: "integer"}, {name: "name"}])
+          path.writer(:array) { |io| io << [1, "J\xE9".b] }
+
+          assert_equal "id|name\n1|J\xE9\n".b, File.binread(path.to_s)
+          assert_equal [%w[id name], [1, "J\xE9".b]], read(path)
+
+          # Binary text that is UTF-8 is still taken as UTF-8, which the encoding set on the stream encodes.
+          latin = IOStreams.path(dir, "people.csv").encoding("ISO-8859-1").schema(fields: [{name: "name"}])
+          latin.writer(:array) { |io| io << ["José".b] }
+
+          assert_equal "name\nJos\xE9\n".b, File.binread(latin.to_s)
+        end
       end
 
       it "is read as before without a schema" do
@@ -347,6 +425,39 @@ class SchemaRowsTest < Minitest::Test
         assert_equal "name,age\nJack,21\nJill,22\n", path("out.csv").read
         assert_equal %({"name":"Jack","age":21}\n{"name":"Jill","age":22}\n), path("out.json").read
         assert_equal "name,age\nJack,21\nJill,22\n", path("records.csv").read
+      end
+
+      it "copies a file with a schema into a file whose columns are supplied, which name the values instead of its header row" do
+        source = path("in.csv").schema(people)
+        source.write("name,age\nJack,21\n")
+        assert_deprecated(/columns: is deprecated/) do
+          path("out.json").copy_from(source, mode: :array, columns: %w[who years])
+          path("out.csv").copy_from(source, mode: :array, columns: %w[who years])
+        end
+
+        assert_equal %({"who":"Jack","years":21}\n), path("out.json").read
+        assert_equal "who,years\nJack,21\n", path("out.csv").read
+      end
+
+      it "raises for a copy into a fixed width layout, which does not match the columns of the header row to its keys" do
+        layout = [{key: :id, size: 3, type: :integer}, {key: :name, size: 5}]
+        fields = [{name: "id", type: "integer", width: 3}, {name: "name", width: 5}]
+        source = path("in.csv").schema(fields: fields)
+        source.write("id,name\n1,Jack\n")
+        fixed = path("in.fixed").schema(fields: fields)
+        fixed.write("001Jack \n")
+        target = assert_deprecated(/#format_options is deprecated/) { path("out.fixed").format_options(layout: layout) }
+
+        [source, fixed].each do |input|
+          error = assert_raises(IOStreams::Errors::InvalidHeader, input.to_s) { target.copy_from(input, mode: :array) }
+          assert_match(/Describe the columns of the file with #schema instead/, error.message)
+        end
+        assert_raises(IOStreams::Errors::InvalidHeader) { target.writer(:array) { |io| source.each(:array) { |row| io << row } } }
+
+        # A schema gives the width of each field, and matches the columns of the header row to them.
+        path("out.fixed").schema(fields: fields).copy_from(source, mode: :array)
+
+        assert_equal "001Jack \n", path("out.fixed").read
       end
 
       describe "without a schema on either side" do

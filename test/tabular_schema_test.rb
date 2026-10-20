@@ -17,8 +17,8 @@ class TabularSchemaTest < Minitest::Test
 
       it "declares each method of the role of a mapping, which raises NotImplementedError until a mapping implements it" do
         role    = %i[header? requires_header? rows_header? headerless_columns parse_header read_header row_parse record_parse
-                     render render_header read_row read_record_line restrict_columns start_rows render_row render_header_row
-                     render_columns start_records render_record]
+                     render render_header read_row read_record_line restrict_columns cleanse_header! start_copy copy_row
+                     start_rows render_row render_header_row start_records render_record]
         mapping = IOStreams::Tabular::Mapping.new(header: IOStreams::Tabular::Header.new, parser: IOStreams::Tabular::Parser::Csv.new, format: :csv)
 
         assert_equal role.sort, (IOStreams::Tabular::Mapping.public_instance_methods(false) - %i[header]).sort
@@ -364,6 +364,38 @@ class TabularSchemaTest < Minitest::Test
         end
         # nil leaves the header row as it is, as a schema does.
         assert_equal %w[id pay], IOStreams::Tabular.new(format: :csv, schema: schema).read_header("ID,Pay", cleanse: nil)
+      end
+
+      it "raises for cleansing the header row read, which hands it on as it was read, to be matched to the fields again" do
+        schema  = IOStreams::Schema.new(fields: [{name: "area_m2"}])
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+        tabular.parse_header("Area (m²)")
+
+        error = assert_raises(ArgumentError) { tabular.cleanse_header! }
+        assert_match(/\AThe header row cannot be cleansed with a schema/, error.message)
+        assert_equal ["Area (m²)"], tabular.header.columns
+        assert_equal %w[area_m2], IOStreams::Tabular.new(format: :csv, schema: schema).read_header(tabular.header.columns)
+      end
+
+      it "takes the binary text of a row already read as UTF-8, as that of a line, unless the text was decoded" do
+        names = IOStreams::Schema.new(fields: [{name: "name"}])
+        csv   = IOStreams::Tabular.new(format: :csv, schema: names)
+        csv.read_header("name")
+
+        [["Jos\xC3\xA9".b], "Jos\xC3\xA9".b].each do |line|
+          record = csv.record_parse(line)
+
+          assert_equal({"name" => "José"}, record, line.inspect)
+          assert_equal Encoding::UTF_8, record["name"].encoding, line.inspect
+        end
+        assert_equal Encoding::UTF_8, csv.row_parse(["Jos\xC3\xA9".b]).first.encoding
+        assert_equal Encoding::UTF_8, IOStreams::Tabular.new(format: :hash, schema: names).record_parse({"name" => "Jos\xC3\xA9".b})["name"].encoding
+        assert_raises(IOStreams::Errors::InvalidEncoding) { csv.record_parse(["Jos\xE9".b]) }
+
+        decoded = IOStreams::Tabular.new(format: :csv, schema: names, decoded: true)
+        decoded.read_header(["name".b])
+
+        assert_equal Encoding::BINARY, decoded.record_parse(["Jos\xE9".b])["name"].encoding
       end
 
       it "raises for cleanse_header: supplied to a reader with the tabular of a schema, which it cannot change" do
