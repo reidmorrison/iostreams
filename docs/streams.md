@@ -77,6 +77,23 @@ IOStreams.path("example.csv").each(:hash) do |hash|
 end
 ~~~
 
+The tabular format of the rows and records, such as CSV or JSON, is detected from the file name, or set with
+`#format`, see [File Formats](formats). Set a schema on the path with `#schema` to read each value as the type of
+its field, such as an `Integer` or a `Date`, with the names of the fields as the keys of each record, see
+[Schema](formats#schema):
+~~~ruby
+IOStreams.path("example.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip_code", type: "integer"}
+  ]
+).each(:hash) do |hash|
+  p hash
+end
+# => {"name" => "Jack", "zip_code" => 1234}
+~~~
+
 Write data to the file.
 ~~~ruby
 IOStreams.path("abc.txt").writer do |io|
