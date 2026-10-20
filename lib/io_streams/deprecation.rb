@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IOStreams
   # Reports the use of a deprecated method or option as a Ruby deprecation warning, see `Kernel#warn`, so that Ruby
   # decides whether and where it is reported, as it does for its own deprecations, rather than a setting of IOStreams:
