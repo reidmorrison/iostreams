@@ -13,7 +13,8 @@ and the security issues to check. For every change in each release, see the
 
 ## Upgrading to v2.2
 
-v2.2 prepares applications for v3.0, and changes no existing behavior. It adds the methods that replace those that
+v2.2 prepares applications for v3.0, and changes no existing behavior, apart from the
+[changes in behavior](#changes-in-behavior) below. It adds the methods that replace those that
 v3.0 deprecates or removes, and reports a deprecation warning when the application uses one of those, so that it
 can move to the replacement while it still runs v2.2, and then upgrade to v3.0 with fewer changes:
 
@@ -271,6 +272,21 @@ Keep the deprecated options where a schema does not describe the file yet: `requ
 `allowed_columns:`, or `cleanse_header: false` on its own, read every column of the file, while a schema reads only
 its fields, so list every column of the file as a field to replace them; and `columns:` with `nil` for a column to
 skip, in a file without a header row, since a field must have a name.
+
+### Changes in behavior
+
+- A failed copy no longer deletes a target that it did not write. `#copy_from`, `#copy_to` and `#move_to` open the
+  source before the target, as v3.0 does, and an error raised before the target is opened, such as for a source that
+  does not exist, or a mode that a copy does not convert with, leaves an existing target as it was, where v2.1 deleted
+  it, and a failed copy to S3 keeps the existing object. A copy that fails part way still leaves no part of the file,
+  see [When a copy fails](copy_files#when-a-copy-fails).
+- A mode that a copy does not convert with, such as `copy_from(source, mode: :stream)`, raises `ArgumentError` before
+  the source or the target is opened, with a message that starts with v2.1's, `Invalid mode: :stream`, and then lists
+  the modes.
+- A copy of a path, made with `dup`, has its own streams and options, so that changing it does not change the path
+  that it was copied from, and a copy with `convert: false` no longer changes the streams of the source or the
+  target. A copy with `convert: false` from a source with options set with `#option` copies it, where v2.1 raised
+  `ArgumentError`.
 
 ## Upgrading to v2.1
 

@@ -102,18 +102,6 @@ module IOStreams
       raise NotImplementedError
     end
 
-    # Cleanup an incomplete write to the target "file" if the copy fails.
-    # rubocop:disable-next Lint/SuppressedException
-    def copy_from(source, **args)
-      super
-    rescue StandardError => e
-      begin
-        delete
-      rescue NotImplementedError
-      end
-      raise(e)
-    end
-
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
     #

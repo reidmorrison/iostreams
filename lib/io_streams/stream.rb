@@ -15,6 +15,10 @@ module IOStreams
                                  "field of a fixed width file".freeze
     private_constant :FORMAT_OPTIONS_DEPRECATION
 
+    # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
+    COPY_MODES = %i[line array hash].freeze
+    private_constant :COPY_MODES
+
     attr_reader :io_stream
 
     def initialize(io_stream)
@@ -253,6 +257,7 @@ module IOStreams
     #
     #   :mode [:line, :array, :hash]
     #     When convert is `true` then use this mode to convert the contents of the file.
+    #     Any other mode raises ArgumentError, before the source or the target is opened.
     #
     # Examples:
     #
@@ -271,27 +276,37 @@ module IOStreams
     #   row of the source as the header row of the rows after it, which a target with a schema matches to its fields,
     #   and skips the blank rows, see `IOStreams::Row::Reader#copy_to`. Otherwise each row or record read is written,
     #   as before.
+    # - The source is opened before the target, so that the target is not changed when the source cannot be read, for
+    #   example when it does not exist. When the copy fails part way, the target discards its incomplete write, as a
+    #   path does whenever a write fails.
+    #
+    # Supplying options to a copy without a `mode:`, which ignores them, is deprecated, as is supplying `mode:` or
+    # other options to a copy with `convert: false`. Each reports a deprecation warning, see `IOStreams::Deprecation`.
     def copy_from(source, convert: true, mode: nil, **args)
       if convert
+        validate_copy_mode!(mode)
         stream = IOStreams.new(source)
         if mode
-          writer(mode, **args) do |target|
-            if mode == :line || (schema.nil? && stream.schema.nil?)
-              stream.each(mode) { |row| target << row }
-            else
-              stream.reader(mode) { |rows| rows.copy_to(target) }
+          stream.reader(mode) do |rows|
+            writer(mode, **args) do |target|
+              if mode == :line || (schema.nil? && stream.schema.nil?)
+                rows.each { |row| target << row }
+              else
+                rows.copy_to(target)
+              end
             end
           end
         else
-          writer(**args) do |target|
-            stream.reader { |src| IO.copy_stream(src, target) }
+          warn_ignored_options(args.keys, "when copying without a `mode:`")
+          stream.reader do |src|
+            writer { |target| IO.copy_stream(src, target) }
           end
         end
       else
         warn_unconverted_copy_options(mode, args)
         stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
-        dup.no_streams.writer do |target|
-          stream.no_streams.reader { |src| IO.copy_stream(src, target) }
+        stream.no_streams.reader do |src|
+          dup.no_streams.writer { |target| IO.copy_stream(src, target) }
         end
       end
     end
@@ -507,6 +522,15 @@ module IOStreams
 
     def builder
       @builder ||= IOStreams::Builder.new
+    end
+
+    # Raises ArgumentError for a mode that a copy does not convert with, see COPY_MODES, before the source or the target
+    # is opened.
+    def validate_copy_mode!(mode)
+      return if mode.nil? || COPY_MODES.include?(mode)
+
+      raise(ArgumentError, "Invalid mode: #{mode.inspect}. A copy converts lines, rows or records with mode: " \
+                           "#{COPY_MODES.map(&:inspect).join(', ')}, or copies the data, as bytes, without a mode")
     end
 
     def stream_reader(&)

@@ -1013,7 +1013,9 @@ class StreamTest < Minitest::Test
           source = IOStreams.path(dir, "source.csv")
           source.write(csv)
           target = IOStreams.path(dir, "target.csv")
-          assert_deprecated(/columns: is deprecated in the :stream mode/) { target.copy_from(source, columns: ["name"]) }
+          assert_deprecated(/columns: is deprecated when copying without a `mode:`, which ignores it, so remove it/) do
+            target.copy_from(source, columns: ["name"])
+          end
 
           assert_equal csv, target.read
         end
@@ -1322,6 +1324,93 @@ class StreamTest < Minitest::Test
         assert_equal "Changed", IOStreams.join("copy_test", "target.csv.gz").read
       ensure
         target&.delete
+      end
+
+      it "raises for a mode that a copy does not convert with, before the target is opened" do
+        source_path.write("name\nJack\n")
+        target_path.write("existing")
+        schema = {fields: [{name: "name"}]}
+
+        error = assert_raises(ArgumentError) { target_path.copy_from(source_path, mode: :stream) }
+        assert_equal "Invalid mode: :stream. A copy converts lines, rows or records with mode: :line, :array, :hash, " \
+                     "or copies the data, as bytes, without a mode", error.message
+        error = assert_raises(ArgumentError) { target_path.copy_from(source_path, mode: :bogus) }
+        assert_match(/\AInvalid mode: :bogus\. /, error.message)
+        error = assert_raises(ArgumentError) do
+          IOStreams.join("copy_test", "target.csv").schema(schema).copy_from(source_path, mode: :stream)
+        end
+        assert_match(/\AInvalid mode: :stream\. /, error.message)
+
+        assert_equal "existing", target_path.read
+      end
+
+      it "leaves an existing target unchanged when the copy raises before the target is opened" do
+        source_path.write("name\nJack\n")
+        target_path.write("existing")
+        schema = {fields: [{name: "name"}]}
+
+        assert_raises(ArgumentError) do
+          IOStreams.join("copy_test", "target.csv").schema(schema).copy_from(source_path, mode: :array, columns: ["name"])
+        end
+        assert_raises(Errno::ENOENT) do
+          IOStreams.join("copy_test", "target.csv").schema(IOStreams.join("copy_test", "missing.json")).
+            copy_from(source_path, mode: :hash)
+        end
+
+        assert_equal "existing", target_path.read
+      end
+
+      it "leaves an existing target unchanged when a deprecation warning raises, as an application's Warning.warn can" do
+        source_path.write("name\nJack\n")
+        target_path.write("existing")
+
+        IOStreams::Deprecation.stub(:warn, ->(message) { raise(message) }) do
+          assert_raises(RuntimeError) { target_path.copy_from(source_path, mode: :hash, format: :csv) }
+          assert_raises(RuntimeError) { target_path.copy_from(source_path, columns: ["name"]) }
+          assert_raises(RuntimeError) { target_path.copy_from(source_path, convert: false, mode: :hash) }
+        end
+
+        assert_equal "existing", target_path.read
+      end
+
+      describe "when the source cannot be read" do
+        let(:missing_source) { IOStreams.join("copy_test", "missing.csv") }
+
+        before do
+          target_path.write("existing data")
+        end
+
+        it "leaves an existing target unchanged" do
+          assert_raises(Errno::ENOENT) { target_path.copy_from(missing_source) }
+
+          assert_equal "existing data", target_path.read
+        end
+
+        it "leaves an existing target unchanged when copying lines, rows or records" do
+          %i[line array hash].each do |mode|
+            assert_raises(Errno::ENOENT) { target_path.copy_from(missing_source, mode: mode) }
+
+            assert_equal "existing data", target_path.read, mode
+          end
+        end
+
+        it "leaves an existing target unchanged without conversions" do
+          assert_raises(Errno::ENOENT) { target_path.copy_from(missing_source, convert: false) }
+
+          assert_equal "existing data", target_path.read
+        end
+      end
+
+      it "removes the target when the copy fails part way, so that no part of the file is left" do
+        target_path.write("existing data")
+        failing_source = Object.new
+        def failing_source.read(*)
+          raise(IOError, "failed part way")
+        end
+
+        assert_raises(IOError) { target_path.copy_from(failing_source) }
+
+        refute_predicate target_path, :exist?
       end
     end
 

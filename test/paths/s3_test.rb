@@ -227,6 +227,35 @@ module Paths
         end
       end
 
+      describe "#copy_from" do
+        let(:target) { root_path.join("copy_test_target.txt") }
+
+        before do
+          target.write("existing")
+        end
+
+        after do
+          target.delete
+        end
+
+        it "keeps an existing object when the source cannot be read" do
+          assert_raises(Errno::ENOENT) { target.copy_from(IOStreams.join("copy_test", "missing.txt")) }
+
+          assert_equal "existing", target.read
+        end
+
+        it "keeps an existing object when the copy fails part way, since the object is only written once it completes" do
+          failing_source = Object.new
+          def failing_source.read(*)
+            raise(IOError, "failed part way")
+          end
+
+          assert_raises(IOError) { target.copy_from(failing_source) }
+
+          assert_equal "existing", target.read
+        end
+      end
+
       describe "#partial_files_visible?" do
         it "visible only after upload" do
           refute_predicate root_path, :partial_files_visible?
