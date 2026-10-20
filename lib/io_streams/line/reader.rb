@@ -19,7 +19,8 @@ module IOStreams
       # Create a delimited stream reader from the supplied input stream.
       #
       # Lines returned will be in the encoding of the input stream.
-      # To change the encoding of returned lines, use IOStreams::Encode::Reader.
+      # To change the encoding of returned lines, use IOStreams::Encode::Reader. The lines of a file with a schema are
+      # read by `IOStreams::Line::Utf8Reader` instead, which takes them as UTF-8.
       #
       # Parameters
       #   input_stream

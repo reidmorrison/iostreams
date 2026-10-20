@@ -139,6 +139,14 @@ module IOStreams
       @raw
     end
 
+    # Returns [true|false] whether the text that the streams yield is taken as UTF-8: the text of a file with a
+    # schema, see #schema=, unless the application chose the encoding of its text, with an encode stream, whether set
+    # with #encoding, #option, #stream, or by a file name ending in `.encode`, or chose none with #raw, which reads the
+    # data as it is stored. Without a schema, the text is read as it always was.
+    def utf8_text?
+      !@schema.nil? && !raw? && !pipeline.key?(:encode)
+    end
+
     # Applies no streams, including an encoding set with #encoding, as `stream(:none)` does, for IOStreams itself.
     def no_streams
       @streams  = {}

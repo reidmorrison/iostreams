@@ -83,6 +83,42 @@ module IOStreams
     end
     private_class_method :encoded_blank_text
 
+    # Returns [String] the text, taken as UTF-8 when it is binary, as IOStreams 2 reads a file without an encoding,
+    # see `IOStreams::Stream#encoding`, such as a file read with a schema, whose text is UTF-8, see
+    # `IOStreams::Stream#schema`. Text in any other encoding is returned as it is.
+    #
+    # Raises `IOStreams::Errors::InvalidEncoding` when it is not valid UTF-8.
+    def self.utf8(text)
+      return text unless text.encoding == ::Encoding::BINARY
+
+      utf8 = text.dup.force_encoding(::Encoding::UTF_8)
+      return utf8 if utf8.valid_encoding?
+
+      raise(invalid_utf8(utf8))
+    end
+
+    # Returns [IOStreams::Errors::InvalidEncoding] the error for text taken as UTF-8 that is not valid UTF-8, naming
+    # its first invalid character, and the line that it is on when the number of the line that the text starts on is
+    # supplied, counting the line breaks within the text, such as within a quoted CSV value.
+    def self.invalid_utf8(utf8, line_number: nil)
+      invalid = nil
+      utf8.each_char do |char|
+        unless char.valid_encoding?
+          invalid = char.b
+          break
+        end
+        line_number += 1 if line_number && char == "\n"
+      end
+      on_line = line_number ? " on line #{line_number}" : ""
+      IOStreams::Errors::InvalidEncoding.new(
+        "#{invalid.inspect} is not valid UTF-8#{on_line}. Set the encoding of the file with #encoding",
+        line_number:          line_number,
+        error_char:           invalid,
+        source_encoding:      ::Encoding::BINARY,
+        destination_encoding: ::Encoding::UTF_8
+      )
+    end
+
     # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that holding a
     # setting, such as a schema, does not freeze the objects that the caller supplied, and the caller changing them
     # does not change the setting. Any other value, such as a Symbol, is returned as it is.

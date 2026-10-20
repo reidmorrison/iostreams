@@ -37,8 +37,9 @@ module IOStreams
   end
 
   module Line
-    autoload :Reader, "io_streams/line/reader"
-    autoload :Writer, "io_streams/line/writer"
+    autoload :Reader,     "io_streams/line/reader"
+    autoload :Utf8Reader, "io_streams/line/utf8_reader"
+    autoload :Writer,     "io_streams/line/writer"
   end
 
   module Record
