@@ -103,7 +103,7 @@ deprecation warning:
 | The Zip writer's `zip_file_name`, even when it is nil | `entry_file_name` |
 | An option of `.bz2` that neither reading nor writing takes, which BZip2 ignores | Remove it |
 | A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
-| `#path=` | `#join` or `#directory`, which return a new path, or `IOStreams.path` with the new name |
+| `#path=` | `#join` or `#directory`, which return a new path without the streams, options, format and schema set on the path, which `#path=` keeps, so set them again, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
 
 ### Moving a layout to a schema
