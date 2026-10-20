@@ -703,10 +703,9 @@ class StreamTest < Minitest::Test
       end
 
       it "reports no deprecation warning for embedded_within: when reading lines" do
-        lines = refute_deprecated do
-          lines = []
+        lines = []
+        refute_deprecated do
           IOStreams.path(pipe_delimited_csv_file).each(:line, embedded_within: nil) { |line| lines << line }
-          lines
         end
 
         assert_equal 4, lines.size
@@ -978,8 +977,8 @@ class StreamTest < Minitest::Test
 
       it "reports a deprecation warning for file_name: and original_file_name: when reading rows" do
         rows = []
-        assert_deprecated(/file_name: is deprecated for each call, set it on the path with #file_name instead/,
-                          /original_file_name: is deprecated for each call/) do
+        assert_deprecated(/file_name: is deprecated for each call, where it only chooses the format when the path has none, set the format on the path with #format instead/,
+                          /original_file_name: is deprecated for each call, where it only chooses the format/) do
           IOStreams.stream(StringIO.new("a|b\n")).
             each(:array, file_name: "a.psv", original_file_name: "a.psv") { |row| rows << row }
         end
@@ -989,11 +988,52 @@ class StreamTest < Minitest::Test
 
       it "reports a deprecation warning for default_format: when reading records" do
         records = []
-        assert_deprecated(/default_format: is deprecated for each call, set it on the path with #format instead/) do
+        assert_deprecated(/default_format: is deprecated for each call, set the format on the path with #format instead, when the path has none, such as path.format\(:json\) unless path.format/) do
           IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).each(:hash, default_format: :json) { |record| records << record }
         end
 
         assert_equal [{"name" => "Jack"}], records
+      end
+
+      it "reports a deprecation warning for each setting of the file that the tabular names, which still applies" do
+        (IOStreams::Tabular::FORMAT_OPTION_NAMES - %i[schema]).each do |name|
+          value = name == :format_options ? nil : {format: :json, file_name: "a.json", default_format: :json}.fetch(name)
+          records = []
+          assert_deprecated(/IOStreams: #{name}: is deprecated for each call/) do
+            IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).
+              each(:hash, name => value) { |record| records << record }
+          end
+
+          assert_equal [{"name" => "Jack"}], records
+        end
+      end
+
+      it "reads with a format set on the path as with file_name: or default_format:, which only choose the format when the path has none" do
+        Dir.mktmpdir do |dir|
+          name = File.join(dir, "data.csv.gz")
+          IOStreams.path(name).write("a|b,c\n")
+          rows = []
+          assert_deprecated(/file_name: is deprecated for each call/, /default_format: is deprecated for each call/) do
+            IOStreams.path(name).each(:array, file_name: "a.psv") { |row| rows << row }
+            IOStreams.path(name).each(:array, default_format: :psv) { |row| rows << row }
+            IOStreams.stream(StringIO.new("a|b,c\n")).each(:array, file_name: "a.psv") { |row| rows << row }
+            IOStreams.stream(StringIO.new("a|b,c\n")).each(:array, default_format: :psv) { |row| rows << row }
+          end
+
+          # The format of the path, set by its file name, outweighs them.
+          assert_equal [["a|b", "c"], ["a|b", "c"], %w[a b,c], %w[a b,c]], rows
+
+          # As does a format set on the path only when it has none.
+          rows = []
+          path = IOStreams.path(name)
+          path.format(:psv) unless path.format
+          path.each(:array) { |row| rows << row }
+          stream = IOStreams.stream(StringIO.new("a|b,c\n"))
+          stream.format(:psv) unless stream.format
+          stream.each(:array) { |row| rows << row }
+
+          assert_equal [["a|b", "c"], %w[a b,c]], rows
+        end
       end
 
       it "reports a deprecation warning for format: when writing records, which still applies" do
@@ -1166,7 +1206,7 @@ class StreamTest < Minitest::Test
 
       it "reports a deprecation warning for format_options: supplied to a call, which still applies" do
         records = []
-        assert_deprecated(/format_options: is deprecated for each call, set it on the path with #schema instead/) do
+        assert_deprecated(/format_options: is deprecated for each call, set a schema on the path with #schema instead, which gives the width of each field of a fixed width file, such as schema\(IOStreams::Schema.from_layout\(\*\*format_options\)\)/) do
           IOStreams.stream(StringIO.new("Jack12345\n")).format(:fixed).
             each(:hash, format_options: {layout: layout}) { |record| records << record }
         end
@@ -1203,25 +1243,88 @@ class StreamTest < Minitest::Test
       end
 
       it "reports no deprecation warning for column options that are nil" do
-        records = refute_deprecated do
-          records = []
+        records = []
+        refute_deprecated do
           IOStreams.stream(StringIO.new(csv)).
             each(:hash, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil) { |record| records << record }
-          records
         end
 
         assert_equal [{"name" => "Jack", "zip" => "12345"}], records
       end
 
-      it "reports a deprecation warning for skip_unknown: with a schema, which accepts it, as the only column option" do
-        records = assert_deprecated(/IOStreams: skip_unknown: is deprecated, describe the columns of the file with #schema instead/) do
-          records = []
-          IOStreams.stream(StringIO.new(csv)).schema(fields: [{name: "name"}, {name: "zip"}]).
+      it "reports a deprecation warning for skip_unknown: with a schema, which accepts it, and where it has no effect" do
+        records = []
+        assert_deprecated(/IOStreams: skip_unknown: is deprecated, and has no effect with a schema, which describes the columns of the file, so remove it/) do
+          # Without a schema, skip_unknown: false raises for a column that allowed_columns: does not list, such as notes.
+          IOStreams.stream(StringIO.new("name,zip,notes\nJack,12345,x\n")).
+            schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}]).
             each(:hash, skip_unknown: false, columns: nil) { |record| records << record }
-          records
         end
 
         assert_equal [{"name" => "Jack", "zip" => "12345"}], records
+      end
+
+      it "reports no deprecation warning for a call with a schema that raises for another option" do
+        stream = IOStreams.stream(StringIO.new(csv)).schema(fields: [{name: "name"}, {name: "zip"}])
+
+        refute_deprecated do
+          assert_raises(ArgumentError) { stream.each(:hash, skip_unknown: true, columns: %w[name zip]) { |record| record } }
+          assert_raises(ArgumentError) { stream.each(:hash, format_options: {layout: layout}) { |record| record } }
+          assert_raises(ArgumentError) { stream.each(:array, format: :csv, cleanse_header: nil) { |row| row } }
+          assert_raises(ArgumentError) { stream.writer(:hash, columns: %w[name zip]) { |writer| writer << {"name" => "Jack"} } }
+          assert_raises(ArgumentError) do
+            stream.writer(:array, skip_unknown: true, allowed_columns: %w[name]) { |writer| writer << %w[Jack 12345] }
+          end
+        end
+      end
+
+      it "reports a deprecation warning for format_options: nil with a schema, which has no effect" do
+        records = []
+        assert_deprecated(/IOStreams: format_options: is deprecated for each call, and has no effect with a schema, so remove it/) do
+          IOStreams.stream(StringIO.new(csv)).schema(fields: [{name: "name"}, {name: "zip"}]).
+            each(:hash, format_options: nil) { |record| records << record }
+        end
+
+        assert_equal [{"name" => "Jack", "zip" => "12345"}], records
+      end
+
+      it "reports a deprecation warning for original_file_name: with a schema, which chooses the format, as without one" do
+        records = []
+        assert_deprecated(/IOStreams: original_file_name: is deprecated for each call/) do
+          IOStreams.stream(StringIO.new("name|zip\nJack|12345\n")).schema(fields: [{name: "name"}, {name: "zip"}]).
+            each(:hash, original_file_name: "people.psv") { |record| records << record }
+        end
+
+        assert_equal [{"name" => "Jack", "zip" => "12345"}], records
+      end
+
+      it "reports no deprecation warning for columns: nil when writing" do
+        io = StringIO.new
+        refute_deprecated do
+          IOStreams.stream(io).writer(:hash, columns: nil) { |writer| writer << {"name" => "Jack", "zip" => 12_345} }
+        end
+
+        assert_equal csv, io.string
+      end
+
+      it "reports a deprecation warning for an option that only applies when reading supplied to a writer, even when it is nil" do
+        io = StringIO.new
+        # v3.0 raises ArgumentError for it, even when it is nil.
+        assert_deprecated(/IOStreams: allowed_columns:, skip_unknown: are deprecated when writing, since they only apply when reading and are ignored, describe the columns that are written with #schema instead/) do
+          IOStreams.stream(io).writer(:hash, allowed_columns: nil, skip_unknown: nil, columns: nil) { |writer| writer << {"name" => "Jack", "zip" => 12_345} }
+        end
+
+        assert_equal csv, io.string
+      end
+
+      it "reports a deprecation warning for an option that only applies when reading supplied to a writer with a schema, which ignores it" do
+        io = StringIO.new
+        assert_deprecated(/IOStreams: skip_unknown: is deprecated when writing, since it only applies when reading and is ignored, so remove it/) do
+          IOStreams.stream(io).schema(fields: [{name: "name"}, {name: "zip"}]).
+            writer(:hash, skip_unknown: false) { |writer| writer << {"name" => "Jack", "zip" => 12_345} }
+        end
+
+        assert_equal csv, io.string
       end
 
       it "reports one deprecation warning for an option that only applies when reading supplied to a writer" do
@@ -1246,6 +1349,61 @@ class StreamTest < Minitest::Test
         refute_deprecated { IOStreams.enforce_column_restrictions = true }
       ensure
         IOStreams.enforce_column_restrictions = enforced
+      end
+    end
+
+    describe "a writer that is already open, supplied to IOStreams.stream" do
+      it "reports a deprecation warning for the options of a row writer, which it ignores" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:array) do |rows|
+          assert_deprecated(/: warning: IOStreams: columns: is deprecated for the IOStreams::Row::Writer supplied to IOStreams.stream, which is already open and writes with its own settings, so it is ignored: set it where that writer is opened instead, or remove it$/) do
+            IOStreams.stream(rows).writer(:array, columns: %w[name zip]) { |writer| writer << %w[Jack 12345] }
+          end
+        end
+
+        assert_equal "Jack,12345\n", io.string
+      end
+
+      it "reports one deprecation warning for the options of a record writer, which it ignores" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:hash) do |records|
+          assert_deprecated(/IOStreams: delimiter:, format:, allowed_columns: are deprecated for the IOStreams::Record::Writer supplied to IOStreams.stream, which is already open/) do
+            IOStreams.stream(records).writer(:hash, delimiter: "|", format: :json, allowed_columns: %w[name]) do |writer|
+              writer << {"name" => "Jack", "zip" => 12_345}
+            end
+          end
+        end
+
+        assert_equal "name,zip\nJack,12345\n", io.string
+      end
+
+      it "reports a deprecation warning for the delimiter of a line writer, which it ignores" do
+        io = StringIO.new
+        IOStreams.stream(io).writer(:line) do |lines|
+          assert_deprecated(/IOStreams: delimiter: is deprecated for the IOStreams::Line::Writer supplied to IOStreams.stream/) do
+            IOStreams.stream(lines).writer(:line, delimiter: "|") { |writer| writer << "Jack" }
+          end
+          assert_deprecated(/IOStreams: delimiter: is deprecated for the IOStreams::Line::Writer supplied to IOStreams.stream/) do
+            IOStreams.stream(lines).writer(:array, delimiter: "|") { |writer| writer << %w[Jill 23456] }
+          end
+        end
+
+        assert_equal "Jack\nJill,23456\n", io.string
+      end
+
+      it "reports no deprecation warning for options that are nil, or none" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:array) do |rows|
+          refute_deprecated do
+            IOStreams.stream(rows).writer(:array, columns: nil, delimiter: nil) { |writer| writer << %w[Jack 12345] }
+            IOStreams.stream(rows).writer(:array) { |writer| writer << %w[Jill 23456] }
+          end
+        end
+
+        assert_equal "Jack,12345\nJill,23456\n", io.string
       end
     end
 

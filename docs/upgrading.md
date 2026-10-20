@@ -13,10 +13,10 @@ and the security issues to check. For every change in each release, see the
 
 ## Upgrading to v2.2
 
-v2.2 prepares applications for v3.0, and changes no existing behavior, apart from the
-[changes in behavior](#changes-in-behavior) below. It adds the methods that replace those that
-v3.0 deprecates or removes, and reports a deprecation warning when the application uses one of those, so that it
-can move to the replacement while it still runs v2.2, and then upgrade to v3.0 with fewer changes:
+v2.2 prepares applications for v3.0, and changes no existing behavior, apart from its deprecation warnings and the
+[changes in behavior](#changes-in-behavior) below. It adds the methods that replace those that v3.0 deprecates or
+removes, and reports a deprecation warning when the application uses one of those, so that it can move to the
+replacement while it still runs v2.2, and then upgrade to v3.0 with fewer changes:
 
 * `#raw` reads and writes the data as it is stored, in place of `stream(:none)`, see [Raw](streams#raw).
 * `#encoding` sets the encoding of the text, in place of `option(:encode, ...)` and `stream(:encode, ...)`, see
@@ -27,6 +27,11 @@ can move to the replacement while it still runs v2.2, and then upgrade to v3.0 w
   apart from the differences that v3.0 makes to every file, such as its encoding, see
   [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
 * `IOStreams.tabular_formats` returns the formats that `#format` accepts.
+
+What is deprecated still works as before. Apart from the [changes in behavior](#changes-in-behavior) below, the only
+change to existing behavior is the deprecation warnings themselves, which Ruby shows only while `Warning[:deprecated]` is on: it is off by default, so production stays
+quiet, but Minitest and test-unit turn it on, so most test runs show them on `$stderr`, including for the calls
+that another gem makes, such as Rocket Job 7.0, see [Seeing deprecation warnings](#seeing-deprecation-warnings).
 
 To prepare for v3.0: upgrade to v2.2, run your tests, which show the deprecation warnings, see below, and move each
 use to what replaces it. Then read the changes that v3.0 makes in its own
@@ -91,8 +96,9 @@ deprecation warning:
 
 | Deprecated | Use instead |
 |------------|-------------|
-| `format:`, `file_name:`, `original_file_name:` or `default_format:` supplied to `#each`, `#reader`, `#writer` or a copy, such as `each(:hash, format: :json)` | Set them on the path, such as `format(:json).each(:hash)`, or `file_name("data.json")`, so that every reader and writer of the path uses them |
-| `allowed_columns:`, `required_columns:` or `skip_unknown:` supplied to `#writer` or a copy, which ignores them | A schema, which describes the columns that are written, such as with `fieldsMatch: "subset"` to skip the other keys of each record |
+| `format:`, `file_name:`, `original_file_name:` or `default_format:` supplied to `#each`, `#reader`, `#writer` or a copy, such as `each(:hash, format: :json)`, even when they are nil | `#format`, which sets the format on the path, so that every reader and writer of the path uses it: `format(:json).each(:hash)`. A file name supplied to a call only chooses the format, when the path has none, and not the streams, as `#file_name` does, so set the format that it names instead, such as `format(:json)` for `file_name: "data.json"`. `default_format:` only applies when the path has no format, so set it only then: `path.format(:json) unless path.format` |
+| `allowed_columns:`, `required_columns:` or `skip_unknown:` supplied to `#writer` or a copy, which ignores them, even when they are nil | A schema, which describes the columns that are written, such as with `fieldsMatch: "subset"` to skip the other keys of each record |
+| Options supplied to `#writer` when the stream is a line, row or record writer that is already open, such as the one that `writer(:line)` yields, handed to `IOStreams.stream`, which writes with its own settings, and ignores them | Set them where that writer is opened, or remove them |
 | Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
 | The Zip writer's `zip_file_name` | `entry_file_name` |
 | A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
@@ -172,9 +178,10 @@ for the column `First Name`, so use them as the names of the fields: the schema 
 named as the column was cleansed. With `cleanse_header: false`, they are the columns as they are in the file, so use
 them as they are.
 
-With a schema, the options raise `ArgumentError`, unless they are nil. `skip_unknown:` only applies to
-`allowed_columns:`, so it is accepted, so that code can supply the same options with and without a schema. The
-property of a schema that replaces each one:
+With a schema, `columns:`, `allowed_columns:` and `required_columns:` raise `ArgumentError`, unless they are nil, and
+so does `cleanse_header:`, even when it is nil. `skip_unknown:` only applies to `allowed_columns:`, so it is accepted,
+and has no effect, so that code can supply the same options with and without a schema. The property of a schema
+that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|
@@ -264,8 +271,6 @@ A schema reads the same records as the options it replaces, named as above, as i
   only the values of the fields, where the column options left the header row and the rows as they are in the file.
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
-* JSON writes every field of each record, `null` for a key that the record does not have, where `columns:` wrote only
-  the keys that it had, so that the file reads back with the same schema.
 * The text read is UTF-8, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.
 

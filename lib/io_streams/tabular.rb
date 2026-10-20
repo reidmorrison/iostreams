@@ -60,6 +60,29 @@ module IOStreams
     # records instead, can tell that the option was supplied, see `IOStreams::Tabular::SchemaMapping#read_row`.
     CLEANSE_BY_DEFAULT = :default
 
+    # The options of #initialize that describe the file, rather than its columns: its format, the file name that names
+    # the format, and the schema or the layout of its fields. `IOStreams::Stream` sets them from its path, see
+    # `IOStreams::Stream#format` and `IOStreams::Stream#schema`.
+    FORMAT_OPTION_NAMES = %i[format file_name schema format_options default_format].freeze
+
+    # Returns [Array<Symbol>] the names of the supplied options of a reader of rows or records, see
+    # `IOStreams::Row::Reader`, that are deprecated, since a schema describes the columns of the file instead, see
+    # `IOStreams::Schema`: the options of the header that are not nil, see `IOStreams::Tabular::Header`, and the
+    # `cleanse_header` option of the reader, even when it is nil, which does not cleanse the header row.
+    def self.deprecated_read_option_names(options)
+      names = options.compact.keys & Header::OPTION_NAMES
+      names << :cleanse_header if options.key?(:cleanse_header)
+      names
+    end
+
+    # Returns [Array<Symbol>] the names of the supplied options of a writer of rows or records, see
+    # `IOStreams::Row::Writer`, that are deprecated, since a schema describes the columns of the file instead: the
+    # options of the header that are not nil, other than those that only apply when reading a header, see
+    # `IOStreams::Tabular::Header::READ_OPTION_NAMES`, which writing does not apply.
+    def self.deprecated_write_option_names(options)
+      options.compact.keys & (Header::OPTION_NAMES - Header::READ_OPTION_NAMES)
+    end
+
     attr_reader :format, :parser
 
     # Returns [IOStreams::Schema|nil] the schema of the rows and records, see #initialize.
@@ -119,7 +142,7 @@ module IOStreams
     #     Since the schema describes the columns of the file, the options above that describe them without one,
     #     `columns`, `allowed_columns` and `required_columns`, raise ArgumentError with it, unless they are nil, and so
     #     do `format_options`, unless they are empty, and the `cleanse_header` option of a reader, see
-    #     `IOStreams::Row::Reader`. `skip_unknown` only applies to `allowed_columns`, so it does not.
+    #     `IOStreams::Row::Reader`. `skip_unknown` only applies to `allowed_columns`, so it does not, and has no effect.
     #     Optional. Default: nil
     #
     #   decoded: [true|false]
@@ -378,7 +401,7 @@ module IOStreams
     # options that are not empty.
     #
     # An option that is nil is not supplied, and `skip_unknown` only applies to `allowed_columns`, so they are accepted,
-    # so that a caller, such as Rocket Job, can supply its options whether or not there is a schema.
+    # and have no effect, so that a caller, such as Rocket Job, can supply its options whether or not there is a schema.
     def reject_schema_options(format_options, args)
       unless format_options.nil? || format_options.empty?
         raise(ArgumentError, "Supply either schema: or format_options:, not both")

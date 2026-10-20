@@ -532,6 +532,29 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "the names of its options" do
+      it "names the options of .new that describe the file" do
+        keywords = IOStreams::Tabular.instance_method(:initialize).parameters.map(&:last)
+
+        assert_empty IOStreams::Tabular::FORMAT_OPTION_NAMES - keywords
+      end
+
+      it "names the deprecated options of a reader: those of the header that are not nil, and cleanse_header, even when it is nil" do
+        options = {columns: %w[a], allowed_columns: nil, required_columns: %w[a], skip_unknown: false, cleanse_header: nil,
+                   delimiter: "|", format: :csv}
+
+        assert_equal %i[columns required_columns skip_unknown cleanse_header], IOStreams::Tabular.deprecated_read_option_names(options)
+        assert_empty IOStreams::Tabular.deprecated_read_option_names(columns: nil, skip_unknown: nil, format: :csv)
+      end
+
+      it "names the deprecated options of a writer: those of the header that are not nil, other than those that only apply when reading" do
+        options = {columns: %w[a], allowed_columns: %w[a], required_columns: %w[a], skip_unknown: true, format: :csv}
+
+        assert_equal %i[columns], IOStreams::Tabular.deprecated_write_option_names(options)
+        assert_empty IOStreams::Tabular.deprecated_write_option_names(columns: nil)
+      end
+    end
+
     describe ".new" do
       it "raises an exception for an unknown format" do
         assert_raises ArgumentError do
