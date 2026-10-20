@@ -231,7 +231,7 @@ module IOStreams
     # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", convert: false)
     #
     # # Advanced copy with custom stream conversions on source and target.
-    # source = IOStreams.path("source_file").stream(:encode, encoding: "BINARY")
+    # source = IOStreams.path("source_file").encoding("BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
     def copy_from(source, convert: true, mode: nil, **args)
       if convert
@@ -410,7 +410,11 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning each line as an array, one at a time.
+    #
+    # Supplying `embedded_within:` is deprecated, since the format of the file decides where its lines are split, and
+    # reports a deprecation warning, see `IOStreams::Deprecation`.
     def row_reader(delimiter: nil, embedded_within: :auto, **args)
+      warn_embedded_within(embedded_within)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Row::Reader.new(
           io,
@@ -423,7 +427,10 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
+    #
+    # Supplying `embedded_within:` is deprecated, see #row_reader.
     def record_reader(delimiter: nil, embedded_within: :auto, **args)
+      warn_embedded_within(embedded_within)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(
           io,
@@ -433,6 +440,14 @@ module IOStreams
           **args
         )
       end
+    end
+
+    def warn_embedded_within(embedded_within)
+      return if embedded_within == :auto
+
+      Deprecation.warn("embedded_within: is deprecated when reading rows and records, since the format of the file " \
+                       "decides where their lines are split, set it with #format instead, such as format(:psv) " \
+                       "for values that are not quoted")
     end
 
     def stream_writer(&)

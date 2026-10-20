@@ -70,7 +70,7 @@ class SymmetricEncryptionWriterTest < Minitest::Test
       it "encrypts when writing to a path with a .enc extension" do
         path.write(decrypted)
 
-        refute_equal decrypted, IOStreams.path(path.to_s).stream(:none).read
+        refute_equal decrypted, IOStreams.path(path.to_s).raw.read
         assert_equal decrypted, IOStreams.path(path.to_s).read
       end
     end

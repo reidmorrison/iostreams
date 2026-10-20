@@ -3,13 +3,65 @@ layout: default
 title: Upgrading
 heading: Upgrading IOStreams
 description: >-
-  What changes when upgrading IOStreams to v2.1 or v2.0, and the security
-  settings to review in your application when upgrading.
+  What changes when upgrading IOStreams to v2.2, v2.1 or v2.0, how to prepare
+  for v3.0, and the security settings to review in your application when upgrading.
 ---
 
 This page covers the changes that may need updates to your application when upgrading IOStreams,
 and the security issues to check. For every change in each release, see the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md).
+
+## Upgrading to v2.2
+
+v2.2 prepares applications for v3.0, and changes no existing behavior. It adds the methods that replace those that
+v3.0 deprecates or removes, and reports a deprecation warning when the application uses one of those, so that it
+can move to the replacement while it still runs v2.2, and then upgrade to v3.0 with fewer changes.
+
+### Seeing deprecation warnings
+
+IOStreams reports the use of a deprecated method or option as a Ruby deprecation warning, the same way that Ruby
+reports its own, which names the line of your application that used it, and what to use instead:
+
+~~~
+app/jobs/export_job.rb:12: warning: IOStreams: stream(:none) is deprecated, use #raw to read or write the data as it is stored, or #file_name to read a file that is not named for its format
+~~~
+
+Ruby only shows deprecation warnings while `Warning[:deprecated]` is true, which it is not by default, so production
+stays quiet without any configuration:
+
+| Where | Deprecation warnings |
+|-------|----------------------|
+| Tests run with Minitest or test-unit | On, since both turn them on |
+| Tests run with RSpec | Off, unless run with `rspec --warnings`, or `Warning[:deprecated] = true` is set in `spec_helper.rb` |
+| Development | Off, unless `RUBYOPT=-W:deprecated` is set in the environment, or `Warning[:deprecated] = true` in code that only runs in development, such as `config/environments/development.rb` |
+| Production | Off |
+
+Rails settings such as `config.active_support.deprecation` only apply to the deprecation warnings of Rails, not to
+those that Ruby reports.
+
+Ruby writes each warning to `$stderr`. To send them elsewhere, such as to your log, or to raise them in your tests so
+that each use is found, extend `Warning` with your own `warn`:
+
+~~~ruby
+module IOStreamsDeprecations
+  def warn(message, *, **)
+    return super unless message.include?("IOStreams: ")
+
+    Rails.logger.warn(message.chomp)
+  end
+end
+Warning.extend(IOStreamsDeprecations)
+~~~
+
+### Deprecated, and what replaces it
+
+Each of these still works as before in v2.2, and reports a deprecation warning:
+
+| Deprecated | Use instead |
+|------------|-------------|
+| `stream(:none)` | `#raw` to read or write the data as it is stored, or `#file_name` to read a file that is not named for its format, such as `file_name("data.csv")` for a CSV file named `data.txt` |
+| `option(:encode, ...)` and `stream(:encode, ...)` | `#encoding`, with the same options and the same results, see [Character encoding](extensions#character-encoding) |
+| `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
 
 ## Upgrading to v2.1
 

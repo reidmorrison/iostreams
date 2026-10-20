@@ -50,8 +50,13 @@ Notes:
   tabular format quotes its fields, such as CSV (detected from a `.csv` file name or set explicitly via
   `.format(:csv)`). `embedded_within` only needs to be supplied for quoted formats that are not
   auto-detected, or to override the quote character.
+* When reading rows or records, with `each(:array)` or `each(:hash)`, the format of the file decides where
+  its lines are split, since its parser must agree with them, so set the format with `format` instead.
+  Supplying `embedded_within` there is deprecated, and reports a deprecation warning, see
+  [Seeing deprecation warnings](upgrading#seeing-deprecation-warnings).
 * A file that is named `.csv` but is actually pipe-delimited can avoid quote parsing by declaring its
-  real format with `.format(:psv)`, or by passing `embedded_within: nil` to disable it explicitly:
+  real format with `.format(:psv)`, or when reading lines, by passing `embedded_within: nil` to disable it
+  explicitly:
 ~~~ruby
 IOStreams.path("pipe_delimited.csv").format(:psv).each(:line) do |line|
   puts line

@@ -139,6 +139,12 @@ module IOStreams
           assert_kind_of IOStreams::Paths::File, path1, path1
           assert_kind_of IOStreams::Paths::File, path2, path2
         end
+
+        it "applies no streams, without a deprecation warning" do
+          pipeline = refute_deprecated { IOStreams.temp_file("base", ".csv.gz", &:pipeline) }
+
+          assert_empty pipeline
+        end
       end
 
       describe ".temp_dir" do

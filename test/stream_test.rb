@@ -67,7 +67,7 @@ class StreamTest < Minitest::Test
     describe "#each(:line)" do
       it "returns a line at a time" do
         lines = []
-        stream.stream(:none)
+        stream.raw
         count = stream.each(:line) { |line| lines << line }
 
         assert_equal data.lines.map(&:strip), lines
@@ -78,7 +78,7 @@ class StreamTest < Minitest::Test
         input  = StringIO.new(bad_data)
         lines  = []
         stream = IOStreams::Stream.new(input)
-        stream.stream(:encode, encoding: "UTF-8", cleaner: :printable, replace: "")
+        stream.encoding("UTF-8", cleaner: :printable, replace: "")
         count = stream.each(:line) { |line| lines << line }
 
         assert_equal stripped_data.lines.map(&:strip), lines
@@ -670,6 +670,35 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "reports a deprecation warning for embedded_within: when reading rows, which still applies" do
+        io   = StringIO.new(%(name,description\n"Jack\nJohnson",hello\n))
+        rows = []
+        assert_deprecated(/embedded_within: is deprecated when reading rows and records, .* set it with #format instead/) do
+          IOStreams::Stream.new(io).format(:psv).each(:array, embedded_within: '"') { |row| rows << row }
+        end
+
+        assert_equal [%w[name,description], [%("Jack\nJohnson",hello)]], rows
+      end
+
+      it "reports a deprecation warning for embedded_within: nil when reading records, which still applies" do
+        rows = []
+        assert_deprecated(/embedded_within: is deprecated when reading rows and records/) do
+          IOStreams.path(pipe_delimited_csv_file).format(:psv).each(:hash, embedded_within: nil) { |row| rows << row }
+        end
+
+        assert_equal 3, rows.size
+      end
+
+      it "reports no deprecation warning for embedded_within: when reading lines" do
+        lines = refute_deprecated do
+          lines = []
+          IOStreams.path(pipe_delimited_csv_file).each(:line, embedded_within: nil) { |line| lines << line }
+          lines
+        end
+
+        assert_equal 4, lines.size
+      end
+
       it "sets embedded_within from an explicit csv format with no file_name" do
         io = StringIO.new(%("Jack\nJohnson",hello\n))
         lines = []
@@ -826,7 +855,7 @@ class StreamTest < Minitest::Test
       it "reads the same data as stream(:none)" do
         Dir.mktmpdir do |dir|
           IOStreams.path(dir, "data.csv.gz").write("name\nJack\n")
-          none = IOStreams.path(dir, "data.csv.gz").stream(:none).read
+          none = assert_deprecated(/stream\(:none\) is deprecated/) { IOStreams.path(dir, "data.csv.gz").stream(:none).read }
 
           assert_equal none, IOStreams.path(dir, "data.csv.gz").raw.read
         end
@@ -843,6 +872,44 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "deprecated streams" do
+      it "reports a deprecation warning for stream(:none), which still applies no streams" do
+        line = __LINE__ + 2
+        path = assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: stream\(:none\) is deprecated, use #raw/) do
+          IOStreams.path("data.csv.gz").stream(:none)
+        end
+
+        assert_empty path.pipeline
+      end
+
+      it "reports a deprecation warning for stream(:encode, ...), which still replaces the streams of the file name" do
+        path = assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+          IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")
+        end
+
+        assert_equal({encode: {encoding: "BINARY"}}, path.pipeline)
+      end
+
+      it "reports a deprecation warning for option(:encode, ...) supplied to option_or_stream" do
+        path = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+          IOStreams.path("data.csv").option_or_stream(:encode, encoding: "UTF-8", replace: "")
+        end
+
+        assert_equal({encoding: "UTF-8", replace: ""}, path.setting(:encode))
+      end
+
+      it "reports no deprecation warning for a copy without conversions" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "source.csv.gz").write("Hello")
+          refute_deprecated do
+            IOStreams.path(dir, "target.csv").copy_from(IOStreams.path(dir, "source.csv.gz"), convert: false)
+          end
+
+          assert_equal ::File.binread(File.join(dir, "source.csv.gz")), ::File.binread(File.join(dir, "target.csv"))
+        end
+      end
+    end
+
     describe "#encoding" do
       it "returns nil when no encoding is set" do
         assert_nil IOStreams.path("data.csv").encoding
@@ -854,7 +921,9 @@ class StreamTest < Minitest::Test
       end
 
       it "returns the encoding set with the encode stream" do
-        path = IOStreams.path("data.csv").option(:encode, encoding: "BINARY")
+        path = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) do
+          IOStreams.path("data.csv").option(:encode, encoding: "BINARY")
+        end
 
         assert_equal "BINARY", path.encoding
       end
@@ -885,7 +954,9 @@ class StreamTest < Minitest::Test
         Dir.mktmpdir do |dir|
           ::File.binwrite(File.join(dir, "data.csv"), bad_data)
           options = {encoding: "UTF-8", cleaner: :printable, replace: ""}
-          encoded = IOStreams.path(dir, "data.csv").option(:encode, **options).read
+          encoded = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) do
+            IOStreams.path(dir, "data.csv").option(:encode, **options).read
+          end
 
           assert_equal stripped_data, encoded
           assert_equal encoded, IOStreams.path(dir, "data.csv").encoding(**options).read
@@ -893,7 +964,9 @@ class StreamTest < Minitest::Test
       end
 
       it "merges its options with those of the encode stream" do
-        path = IOStreams.path("data.csv.gz").option(:encode, encoding: "UTF-8", replace: "")
+        path = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated/) do
+          IOStreams.path("data.csv.gz").option(:encode, encoding: "UTF-8", replace: "")
+        end
         path.encoding(cleaner: :printable)
 
         assert_equal({encoding: "UTF-8", replace: "", cleaner: :printable}, path.setting(:encode))
@@ -902,7 +975,7 @@ class StreamTest < Minitest::Test
 
       it "is removed by stream(:none)" do
         path = IOStreams.path("data.csv.gz").encoding("BINARY")
-        path.stream(:none)
+        assert_deprecated(/stream\(:none\) is deprecated/) { path.stream(:none) }
 
         assert_empty path.pipeline
         assert_nil path.encoding
@@ -946,7 +1019,7 @@ class StreamTest < Minitest::Test
       it "converts between streams based on the file names" do
         source_path.write("Hello World")
 
-        refute_equal "Hello World", IOStreams.path(source_path.to_s).stream(:none).read
+        refute_equal "Hello World", IOStreams.path(source_path.to_s).raw.read
 
         target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"))
 
