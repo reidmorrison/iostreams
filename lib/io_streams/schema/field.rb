@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "date"
+require "json"
 require "time"
 
 module IOStreams
@@ -25,6 +26,10 @@ module IOStreams
     #     "boolean":  true or false, see `trueValues` and `falseValues`.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set.
+    #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
+    #                 format of JSON as an object.
+    #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
+    #                 format of JSON as an array.
     #     "any":      the value as it is read, without converting it.
     #     Default: "any"
     #
@@ -84,7 +89,7 @@ module IOStreams
     # appears to check a value that it does not.
     class Field
       # The types of field that IOStreams supports.
-      TYPES = %w[any boolean date datetime integer number string].freeze
+      TYPES = %w[any array boolean date datetime integer number object string].freeze
 
       # The properties that each type of field accepts, in addition to those that every field accepts.
       TYPE_PROPERTIES = {
@@ -196,10 +201,14 @@ module IOStreams
       # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
       # as a plain decimal, such as "12.5" rather than "0.125e2", a Time or DateTime in ISO 8601, such as
       # "2026-10-13T09:30:00Z", with as many digits of its fraction of a second as it needs, a Date in ISO 8601, such as
-      # "2026-10-13", and any other value with `to_s`.
+      # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which is what the JSON format writes
+      # for it, see .any_json, and any other value with `to_s`.
       #
       # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
       # without a schema.
+      #
+      # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, is handled as writing it to a
+      # JSON file handles it: the json gem raises, while ActiveSupport, which replaces how Ruby writes JSON, writes null.
       def self.any_text(value)
         return value if value.is_a?(String)
         # The most common values first, so that they skip the checks below.
@@ -209,6 +218,8 @@ module IOStreams
         return time_text(time_of(value)) if value.is_a?(DateTime)
         return value.iso8601 if value.is_a?(Date)
         return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+        # The JSON that the JSON format writes, rather than `to_s`, whose text only Ruby reads, and which Ruby 3.4 changed.
+        return any_json(value).to_json if value.is_a?(::Hash) || value.is_a?(::Array)
 
         value.to_s
       end
@@ -330,6 +341,8 @@ module IOStreams
         when "number" then cast_number(value)
         when "boolean" then cast_boolean(value)
         when "date" then cast_date(value)
+        when "object" then cast_json(value, ::Hash)
+        when "array" then cast_json(value, ::Array)
         else cast_datetime(value)
         end
       end
@@ -392,7 +405,7 @@ module IOStreams
 
       # Returns [true|false] whether the type is one that Frictionless defines, but IOStreams does not support yet.
       def known_type?
-        %w[object array list time year yearmonth duration geopoint geojson].include?(type)
+        %w[list time year yearmonth duration geopoint geojson].include?(type)
       end
 
       def check_properties(descriptor)
@@ -546,6 +559,20 @@ module IOStreams
         number(text.sub(BARE_POINT, ".0"))
       end
 
+      # Returns [Hash|Array] the value, which must be of the class of the field, a Hash for an object or an Array for an
+      # array, or the text of one in JSON, whose numbers are read as JSON reads them without a schema.
+      def cast_json(value, klass)
+        json = value.is_a?(String) ? parse_json(value) : value
+        # The value as it was read is named, such as the text of a JSON array for an object field.
+        json.is_a?(klass) ? json : invalid(value)
+      end
+
+      def parse_json(text)
+        JSON.parse(text)
+      rescue JSON::ParserError
+        invalid(text)
+      end
+
       def cast_boolean(value)
         return value if [true, false].include?(value)
         return true if value.is_a?(String) && @true_values.include?(value)
@@ -638,7 +665,7 @@ module IOStreams
         case type
         when "number" then number_json(value)
         when "integer", "boolean", "string" then value
-        when "any" then self.class.any_json(value)
+        when "any", "object", "array" then self.class.any_json(value)
         else text(value)
         end
       end

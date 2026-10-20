@@ -71,6 +71,14 @@ class TabularSchemaTest < Minitest::Test
     describe "with a schema" do
       let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
 
+      it "writes a Hash or an Array in a fixed width any field as JSON" do
+        schema = IOStreams::Schema.new(fields: [{name: "prefs", width: 12}, {name: "list", width: 7}])
+
+        assert_equal %({"a":[1,2]} [1,"x"]), IOStreams::Tabular.new(format: :fixed, schema: schema).render(
+          {"prefs" => {"a" => [1, 2]}, "list" => [1, "x"]}
+        )
+      end
+
       # Returns [Array] the lines that rendering the rows yields, see IOStreams::Tabular#render_row.
       def rendered_rows(tabular, *rows)
         lines = []
