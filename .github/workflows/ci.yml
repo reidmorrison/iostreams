@@ -69,11 +69,28 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: iostreams_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pmysql"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       ACTIVERECORD_VERSION: ${{ matrix.activerecord }}
       POSTGRES_URL: postgres://postgres:postgres@localhost:5432/iostreams_test
+      MYSQL_URL: mysql2://root:mysql@127.0.0.1:3306/iostreams_test
+      # Installs the drivers of MySQL, see the Gemfile, whose mysql2 needs the MySQL client library.
+      BUNDLE_WITH: mysql
     steps:
       - uses: actions/checkout@v4
+      - name: Install the MySQL client library
+        run: sudo apt-get update -q && sudo apt-get install -y -q libmysqlclient-dev
       - name: Set up Ruby
         timeout-minutes: 10
         uses: ruby/setup-ruby@v1

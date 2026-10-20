@@ -37,8 +37,9 @@ module QueryDatabase
   end
 
   # Returns [Hash<String, Hash>] the configuration of each database that the tests can read: SQLite, unless its gem
-  # cannot be loaded, as on JRuby, and PostgreSQL, at the url of POSTGRES_URL, when it is set, in a schema of this
-  # process, see PostgresqlSchema. Each pool has two connections: the one that a query is read on, which it checks out
+  # cannot be loaded, as on JRuby, PostgreSQL, at the url of POSTGRES_URL, when it is set, in a schema of this
+  # process, see PostgresqlSchema, and MySQL with mysql2, at the url of MYSQL_URL, such as
+  # `mysql2://root:mysql@127.0.0.1:3306/iostreams_test`, when it is set. Each pool has two connections: the one that a query is read on, which it checks out
   # of the pool, and the one of the caller, which the block that the rows are yielded to queries on, see
   # `IOStreams::Query#open`.
   #
@@ -55,6 +56,7 @@ module QueryDatabase
       configs["SQLite"] = {adapter: "sqlite3", database: file, pool: 2}
     end
     configs["PostgreSQL"] = PostgresqlSchema.config if PostgresqlSchema.url && driver?("pg")
+    configs["MySQL"]      = {url: ENV.fetch("MYSQL_URL"), pool: 2} if ENV["MYSQL_URL"] && driver?("mysql2")
     configs
   end
 

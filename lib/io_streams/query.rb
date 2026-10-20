@@ -25,6 +25,7 @@ module IOStreams
     autoload :CastTypes,        "io_streams/query/cast_types"
     autoload :Columns,          "io_streams/query/columns"
     autoload :Failure,          "io_streams/query/failure"
+    autoload :Mysql2Stream,     "io_streams/query/mysql2_stream"
     autoload :PostgresqlCursor, "io_streams/query/postgresql_cursor"
     autoload :SqliteStatement,  "io_streams/query/sqlite_statement"
     autoload :Statement,        "io_streams/query/statement"
@@ -38,7 +39,7 @@ module IOStreams
     #   `IOStreams::Query::Statement`, is open on the connection, and the names of its columns are checked, see
     #   `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw values of each row, from the row after
     #   the last one that it yielded, until the block ends, and closes the statement when it does.
-    SOURCES = %i[PostgresqlCursor SqliteStatement].freeze
+    SOURCES = %i[PostgresqlCursor Mysql2Stream SqliteStatement].freeze
 
     # The earliest version of Active Record that a query is read with.
     MINIMUM_VERSION = "7.2"

@@ -14,7 +14,14 @@ class QueryStatementTest < Minitest::Test
         db.record.with_connection { |connection| IOStreams::Query::Statement.new(connection, relation.arel) }
       end
 
+      # Skips a test of the binds of a connection that prepares statements, which a connection of mysql2 does not, unless
+      # it is configured to.
+      def skip_unless_prepared
+        skip "#{db.name} does not prepare statements by default" unless db.record.with_connection(&:prepared_statements?)
+      end
+
       it "has the SQL of Active Record, with a placeholder for each bind, and the binds that it sends" do
+        skip_unless_prepared
         statement = statement(relation)
 
         refute_equal relation.to_sql, statement.sql
@@ -23,6 +30,7 @@ class QueryStatementTest < Minitest::Test
       end
 
       it "casts the value of each bind for the driver, as Active Record casts it" do
+        skip_unless_prepared
         statement = statement(db.order.where(name: "a").where("amount < ?", Rational(7, 2)))
         expected  = db.record.with_connection { |connection| [connection.type_cast("a"), connection.type_cast(Rational(7, 2))] }
 
@@ -58,6 +66,7 @@ class QueryStatementTest < Minitest::Test
         end
 
         it "yields the SQL and the binds, type cast for the driver, within an event of Active Record" do
+          skip_unless_prepared
           statement = statement(relation)
           expected  = db.record.with_connection { |connection| [connection.type_cast("a")] }
           (sql, binds), payloads = instrument(statement)

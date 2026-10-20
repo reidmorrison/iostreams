@@ -44,6 +44,14 @@ gem "zstd-ruby", platform: :ruby # A C extension, so JRuby uses the zstd-jni jar
 # To test reading an HTTP path under a Fiber scheduler. Its io-event dependency is a C extension.
 gem "async", platform: :ruby
 
+# The drivers of MySQL, for the query tests that read MySQL, see test/query/query_helper.rb: mysql2, which streams a
+# query, and trilogy, which cannot. mysql2 needs the MySQL client library to build, so they are only installed with
+# `bundle config set --local with mysql`, as CI does. They are C extensions, which JRuby cannot load.
+group :mysql, optional: true do
+  gem "mysql2", platform: :ruby
+  gem "trilogy", platform: :ruby
+end
+
 # Dev Tools
 # Pinned to a minor version since .rubocop.yml enables new cops, so that a RuboCop release cannot fail CI
 # without a code change. Bump these deliberately and fix any new offenses in the same commit.

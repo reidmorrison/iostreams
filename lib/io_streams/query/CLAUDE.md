@@ -148,6 +148,12 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   reports each address that it tried, and answers `Query::Failure::NONE` for a host that does not resolve or a database
   that does not exist; the failures of a statement are told apart by the class of the pg gem's exception
   (`FAILURE_KINDS`).
+- `Query::Mysql2Stream`: reads MySQL with the `stream: true` mode of the raw connection of the mysql2 gem, with the
+  query options of Active Record, so that its raw values are those that `pluck` casts. The server ends a query whose
+  client does not take a row within `net_write_timeout`, 60 seconds by default, so it is raised for the session while
+  the rows are read, and set back afterwards. While mysql2 streams a result, its connection cannot run another
+  query, and the rest of the result is read from the server when it is freed after the block left early. trilogy
+  cannot stream a query, since its queries return every row at once, so it is read in batches.
 - `Query::SqliteStatement`: reads SQLite with a statement of the sqlite3 gem (`prepare`, `bind_params`, `step`), which
   steps through the result one row at a time. `.reads?` asks the name of the adapter and whether the sqlite3 gem is
   loaded, which it cannot be on JRuby; `.own_connection?` only in WAL mode (`journal_mode`, the default of Rails), whose
@@ -195,6 +201,10 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   a database do not collide. The tests refuse a database whose name does not start with `iostreams` and is neither
   `test` nor ends in `_test`, and a url that sets `schema_search_path`. A database that cannot be set up, such as a
   server that cannot be reached, leaves out only its own tests, with a warning, and fails `QueryDatabaseTest`.
+- MySQL is read when `MYSQL_URL` is set, such as `mysql2://root:mysql@127.0.0.1:3306/iostreams_test`, which CI runs as
+  a service. The MySQL drivers, mysql2 and trilogy, are in the optional `mysql` group of the Gemfile, since mysql2 needs
+  the MySQL client library to build: `bundle config set --local with mysql` installs them. Without a Gemfile.lock,
+  bundler still resolves the optional group, so a new worktree needs one, such as a copy of another worktree's.
 - Active Record 8.1 by default; CI's Ruby 3.3 job runs 7.2.3 (`ACTIVERECORD_VERSION`), the latest 7.2 that minitest 6
   allows, with json < 3, see the Gemfile. To run it locally without touching the worktree's Gemfile.lock, copy the
   Gemfile to tmp/ with `gemspec path: ".."` and run `ACTIVERECORD_VERSION=7.2.3 BUNDLE_GEMFILE=tmp/Gemfile.ar72 bundle
