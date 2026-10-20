@@ -111,9 +111,11 @@ module IOStreams
 
         it "array writer detects json format from file name" do
           path = IOStreams.path("/tmp/io_streams/abc.json")
-          path.writer(:array, columns: %w[name login]) do |io|
-            io << ["Jack Jones", "jjones"]
-            io << ["Jill Smith", "jsmith"]
+          assert_deprecated(/columns: is deprecated/) do
+            path.writer(:array, columns: %w[name login]) do |io|
+              io << ["Jack Jones", "jjones"]
+              io << ["Jill Smith", "jsmith"]
+            end
           end
           actual = path.read
           path.delete

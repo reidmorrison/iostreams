@@ -224,8 +224,10 @@ class SchemaTest < Minitest::Test
       it "reads the same records as the layout" do
         data = "Jack      xx01234\nJill      yy00042\n"
         layout_records = []
-        IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
-          each(:hash) { |record| layout_records << record }
+        assert_deprecated(/#format_options is deprecated/) do
+          IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
+            each(:hash) { |record| layout_records << record }
+        end
         schema_records = []
         IOStreams.stream(StringIO.new(data)).format(:fixed).schema(IOStreams::Schema.from_layout(layout: layout)).
           each(:hash) { |record| schema_records << record }
@@ -247,8 +249,10 @@ class SchemaTest < Minitest::Test
       it "raises for a column of the schema that holds no number, which the layout reads as zero" do
         data = "Jack      xxN/A  \n"
         layout_records = []
-        IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
-          each(:hash) { |record| layout_records << record }
+        assert_deprecated(/#format_options is deprecated/) do
+          IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
+            each(:hash) { |record| layout_records << record }
+        end
 
         assert_equal [{name: "Jack", zip: 0}], layout_records
         assert_raises(IOStreams::Errors::InvalidValue) do

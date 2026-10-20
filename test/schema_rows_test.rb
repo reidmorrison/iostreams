@@ -66,7 +66,9 @@ class SchemaRowsTest < Minitest::Test
         it "copies the rows into a file whose columns are supplied, which name them instead of the fields" do
           source = stream("Jack12345\n").format(:fixed).schema(fixed)
           output = StringIO.new
-          IOStreams.stream(output).format(:csv).copy_from(source, mode: :array, columns: %w[who where])
+          assert_deprecated(/columns: is deprecated/) do
+            IOStreams.stream(output).format(:csv).copy_from(source, mode: :array, columns: %w[who where])
+          end
 
           assert_equal "who,where\nJack,12345\n", output.string
         end
@@ -86,7 +88,7 @@ class SchemaRowsTest < Minitest::Test
           assert stream(%({"name":"Jack"}\n)).format(:json).schema(fields: [{name: "name"}]).reader(:array, &:header?)
           assert stream("Jack\n").schema(header: false, fields: [{name: "name"}]).reader(:array, &:header?)
           refute stream(%({"name":"Jack"}\n)).format(:json).reader(:array, &:header?)
-          refute stream("Jack\n").reader(:array, columns: %w[name], &:header?)
+          refute(assert_deprecated(/columns: is deprecated/) { stream("Jack\n").reader(:array, columns: %w[name], &:header?) })
         end
       end
     end
@@ -286,7 +288,9 @@ class SchemaRowsTest < Minitest::Test
       it "still apply the cleansing and restrictions of the header row" do
         assert_equal [{"first_name" => "Jack", "age" => "21"}], read(stream("First Name,Age\nJack,21\n"), :hash)
         records = []
-        stream("First Name,Age\nJack,21\n").each(:hash, cleanse_header: false, allowed_columns: ["First Name"]) { |r| records << r }
+        assert_deprecated(/allowed_columns:, cleanse_header: are deprecated, describe the columns of the file with #schema/) do
+          stream("First Name,Age\nJack,21\n").each(:hash, cleanse_header: false, allowed_columns: ["First Name"]) { |r| records << r }
+        end
 
         assert_equal [{"First Name" => "Jack", "Age" => "21"}], records
       end

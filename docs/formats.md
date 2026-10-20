@@ -64,15 +64,21 @@ IOStreams.tabular_formats.include?(:json)
 ## Format options
 
 Format specific options are supplied with `format_options`. They are passed to the parser
-for the chosen format. The `:fixed` format requires its file layout to be supplied this way,
-as shown in the next section. The other formats do not currently take any options.
+for the chosen format. Only the `:fixed` format takes any: the layout of its file, as shown in
+the next section.
+
+`format_options` is deprecated, and reports a deprecation warning, see
+[Seeing deprecation warnings](upgrading#seeing-deprecation-warnings): give the `width` of each field
+of a fixed width file in a [schema](#fixed-width-files-with-a-schema) instead, see
+[Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema). It still works as before.
 
 ## Fixed width files
 
 Fixed width files have no delimiters; each column is identified by its position within the line.
-Since the layout cannot be inferred from the file, supply it using `format_options`, or give the
-`width` of each field in a [schema](#fixed-width-files-with-a-schema), which also gives the type of
-each field:
+Since the layout cannot be inferred from the file, give the `width` of each field in a
+[schema](#fixed-width-files-with-a-schema), which also gives the type of each field. The layout of the
+deprecated `format_options`, below, still works as before, see
+[Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema):
 
 ~~~ruby
 path = IOStreams.path("sample_data")
@@ -133,6 +139,11 @@ In addition to `layout`, the `:fixed` format takes one more option:
 ## Header options
 
 When reading or writing records (`:hash`), the following options control the header row.
+They are deprecated, and report a deprecation warning when they are not nil, as does `cleanse_header`, even
+when it is nil: a [schema](#schema) describes the columns of the file on its path instead, see
+[Moving the column options to a schema](upgrading#moving-the-column-options-to-a-schema). They still work
+as before without a schema.
+
 With a [schema](#schema), which describes the columns of the file instead, `columns`,
 `allowed_columns` and `required_columns` raise `ArgumentError` unless they are nil, and so
 does `cleanse_header`, even when it is nil. `skip_unknown` only applies to `allowed_columns`,

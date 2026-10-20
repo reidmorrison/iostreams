@@ -6,9 +6,14 @@ module IOStreams
       format:             "#format",
       file_name:          "#file_name",
       original_file_name: "#file_name",
-      default_format:     "#format"
+      default_format:     "#format",
+      format_options:     "#schema"
     }.freeze
     private_constant :PATH_SETTINGS
+
+    FORMAT_OPTIONS_DEPRECATION = "#format_options is deprecated, use #schema instead, which gives the width of each " \
+                                 "field of a fixed width file".freeze
+    private_constant :FORMAT_OPTIONS_DEPRECATION
 
     attr_reader :io_stream
 
@@ -319,8 +324,13 @@ module IOStreams
       builder.format = format
     end
 
-    # Set/get the tabular format options
+    # Deprecated: use #schema, which gives the width of each field of a fixed width file, see docs/formats.md, and
+    # `IOStreams::Schema.from_layout` for the schema of a layout. Reports a deprecation warning, see
+    # `IOStreams::Deprecation`.
+    #
+    # Set/get the tabular format options: the layout of a fixed width file.
     def format_options(format_options = :none)
+      Deprecation.warn(FORMAT_OPTIONS_DEPRECATION)
       if format_options == :none
         builder.format_options
       else
@@ -329,8 +339,11 @@ module IOStreams
       end
     end
 
+    # Deprecated: use #schema=, see #format_options.
+    #
     # Set the tabular format_options
     def format_options=(format_options)
+      Deprecation.warn(FORMAT_OPTIONS_DEPRECATION)
       builder.format_options = format_options
     end
 
@@ -515,6 +528,7 @@ module IOStreams
     def row_reader(delimiter: nil, embedded_within: :auto, **args)
       warn_path_settings(args)
       warn_embedded_within(embedded_within)
+      warn_column_options(read_column_options(args))
       tabular = schema_tabular(args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Row::Reader.new(io, **tabular_options(tabular, args))
@@ -527,6 +541,7 @@ module IOStreams
     def record_reader(delimiter: nil, embedded_within: :auto, **args)
       warn_path_settings(args)
       warn_embedded_within(embedded_within)
+      warn_column_options(read_column_options(args))
       tabular = schema_tabular(args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield IOStreams::Record::Reader.new(io, **tabular_options(tabular, args))
@@ -547,8 +562,34 @@ module IOStreams
 
       Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated when writing, since " \
                        "#{names.size == 1 ? 'it only applies' : 'they only apply'} when reading and " \
-                       "#{names.size == 1 ? 'is' : 'are'} ignored, supply columns: to choose the columns that are " \
-                       "written")
+                       "#{names.size == 1 ? 'is' : 'are'} ignored, describe the columns that are written with #schema " \
+                       "instead")
+    end
+
+    # Returns [Array<Symbol>] the column options supplied to a reader, which are deprecated: the options of the header
+    # that are not nil, see `IOStreams::Tabular::Header::OPTION_NAMES`, and `cleanse_header:`, even when it is nil,
+    # which does not cleanse the header row.
+    def read_column_options(args)
+      names = args.compact.keys & IOStreams::Tabular::Header::OPTION_NAMES
+      names << :cleanse_header if args.key?(:cleanse_header)
+      names
+    end
+
+    # Returns [Array<Symbol>] the column options supplied to a writer that are not nil, other than those that only apply
+    # when reading, see #warn_read_options.
+    def written_column_options(args)
+      args.compact.keys & (IOStreams::Tabular::Header::OPTION_NAMES - IOStreams::Tabular::Header::READ_OPTION_NAMES)
+    end
+
+    # The column options of each call are deprecated, since a schema describes the columns of the file on its path,
+    # see #schema. With a schema, those other than `skip_unknown:` raise instead, see `IOStreams::Tabular`, so only
+    # `skip_unknown:` is reported with one, which a schema accepts.
+    def warn_column_options(names)
+      names &= %i[skip_unknown] unless builder.schema.nil?
+      return if names.empty?
+
+      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated, describe the columns of the " \
+                       "file with #schema instead")
     end
 
     # Options that are ignored, such as those supplied to the `:stream` mode, are deprecated.
@@ -630,6 +671,7 @@ module IOStreams
     def row_writer(delimiter: $/, **args, &block)
       warn_path_settings(args)
       warn_read_options(args)
+      warn_column_options(written_column_options(args))
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
       tabular = schema_tabular(args)
@@ -641,6 +683,7 @@ module IOStreams
     def record_writer(delimiter: $/, **args, &block)
       warn_path_settings(args)
       warn_read_options(args)
+      warn_column_options(written_column_options(args))
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
       tabular = schema_tabular(args)

@@ -340,12 +340,12 @@ class StreamSchemaTest < Minitest::Test
           source.write("Age,Name\n21,Jack\n")
 
           json = IOStreams.path(dir, "out.json")
-          json.copy_from(source, mode: :array, columns: %w[age name])
+          assert_deprecated(/columns: is deprecated/) { json.copy_from(source, mode: :array, columns: %w[age name]) }
 
           assert_equal %({"age":"Age","name":"Name"}\n{"age":"21","name":"Jack"}\n), json.read
 
           csv = IOStreams.path(dir, "out.csv")
-          csv.copy_from(source, mode: :array, columns: %w[age name])
+          assert_deprecated(/columns: is deprecated/) { csv.copy_from(source, mode: :array, columns: %w[age name]) }
 
           assert_equal "age,name\nAge,Name\n21,Jack\n", csv.read
         end
@@ -718,7 +718,7 @@ class StreamSchemaTest < Minitest::Test
         it "accept skip_unknown without allowed_columns, which it only applies to" do
           stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
           rows   = []
-          stream.each(:hash, skip_unknown: false) { |row| rows << row }
+          assert_deprecated(/skip_unknown: is deprecated/) { stream.each(:hash, skip_unknown: false) { |row| rows << row } }
 
           assert_equal [record], rows
         end
@@ -762,7 +762,8 @@ class StreamSchemaTest < Minitest::Test
           [[{}, "first_name"], [{cleanse_header: true}, "first_name"], [{cleanse_header: false}, "First Name"],
            [{cleanse_header: nil}, "First Name"]].each do |options, key|
             rows = []
-            IOStreams::Stream.new(StringIO.new("First Name\nJack\n")).file_name("a.csv").each(:hash, **options) { |row| rows << row }
+            read = -> { IOStreams::Stream.new(StringIO.new("First Name\nJack\n")).file_name("a.csv").each(:hash, **options) { |row| rows << row } }
+            options.empty? ? read.call : assert_deprecated(/cleanse_header: is deprecated, describe the columns/, &read)
 
             assert_equal [{key => "Jack"}], rows, options.inspect
           end
@@ -770,14 +771,18 @@ class StreamSchemaTest < Minitest::Test
 
         it "still apply without a schema, and to the layout of the format options" do
           rows = []
-          IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").each(:hash, allowed_columns: %w[id]) { |row| rows << row }
+          assert_deprecated(/allowed_columns: is deprecated/) do
+            IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").each(:hash, allowed_columns: %w[id]) { |row| rows << row }
+          end
 
           assert_equal [{"id" => "0042"}], rows
 
           fixed = IOStreams::Stream.new(StringIO.new("07abc\n")).format(:fixed)
-          fixed.format_options(layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}])
+          assert_deprecated(/#format_options is deprecated/) do
+            fixed.format_options(layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}])
+          end
           rows = []
-          fixed.each(:hash, columns: ["id"]) { |row| rows << row }
+          assert_deprecated(/columns: is deprecated/) { fixed.each(:hash, columns: ["id"]) { |row| rows << row } }
 
           assert_equal [{"id" => 7}], rows
         end
@@ -833,8 +838,10 @@ class StreamSchemaTest < Minitest::Test
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "people.csv").schema(headerless)
             source.write("0042,12.5,2026-10-13,true\n")
-            IOStreams.path(dir, "out.csv").copy_from(source, mode: :array, columns: %w[a b c d])
-            IOStreams.path(dir, "out.json").copy_from(source, mode: :array, columns: %w[a b])
+            assert_deprecated(/columns: is deprecated/) do
+              IOStreams.path(dir, "out.csv").copy_from(source, mode: :array, columns: %w[a b c d])
+              IOStreams.path(dir, "out.json").copy_from(source, mode: :array, columns: %w[a b])
+            end
 
             assert_equal "a,b,c,d\n42,0.125e2,2026-10-13,true\n", IOStreams.path(dir, "out.csv").read
             assert_equal %({"a":42,"b":"0.125e2"}\n), IOStreams.path(dir, "out.json").read
@@ -999,7 +1006,9 @@ class StreamSchemaTest < Minitest::Test
         end
 
         it "raises for a schema and the layout of the format options, rather than apply one and ignore the other" do
-          path = IOStreams::Stream.new(StringIO.new("07\n")).format(:fixed).format_options(layout: [{size: 2, key: :id}]).schema(fixed)
+          path = assert_deprecated(/#format_options is deprecated/) do
+            IOStreams::Stream.new(StringIO.new("07\n")).format(:fixed).format_options(layout: [{size: 2, key: :id}]).schema(fixed)
+          end
 
           error = assert_raises(ArgumentError) { path.each(:hash) { |row| row } }
           assert_equal "Supply either schema: or format_options:, not both", error.message
