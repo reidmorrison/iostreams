@@ -4,6 +4,9 @@ module IOStreams
     attr_accessor :file_name, :format_options
     attr_reader :streams, :options
 
+    # Returns [Hash|String|IOStreams::Stream|nil] the schema of the rows and records as it was set, see #schema=.
+    attr_reader :schema
+
     def initialize(file_name = nil)
       @file_name     = file_name
       @streams       = nil
@@ -12,6 +15,29 @@ module IOStreams
       @format_option = nil
       @encoding      = nil
       @raw           = false
+      @schema        = nil
+      @schema_source = nil
+    end
+
+    # Sets the schema of the rows and records, see `IOStreams::Stream#schema`: a Hash, which is checked now, or the path
+    # or url of a JSON file that holds one, which is read the first time that a reader or writer needs it, see
+    # `IOStreams::Schema::Source`, or nil to remove it.
+    #
+    # A copy of a Hash or String is held, which is frozen, so that the caller changing the object that it supplied
+    # changes neither #schema nor the schema that is read, and a copy of a path, so that changing its path does not
+    # change the schema.
+    #
+    # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+    def schema=(schema)
+      schema         = schema.is_a?(IOStreams::Stream) ? schema.dup : Utils.frozen_copy(schema)
+      @schema_source = schema.nil? ? nil : IOStreams::Schema::Source.new(schema)
+      @schema        = schema
+    end
+
+    # Returns [IOStreams::Schema|nil] the schema of the rows and records, reading its file the first time, see #schema=,
+    # or nil when none is set.
+    def tabular_schema
+      @schema_source&.schema
     end
 
     # Supply an option that is only applied once the file name extensions have been parsed.

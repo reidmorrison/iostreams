@@ -1,6 +1,6 @@
 module IOStreams
   class Tabular
-    # Maps the columns of a file, see `IOStreams::Tabular::Mapping`, by its header: the columns of its
+    # Maps the columns of a file without a schema, see `IOStreams::Tabular::Mapping`, by its header: the columns of its
     # header row, or the columns supplied in place of one, and the column options, `allowed_columns`,
     # `required_columns` and `skip_unknown`, see `IOStreams::Tabular::Header`.
     #
@@ -27,6 +27,18 @@ module IOStreams
       # Returns [true|false] whether a header row show be rendered on output.
       def requires_header?
         @parser.requires_header?
+      end
+
+      # Returns [true|false] whether the rows read start with a header row: the header row of a file with one, until it
+      # is read, see #header?.
+      def rows_header?
+        header?
+      end
+
+      # Returns [nil] only the fields of a schema are the columns of a file without a header row, see
+      # `IOStreams::Tabular#headerless_columns`.
+      def headerless_columns
+        nil
       end
 
       # Returns [Array] the header row/line after parsing and cleansing.
@@ -158,6 +170,31 @@ module IOStreams
           yield render_header
         end
         yield render(record)
+      end
+
+      # Yields [String|nil] the line that a writer of rows writes for the header row of the rows after it, such as an
+      # `IOStreams::Row::HeaderRow` that `IOStreams::Stream#each(:array)` yields with a schema: as the first row, see
+      # #render_row, unless the format has no header row, such as JSON, and the columns are not known, when it takes
+      # them as the columns of the rows after it, without a line.
+      #
+      # Raises `IOStreams::Errors::MissingHeader` when the columns that it takes are empty.
+      def render_header_row(columns, &)
+        return render_row(columns, &) if requires_header? || !header.columns.nil?
+
+        if IOStreams::Utils.blank?(columns)
+          raise(Errors::MissingHeader, "The header row of the rows written to the #{@format.inspect} format has no columns")
+        end
+
+        header.columns = columns
+        nil
+      end
+
+      # Yields [String|nil] the line that a writer of rows writes for the columns of the rows after it, which are not a
+      # row of the file that they are read from, such as the fields of a file without a header row, see
+      # `IOStreams::Row::Reader#copy_to`: as their header row, see #render_header_row, unless the columns were supplied,
+      # which name them instead, when it yields nothing.
+      def render_columns(columns, &)
+        render_header_row(columns, &) unless @supplied
       end
 
       private

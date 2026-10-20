@@ -5,8 +5,9 @@ module IOStreams
     # Maps the columns of one file to the values of its rows and records, for `IOStreams::Tabular`, which asks it to
     # read and render them rather than depend on what describes the columns. The Tabular chooses one when it is created:
     #
-    # * `IOStreams::Tabular::HeaderMapping`: by the columns of the header row, or the columns supplied in place of one,
-    #   and the column options, held by its header, see `IOStreams::Tabular::Header`.
+    # * `IOStreams::Tabular::HeaderMapping`, without a schema: by the columns of the header row, or the columns
+    #   supplied in place of one, and the column options, held by its header, see `IOStreams::Tabular::Header`.
+    # * `IOStreams::Tabular::SchemaMapping`, with a schema: by its fields, see `IOStreams::Schema::Columns`.
     #
     # Each one does the same things, in its own way:
     # * Reads the lines of a file: its header row, `#parse_header` and `#read_header`, and its rows and records,
@@ -14,9 +15,11 @@ module IOStreams
     # * Renders the rows and records written into lines, `#render`, and the header row, `#render_header`.
     # * Reads and writes a line at a time for the readers and writers of rows and records, see `IOStreams::Row::Reader`
     #   and the others, which only iterate: `#read_row`, `#read_record_line` and `#restrict_columns` when reading,
-    #   `#start_rows`, `#render_row`, `#start_records` and `#render_record` when writing.
-    # * Answers the questions of the protocol: whether the file has a header row, `#requires_header?`, and whether it is
-    #   still to be read, `#header?`.
+    #   `#start_rows`, `#render_row`, `#start_records` and `#render_record` when writing, and `#render_header_row` and
+    #   `#render_columns` for the header row of the rows written, such as that of the file that is copied.
+    # * Answers the questions of the protocol: whether the file has a header row, `#requires_header?`, whether it is
+    #   still to be read, `#header?`, whether the rows read start with a header row, `#rows_header?`, and the columns of
+    #   the rows of a file without one, `#headerless_columns`.
     #
     # The reading methods take the `cleanse_header` option of the reader that reads the lines, as `cleanse:`, since the
     # reader holds it, see `IOStreams::Row::Reader#initialize`.

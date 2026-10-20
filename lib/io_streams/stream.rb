@@ -253,12 +253,22 @@ module IOStreams
     # # Advanced copy with custom stream conversions on source and target.
     # source = IOStreams.path("source_file").encoding("BINARY")
     # IOStreams.path("target_file.pgp").option(:pgp, passphrase: "hello").copy_from(source)
+    #
+    # Notes:
+    # - When the source or the target has a schema, see #schema, a copy of rows or records hands the target the header
+    #   row of the source as the header row of the rows after it, which a target with a schema matches to its fields,
+    #   and skips the blank rows, see `IOStreams::Row::Reader#copy_to`. Otherwise each row or record read is written,
+    #   as before.
     def copy_from(source, convert: true, mode: nil, **args)
       if convert
         stream = IOStreams.new(source)
         if mode
           writer(mode, **args) do |target|
-            stream.each(mode) { |row| target << row }
+            if mode == :line || (schema.nil? && stream.schema.nil?)
+              stream.each(mode) { |row| target << row }
+            else
+              stream.reader(mode) { |rows| rows.copy_to(target) }
+            end
           end
         else
           writer(**args) do |target|
@@ -322,6 +332,52 @@ module IOStreams
     # Set the tabular format_options
     def format_options=(format_options)
       builder.format_options = format_options
+    end
+
+    # Set/get the schema of the rows and records of this file: the name and type of each field, so that reading
+    # rows and records returns each value as its type, such as an Integer or a Date, and writing them writes each
+    # value in the text form of its type. It applies to every tabular format, and gives the position of each field of
+    # a fixed width file. See docs/formats.md, and `IOStreams::Schema` for its properties.
+    #
+    # Parameters:
+    #   schema: [Hash|String|IOStreams::Path]
+    #     A Frictionless Table Schema as a Hash, which is checked now, or the path or url of a JSON file that holds
+    #     one, in any store, which is read the first time that a reader or writer needs it.
+    #     nil removes the schema.
+    #
+    # Returns [Hash|String|IOStreams::Path] the schema as it was set, a Hash or String as a frozen copy, so that
+    # changing the object that was supplied afterwards does not change it, or [nil] when none was set.
+    #
+    # Notes:
+    # - Without a schema, rows and records are read and written as before.
+    # - A schema cannot be supplied to each call of #each, #reader or #writer, nor with the layout of a fixed width
+    #   file in #format_options, which raise ArgumentError.
+    # - With a schema, the text of the file is read as UTF-8, unless an encoding is set with
+    #   `option(:encode, encoding: ...)`, and text that is not valid UTF-8 raises `IOStreams::Errors::InvalidEncoding`.
+    #
+    # Examples:
+    #
+    #   # people.csv has other columns too, such as "name", which the schema skips.
+    #   path = IOStreams.path("people.csv").schema(fieldsMatch: "partial", fields: [{name: "age", type: "integer"}])
+    #   path.each(:hash) do |person|
+    #     person["age"] # => 42
+    #   end
+    #
+    #   path = IOStreams.path("s3://bucket/people.txt").format(:fixed).schema("s3://bucket/schemas/people.json")
+    #   path.each(:hash) { |person| p person }
+    def schema(schema = :none)
+      # Compared by identity, since a path compares itself to another path, see `IOStreams::Path#==`.
+      return builder.schema if schema.equal?(:none)
+
+      self.schema = schema
+      self
+    end
+
+    # Set the schema, see #schema.
+    #
+    # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+    def schema=(schema)
+      builder.schema = schema
     end
 
     # Returns [String] the last component of this path.
@@ -459,14 +515,9 @@ module IOStreams
     def row_reader(delimiter: nil, embedded_within: :auto, **args)
       warn_path_settings(args)
       warn_embedded_within(embedded_within)
+      tabular = schema_tabular(args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Row::Reader.new(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args
-        )
+        yield IOStreams::Row::Reader.new(io, **tabular_options(tabular, args))
       end
     end
 
@@ -476,14 +527,9 @@ module IOStreams
     def record_reader(delimiter: nil, embedded_within: :auto, **args)
       warn_path_settings(args)
       warn_embedded_within(embedded_within)
+      tabular = schema_tabular(args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield IOStreams::Record::Reader.new(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args
-        )
+        yield IOStreams::Record::Reader.new(io, **tabular_options(tabular, args))
       end
     end
 
@@ -525,6 +571,50 @@ module IOStreams
                        "for values that are not quoted")
     end
 
+    # Returns [IOStreams::Tabular|nil] the tabular that reads or writes the rows or records of this stream with the
+    # options of the call, when it has a schema, see #schema, which is created before the file is opened, so that its
+    # schema file is read, and an option that the schema does not accept raises, before the file is opened, or a writer
+    # replaces it. Returns nil without a schema, see #tabular_options.
+    #
+    # The text that it reads is UTF-8, unless an encoding is set on the encode stream, which decodes it instead.
+    #
+    # Raises ArgumentError for `schema:`, which is set on the path.
+    def schema_tabular(args)
+      schema = builder.tabular_schema
+      return unless schema
+
+      reject_schema_option!(args)
+      IOStreams::Tabular.new(
+        file_name:      builder.file_name,
+        format:         builder.format,
+        format_options: builder.format_options,
+        schema:         schema,
+        decoded:        !builder.setting(:encode).nil?,
+        **args
+      )
+    end
+
+    # Returns [Hash] the options of the reader or writer of the rows or records of this stream: the tabular that reads or
+    # writes them with a schema, see #schema_tabular, otherwise the tabular format of this stream and the options of
+    # the call, from which it creates its own, as before.
+    #
+    # Raises ArgumentError for `schema:`, which is set on the path.
+    def tabular_options(tabular, args)
+      return {tabular: tabular} if tabular
+
+      reject_schema_option!(args)
+      {original_file_name: builder.file_name, format: builder.format, format_options: builder.format_options, **args}
+    end
+
+    # Raises ArgumentError for `schema:` supplied to a call, since the schema describes the file, so it is set on the
+    # path, see #schema, as is the format.
+    def reject_schema_option!(args)
+      return unless args.key?(:schema)
+
+      raise(ArgumentError, ":schema cannot be supplied to each call, set it on the path instead, for example: " \
+                           "path.schema(\"people.json\").each(:hash)")
+    end
+
     def stream_writer(&)
       builder.writer(io_stream, &)
     end
@@ -542,15 +632,9 @@ module IOStreams
       warn_read_options(args)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Row::Writer)
 
+      tabular = schema_tabular(args)
       line_writer(delimiter: delimiter) do |io|
-        IOStreams::Row::Writer.stream(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args,
-          &block
-        )
+        IOStreams::Row::Writer.stream(io, **tabular_options(tabular, args), &block)
       end
     end
 
@@ -559,15 +643,9 @@ module IOStreams
       warn_read_options(args)
       return block.call(io_stream) if io_stream.is_a?(IOStreams::Record::Writer)
 
+      tabular = schema_tabular(args)
       line_writer(delimiter: delimiter) do |io|
-        IOStreams::Record::Writer.stream(
-          io,
-          original_file_name: builder.file_name,
-          format:             builder.format,
-          format_options:     builder.format_options,
-          **args,
-          &block
-        )
+        IOStreams::Record::Writer.stream(io, **tabular_options(tabular, args), &block)
       end
     end
   end

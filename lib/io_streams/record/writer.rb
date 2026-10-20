@@ -58,18 +58,27 @@ module IOStreams
       #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
       #     false:
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
-      def initialize(line_writer, columns: nil, original_file_name: nil, **args)
+      #
+      #   tabular: [IOStreams::Tabular]
+      #     The tabular that renders each record, such as one with a schema, see `IOStreams::Stream#schema`, in place of
+      #     the other options, which create it.
+      def initialize(line_writer, columns: nil, original_file_name: nil, tabular: nil, **args)
         raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
-        @tabular     = IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
+        if tabular && (columns || original_file_name || !args.empty?)
+          raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
+        end
+
+        @tabular     = tabular || IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
         @line_writer = line_writer
 
-        # Render header line when `columns` is supplied, see `IOStreams::Tabular#start_records`.
+        # Render header line when `columns` is supplied, or with a schema the names of its fields, see
+        # `IOStreams::Tabular#start_records`.
         @tabular.start_records { |line| @line_writer << line }
       end
 
-      # Writes the record, after the header line that the keys of the first record give, when the columns supplied do
-      # not give it, see `IOStreams::Tabular#render_record`.
+      # Writes the record, after the header line that the keys of the first record give, when neither the columns
+      # supplied nor a schema give it, see `IOStreams::Tabular#render_record`.
       def <<(hash)
         raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
 

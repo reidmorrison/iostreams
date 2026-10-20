@@ -59,17 +59,28 @@ module IOStreams
       #
       #   cleanse_header: [true|false]
       #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`.
+      #     With a schema it raises ArgumentError, even when nil, since the fields of the schema name the keys of the
+      #     records instead.
       #     Default: `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which cleanses it.
+      #
+      #   tabular: [IOStreams::Tabular]
+      #     The tabular that parses each line, such as one with a schema, see `IOStreams::Stream#schema`, in place of the
+      #     other options, which create it.
       #
       # Note:
       # * `allowed_columns`, `required_columns` and `skip_unknown` only apply to every input, including JSON records,
       #   supplied `columns` and `cleanse_header: false`, when `IOStreams.enforce_column_restrictions?` is true.
-      def initialize(line_reader, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, original_file_name: nil, **args)
+      def initialize(line_reader, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT, original_file_name: nil,
+                     tabular: nil, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
 
-        @tabular        = IOStreams::Tabular.new(file_name: original_file_name, **args)
+        if tabular && (original_file_name || !args.empty?)
+          raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
+        end
+
+        @tabular        = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
         @line_reader    = line_reader
         @cleanse_header = cleanse_header
 
@@ -80,6 +91,15 @@ module IOStreams
       # Yields each record, after the header row, which names their keys, see `IOStreams::Tabular#read_record_line`.
       def each(&block)
         @line_reader.each { |line| @tabular.read_record_line(line, cleanse: @cleanse_header, &block) }
+      end
+
+      # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy with a schema does, see
+      # `IOStreams::Stream#copy_from`. A blank line, or a JSON line of null, which #each yields as nil, is not a record,
+      # so it is not written.
+      #
+      # Returns the result of #each.
+      def copy_to(writer)
+        each { |record| writer << record unless record.nil? }
       end
     end
   end

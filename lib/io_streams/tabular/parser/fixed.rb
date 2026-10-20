@@ -5,6 +5,13 @@ module IOStreams
       class Fixed < Base
         attr_reader :layout, :truncate
 
+        # Returns [IOStreams::Tabular::Parser::FixedFields] the parser of the lines of a fixed width file whose schema
+        # gives the position of each field, in place of the layout of this parser, see
+        # `IOStreams::Tabular::Parser::Base.schema_parser`.
+        def self.schema_parser(schema)
+          FixedFields.new(schema)
+        end
+
         # Returns [IOStreams::Tabular::Parser]
         #
         # Parameters:
