@@ -5,6 +5,11 @@ module IOStreams
       # Column names that begin with this prefix have been rejected and should be ignored.
       IGNORE_PREFIX = "__rejected__".freeze
 
+      # The options of a header, see #initialize: the columns, and the restrictions of the columns read, which only
+      # apply when reading.
+      OPTION_NAMES      = %i[columns allowed_columns required_columns skip_unknown].freeze
+      READ_OPTION_NAMES = %i[allowed_columns required_columns skip_unknown].freeze
+
       attr_accessor :allowed_columns, :required_columns, :skip_unknown
       attr_reader :columns
 
@@ -32,11 +37,6 @@ module IOStreams
       #       #as_hash will skip these additional columns entirely as if they were not in the file at all.
       #     false:
       #       Raises Tabular::InvalidHeader when a column is supplied that is not in the whitelist.
-      # Returns [Array<Symbol>] the options that only apply when reading, which a writer ignores.
-      def self.read_option_names
-        %i[allowed_columns required_columns skip_unknown]
-      end
-
       def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
         @columns          = stringify(columns)
         @required_columns = required_columns

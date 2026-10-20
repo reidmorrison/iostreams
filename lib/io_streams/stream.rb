@@ -496,7 +496,7 @@ module IOStreams
 
     # The options that only apply when reading, which a writer ignores, are deprecated when writing.
     def warn_read_options(args)
-      names = args.keys & IOStreams::Tabular::Header.read_option_names
+      names = args.keys & IOStreams::Tabular::Header::READ_OPTION_NAMES
       return if names.empty?
 
       Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated when writing, since " \
