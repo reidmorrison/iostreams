@@ -365,7 +365,8 @@ IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
 
 Setting a stream, option or encoding after `raw` raises `ArgumentError`, since the data is as stored.
-`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which still works.
+`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which is deprecated: it still works, and
+reports a deprecation warning, see [Upgrading](upgrading#deprecated-and-what-replaces-it).
 
 To copy a file as it is stored, such as downloading a zip file without unzipping it, use
 `copy_to(target, convert: false)` instead, since the target applies its own streams. To read a file that is not

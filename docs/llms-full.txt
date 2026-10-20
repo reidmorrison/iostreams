@@ -1884,7 +1884,8 @@ IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
 
 Setting a stream, option or encoding after `raw` raises `ArgumentError`, since the data is as stored.
-`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which still works.
+`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which is deprecated: it still works, and
+reports a deprecation warning, see [Upgrading](upgrading#deprecated-and-what-replaces-it).
 
 To copy a file as it is stored, such as downloading a zip file without unzipping it, use
 `copy_to(target, convert: false)` instead, since the target applies its own streams. To read a file that is not
@@ -1952,8 +1953,8 @@ Notes:
 ## Character encoding
 
 The encode stream converts the character encoding of the text that the application reads or writes.
-File names do not name it, so set it with `encoding`, which keeps the streams that the file name implies, and
-also works for a stream without a file name, or with streams set with `stream`:
+Set it with `encoding`, which keeps the streams that the file name implies, and also works for a stream without a
+file name, or with streams set with `stream`:
 
 ~~~ruby
 IOStreams.path("sample.csv.gz").
@@ -1965,8 +1966,13 @@ IOStreams.path("sample.csv.gz").
 
 The encode stream is applied closest to the application, so above the data is decompressed first, and then
 converted. Each call to `encoding` merges its options with those already set, and `encoding` without any
-arguments returns the encoding that was set, or nil. `encoding` replaces `option(:encode, ...)` and
-`stream(:encode, ...)`, which still work, with the same options and the same results.
+arguments returns the encoding that was set, or nil. An option that the encode stream does not take, or a value
+that it does not accept, such as an encoding that Ruby does not know, raises `ArgumentError` when it is set, before
+any file is written.
+
+`encoding` replaces `option(:encode, ...)`, `stream(:encode, ...)` and a file name ending in `.encode`, which also
+apply the encode stream. They are deprecated: each still works, and reports a deprecation warning, see
+[Upgrading](upgrading#deprecated-and-what-replaces-it).
 
 Options:
 
@@ -3381,7 +3387,8 @@ Each of these still works as before in v2.2, and reports a deprecation warning:
 | Deprecated | Use instead |
 |------------|-------------|
 | `stream(:none)` | `#raw` to read or write the data as it is stored, or `#file_name` to read a file that is not named for its format, such as `file_name("data.csv")` for a CSV file named `data.txt` |
-| `option(:encode, ...)` and `stream(:encode, ...)` | `#encoding`, with the same options and the same results, see [Character encoding](extensions#character-encoding) |
+| `option(:encode, ...)` and `option_or_stream(:encode, ...)` | `#encoding`, with the same options and the same results, see [Character encoding](extensions#character-encoding) |
+| `stream(:encode, ...)` | `#encoding`, with the same options. Like any stream set with `#stream`, `stream(:encode, ...)` stops the streams being taken from the file name, while `#encoding` keeps them, so `IOStreams.path("data.csv.gz").encoding("BINARY")` reads the decompressed data. To read or write the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for such a file name, use `#raw`, and to read a file that is not named for its format, set the file name that names its format with `#file_name`, then `#encoding` |
 | `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
 | `#format_options`, and `format_options:` supplied to each call | `#schema`, which gives the `width` of each field of a fixed width file, see [Moving a layout to a schema](#moving-a-layout-to-a-schema) |
 | `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:`, unless they are nil, and `cleanse_header:`, even when it is nil | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
@@ -3399,7 +3406,7 @@ deprecation warning:
 | `allowed_columns:`, `required_columns:` or `skip_unknown:` supplied to `#writer` or a copy, which ignores them | A schema, which describes the columns that are written, such as with `fieldsMatch: "subset"` to skip the other keys of each record |
 | Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
 | The Zip writer's `zip_file_name` | `entry_file_name` |
-| A file name ending in `.encode` | `#encoding` |
+| A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
 | `#path=` | `#join` or `#directory`, which return a new path, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
 

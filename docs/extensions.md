@@ -63,8 +63,8 @@ Notes:
 ## Character encoding
 
 The encode stream converts the character encoding of the text that the application reads or writes.
-File names do not name it, so set it with `encoding`, which keeps the streams that the file name implies, and
-also works for a stream without a file name, or with streams set with `stream`:
+Set it with `encoding`, which keeps the streams that the file name implies, and also works for a stream without a
+file name, or with streams set with `stream`:
 
 ~~~ruby
 IOStreams.path("sample.csv.gz").
@@ -76,8 +76,13 @@ IOStreams.path("sample.csv.gz").
 
 The encode stream is applied closest to the application, so above the data is decompressed first, and then
 converted. Each call to `encoding` merges its options with those already set, and `encoding` without any
-arguments returns the encoding that was set, or nil. `encoding` replaces `option(:encode, ...)` and
-`stream(:encode, ...)`, which still work, with the same options and the same results.
+arguments returns the encoding that was set, or nil. An option that the encode stream does not take, or a value
+that it does not accept, such as an encoding that Ruby does not know, raises `ArgumentError` when it is set, before
+any file is written.
+
+`encoding` replaces `option(:encode, ...)`, `stream(:encode, ...)` and a file name ending in `.encode`, which also
+apply the encode stream. They are deprecated: each still works, and reports a deprecation warning, see
+[Upgrading](upgrading#deprecated-and-what-replaces-it).
 
 Options:
 

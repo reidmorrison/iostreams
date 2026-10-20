@@ -76,7 +76,8 @@ Each of these still works as before in v2.2, and reports a deprecation warning:
 | Deprecated | Use instead |
 |------------|-------------|
 | `stream(:none)` | `#raw` to read or write the data as it is stored, or `#file_name` to read a file that is not named for its format, such as `file_name("data.csv")` for a CSV file named `data.txt` |
-| `option(:encode, ...)` and `stream(:encode, ...)` | `#encoding`, with the same options and the same results, see [Character encoding](extensions#character-encoding) |
+| `option(:encode, ...)` and `option_or_stream(:encode, ...)` | `#encoding`, with the same options and the same results, see [Character encoding](extensions#character-encoding) |
+| `stream(:encode, ...)` | `#encoding`, with the same options. Like any stream set with `#stream`, `stream(:encode, ...)` stops the streams being taken from the file name, while `#encoding` keeps them, so `IOStreams.path("data.csv.gz").encoding("BINARY")` reads the decompressed data. To read or write the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for such a file name, use `#raw`, and to read a file that is not named for its format, set the file name that names its format with `#file_name`, then `#encoding` |
 | `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
 | `#format_options`, and `format_options:` supplied to each call | `#schema`, which gives the `width` of each field of a fixed width file, see [Moving a layout to a schema](#moving-a-layout-to-a-schema) |
 | `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:`, unless they are nil, and `cleanse_header:`, even when it is nil | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
@@ -94,7 +95,7 @@ deprecation warning:
 | `allowed_columns:`, `required_columns:` or `skip_unknown:` supplied to `#writer` or a copy, which ignores them | A schema, which describes the columns that are written, such as with `fieldsMatch: "subset"` to skip the other keys of each record |
 | Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
 | The Zip writer's `zip_file_name` | `entry_file_name` |
-| A file name ending in `.encode` | `#encoding` |
+| A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
 | `#path=` | `#join` or `#directory`, which return a new path, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
 
