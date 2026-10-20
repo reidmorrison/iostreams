@@ -83,6 +83,50 @@ class ZipWriterTest < Minitest::Test
         end
       end
 
+      it "reports a deprecation warning when it is nil, and names the file within the zip file as without it" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "data.csv.zip")
+          path.write(decompressed)
+          expected = []
+          Zip::File.open(path.to_s) { |zip| zip.each { |entry| expected << entry.name } }
+
+          assert_deprecated(/zip_file_name: is deprecated, use entry_file_name: instead/) do
+            path.option(:zip, zip_file_name: nil).write(decompressed)
+          end
+
+          entry_names = []
+          Zip::File.open(path.to_s) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+          assert_equal expected, entry_names
+        end
+      end
+
+      it "reports a deprecation warning when it is nil when writing a stream" do
+        io_string = StringIO.new("".b)
+        assert_deprecated(/zip_file_name: is deprecated/) do
+          IOStreams::Zip::Writer.stream(io_string, zip_file_name: nil) { |io| io.write(decompressed) }
+        end
+
+        entry_names = []
+        Zip::File.open_buffer(StringIO.new(io_string.string)) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+        assert_equal ["file"], entry_names
+      end
+
+      it "is replaced by entry_file_name when both are supplied" do
+        io_string = StringIO.new("".b)
+        assert_deprecated(/zip_file_name: is deprecated/) do
+          IOStreams::Zip::Writer.stream(io_string, zip_file_name: "legacy.txt", entry_file_name: "new.txt") do |io|
+            io.write(decompressed)
+          end
+        end
+
+        entry_names = []
+        Zip::File.open_buffer(StringIO.new(io_string.string)) { |zip| zip.each { |entry| entry_names << entry.name } }
+
+        assert_equal ["new.txt"], entry_names
+      end
+
       it "reports a deprecation warning when writing a stream" do
         io_string = StringIO.new("".b)
         assert_deprecated(/zip_file_name: is deprecated/) do
