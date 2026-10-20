@@ -101,13 +101,74 @@ module IOStreams
       false
     end
 
-    # Helper method: Returns [true|false] if a value is blank?
+    # Text that is blank, see .blank_text?: empty, or only whitespace, as Rails' `String#blank?` matches it.
+    BLANK_TEXT = /\A[[:space:]]*\z/
+    private_constant :BLANK_TEXT
+
+    # The pattern of BLANK_TEXT in each encoding that it cannot be matched against, such as UTF-16, see .blank_text?.
+    @encoded_blank_texts = {}
+    @encoded_blank_texts_mutex = Mutex.new
+
+    # Returns [true|false] whether the value is blank, by the rules of Rails' `Object#blank?`: nil, false, text that is
+    # blank, see .blank_text?, or anything else that is empty, such as an empty Array or Hash. Any other value is not
+    # blank, such as true or 0.
+    #
+    # Raises ArgumentError for text whose bytes are not valid in its encoding, as Rails does.
     def self.blank?(value)
       return true if value.nil?
-      return value !~ /\S/ if value.is_a?(String)
+      return blank_text?(value) if value.is_a?(String)
 
       value.respond_to?(:empty?) ? value.empty? : !value
     end
+
+    # Returns [true|false] whether the text is blank, by the rules of Rails' `String#blank?`: empty, or only whitespace,
+    # which is any Unicode whitespace, such as a no-break space (U+00A0) or an ideographic space (U+3000), not only a
+    # space, tab, or line ending. A zero width space (U+200B) and a byte order mark (U+FEFF) are not whitespace. Text in
+    # an encoding that is not ASCII compatible, such as UTF-16, is matched in its own encoding, as Rails matches it.
+    #
+    # Raises ArgumentError for text whose bytes are not valid in its encoding, as Rails does.
+    def self.blank_text?(text)
+      text.empty? || BLANK_TEXT.match?(text)
+    rescue Encoding::CompatibilityError
+      encoded_blank_text(text.encoding).match?(text)
+    end
+
+    # Returns [true|false] whether a value within a row or record is blank, so that it holds no data: nil, or text that
+    # is blank, see .blank_text?. Any other value is data, such as false, 0, an empty Array, or text whose bytes are not
+    # valid in its encoding, since it is not text that is known to be blank.
+    def self.blank_value?(value)
+      value.nil? || (value.is_a?(String) && value.valid_encoding? && blank_text?(value))
+    end
+
+    # Returns [true|false] whether a row or record is blank, so that it holds no data: nil, or an Array or Hash without
+    # values, or whose every value is blank, see .blank_value?, such as the row of a line of CSV of only commas, or a
+    # record of JSON whose every value is null. Reading treats it as a blank line in every format, see
+    # `IOStreams::Tabular::Mapping`.
+    def self.blank_row?(row)
+      case row
+      when nil then true
+      when ::Hash then row.each_value.all? { |value| blank_value?(value) }
+      when ::Array then row.all? { |value| blank_value?(value) }
+      else false
+      end
+    end
+
+    # Raises ArgumentError unless the value of the option of the supplied name is true or false, rather than take any
+    # other value as truthy or falsy, so that a misspelled value, such as `"no"`, is reported.
+    def self.check_boolean(name, value)
+      return if [true, false].include?(value)
+
+      raise(ArgumentError, "Invalid #{name} #{value.inspect}: supply true or false")
+    end
+
+    # Returns [Regexp] the pattern of blank text in the supplied encoding, see .blank_text?, created once for each one.
+    def self.encoded_blank_text(encoding)
+      @encoded_blank_texts_mutex.synchronize do
+        @encoded_blank_texts[encoding] ||=
+          Regexp.new(BLANK_TEXT.source.encode(encoding), BLANK_TEXT.options | Regexp::FIXEDENCODING)
+      end
+    end
+    private_class_method :encoded_blank_text
 
     # Returns [Array<String>] the extensions of the file name, in lower case, for example `["csv", "gz"]` for `"Data.CSV.gz"`.
     # The name of the file before the first `.` is not an extension, so a file named `gz` has no extensions.

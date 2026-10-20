@@ -8,10 +8,17 @@ module IOStreams
       include Enumerable
 
       # Returns [Array<Symbol>] the options of each call that reads rows, see `IOStreams::Stream#reader`, which raises
-      # for any other: those of the lines that it reads, see `IOStreams::Line::Reader.option_names`, and those of the
-      # `IOStreams::Tabular` that parses them, see `IOStreams::Tabular.read_option_names`.
+      # for any other: those of the lines that it reads, see `IOStreams::Line::Reader.option_names`, whether to skip the
+      # blank rows, see #initialize, and those of the `IOStreams::Tabular` that parses them, see
+      # `IOStreams::Tabular.read_option_names`.
       def self.option_names
-        [*IOStreams::Line::Reader.option_names, *IOStreams::Tabular.read_option_names]
+        [*IOStreams::Line::Reader.option_names, :skip_blanks, *IOStreams::Tabular.read_option_names]
+      end
+
+      # Raises ArgumentError for a `skip_blanks` that is not true or false, see #initialize, so that a call raises before
+      # the file is opened, see `IOStreams::Stream#each`.
+      def self.check(skip_blanks: false)
+        IOStreams::Utils.check_boolean(:skip_blanks, skip_blanks)
       end
 
       # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
@@ -30,13 +37,22 @@ module IOStreams
       #   tabular: [IOStreams::Tabular]
       #     Parses each line in its format, holds the header, and cleanses the header row as its `cleanse_header`
       #     option says, see `IOStreams::Tabular.new`.
-      def initialize(line_reader, tabular:)
+      #
+      #   skip_blanks: [true|false]
+      #     Whether #each skips each blank row, rather than yield nil for it: a line that is empty or only whitespace, or
+      #     a row whose every value is nil or blank text, such as a line of CSV of only commas, see
+      #     `IOStreams::Tabular#blank?`. Keep the default to count the lines of the file from the rows yielded, such as to
+      #     report the line of a row that is not valid.
+      #     Default: false
+      def initialize(line_reader, tabular:, skip_blanks: false)
+        self.class.check(skip_blanks: skip_blanks)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
 
         @tabular     = tabular
         @line_reader = line_reader
+        @skip_blanks = skip_blanks
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
         @tabular.restrict_columns
@@ -65,8 +81,12 @@ module IOStreams
       #
       # With a schema, the header row is the names of the fields of its columns, and each row is the values of those
       # fields, in the order of the fields, without the columns that the schema skips, see `IOStreams::Tabular#row_parse`.
+      #
+      # A blank row is yielded as nil, unless `skip_blanks` is true, which skips it, see #initialize.
       def each(&block)
-        @line_reader.each { |line| @tabular.read_row(line, &block) }
+        return @line_reader.each { |line| @tabular.read_row(line, &block) } unless @skip_blanks
+
+        @line_reader.each { |line| @tabular.read_row(line) { |row| yield row unless row.nil? } }
       end
 
       # Writes each row to the writer, see `IOStreams::Row::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,

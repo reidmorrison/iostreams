@@ -66,9 +66,17 @@ module IOStreams
 
       private
 
-      # Returns [Array|Hash] the values of the line, which the parser parses, or nil when it is blank.
+      # Returns [Array|Hash] the values of the line, which the parser parses, or a row already read, as it is.
+      #
+      # Returns nil when it is blank, the same way in every format, so that a file holds the same rows whichever format it
+      # is in: a line that is blank, see `IOStreams::Utils.blank_text?`, or a row or record whose every value is blank,
+      # see `IOStreams::Utils.blank_row?`, such as a line of CSV of only commas, a spreadsheet row of empty cells, or a
+      # JSON record of `null`, `{}`, or whose every value is null.
       def parse(line)
-        @parser.parse(line) unless IOStreams::Utils.blank?(line)
+        return if IOStreams::Utils.blank?(line)
+
+        values = @parser.parse(line)
+        values unless IOStreams::Utils.blank_row?(values)
       end
     end
   end

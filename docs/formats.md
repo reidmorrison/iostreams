@@ -93,7 +93,8 @@ Without a [schema](#schema), every value is read as text, and written as its tex
   its header row, can be written to another, whatever their formats. A header row after the first row, such as that
   of a second file, is written as a row of values, since its columns cannot be matched to those of the file without a
   [schema](#schema), which takes it as the header row of the rows after it.
-* A blank line is yielded as `nil`.
+* A blank row, such as an empty line or a line of only commas, is yielded as `nil`, unless `skip_blanks: true`, see
+  [Blank rows](streams#blank-rows).
 
 ## CSV and PSV files
 
@@ -123,8 +124,8 @@ time. A file that holds one JSON array of every record is not supported, since i
 
 Each record is read with its own keys, as they are in the file, and its values keep their JSON types: a number is an
 Integer or a Float, and `true`, `false` and `null` are `true`, `false` and `nil`. A line that is not an object, such
-as `[1, 2]`, raises `IOStreams::Errors::TypeMismatch`, and a line of `null` or `{}` is read as `nil`, like a blank
-line. Writing writes each record as a JSON object, with a `BigDecimal`, `Date` or `Time` as its usual text, see
+as `[1, 2]`, raises `IOStreams::Errors::TypeMismatch`, and a line of `null` or `{}`, or a record whose every value is
+null, is read as `nil`, like a blank line, see [Blank rows](streams#blank-rows). Writing writes each record as a JSON object, with a `BigDecimal`, `Date` or `Time` as its usual text, see
 [Values without a field](#values-without-a-field).
 
 A JSON file has no header row, so the first row that `each(:array)` yields is a header row of the keys of its first
@@ -433,8 +434,10 @@ as empty, or as `null` in JSON.
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
 record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
 `nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
-record or row written, such as `{}`, which is otherwise written as a blank line. Text that is only spaces is a value
-for a `string` field, as in Frictionless, but not for a type that reads it as `nil`, such as an `integer`.
+record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, whose every value is
+`nil` or blank text, is `nil` instead, as a blank line is, see [Blank rows](streams#blank-rows). Text that is only spaces
+is a value for a `string` field of a row that has other values, as in Frictionless, but not for a type that reads it
+as `nil`, such as an `integer`.
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.

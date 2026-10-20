@@ -108,9 +108,11 @@ module IOStreams
       # Returns nil when the line is blank, or the format has no header row.
       def parse_header(line)
         return parse_keys(line) if @keyed
-        return if IOStreams::Utils.blank?(line) || !@requires_header
+        return unless @requires_header
 
-        columns        = @parser.parse(line)
+        columns = parse(line)
+        return if columns.nil?
+
         header.columns = columns
         columns
       end
@@ -156,7 +158,6 @@ module IOStreams
       def row_parse(line)
         values = parse(line)
         return values unless @keyed && values.is_a?(::Hash)
-        return if values.empty?
 
         row_of(values)
       end
@@ -221,13 +222,14 @@ module IOStreams
 
       # Returns [Array<String>] the keys of the record of the line, or of the row of keys supplied, such as the header row
       # that the rows read start with, as they are, which become the columns of the rows, and of the records. Returns
-      # nil when it is blank, such as a JSON line of `null` or `{}`, which gives no columns.
+      # nil when it is blank, see `IOStreams::Tabular::Mapping#parse`, such as a JSON line of `null` or `{}`, or a record
+      # whose every value is null, which gives no columns.
       #
       # The columns of the rows are its own, and so is the header row returned, so that a caller that changes one does not
       # change the columns that the rows after it are read by.
       def parse_keys(line)
         values = parse(line)
-        return if IOStreams::Utils.blank?(values)
+        return if values.nil?
 
         header.columns = values.is_a?(::Hash) ? values.keys : values
         @keys          = header.columns.map { |key| key.frozen? ? key : key.dup.freeze }

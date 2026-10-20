@@ -427,9 +427,13 @@ class TabularTest < Minitest::Test
           assert_equal({name: "", address: "", zip: 0, age: 0, weight: 0.0}, hash)
         end
 
-        it "parses empty values" do
-          assert hash = fixed.record_parse("                                                               XX                       ")
-          assert_equal({name: "", address: "", zip: nil, age: nil, weight: nil}, hash)
+        it "parses a line whose every field is blank as nil, as a blank line, whatever its filler holds" do
+          assert_nil fixed.record_parse("                                                               XX                       ")
+        end
+
+        it "parses empty values of a line that is not blank" do
+          assert hash = fixed.record_parse("Jack                                                           XX                       ")
+          assert_equal({name: "Jack", address: "", zip: nil, age: nil, weight: nil}, hash)
         end
 
         it "parses a blank line as nil, like every other format" do

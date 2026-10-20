@@ -148,7 +148,7 @@ module IOStreams
       def check_keys(line)
         return if !@keyed || @keys_checked
 
-        values = parse_values(line)
+        values = parse(line)
         return if values.nil?
 
         @columns.check_keys(values.keys) if values.is_a?(::Hash)
@@ -173,7 +173,7 @@ module IOStreams
       # that its record does not have, see `IOStreams::Schema::Columns#read_row`.
       # Returns nil if the line is blank.
       def row_parse(line)
-        values = parse_values(line)
+        values = parse(line)
         return if values.nil?
 
         values.is_a?(::Hash) ? @columns.read_row(values) : @columns.row(values)
@@ -183,7 +183,7 @@ module IOStreams
       # record of a row already read, an Array, is by the columns of the rows, see #row_parse.
       # Returns nil if the line is blank.
       def record_parse(line)
-        values = parse_values(line)
+        values = parse(line)
         return if values.nil?
 
         values.is_a?(::Hash) ? @columns.read_hash(values) : @columns.record(values)
@@ -236,19 +236,14 @@ module IOStreams
       # names of the fields of its columns, once they are matched to the fields, or nil when the line is blank, or the
       # format has no header row.
       def match_header(line)
-        return if IOStreams::Utils.blank?(line) || !@requires_header
+        return unless @requires_header
 
-        columns        = @parser.parse(line)
+        columns = parse(line)
+        return if columns.nil?
+
         names          = @columns.match(columns)
         header.columns = columns
         [columns, names]
-      end
-
-      # Returns [Array|Hash] the values of the line, or nil when it is blank, including a record without keys, such as a
-      # JSON line of `{}`, which has no value for any field, like a JSON line of `null`.
-      def parse_values(line)
-        values = parse(line)
-        values unless IOStreams::Utils.blank?(values)
       end
     end
   end
