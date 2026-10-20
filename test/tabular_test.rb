@@ -626,12 +626,86 @@ class TabularTest < Minitest::Test
         assert_match(/both as a String and as a Symbol/, error.message)
       end
 
+      it "translates a layout whose columns are a Hash that keeps its keys as Strings, such as the params of a Rails request" do
+        # Like ActiveSupport::HashWithIndifferentAccess, which keeps its keys as Strings, also those transformed.
+        indifferent = Class.new(Hash) do
+          def self.[](hash)
+            hash.each_with_object(new) { |(key, value), copy| copy[key] = value }
+          end
+
+          def []=(key, value)
+            super(key.to_s, value)
+          end
+
+          def key?(key)
+            super(key.to_s)
+          end
+
+          def transform_keys(&)
+            self.class[to_h.transform_keys(&)]
+          end
+        end
+        layout = [indifferent[size: 5, key: "zip", type: "integer"], indifferent[size: 2]]
+
+        assert_equal({fields: [{name: "zip", type: "integer", width: 5}], fieldsMatch: "subset", width: 7},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: layout))
+      end
+
+      it "leaves out the columns after a remainder, which the layout does not read" do
+        layout = [{size: 2, key: :id}, {size: :remainder, key: :rest}, {size: 1}]
+        fixed  = IOStreams::Tabular::Parser::Fixed.new(layout: layout)
+
+        assert_equal({id: "ab", rest: "cdef"}, fixed.parse("abcdef"))
+        assert_equal({fields:      [{name: :id, type: "string", width: 2, truncate: true},
+                                    {name: :rest, type: "string", width: "remainder", truncate: true}],
+                      fieldsMatch: "subset"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: layout))
+        assert_equal({fields: [{name: :id, type: "string", width: 2, truncate: true}], fieldsMatch: "subset", width: "remainder"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: :id}, {size: :remainder}, {size: 3, key: :code}]))
+      end
+
       it "raises for an invalid layout" do
         assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{key: "id"}]) }
         assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 0, key: "id"}]) }
         assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id", type: :date}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) do
-          IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: 2, key: "b"}])
+        # Two columns of the size :remainder, which the layout rejects too.
+        error = assert_raises(IOStreams::Errors::InvalidLayout) do
+          IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: :remainder, key: "b"}])
+        end
+        assert_match(/Only the last :size can be/, error.message)
+        assert_raises(ArgumentError) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}], bogus: true) }
+      end
+
+      it "raises for a size or a type that is not one, for which the layout raises NoMethodError" do
+        [
+          [{size: true, key: :id}],
+          [{size: :ten, key: :id}],
+          [{size: 2, key: :id, type: nil}],
+          [{size: 2, key: :id, type: 5}]
+        ].each do |layout|
+          assert_raises(IOStreams::Errors::InvalidLayout, layout.inspect) { IOStreams::Tabular::Parser::Fixed.schema(layout: layout) }
+        end
+      end
+
+      it "translates the decimals that the layout writes, and raises for those that it cannot write" do
+        translate = ->(decimals) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 8, key: :pay, type: :float, decimals: decimals}]) }
+        header    = IOStreams::Tabular::Header.new(columns: ["pay"])
+
+        # The layout writes nil and empty text as no decimals, and text of digits as those digits.
+        {nil => [0, "00000013"], "" => [0, "00000013"], 3 => [3, "0012.567"], "3" => [3, "0012.567"], "03" => [3, "0012.567"]}.
+          each_pair do |decimals, (digits, line)|
+            layout = [{size: 8, key: "pay", type: :float, decimals: decimals}]
+
+            assert_equal line, IOStreams::Tabular::Parser::Fixed.new(layout: layout).render({"pay" => 12.567}, header)
+            assert_equal digits, translate.call(decimals)[:fields].first[:decimals], decimals.inspect
+          end
+        # The layout reads a file with these decimals, but cannot write one.
+        [true, 2.9, 2.0, "abc", " 3", "3abc", "+3", 3r].each do |decimals|
+          assert_raises(StandardError, decimals.inspect) do
+            IOStreams::Tabular::Parser::Fixed.new(layout: [{size: 8, key: "pay", type: :float, decimals: decimals}]).render({"pay" => 12.567}, header)
+          end
+          error = assert_raises(IOStreams::Errors::InvalidLayout, decimals.inspect) { translate.call(decimals) }
+          assert_match(/The decimals of the column :pay of the layout must be a whole number of 0 or more/, error.message)
         end
       end
 

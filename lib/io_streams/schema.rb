@@ -143,10 +143,15 @@ module IOStreams
     #
     # Unlike `IOStreams::Stream#format_options`, it reports no deprecation warning, since it replaces the layout.
     #
+    # Parameters:
+    #   format_options:
+    #     The format options of the layout, as `IOStreams::Stream#format_options` takes them: `layout:`, and
+    #     optionally `truncate:`, see `IOStreams::Tabular::Parser::Fixed.schema`.
+    #
     # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, and ArgumentError for a property that a
-    # column of a layout does not have, or when its schema is not valid.
-    def self.from_layout(layout:, truncate: true)
-      descriptor = IOStreams::Tabular::Parser::Fixed.schema(layout: layout, truncate: truncate)
+    # column of a layout does not have, for any other format option, or when its schema is not valid.
+    def self.from_layout(**format_options)
+      descriptor = IOStreams::Tabular::Parser::Fixed.schema(**format_options)
       new(descriptor)
       descriptor
     end

@@ -221,6 +221,12 @@ class SchemaTest < Minitest::Test
         assert_equal expected, IOStreams::Schema.from_layout(layout: layout)
       end
 
+      it "takes the truncate option of the layout, and raises for any other" do
+        assert_equal [{name: :name, type: "string", width: 10}, {name: :zip, type: "integer", width: 5, start: 13}],
+                     IOStreams::Schema.from_layout(layout: layout, truncate: false)[:fields]
+        assert_raises(ArgumentError) { IOStreams::Schema.from_layout(layout: layout, encoding: "UTF-8") }
+      end
+
       it "reads the same records as the layout" do
         data = "Jack      xx01234\nJill      yy00042\n"
         layout_records = []
