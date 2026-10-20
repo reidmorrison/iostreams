@@ -14,6 +14,8 @@ module IOStreams
     #   "boolean"   boolean
     #   "date"      date32
     #   "datetime"  timestamp_micros, adjusted to UTC, so the time read back is in UTC, and has whole microseconds.
+    #   "object"    string, holding the JSON text of the Hash, which a schema with the field reads back as the Hash.
+    #   "array"     string, holding the JSON text of the Array, read back the same way.
     #
     # A field whose `constraints` are `required` cannot be null, unless it allows blank values, see `allowBlank` in
     # `IOStreams::Schema::Field`. A field of type "any" raises ArgumentError, since Parquet needs the type of every
@@ -55,7 +57,8 @@ module IOStreams
       # is the Time at the start of its day in UTC, since the gem converts the text of a date at midnight in the time zone
       # of the process, which writes the day before east of UTC, and for a date before 1970 the day after west of UTC.
       # A time is a Time in UTC, since the gem only converts a Time itself, not a time that only acts as one, such as the
-      # `ActiveSupport::TimeWithZone` of a Rails app. A double that is not finite, such as NaN, is written as it is.
+      # `ActiveSupport::TimeWithZone` of a Rails app. A Hash or an Array, of an object or an array field, is its JSON
+      # text, see `IOStreams::Schema::Field#render`. A double that is not finite, such as NaN, is written as it is.
       #
       # Raises `IOStreams::Errors::InvalidValue` for a value that the column cannot hold: an integer outside the range
       # of an int64, or a decimal that is not finite, or that has more digits before its decimal point than its decimal
@@ -69,6 +72,7 @@ module IOStreams
         when :double then @field.round(value)
         when :date32 then Time.utc(value.year, value.month, value.day)
         when :timestamp_micros then value.getutc
+        when :string then value.is_a?(String) ? value : @field.render(value, :text)
         else value
         end
       end
@@ -77,7 +81,7 @@ module IOStreams
 
       def parquet_type
         case @field.type
-        when "string" then :string
+        when "string", "object", "array" then :string
         when "integer" then :int64
         when "number" then number_type
         when "boolean" then :boolean

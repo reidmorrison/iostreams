@@ -2711,7 +2711,9 @@ file, the deprecated options of each call that describe them without a schema, s
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
-| `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, see [Values without a field](#values-without-a-field) |
+| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
+| `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
+| `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
 A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
 field, which keeps it.
@@ -2721,8 +2723,8 @@ A value that is not one of the type of its field, such as `N/A` for an `integer`
 or `datetime` that does not exist, such as `2026-02-30`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
-digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, and every other value as
-text, such as a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby
+digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
+as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby
 writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
 the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
 values themselves.
@@ -2959,6 +2961,7 @@ A value of a file without a schema, or of a field without a type, is written as 
 | `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
 | `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with as many digits of its fraction of a second as it needs |
 | `Date` | ISO 8601, such as `2026-10-13` |
+| `Hash` or `Array` | JSON, such as `{"a":1}` or `[1,2]`, as the JSON format writes it |
 | any other value | its `to_s`, such as `42` or `true` |
 
 JSON writes a `BigDecimal`, `Date` or `Time` as that text, within an object or an array too, so that a `BigDecimal`
@@ -2994,6 +2997,7 @@ each type is written as:
 | `boolean` | `boolean` |
 | `date` | `date32` |
 | `datetime` | `timestamp_micros`, adjusted to UTC, so it is read back in UTC |
+| `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
 its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
@@ -5856,11 +5860,28 @@ of type `any` writes it, in CSV, PSV and JSON:
 
 JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
 does the header row that `writer(:array)` takes from the first row written, when no `columns:` are supplied, so that
-it matches the rows after it. PSV writes an `Array` value as its text, such as `[1, 2]`, where its items were
+it matches the rows after it. PSV writes an `Array` value in one column, as JSON, see below, where its items were
 written as more columns.
 
 Fix: to keep another form, give the column a field in the schema with a `type` and a `format`, such as
 `{name: "on", type: "date", format: "%d/%m/%Y"}`, or convert the value to text before writing it.
+
+#### A `Hash` or an `Array` is written as JSON
+
+A `Hash` or an `Array` without a field in the schema, including every one in a file without a schema, is now written
+as JSON in CSV, PSV, fixed width files and spreadsheets, the same as the JSON format writes it, with a `BigDecimal`,
+`Date` or `Time` within it as its text:
+
+| Value | Now | Before |
+|-------|-----|--------|
+| `{"a" => 1}` | `{"a":1}` | its `to_s`, `{"a"=>1}`, which Ruby 3.4 writes as `{"a" => 1}` |
+| `[1, 2]` | `[1,2]` | its `to_s`, `[1, 2]`, or in PSV its items as more columns |
+
+Its `to_s` is Ruby's inspect text, which other programs cannot read as JSON. A `Float` within it that JSON cannot
+hold, such as `NaN`, is handled as writing JSON handles it: it raises, or is written as `null` where ActiveSupport
+writes JSON, as in Rails.
+
+Fix: to write another form, convert the value to text before writing it.
 
 #### A fixed width number that holds no number raises
 

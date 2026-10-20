@@ -390,11 +390,28 @@ of type `any` writes it, in CSV, PSV and JSON:
 
 JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
 does the header row that `writer(:array)` takes from the first row written, when no `columns:` are supplied, so that
-it matches the rows after it. PSV writes an `Array` value as its text, such as `[1, 2]`, where its items were
+it matches the rows after it. PSV writes an `Array` value in one column, as JSON, see below, where its items were
 written as more columns.
 
 Fix: to keep another form, give the column a field in the schema with a `type` and a `format`, such as
 `{name: "on", type: "date", format: "%d/%m/%Y"}`, or convert the value to text before writing it.
+
+#### A `Hash` or an `Array` is written as JSON
+
+A `Hash` or an `Array` without a field in the schema, including every one in a file without a schema, is now written
+as JSON in CSV, PSV, fixed width files and spreadsheets, the same as the JSON format writes it, with a `BigDecimal`,
+`Date` or `Time` within it as its text:
+
+| Value | Now | Before |
+|-------|-----|--------|
+| `{"a" => 1}` | `{"a":1}` | its `to_s`, `{"a"=>1}`, which Ruby 3.4 writes as `{"a" => 1}` |
+| `[1, 2]` | `[1,2]` | its `to_s`, `[1, 2]`, or in PSV its items as more columns |
+
+Its `to_s` is Ruby's inspect text, which other programs cannot read as JSON. A `Float` within it that JSON cannot
+hold, such as `NaN`, is handled as writing JSON handles it: it raises, or is written as `null` where ActiveSupport
+writes JSON, as in Rails.
+
+Fix: to write another form, convert the value to text before writing it.
 
 #### A fixed width number that holds no number raises
 

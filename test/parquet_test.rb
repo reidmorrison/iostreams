@@ -193,6 +193,16 @@ class ParquetTest < Minitest::Test
       assert_equal Time.utc(2026, 10, 20, 13, 30, 0.25r), read.first["at"]
     end
 
+    it "writes object and array fields as their JSON text, which a schema with the fields reads back" do
+      json   = {fields: [{name: "id", type: "integer"}, {name: "prefs", type: "object"}, {name: "tags", type: "array"}]}
+      record = {"id" => 1, "prefs" => {"theme" => "dark", "limit" => BigDecimal("12.5")}, "tags" => ["a", 1]}
+
+      write(path.schema(json), [record])
+
+      assert_equal [{"id" => 1, "prefs" => {"theme" => "dark", "limit" => "12.5"}, "tags" => ["a", 1]}], read(path.schema(json))
+      assert_equal [{"id" => 1, "prefs" => %({"theme":"dark","limit":"12.5"}), "tags" => %(["a",1])}], read
+    end
+
     it "writes the fields that a record does not have as null" do
       write(path.schema(schema), [{"id" => 4}])
 
