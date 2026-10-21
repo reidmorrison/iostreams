@@ -207,6 +207,12 @@ end
 IOStreams.path("people.json").copy_from("people.csv", mode: :hash)
 ~~~
 
+**Export a database query to CSV, keeping the types of its columns**, see [Exporting queries](queries):
+
+~~~ruby
+IOStreams.path("orders.csv").copy_from(Order.where(paid: true), mode: :hash)
+~~~
+
 **Upload a file to S3**, see [Copying and moving](copy_files):
 
 ~~~ruby
@@ -332,6 +338,7 @@ gems of the features that your application uses:
 | PGP | The `gpg` program of GnuPG 2.1 or later, see [PGP](pgp#installation) |
 | Symmetric Encryption | `symmetric-encryption` |
 | Parquet | `parquet`, which is not available on JRuby |
+| [Active Record queries](queries) | `activerecord` 7.2 or later, and the driver of the database: `pg`, `mysql2` or `sqlite3` |
 | The `number` fields of a schema | `bigdecimal`, a bundled gem from Ruby 3.4 |
 
 When a gem is missing, the feature that needs it raises `LoadError`, naming the gem to install.
@@ -344,6 +351,7 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 * [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
 * [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.
+* [Exporting queries](queries): exporting the rows of an Active Record query to any format and store.
 * [Errors](errors): rescuing a missing file the same way wherever it is stored.
 * [PGP](pgp): encrypting, decrypting, signing and verifying files, and managing keys.
 * [Configuration](config): roots, temp files and logging.
@@ -852,9 +860,6 @@ holds the rows as they are in the file.
   row, `nil`.
 * A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
 * The header row of every slice is the same frozen Array, so change a copy of it.
-* The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError` unless they are nil, as they do
-  with a schema, since the header row that they would change is read again where each slice is parsed: describe the
-  columns with a schema instead. So does `cleanse_header:`.
 * A `size` that is not a positive Integer, or a `validate` that is not true or false, raises `ArgumentError` before the
   file is opened.
 * `#reader(:slice, size: 100)` yields the reader, whose `#header` is the header row once it has been read, also for a
@@ -872,6 +877,11 @@ end
 slice = IOStreams.slice(store.pop)
 slice.to_h  # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
 ~~~
+
+A slice of the rows of an Active Record query, each of which is a record whatever its values, also holds
+`"blank_rows" => false`, so that a row whose every value is null or empty is read as a record where the slice is
+parsed, rather than as a [blank row](#blank-rows). Its rows hold the values that the query read, such as times and
+decimals, rather than text, see [Slices of a query](queries#slices-of-a-query).
 
 `IOStreams.slice` also takes the keys, and the format, as Symbols, and raises `ArgumentError` for a Hash that does not
 describe a slice, such as one with a key that a slice does not have. Read the slice it returns with
@@ -1109,10 +1119,10 @@ IOStreams checks where each setting is supplied:
 * An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
   `#writer`, rather than being ignored.
 * Any other option that the mode does not take, such as a misspelled `delimitr:`, raises `ArgumentError` before the
-  file is opened, naming the mode and listing the options that it takes, other than those that are deprecated:
+  file is opened, naming the mode and listing the options that it takes:
 
   ~~~
-  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size.
+  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size, :skip_blanks.
   ~~~
 * `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
   raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set what
@@ -1281,8 +1291,10 @@ way of UTF-8, so it can only store text, and one that changes the bytes written 
 stream, so open it in binary mode, such as `File.open(name, "wb")`.
 
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
-that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with
-its own settings, options, streams or an encoding supplied to that call raise `ArgumentError`.
+that calls `IOStreams.stream(io).writer(:hash)` itself, or `IOStreams.stream(io).copy_from(source, mode: :hash)`, which
+then writes into it. Since the open writer writes with its own settings, options, streams or an encoding supplied to
+that call raise `ArgumentError`, and a copy into a row or record writer does not give it the schema of the rows of an
+Active Record query.
 
 ---
 
@@ -1350,6 +1362,8 @@ There are other ways to create a path or a stream:
   for reading and writing, but without the [operations on the store](#operations-on-the-store), since an IO is not
   stored anywhere. See [Streams of an IO](streams#streams-of-an-io). It raises `ArgumentError` for a String or a
   `Pathname`, which name a file.
+* `IOStreams.stream(relation)` reads the rows of an Active Record query, such as to copy them to a path, see
+  [Exporting queries](queries).
 * `IOStreams.new(name_or_io)` returns the path of a name, or the stream of an IO, for code that accepts either.
 
 ### Paths are configuration
@@ -2697,9 +2711,9 @@ so that setting it does not read the file, and the copies of a path read it once
 that was set.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
-`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. Since it describes the columns of the
-file, the deprecated options of each call that describe them without a schema, such as `columns:`, raise
-`ArgumentError` with it, see [Upgrading](upgrading#the-column-options-of-each-call-are-deprecated).
+`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. It replaces the options of each call that
+described the columns before v3.0, such as `columns:` and `allowed_columns:`, see
+[Upgrading](upgrading#the-column-options-of-each-call-are-removed).
 
 ### Types
 
@@ -3156,7 +3170,7 @@ A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, na
 written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its
 `decimal(38, decimals)` holds, that is `38 - decimals`.
 
-A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
+A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `buffer_size:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
 UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yields is a header row of its columns,
 or with a schema of the names of its fields, and each row after it is the values of the fields, in order:
@@ -3755,6 +3769,14 @@ IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "receiver@example.org").co
 
 A copy without a mode returns the number of bytes copied, as written to the target before its streams.
 
+The source of a copy in the `:array` or `:hash` mode can also be an Active Record relation, whose rows are read with
+one query, and written by the types of its columns, see [Exporting queries](queries):
+
+~~~ruby
+orders = Order.where(paid: true).select(:id, :amount, :created_at)
+IOStreams.path("s3://my-bucket/exports/orders.parquet").copy_from(orders, mode: :hash)
+~~~
+
 ## Copying as stored
 
 `convert: false` copies the data as it is stored, without applying the streams of either file name, such as to
@@ -3868,6 +3890,527 @@ end
 
 ---
 
+# Exporting Queries
+
+IOStreams reads the rows of an Active Record query the way it reads the rows of a file, so one line exports a query to
+any format and store that a path names:
+
+~~~ruby
+IOStreams.path("s3://my-bucket/exports/orders.csv.gz").copy_from(Order.where(paid: true), mode: :hash)
+~~~
+
+The path decides the format, compression, encryption and storage, so the same code writes CSV in development and
+encrypted Parquet on S3 in production, when the path comes from configuration:
+
+~~~ruby
+orders = Order.where(paid: true).select(:id, :customer_id, :amount, :status, :created_at)
+
+IOStreams.path(ENV.fetch("ORDERS_EXPORT_PATH")).copy_from(orders, mode: :hash)
+~~~
+
+Every format holds the values of these columns, while a column of JSON or binary data needs more care, see
+[Columns that need a type](#columns-that-need-a-type).
+
+The query runs once, and its rows are read from the database in small parts while they are written, so the memory
+that an export takes does not grow with the number of its rows. Active Record 7.2 or later is needed. PostgreSQL,
+MySQL with the `mysql2` gem, and SQLite stream the rows of a query, and any database can read them in batches, see
+[Each database](#each-database).
+
+## Exporting a query
+
+Copy a relation into a path with `#copy_from`, in the `:hash` mode, which copies each row as a record, or the
+`:array` mode, which copies each row as its values, after a header row of the names of the columns:
+
+~~~ruby
+paid_orders = Order.where(paid: true).order(:created_at).select(:id, :customer_id, :amount, :status, :created_at)
+
+IOStreams.path("orders.csv").copy_from(paid_orders, mode: :hash)
+IOStreams.path("orders.json").copy_from(paid_orders, mode: :hash)
+IOStreams.path("orders.parquet").copy_from(paid_orders, mode: :hash)
+IOStreams.path("orders.xlsx").option(:xlsx, auto_format: true).copy_from(paid_orders, mode: :array)
+~~~
+
+A spreadsheet is written with each value as text, unless `auto_format: true` writes those that look like numbers,
+dates, times or booleans as the values of Excel, so that Excel can add up the amounts, and sort by date. It applies to
+every column, so text that looks like a number, such as the zip code `01234`, is written as a number too, see
+[Excel spreadsheets](formats#excel-spreadsheets).
+
+Select the columns to export with `select`, which can join other tables and compute columns, as any query can:
+
+~~~ruby
+report = Order.
+  joins(:customer).
+  where(paid: true).
+  group("customers.name").
+  order("customers.name").
+  select("customers.name AS customer, COUNT(*) AS orders, SUM(orders.amount) AS total")
+
+IOStreams.path("totals.csv").copy_from(report, mode: :hash)
+~~~
+
+The columns of the file are the columns of the query, in order. Give each column a name of its own with `AS`, since a
+record has one value for each name: two columns of the same name raise `ArgumentError`. A column named with `AS` has
+the type that the database gives it, rather than that of an attribute, see
+[Keeping the types of the columns](#keeping-the-types-of-the-columns).
+
+A copy needs a mode, since a query holds rows rather than bytes, so `copy_from(relation)` without one raises
+`ArgumentError`. It returns the number of rows read, header row included, as the copy of a file returns the number of
+its lines.
+
+A relation that is read as one query is opened, and its first rows are read, before the copy opens its target, so that
+a query that cannot run, such as on a database that cannot stream it, keeps an existing file as it was. A failure after
+that, such as of a value that the schema does not accept, fails the copy part way, see
+[When a copy fails](copy_files#when-a-copy-fails).
+
+### Into a writer that is already open
+
+A copy into a row or record writer that is already open, such as the one that `writer(:hash)` yields, handed to
+`IOStreams.stream`, writes the rows with the settings of that writer, rather than by the types of the columns of the
+query, see [Streams of an IO](streams#streams-of-an-io). For example, to write the rows of two queries into one file:
+
+~~~ruby
+IOStreams.path("orders.csv").writer(:hash) do |writer|
+  IOStreams.stream(writer).copy_from(Order.where(paid: true).select(:id, :amount), mode: :hash)
+  IOStreams.stream(writer).copy_from(ArchivedOrder.where(paid: true).select(:id, :amount), mode: :hash)
+end
+~~~
+
+So a number is written with the digits that it has, such as `12.5`, rather than with the decimals of its column, unless
+the path has a schema.
+
+## Reading the rows of a query
+
+`IOStreams.stream(relation)` returns a stream of the rows of the query, which reads them as the rows of a file are
+read, with `#each` or `#reader`:
+
+~~~ruby
+IOStreams.stream(Order.where(paid: true)).each(:hash) do |order|
+  puts "#{order['id']}: #{order['amount']}"
+end
+~~~
+
+The keys of each record are the names of the columns, as Strings. `each(:array)` yields a header row of the names of
+the columns, and then the values of each row:
+
+~~~ruby
+IOStreams.stream(Order.select(:id, :amount)).each(:array) do |row|
+  p row
+end
+# ["id", "amount"]
+# [1, 0.125e2]
+# [2, 0.3e1]
+~~~
+
+`#each` returns the number of rows that it read, header row included, as it returns the number of lines of a file. A
+second traversal of the reader that `#reader` yields continues where the first stopped, as for a file.
+
+Each value is cast as `pluck` casts it, which is how the attributes of a model hold it, but without building a model,
+so that its methods, such as a reader that it overrides, do not run: an enum attribute is the name of its value, such
+as `"shipped"`, an encrypted attribute is its plain text, a JSON column is the value of its JSON, such as a Hash, and a
+datetime is an `ActiveSupport::TimeWithZone` in the time zone of the application. The columns of a joined table are
+cast by the attributes of its model, such as the enum `tier` of `select("orders.id", "customers.tier")`.
+
+The query runs the SQL, with its binds, that Active Record runs for the relation, so it reads the rows that
+`relation.to_a` would read. Before it reads them, a query of no rows, with `LIMIT 0`, describes its columns, once for
+each stream. The log of Rails, and the subscribers of Active Record, such as for APM, see these queries as those of
+Active Record, with the tags of `ActiveRecord::QueryLogs`: the query that describes the columns as `IOStreams Columns`,
+and the query that reads the rows as `IOStreams Query`.
+
+Every row of a query is a record, so a row whose every value is null or empty is read and copied, unlike a
+[blank row](streams#blank-rows) of a file, which `skip_blanks: true` would skip.
+
+### Slices of a query
+
+`each(:slice)` yields the rows of a query in slices, as for a file, such as to hand them to other threads or jobs, see
+[Slices](streams#slices). A slice of a query holds the values of its rows as the query cast them, such as an
+`ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format. Each of its rows is a
+record, also where the slice is parsed, so a row of nulls is not read as a blank row. Read its rows with the schema of
+the query, so that each value is read as its type:
+
+~~~ruby
+relation = Order.where(paid: true).select(:id, :amount, :created_at)
+schema   = IOStreams.stream(relation).schema
+
+IOStreams.stream(relation).each(:slice, size: 1_000) do |slice|
+  queue << slice
+end
+
+# Elsewhere, such as in another thread:
+IOStreams.stream(queue.pop).schema(schema).each(:hash) do |order|
+  p order
+end
+~~~
+
+Since `slice.to_h` holds the values themselves, a store of slices must keep them. JSON holds a time as text: the
+`to_json` of ActiveSupport writes it to the millisecond, while `JSON.generate` writes the text of `Time#to_s`, without
+its fraction of a second, which a `datetime` field does not read. BSON keeps a time to the millisecond. So the times of
+a stored slice are read back to the millisecond at best, rather than to the microsecond that a database can hold.
+
+## One query or batches
+
+A relation is read as one query, which the database streams to IOStreams, so a sorted, grouped or joined query runs
+once, in the order that it asks for. To read a query in the batches of Rails instead, supply what
+`relation.in_batches` returns, with its own settings:
+
+~~~ruby
+IOStreams.path("orders.csv").copy_from(Order.where(paid: true).in_batches(of: 5_000), mode: :hash)
+~~~
+
+Rails runs two queries for each batch, one that finds the keys of its rows, or where it ends, and then the one that
+reads its rows, so the database filters and sorts the rows again for every batch. For a sorted query, that grows with
+the size of the table. Exporting 832,995 of 1,000,000 orders to a CSV file on local disk, sorted by an amount without
+an index, on PostgreSQL 17 in Docker on a laptop:
+
+| How the rows are read | Export | Queries | Rows that PostgreSQL read |
+|-----------------------|--------|---------|---------------------------|
+| One query, `order(:amount, :id)` | 12.9 s | 1.7 s | 1,000,000 |
+| `in_batches(of: 10_000, cursor: [:amount, :id], use_ranges: true)` | 20.8 s | 9.1 s | 169,000,000 |
+| `in_batches(cursor: [:amount, :id])`, 1,000 rows at a time | 61.8 s | 41.6 s | about 834,000,000 |
+
+The time of the export includes casting the values and writing the file, and the time of the queries is the time that
+PostgreSQL took to answer them, as Active Record reports it.
+
+Batches still suit a scan of a large table in the order of its primary key, which costs little: `in_batches(of: 10_000)`
+exported the same orders, by their ids, in 14.6 seconds. Each batch is a query of its own, so that the database holds
+no query, and no snapshot, open from one batch to the next, see
+[Connections and transactions](#connections-and-transactions). Each batch is read whole, so its size, `of:`, decides
+the memory that it takes.
+
+Rails gives each batch no order of its own, so IOStreams reads the rows of each batch in the order of the primary key,
+which is the order of the batches by default. With another `cursor:`, or `order: :desc`, the batches are in that order,
+while the rows within each batch are in the ascending order of the primary key, so the rows are in neither order. The
+rows of each batch of a model without a primary key are in the order that the database returns them. `cursor:` needs
+Active Record 8.0 or later.
+
+Some queries return other rows in batches than as one query, or cannot be read in batches:
+
+* A grouped query, with `group` or `having`, raises `ArgumentError`, since each batch would aggregate only its own rows,
+  and so do a distinct query, since each batch would be distinct only within its own rows, and a query with an
+  `offset`, which Rails applies to each batch. Read them as one query.
+* A relation that was already loaded, such as by `to_a`, `present?` or a preloaded association, is read by the primary
+  keys of its records, each row once, as it is now in the database. When its records have no primary key, since the
+  model has none, or the query does not select it, it raises `ArgumentError`. To find whether there is anything to
+  export, ask `exists?`, which loads no records, rather than `present?`, which loads them all.
+
+A relation that is read as one query is opened before a copy opens its target, see
+[Exporting a query](#exporting-a-query), while the batches of a relation are read as the target is written, so a
+failure of the first batch fails the copy part way. Rails starts its batches again each time that they are read, so a
+second traversal of the reader that `#reader` yields reads no row once the first read them all, and raises
+`ArgumentError` when the first stopped early.
+
+The `Enumerator` that `find_each` or `find_in_batches` return without a block raises `ArgumentError`, since it cannot
+say how it reads its rows: supply the relation, or `relation.in_batches(...)`.
+
+## Keeping the types of the columns
+
+The types of the columns of the query describe the rows that it reads, as a [schema](formats#schema) does for a file.
+`#schema` returns them, such as on PostgreSQL:
+
+~~~ruby
+IOStreams.stream(Order.select(:id, :amount, :status, :created_at)).schema
+# {fields: [{name: "id", type: "integer", constraints: {required: true}},
+#           {name: "amount", type: "number", decimals: 2, constraints: {required: true}},
+#           {name: "status", type: "string"},
+#           {name: "created_at", type: "datetime", constraints: {required: true}}]}
+~~~
+
+A copy gives this schema to a target that has none, so that a Parquet file has a column of the type of each column of
+the query, and CSV and JSON write each number with the decimals of its column, such as `12.50`, and each date and time
+in ISO 8601. The type of each column is the one that `pluck` casts it by: the attribute of that name of the model, or of
+a model that the query joins, otherwise the type that the database gives the column of the result:
+
+| Active Record type | Schema field | Parquet column |
+|--------------------|--------------|----------------|
+| integer, bigint, or a decimal of scale 0 of up to 18 digits, such as `decimal(10, 0)` | `integer` | int64 |
+| a decimal of scale 0 of more digits, such as `decimal(20, 0)`, or MySQL's `bigint unsigned`, as a `BigDecimal` | `number`, with `decimals: 0` | decimal |
+| decimal with a scale, such as `decimal(10, 2)` | `number`, with `decimals` of the scale | decimal |
+| decimal without a scale, such as a PostgreSQL `numeric`, or a sum that PostgreSQL computes | `number` | needs `decimals` |
+| float | `number`, with `floatNumber: true` | double |
+| string, text, uuid, an enum | `string` | string |
+| a PostgreSQL `inet` or `cidr` address, as the text that PostgreSQL returns, such as `10.0.0.0/8` | `string` | string |
+| boolean | `boolean` | boolean |
+| date | `date` | date32 |
+| datetime | `datetime` | timestamp in UTC |
+| a PostgreSQL array, such as `text[]`, with an array of addresses as their text | `array` | the JSON text of the array |
+| json, time, binary, interval, a serialized attribute, or a type of the application | `any` | needs a type |
+
+* An attribute that Active Record decorates, such as one that `encrypts` or `normalizes`, has the type of the
+  attribute within, so an encrypted string is a `string`. A serialized attribute, also one that is encrypted, and an
+  attribute of a type of the application, such as `attribute :price, MoneyType.new`, are `any`, since their values can
+  be objects of any class, which a format of text writes as it writes a
+  [value without a field](formats#values-without-a-field).
+* A column that the query computes, or names with `AS`, has the type that the database gives the column of its
+  result, unless it has the name of an attribute of the model. PostgreSQL gives a type to every column, without the
+  scale of a decimal, so that a sum is a `number` without decimals. SQLite gives a type only to a column of a table,
+  and MySQL to none, so a computed column is `any` there, and on MySQL so is every column named with `AS`. As for
+  `pluck`, a column named with `AS` is not cast by the attribute of its column, so an enum is then the number that the
+  table holds.
+* A column is required, so that its Parquet column is not nullable, when it is `NOT NULL`, the query selects only
+  columns of the table of the model, by their names, without joins, and groups by nothing else, and the database
+  always gives such a column a value of its type once Active Record casts it: on PostgreSQL an integer, number,
+  boolean, date, datetime or array, and on MySQL with `mysql2` an integer, number or boolean, since `mysql2` reads a
+  zero date, such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no column is required,
+  since its columns hold values of any type, such as empty text in an integer column, which Active Record casts to nil,
+  nor on a database that IOStreams cannot stream a query from, such as MySQL with `trilogy`. A string is never
+  required, since it can be empty, and a query that joins another table, computes any column, or groups by anything
+  else, such as with `ROLLUP`, requires none of its columns.
+
+### Columns that need a type
+
+A Parquet file needs the type of every column, so a column of `any`, or a number without decimals, raises
+`ArgumentError` before the file is written. The other formats write such a column, apart from binary data:
+
+* A JSON column is `any`, since its values can be objects, arrays, or any other JSON value. CSV writes each value as
+  its JSON text, and JSON as itself. For Parquet, give it the type `object` when each of its values is an object, or
+  `array` when each is an array, which Parquet holds as their JSON text. Otherwise, leave it out, or select its JSON
+  text as a column of another name, such as `details::text AS details_json` on PostgreSQL, which is a `string`. On
+  MySQL and SQLite, whose computed columns are `any`, give such a column the type `string` in the schema, see below.
+* A binary column is `any` too, and its bytes are not text: CSV writes them as they are, which is not valid UTF-8, so
+  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises. Leave it out, or select it as text,
+  such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or `TO_BASE64(image) AS image_base64` on MySQL.
+* A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
+
+To give a column a type, set the schema of the query. It replaces the schema of every column, so start from the one
+that `#schema` returns, and change the fields that need it:
+
+~~~ruby
+report = Order.select(:id, :amount, "SUM(amount) OVER (ORDER BY id) AS running_total")
+stream = IOStreams.stream(report)
+fields = stream.schema[:fields].map do |field|
+  field[:name] == "running_total" ? field.merge(type: "number", decimals: 2) : field
+end
+
+IOStreams.path("orders.parquet").copy_from(stream.schema(fields: fields), mode: :hash)
+~~~
+
+The rows are then read by that schema, so a value that is not of the type of its field raises
+`IOStreams::Errors::InvalidValue`, such as a JSON array for an `object`.
+
+A schema with `header: false` matches its fields to the columns of the query by their position, rather than their
+names, so its fields can give them other names. A copy gives that schema to a target without one, `header: false`
+included, so a CSV file is then written without a header row, unless the target has a schema of its own.
+
+### A schema of the target
+
+A target with a schema of its own writes by that schema instead, for example to write only some of the columns, or to
+give them other names with `aliases`. Its fields are then all that the target knows of the columns, so give each one
+its type, such as the decimals of a number, which Parquet needs, and `fieldsMatch: "subset"`, which skips the other
+columns of the query, since the default, `"exact"`, raises `IOStreams::Errors::InvalidHeader` for them:
+
+~~~ruby
+target = IOStreams.path("orders.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "order_id", aliases: ["id"], type: "integer"},
+    {name: "total", aliases: ["amount"], type: "number", decimals: 2}
+  ]
+)
+target.copy_from(Order.where(paid: true), mode: :hash)
+~~~
+
+This also names the columns of the file otherwise without losing the types of the attributes, which naming them with
+`AS` in the query would.
+
+### Dates and times
+
+A datetime is read as an `ActiveSupport::TimeWithZone` in the time zone of the application, which CSV and JSON write in
+ISO 8601 with its offset, such as `2026-10-01T05:30:15.123456-04:00`, and Parquet as a timestamp in UTC.
+
+A date or time that the query computes, such as `MAX(created_at) AS last_ordered_at`, is not an attribute of the model,
+so it is not in the time zone of the application: on PostgreSQL it is a `Time` in UTC, on MySQL a `Time` in UTC of the
+type `any`, and on SQLite the text that SQLite holds, such as `2026-10-03 11:00:00`, also of the type `any`. Name the
+column after an attribute of the model, such as `MAX(created_at) AS created_at`, or declare an attribute of its name in
+the model, such as `attribute :last_ordered_at, :datetime`, so that it is cast as a datetime in the time zone of the
+application.
+
+On PostgreSQL, Active Record casts a date or time of `'infinity'` or `'-infinity'` to `Float::INFINITY`, which a `date`
+or `datetime` field does not accept, so the read raises `IOStreams::Errors::InvalidValue` at the first of them. Select
+such a column as null when it is not finite, which keeps its type:
+
+~~~ruby
+plans = Plan.select(:id, :name, "CASE WHEN isfinite(valid_until) THEN valid_until END AS valid_until")
+
+IOStreams.path("plans.parquet").copy_from(plans, mode: :hash)
+~~~
+
+Or select it as its text, such as `valid_until::text AS valid_until_text`, which is `infinity` for an infinite one.
+
+## Connections and transactions
+
+A relation that is read as one query is read on a connection of its own, which the query checks out of the pool of
+its model, and checks back in when the export ends, or the block is left with `break` or an exception. The block that
+the rows are yielded to runs its own queries on the connection of the caller, independently of the read, on every
+database:
+
+* The block can read and write the database, such as to update each row that it exports. What it writes is part of
+  the transaction of the caller, when the caller has one open, and is otherwise committed at once, whatever happens to
+  the export.
+* An `ActiveRecord::Rollback` that the block raises reaches the caller, as it would from any other block: it rolls
+  back the transaction of the caller, or is raised by `#each` when there is none.
+* The read sees what was committed, rather than what the open transaction of the caller has written, which it has not
+  committed yet.
+* The queries that read the rows skip the query cache, which would keep every row in memory, while the queries of the
+  block use the query cache as the caller left it.
+
+So the pool needs a connection free besides the one of the caller. Otherwise the read waits for one, for the
+`checkout_timeout` of the pool, 5 seconds by default, and raises `ActiveRecord::ConnectionTimeoutError`, tagged as
+`IOStreams::Errors::Unavailable`. A pool needs one connection more than the threads that use it, for each thread that
+can export at the same time.
+
+The batches of a relation are read on the connection of the caller instead, as Rails reads them, each batch whole
+before its rows are yielded, so they see what the open transaction of the caller has written. The block runs its
+queries as it does for one query, and keeps the query cache as the caller left it, while each batch is read without
+it.
+
+In the transactional tests of Rails, which share one connection between the test and the application, the pool checks
+out that connection for the read too, so the read sees the fixtures, and what the test wrote. An in-memory SQLite
+database, and a SQLite database that is not in WAL mode, are read on the connection of the caller instead, see
+[SQLite](#sqlite).
+
+One query reads one snapshot of the database for the whole export, so that it reads each row once, as it was when the
+export started, however the block, or anything else, changes the table meanwhile, apart from where SQLite reads on the
+connection of the caller. Holding that snapshot keeps PostgreSQL from vacuuming, and InnoDB from purging, the old
+versions of the rows that change while the export runs, and keeps SQLite from starting its WAL file again. The batches
+of a relation each read a snapshot of their own.
+
+To spare a busy primary, export from a replica:
+
+~~~ruby
+ActiveRecord::Base.connected_to(role: :reading) do
+  IOStreams.path("orders.csv").copy_from(Order.where(paid: true), mode: :hash)
+end
+~~~
+
+On PostgreSQL, a hot standby that replays the vacuum of rows that the snapshot of an export still needs cancels the
+export, once it has waited for `max_standby_streaming_delay`, 30 seconds by default, with an exception tagged as
+`Unavailable`, which a retry can meet again. With `hot_standby_feedback` on, the standby does not cancel it, but holds
+back vacuum on the primary for as long as the export runs, as an export on the primary does. Raise
+`max_standby_streaming_delay` on a standby that exports, which delays its replay instead, or read the query in batches,
+whose snapshots each last for one batch. On MySQL, an export on a replica holds back the purge of that replica only.
+
+## Each database
+
+| Database | How a query is read |
+|----------|---------------------|
+| PostgreSQL, also through PostGIS | A cursor, which fetches 100 rows, then as many as hold about 8 MB of their values, at most 10,000 at a time |
+| MySQL, with `mysql2` | The `stream: true` mode of `mysql2`, which reads one row at a time |
+| SQLite, with `sqlite3` | A statement of the `sqlite3` gem, which steps through the rows |
+| MySQL with `trilogy`, or with AR-JDBC on JRuby, SQLite without `sqlite3`, as on JRuby, and any other database | Raises `ArgumentError`: read it in batches |
+
+A query that cannot be streamed raises, before a copy opens its target, rather than read the query in batches without
+being asked, so that a query only runs once for each batch when that is the choice. Its message says how:
+`IOStreams.stream(relation.in_batches(of: 10_000))`.
+
+### PostgreSQL
+
+A cursor needs a transaction, which the read opens on its own connection, so that the statements of the block are not
+part of it. In the transactional tests of Rails, whose connection the read shares, it is a savepoint of the
+transaction of the test, which a read that fails rolls back, rather than the transaction of the test.
+
+The `statement_timeout` of the connection that reads the query applies to each fetch, rather than to the whole export,
+while the first fetch of a sorted query still waits for the sort. A `SET` on the connection of the caller, such as a
+`SET LOCAL statement_timeout` within its transaction, does not reach that connection. So set the timeout of an export
+for every connection of the pool that it reads, with the `variables` of its database configuration, such as for the
+replica that `connected_to(role: :reading)` reads, see [Connections and transactions](#connections-and-transactions):
+
+~~~yaml
+# config/database.yml
+production:
+  primary_replica:
+    <<: *default
+    replica: true
+    variables:
+      statement_timeout: 10min
+~~~
+
+Or set it for the role of PostgreSQL that the export connects as, with
+`ALTER ROLE exporter SET statement_timeout = '10min'`.
+
+Within the transaction, IOStreams sets `cursor_tuple_fraction` to 1.0, so that PostgreSQL plans the query for every
+row, rather than for its first 10%, `idle_in_transaction_session_timeout` to 0, from PostgreSQL 9.6, so that a target
+that is slow to write, such as an upload, does not leave the transaction idle for long enough that PostgreSQL closes the
+connection, and `transaction_timeout` to 0, from PostgreSQL 17, so that the transaction of a long export is not ended.
+They end with the transaction, or are set back in a transaction that was already open, as in transactional tests.
+
+A cursor never runs its query in parallel, so a query that PostgreSQL runs with parallel workers otherwise, such as an
+aggregate of a large table, can take longer to export than it takes in `psql`.
+
+When the block raises, or the export is interrupted, such as by `Timeout`, Active Record rolls back the transaction of
+the cursor, which cancels a fetch that is still running. A failure to close the cursor, after the block finishes or
+leaves with `break`, is raised, so that the export does not return as if it had ended where the block left it.
+
+### MySQL
+
+`mysql2` streams the rows of a query on a connection of its own, which cannot run another query until every row is
+read, so that the block queries the database on the connection of the caller, as on the other databases.
+
+MySQL ends a query whose client does not take a row within `net_write_timeout` seconds, 60 by default, so that a slow
+target could lose the connection, and `max_execution_time` ends a `SELECT` that runs for longer than it allows, which
+counts the time that the client takes to read its rows. While the rows are read, IOStreams raises the
+`net_write_timeout` of the session to an hour, unless it is higher, and lifts its `max_execution_time`, and sets them
+back afterwards. A limit of the query itself still applies, such as
+`Order.optimizer_hints("MAX_EXECUTION_TIME(600000)")`.
+
+Leaving the block early, with `break` or an exception, ends the connection of the read, which ends the query on the
+server at once, rather than read the rest of its rows, and the pool connects it again when it is next checked out.
+
+A connection that the read shares with the caller, such as the one of the transactional tests of Rails, is read whole
+before the first row is yielded, so that the block can query it.
+
+Leave `prepared_statements` false, the default of `mysql2`, for a connection that IOStreams reads: `mysql2` cannot
+stream a prepared statement, and with `prepared_statements: true`, `mysql2` 0.5.7 raises `NoMemoryError` for a query
+without rows, such as the one that describes the columns of a query.
+
+`trilogy` reads every row of a query at once, so a query on a connection of `trilogy` raises `ArgumentError`: read it
+in batches, whose failures are tagged as they are for `mysql2`, see [Errors](#errors). So does the MySQL adapter of
+AR-JDBC on JRuby, which cannot load `mysql2`.
+
+### SQLite
+
+A statement of the `sqlite3` gem steps through the rows, on a connection of its own when the database is in WAL mode,
+the default of Rails, whose readers each read a snapshot that the writes of other connections, such as those of the
+block, neither change nor wait for. While a read is open, SQLite cannot start its WAL file again, so the WAL file grows
+with every write to the database until the export ends.
+
+An in-memory database, which is a database of its own on each connection, and a database in another journal mode, are
+read on the connection of the caller instead, and in the transactional tests of Rails the read shares their connection.
+There, a block that changes the rows that the query reads, such as by updating the column that the query is sorted by,
+can read them again, without end: change them once the export ends, or read the query in batches of its primary key. In
+the other journal modes, a read also keeps the writes of other connections waiting until it ends.
+
+JRuby cannot load the `sqlite3` gem, so a query on SQLite raises there: read it in batches.
+
+## Errors
+
+A failure of the database is tagged, as a failure of storage is, so that an export can be retried on
+`IOStreams::Errors::Unavailable`, whether it reads a query or a file: such as when the database refuses the connection,
+or loses it, the query is canceled or times out, a lock wait times out, or the pool has no connection free. A failure
+that a retry does not change, such as a password that the database rejects, or a table that the user may not read, is
+`IOStreams::Errors::PermissionDenied`. No failure of a query is `NotFound`, since a mistake, such as a table that does
+not exist, a host that does not resolve, or an error in the SQL, is not tagged, nor is an exception that the block
+raises. See [What a query raises](errors#what-a-query-raises) for each database:
+
+~~~ruby
+begin
+  IOStreams.path(ENV.fetch("ORDERS_EXPORT_PATH")).copy_from(orders, mode: :hash)
+rescue IOStreams::Errors::Unavailable => e
+  # The database, or the storage of the target, could not be reached: the same export can succeed later.
+  puts "Export failed, try again later: #{e.message}"
+end
+~~~
+
+The message of a failure of the query starts with the name of the query, such as `Order query`, which the exception
+answers as its `#display_name`.
+
+A stream of a query is only read, so writing, `#read`, the `:stream` and `:line` modes, `#stream`, `#option`,
+`#encoding`, `#raw`, a format other than `:array`, and the options of lines, such as `delimiter:`, raise
+`ArgumentError`, as for a slice: copy its rows to a path instead, such as with `copy_to("orders.csv", mode: :hash)`.
+So does a file name, which would have no effect on rows that are always in the `:array` format: name the file that the
+rows are copied to instead. So do `includes`, `preload` and `eager_load`, which load the associations of models rather
+than rows: join their tables with `joins`, and select their columns, instead.
+
+---
+
 # Errors
 
 When a path's storage fails, for example because the file does not exist, the path raises the exception that its
@@ -3954,7 +4497,8 @@ end
 
 The kinds of failure are modules that tag the exception that the storage, or the gem of a stream, raised:
 
-* `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure of the storage includes it.
+* `IOStreams::Errors::StorageError`: the storage of a path, or the database of a query, failed, see
+  [What a query raises](#what-a-query-raises). Every kind of failure of the storage includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
   * `IOStreams::Errors::PermissionDenied`: the storage does not permit the access, or the credentials for it are
     missing or not valid.
@@ -4030,6 +4574,30 @@ SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem
 
 A failure that is none of these kinds raises its exception without a tag, such as an SFTP host key that does not
 match, or an HTTPS certificate that is not trusted.
+
+## What a query raises
+
+Reading the rows of an Active Record query, such as with `IOStreams.stream(relation)` or
+`path.copy_from(relation, mode: :hash)`, tags the exception that its database raised in the same way, so that an export
+can be retried on `Unavailable`, whether it reads a query or a file:
+
+| Kind of failure | Any database, through Active Record | PostgreSQL | MySQL | SQLite |
+|-----------------|-------------------------------------|------------|-------|--------|
+| `NotFound` | Never | Never | Never | Never |
+| `PermissionDenied` | `ActiveRecord::DatabaseConnectionError` for a user name or password that the database rejects, when its driver does not say otherwise | `PG::InsufficientPrivilege`, for a table or column that the user may not read, or `PG::ConnectionBad` for credentials that the server does not accept, by any method of authentication, such as a password, a client certificate, peer, PAM or LDAP, a role that may not log in, or connect to the database, or a host that `pg_hba.conf` rejects | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for an access that MySQL denies, such as error 1045 for a password that it rejects, 1044 for a database that the user may not use, 1142 for a table that the user may not read, or 1370 for a function that the user may not run, or for an account that it does not let connect, such as 3118 for one that is locked, 1862 for one whose password has expired, or 1130 for a client host that no account allows | `SQLite3::PermissionException` or `SQLite3::AuthorizationException` |
+| `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `PG::ConnectionBad` for a server that refused the connection, could not be reached, timed out, is starting up or shutting down, or has no connection free, or a temporary failure to resolve its host, `PG::AdminShutdown` or `PG::CrashShutdown` for a server that ended the query, and `PG::UnableToSend` for a query that could not be sent, since the connection was lost | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for a connection that was refused or lost, a temporary failure to resolve its host, too many connections, a server that is shutting down, a lock wait timeout, a deadlock, or a query that `KILL QUERY` or `max_execution_time` interrupted, also while mysql2 streams the rows of the query, `Mysql2::Error::TimeoutError` or `Trilogy::TimeoutError` for the `read_timeout` of the driver, and `Trilogy::EOFError` for a connection that the server closed | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
+
+The exception of a driver is tagged whether Active Record raised it, or an exception whose `#cause` it is. mysql2 raises
+an error that ends the rows of a query while it streams them with its message alone, so that the error of MySQL is told
+by its message, which the server says in English, unless its `lc_messages` says otherwise. A connection that could not
+be made is tagged as its driver says of the exception that caused it, since Active Record names it by what the message
+of the driver includes, rather than by what failed: for example, it names a host that does not resolve, whose name
+includes that of the user, as a user name or password that the database rejects. On PostgreSQL, the connection is tagged
+by the last address that it tried, such as the second address of `localhost`, so that a database that does not exist
+there is not `Unavailable` because the first address refused the connection. Its `#display_name` names the model of the
+query, such as `"Order query"`. A table, column or database that does not exist, a host that does not resolve, and a
+role or shard without a database are mistakes in the code or the configuration, so they raise their exception without a
+tag. As for a path, an exception that the block raises is never tagged.
 
 ## What each stream raises
 
@@ -4190,10 +4758,10 @@ also rescue an attempt to access a path that the application does not allow, suc
   again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
   when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
   or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
-  `ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
-  musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
-  that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
-  not `Unavailable` then either.
+  `ssh: Could not resolve hostname`, and PostgreSQL's `could not translate host name`, are likewise `Unavailable` only
+  for "Temporary failure in name resolution", or musl's "Try again". JRuby has no `Socket::ResolutionError`, so a
+  `SocketError` there is always `Unavailable`. A host that resolves only on a private network, such as over a VPN,
+  does not resolve while that network is down, so it is not `Unavailable` then either.
 * Reading an HTTP path reads the response as the block reads it, so a connection that fails part way through raises
   from within the block, once some of the data has been processed. A connection that closes before the whole body
   has been received raises `IOStreams::Errors::CommunicationsFailure` tagged as `Unavailable`, as does a body that is
@@ -5600,8 +6168,7 @@ and the security issues to check. For every change in each release, see the
 v3.0 is a major release. It reads text as UTF-8 by default, makes the breaking changes that were postponed from v2.1,
 and fixes bugs whose fixes change behavior that existing code may depend on. In v2.1 each postponed change logged a
 warning via `IOStreams.logger` when it would change the result, so check your logs from v2.1 for them before
-upgrading. v2.2 reports a deprecation warning for each method or option that v3.0 deprecates, and for most of what
-v3.0 removes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22). Every change is
+upgrading. v2.2 reports a deprecation warning for most of what v3.0 removes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22). Every change is
 listed in the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md); this section describes those that
 may need a change to your application, grouped by what they affect, each with its fix.
@@ -5614,7 +6181,7 @@ Start with the changes that apply to your application:
 | Reads text files that are not UTF-8, such as Windows-1252 exports, or depends on binary strings | [Text is read as UTF-8](#text-is-read-as-utf-8) |
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Sets the layout of a fixed width file with `#format_options` | [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema) |
-| Uses `allowed_columns`, `required_columns`, `columns:` or `cleanse_header:` | [Column restrictions apply to every input](#column-restrictions-apply-to-every-input), and [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated) |
+| Uses `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` or `cleanse_header:`, or sets `IOStreams.enforce_column_restrictions` | [The column options of each call are removed](#the-column-options-of-each-call-are-removed) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
@@ -5624,7 +6191,8 @@ Start with the changes that apply to your application:
 | Uses `~` in local file names, root paths from `IOStreams.add_root`, or compares paths | [Paths](#paths) and [Local files](#local-files) |
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
 | Registers its own extensions with `IOStreams.register_extension` | [Extending IOStreams](#extending-iostreams) |
-| Uses `option(:encode, ...)`, `stream(:none)` or `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
+| Uses `option(:encode, ...)`, `stream(:encode, ...)` or `stream(:none)` | [`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-), and [`#raw` replaces `stream(:none)`](#raw-replaces-streamnone) |
+| Supplies `embedded_within:` to the `:array`, `:hash` or `:slice` mode | [`embedded_within:` for rows and records is removed](#embedded_within-for-rows-and-records-is-removed) |
 
 ### Ruby 3.3 or later is required
 
@@ -5666,7 +6234,7 @@ Fix: read a file in another encoding by setting it with `#encoding`, for example
 `encoding("Windows-1252:UTF-8")`, which converts it to UTF-8 as it is read, or `encoding("Windows-1252")`, whose
 strings are then in that encoding, or supply `replace:` to replace invalid characters instead of raising. To read
 binary strings, as before, supply `encoding("BINARY")`, which also works for a stream without a file name. See
-[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that v2 used, and
+[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that v2 used, which v3.0 removes, and
 [Text and binary data](streams#text-and-binary-data).
 
 #### Text written with an encoding to your IO keeps it
@@ -5705,6 +6273,42 @@ example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-12
 
 Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
 
+#### `#encoding` replaces `option(:encode, ...)`
+
+The encoding of the text that the application reads or writes is now set with `#encoding`.
+Setting it with `option(:encode, ...)`, `stream(:encode, ...)` or `option_or_stream(:encode, ...)` raises
+`ArgumentError`, which v2.2 reports as deprecated. `#encoding` sets the same options, without two surprises of the
+old forms:
+
+* `option(:encode, ...)` raised `ArgumentError` after `#stream`, and without a file name, so a stream
+  set with `#stream` could not be combined with an encoding through `#option`. `#encoding` can.
+* `stream(:encode, ...)` stopped the streams being taken from the file name, like any other stream set
+  with `#stream`, so `IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")` read the
+  compressed bytes. `#encoding` keeps them.
+
+| Removed                                            | Use instead                       |
+|----------------------------------------------------|-----------------------------------|
+| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
+| `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
+| `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
+| `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
+
+~~~ruby
+# Before, removed in v3.0
+IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
+IOStreams.path("people.txt").option(:encode, replace: " ")
+IOStreams.stream(io).stream(:encode, encoding: "BINARY")
+
+# After
+IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8")
+IOStreams.path("people.txt").encoding(replace: " ")
+IOStreams.stream(io).encoding("BINARY")
+~~~
+
+To keep reading the data as it is stored, as `stream(:encode, encoding: "BINARY")` did for a file name
+with extensions, use `#raw`. For another encoding, such as a plain file whose name ends in `.gz`, set
+the file name that names its format with `#file_name`, then `#encoding`.
+
 #### Fixed width files are read and written as ASCII
 
 Fixed width files, read or written in the `:fixed` format, are now ASCII unless an encoding is set on
@@ -5737,15 +6341,12 @@ Now that a header row is read as UTF-8, cleansing it keeps the letters and digit
 so the column `Prénom` is `prénom`, and `日付` is `日付`. Previously they were `prnom`, and an empty
 name, so columns such as `日付` and `金額` had the same empty name. Whitespace that is not ASCII, such
 as a no-break space, is now converted to `_` and stripped like a space, so `First Name` with a
-no-break space is `first_name`, where it was `firstname`. JSON keys are cleansed the same way when they
-are matched to columns.
+no-break space is `first_name`, where it was `firstname`. The keys of a hash written are matched to the columns
+the same way.
 
-`IOStreams.enforce_column_restrictions` now defaults to true, so an `allowed_columns` or
-`required_columns` written to match the previous names no longer matches: its columns are skipped, or
-raise `IOStreams::Errors::InvalidHeader`.
-
-Fix: rename any `allowed_columns`, `required_columns` or `columns` written to match the previous
-names, such as `prnom` to `prénom`, and `firstname` to `first_name`.
+Fix: change the code that reads the records by the previous names, such as `prnom` to `prénom`, and `firstname` to
+`first_name`, or describe the columns with a schema whose fields are named as the code reads them, see
+[What a schema reads differently](#what-a-schema-reads-differently).
 
 #### The `:stream` mode reads bytes from every stream
 
@@ -5775,29 +6376,6 @@ Fix: supply the name of a built-in rule as a Symbol, such as `cleaner: :printabl
 ### Rows and records
 
 Reading and writing rows and records, with the `:array` and `:hash` modes.
-
-#### Column restrictions apply to every input
-
-When reading records, `allowed_columns`, `required_columns` and `skip_unknown` now apply to every
-input. Previously they were ignored for JSON and `:hash` input, when `columns:` was supplied, and
-with `cleanse_header: false`. When reading rows with `each(:array)`, they now also apply to the
-supplied `columns:`, to the header row with `cleanse_header: false`, and to the keys of the first record of a JSON
-file, which are its header row, see
-[Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays).
-They never change a row.
-
-When either `allowed_columns` or `required_columns` is set, JSON keys are now cleansed the same way
-as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
-`IOStreams::Errors::InvalidHeader` when `skip_unknown: false`, and a record that is missing a
-required column raises `IOStreams::Errors::InvalidHeader`. The keys of the columns that are kept stay as they are
-when they are already the names of their columns, such as the Symbol keys of `:hash` records, so that
-`{name: "Jack", zip: 12}` read with `allowed_columns: ["name"]` is `{name: "Jack"}`.
-
-Fix: check that the JSON files you read with these options have the expected keys. See
-[The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated). To keep the
-previous behavior, set `IOStreams.enforce_column_restrictions = false` in an initializer, which defaulted to false in
-v2.1, and is deprecated, see [enforce_column_restrictions](#enforce_column_restrictions).
-Renaming an uploaded file from `.csv` to `.json` then bypasses the restrictions.
 
 #### Rows of JSON, fixed width and Parquet files are Arrays
 
@@ -5886,9 +6464,9 @@ end
 
 #### Hash keys match columns once cleansed
 
-When writing a hash with `columns:`, or reading JSON or `:hash` records with `columns:`, a key such as
-`"First Name"` now supplies the value of the column `first_name`, since they are the same once cleansed
-like a header row. Previously the column was empty.
+When writing a hash, a key such as `"First Name"` now supplies the value of the column `first_name`, such as a column
+of the header row that the first record written gives, since they are the same once cleansed like a header row.
+Previously the column was empty.
 
 Fix: if a column must stay empty, remove the matching key from the hash before writing it.
 
@@ -6021,9 +6599,9 @@ before writing it.
 
 #### Options that only apply when reading raise when writing or copying
 
-`#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for the options that only apply when reading:
-`allowed_columns:`, `required_columns:`, `skip_unknown:`, `cleanse_header:`, `embedded_within:` and `buffer_size:`.
-Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
+`#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for the options that only apply when reading, such as
+`embedded_within:` and `buffer_size:`, as for the column options, which v3.0 removes, see
+[The column options of each call are removed](#the-column-options-of-each-call-are-removed). Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
 options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column.
 
 Fix: to choose the columns that are written, set a schema on the target, whose fields are the columns written. To
@@ -6057,8 +6635,7 @@ of type `any` writes it, in CSV, PSV and JSON:
 | `Date.new(2026, 10, 13)` | `2026-10-13` | its `to_s`, which an application can change |
 
 JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
-does the header row that `writer(:array)` takes from the first row written, when no `columns:` are supplied, so that
-it matches the rows after it. PSV writes an `Array` value in one column, as JSON, see below, where its items were
+does the header row that `writer(:array)` takes from the first row written, so that it matches the rows after it. PSV writes an `Array` value in one column, as JSON, see below, where its items were
 written as more columns.
 
 Fix: to keep another form, give the column a field in the schema with a `type` and a `format`, such as
@@ -6116,6 +6693,215 @@ a plain decimal, such as `12.5`, where it was `0.125e2`.
 Fix: code that parses the text of a time cell, such as with `Time.parse`, still works, but gets the time in
 UTC. To get a local time, convert it, such as with `Time.parse(value).localtime`.
 
+#### The column options of each call are removed
+
+`columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` raise `ArgumentError`, as
+for any other option that a mode does not take, which v2.2 reports as deprecated, and
+`IOStreams.enforce_column_restrictions=`, which only applied to them, is removed, see
+[enforce_column_restrictions](#enforce_column_restrictions). A [schema](formats#schema) describes the columns of the
+file on its path instead, so that every reader and writer of the path, including a copy, checks them the same way. Its
+fields name the keys of the records read, and each column of the header row is matched to a field whatever its case, spaces
+and punctuation, or to one of the `aliases` of a field, see [Matching columns to fields](formats#matching-columns-to-fields).
+So the keys no longer depend on how the cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which
+are both `amount_`.
+
+To keep the keys of the records that the code reads, name each field as that key. The names that `allowed_columns:`
+and `required_columns:` list already are, since they were compared to the columns once cleansed, such as `first_name`
+for the column `First Name`, so use them as the names of the fields: the schema matches each column to the field
+named as the column was cleansed. With `cleanse_header: false`, they are the columns as they are in the file, so use
+them as they are.
+
+Without a schema, the header row is always cleansed, as `cleanse_header: true` cleansed it, and every column is read.
+The property of a schema that replaces each option:
+
+| Option | With a schema |
+|--------|---------------|
+| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write. A `nil` column, which was not read, is a field with `skip: true`, see [Field properties](formats#field-properties) |
+| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` did, or `"equal"` when `required_columns:` lists every allowed column |
+| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` did, or `"subset"` when `required_columns:` lists every allowed column |
+| `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
+| `required_columns:` without `allowed_columns:`, which also read the other columns | Also `fieldsMatch: "subset"`, `extraColumns: "keep"` and `keyType: "cleansed"`, which keep the other columns, keyed as `cleanse_header` cleansed them, see [Keeping the other columns](formats#keeping-the-other-columns) |
+| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to, or with `keyType: "cleansed"` the names once cleansed, as `cleanse_header: true` cleansed the columns, see [Keys of the records read](formats#keys-of-the-records-read) |
+| `cleanse_header: false` without the other options, which read every column as it is written | `fieldsMatch: "subset"`, `extraColumns: "keep"` and no fields |
+
+~~~ruby
+# Before, removed in v3.0
+path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) do |record|
+  p record
+end
+
+# After
+path.schema(
+  fieldsMatch: "partial",
+  fields:      [
+    {name: "first_name"},
+    {name: "zip_code", constraints: {required: true}, allowBlank: true}
+  ]
+).each(:hash) do |record|
+  p record
+end
+
+# Both read "First Name,Zip Code,Notes\nJack,12345,x\nJill,,y\n" as:
+# {"first_name" => "Jack", "zip_code" => "12345"}
+# {"first_name" => "Jill", "zip_code" => nil}
+~~~
+
+Example, reading a headerless CSV file:
+
+~~~ruby
+# Before, removed in v3.0
+path = IOStreams.path("no_header.csv")
+path.each(:hash, columns: ["name", "address", "zip"]) do |record|
+  p record
+end
+
+# After
+path = IOStreams.path("no_header.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "address"},
+    {name: "zip"}
+  ]
+)
+path.each(:hash) do |record|
+  p record
+end
+~~~
+
+Example, writing only specific columns in a fixed order:
+
+~~~ruby
+# Before, removed in v3.0
+path = IOStreams.path("sample.csv")
+path.writer(:hash, columns: ["name", "zip"]) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+path.read
+# => "name,zip\nJack Jones,12345\n"
+
+# After
+path = IOStreams.path("sample.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
+end
+~~~
+
+With a schema, `writer(:array)` writes the names of the fields as the header row, and takes each row as the values of
+the fields, in order, as `columns:` did:
+
+~~~ruby
+# Before, removed in v3.0
+path.writer(:array, columns: %w[name zip]) do |io|
+  io << ["Jack Jones", 12345]
+end
+
+# After
+path.schema(
+  fields: [
+    {name: "name"},
+    {name: "zip"}
+  ]
+)
+path.writer(:array) do |io|
+  io << ["Jack Jones", 12345]
+end
+~~~
+
+##### What a schema reads differently
+
+A schema reads the same records as the options it replaces, named as above, except that:
+
+* A column is matched to a field whatever its case, spaces and punctuation, so a column that `allowed_columns:` did
+  not list once cleansed, such as `FirstName` for `first_name`, is read.
+* Two columns that are the same field, such as `Email` and `email`, or `Amount ($)` and `Amount (€)` for the field
+  `amount_`, raise `IOStreams::Errors::InvalidHeader`, where the value of the last one was kept.
+* The keys of each record are in the order of the fields, rather than of the columns of the file.
+* `each(:array)` yields a header row of the names of the fields, and each row holds only the values of the fields,
+  where the column options left the header row and the rows as they are in the file.
+* A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
+  is `"subset"` or `"partial"`, where it was dropped.
+* A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
+  `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
+  read it as an empty record, `{}`.
+* A name that v2.1 cleansed without its letters that are not ASCII, such as `prnom` for the column `Prénom`, which an
+  application may have kept in `allowed_columns:`, is not the field of that column, since a schema matches it as
+  `prénom`, see [Cleansing a header row keeps letters that are not ASCII](#cleansing-a-header-row-keeps-letters-that-are-not-ascii).
+  With `fieldsMatch: "subset"` or `"partial"` the column is skipped without an error, so name the field `prénom`, or
+  keep the name and give the field the column as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
+* A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
+  written, where `columns:` wrote an empty value.
+
+##### Checking a schema before upgrading
+
+Every use of the options has a schema form, see the table above, including `required_columns:` without
+`allowed_columns:` and `cleanse_header: false` on its own, which read every column, with `extraColumns: "keep"`,
+and `columns:` with `nil` for a column to skip, with `skip: true`. v2.2 reads a file both with the options and with a
+schema, so check the schema against the files of the application with v2.2 before upgrading, since it reads some of
+them differently, see above, and see [Moving the column options to a schema](#moving-the-column-options-to-a-schema).
+
+##### The removed options
+
+What each option did without a schema, to find the schema that replaces it. They were supplied to each call that read
+or wrote records (`:hash`) or rows (`:array`). Column names were converted to strings.
+
+* `columns: [Array<String>]`
+  When reading, supplied the header columns for files that did not include a header row.
+  When writing, set the columns to write, including their order. Keys not listed in
+  `columns` were ignored.
+
+* `cleanse_header: [true|false]`
+  Whether to cleanse the column names read from the header row, which is what v3.0 always does without a schema.
+  Column names are stripped of leading and trailing whitespace, lowercased, and spaces
+  and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
+  Any other character that is not a letter, digit or underscore is removed. Letters and digits that
+  are not ASCII are kept, so `"Prénom"` becomes `"prénom"`.
+  Default: true
+
+* `allowed_columns: [Array<String>]`
+  List of columns to allow. Any other columns were ignored when `skip_unknown` was true,
+  otherwise an `IOStreams::Errors::InvalidHeader` exception was raised.
+  Default: nil (allow all columns)
+
+* `required_columns: [Array<String>]`
+  List of columns that had to be present, otherwise an `IOStreams::Errors::InvalidHeader` exception was raised.
+
+* `skip_unknown: [true|false]`
+  When true, any columns not present in `allowed_columns` were skipped entirely as if they
+  were not in the file at all. When false, an unknown column raised
+  `IOStreams::Errors::InvalidHeader`.
+  Default: true
+
+When reading records, `allowed_columns`, `required_columns` and `skip_unknown` applied to the header row, to the
+supplied `columns`, and, for formats without a header row such as JSON, to the keys of each record, whose keys were
+then cleansed the same way as a header row, unless `cleanse_header: false` was supplied. When reading rows with
+`each(:array)`, they applied to the header row and to the supplied `columns`, and each row still contained every
+value.
+
+##### enforce_column_restrictions
+
+`IOStreams.enforce_column_restrictions=` and `IOStreams.enforce_column_restrictions?` are removed, since they only
+applied to the column options above. v2.2 still follows it without a deprecation warning, so remove the line that
+sets it, such as the one that v2.1 suggested, see
+[Column restrictions on uploaded files](#column-restrictions-on-uploaded-files). A schema applies to every input,
+including the keys of JSON records, so renaming an uploaded file from `.csv` to `.json` cannot bypass it.
+
+#### `embedded_within:` for rows and records is removed
+
+Supplying `embedded_within:` to `each(:array)`, `each(:hash)`, `each(:slice)` or `#reader` in those modes raises
+`ArgumentError`, as for any other option that a mode does not take, which v2.2 reports as deprecated. The format of the
+file splits the lines of its rows and records, since its parser must agree with where they are split:
+`embedded_within: nil` for a CSV file raised when a value contained a line break, and another quote character split
+the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
+
+Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
+
 ### Reading, writing and options
 
 Options are checked when they are set, and what a write keeps is the same everywhere.
@@ -6163,10 +6949,18 @@ Fix: supply a block, for example `path.each(:line) { |line| lines << line }`.
 
 A line, row or record writer that is already open, such as the one that `writer(:line)` yields, can still be handed to
 code that calls `IOStreams.stream(io).writer(:line)`, which then writes into it. Options of that call, such as
-`delimiter:` or `columns:`, streams, an encoding, and for lines, a format or a schema, now raise `ArgumentError`, since
+`delimiter:`, streams, an encoding, and for lines, a format or a schema, now raise `ArgumentError`, since
 the open writer writes with its own settings. Previously they were ignored.
 
 Fix: set them where the writer is opened, or open a new writer for the data that needs them.
+
+#### `#io_stream` is not public
+
+`#io_stream` is no longer public on a stream or a path, so calling it raises `NoMethodError`. It returned the IO, or
+the other object, that was supplied to `IOStreams.stream`, which the caller already holds, or nil for a path, and it
+was never documented.
+
+Fix: keep the IO that you supply to `IOStreams.stream`, and use it instead.
 
 #### Leaving a write early keeps what was written
 
@@ -6188,7 +6982,6 @@ last extension of the file name:
 
 * `IOStreams.path("data.csv.gz.pgp").compressed?` is now `true`.
 * `IOStreams.path("tempfile2527").stream(:gz).compressed?` is now `true`.
-* `IOStreams.path("data.csv.gz").stream(:none).compressed?` is now `false`.
 
 Compression within a PGP or `.enc` file is still not reported, since only the encrypted data records
 whether it was compressed.
@@ -6208,6 +7001,33 @@ Fix: to read or write the data as stored, as before, call `#raw` on the path:
 ~~~ruby
 IOStreams.temp_file("export", ".csv.gz") do |path|
   path.raw.write(gzipped_data)
+end
+~~~
+
+#### `#raw` replaces `stream(:none)`
+
+`stream(:none)` raises `ArgumentError`, which v2.2 reports as deprecated, and so do `option(:none)` and
+`option_or_stream(:none)`. Use whichever of these matches why it was used:
+
+* To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no
+  streams and no encoding, so text, including lines, rows and records, is read and written as bytes, where
+  `stream(:none)` read it as UTF-8, or ASCII for fixed width files. Setting a stream, option or encoding after
+  `#raw` raises `ArgumentError`.
+* To read a file that is not named for its format, set the file name that names it with `#file_name`.
+* To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+  `copy_to(target, convert: false)`, since the target applies the streams of its own file name.
+
+~~~ruby
+# Before, removed in v3.0
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
+IOStreams.path("data.txt.gz").stream(:none).each(:hash) do |row|
+  p row
+end
+
+# After
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) do |row|
+  p row
 end
 ~~~
 
@@ -6934,7 +7754,8 @@ extension whose data is compressed or encrypted, register a format that says so,
 #### The encode stream is not a registered extension
 
 The `:encode` stream is now built in, since it converts the text that the application reads or writes,
-rather than the data of a file format. It is still applied with `#option` or `#stream`, as before, but:
+rather than the data of a file format. It is applied with `#encoding`, see
+[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-), and:
 
 * `IOStreams.extensions` no longer includes `:encode`.
 * `IOStreams.register_extension(:encode, ...)` raises `ArgumentError`, since `:encode` is a reserved
@@ -6947,343 +7768,12 @@ example `stream(:my_text).stream(:gz)`.
 
 #### `:none` cannot be registered as an extension
 
-`:none` is a reserved keyword, which `#stream` takes to apply no streams, so
-`IOStreams.register_extension(:none, ...)` raises `ArgumentError`. Previously it registered a stream
+`:none` is a reserved keyword, so that `stream(:none)`, which applied no streams, keeps raising
+`ArgumentError`, see [`#raw` replaces `stream(:none)`](#raw-replaces-streamnone), rather than apply an extension of
+that name, so `IOStreams.register_extension(:none, ...)` raises `ArgumentError`. Previously it registered a stream
 that `stream(:none)` could not apply.
 
 Fix: register the stream under another name.
-
-### Deprecated, and still working
-
-These still work as before, so nothing needs to change when upgrading. Each section shows the replacement to move to.
-Each one reports a deprecation warning when it is used, see [Seeing deprecation warnings](#seeing-deprecation-warnings).
-
-#### Seeing deprecation warnings
-
-IOStreams reports the use of a deprecated method or option as a Ruby deprecation warning, the same way that Ruby
-reports its own, which names the line of your application that used it, and what to use instead:
-
-~~~
-app/jobs/export_job.rb:12: warning: IOStreams: stream(:none) is deprecated, use #raw to read or write the data as it is stored, or #file_name to read a file that is not named for its format
-~~~
-
-Ruby only shows deprecation warnings while `Warning[:deprecated]` is true, which it is not by default, so production
-stays quiet without any configuration:
-
-| Where | Deprecation warnings |
-|-------|----------------------|
-| Tests run with Minitest or test-unit | On, since both turn them on |
-| Tests run with RSpec | Off, unless run with `rspec --warnings`, or `Warning[:deprecated] = true` is set in `spec_helper.rb` |
-| Development | Off, unless `RUBYOPT=-W:deprecated` is set in the environment, or `Warning[:deprecated] = true` in code that only runs in development, such as `config/environments/development.rb` |
-| Production | Off |
-
-Rails settings such as `config.active_support.deprecation` only apply to the deprecation warnings of Rails, not to
-those that Ruby reports.
-
-Ruby writes each warning to `$stderr`. To send them elsewhere, such as to your log, or to raise them in your tests so
-that each use is found, extend `Warning` with your own `warn`:
-
-~~~ruby
-module IOStreamsDeprecations
-  def warn(message, *, **)
-    return super unless message.include?("IOStreams: ")
-
-    Rails.logger.warn(message.chomp)
-  end
-end
-Warning.extend(IOStreamsDeprecations)
-~~~
-
-#### `#encoding` replaces `option(:encode, ...)`
-
-The encoding of the text that the application reads or writes is now set with `#encoding`.
-Setting it with `option(:encode, ...)` or `stream(:encode, ...)` is deprecated. Both still work, so no
-change is needed, but `#encoding` avoids two surprises of the old forms:
-
-* `option(:encode, ...)` raised `ArgumentError` after `#stream`, and without a file name, so a stream
-  set with `#stream` could not be combined with an encoding through `#option`. It now sets the same
-  options as `#encoding`, so it no longer raises in either case.
-* `stream(:encode, ...)` stops the streams being taken from the file name, like any other stream set
-  with `#stream`, so `IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")` reads the
-  compressed bytes. It still does, so that existing code keeps its behavior. `#encoding` does not.
-
-| Deprecated                                         | Use instead                       |
-|----------------------------------------------------|-----------------------------------|
-| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
-| `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
-| `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
-| `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
-
-~~~ruby
-# Before (deprecated)
-IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
-IOStreams.path("people.txt").option(:encode, replace: " ")
-IOStreams.stream(io).stream(:encode, encoding: "BINARY")
-
-# After
-IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8")
-IOStreams.path("people.txt").encoding(replace: " ")
-IOStreams.stream(io).encoding("BINARY")
-~~~
-
-To keep reading the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for a file name
-with extensions, use `#raw`. For another encoding, such as a plain file whose name ends in `.gz`, set
-the file name that names its format with `#file_name`, then `#encoding`.
-
-#### `#raw` replaces `stream(:none)`
-
-`stream(:none)` is deprecated. It still works as before, so no change is needed. Use whichever of
-these matches why it was used:
-
-* To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no streams and no encoding, so text, including lines, rows and records, is read
-  and written as bytes, where `stream(:none)` reads it as UTF-8, or ASCII for fixed width files.
-  Setting a stream, option or encoding after `#raw` raises `ArgumentError`, apart from the deprecated
-  `stream(:none)`, which applies no streams either, so it leaves the path as `#raw` set it.
-* To read a file that is not named for its format, set the file name that names it with `#file_name`.
-* To copy a file as it is stored, such as downloading a zip file without unzipping it, use
-  `copy_to(target, convert: false)`, since the target applies the streams of its own file name.
-
-~~~ruby
-# Before (deprecated)
-Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
-IOStreams.path("data.txt.gz").stream(:none).each(:hash) do |row|
-  p row
-end
-
-# After
-Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
-IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) do |row|
-  p row
-end
-~~~
-
-#### The column options of each call are deprecated
-
-`columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` are deprecated. They still
-work without a schema, so no change is needed. A [schema](formats#schema) describes the columns of the file on its
-path instead, so that every reader and writer of the path, including a copy, checks them the same way. Its fields
-name the keys of the records read, and each column of the header row is matched to a field whatever its case, spaces
-and punctuation, or to one of the `aliases` of a field, see [Matching columns to fields](formats#matching-columns-to-fields).
-So the keys no longer depend on how the cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which
-are both `amount_`.
-
-To keep the keys of the records that the code reads, name each field as that key. The names that `allowed_columns:`
-and `required_columns:` list already are, since they were compared to the columns once cleansed, such as `first_name`
-for the column `First Name`, so use them as the names of the fields: the schema matches each column to the field
-named as the column was cleansed. With `cleanse_header: false`, they are the columns as they are in the file, so use
-them as they are.
-
-With a schema, the options raise `ArgumentError`, unless they are nil. `skip_unknown:` only applies to
-`allowed_columns:`, so it is accepted, so that code can supply the same options with and without a schema. The property
-of a schema that replaces each one:
-
-| Option | With a schema |
-|--------|---------------|
-| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write. A `nil` column, which was not read, is a field with `skip: true`, see [Field properties](formats#field-properties) |
-| `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
-| `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
-| `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
-| `required_columns:` without `allowed_columns:`, which also read the other columns | Also `fieldsMatch: "subset"`, `extraColumns: "keep"` and `keyType: "cleansed"`, which keep the other columns, keyed as `cleanse_header` cleansed them, see [Keeping the other columns](formats#keeping-the-other-columns) |
-| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to, or with `keyType: "cleansed"` the names once cleansed, as `cleanse_header: true` cleansed the columns, see [Keys of the records read](formats#keys-of-the-records-read) |
-| `cleanse_header: false` without the other options, which read every column as it is written | `fieldsMatch: "subset"`, `extraColumns: "keep"` and no fields |
-
-~~~ruby
-# Before (deprecated)
-path.each(:hash, allowed_columns: %w[first_name zip_code], required_columns: %w[zip_code]) do |record|
-  p record
-end
-
-# After
-path.schema(
-  fieldsMatch: "partial",
-  fields:      [
-    {name: "first_name"},
-    {name: "zip_code", constraints: {required: true}, allowBlank: true}
-  ]
-).each(:hash) do |record|
-  p record
-end
-
-# Both read "First Name,Zip Code,Notes\nJack,12345,x\nJill,,y\n" as:
-# {"first_name" => "Jack", "zip_code" => "12345"}
-# {"first_name" => "Jill", "zip_code" => nil}
-~~~
-
-Example, reading a headerless CSV file:
-
-~~~ruby
-# Before (deprecated)
-path = IOStreams.path("no_header.csv")
-path.each(:hash, columns: ["name", "address", "zip"]) do |record|
-  p record
-end
-
-# After
-path = IOStreams.path("no_header.csv").schema(
-  header: false,
-  fields: [
-    {name: "name"},
-    {name: "address"},
-    {name: "zip"}
-  ]
-)
-path.each(:hash) do |record|
-  p record
-end
-~~~
-
-Example, writing only specific columns in a fixed order:
-
-~~~ruby
-# Before (deprecated)
-path = IOStreams.path("sample.csv")
-path.writer(:hash, columns: ["name", "zip"]) do |io|
-  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
-end
-path.read
-# => "name,zip\nJack Jones,12345\n"
-
-# After
-path = IOStreams.path("sample.csv").schema(
-  fieldsMatch: "subset",
-  fields:      [
-    {name: "name"},
-    {name: "zip"}
-  ]
-)
-path.writer(:hash) do |io|
-  io << {"name" => "Jack Jones", "address" => "Somewhere", "zip" => 12345}
-end
-~~~
-
-With a schema, `writer(:array)` writes the names of the fields as the header row, and takes each row as the values of
-the fields, in order, as `columns:` did:
-
-~~~ruby
-# Before (deprecated)
-path.writer(:array, columns: %w[name zip]) do |io|
-  io << ["Jack Jones", 12345]
-end
-
-# After
-path.schema(
-  fields: [
-    {name: "name"},
-    {name: "zip"}
-  ]
-)
-path.writer(:array) do |io|
-  io << ["Jack Jones", 12345]
-end
-~~~
-
-##### What a schema reads differently
-
-A schema reads the same records as the options it replaces, named as above, except that:
-
-* A column is matched to a field whatever its case, spaces and punctuation, so a column that `allowed_columns:` did
-  not list once cleansed, such as `FirstName` for `first_name`, is read.
-* Two columns that are the same field, such as `Email` and `email`, or `Amount ($)` and `Amount (€)` for the field
-  `amount_`, raise `IOStreams::Errors::InvalidHeader`, where the value of the last one was kept.
-* The keys of each record are in the order of the fields, rather than of the columns of the file.
-* `each(:array)` yields a header row of the names of the fields, and each row holds only the values of the fields,
-  where the column options left the header row and the rows as they are in the file.
-* A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
-  is `"subset"` or `"partial"`, where it was dropped.
-* A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
-  `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
-  read it as an empty record, `{}`.
-* `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.
-* A name that v2.1 cleansed without its letters that are not ASCII, such as `prnom` for the column `Prénom`, which an
-  application may have kept in `allowed_columns:`, is not the field of that column, since a schema matches it as
-  `prénom`, see [Cleansing a header row keeps letters that are not ASCII](#cleansing-a-header-row-keeps-letters-that-are-not-ascii).
-  With `fieldsMatch: "subset"` or `"partial"` the column is skipped without an error, so name the field `prénom`, or
-  keep the name and give the field the column as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
-* A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
-  written, where `columns:` wrote an empty value.
-
-##### When to keep the deprecated options
-
-Every use of the options has a schema form, see the table above, including `required_columns:` without
-`allowed_columns:` and `cleanse_header: false` on its own, which read every column, with `extraColumns: "keep"`,
-and `columns:` with `nil` for a column to skip, with `skip: true`. The options still work without a schema, so keep
-them until the schema has been checked against the files of the application, since it reads some of them
-differently, see above.
-
-##### The deprecated options
-
-When reading or writing records (`:hash`) of a file without a schema, these options control the header row. They are
-supplied to each call. `cleanse_header`, `allowed_columns`, `required_columns` and `skip_unknown` only apply when
-reading, so `#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for them. Column names are converted to
-strings, and the keys of the hashes written may be strings or symbols.
-
-* `columns: [Array<String>]`
-  When reading, supplies the header columns for files that do not include a header row.
-  When writing, sets the columns to write, including their order. Keys not listed in
-  `columns` are ignored during writes.
-  To describe a file without a header row on its path instead, so that every reader of the path reads it that way,
-  including `#copy_from`, set a schema with `header: false`, see [Schema properties](formats#schema-properties).
-
-* `cleanse_header: [true|false]`
-  Whether to cleanse the column names read from the header row.
-  Column names are stripped of leading and trailing whitespace, lowercased, and spaces
-  and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
-  Any other character that is not a letter, digit or underscore is removed. Letters and digits that
-  are not ASCII are kept, so `"Prénom"` becomes `"prénom"`.
-  Default: true
-
-* `allowed_columns: [Array<String>]`
-  List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
-  otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
-  Default: nil (allow all columns)
-
-* `required_columns: [Array<String>]`
-  List of columns that must be present, otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
-
-* `skip_unknown: [true|false]`
-  When true, any columns not present in `allowed_columns` are skipped entirely as if they
-  were not in the file at all. When false, an unknown column raises
-  `IOStreams::Errors::InvalidHeader`.
-  Default: true
-
-When reading records, `allowed_columns`, `required_columns` and `skip_unknown` apply to the
-header row, to the supplied `columns`, and, for formats without a header row such as JSON,
-to the keys of each record. When either `allowed_columns` or `required_columns` is set, JSON keys
-are cleansed the same way as a header row, unless `cleanse_header: false` is supplied.
-
-When reading rows with `each(:array)`, they apply to the header row and to the supplied `columns`,
-including with `cleanse_header: false`. The header row is yielded as it was read, and each row
-still contains every value.
-
-##### enforce_column_restrictions
-
-`IOStreams.enforce_column_restrictions=` is deprecated, since it only applies to the column options above, which are
-deprecated: a schema applies to every input. Setting it still works, and reports a deprecation warning. It defaults
-to true, so remove a line that sets it to true, such as the one that v2.1 suggested, see
-[Column restrictions on uploaded files](#column-restrictions-on-uploaded-files).
-
-`IOStreams.enforce_column_restrictions` applies `allowed_columns`, `required_columns` and `skip_unknown` to every
-input when reading records and rows, including JSON records, so that renaming an uploaded file from `.csv` to `.json`
-cannot bypass them.
-
-To return to the behavior before v3.0, where they only apply to a header row read from the file, and only when
-`cleanse_header` is true, set it to false in an initializer. A warning is then logged when applying them would change
-the records or the header row read:
-
-~~~ruby
-IOStreams.enforce_column_restrictions = false
-~~~
-
-Default: true. It defaulted to false before v3.0.
-
-#### `embedded_within:` for rows and records is deprecated
-
-Supplying `embedded_within:` to `each(:array)`, `each(:hash)` or `#reader` in those modes is deprecated. It still
-works, but the format of the file splits the lines of its rows and records, since its parser must agree with where
-they are split: `embedded_within: nil` for a CSV file raises when a value contains a line break, and another quote
-character splits the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
-
-Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
 ### Smaller changes in behavior
 
@@ -7323,18 +7813,55 @@ from the deprecation warnings, v2.2 changes no existing behavior, other than the
 | v2.2 adds | In place of | See |
 |-----------|-------------|-----|
 | `#raw` | `stream(:none)` | [Data as it is stored](streams#data-as-it-is-stored) |
-| `#encoding` | `option(:encode, ...)` and `stream(:encode, ...)` | [Deprecated, and still working](#deprecated-and-still-working) |
+| `#encoding` | `option(:encode, ...)` and `stream(:encode, ...)` | [`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) |
 | `#schema` | `#format_options`, and `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` | [Moving a layout to a schema](#moving-a-layout-to-a-schema), and [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
 | `IOStreams.tabular_formats` | `IOStreams::Tabular.registered_formats`, which is internal | |
 
 v2.2 also reports a deprecation warning for most of what v3.0 removes, or raises `ArgumentError` for, such as
 `format:` supplied to each call of `#each`, `#reader` or `#writer`, the options that a writer ignores, the Zip
-writer's `zip_file_name`, and a file name ending in `.encode`. Unlike v3.0, v2.2 does not deprecate
-`IOStreams.enforce_column_restrictions=`, which it still follows.
+writer's `zip_file_name`, and a file name ending in `.encode`. v2.2 does not deprecate
+`IOStreams.enforce_column_restrictions=`, which it still follows, while v3.0 removes it with the column options, see
+[enforce_column_restrictions](#enforce_column_restrictions).
 
 To prepare for v3.0: upgrade to v2.2, run your tests, which show the deprecation warnings, and move each use to what
 replaces it. Then read [Upgrading to v3.0](#upgrading-to-v30), since v3.0 also changes behavior that cannot be
 reported as a deprecation, such as reading text as UTF-8 by default.
+
+### Seeing deprecation warnings
+
+IOStreams reports the use of a deprecated method or option as a Ruby deprecation warning, the same way that Ruby
+reports its own, which names the line of your application that used it, and what to use instead:
+
+~~~
+app/jobs/export_job.rb:12: warning: IOStreams: stream(:none) is deprecated, use #raw to read or write the data as it is stored, or #file_name to read a file that is not named for its format
+~~~
+
+Ruby only shows deprecation warnings while `Warning[:deprecated]` is true, which it is not by default, so production
+stays quiet without any configuration:
+
+| Where | Deprecation warnings |
+|-------|----------------------|
+| Tests run with Minitest or test-unit | On, since both turn them on |
+| Tests run with RSpec | Off, unless run with `rspec --warnings`, or `Warning[:deprecated] = true` is set in `spec_helper.rb` |
+| Development | Off, unless `RUBYOPT=-W:deprecated` is set in the environment, or `Warning[:deprecated] = true` in code that only runs in development, such as `config/environments/development.rb` |
+| Production | Off |
+
+Rails settings such as `config.active_support.deprecation` only apply to the deprecation warnings of Rails, not to
+those that Ruby reports.
+
+Ruby writes each warning to `$stderr`. To send them elsewhere, such as to your log, or to raise them in your tests so
+that each use is found, extend `Warning` with your own `warn`:
+
+~~~ruby
+module IOStreamsDeprecations
+  def warn(message, *, **)
+    return super unless message.include?("IOStreams: ")
+
+    Rails.logger.warn(message.chomp)
+  end
+end
+Warning.extend(IOStreamsDeprecations)
+~~~
 
 ### Moving a layout to a schema
 
@@ -7350,7 +7877,7 @@ A schema replaces `columns:`, `allowed_columns:`, `required_columns:`, `skip_unk
 v2.2, as in v3.0, including `required_columns:` alone, `cleanse_header: false` and a `nil` in `columns:`, with the
 schema properties `keyType`, `extraColumns` and `skip`, which IOStreams adds. The property of a schema that replaces
 each one, and what reads differently, are in
-[The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated).
+[The column options of each call are removed](#the-column-options-of-each-call-are-removed).
 
 ### A schema in v2.2 and v3.0
 
@@ -7537,8 +8064,8 @@ input in an initializer, new in v2.1, and check whether any uploads were affecte
 IOStreams.enforce_column_restrictions = true
 ~~~
 
-See [Column restrictions apply to every input](#column-restrictions-apply-to-every-input) for what
-it changes.
+v3.0 removes it, with the column options, since a schema applies to every input, see
+[enforce_column_restrictions](#enforce_column_restrictions).
 
 ## Upgrading to v2.0
 

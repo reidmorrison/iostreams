@@ -8,22 +8,13 @@ module IOStreams
     #     stream << {name: 'Joe', address: 'Lost', zipcode: 32443, age: 23}
     #   end
     #
-    # `IOStreams::Stream#writer(:hash)` creates it with the tabular of the stream, whose options are documented with
-    # `IOStreams::Tabular.new`. The options that restrict the columns read, `allowed_columns`, `required_columns` and
-    # `skip_unknown`, only apply when reading, so `IOStreams::Stream#writer` raises ArgumentError for them.
+    # `IOStreams::Stream#writer(:hash)` creates it with the tabular of the stream, see `IOStreams::Tabular.new`.
     class Writer
       # Returns [Array<Symbol>] the options of each call that writes records, see `IOStreams::Stream#writer`, which raises
-      # for any other: those of the lines that it writes, see `IOStreams::Line::Writer.option_names`, and those of the
-      # `IOStreams::Tabular` that renders them, see `IOStreams::Tabular.write_option_names`.
+      # for any other: those of the lines that it writes, see `IOStreams::Line::Writer.option_names`. The tabular that
+      # renders them takes the settings of the path instead, such as its schema.
       def self.option_names
-        [*IOStreams::Line::Writer.option_names, *IOStreams::Tabular.write_option_names]
-      end
-
-      # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
-      # lines that it writes, see `IOStreams::Line::Writer.deprecated_option_names`, and of the tabular that renders them,
-      # see `IOStreams::Tabular.deprecated_option_names`.
-      def self.deprecated_option_names
-        [*IOStreams::Line::Writer.deprecated_option_names, *IOStreams::Tabular.deprecated_option_names] & option_names
+        IOStreams::Line::Writer.option_names
       end
 
       # Create a writer that takes individual records as hashes.
@@ -40,12 +31,12 @@ module IOStreams
         @tabular     = tabular
         @line_writer = line_writer
 
-        # The header line of the columns supplied, or of the fields of a schema, see `IOStreams::Tabular#start_records`.
+        # The header line of the fields of a schema, see `IOStreams::Tabular#start_records`.
         @tabular.start_records { |line| @line_writer << line }
       end
 
-      # Writes the record, after the header line that the keys of the first record give, when neither the columns
-      # supplied nor a schema give it, see `IOStreams::Tabular#render_record`.
+      # Writes the record, after the header line that the keys of the first record give, when no schema gives it, see
+      # `IOStreams::Tabular#render_record`.
       #
       # Returns self, so that calls can be chained.
       def <<(hash)

@@ -175,9 +175,7 @@ class StreamTest < Minitest::Test
       it "decodes the text after the other streams, whatever order the streams are set in" do
         compressed = StringIO.new(+"")
         IOStreams.stream(compressed).stream(:gz).write(text)
-        data = assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) do
-          IOStreams.stream(StringIO.new(compressed.string)).stream(:gz).stream(:encode, encoding: "UTF-8").read
-        end
+        data = IOStreams.stream(StringIO.new(compressed.string)).encoding("UTF-8").stream(:gz).read
 
         assert_equal text, data
       end
@@ -203,8 +201,7 @@ class StreamTest < Minitest::Test
 
       it "reads lines as UTF-8 without any other streams" do
         lines = []
-        stream = assert_deprecated(/stream\(:none\) is deprecated/) { IOStreams.stream(StringIO.new(text)).stream(:none) }
-        stream.each(:line) { |line| lines << line }
+        IOStreams.stream(StringIO.new(text)).each(:line) { |line| lines << line }
 
         assert_equal Encoding::UTF_8, lines.last.encoding
         assert_equal "Jos\u00e9,Z\u00fcrich", lines.last
@@ -724,6 +721,15 @@ class StreamTest < Minitest::Test
         assert_equal "a\n1\n", io.string
       end
 
+      it "copies the records of a file into a record writer, which writes them with its own settings" do
+        io = StringIO.new
+        IOStreams.stream(io).format(:psv).writer(:hash) do |records|
+          IOStreams.stream(records).copy_from(StringIO.new("a,b\n1,2\n"), mode: :hash)
+        end
+
+        assert_equal "a|b\n1|2\n", io.string
+      end
+
       it "raises for anything that the open writer cannot apply" do
         io = StringIO.new
         IOStreams.stream(io).writer(:line) do |lines|
@@ -737,7 +743,7 @@ class StreamTest < Minitest::Test
           assert_raises(ArgumentError) { IOStreams.stream(lines).writer(:hash, delimiter: "|") { |_| flunk } }
         end
         IOStreams.stream(StringIO.new).writer(:hash) do |records|
-          assert_raises(ArgumentError) { IOStreams.stream(records).writer(:hash, columns: ["a"]) { |_| flunk } }
+          assert_raises(ArgumentError) { IOStreams.stream(records).writer(:hash, delimiter: "|") { |_| flunk } }
           assert_raises(ArgumentError) { IOStreams.stream(records).format(:json).writer(:hash) { |_| flunk } }
         end
       end
@@ -954,19 +960,6 @@ class StreamTest < Minitest::Test
           assert_equal "first_name|last_name\nJack|Johnson\n", io.string, io.string.inspect
         end
 
-        it "writes the header from the supplied columns before any rows" do
-          io = StringIO.new
-          assert_deprecated(/describe the columns of the file with #schema instead/) do
-            IOStreams::Stream.new(io).writer(:array, columns: %w[first_name last_name]) do |stream|
-              assert_equal "first_name,last_name\n", io.string
-
-              stream << %w[Jack Johnson]
-            end
-          end
-
-          assert_equal "first_name,last_name\nJack,Johnson\n", io.string, io.string.inspect
-        end
-
         it "takes the first row written to JSON as the header row, which names the keys of the rows after it, and writes no line" do
           io = StringIO.new
           IOStreams::Stream.new(io).format(:json).writer(:array) do |stream|
@@ -994,31 +987,6 @@ class StreamTest < Minitest::Test
 
           assert_equal "Header columns must be set before attempting to render a header for format: :json", error.message
           assert_equal "", io.string
-        end
-
-        it "does not write a header from the supplied columns for a format without one" do
-          io = StringIO.new
-          assert_deprecated(/describe the columns of the file with #schema instead/) do
-            IOStreams::Stream.new(io).format(:json).writer(:hash, columns: %w[first_name last_name]) do |stream|
-              stream << {"first_name" => "Jack", "last_name" => "Johnson"}
-            end
-          end
-
-          assert_equal %({"first_name":"Jack","last_name":"Johnson"}\n), io.string, io.string.inspect
-        end
-
-        it "writes every supplied column to a format of keyed records, null for a key that the record does not have, as before" do
-          io = StringIO.new
-          assert_deprecated(/describe the columns of the file with #schema instead/) do
-            IOStreams::Stream.new(io).format(:json).writer(:hash, columns: %w[first_name last_name]) do |stream|
-              stream << {"first_name" => "Jack"}
-              stream << {"Last Name" => "Jones"}
-              stream << {"other" => 1}
-            end
-          end
-
-          assert_equal %({"first_name":"Jack","last_name":null}\n{"first_name":null,"last_name":"Jones"}\n) +
-                       %({"first_name":null,"last_name":null}\n), io.string
         end
 
         it "auto detects format" do
@@ -1735,37 +1703,15 @@ class StreamTest < Minitest::Test
         end
       end
 
-      it "copies the header row as a row when the columns are supplied, which it does not replace, as before" do
-        Dir.mktmpdir do |dir|
-          source = IOStreams.path(dir, "in.csv")
-          source.write("Age,Name\n21,Jack\n")
-
-          json = IOStreams.path(dir, "out.json")
-          assert_deprecated(/describe the columns of the file with #schema instead/) { json.copy_from(source, mode: :array, columns: %w[age name]) }
-
-          assert_equal %({"age":"Age","name":"Name"}\n{"age":"21","name":"Jack"}\n), json.read
-
-          csv = IOStreams.path(dir, "out.csv")
-          assert_deprecated(/describe the columns of the file with #schema instead/) { csv.copy_from(source, mode: :array, columns: %w[age name]) }
-
-          assert_equal "age,name\nAge,Name\n21,Jack\n", csv.read
-        end
-      end
-
-      it "hands the header row of a source with a schema to a target whose columns are supplied as its columns, which they name instead" do
+      it "hands the header row of a source with a schema to a target without one as its header row" do
         Dir.mktmpdir do |dir|
           source = IOStreams.path(dir, "in.csv").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
           source.write("name,age\nJack,21\n")
 
           json = IOStreams.path(dir, "out.json")
-          assert_deprecated(/describe the columns of the file with #schema instead/) { json.copy_from(source, mode: :array, columns: %w[who years]) }
+          json.copy_from(source, mode: :array)
 
-          assert_equal %({"who":"Jack","years":21}\n), json.read
-
-          csv = IOStreams.path(dir, "out.csv")
-          assert_deprecated(/describe the columns of the file with #schema instead/) { csv.copy_from(source, mode: :array, columns: %w[who years]) }
-
-          assert_equal "who,years\nJack,21\n", csv.read
+          assert_equal %({"name":"Jack","age":21}\n), json.read
 
           plain = IOStreams.path(dir, "plain.csv")
           plain.copy_from(source, mode: :array)
@@ -1940,16 +1886,7 @@ class StreamTest < Minitest::Test
       describe "extraColumns" do
         let(:upload) { "First Name,Zip,Notes\nJack,12345,hi\n" }
 
-        # Returns [Array] the records read with the deprecated column options, as v2.1 read them.
-        def read_deprecated(text, pattern, **options)
-          records = []
-          assert_deprecated(pattern) do
-            IOStreams::Stream.new(StringIO.new(text)).file_name("people.csv").each(:hash, **options) { |record| records << record }
-          end
-          records
-        end
-
-        it "keeps the columns that the schema does not list, as required_columns: alone did" do
+        it "keeps the columns that the schema does not list, as required_columns: alone did before v3.0" do
           schema = {
             fieldsMatch:  "subset",
             extraColumns: "keep",
@@ -1959,16 +1896,14 @@ class StreamTest < Minitest::Test
           records = read(upload, schema: schema)
 
           assert_equal [{"zip" => "12345", "first_name" => "Jack", "notes" => "hi"}], records
-          assert_equal read_deprecated(upload, /required_columns: is deprecated/, required_columns: ["zip"]), records
           assert_equal %w[zip first_name notes], records.first.keys
         end
 
-        it "keeps every column as it is written, with no fields, as cleanse_header: false alone did" do
+        it "keeps every column as it is written, with no fields, as cleanse_header: false alone did before v3.0" do
           schema  = {fieldsMatch: "subset", extraColumns: "keep", fields: []}
           records = read(upload, schema: schema)
 
           assert_equal [{"First Name" => "Jack", "Zip" => "12345", "Notes" => "hi"}], records
-          assert_equal read_deprecated(upload, /cleanse_header: is deprecated/, cleanse_header: false), records
         end
 
         it "keeps them by the keys that keyType forms" do
@@ -2036,16 +1971,10 @@ class StreamTest < Minitest::Test
       describe "a field that is skipped" do
         let(:skipping) { {header: false, fields: [{name: "name"}, {name: "unused", skip: true}, {name: "zip", type: "integer"}]} }
 
-        it "reads the column but leaves it out of the records, as a nil in columns: did" do
+        it "reads the column but leaves it out of the records, as a nil in columns: did before v3.0" do
           records = read("Jack,x,12345\n", schema: skipping)
 
           assert_equal [{"name" => "Jack", "zip" => 12_345}], records
-          deprecated = []
-          assert_deprecated(/columns: is deprecated/) do
-            IOStreams::Stream.new(StringIO.new("Jack,x,12345\n")).file_name("people.csv").
-              each(:hash, columns: ["name", nil, "zip"]) { |record| deprecated << record }
-          end
-          assert_equal [{"name" => "Jack", "zip" => "12345"}], deprecated
         end
 
         it "leaves it out of the rows read and of their header row" do
@@ -2330,34 +2259,18 @@ class StreamTest < Minitest::Test
         end
       end
 
-      describe "the options of each call that describe the columns" do
-        allow_deprecation(/describe the columns of the file with #schema instead/)
-
-        it "report a deprecation warning that names the line that supplied them" do
-          stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv")
-          line   = __LINE__ + 2
-          assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: allowed_columns: is deprecated, /) do
-            stream.each(:hash, allowed_columns: %w[id]) { |row| row }
+      describe "the options of each call that described the columns, which v3.0 removed" do
+        it "raise as options that the mode does not take, before the file is opened" do
+          path = IOStreams.path("/does/not/exist/people.csv")
+          %i[columns allowed_columns required_columns skip_unknown cleanse_header].each do |name|
+            %i[array hash].each do |mode|
+              error = assert_raises(ArgumentError) { path.each(mode, name => nil) { |row| row } }
+              assert_match(/\AUnknown option #{name.inspect} for the #{mode.inspect} mode\./, error.message)
+            end
+            assert_raises(ArgumentError) { path.each(:slice, size: 1, name => nil) { |slice| slice } }
           end
-        end
-
-        it "raise with a schema, which describes the columns instead" do
-          stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
-          {columns: %w[id], allowed_columns: %w[id], required_columns: %w[id]}.each_pair do |name, value|
-            error = assert_raises(ArgumentError) { stream.each(:hash, name => value) { |row| row } }
-            assert_match(/\A#{name}: cannot be supplied with a schema/, error.message)
-          end
-          assert_raises(ArgumentError) { stream.each(:array, columns: %w[id]) { |row| row } }
-        end
-
-        it "accept skip_unknown without allowed_columns, which it only applies to" do
-          stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
-          rows   = []
-          assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema/) do
-            stream.each(:hash, skip_unknown: false) { |row| rows << row }
-          end
-
-          assert_equal [record], rows
+          assert_raises(ArgumentError) { path.writer(:hash, columns: %w[id]) { |io| io } }
+          assert_raises(ArgumentError) { IOStreams.path("/does/not/exist/out.csv").copy_from(path, mode: :hash, columns: %w[id]) }
         end
 
         it "raise an unknown option as an option that the mode does not take" do
@@ -2365,51 +2278,6 @@ class StreamTest < Minitest::Test
 
           error = assert_raises(ArgumentError) { stream.each(:hash, delimitr: "\n") { |row| row } }
           assert_match(/\AUnknown option :delimitr for the :hash mode\. Valid options: :delimiter,/, error.message)
-        end
-
-        it "raise for cleanse_header with a schema, whose fields name the keys of the records" do
-          stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
-
-          [true, false].each do |cleanse|
-            error = assert_raises(ArgumentError) { stream.each(:hash, cleanse_header: cleanse) { |row| row } }
-            assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
-            assert_raises(ArgumentError) { stream.each(:array, cleanse_header: cleanse) { |row| row } }
-          end
-        end
-
-        it "raise for cleanse_header with a schema before the file is opened" do
-          path = IOStreams.path("/does/not/exist/people.csv").schema(people)
-
-          error = assert_raises(ArgumentError) { path.each(:hash, cleanse_header: false) { |row| row } }
-          assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
-        end
-
-        it "raise when writing with a schema, or copying to a target with one" do
-          out = IOStreams::Stream.new(StringIO.new).file_name("people.csv").schema(people)
-          assert_raises(ArgumentError) { out.writer(:hash, columns: %w[id]) { |io| io } }
-
-          Dir.mktmpdir do |dir|
-            source = IOStreams.path(dir, "source.csv")
-            source.write(csv)
-            assert_raises(ArgumentError) { IOStreams.path(dir, "target.csv").schema(people).copy_from(source, mode: :hash, columns: %w[id]) }
-          end
-        end
-
-        it "keep cleanse_header: nil meaning not to cleanse the header row, as before it was deprecated" do
-          [[{}, "first_name"], [{cleanse_header: true}, "first_name"], [{cleanse_header: false}, "First Name"],
-           [{cleanse_header: nil}, "First Name"]].each do |options, key|
-            rows = []
-            IOStreams::Stream.new(StringIO.new("First Name\nJack\n")).file_name("a.csv").each(:hash, **options) { |row| rows << row }
-
-            assert_equal [{key => "Jack"}], rows, options.inspect
-          end
-        end
-
-        it "still apply without a schema" do
-          rows = []
-          IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").each(:hash, allowed_columns: %w[id]) { |row| rows << row }
-
-          assert_equal [{"id" => "0042"}], rows
         end
       end
 
@@ -2455,20 +2323,6 @@ class StreamTest < Minitest::Test
             assert_equal "id,pay,joined,active\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "plain.csv").read
             assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "plain.json").read
             assert_equal "42,12.50,2026-10-13,true\n", IOStreams.path(dir, "copy.csv").read
-          end
-        end
-
-        it "copies its rows into a file whose columns are supplied, which give the columns of the rows instead" do
-          Dir.mktmpdir do |dir|
-            source = IOStreams.path(dir, "people.csv").schema(headerless)
-            source.write("0042,12.5,2026-10-13,true\n")
-            assert_deprecated(/describe the columns of the file with #schema instead/) do
-              IOStreams.path(dir, "out.csv").copy_from(source, mode: :array, columns: %w[a b c d])
-              IOStreams.path(dir, "out.json").copy_from(source, mode: :array, columns: %w[a b])
-            end
-
-            assert_equal "a,b,c,d\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "out.csv").read
-            assert_equal %({"a":42,"b":"12.5"}\n), IOStreams.path(dir, "out.json").read
           end
         end
 
@@ -2785,22 +2639,21 @@ class StreamTest < Minitest::Test
         assert_equal [%("Jack\nJohnson",hello)], lines
       end
 
-      it "still applies when supplied to read rows or records, and reports a deprecation warning" do
-        expected = {
-          array: [%w[name note], ["Jack", "line one\nline two"]],
-          hash:  [{"name" => "Jack", "note" => "line one\nline two"}]
-        }
-        expected.each_pair do |mode, rows|
-          read = []
-          assert_deprecated(/embedded_within: is deprecated when reading rows and records, .* set it with #format instead/) do
-            IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(mode, embedded_within: '"') { |row| read << row }
+      it "raises when supplied to read rows, records or slices, whose lines the format splits" do
+        %i[array hash].each do |mode|
+          error = assert_raises(ArgumentError) do
+            IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(mode, embedded_within: '"') { |row| row }
           end
 
-          assert_equal rows, read, mode
+          assert_equal "Unknown option :embedded_within for the #{mode.inspect} mode. Valid options: :delimiter, " \
+                       ":buffer_size, :skip_blanks.", error.message
+        end
+        assert_raises(ArgumentError) do
+          IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:slice, size: 1, embedded_within: '"') { |slice| slice }
         end
       end
 
-      it "reports no deprecation warning when supplied to read lines" do
+      it "chooses the lines read in the :line mode" do
         lines = []
         IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:line, embedded_within: '"') { |line| lines << line }
 
@@ -2969,25 +2822,22 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe "the deprecated skip_unknown: with a schema" do
-      it "says that it has no effect, so remove it" do
-        stream = IOStreams.stream(StringIO.new("a\n1\n")).format(:csv).schema(fieldsMatch: "partial", fields: [{name: "a"}])
+    describe "a reserved keyword" do
+      it "raises for the encode stream, whose options are set with #encoding" do
+        stream = IOStreams.stream(StringIO.new("caf\xE9".b))
 
-        assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema, which describes the columns of the file, so remove it/) do
-          stream.each(:hash, skip_unknown: true) { |row| row }
-        end
+        error = assert_raises(ArgumentError) { stream.option(:encode, encoding: "ISO-8859-1:UTF-8") }
+        assert_equal "Cannot call #option with :encode, set the encoding of the text with #encoding instead", error.message
+        assert_raises(ArgumentError) { stream.stream(:encode, encoding: "ISO-8859-1:UTF-8") }
+        assert_nil stream.encoding
       end
-    end
 
-    describe "the deprecated option(:encode)" do
-      it "sets the encoding of a stream without a file name" do
-        io = StringIO.new("caf\xE9".b)
+      it "raises for none, which #raw replaces" do
+        path = IOStreams.path("data.csv.gz")
 
-        stream = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
-          IOStreams.stream(io).option(:encode, encoding: "ISO-8859-1:UTF-8")
-        end
-
-        assert_equal "caf\u00e9", stream.read
+        error = assert_raises(ArgumentError) { path.stream(:none) }
+        assert_match(/\ACannot call #stream with :none, use #raw to read or write the data as it is stored/, error.message)
+        assert_equal({gz: {}}, path.pipeline)
       end
     end
 

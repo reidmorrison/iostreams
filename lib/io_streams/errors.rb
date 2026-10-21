@@ -266,6 +266,13 @@ module IOStreams
         Errno::ENETUNREACH, Errno::ETIMEDOUT
       ].freeze
 
+      # The text that the C library gives a temporary failure of name resolution (`Socket::EAI_AGAIN`), which is not an
+      # unknown host, see .unknown_host?, for a program or a library that reports a host name that it could not resolve
+      # in a message, rather than with a `Socket::ResolutionError`, such as ssh or libpq: "Temporary failure in name
+      # resolution" with glibc and on macOS, and "Try again" with musl, as on Alpine Linux. Any other text, such as
+      # "Name or service not known", is for a host name that does not resolve.
+      TEMPORARY_RESOLUTION_FAILURE = /Temporary failure in name resolution|Try again/i
+
       # Returns [true|false] whether the exception, raised by a connection to a server, means that the server could not
       # be reached, or that the connection to it failed, so that the same request can succeed later: it is one of
       # CONNECTION_ERRORS, or of the supplied classes that the protocol of a path also raises for a connection that

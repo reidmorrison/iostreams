@@ -144,9 +144,6 @@ holds the rows as they are in the file.
   row, `nil`.
 * A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
 * The header row of every slice is the same frozen Array, so change a copy of it.
-* The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError` unless they are nil, as they do
-  with a schema, since the header row that they would change is read again where each slice is parsed: describe the
-  columns with a schema instead. So does `cleanse_header:`.
 * A `size` that is not a positive Integer, or a `validate` that is not true or false, raises `ArgumentError` before the
   file is opened.
 * `#reader(:slice, size: 100)` yields the reader, whose `#header` is the header row once it has been read, also for a
@@ -164,6 +161,11 @@ end
 slice = IOStreams.slice(store.pop)
 slice.to_h  # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
 ~~~
+
+A slice of the rows of an Active Record query, each of which is a record whatever its values, also holds
+`"blank_rows" => false`, so that a row whose every value is null or empty is read as a record where the slice is
+parsed, rather than as a [blank row](#blank-rows). Its rows hold the values that the query read, such as times and
+decimals, rather than text, see [Slices of a query](queries#slices-of-a-query).
 
 `IOStreams.slice` also takes the keys, and the format, as Symbols, and raises `ArgumentError` for a Hash that does not
 describe a slice, such as one with a key that a slice does not have. Read the slice it returns with
@@ -401,10 +403,10 @@ IOStreams checks where each setting is supplied:
 * An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
   `#writer`, rather than being ignored.
 * Any other option that the mode does not take, such as a misspelled `delimitr:`, raises `ArgumentError` before the
-  file is opened, naming the mode and listing the options that it takes, other than those that are deprecated:
+  file is opened, naming the mode and listing the options that it takes:
 
   ~~~
-  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size.
+  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size, :skip_blanks.
   ~~~
 * `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
   raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set what
@@ -573,5 +575,7 @@ way of UTF-8, so it can only store text, and one that changes the bytes written 
 stream, so open it in binary mode, such as `File.open(name, "wb")`.
 
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
-that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with
-its own settings, options, streams or an encoding supplied to that call raise `ArgumentError`.
+that calls `IOStreams.stream(io).writer(:hash)` itself, or `IOStreams.stream(io).copy_from(source, mode: :hash)`, which
+then writes into it. Since the open writer writes with its own settings, options, streams or an encoding supplied to
+that call raise `ArgumentError`, and a copy into a row or record writer does not give it the schema of the rows of an
+Active Record query.

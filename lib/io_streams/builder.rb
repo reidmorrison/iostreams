@@ -9,22 +9,27 @@ module IOStreams
     attr_accessor :file_name
     attr_reader :streams, :options
 
-    # Keywords that `#option` and `#stream` give a meaning of their own, so that they cannot be registered as a
-    # file name extension with `IOStreams.register_extension`:
+    # Keywords that cannot be registered as a file name extension with `IOStreams.register_extension`, with what to use
+    # instead of supplying them to `#option` and `#stream`, which raise ArgumentError for them, see
+    # #reject_reserved_keyword:
     #   :encode
     #     The built-in encode stream, see `IOStreams::Encode`. It converts the text that the application reads or
     #     writes, so file names do not name it. It applies whenever its options are set with `#encoding`, and is
-    #     always closest to the application. Setting it with `#option` or `#stream` is deprecated, but still works.
+    #     always closest to the application. v2.2 deprecates setting it with `#option` and `#stream`, which v3.0
+    #     removed.
     #   :none
-    #     Supplied to `#stream` to apply no streams, including an encode stream set with `#encoding`. Text is still
-    #     read and written in its default encoding, see #text_reader and #with_default_encoding, since that belongs
-    #     to the text, not to a stream. Set an encoding with `#encoding` afterwards, such as "BINARY", to change it.
-    #     Deprecated, see #raw, which reads and writes the data as stored, without any encoding.
-    RESERVED_KEYWORDS = %i[encode none].freeze
+    #     Applied no streams when supplied to `#stream`, which v2.2 deprecates, and v3.0 removed, see #raw, which reads
+    #     and writes the data as stored. It stays reserved, so that `stream(:none)` keeps raising, rather than apply an
+    #     extension of that name.
+    RESERVED_KEYWORDS = {
+      encode: "set the encoding of the text with #encoding instead",
+      none:   "use #raw to read or write the data as it is stored, or #file_name to read a file that is not named for " \
+              "its format"
+    }.freeze
 
     # Returns [true|false] whether the name is a reserved keyword, see `RESERVED_KEYWORDS`.
     def self.reserved_keyword?(name)
-      RESERVED_KEYWORDS.include?(name)
+      RESERVED_KEYWORDS.key?(name)
     end
 
     # Returns [true|false] whether `#option` and `#stream` take the supplied name, a Symbol, as a stream of this builder:
@@ -79,29 +84,25 @@ module IOStreams
     # - The name of the stream is compared without case, as the extensions of a file name are, so `option(:GZ, ...)`
     #   sets the options of `:gz`, see `IOStreams::Utils.extension_name`. So do #stream, #setting and
     #   #remove_from_pipeline.
-    #
-    # Setting the encode stream with `option(:encode, ...)` is deprecated, see #encoding, which it calls, and reports a
-    # deprecation warning, see `IOStreams::Deprecation`.
+    # - Raises ArgumentError for a reserved keyword, see `RESERVED_KEYWORDS`, such as `:encode`, whose options are set
+    #   with #encoding.
     def option(stream, **options)
       stream = Utils.extension_name(stream)
+      reject_reserved_keyword("#option", stream)
       raise_if_raw!("#option")
       add_option(stream, options)
-      warn_deprecated_stream("option", stream)
       self
     end
 
-    # Setting the encode stream with `stream(:encode, ...)` is deprecated, see #encoding. Like any other stream
-    # set with `#stream`, it still stops the streams being taken from the file name, which #encoding keeps.
+    # Applies the supplied stream, with any others set with #stream, instead of the streams that the file name implies.
     #
-    # Supplying `:none` is deprecated, see #raw. Since it applies no streams, as #raw does, it can still be supplied
-    # after #raw, which it leaves as it is.
-    #
-    # Each reports a deprecation warning, see `IOStreams::Deprecation`.
+    # Raises ArgumentError for a reserved keyword, see `RESERVED_KEYWORDS`, such as `:none`, see #raw, which applies no
+    # streams.
     def stream(stream, **options)
       stream = Utils.extension_name(stream)
-      raise_if_raw!("#stream") unless stream == :none
+      reject_reserved_keyword("#stream", stream)
+      raise_if_raw!("#stream")
       add_stream(stream, options)
-      warn_deprecated_stream("stream", stream)
       self
     end
 
@@ -144,13 +145,12 @@ module IOStreams
     end
 
     # Sets the options of the stream as #option does when the file name is known and no streams were set, otherwise as
-    # #stream does. Setting the encode stream with `option_or_stream(:encode, ...)`, or supplying `:none`, is deprecated
-    # as it is for those, and reports a deprecation warning that names this method, see `IOStreams::Deprecation`.
+    # #stream does, and raises ArgumentError as they do for a reserved keyword, naming this method.
     def option_or_stream(stream, **options)
       stream = Utils.extension_name(stream)
-      raise_if_raw!("#option_or_stream") unless stream == :none
+      reject_reserved_keyword("#option_or_stream", stream)
+      raise_if_raw!("#option_or_stream")
       streams || file_name.nil? ? add_stream(stream, options) : add_option(stream, options)
-      warn_deprecated_stream("option_or_stream", stream)
       self
     end
 
@@ -362,8 +362,6 @@ module IOStreams
     # Sets the options of a stream that is applied once the file name extensions have been parsed, see #option, or of
     # the encode stream, see #encoding.
     def add_option(stream, options)
-      return merge_encoding(options) if stream == :encode
-
       format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @streams
       raise(ArgumentError, "Cannot call #option unless the `file_name` was already set") unless file_name
@@ -377,22 +375,10 @@ module IOStreams
       end
     end
 
-    # Adds a stream, in place of the streams that the file name implies, see #stream. `:none` applies no streams,
-    # including the encode stream, and the encode stream is set as with #encoding.
+    # Adds a stream, in place of the streams that the file name implies, see #stream.
     def add_stream(stream, options)
       raise(ArgumentError, "Cannot call both #option and #stream on the same streams instance") if @options
 
-      if stream == :none
-        @streams  = {}
-        @encoding = nil
-        return
-      end
-      if stream == :encode
-        # Checked before the streams from the file name are replaced, so that a stream that raises changes nothing.
-        merge_encoding(options)
-        @streams ||= {}
-        return
-      end
       format = self.class.find_format(stream) || raise(ArgumentError, "Invalid stream: #{stream.inspect}")
 
       format.validate_options(nil, options, name: stream)
@@ -404,24 +390,11 @@ module IOStreams
       end
     end
 
-    # Reports a deprecation warning, see `IOStreams::Deprecation`, for supplying `:none`, see #raw, or for setting the
-    # encode stream, see #encoding, which names the method that the application called.
-    def warn_deprecated_stream(method, stream)
-      case stream
-      when :none
-        Deprecation.warn("#{method}(:none) is deprecated, use #raw to read or write the data as it is stored, " \
-                         "or #file_name to read a file that is not named for its format")
-      when :encode
-        # Like any other stream set with #stream, stream(:encode, ...) stops the streams being taken from the file name,
-        # which #encoding keeps, so the replacement depends on what the application wanted.
-        if method == "stream"
-          Deprecation.warn("stream(:encode, ...) is deprecated, use #encoding instead, which keeps the streams that " \
-                           "the file name implies, #raw to read or write the data as it is stored, or #file_name to " \
-                           "read a file that is not named for its format")
-        else
-          Deprecation.warn("#{method}(:encode, ...) is deprecated, use #encoding instead")
-        end
-      end
+    # Raises ArgumentError for a reserved keyword supplied to the method, see `RESERVED_KEYWORDS`, naming what to use
+    # instead.
+    def reject_reserved_keyword(method, stream)
+      advice = RESERVED_KEYWORDS[stream]
+      raise(ArgumentError, "Cannot call #{method} with #{stream.inspect}, #{advice}") if advice
     end
 
     def raise_if_raw!(method)

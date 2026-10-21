@@ -250,15 +250,13 @@ classDiagram
   records (Hashes), through a **`Tabular`**, which parses and renders one line of a tabular format, such as CSV or JSON,
   with its parser, and decides which line is the header row. Each of them declares the options of each call in its
   mode with `self.option_names`, and `Stream` rejects any other before it opens anything, with a message that lists
-  them, apart from those that the class declares deprecated with `self.deprecated_option_names`.
+  them.
 * **`Tabular::Mapping`** maps the columns of one file to the values of its rows and records, and answers the questions
   of the header row that the `Tabular` asks, such as whether the file has one, whether it is still to be read, and
   whether the rows read start with one, such as the keys of the first record of a JSON file without a schema. The
   `Tabular` chooses one when it is created, by what describes the columns: a `HeaderMapping` maps them by the header
-  row, or the columns supplied, with the deprecated column options, such as `allowed_columns:`, and cleanses the header
-  row; a `SchemaMapping` maps them by the fields of a schema; and a `LayoutMapping` by the deprecated layout of a fixed
-  width file, whose records the column options still apply to. It arranges each row that it renders in the form of the
-  format, so that a parser only turns a line into a row and back.
+  row, which it cleanses, and a `SchemaMapping` maps them by the fields of a schema. It arranges each row that it
+  renders in the form of the format, so that a parser only turns a line into a row and back.
 * **`Schema`** describes the fields of the rows and records: it matches the columns of a file to its fields, and each
   field casts and renders the values of its type.
 

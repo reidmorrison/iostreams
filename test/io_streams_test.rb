@@ -258,29 +258,9 @@ module IOStreams
       end
 
       describe ".enforce_column_restrictions=" do
-        after { IOStreams.instance_variable_set(:@enforce_column_restrictions, true) }
-
-        it "is deprecated, and still applies false" do
-          assert_deprecated(/enforce_column_restrictions= is deprecated, describe the columns of the file with #schema/) do
-            IOStreams.enforce_column_restrictions = false
-          end
-
-          refute_predicate IOStreams, :enforce_column_restrictions?
-        end
-
-        it "is deprecated when set to true, which is the default" do
-          IOStreams.instance_variable_set(:@enforce_column_restrictions, false)
-          assert_deprecated(/enforce_column_restrictions= is deprecated, and true is the default, so remove it/) do
-            IOStreams.enforce_column_restrictions = true
-          end
-
-          assert_predicate IOStreams, :enforce_column_restrictions?
-        end
-
-        it "raises for a value other than true or false, without a deprecation warning" do
-          refute_deprecated do
-            assert_raises(ArgumentError) { IOStreams.enforce_column_restrictions = "yes" }
-          end
+        it "is removed, since v3.0 removed the column options that it applied to" do
+          refute_respond_to IOStreams, :enforce_column_restrictions=
+          refute_respond_to IOStreams, :enforce_column_restrictions?
         end
       end
 
@@ -371,7 +351,7 @@ module IOStreams
 
           assert_kind_of IOStreams::Stream, copy
           refute_same stream, copy
-          assert_same stream.io_stream, copy.io_stream
+          assert_equal "Hello World", copy.read
         end
 
         it "does not change the stream supplied" do
@@ -391,6 +371,13 @@ module IOStreams
           error = assert_raises(ArgumentError) { IOStreams.stream(Pathname.new("file_name.txt")) }
 
           assert_includes error.message, "see IOStreams.path"
+        end
+
+        it "rejects an Enumerator, such as the one that find_each returns, which is not an IO" do
+          error = assert_raises(ArgumentError) { IOStreams.stream([1, 2].each) }
+
+          assert_match(/\Aio_stream must be an IO, not an Enumerator, /, error.message)
+          assert_raises(ArgumentError) { IOStreams.new([1, 2].each_slice(1)) }
         end
       end
 
@@ -425,13 +412,15 @@ module IOStreams
           refute_kind_of IOStreams::Path, stream
         end
 
-        it "returns a copy of a stream" do
-          stream = IOStreams.stream(StringIO.new("Hello World")).stream(:gz)
+        it "returns a copy of a stream, which writes to the same IO" do
+          io     = StringIO.new
+          stream = IOStreams.stream(io).stream(:gz)
           copy   = IOStreams.new(stream)
           copy.stream(:enc)
+          copy.write("Hello World")
 
-          assert_same stream.io_stream, copy.io_stream
           assert_equal({gz: {}}, stream.pipeline)
+          assert_equal "Hello World", IOStreams.stream(StringIO.new(io.string)).stream(:gz).stream(:enc).read
         end
       end
 

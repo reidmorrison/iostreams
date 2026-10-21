@@ -8,49 +8,28 @@ module IOStreams
     # The tabular reads the header row, and decides which row it is, see `IOStreams::Tabular#read_line`, so that the
     # header row is matched to the fields of the schema, and raises `IOStreams::Errors::InvalidHeader` when they do not
     # match, before the first slice is yielded. It is not a row of any slice: each slice carries it instead, see
-    # `IOStreams::Slice#header`.
+    # `IOStreams::Slice#header`, with the format of the rows and whether their blank rows are records, which the tabular
+    # says, see `IOStreams::Tabular#blank_rows?`.
     class Reader
       include Enumerable
 
       # Returns [Array<Symbol>] the options of each call that reads slices, see `IOStreams::Stream#reader`, which raises
-      # for any other: those of the lines that it reads, see `IOStreams::Line::Reader.option_names`, the number of rows
-      # of each slice, whether to parse each row, see #initialize, and the column options, see
-      # `IOStreams::Tabular::Header::OPTION_NAMES`, which are deprecated, and only accepted when they are nil, see .check,
-      # so that a caller, such as Rocket Job, can supply the same options in every mode.
+      # for any other: those of the lines that it reads, see `IOStreams::Row::Reader.line_option_names`, the number of
+      # rows of each slice, and whether to parse each row, see #initialize.
       def self.option_names
-        [*IOStreams::Line::Reader.option_names, :size, :validate, *IOStreams::Tabular::Header::OPTION_NAMES]
-      end
-
-      # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
-      # lines, see `IOStreams::Line::Reader.deprecated_option_names`, `embedded_within`, since the format of the file
-      # splits the lines of its rows, as for rows and records, see `IOStreams::Row::Reader.deprecated_option_names`, and
-      # the column options.
-      def self.deprecated_option_names
-        [*IOStreams::Line::Reader.deprecated_option_names, :embedded_within, *IOStreams::Tabular::Header::OPTION_NAMES]
+        [*IOStreams::Row::Reader.line_option_names, :size, :validate]
       end
 
       # Raises ArgumentError for options that cannot read slices, see #initialize, so that a call raises before the file
-      # is opened, see `IOStreams::Stream#each`: a `size` that is not a positive Integer, a `validate` that is not true
-      # or false, or a column option that is not nil, such as `columns:` or `allowed_columns:`, since each slice is
-      # parsed elsewhere by the header row of its file as it was read, which they would change. `skip_unknown:` only
-      # applies to `allowed_columns:`, so it is accepted, as it is with a schema, see `IOStreams::Tabular.new`.
-      def self.check(size:, validate: false, **column_options)
+      # is opened, see `IOStreams::Stream#each`: a `size` that is not a positive Integer, or a `validate` that is not true
+      # or false.
+      def self.check(size:, validate: false)
         unless size.is_a?(Integer) && size.positive?
           raise(ArgumentError, "Invalid size #{size.inspect}: supply the number of rows of each slice")
         end
-        unless [true, false].include?(validate)
-          raise(ArgumentError, "Invalid validate #{validate.inspect}: supply true or false")
-        end
+        return if [true, false].include?(validate)
 
-        names = IOStreams::Tabular::Header.column_option_names(column_options)
-        return if names.empty?
-
-        raise(
-          ArgumentError,
-          "#{names.map { |name| "#{name}:" }.join(', ')} cannot be supplied to the :slice mode, since each slice is " \
-          "parsed elsewhere by the header row of its file as it was read, which they would change: describe the " \
-          "columns with a schema instead, see IOStreams::Stream#schema"
-        )
+        raise(ArgumentError, "Invalid validate #{validate.inspect}: supply true or false")
       end
 
       # Parameters
@@ -97,7 +76,7 @@ module IOStreams
         @rows.each do |row|
           @tabular.read_line(row) do |line|
             @tabular.record_parse(line) if @validate
-            slice ||= Slice.new(header: header, format: @tabular.format)
+            slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
             slice << line
             count += 1
             next if slice.size < @size

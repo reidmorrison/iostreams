@@ -21,13 +21,6 @@ module IOStreams
         %i[delimiter buffer_size embedded_within]
       end
 
-      # Returns [Array<Symbol>] the options of .option_names that are deprecated: none, since `embedded_within` still
-      # chooses the lines that `each(:line)` returns, although it is deprecated when reading rows and records, see
-      # `IOStreams::Row::Reader.deprecated_option_names`.
-      def self.deprecated_option_names
-        []
-      end
-
       # Read a line at a time from a stream
       def self.stream(input_stream, **)
         yield new(input_stream, **)

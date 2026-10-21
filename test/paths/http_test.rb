@@ -323,14 +323,6 @@ module Paths
             assert_equal ["identity"] * (paths.size + 1), accept_encodings
           end
 
-          it "asks for gzip with the deprecated stream(:none), as v2.1 did, unlike #raw" do
-            start_server { |_path| TestHTTPServer.response(404) }
-            path = assert_deprecated(/stream\(:none\)/) { IOStreams.path("#{@server.base_url}/data.csv.gz").stream(:none) }
-
-            assert_raises(IOStreams::Errors::NotFound) { path.read }
-            assert_equal ["gzip"], accept_encodings
-          end
-
           it "reads a file that the server compresses while it sends it" do
             start_compressing_server
             records = []

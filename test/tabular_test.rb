@@ -2,39 +2,21 @@
 
 require_relative "test_helper"
 require "bigdecimal"
-require "logger"
 
 class TabularTest < Minitest::Test
   describe IOStreams::Tabular do
-    # The options that describe the columns without a schema, and cleanse_header, are deprecated, and tested here.
-    allow_deprecation(/describe the columns of the file with #schema instead/)
-
     let :format do
       :csv
     end
 
-    describe "the options that describe the columns without a schema, and cleanse_header" do
-      it "report a deprecation warning that names each one that is supplied" do
-        assert_deprecated(/IOStreams: columns: is deprecated, describe the columns of the file with #schema instead\n\z/) do
-          IOStreams::Tabular.new(columns: %w[name])
-        end
-        assert_deprecated(/IOStreams: allowed_columns:, required_columns:, skip_unknown: are deprecated, /) do
-          IOStreams::Tabular.new(allowed_columns: %w[name], required_columns: %w[name], skip_unknown: false)
-        end
-        assert_deprecated(/IOStreams: cleanse_header: is deprecated, /) { IOStreams::Tabular.new(cleanse_header: false) }
-        assert_deprecated(/IOStreams: cleanse_header: is deprecated, /) { IOStreams::Tabular.new(cleanse_header: nil) }
-      end
-
-      it "report no deprecation warning when they are nil, which is not supplied, or not supplied" do
-        refute_deprecated do
-          IOStreams::Tabular.new(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil)
-          IOStreams::Tabular.new(format: :csv)
-        end
-      end
+    let :tabular do
+      with_columns(%w[first_field second third], format: format)
     end
 
-    let :tabular do
-      IOStreams::Tabular.new(columns: %w[first_field second third], format: format)
+    # Returns [IOStreams::Tabular] of the supplied format whose columns are known, as once its header row is read, or the
+    # first row written.
+    def with_columns(columns, format: :csv)
+      IOStreams::Tabular.new(format: format).tap { |tabular| tabular.header.columns = columns }
     end
 
     # Returns [IOStreams::Tabular] of a fixed width file with the schema of the supplied descriptor.
@@ -143,10 +125,6 @@ class TabularTest < Minitest::Test
         assert_nil IOStreams::Tabular.new(format: :json).tap { |tabular| tabular.read_header(%({"a":1})) }.header_row
       end
 
-      it "is nil for the columns supplied in place of a header row" do
-        assert_nil IOStreams::Tabular.new(format: :csv, columns: %w[a b]).header_row
-      end
-
       it "is frozen, as are its columns" do
         tabular = IOStreams::Tabular.new(format: :csv)
         tabular.read_header("First Field,Second")
@@ -231,12 +209,6 @@ class TabularTest < Minitest::Test
     end
 
     describe "header columns" do
-      it "converts symbol column names to strings" do
-        tabular = IOStreams::Tabular.new(columns: %i[first_field second third])
-
-        assert_equal %w[first_field second third], tabular.header.columns
-      end
-
       it "converts symbol column names to strings when assigned" do
         tabular                = IOStreams::Tabular.new(format: :csv)
         tabular.header.columns = %i[first_field second third]
@@ -248,7 +220,7 @@ class TabularTest < Minitest::Test
     describe "#cleanse_header!" do
       describe "cleanses" do
         it "a csv header" do
-          tabular = IOStreams::Tabular.new(columns: ["first field", "Second", "thirD"])
+          tabular = with_columns(["first field", "Second", "thirD"])
           header  = tabular.cleanse_header!
 
           assert_equal %w[first_field second third], header
@@ -256,73 +228,15 @@ class TabularTest < Minitest::Test
         end
 
         it "keeps letters and digits that are not ASCII" do
-          tabular = IOStreams::Tabular.new(columns: ["Prénom", "STRASSE", "Straße", "日付", "Coût€", "Größe-2"])
+          tabular = with_columns(["Prénom", "STRASSE", "Straße", "日付", "Coût€", "Größe-2"])
 
           assert_equal %w[prénom strasse straße 日付 coût größe_2], tabular.cleanse_header!
         end
 
         it "converts whitespace that is not ASCII to underscores, and strips it" do
-          tabular = IOStreams::Tabular.new(columns: ["Prénom\u3000Nom", "First\u00A0Name", "\u2003Total\u00A0", "Name \0"])
+          tabular = with_columns(["Prénom\u3000Nom", "First\u00A0Name", "\u2003Total\u00A0", "Name \0"])
 
           assert_equal %w[prénom_nom first_name total name], tabular.cleanse_header!
-        end
-
-        it "allowed list snake cased alphanumeric columns" do
-          tabular = IOStreams::Tabular.new(
-            columns:         ["Ard Vark", "Password", "robot version", "$$$"],
-            allowed_columns: %w[ard_vark robot_version]
-          )
-          expected_header = ["ard_vark", "__rejected__Password", "robot_version", "__rejected__$$$"]
-          cleansed_header = tabular.cleanse_header!
-
-          assert_equal(expected_header, cleansed_header)
-        end
-      end
-
-      describe "allowed_columns" do
-        before do
-          @allowed_columns = %w[first second third fourth fifth]
-        end
-
-        it "passes" do
-          tabular = IOStreams::Tabular.new(columns: ["   first ", "Second", "thirD   "], allowed_columns: @allowed_columns)
-          header  = tabular.cleanse_header!
-
-          assert_equal %w[first second third], header
-          assert_equal header, tabular.header.columns
-          assert_equal @allowed_columns, tabular.header.allowed_columns
-        end
-
-        it "nils columns not in the allowed list" do
-          tabular = IOStreams::Tabular.new(columns: ["   first ", "Unknown Column", "thirD   "], allowed_columns: @allowed_columns)
-          header  = tabular.cleanse_header!
-
-          assert_equal ["first", "__rejected__Unknown Column", "third"], header
-        end
-
-        it "raises exception for columns not in the allowed list" do
-          tabular = IOStreams::Tabular.new(columns: ["   first ", "Unknown Column", "thirD   "], allowed_columns: @allowed_columns, skip_unknown: false)
-          exc     = assert_raises IOStreams::Errors::InvalidHeader do
-            tabular.cleanse_header!
-          end
-          assert_equal "Unknown columns after cleansing: Unknown Column", exc.message
-        end
-
-        it "raises exception missing required columns" do
-          required = %w[first second fifth]
-          tabular  = IOStreams::Tabular.new(columns: ["   first ", "Second", "thirD   "], allowed_columns: @allowed_columns, required_columns: required)
-          exc      = assert_raises IOStreams::Errors::InvalidHeader do
-            tabular.cleanse_header!
-          end
-          assert_equal "Missing columns after cleansing: fifth", exc.message
-        end
-
-        it "raises exception when no columns left" do
-          tabular = IOStreams::Tabular.new(columns: %w[one two three], allowed_columns: @allowed_columns)
-          exc     = assert_raises IOStreams::Errors::InvalidHeader do
-            tabular.cleanse_header!
-          end
-          assert_equal "All columns are unknown after cleansing: one,two,three", exc.message
         end
       end
     end
@@ -491,14 +405,6 @@ class TabularTest < Minitest::Test
         end
       end
 
-      it "skips columns not in the allowed list" do
-        tabular.header.allowed_columns = %w[first second third fourth fifth]
-        tabular.cleanse_header!
-
-        assert hash = tabular.record_parse("1,2,3")
-        assert_equal({"second" => "2", "third" => "3"}, hash)
-      end
-
       it "handles missing values" do
         assert hash = tabular.record_parse("1,2")
         assert_equal({"first_field" => "1", "second" => "2", "third" => nil}, hash)
@@ -522,15 +428,6 @@ class TabularTest < Minitest::Test
         tabular.header.columns = %w[a b]
 
         assert_equal({"a" => "1", "b" => "2"}, tabular.record_parse("1,2,3"))
-      end
-
-      it "skips the columns rejected by cleansing after a row is parsed" do
-        assert_equal({"first_field" => "1", "second" => "2", "third" => "3"}, tabular.record_parse("1,2,3"))
-
-        tabular.header.allowed_columns = %w[second]
-        tabular.cleanse_header!
-
-        assert_equal({"second" => "2"}, tabular.record_parse("1,2,3"))
       end
     end
 
@@ -561,18 +458,19 @@ class TabularTest < Minitest::Test
       end
 
       it "renders a hash for columns that are not cleansed" do
-        tabular = IOStreams::Tabular.new(columns: ["First Field", "Second"], format: format)
+        tabular = with_columns(["First Field", "Second"], format: format)
 
         assert_equal "1,2", tabular.render({"first_field" => "1", "Second" => "2"})
       end
 
-      it "writes a hash whose keys match the columns once cleansed" do
+      it "writes a hash whose keys match the columns of the first record once cleansed" do
         output = StringIO.new
-        IOStreams.stream(output).format(:csv).writer(:hash, columns: ["first_name"]) do |io|
-          io << {"First Name" => "Jack"}
+        IOStreams.stream(output).format(:csv).writer(:hash) do |io|
+          io << {"first_name" => "Jack"}
+          io << {"First Name" => "Jill"}
         end
 
-        assert_equal "first_name\nJack\n", output.string
+        assert_equal "first_name\nJack\nJill\n", output.string
       end
 
       it "renders a hash including nil and boolean" do
@@ -786,7 +684,7 @@ class TabularTest < Minitest::Test
         assert_equal [%({"a":1,"b":2}), %({"a":3,"b":null})], lines_of(IOStreams::Tabular.new(format: :json), %w[a b], [1, 2], [3])
         assert_empty lines_of(IOStreams::Tabular.new(format: :json), %w[a b])
         assert_empty lines_of(IOStreams::Tabular.new(format: :json))
-        assert_equal [%({"a":1})], lines_of(IOStreams::Tabular.new(format: :json, columns: %w[a]), [1])
+        assert_equal [%({"a":1})], lines_of(with_columns(%w[a], format: :json), [1])
       end
     end
 
@@ -818,38 +716,13 @@ class TabularTest < Minitest::Test
       end
     end
 
-    describe "reading with column restrictions" do
-      # Returns the warnings logged by the block.
-      def warnings
-        output   = StringIO.new
-        original = IOStreams.logger
-        IOStreams.logger = Logger.new(output, level: :warn)
-        yield
-        output.string.lines.grep(/enforce_column_restrictions/)
-      ensure
-        IOStreams.logger = original
-      end
-
+    describe "reading" do
       describe "#read_header" do
         it "returns the header row as read, and cleanses the columns" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+          tabular = IOStreams::Tabular.new(format: :csv)
 
           assert_equal ["Name", "Secret Code"], tabular.read_header("Name,Secret Code")
-          assert_equal ["name", "__rejected__Secret Code"], tabular.header.columns
-        end
-
-        it "applies the restrictions without renaming the columns when not cleansed" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["Name"])
-          tabular.read_header("Name,Secret", cleanse: false)
-
-          assert_equal %w[Name __rejected__Secret], tabular.header.columns
-        end
-
-        it "does not change columns that are not restricted when not cleansed" do
-          tabular = IOStreams::Tabular.new(format: :csv)
-          tabular.read_header("Name,Secret", cleanse: false)
-
-          assert_equal %w[Name Secret], tabular.header.columns
+          assert_equal %w[name secret_code], tabular.header.columns
         end
 
         it "takes a row of the keys of a format of keyed records as they are, which name the values of the rows after it, as Rocket Job does" do
@@ -860,7 +733,8 @@ class TabularTest < Minitest::Test
           refute_predicate uploader, :rows_header?
           assert_equal ["Jack", nil], uploader.row_parse(%({"Name":"Jack"}))
 
-          worker = IOStreams::Tabular.new(format: :json, columns: uploader.header.columns)
+          worker = IOStreams::Tabular.new(format: :json)
+          worker.read_header(uploader.header.columns)
 
           assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.record_parse(%w[Jack 12345]))
           assert_equal({"Name" => "Jack", "zip" => "12345"}, worker.read_record(%w[Jack 12345]))
@@ -868,112 +742,25 @@ class TabularTest < Minitest::Test
 
         it "reads the record of a row already read after its header row, whatever the format, as Rocket Job's workers do" do
           %i[csv psv array json hash parquet].each do |format|
-            tabular = IOStreams::Tabular.new(format: format, cleanse_header: false)
-            tabular.read_header(%w[Name age])
+            tabular = IOStreams::Tabular.new(format: format)
+            tabular.read_header(%w[name age])
 
-            assert_equal({"Name" => "Jack", "age" => 21}, tabular.record_parse(["Jack", 21]), format.inspect)
+            assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse(["Jack", 21]), format.inspect)
           end
         end
 
-        it "cleanses and restricts the keys of a format of keyed records only when the columns are restricted, as for its records" do
-          restricted = IOStreams::Tabular.new(format: :json, allowed_columns: %w[name])
-
-          assert_equal %w[Name zip], restricted.read_header(%w[Name zip])
-          assert_equal %w[name __rejected__zip], restricted.header.columns
-          assert_equal({"name" => "Jack"}, restricted.record_parse(%w[Jack 12345]))
-          assert_equal %w[Name], IOStreams::Tabular.new(format: :json, allowed_columns: %w[Name], cleanse_header: false).read_header(%w[Name])
-          assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams::Tabular.new(format: :json, required_columns: %w[age]).read_header(%w[Name]) }
-        end
-
         it "returns nil for a blank line, so that the header is still to be read" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+          tabular = IOStreams::Tabular.new(format: :csv)
 
           assert_nil tabular.read_header("")
           assert_predicate tabular, :header?
         end
       end
 
-      describe "#restrict_columns" do
-        it "applies the restrictions to supplied columns" do
-          tabular = IOStreams::Tabular.new(format: :csv, columns: %w[Name Secret], allowed_columns: ["name"])
-          tabular.restrict_columns
-
-          assert_equal %w[name __rejected__Secret], tabular.header.columns
-        end
-
-        it "does nothing while the header row is still to be read" do
-          tabular = IOStreams::Tabular.new(format: :csv, required_columns: ["missing"])
-          tabular.restrict_columns
-
-          assert_predicate tabular, :header?
-        end
-
-        describe "when enforce_column_restrictions is false" do
-          allow_deprecation(/enforce_column_restrictions= is deprecated/)
-
-          before { IOStreams.enforce_column_restrictions = false }
-          after { IOStreams.enforce_column_restrictions = true }
-
-          it "warns once instead of applying them" do
-            tabular = IOStreams::Tabular.new(format: :csv, columns: %w[name secret], allowed_columns: ["name"])
-            logged  = warnings do
-              tabular.restrict_columns
-              tabular.restrict_columns
-            end
-
-            assert_equal %w[name secret], tabular.header.columns
-            assert_equal 1, logged.size
-            assert_includes logged.first, "would change the header row read"
-          end
-        end
-      end
-
       describe "#read_record" do
-        let(:json) { %({"Name":"x","admin":true}) }
-
-        it "applies the restrictions to the keys of a record without a header row" do
-          tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"])
-
-          assert_equal({"name" => "x"}, tabular.read_record(json))
-        end
-
-        it "compares the keys as-is without renaming them, with cleanse_header: false" do
-          tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"], cleanse_header: false)
-
-          assert_equal({"Name" => "x"}, tabular.read_record(json))
-        end
-
-        it "does not change a record when the columns are not restricted" do
-          assert_equal({"Name" => "x", "admin" => true}, IOStreams::Tabular.new(format: :json).read_record(json))
-        end
-
-        it "keeps a key that is the name of its column once cleansed, such as a Symbol, and renames the others" do
-          tabular = IOStreams::Tabular.new(format: :hash, allowed_columns: %w[name zip])
-          record  = tabular.read_record({:name => "Jack", "Zip" => 1, :age => 3})
-
-          assert_equal({name: "Jack", "zip" => 1}, record)
-          # Not renamed, so `:Zip` is not the column "zip".
-          as_is = IOStreams::Tabular.new(format: :hash, allowed_columns: %w[name zip], cleanse_header: false)
-
-          assert_equal({name: "Jack"}, as_is.read_record({name: "Jack", Zip: 1}))
-          assert_equal({1 => "a"}, IOStreams::Tabular.new(format: :hash, required_columns: %w[1]).read_record({1 => "a"}))
-        end
-
-        describe "when enforce_column_restrictions is false" do
-          allow_deprecation(/enforce_column_restrictions= is deprecated/)
-
-          before { IOStreams.enforce_column_restrictions = false }
-          after { IOStreams.enforce_column_restrictions = true }
-
-          it "warns once instead of applying them" do
-            tabular = IOStreams::Tabular.new(format: :json, required_columns: ["state"])
-            records = nil
-            logged  = warnings { records = [tabular.read_record(json), tabular.read_record(json)] }
-
-            assert_equal [{"Name" => "x", "admin" => true}] * 2, records
-            assert_equal 1, logged.size
-            assert_includes logged.first, "would change the records read"
-          end
+        it "returns the record of a format of keyed records with its keys as they are" do
+          assert_equal({"Name" => "x", "admin" => true}, IOStreams::Tabular.new(format: :json).read_record(%({"Name":"x","admin":true})))
+          assert_equal({:name => "Jack", "Zip" => 1}, IOStreams::Tabular.new(format: :hash).read_record({:name => "Jack", "Zip" => 1}))
         end
       end
 
@@ -986,17 +773,11 @@ class TabularTest < Minitest::Test
         end
 
         it "yields the header row as read, and then each row" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+          tabular = IOStreams::Tabular.new(format: :csv)
 
           assert_equal [["Name", "Secret Code"]], rows(tabular, "Name,Secret Code")
-          assert_equal ["name", "__rejected__Secret Code"], tabular.header.columns
+          assert_equal %w[name secret_code], tabular.header.columns
           assert_equal [%w[Jack x], nil], rows(tabular, "Jack,x", "")
-        end
-
-        it "yields every line as a row when the columns were supplied" do
-          tabular = IOStreams::Tabular.new(format: :csv, columns: %w[name code])
-
-          assert_equal [%w[Name Code]], rows(tabular, "Name,Code")
         end
 
         it "yields the keys of the first record of a format of keyed records as the header row, before its row" do
@@ -1010,13 +791,6 @@ class TabularTest < Minitest::Test
           refute_predicate tabular, :rows_header?
           assert_equal [["Jill", nil]], rows(tabular, %({"name":"Jill"}))
         end
-
-        it "yields no header row for a format of keyed records whose columns are supplied" do
-          tabular = IOStreams::Tabular.new(format: :json, columns: %w[age name])
-
-          refute_predicate tabular, :rows_header?
-          assert_equal [[21, "Jack"]], rows(tabular, %({"name":"Jack","age":21}))
-        end
       end
 
       describe "#read_record_line" do
@@ -1028,58 +802,13 @@ class TabularTest < Minitest::Test
         end
 
         it "reads the header row, which it does not yield, and yields the record of each line after it" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+          tabular = IOStreams::Tabular.new(format: :csv)
 
-          assert_equal [{"name" => "Jack"}, nil], records(tabular, "Name,Secret", "Jack,x", "")
+          assert_equal [{"name" => "Jack", "secret" => "x"}, nil], records(tabular, "Name,Secret", "Jack,x", "")
         end
 
         it "yields the record of every line of a format without a header row" do
           assert_equal [{"Name" => "x"}], records(IOStreams::Tabular.new(format: :json), %({"Name":"x"}))
-        end
-      end
-
-      describe "cleanse_header:" do
-        it "cleanses the header row by default, which #read_header, #read_record and #restrict_columns apply" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
-          tabular.read_header("Name,Secret")
-
-          assert_equal %w[name __rejected__Secret], tabular.header.columns
-          assert_equal({"name" => "x"}, IOStreams::Tabular.new(format: :json, allowed_columns: ["name"]).read_record(%({"Name":"x"})))
-        end
-
-        it "is the default of #read_header, #read_record and #restrict_columns, which compare the columns as they are without it" do
-          [false, nil].each do |cleanse|
-            tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["Name"], cleanse_header: cleanse)
-            tabular.read_header("Name,Secret")
-
-            assert_equal %w[Name __rejected__Secret], tabular.header.columns, cleanse.inspect
-            json = IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"], cleanse_header: cleanse)
-
-            assert_equal({"Name" => "x"}, json.read_record(%({"Name":"x","Admin":true})), cleanse.inspect)
-            supplied = IOStreams::Tabular.new(format: :csv, columns: %w[Name Secret], allowed_columns: ["Name"], cleanse_header: cleanse)
-            supplied.restrict_columns
-
-            assert_equal %w[Name __rejected__Secret], supplied.header.columns, cleanse.inspect
-          end
-        end
-
-        it "is replaced by the argument of #read_header, as Rocket Job supplies it" do
-          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"], cleanse_header: false)
-          tabular.read_header("Name,Secret", cleanse: true)
-
-          assert_equal %w[name __rejected__Secret], tabular.header.columns
-        end
-
-        it "applies to #read_record and #restrict_columns, which take no argument for it" do
-          json = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"])
-
-          assert_equal({"name" => "x"}, json.read_record(%({"Name":"x"})))
-          assert_raises(ArgumentError) { json.read_record(%({"Name":"x"}), rename: false) }
-          supplied = IOStreams::Tabular.new(format: :csv, columns: %w[Name Secret], allowed_columns: ["name"])
-          supplied.restrict_columns
-
-          assert_equal %w[name __rejected__Secret], supplied.header.columns
-          assert_raises(ArgumentError) { supplied.restrict_columns(rename: false) }
         end
       end
     end
@@ -1213,7 +942,12 @@ class TabularTest < Minitest::Test
     end
 
     describe IOStreams::Tabular::Header do
-      let(:header) { IOStreams::Tabular::Header.new(columns: %w[Name Secret], allowed_columns: ["name"]) }
+      let(:header) { IOStreams::Tabular::Header.new }
+
+      # Returns [IOStreams::Tabular::Header] whose columns are the supplied columns.
+      def header_of(columns)
+        IOStreams::Tabular::Header.new.tap { |header| header.columns = columns }
+      end
 
       describe "#row" do
         it "is the columns as they were set, which cleansing does not change" do
@@ -1225,7 +959,7 @@ class TabularTest < Minitest::Test
           assert_equal ["First Field", "second"], header.row
         end
 
-        it "is nil for the columns supplied in place of a header row" do
+        it "is nil until the columns are set" do
           assert_nil header.row
           header.cleanse!
 
@@ -1248,37 +982,6 @@ class TabularTest < Minitest::Test
         end
       end
 
-      describe "#cleanse_changes?" do
-        it "is true when cleansing would change the columns, without changing them" do
-          assert_predicate header, :cleanse_changes?
-          assert_equal %w[Name Secret], header.columns
-        end
-
-        it "is false when cleansing would not change the columns" do
-          refute_predicate IOStreams::Tabular::Header.new(columns: %w[name], allowed_columns: ["name"]), :cleanse_changes?
-        end
-
-        it "is true when cleansing would raise" do
-          assert_predicate IOStreams::Tabular::Header.new(columns: %w[name], required_columns: ["missing"]), :cleanse_changes?
-        end
-      end
-
-      describe "#restrict_hash_changes?" do
-        it "is true when restricting would change the hash" do
-          assert header.restrict_hash_changes?({"name" => "x", "secret" => "y"})
-        end
-
-        it "is false when restricting would not change the hash" do
-          refute header.restrict_hash_changes?({"name" => "x"})
-        end
-
-        it "is true when restricting would raise" do
-          header = IOStreams::Tabular::Header.new(required_columns: ["missing"])
-
-          assert header.restrict_hash_changes?({"name" => "x"})
-        end
-      end
-
       describe "plans for each set of keys" do
         # Returns [Integer] the number of columns that the block cleanses.
         def cleansings(&)
@@ -1292,30 +995,8 @@ class TabularTest < Minitest::Test
           count
         end
 
-        it "restricts the keys of the records once for each set of keys, rather than for every record" do
-          header  = IOStreams::Tabular::Header.new(allowed_columns: %w[name age])
-          input   = [{"Name" => "a", "Age" => 1, "x" => 2}, {"Name" => "b"}, {"Name" => "c", "Age" => 3, "x" => 4}]
-          records = nil
-          count   = cleansings { records = input.map { |record| header.restrict_hash(record) } }
-
-          assert_equal [{"name" => "a", "age" => 1}, {"name" => "b"}, {"name" => "c", "age" => 3}], records
-          # Each key of the two sets of keys once.
-          assert_equal 4, count
-          assert_nil header.restrict_hash({})
-        end
-
-        it "restricts the keys again when the restrictions change" do
-          header = IOStreams::Tabular::Header.new(allowed_columns: %w[name])
-          header.restrict_hash({"name" => "a", "age" => 1})
-          header.allowed_columns = %w[age]
-
-          assert_equal({"age" => 1}, header.restrict_hash({"name" => "a", "age" => 1}))
-          header.required_columns = %w[zip]
-          assert_raises(IOStreams::Errors::InvalidHeader) { header.restrict_hash({"name" => "a", "age" => 1}) }
-        end
-
         it "matches the keys of the records to the columns once for each set of keys, and again when the columns change" do
-          header = IOStreams::Tabular::Header.new(columns: %w[first_name age])
+          header = header_of(%w[first_name age])
           count  = cleansings do
             3.times { assert_equal({"first_name" => "Jack", "age" => 21}, header.to_hash({"First Name" => "Jack", "age" => 21})) }
           end
@@ -1325,7 +1006,7 @@ class TabularTest < Minitest::Test
           header.columns = %w[age]
 
           assert_equal({"age" => 21}, header.to_hash({"First Name" => "Jack", "age" => 21}))
-          assert_equal [21, "Jack"], IOStreams::Tabular::Header.new(columns: %w[age first_name]).to_array({first_name: "Jack", age: 21})
+          assert_equal [21, "Jack"], header_of(%w[age first_name]).to_array({first_name: "Jack", age: 21})
         end
       end
     end
@@ -1471,32 +1152,6 @@ class TabularTest < Minitest::Test
         assert_equal %w[1 2.5], array.row_parse(%w[2.5 1])
       end
 
-      it "raises for the options of the header, since the schema describes the columns" do
-        %i[columns allowed_columns required_columns].each do |name|
-          error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, name => ["id"]) }
-          assert_match(/\A#{name}: cannot be supplied with a schema/, error.message)
-        end
-        error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, allowed_columns: ["id"], skip_unknown: true) }
-        assert_match(/\Aallowed_columns: cannot be supplied with a schema/, error.message)
-      end
-
-      it "accepts the options of the header when they are nil, as Rocket Job supplies them" do
-        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil)
-
-        assert_equal "id,pay", tabular.render_header
-      end
-
-      it "accepts skip_unknown without allowed_columns, which it only applies to, as Rocket Job supplies it" do
-        [true, false].each do |skip_unknown|
-          tabular = assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema/) do
-            IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: skip_unknown)
-          end
-
-          assert_equal %w[id pay], tabular.read_header("id,pay")
-          assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, tabular.record_parse("1,2.5"))
-        end
-      end
-
       it "raises for an unknown option as an unknown keyword, with or without a schema" do
         [{schema: schema}, {}].each do |options|
           error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, delimitr: "\n", **options) }
@@ -1609,12 +1264,7 @@ class TabularTest < Minitest::Test
 
         assert_predicate tabular, :field_names?
         assert_equal %w[id pay], tabular.read_header("ID,Pay")
-        [true, false, nil, :default].each do |cleanse|
-          error = assert_raises(ArgumentError, cleanse.inspect) { IOStreams::Tabular.new(format: :csv, schema: schema, cleanse_header: cleanse) }
-          assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
-        end
-        assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
-        assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: :default) }
+        assert_equal %w[ID Pay], tabular.header.columns
       end
 
       it "raises for cleansing the header row once it is read, so that the header keeps it as it was read" do
@@ -1625,11 +1275,6 @@ class TabularTest < Minitest::Test
         error = assert_raises(ArgumentError) { tabular.cleanse_header! }
         assert_match(/\AThe header row cannot be cleansed with a schema/, error.message)
         assert_equal %w[E-mail e_mail], IOStreams::Tabular.new(format: :csv, schema: schema).read_header(tabular.header.columns)
-      end
-
-      it "raises for the columns before cleanse_header, with a schema" do
-        error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[id], cleanse_header: true) }
-        assert_match(/\Acolumns: cannot be supplied with a schema/, error.message)
       end
 
       it "reads a fixed width row as the values of the fields in order, and the record of a row already read, as Rocket Job's workers do" do
@@ -1675,16 +1320,16 @@ class TabularTest < Minitest::Test
 
       it "writes CSV with the usual text of each value" do
         assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3,true,",
-                     IOStreams::Tabular.new(format: :csv, columns: columns).render(values)
+                     with_columns(columns, format: :csv).render(values)
       end
 
       it "writes PSV with the usual text of each value" do
         assert_equal "12.5|2026-10-13T09:30:00.250Z|2026-10-13|2026-10-13T09:30:00+00:00|3|true|",
-                     IOStreams::Tabular.new(format: :psv, columns: columns).render(values)
+                     with_columns(columns, format: :psv).render(values)
       end
 
       it "writes a PSV Array value as one column, rather than its items as more columns" do
-        assert_equal "[1,2]|x", IOStreams::Tabular.new(format: :psv, columns: %w[list name]).render({"list" => [1, 2], "name" => "x"})
+        assert_equal "[1,2]|x", with_columns(%w[list name], format: :psv).render({"list" => [1, 2], "name" => "x"})
         assert_equal "[1,2]|x", IOStreams::Tabular.new(format: :psv).render([[1, 2], "x"])
       end
 
@@ -1693,9 +1338,9 @@ class TabularTest < Minitest::Test
         record = {"prefs" => prefs, "list" => [1, "two", nil]}
 
         assert_equal %("{""theme"":""dark"",""limit"":""12.5"",""on"":""2026-10-13"",""tags"":[1,null]}","[1,""two"",null]"),
-                     IOStreams::Tabular.new(format: :csv, columns: %w[prefs list]).render(record)
+                     with_columns(%w[prefs list], format: :csv).render(record)
         assert_equal %({"theme":"dark","limit":"12.5","on":"2026-10-13","tags":[1,null]}|[1,"two",null]),
-                     IOStreams::Tabular.new(format: :psv, columns: %w[prefs list]).render(record)
+                     with_columns(%w[prefs list], format: :psv).render(record)
         assert_equal IOStreams::Tabular.new(format: :json).render(prefs), IOStreams::Schema::Field.any_text(prefs)
       end
 
@@ -1741,7 +1386,7 @@ class TabularTest < Minitest::Test
         # As ActiveSupport 7 does, unless `ActiveSupport.to_time_preserves_timezone` is set.
         def stamp.to_time = super.getlocal("-04:00")
 
-        assert_equal "2026-10-13T09:30:00.250+05:30", IOStreams::Tabular.new(format: :csv, columns: ["stamp"]).render("stamp" => stamp)
+        assert_equal "2026-10-13T09:30:00.250+05:30", with_columns(["stamp"], format: :csv).render("stamp" => stamp)
       end
 
       it "writes a header row taken from the first row the same way as the rows" do
@@ -1777,10 +1422,6 @@ class TabularTest < Minitest::Test
         assert_equal ["Jack", 21], tabular.row_parse("Jack,21")
         assert_equal "Jack,21", tabular.render({age: 21, "name" => "Jack"})
         assert_equal "Jack,21", tabular.render(%w[Jack 21])
-      end
-
-      it "raises for columns, which are the fields" do
-        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: schema, columns: %w[age name]) }
       end
 
       it "has no effect on a format without a header row" do

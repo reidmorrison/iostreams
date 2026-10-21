@@ -78,8 +78,16 @@ task :zstd_jni do
   ZstdJni.download
 end
 
+# The query tests load Active Record, whose extensions of Ruby, such as how ActiveSupport writes JSON, would change what
+# the other tests check, so they run in a process of their own, see test/query/query_helper.rb.
 Rake::TestTask.new(:test) do |t|
-  t.pattern = "test/**/*_test.rb"
+  t.test_files = FileList["test/**/*_test.rb"].exclude("test/query/**/*")
+  t.verbose    = true
+  t.warning    = true
+end
+
+Rake::TestTask.new(:query_test) do |t|
+  t.pattern = "test/query/**/*_test.rb"
   t.verbose = true
   t.warning = true
 end
@@ -87,4 +95,4 @@ end
 # JRuby cannot load the zstd-ruby C extension, so the tests use the zstd-jni jar.
 task test: :zstd_jni if RUBY_ENGINE == "jruby"
 
-task default: :test
+task default: %i[test query_test]

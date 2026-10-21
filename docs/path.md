@@ -74,6 +74,8 @@ There are other ways to create a path or a stream:
   for reading and writing, but without the [operations on the store](#operations-on-the-store), since an IO is not
   stored anywhere. See [Streams of an IO](streams#streams-of-an-io). It raises `ArgumentError` for a String or a
   `Pathname`, which name a file.
+* `IOStreams.stream(relation)` reads the rows of an Active Record query, such as to copy them to a path, see
+  [Exporting queries](queries).
 * `IOStreams.new(name_or_io)` returns the path of a name, or the stream of an IO, for code that accepts either.
 
 ### Paths are configuration

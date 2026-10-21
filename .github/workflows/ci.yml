@@ -36,7 +36,7 @@ jobs:
         run: bundle exec rubocop --format github
 
   test:
-    name: "Test: Ruby ${{ matrix.ruby }}"
+    name: "Test: Ruby ${{ matrix.ruby }}${{ matrix.activerecord && format(', Active Record {0}', matrix.activerecord) || '' }}"
     runs-on: ubuntu-latest
     # Tests take about 7 minutes; without a limit a hang runs for six hours.
     timeout-minutes: 30
@@ -51,6 +51,43 @@ jobs:
         include:
           - ruby: 3.4
             coverage: true
+          # The earliest Ruby with the earliest Active Record that IOStreams reads queries with, see the Gemfile.
+          - ruby: 3.3
+            activerecord: "7.2.3"
+    # The databases that the query tests read, see test/query/query_helper.rb. JRuby cannot load their drivers, so its
+    # query tests skip them.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: iostreams_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: iostreams_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pmysql"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      ACTIVERECORD_VERSION: ${{ matrix.activerecord }}
+      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/iostreams_test
+      MYSQL_URL: mysql2://root:mysql@127.0.0.1:3306/iostreams_test
+      # Installs the drivers of MySQL, see the Gemfile, whose mysql2 builds with the MySQL client library, which the
+      # Ubuntu image of GitHub has, libmysqlclient-dev.
+      BUNDLE_WITH: mysql
     steps:
       - uses: actions/checkout@v4
       - name: Set up Ruby

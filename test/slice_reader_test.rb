@@ -53,6 +53,16 @@ class SliceReaderTest < Minitest::Test
         assert_equal [:psv], slices(stream("name|age\nJack|21\n").format(:psv), size: 2).map(&:format)
       end
 
+      it "gives each slice whether its blank rows are records, which its tabular says" do
+        assert_equal [true, true], slices(stream(csv), size: 2).map(&:blank_rows?)
+
+        tabular = IOStreams::Tabular.new(format: :array, blank_rows: false)
+        list    = IOStreams::Slice::Reader.new([%w[name age], [nil, nil]], tabular: tabular, size: 2).to_a
+
+        assert_equal [[[nil, nil]]], list
+        refute_predicate list.first, :blank_rows?
+      end
+
       it "yields no slice for a file with a header row and no rows" do
         assert_empty slices(stream("Name,AGE\n"), size: 2)
       end
@@ -206,35 +216,14 @@ class SliceReaderTest < Minitest::Test
         assert_raises(ArgumentError) { path.each(:slice, size: 2, columns: %w[name age]) { |_slice| nil } }
       end
 
-      it "accepts the column options when they are nil, as with a schema, so that a caller can supply them in every mode" do
-        list = slices(stream(csv).schema(schema), size: 2, columns: nil, allowed_columns: nil, required_columns: nil)
-
-        assert_equal [["Jack,21", "Jill,22"], ["Bob,23"]], list
-        assert_equal [["Jack,21", "Jill,22"], ["Bob,23"]], slices(stream(csv), size: 2, columns: nil)
-      end
-
-      it "accepts skip_unknown, which only applies to allowed_columns, and is deprecated" do
-        list = assert_deprecated(/skip_unknown: is deprecated/) { slices(stream(csv), size: 5, skip_unknown: false) }
-
-        assert_equal [["Jack,21", "Jill,22", "Bob,23"]], list
-      end
-
-      it "raises for a column option that is not nil, since the header row that it changes is read again elsewhere" do
-        error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, columns: %w[name age]) }
-        assert_match(/\Acolumns: cannot be supplied to the :slice mode/, error.message)
-
-        error = assert_raises(ArgumentError) do
-          slices(stream(csv), size: 2, allowed_columns: %w[name], required_columns: %w[name])
+      it "raises for the column options, which v3.0 removed, as options that the mode does not take" do
+        %i[columns allowed_columns required_columns skip_unknown cleanse_header].each do |name|
+          error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, name => nil) }
+          assert_match(/\AUnknown option #{name.inspect} for the :slice mode/, error.message)
         end
-        assert_match(/\Aallowed_columns:, required_columns: cannot be supplied to the :slice mode/, error.message)
       end
 
-      it "raises for cleanse_header, since the header row is read again elsewhere" do
-        error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, cleanse_header: false) }
-        assert_match(/Unknown option :cleanse_header for the :slice mode/, error.message)
-      end
-
-      it "lists only the options that are not deprecated" do
+      it "lists the options of the mode" do
         error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, unknown: 1) }
         assert_match(/Valid options: :delimiter, :buffer_size, :size, :validate\.\z/, error.message)
       end
@@ -268,9 +257,10 @@ class SliceReaderTest < Minitest::Test
       assert_equal :csv, slice.format
     end
 
-    it "has no header row nor format by default" do
+    it "has no header row nor format by default, and its blank rows are blank rows, as in a file" do
       assert_nil IOStreams::Slice.new.header
       assert_nil IOStreams::Slice.new.format
+      assert_predicate IOStreams::Slice.new, :blank_rows?
     end
   end
 end

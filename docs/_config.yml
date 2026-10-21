@@ -53,6 +53,7 @@ nav:
       - { page: formats.html,    label: Tabular formats }
       - { page: extensions.html, label: Compression and encryption }
       - { page: copy_files.html, label: Copying and moving }
+      - { page: queries.html,    label: Exporting queries }
       - { page: errors.html,     label: Errors }
 
   - group: Guides

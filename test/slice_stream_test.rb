@@ -33,7 +33,6 @@ class SliceStreamTest < Minitest::Test
 
         assert_instance_of IOStreams::Slice::Stream, stream
         assert_kind_of IOStreams::Stream, stream
-        assert_same slice, stream.io_stream
       end
 
       it "copies the stream of a slice, as it copies any stream" do
@@ -61,6 +60,11 @@ class SliceStreamTest < Minitest::Test
 
       it "reads the records by the header row of the slice without a schema, as of a file" do
         assert_equal [{"age" => "21", "name" => "Jack"}, {"age" => "22", "name" => "Jill"}], each(IOStreams.stream(slice))
+      end
+
+      it "returns the number of rows read, header row included, as for a file" do
+        assert_equal 3, IOStreams.stream(slice).each(:array) { |_row| nil }
+        assert_equal 3, IOStreams.stream(slice).each(:hash) { |_record| nil }
       end
 
       it "reads the rows, after the header row, as of a file" do
@@ -98,6 +102,41 @@ class SliceStreamTest < Minitest::Test
                      each(IOStreams.stream(slice))
       end
 
+      describe "of rows that are each a record, such as those of a query" do
+        let(:records) do
+          rows = [["Jack", 21], [nil, nil], ["", nil]]
+          IOStreams::Slice.new(rows, header: %w[name age].freeze, format: :array, blank_rows: false)
+        end
+        let(:expected) { [{"name" => "Jack", "age" => 21}, {"name" => nil, "age" => nil}, {"name" => "", "age" => nil}] }
+
+        it "reads a row whose every value is blank as a record, with or without skip_blanks" do
+          assert_equal expected, each(IOStreams.stream(records).schema(schema))
+          assert_equal expected, each(IOStreams.stream(records).schema(schema), :hash, skip_blanks: true)
+          assert_equal [%w[name age], *records], each(IOStreams.stream(records), :array, skip_blanks: true)
+        end
+
+        it "reads it as a record once the slice is stored as JSON and turned back from its Hash" do
+          stored = IOStreams.slice(JSON.parse(JSON.generate(records.to_h)))
+
+          assert_equal expected, each(IOStreams.stream(stored).schema(schema), :hash, skip_blanks: true)
+        end
+
+        it "copies a row whose every value is blank" do
+          output = StringIO.new
+          IOStreams.stream(records).schema(schema).copy_to(IOStreams.stream(output).format(:json), mode: :hash)
+
+          assert_equal %({"name":"Jack","age":21}\n{"name":null,"age":null}\n{"name":"","age":null}\n), output.string
+        end
+
+        it "gives the slices that its rows are read in again rows that are each a record" do
+          list = []
+          IOStreams.stream(records).each(:slice, size: 2) { |part| list << part }
+
+          assert_equal [false, false], list.map(&:blank_rows?)
+          assert_equal(expected, list.flat_map { |part| each(IOStreams.stream(part).schema(schema)) })
+        end
+      end
+
       it "raises InvalidHeader when the header row of the slice does not match the schema" do
         assert_raises(IOStreams::Errors::InvalidHeader) { each(IOStreams.stream(slice).schema(schema.merge("fieldsMatch" => "exact"))) }
       end
@@ -108,8 +147,8 @@ class SliceStreamTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(slice).schema(schema)) }
       end
 
-      it "takes the options of the call, such as the column options" do
-        assert_equal people, each(IOStreams.stream(slice).schema(schema), :hash, columns: nil)
+      it "takes the options of the call, such as skip_blanks" do
+        assert_equal people, each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true)
       end
 
       it "reads the rows in slices again" do

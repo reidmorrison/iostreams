@@ -49,7 +49,7 @@ module IOStreams
   #     How the key of each field in the records read is formed from its name, which IOStreams adds to the properties
   #     of Frictionless, see #key_for:
   #       "string":         the name as a String, such as "zip" for the name :zip.
-  #       "cleansed":       the name once cleansed as `cleanse_header` cleanses a header row, see .cleansed, such as
+  #       "cleansed":       the name once cleansed as a header row without a schema is, see .cleansed, such as
   #                         "first_name" for the name "First Name".
   #       "symbol":         the name as a Symbol, such as :zip for the name "zip", so that a schema held as JSON, whose
   #                         names are Strings, reads Symbol keys.
@@ -237,12 +237,12 @@ module IOStreams
     # `First Name`, and the field `E-mail` is the key `email`, otherwise the field whose name or alias is the same once
     # both are cleansed, see .cleansed, and then compared loosely. Cleansing drops the characters that Unicode makes
     # digits when it compares them loosely, such as `²`, `½` and `①`, so that the field `area_m`, named as
-    # `cleanse_header` named the column, is still the column `Area (m²)`, and the field `area_m2` is too.
+    # a header row without a schema names the column, is still the column `Area (m²)`, and the field `area_m2` is too.
     #
     # A column that is the same as the names or aliases of several fields once compared loosely, or as none, is the
     # field whose name or alias is the column once cleansed, if there is one, so that a schema whose fields are named as
-    # `cleanse_header` named the columns finds every column that it found, such as `E-mail` for the field `e_mail`
-    # beside the field `email`.
+    # a header row without a schema names the columns finds every column that it found, such as `E-mail` for the field
+    # `e_mail` beside the field `email`.
     #
     # Returns nil when no field is the column, including a column whose bytes are not valid in its encoding, which is
     # only the field whose name it is.
@@ -455,8 +455,8 @@ module IOStreams
 
     # Returns [IOStreams::Schema::Field] the field whose name or alias is the label once both are compared loosely, or
     # else once both are cleansed and compared loosely, see #field_for. When that finds no field, or several, the field
-    # whose name or alias is the label once cleansed, if there is one, see .cleansed, as the deprecated `cleanse_header`
-    # named the column, so that `E-mail` is the field `e_mail` rather than either of `e_mail` and `email`, and ` _ ` is
+    # whose name or alias is the label once cleansed, if there is one, see .cleansed, as a header row without a schema
+    # names the column, so that `E-mail` is the field `e_mail` rather than either of `e_mail` and `email`, and ` _ ` is
     # the field `_`, which has no letters or digits to compare loosely. A label whose bytes are not valid in its
     # encoding is no field, since its text cannot be compared, nor cleansed.
     def loose_field(label, noun)

@@ -286,9 +286,9 @@ so that setting it does not read the file, and the copies of a path read it once
 that was set.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
-`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. Since it describes the columns of the
-file, the deprecated options of each call that describe them without a schema, such as `columns:`, raise
-`ArgumentError` with it, see [Upgrading](upgrading#the-column-options-of-each-call-are-deprecated).
+`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. It replaces the options of each call that
+described the columns before v3.0, such as `columns:` and `allowed_columns:`, see
+[Upgrading](upgrading#the-column-options-of-each-call-are-removed).
 
 ### Types
 
@@ -745,7 +745,7 @@ A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, na
 written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its
 `decimal(38, decimals)` holds, that is `38 - decimals`.
 
-A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
+A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `buffer_size:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
 UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yields is a header row of its columns,
 or with a schema of the names of its fields, and each row after it is the values of the fields, in order:

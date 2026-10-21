@@ -38,10 +38,9 @@ module IOStreams
           ),
           Errors::Unavailable      => Regexp.union(
             /\Assh: connect to host .* port \d+: /,
-            # A temporary failure of name resolution, such as a DNS outage, on Linux with glibc, macOS, or musl. A host
-            # that does not resolve, such as a mistyped host, is not unavailable, see
-            # `IOStreams::Errors::Unavailable.unknown_host?`.
-            /\Assh: Could not resolve hostname .*: (?:Temporary failure in name resolution|Try again)\z/i,
+            # A temporary failure of name resolution, such as a DNS outage. A host that does not resolve, such as a
+            # mistyped host, is not unavailable, see `IOStreams::Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE`.
+            /\Assh: Could not resolve hostname .*: #{Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE}\z/i,
             /\A(?:kex|ssh)_exchange_identification: /,
             /\AConnection (?:closed|reset) by /,
             /\AConnection timed out during banner exchange/,

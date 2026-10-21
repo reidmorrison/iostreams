@@ -97,7 +97,8 @@ end
 
 The kinds of failure are modules that tag the exception that the storage, or the gem of a stream, raised:
 
-* `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure of the storage includes it.
+* `IOStreams::Errors::StorageError`: the storage of a path, or the database of a query, failed, see
+  [What a query raises](#what-a-query-raises). Every kind of failure of the storage includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
   * `IOStreams::Errors::PermissionDenied`: the storage does not permit the access, or the credentials for it are
     missing or not valid.
@@ -173,6 +174,30 @@ SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem
 
 A failure that is none of these kinds raises its exception without a tag, such as an SFTP host key that does not
 match, or an HTTPS certificate that is not trusted.
+
+## What a query raises
+
+Reading the rows of an Active Record query, such as with `IOStreams.stream(relation)` or
+`path.copy_from(relation, mode: :hash)`, tags the exception that its database raised in the same way, so that an export
+can be retried on `Unavailable`, whether it reads a query or a file:
+
+| Kind of failure | Any database, through Active Record | PostgreSQL | MySQL | SQLite |
+|-----------------|-------------------------------------|------------|-------|--------|
+| `NotFound` | Never | Never | Never | Never |
+| `PermissionDenied` | `ActiveRecord::DatabaseConnectionError` for a user name or password that the database rejects, when its driver does not say otherwise | `PG::InsufficientPrivilege`, for a table or column that the user may not read, or `PG::ConnectionBad` for credentials that the server does not accept, by any method of authentication, such as a password, a client certificate, peer, PAM or LDAP, a role that may not log in, or connect to the database, or a host that `pg_hba.conf` rejects | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for an access that MySQL denies, such as error 1045 for a password that it rejects, 1044 for a database that the user may not use, 1142 for a table that the user may not read, or 1370 for a function that the user may not run, or for an account that it does not let connect, such as 3118 for one that is locked, 1862 for one whose password has expired, or 1130 for a client host that no account allows | `SQLite3::PermissionException` or `SQLite3::AuthorizationException` |
+| `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `PG::ConnectionBad` for a server that refused the connection, could not be reached, timed out, is starting up or shutting down, or has no connection free, or a temporary failure to resolve its host, `PG::AdminShutdown` or `PG::CrashShutdown` for a server that ended the query, and `PG::UnableToSend` for a query that could not be sent, since the connection was lost | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for a connection that was refused or lost, a temporary failure to resolve its host, too many connections, a server that is shutting down, a lock wait timeout, a deadlock, or a query that `KILL QUERY` or `max_execution_time` interrupted, also while mysql2 streams the rows of the query, `Mysql2::Error::TimeoutError` or `Trilogy::TimeoutError` for the `read_timeout` of the driver, and `Trilogy::EOFError` for a connection that the server closed | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
+
+The exception of a driver is tagged whether Active Record raised it, or an exception whose `#cause` it is. mysql2 raises
+an error that ends the rows of a query while it streams them with its message alone, so that the error of MySQL is told
+by its message, which the server says in English, unless its `lc_messages` says otherwise. A connection that could not
+be made is tagged as its driver says of the exception that caused it, since Active Record names it by what the message
+of the driver includes, rather than by what failed: for example, it names a host that does not resolve, whose name
+includes that of the user, as a user name or password that the database rejects. On PostgreSQL, the connection is tagged
+by the last address that it tried, such as the second address of `localhost`, so that a database that does not exist
+there is not `Unavailable` because the first address refused the connection. Its `#display_name` names the model of the
+query, such as `"Order query"`. A table, column or database that does not exist, a host that does not resolve, and a
+role or shard without a database are mistakes in the code or the configuration, so they raise their exception without a
+tag. As for a path, an exception that the block raises is never tagged.
 
 ## What each stream raises
 
@@ -333,10 +358,10 @@ also rescue an attempt to access a path that the application does not allow, suc
   again: a `Socket::ResolutionError`, or a `Seahorse::Client::NetworkingError` caused by one, is `Unavailable` only
   when its `error_code` is `Socket::EAI_AGAIN`, a temporary failure of name resolution, which is how Linux, with glibc
   or musl, reports a DNS server that cannot be reached, or a network without DNS. The `sftp` program's
-  `ssh: Could not resolve hostname` is likewise `Unavailable` only for "Temporary failure in name resolution", or
-  musl's "Try again". JRuby has no `Socket::ResolutionError`, so a `SocketError` there is always `Unavailable`. A host
-  that resolves only on a private network, such as over a VPN, does not resolve while that network is down, so it is
-  not `Unavailable` then either.
+  `ssh: Could not resolve hostname`, and PostgreSQL's `could not translate host name`, are likewise `Unavailable` only
+  for "Temporary failure in name resolution", or musl's "Try again". JRuby has no `Socket::ResolutionError`, so a
+  `SocketError` there is always `Unavailable`. A host that resolves only on a private network, such as over a VPN,
+  does not resolve while that network is down, so it is not `Unavailable` then either.
 * Reading an HTTP path reads the response as the block reads it, so a connection that fails part way through raises
   from within the block, once some of the data has been processed. A connection that closes before the whole body
   has been received raises `IOStreams::Errors::CommunicationsFailure` tagged as `Unavailable`, as does a body that is

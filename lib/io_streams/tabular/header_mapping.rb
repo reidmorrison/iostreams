@@ -3,36 +3,17 @@
 module IOStreams
   class Tabular
     # Maps the columns of a file without a schema, see `IOStreams::Tabular::Mapping`, by its header: the columns of its
-    # header row, or the columns supplied in place of one, which the records of a format of keyed records, such as JSON,
-    # do not need, but its rows do: without them, the keys of its first record are the columns of its rows, which it
-    # reads as their header row, see #read_header.
-    #
-    # Applies the column options of the header, `allowed_columns`, `required_columns` and `skip_unknown`, which are
-    # deprecated, to every input when reading: the header row, the columns supplied, and the keys of each record of a
-    # format without a header row. Unless `IOStreams.enforce_column_restrictions?`, they are only applied to a header row
-    # that is cleansed, and otherwise a warning is logged, once, when applying them would change the result. They never
-    # change a row, whose columns it holds apart from the columns of the records.
+    # header row, once cleansed, see `IOStreams::Tabular::Header#cleanse!`, which the records of a format of keyed
+    # records, such as JSON, do not need, but its rows do: the keys of its first record are the columns of its rows, which
+    # it reads as their header row, see #read_header.
     class HeaderMapping < Mapping
-      # Parameters:
-      #   cleanse: [true|false]
-      #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, as the `cleanse_header`
-      #     option of `IOStreams::Tabular.new` says, which #read_header, #restrict_columns and #read_record apply, unless
-      #     #read_header is told otherwise.
-      #     Default: true
-      #
-      #   See `IOStreams::Tabular::Mapping#initialize` for the others.
-      def initialize(header:, parser:, format:, cleanse: true)
-        super(header: header, parser: parser, format: format)
-        @cleanse         = cleanse
+      # See `IOStreams::Tabular::Mapping#initialize`.
+      def initialize(header:, parser:, format:, blank_rows: true)
+        super
         @requires_header = parser.requires_header?
         @keyed           = parser.class.keyed?
-        @supplied        = !header.columns.nil?
-        @warned          = false
-        # The columns of the rows of a format whose rows they arrange, see #row_parse, apart from the columns of the
-        # records, which the column options cleanse and restrict, see #restrict_columns, since they never change a row:
-        # the columns supplied, as they are supplied, or the keys of the first record of a format of keyed records,
-        # see #read_header, whose plans it keeps, see #row_plan.
-        @rows            = Header.new(columns: header.columns) if @supplied
+        # The keys of the first record of a format of keyed records, which are the columns of its rows, see
+        # #read_header, whose plans it keeps, see #row_plan.
         @keys            = nil
         clear_row_plans
       end
@@ -50,17 +31,15 @@ module IOStreams
 
       # Returns [true|false] whether the rows read start with a header row, which names the column of each value of the
       # rows after it: the header row of a file with one, until it is read, see #header?, or for a format of keyed
-      # records, such as JSON, the keys of its first record, until they are read, see #read_rows_header, unless the
-      # columns were supplied.
+      # records, such as JSON, the keys of its first record, until they are read, see #read_rows_header.
       def rows_header?
-        header? || (@keyed && @rows.nil? && @keys.nil?)
+        header? || (@keyed && @keys.nil?)
       end
 
       # Returns [Array<String>] the columns of the header row once they are cleansed, see
       # `IOStreams::Tabular::Header#cleanse!`.
       def cleanse_header!
         header.cleanse!
-        header.columns
       end
 
       # Returns [false] the keys of the records read are the columns of the file, see `IOStreams::Tabular#field_names?`.
@@ -72,11 +51,6 @@ module IOStreams
       # `IOStreams::Tabular#headerless_columns`.
       def headerless_columns
         nil
-      end
-
-      # Returns [true|false] whether the columns were supplied, in place of a header row.
-      def columns_supplied?
-        @supplied
       end
 
       # Returns [true|false] whether a writer takes the columns from the first row or record written, since they are not
@@ -124,36 +98,22 @@ module IOStreams
         columns
       end
 
-      # Parses the header row, see #parse_header, then cleanses its columns when `cleanse` is truthy, otherwise applies
-      # the column restrictions to them as they are, see #restrict_columns. The keys of a format of keyed records are
-      # only cleansed when the columns are restricted, as its records are, see #read_record.
+      # Parses the header row, see #parse_header, then cleanses its columns. The keys of a format of keyed records are
+      # kept as they are, as the keys of its records are, see #record_parse.
       #
       # Returns [Array] the header row as read, before it is cleansed, or nil when the line is blank, or the format does
       # not have a header row.
-      def read_header(line, cleanse: @cleanse)
+      def read_header(line)
         columns = parse_header(line)
-        if @keyed
-          restrict_columns(rename: cleanse)
-        else
-          cleanse ? header.cleanse! : restrict_columns(rename: false)
-        end
+        header.cleanse! unless @keyed
         columns
       end
 
       # Returns [Array] the header row of the rows, which is not a line of its own, see #rows_header?: the keys of the
-      # record of the line of a format of keyed records, such as JSON, whose columns were not supplied, see #read_header,
-      # or nil when the line is blank, such as a JSON line of `null`, which gives no keys.
+      # record of the line of a format of keyed records, such as JSON, see #read_header, or nil when the line is blank,
+      # such as a JSON line of `null`, which gives no keys.
       def read_rows_header(line)
         read_header(line)
-      end
-
-      # Applies the column restrictions to the columns once they are known, such as the columns supplied in place of a
-      # header row, renaming them when `rename`, see `IOStreams::Tabular::Header#cleanse!`.
-      def restrict_columns(rename: @cleanse)
-        return if header? || !header.restricted?
-        return header.cleanse!(rename: rename) if IOStreams.enforce_column_restrictions?
-
-        warn_restriction("header row") if !@warned && header.cleanse_changes?(rename: rename)
       end
 
       # Returns [Array] the values of the line as the parser parses them, or nil when it is blank. For a format of keyed
@@ -175,20 +135,6 @@ module IOStreams
         header.to_hash(values) if values
       end
 
-      # Returns [Hash] the record of the line, see #record_parse, with the column restrictions applied to its keys for a
-      # format without a header row, such as JSON, whose records each supply their own keys, renaming them when
-      # `cleanse`, see #initialize and `IOStreams::Tabular::Header#restrict_hash`.
-      # Returns nil if the line is blank.
-      def read_record(line)
-        record = record_parse(line)
-        return record unless record.is_a?(::Hash) && header.restricted? && header.columns.nil?
-        return header.restrict_hash(record, rename: @cleanse) if IOStreams.enforce_column_restrictions?
-
-        # Once warned, the remaining records are not checked.
-        warn_restriction("records") if !@warned && header.restrict_hash_changes?(record, rename: @cleanse)
-        record
-      end
-
       # Returns [String|Array|Hash] the line that the parser renders for the row or record: a record by the columns, see
       # `IOStreams::Tabular::Header#to_hash`, for a format of keyed records, such as JSON, otherwise its values in the
       # order of the columns, see `IOStreams::Tabular::Header#to_array`, see `IOStreams::Tabular::Parser::Base.keyed?`.
@@ -196,14 +142,14 @@ module IOStreams
       def render(row)
         return if IOStreams::Utils.blank?(row)
 
-        # The columns of a format of keyed records, such as JSON, are known when they are supplied, or once the first row
-        # gives them, when the record written has every one of them, otherwise its keys are its columns.
+        # The columns of a format of keyed records, such as JSON, are known once the first row gives them, when the record
+        # written has every one of them, otherwise its keys are its columns.
         record = @keyed && header.columns ? header.to_record(row) : row
         @parser.render(@keyed ? header.to_hash(record) : header.to_array(row))
       end
 
       # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
-      # as the first row written when the columns were not supplied in place of a header row.
+      # as the first row written.
       # Returns nil when the format has no header row, once a format of keyed records takes the columns supplied, such as
       # the first row written, which name the keys of the rows after it.
       #
@@ -242,22 +188,17 @@ module IOStreams
 
         header.columns = values.is_a?(::Hash) ? values.keys : values
         @keys          = header.columns.map { |key| key.frozen? ? key : key.dup.freeze }
-        @rows          = nil
         clear_row_plans
         @keys.map(&:dup)
       end
 
-      # Returns [Array] the value of each column of the rows from a record, see #row_parse: for the columns supplied, the
-      # value of the key of its name, or of the first key that is the same once cleansed, skipping the other keys, as the
-      # records read do, see `IOStreams::Tabular::Header#to_array`, otherwise, for the keys of the first record, see
-      # #parse_keys, the value of the key of its name, or nil when the record does not have it.
+      # Returns [Array] the value of each column of the rows from a record, see #row_parse: for each of the keys of the
+      # first record, see #parse_keys, the value of the key of its name, or nil when the record does not have it.
       #
       # Raises `IOStreams::Errors::MissingHeader` before the columns of the rows are known.
       # Raises `IOStreams::Errors::InvalidHeader` for a key that is not one of the keys of the first record, since a row
       # has no column for it.
       def row_of(record)
-        return @rows.to_array(record) if @rows
-
         unless @keys
           raise(Errors::MissingHeader, "The columns of the rows of the #{@format.inspect} format are the keys of its first " \
                                        "record, which must be read first, see IOStreams::Tabular#read_header")
@@ -313,18 +254,6 @@ module IOStreams
           "The keys of a record do not match the columns of the rows, which are the keys of the first record: #{which}. " \
           "Read the records with each(:hash), or describe the columns with a schema whose fields are every key, with " \
           "fieldsMatch \"superset\" when a record can leave out a key"
-        )
-      end
-
-      # Logs a warning that the column restrictions are not applied, once, since the same columns usually apply
-      # to every record.
-      def warn_restriction(input)
-        return if @warned
-
-        @warned = true
-        IOStreams.logger&.warn(
-          "allowed_columns and required_columns are not applied to this input since " \
-          "`IOStreams.enforce_column_restrictions` is false, but would change the #{input} read."
         )
       end
     end
