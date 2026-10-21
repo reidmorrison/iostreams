@@ -148,6 +148,26 @@ class BatchesTest < Minitest::Test
           sql.each { |text| refute_match(/ORDER BY/i, text) }
         end
       end
+
+      describe "the query cache" do
+        it "is left to the block as the caller set it, while the batches are read without it" do
+          name     = "#{db.customer.name} Count"
+          cached   = []
+          callback = ->(*, payload) { cached << payload.fetch(:cached, false) if payload[:name] == name }
+          # Rails finds where each batch of a query without conditions starts with ranges, otherwise by its keys.
+          queries  = [db.order.in_batches(of: 2), db.order.where.not(name: "").in_batches(of: 2)]
+          ActiveSupport::Notifications.subscribed(callback, "sql.active_record") do
+            db.record.cache do
+              queries.each { |query| IOStreams.stream(query).each(:hash) { |_order| db.customer.count } }
+
+              assert_equal 1, db.pool.query_cache.size
+            end
+            IOStreams.stream(queries.first).each(:hash) { |_order| db.customer.count }
+          end
+
+          assert_equal [false, true, true, true, true, true, false, false, false], cached
+        end
+      end
     end
   end
 end

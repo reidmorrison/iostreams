@@ -36,22 +36,20 @@ module IOStreams
       # of the columns of the batch are checked against those that the query was described by, see
       # `IOStreams::Query::Columns#check`.
       #
-      # Each batch is read with a connection of its own from the pool, which is handed back before its rows are yielded.
-      #
-      # The query cache is off while the batches are read, since it would keep each batch, and the query that finds where
-      # it starts. Rails runs that query between the batches, within the loop that yields their rows, so the cache is off
-      # for the block too, for the pool of the model. A write within the block still clears it.
+      # Each batch is read with a connection of its own from the pool, which is handed back before its rows are yielded,
+      # and without the query cache, which would keep its rows, as Rails reads the queries that find where each batch
+      # starts without it, so that the block runs its own queries with the query cache as the caller left it.
       #
       # Raises ArgumentError for a relation that was loaded, whose records have no primary key, see #loaded_query.
       def each(columns, &)
-        @model.uncached do
-          each_query do |query|
-            result = @model.with_connection(prevent_permanent_checkout: true) do |connection|
+        each_query do |query|
+          result = @model.uncached do
+            @model.with_connection(prevent_permanent_checkout: true) do |connection|
               connection.select_all(query.arel, "IOStreams Batch")
             end
-            columns.check(result.columns)
-            result.rows.each(&)
           end
+          columns.check(result.columns)
+          result.rows.each(&)
         end
       end
 
