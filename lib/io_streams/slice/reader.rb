@@ -14,20 +14,18 @@ module IOStreams
       include Enumerable
 
       # Returns [Array<Symbol>] the options of each call that reads slices, see `IOStreams::Stream#reader`, which raises
-      # for any other: those of the lines that it reads, see `IOStreams::Line::Reader.option_names`, the number of rows
-      # of each slice, whether to parse each row, see #initialize, and the column options, see
+      # for any other: those of the lines that it reads, see `IOStreams::Row::Reader.line_option_names`, the number of
+      # rows of each slice, whether to parse each row, see #initialize, and the column options, see
       # `IOStreams::Tabular::Header::OPTION_NAMES`, which are deprecated, and only accepted when they are nil, see .check,
       # so that a caller, such as Rocket Job, can supply the same options in every mode.
       def self.option_names
-        [*IOStreams::Line::Reader.option_names, :size, :validate, *IOStreams::Tabular::Header::OPTION_NAMES]
+        [*IOStreams::Row::Reader.line_option_names, :size, :validate, *IOStreams::Tabular::Header::OPTION_NAMES]
       end
 
       # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
-      # lines, see `IOStreams::Line::Reader.deprecated_option_names`, `embedded_within`, since the format of the file
-      # splits the lines of its rows, as for rows and records, see `IOStreams::Row::Reader.deprecated_option_names`, and
-      # the column options.
+      # lines, see `IOStreams::Line::Reader.deprecated_option_names`, and the column options.
       def self.deprecated_option_names
-        [*IOStreams::Line::Reader.deprecated_option_names, :embedded_within, *IOStreams::Tabular::Header::OPTION_NAMES]
+        [*IOStreams::Line::Reader.deprecated_option_names, *IOStreams::Tabular::Header::OPTION_NAMES]
       end
 
       # Raises ArgumentError for options that cannot read slices, see #initialize, so that a call raises before the file

@@ -2791,22 +2791,21 @@ class StreamTest < Minitest::Test
         assert_equal [%("Jack\nJohnson",hello)], lines
       end
 
-      it "still applies when supplied to read rows or records, and reports a deprecation warning" do
-        expected = {
-          array: [%w[name note], ["Jack", "line one\nline two"]],
-          hash:  [{"name" => "Jack", "note" => "line one\nline two"}]
-        }
-        expected.each_pair do |mode, rows|
-          read = []
-          assert_deprecated(/embedded_within: is deprecated when reading rows and records, .* set it with #format instead/) do
-            IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(mode, embedded_within: '"') { |row| read << row }
+      it "raises when supplied to read rows, records or slices, whose lines the format splits" do
+        %i[array hash].each do |mode|
+          error = assert_raises(ArgumentError) do
+            IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(mode, embedded_within: '"') { |row| row }
           end
 
-          assert_equal rows, read, mode
+          assert_equal "Unknown option :embedded_within for the #{mode.inspect} mode. Valid options: :delimiter, " \
+                       ":buffer_size, :skip_blanks.", error.message
+        end
+        assert_raises(ArgumentError) do
+          IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:slice, size: 1, embedded_within: '"') { |slice| slice }
         end
       end
 
-      it "reports no deprecation warning when supplied to read lines" do
+      it "chooses the lines read in the :line mode" do
         lines = []
         IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:line, embedded_within: '"') { |line| lines << line }
 

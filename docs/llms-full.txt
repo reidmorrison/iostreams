@@ -3173,7 +3173,7 @@ A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, na
 written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its
 `decimal(38, decimals)` holds, that is `38 - decimals`.
 
-A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
+A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `buffer_size:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
 UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yields is a header row of its columns,
 or with a schema of the names of its fields, and each row after it is the values of the fields, in order:
@@ -6196,7 +6196,7 @@ Start with the changes that apply to your application:
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
 | Registers its own extensions with `IOStreams.register_extension` | [Extending IOStreams](#extending-iostreams) |
 | Uses `option(:encode, ...)`, `stream(:encode, ...)` or `stream(:none)` | [`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-), and [`#raw` replaces `stream(:none)`](#raw-replaces-streamnone) |
-| Uses `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
+| Supplies `embedded_within:` to the `:array`, `:hash` or `:slice` mode | [`embedded_within:` for rows and records is removed](#embedded_within-for-rows-and-records-is-removed) |
 
 ### Ruby 3.3 or later is required
 
@@ -6723,6 +6723,16 @@ a plain decimal, such as `12.5`, where it was `0.125e2`.
 
 Fix: code that parses the text of a time cell, such as with `Time.parse`, still works, but gets the time in
 UTC. To get a local time, convert it, such as with `Time.parse(value).localtime`.
+
+#### `embedded_within:` for rows and records is removed
+
+Supplying `embedded_within:` to `each(:array)`, `each(:hash)`, `each(:slice)` or `#reader` in those modes raises
+`ArgumentError`, as for any other option that a mode does not take, which v2.2 reports as deprecated. The format of the
+file splits the lines of its rows and records, since its parser must agree with where they are split:
+`embedded_within: nil` for a CSV file raised when a value contained a line break, and another quote character split
+the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
+
+Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
 ### Reading, writing and options
 
@@ -7856,15 +7866,6 @@ IOStreams.enforce_column_restrictions = false
 ~~~
 
 Default: true. It defaulted to false before v3.0.
-
-#### `embedded_within:` for rows and records is deprecated
-
-Supplying `embedded_within:` to `each(:array)`, `each(:hash)` or `#reader` in those modes is deprecated. It still
-works, but the format of the file splits the lines of its rows and records, since its parser must agree with where
-they are split: `embedded_within: nil` for a CSV file raises when a value contains a line break, and another quote
-character splits the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
-
-Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
 
 ### Smaller changes in behavior
 

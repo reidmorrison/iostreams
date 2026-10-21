@@ -19,7 +19,7 @@ module IOStreams
       #
       # Raises ArgumentError for the `:stream` and `:line` modes, since the source holds rows rather than bytes or lines:
       # its rows are already split, and its header row is not a line. Raises ArgumentError for the options of lines,
-      # `delimiter:`, `embedded_within:` and `buffer_size:`, before the rows are opened, or the tabular that reads them is
+      # `delimiter:` and `buffer_size:`, before the rows are opened, or the tabular that reads them is
       # built, which describes the columns of a query, since the rows are already split.
       def reader(mode = :stream, **args, &)
         if %i[stream line].include?(mode)
@@ -119,17 +119,15 @@ module IOStreams
 
       # Yields [#each] the rows, see #open_rows, which the tabular reads. A header row that was already parsed is read as
       # it is, see `IOStreams::Tabular::Parser::Base`. The options of lines were rejected by #reader.
-      def open_rows_reader(tabular, _delimiter, _embedded_within, _buffer_size, &)
+      def open_rows_reader(tabular, _delimiter, _buffer_size, &)
         open_rows(tabular, &)
       end
 
-      # Raises ArgumentError for the options of lines of a call that reads the rows, `delimiter:`, `embedded_within:` and
-      # `buffer_size:`, since the rows are already split. The other options are checked by the reader of the mode, see
+      # Raises ArgumentError for the options of lines of a call that reads the rows, `delimiter:` and `buffer_size:`,
+      # since the rows are already split. The other options are checked by the reader of the mode, see
       # `IOStreams::Stream#reader`.
-      def reject_lines!(delimiter: nil, embedded_within: :auto, buffer_size: nil, **)
-        options = {delimiter: delimiter, embedded_within: (embedded_within unless embedded_within == :auto),
-                   buffer_size: buffer_size}
-        names   = options.compact.keys
+      def reject_lines!(delimiter: nil, buffer_size: nil, **)
+        names = {delimiter: delimiter, buffer_size: buffer_size}.compact.keys
         return if names.empty?
 
         raise(ArgumentError, "#{names.map { |name| "#{name}:" }.join(', ')} cannot be used to read a #{source_name}, " \

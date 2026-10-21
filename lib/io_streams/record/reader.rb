@@ -9,11 +9,11 @@ module IOStreams
       include Enumerable
 
       # Returns [Array<Symbol>] the options of each call that reads records, see `IOStreams::Stream#reader`, which raises
-      # for any other: those of the lines that it reads, see `IOStreams::Line::Reader.option_names`, whether to skip the
-      # blank records, see #initialize, and those of the `IOStreams::Tabular` that parses them, see
+      # for any other: those of the lines that it reads, see `IOStreams::Row::Reader.line_option_names`, whether to skip
+      # the blank records, see #initialize, and those of the `IOStreams::Tabular` that parses them, see
       # `IOStreams::Tabular.read_option_names`.
       def self.option_names
-        [*IOStreams::Line::Reader.option_names, :skip_blanks, *IOStreams::Tabular.read_option_names]
+        [*IOStreams::Row::Reader.line_option_names, :skip_blanks, *IOStreams::Tabular.read_option_names]
       end
 
       # Raises ArgumentError for a `skip_blanks` that is not true or false, see #initialize, so that a call raises before
@@ -23,10 +23,10 @@ module IOStreams
       end
 
       # Returns [Array<Symbol>] the options of .option_names that are deprecated, which a call still accepts: those of the
-      # lines, see `IOStreams::Line::Reader.deprecated_option_names`, `embedded_within`, since the format of the file splits
-      # the lines of its records, and those of the tabular, see `IOStreams::Tabular.deprecated_option_names`.
+      # lines, see `IOStreams::Line::Reader.deprecated_option_names`, and those of the tabular, see
+      # `IOStreams::Tabular.deprecated_option_names`.
       def self.deprecated_option_names
-        [*IOStreams::Line::Reader.deprecated_option_names, :embedded_within, *IOStreams::Tabular.deprecated_option_names]
+        [*IOStreams::Line::Reader.deprecated_option_names, *IOStreams::Tabular.deprecated_option_names]
       end
 
       # Create a reader to return the stream as Hash records.

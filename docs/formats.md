@@ -745,7 +745,7 @@ A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, na
 written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its
 `decimal(38, decimals)` holds, that is `38 - decimals`.
 
-A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `embedded_within:` options, raise
+A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `buffer_size:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
 UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yields is a header row of its columns,
 or with a schema of the names of its fields, and each row after it is the values of the fields, in order:

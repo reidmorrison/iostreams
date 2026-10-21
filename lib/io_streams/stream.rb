@@ -266,8 +266,8 @@ module IOStreams
     #      applies, so this includes `:array` and `:hash` for a file name without a tabular extension.
     #   2. Or, in the `:line` mode, the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`).
     # - Pass `embedded_within: nil` to read the physical lines of a quoted format in the `:line` mode.
-    #   Supplying `embedded_within` in the `:array` and `:hash` modes is deprecated, since the format splits their
-    #   lines: set the format with #format instead. It reports a deprecation warning, see `IOStreams::Deprecation`.
+    #   The `:array`, `:hash` and `:slice` modes do not take `embedded_within`, since the format splits their lines
+    #   where its parser expects: set the format with #format instead.
     # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
     #   ArgumentError when they are supplied to a call, see PATH_SETTINGS. So does any other option that the mode does
     #   not take, before the file is opened, see `IOStreams::Line::Reader.option_names`,
@@ -850,11 +850,11 @@ module IOStreams
     #
     # The other options, such as `cleanse_header:` and `columns:`, are those of the tabular that reads the rows, see
     # `IOStreams::Tabular.new`.
-    def row_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, skip_blanks: false, **args)
+    def row_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, **args)
       reject_unknown_options!(:array, IOStreams::Row::Reader, args)
       IOStreams::Row::Reader.check(skip_blanks: skip_blanks)
       tabular = tabular(**args)
-      open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
+      open_rows_reader(tabular, delimiter, buffer_size) do |io|
         yield IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks)
       end
     end
@@ -862,11 +862,11 @@ module IOStreams
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, embedded_within: :auto, buffer_size: nil, skip_blanks: false, **args)
+    def record_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, **args)
       reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
       IOStreams::Record::Reader.check(skip_blanks: skip_blanks)
       tabular = tabular(**args)
-      open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |io|
+      open_rows_reader(tabular, delimiter, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks)
       end
     end
@@ -877,37 +877,31 @@ module IOStreams
     # The lines are split where the format expects, as for rows and records, see #row_reader. The options are checked
     # before the file is opened, see `IOStreams::Slice::Reader.check`: the column options are only accepted when they
     # are nil, since the header row that they would change could not be read again where a slice is parsed.
-    def slice_reader(size:, validate: false, delimiter: nil, embedded_within: :auto, buffer_size: nil, **args)
+    def slice_reader(size:, validate: false, delimiter: nil, buffer_size: nil, **args)
       reject_unknown_options!(:slice, IOStreams::Slice::Reader, args)
       IOStreams::Slice::Reader.check(size: size, validate: validate, **args)
       tabular = tabular(**args)
-      open_rows_reader(tabular, delimiter, embedded_within, buffer_size) do |rows|
+      open_rows_reader(tabular, delimiter, buffer_size) do |rows|
         yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate)
       end
     end
 
-    # Yields [#each] the rows of the format of the tabular: its lines, split where the format expects, or the rows of a
-    # format that holds them in a binary layout of its own, such as Parquet, read from its bytes, see
-    # `IOStreams::Tabular#read_rows`.
+    # Yields [#each] the rows of the format of the tabular: its lines, split where the format expects, within the quote
+    # character of its values, see `IOStreams::Tabular#quote_character`, or the rows of a format that holds them in a
+    # binary layout of its own, such as Parquet, read from its bytes, see `IOStreams::Tabular#read_rows`.
     #
     # The line reader reads in blocks of `buffer_size` bytes, or of its own default when it is nil.
     #
-    # Raises ArgumentError when `delimiter`, `embedded_within` or `buffer_size` is supplied, or an encoding is set, for a
-    # format without lines, see #reject_line_options!.
-    def open_rows_reader(tabular, delimiter, embedded_within, buffer_size, &)
+    # Raises ArgumentError when `delimiter` or `buffer_size` is supplied, or an encoding is set, for a format without
+    # lines, see #reject_line_options!.
+    def open_rows_reader(tabular, delimiter, buffer_size, &)
       unless tabular.lines?
-        reject_line_options!(tabular, delimiter: delimiter, embedded_within: (embedded_within unless embedded_within == :auto),
-                                      buffer_size: buffer_size)
+        reject_line_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         return stream_reader { |io| tabular.read_rows(io, &) }
       end
 
-      if embedded_within == :auto
-        embedded_within = tabular.quote_character
-      else
-        Deprecation.warn("embedded_within: is deprecated when reading rows and records, since the format of the file " \
-                         "splits their lines, set it with #format instead")
-      end
-      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: embedded_within, buffer_size: buffer_size, &)
+      open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: tabular.quote_character,
+                                         buffer_size: buffer_size, &)
     end
 
     # Yields [#<<] the writer of the rows of the format of the tabular: a line writer, or the writer of a format that

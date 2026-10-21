@@ -556,11 +556,11 @@ class StreamOptionsTest < Minitest::Test
         assert_empty IOStreams::Line::Reader.deprecated_option_names
         assert_empty IOStreams::Line::Writer.deprecated_option_names
         %w[Row Record].each do |name|
-          assert_equal %i[allowed_columns cleanse_header columns embedded_within required_columns skip_unknown],
+          assert_equal %i[allowed_columns cleanse_header columns required_columns skip_unknown],
                        IOStreams.const_get(name)::Reader.deprecated_option_names.sort
           assert_equal %i[columns], IOStreams.const_get(name)::Writer.deprecated_option_names
         end
-        assert_equal %i[allowed_columns columns embedded_within required_columns skip_unknown],
+        assert_equal %i[allowed_columns columns required_columns skip_unknown],
                      IOStreams::Slice::Reader.deprecated_option_names.sort
       end
 

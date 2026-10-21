@@ -60,7 +60,7 @@ changes, and docs/errors.md when what it raises does.
   `columns:`, or the target is a row or record writer of the mode that is already open (`Stream#open_writer?`), which
   writes with its own settings.
 - It is a `Row::Stream`, so it raises `ArgumentError` for what needs bytes (`#stream`, `#option`, `#encoding`, `#raw`,
-  the `:stream` and `:line` modes), for the options of lines (`delimiter:`, `embedded_within:`, `buffer_size:`, which
+  the `:stream` and `:line` modes), for the options of lines (`delimiter:` and `buffer_size:`, which
   `Row::Stream#reader` rejects before the describe query runs), and for writing. `#file_name=` raises, since a file
   name has no effect on rows that are always `:array`, while `#file_name` returns nil, since IOStreams asks it of every
   stream.
