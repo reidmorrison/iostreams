@@ -26,10 +26,12 @@ module IOStreams
     autoload :Columns,          "io_streams/query/columns"
     autoload :Failure,          "io_streams/query/failure"
     autoload :Mysql2Stream,     "io_streams/query/mysql2_stream"
+    autoload :MysqlFailure,     "io_streams/query/mysql_failure"
     autoload :PostgresqlCursor, "io_streams/query/postgresql_cursor"
     autoload :SqliteStatement,  "io_streams/query/sqlite_statement"
     autoload :Statement,        "io_streams/query/statement"
     autoload :Stream,           "io_streams/query/stream"
+    autoload :TrilogyFailure,   "io_streams/query/trilogy_failure"
 
     # The sources that each read a relation as one query on their database, see #source. Each one answers:
     #   `.reads?(connection)`: whether it reads the database of the connection.
@@ -40,6 +42,11 @@ module IOStreams
     #   `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw values of each row, from the row after
     #   the last one that it yielded, until the block ends, and closes the statement when it does.
     SOURCES = %i[PostgresqlCursor Mysql2Stream SqliteStatement].freeze
+
+    # What knows the failures of each driver of a database, which #driver_failure_kind asks: each of the SOURCES, for
+    # the driver that it reads with, and TrilogyFailure for trilogy, which no source reads with, since its queries
+    # return every row at once, but whose queries are read in batches.
+    DRIVER_FAILURES = [*SOURCES, :TrilogyFailure].freeze
 
     # The earliest version of Active Record that a query is read with.
     MINIMUM_VERSION = "7.2"
@@ -287,17 +294,17 @@ module IOStreams
     end
 
     # Returns [Module] the kind of failure that an exception raised while reading the query means, such as
-    # `IOStreams::Errors::Unavailable`, or nil when it is none of them, see `IOStreams::Query::Failure`, which asks the
-    # sources for an exception of the driver of their database, see #driver_failure_kind.
+    # `IOStreams::Errors::Unavailable`, or nil when it is none of them, see `IOStreams::Query::Failure`, which asks
+    # about an exception of the driver of the database, see #driver_failure_kind.
     def failure_kind(exception)
       Failure.kind(exception) { |driver_exception| driver_failure_kind(driver_exception) }
     end
 
-    # Returns [Module] the kind of failure that an exception of the driver of a database means, which the source of
-    # that database knows, see SOURCES, `IOStreams::Query::Failure::NONE` when that source knows it to be none of them,
-    # or nil when no source knows it.
+    # Returns [Module] the kind of failure that an exception of the driver of a database means, which what knows the
+    # failures of that driver says, see DRIVER_FAILURES, `IOStreams::Query::Failure::NONE` when it knows it to be none of
+    # them, or nil when none of them knows it.
     def driver_failure_kind(exception)
-      SOURCES.each do |name|
+      DRIVER_FAILURES.each do |name|
         kind = Query.const_get(name).failure_kind(exception)
         return kind if kind
       end

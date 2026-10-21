@@ -26,28 +26,6 @@ module IOStreams
       # casts.
       STREAM = {stream: true, cache_rows: false, as: :array}.freeze
 
-      # The kind of failure of each error number of MySQL that the mysql2 gem raises while it streams a result, which
-      # Active Record does not see, or that caused a connection that could not be made, see `IOStreams::Query::Failure`.
-      # A host that does not resolve, CR_UNKNOWN_HOST, 2005, is none of them, as for a path, see
-      # `IOStreams::Errors::Unavailable.unknown_host?`.
-      ERROR_KINDS = {
-        1044 => Errors::PermissionDenied, # ER_DBACCESS_DENIED_ERROR
-        1045 => Errors::PermissionDenied, # ER_ACCESS_DENIED_ERROR
-        1142 => Errors::PermissionDenied, # ER_TABLEACCESS_DENIED_ERROR
-        1143 => Errors::PermissionDenied, # ER_COLUMNACCESS_DENIED_ERROR
-        1227 => Errors::PermissionDenied, # ER_SPECIFIC_ACCESS_DENIED_ERROR
-        1040 => Errors::Unavailable,      # ER_CON_COUNT_ERROR, too many connections
-        1053 => Errors::Unavailable,      # ER_SERVER_SHUTDOWN
-        1205 => Errors::Unavailable,      # ER_LOCK_WAIT_TIMEOUT
-        1213 => Errors::Unavailable,      # ER_LOCK_DEADLOCK
-        1317 => Errors::Unavailable,      # ER_QUERY_INTERRUPTED
-        2002 => Errors::Unavailable,      # CR_CONNECTION_ERROR
-        2003 => Errors::Unavailable,      # CR_CONN_HOST_ERROR
-        2006 => Errors::Unavailable,      # CR_SERVER_GONE_ERROR
-        2013 => Errors::Unavailable,      # CR_SERVER_LOST
-        3024 => Errors::Unavailable       # ER_QUERY_TIMEOUT, of max_execution_time
-      }.freeze
-
       # Returns [true|false] whether the connection is to MySQL through the mysql2 gem, unlike trilogy, whose queries
       # return every row at once.
       def self.reads?(connection)
@@ -60,12 +38,14 @@ module IOStreams
         true
       end
 
-      # Returns [Module] the kind of failure that an exception raised by the mysql2 gem means, see ERROR_KINDS, or nil
-      # when it is none of them.
+      # Returns [Module] the kind of failure that an exception raised by the mysql2 gem means, such as while it streams
+      # a result, which Active Record does not see, or for a connection that could not be made, see
+      # `IOStreams::Query::Failure`, which is what MySQL says of its error number, see `IOStreams::Query::MysqlFailure`,
+      # or nil when it is none of them.
       def self.failure_kind(exception)
         return unless defined?(::Mysql2::Error) && exception.is_a?(::Mysql2::Error)
 
-        ERROR_KINDS[exception.error_number]
+        MysqlFailure.kind(exception.error_number)
       end
 
       # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record

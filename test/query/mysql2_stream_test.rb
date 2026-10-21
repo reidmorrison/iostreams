@@ -149,6 +149,15 @@ class Mysql2StreamTest < Minitest::Test
         assert_kind_of IOStreams::Errors::PermissionDenied, error
       end
 
+      it "tags a user that may not use the database as PermissionDenied" do
+        stranger = create_user("stranger")
+        orders   = db.orders_at("Stranger", user: stranger, password: "stranger")
+        error    = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+
+        assert_kind_of IOStreams::Errors::PermissionDenied, error
+        assert_equal 1044, error.cause.error_number
+      end
+
       it "does not tag a host that does not resolve" do
         orders = db.orders_at("Unknown", host: "iostreams-no-such-host.invalid")
         error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
@@ -172,26 +181,60 @@ class Mysql2StreamTest < Minitest::Test
 
           assert_equal(orders.pluck(:name), records.map { |order| order["name"] })
         end
+
+        it "tags a table that the user may not read as PermissionDenied" do
+          reader = create_user("reader")
+          execute("GRANT SELECT ON customers TO '#{reader}'@'%'")
+          orders = db.orders_at("TrilogyReader", scheme: "trilogy", user: reader, password: "reader")
+          error  = assert_raises(ActiveRecord::StatementInvalid) { each(IOStreams.stream(orders.in_batches(of: 2))) }
+
+          assert_kind_of IOStreams::Errors::PermissionDenied, error
+          assert_instance_of Trilogy::ProtocolError, error.cause
+          assert_match(/SELECT command denied to user '#{reader}'/, error.message)
+        end
+
+        # The query that describes the columns connects before trilogy is refused as a source, while `in_batches` would
+        # connect in Rails, for the primary key.
+        it "tags a user that may not use the database as PermissionDenied, which Active Record says does not exist" do
+          stranger = create_user("stranger")
+          orders   = db.orders_at("TrilogyStranger", scheme: "trilogy", user: stranger, password: "stranger")
+          error    = assert_raises(ActiveRecord::NoDatabaseError) { each(IOStreams.stream(orders.all)) }
+
+          assert_kind_of IOStreams::Errors::PermissionDenied, error
+          assert_equal 1044, error.cause.error_code
+        end
       end
     end
   end
 
   describe ".failure_kind" do
-    it "returns the kind of failure of an error number of MySQL" do
+    before do
       unless QueryDatabase.driver?("mysql2")
         skip "The mysql2 gem is not installed, see the optional mysql group of the Gemfile, and JRuby cannot load it"
       end
+    end
 
-      error = ->(number) { Mysql2::Error.new("failed", nil, number) }
+    def kind(exception)
+      IOStreams::Query::Mysql2Stream.failure_kind(exception)
+    end
 
-      assert_equal IOStreams::Errors::PermissionDenied, IOStreams::Query::Mysql2Stream.failure_kind(error.call(1142))
-      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::Mysql2Stream.failure_kind(error.call(2013))
-      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::Mysql2Stream.failure_kind(error.call(3024))
-      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::Mysql2Stream.failure_kind(error.call(2003))
-      assert_equal IOStreams::Errors::PermissionDenied, IOStreams::Query::Mysql2Stream.failure_kind(error.call(1045))
-      assert_nil IOStreams::Query::Mysql2Stream.failure_kind(error.call(2005))
-      assert_nil IOStreams::Query::Mysql2Stream.failure_kind(error.call(1146))
-      assert_nil IOStreams::Query::Mysql2Stream.failure_kind(RuntimeError.new("other"))
+    # Returns [Mysql2::Error] the exception that mysql2 raises for an error of the client library, or that the server
+    # sent, with its number, as its C extension makes it, which is of the class that mysql2 gives the error number.
+    def numbered_error(number, message)
+      Mysql2::Error.new_with_args(message, 80_400, number, "HY000")
+    end
+
+    it "returns what MySQL says of the error number, whatever the class that mysql2 gives it" do
+      assert_equal IOStreams::Errors::PermissionDenied,
+                   kind(numbered_error(1142, "SELECT command denied to user 'jack'@'%' for table 'orders'"))
+      # mysql2 raises it as a connection error.
+      denied = numbered_error(1044, "Access denied for user 'jack'@'%' to database 'shop'")
+
+      assert_kind_of Mysql2::Error::ConnectionError, denied
+      assert_equal IOStreams::Errors::PermissionDenied, kind(denied)
+      assert_equal IOStreams::Errors::Unavailable, kind(numbered_error(2013, "Lost connection to MySQL server during query"))
+      assert_nil kind(numbered_error(1146, "Table 'shop.order' doesn't exist"))
+      assert_nil kind(RuntimeError.new("other"))
     end
   end
 end
