@@ -37,47 +37,58 @@ class TabularTest < Minitest::Test
       IOStreams::Tabular.new(columns: %w[first_field second third], format: format)
     end
 
+    # Returns [IOStreams::Tabular] of a fixed width file with the schema of the supplied descriptor.
+    def fixed_width(descriptor)
+      IOStreams::Tabular.new(format: :fixed, schema: IOStreams::Schema.new(descriptor))
+    end
+
     let :fixed do
-      layout = [
-        {size: 23, key: :name},
-        {size: 40, key: :address},
-        {size: 2},
-        {size: 5, key: :zip, type: :integer},
-        {size: 8, key: :age, type: :integer},
-        {size: 10, key: :weight, type: :float, decimals: 2}
-      ]
-      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+      fixed_width(
+        fieldsMatch: "subset",
+        fields:      [
+          {name: :name, type: "string", width: 23, truncate: true},
+          {name: :address, type: "string", width: 40, truncate: true},
+          {name: :zip, type: "integer", width: 5, start: 66},
+          {name: :age, type: "integer", width: 8},
+          {name: :weight, type: "number", width: 10, floatNumber: true, decimals: 2}
+        ]
+      )
     end
 
     let :fixed_with_remainder do
-      layout = [
-        {size: 23, key: :name},
-        {size: 40, key: :address},
-        {size: :remainder, key: :remainder}
-      ]
-      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+      fixed_width(
+        fieldsMatch: "subset",
+        fields:      [
+          {name: :name, type: "string", width: 23, truncate: true},
+          {name: :address, type: "string", width: 40, truncate: true},
+          {name: :remainder, type: "string", width: "remainder", truncate: true}
+        ]
+      )
     end
 
     let :fixed_discard_remainder do
-      layout = [
-        {size: 23, key: :name},
-        {size: 40, key: :address},
-        {size: :remainder}
-      ]
-      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+      fixed_width(
+        fieldsMatch: "subset",
+        width:       "remainder",
+        fields:      [
+          {name: :name, type: "string", width: 23, truncate: true},
+          {name: :address, type: "string", width: 40, truncate: true}
+        ]
+      )
     end
 
     let :fixed_with_strings do
-      layout = [
-        {size: "23", key: "name"},
-        {size: 40, key: "address"},
-        {size: 2},
-        {size: 5.0, key: "zip", type: "integer"},
-        {size: "8", key: "age", type: "integer"},
-        {size: 10, key: "weight", type: "float", decimals: 2},
-        {size: "remainder", key: "remainder"}
-      ]
-      IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
+      fixed_width(
+        fieldsMatch: "subset",
+        fields:      [
+          {name: "name", type: "string", width: 23, truncate: true},
+          {name: "address", type: "string", width: 40, truncate: true},
+          {name: "zip", type: "integer", width: 5, start: 66},
+          {name: "age", type: "integer", width: 8},
+          {name: "weight", type: "number", width: 10, floatNumber: true, decimals: 2},
+          {name: "remainder", type: "string", width: "remainder", truncate: true}
+        ]
+      )
     end
 
     describe "#parse_header" do
@@ -462,7 +473,7 @@ class TabularTest < Minitest::Test
 
         describe "multi-byte characters" do
           let :fixed_names do
-            IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 6, key: "name"}, {size: 7, key: "city"}]})
+            fixed_width(fields: [{name: "name", type: "string", width: 6}, {name: "city", type: "string", width: 7}])
           end
 
           it "counts characters of UTF-8 text" do
@@ -661,15 +672,6 @@ class TabularTest < Minitest::Test
 
           assert string = fixed.render(name: id, zip: 34_618)
           assert_equal "id-7                                                             34618000000000000000.00", string
-        end
-
-        it "renders a filler with a type as spaces, like any other filler" do
-          tabular = IOStreams::Tabular.new(
-            format:         :fixed,
-            format_options: {layout: [{size: 3, key: :a}, {size: 3, type: :integer}, {size: 2, key: :b}]}
-          )
-
-          assert_equal "x     y ", tabular.render(a: "x", b: "y")
         end
 
         it "truncates long strings" do
@@ -1108,7 +1110,7 @@ class TabularTest < Minitest::Test
 
     describe "#encoding" do
       it "is ASCII, read as UTF-8, for fixed width files" do
-        assert_equal "US-ASCII:UTF-8", IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 1}]}).encoding
+        assert_equal "US-ASCII:UTF-8", fixed_width(fields: [{name: "a", width: 1}]).encoding
       end
 
       it "is nil, the default encoding of the encode stream, for the other formats" do
@@ -1340,16 +1342,6 @@ class TabularTest < Minitest::Test
           IOStreams::Tabular.new(file_name: "sample.unknown", default_format: nil)
         end
       end
-
-      it "raises for both a schema and format options" do
-        schema = IOStreams::Schema.new(fields: [{name: "id", width: 2}])
-
-        assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :fixed, schema: schema, format_options: {layout: [{size: 2}]}) }
-      end
-
-      it "ignores empty format options" do
-        assert_nil IOStreams::Tabular.new(format: :csv, format_options: {}).schema
-      end
     end
 
     describe "schema" do
@@ -1464,7 +1456,7 @@ class TabularTest < Minitest::Test
       it "takes no header row from the rows written to a file without one, whose rows are the fields in order" do
         assert_equal [%({"id":1,"pay":2.50})], rendered_rows(IOStreams::Tabular.new(format: :json, schema: schema), [1, 2.5])
         assert_equal ["7"], rendered_rows(IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "id"}], header: false)), ["7"])
-        assert_equal ["7 "], rendered_rows(IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: :id}]}), ["7"])
+        assert_equal ["7 "], rendered_rows(fixed_width(fields: [{name: :id, width: 2}]), ["7"])
 
         csv = IOStreams::Tabular.new(format: :csv)
 
@@ -1496,7 +1488,9 @@ class TabularTest < Minitest::Test
 
       it "accepts skip_unknown without allowed_columns, which it only applies to, as Rocket Job supplies it" do
         [true, false].each do |skip_unknown|
-          tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: skip_unknown)
+          tabular = assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema/) do
+            IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: skip_unknown)
+          end
 
           assert_equal %w[id pay], tabular.read_header("id,pay")
           assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, tabular.record_parse("1,2.5"))
@@ -1611,15 +1605,26 @@ class TabularTest < Minitest::Test
       end
 
       it "raises for cleansing the header row, whose columns are matched to the fields instead" do
-        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT)
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
 
         assert_predicate tabular, :field_names?
         assert_equal %w[id pay], tabular.read_header("ID,Pay")
-        [true, false, nil].each do |cleanse|
+        [true, false, nil, :default].each do |cleanse|
           error = assert_raises(ArgumentError, cleanse.inspect) { IOStreams::Tabular.new(format: :csv, schema: schema, cleanse_header: cleanse) }
           assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
         end
         assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
+        assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: :default) }
+      end
+
+      it "raises for cleansing the header row once it is read, so that the header keeps it as it was read" do
+        schema  = IOStreams::Schema.new(fieldsMatch: "partial", fields: [{name: "E-mail"}, {name: "e_mail"}])
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+        tabular.read_header("E-mail,e_mail")
+
+        error = assert_raises(ArgumentError) { tabular.cleanse_header! }
+        assert_match(/\AThe header row cannot be cleansed with a schema/, error.message)
+        assert_equal %w[E-mail e_mail], IOStreams::Tabular.new(format: :csv, schema: schema).read_header(tabular.header.columns)
       end
 
       it "raises for the columns before cleanse_header, with a schema" do
@@ -1638,49 +1643,18 @@ class TabularTest < Minitest::Test
         assert_equal "Jack21", fixed.render(["Jack", 21])
       end
 
-      it "translates the format options of a fixed width file, which Rocket Job supplies" do
-        fixed = IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: "id", type: :integer}]})
-
-        assert_equal({"id" => 7}, fixed.record_parse("07"))
-        assert_equal "07", fixed.render({"id" => 7})
+      it "skips the keys of a record written that are not fields, with fieldsMatch subset" do
+        assert_equal "Jill      022", fixed_width(
+          fieldsMatch: "subset",
+          fields:      [{name: :name, width: 10}, {name: :age, type: "integer", width: 3}]
+        ).render({name: "Jill", age: 22, id: 5})
       end
 
-      it "cleanses and restricts the columns supplied for the format options when the header is read, as before they were deprecated" do
-        layout = {layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}]}
-        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: %w[ID Code])
-        fixed.read_header(%w[ID Code], cleanse: true)
+      it "takes the key of a record written that is the name of its field, when it also has the other kind" do
+        fixed = fixed_width(fieldsMatch: "subset", fields: [{name: :name, width: 10}, {name: :age, type: "integer", width: 3}])
 
-        assert_equal %w[id code], fixed.header.columns
-        assert_equal({"id" => 7, "code" => "abc"}, fixed.record_parse("07abc"))
-
-        restricted = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: %w[ID Bogus], allowed_columns: %w[id code], skip_unknown: false)
-        assert_raises(IOStreams::Errors::InvalidHeader) { restricted.read_header(%w[ID Bogus], cleanse: true) }
-
-        required = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: %w[ID], required_columns: %w[code])
-        assert_raises(IOStreams::Errors::InvalidHeader) { required.read_header(%w[ID], cleanse: false) }
-      end
-
-      it "raises for format options with a format other than fixed width, which the layout does not describe" do
-        error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, format_options: {layout: [{size: 2, key: "id"}]}) }
-        assert_match(/\Aformat_options: is the layout of a fixed width file, so it only applies to the :fixed format, not :csv/, error.message)
-        assert_raises(ArgumentError) { IOStreams::Tabular.new(file_name: "data.txt", format_options: {layout: [{size: 2, key: "id"}]}) }
-      end
-
-      it "applies the options of the header to the records of the format options, as before they were deprecated" do
-        layout = {layout: [{size: 2, key: :id, type: :integer}, {size: 1, key: :code}]}
-        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: ["id"], allowed_columns: nil, skip_unknown: false)
-
-        refute_predicate fixed, :field_names?
-        assert_equal({"id" => 7}, fixed.record_parse("07x"))
-        assert_equal "07 ", fixed.render({id: 7, code: "x"})
-        cleansed = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: ["ID"], allowed_columns: ["id"])
-        cleansed.restrict_columns
-
-        assert_equal %w[id], cleansed.header.columns
-        as_is = IOStreams::Tabular.new(format: :fixed, format_options: layout, columns: ["ID"], allowed_columns: ["ID"], cleanse_header: nil)
-        as_is.restrict_columns
-
-        assert_equal %w[ID], as_is.header.columns
+        assert_equal "Jill      022", fixed.render({"name" => "Jack", :name => "Jill", :age => 22})
+        assert_equal "Jill      022", fixed.render({:name => "Jill", "name" => "Jack", :age => 22})
       end
     end
 
@@ -1835,105 +1809,6 @@ class TabularTest < Minitest::Test
 
         error = assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams::Tabular.new(format: :csv, schema: schema).record_parse("Jack,21,1") }
         assert_match(/1 value after the last column, which a schema with header: false does not accept/, error.message)
-      end
-    end
-
-    describe "IOStreams::Tabular::Parser::Fixed.schema" do
-      it "translates a layout into a schema" do
-        layout = [
-          {size: 23, key: :name},
-          {size: 40, key: :address},
-          {size: 2},
-          {size: 5, key: :zip, type: :integer},
-          {size: 8, key: :age, type: :integer},
-          {size: 10, key: :weight, type: :float, decimals: 2}
-        ]
-        expected = {
-          fields:      [
-            {name: :name, type: "string", width: 23, truncate: true},
-            {name: :address, type: "string", width: 40, truncate: true},
-            {name: :zip, type: "integer", width: 5, start: 66},
-            {name: :age, type: "integer", width: 8},
-            {name: :weight, type: "number", width: 10, floatNumber: true, decimals: 2}
-          ],
-          fieldsMatch: "subset",
-          keyType:     "symbol"
-        }
-
-        assert_equal expected, IOStreams::Tabular::Parser::Fixed.schema(layout: layout)
-      end
-
-      it "translates a remainder, and a filler at the end of the line" do
-        assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}], fieldsMatch: "subset"},
-                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "rest"}], truncate: false))
-        # A float that takes the remainder of the line was written with all of its digits, whatever its decimals.
-        assert_equal({fields: [{name: :pay, type: "number", width: "remainder", floatNumber: true}], fieldsMatch: "subset", keyType: "symbol"},
-                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: :pay, type: :float, decimals: -1}]))
-        assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: 5},
-                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: 3}], truncate: false))
-        assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: "remainder"},
-                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: :remainder}], truncate: false))
-      end
-
-      it "translates sizes and types that are strings" do
-        assert_equal({fields: [{name: "id", type: "integer", width: 5}], fieldsMatch: "subset"},
-                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: "5", key: "id", type: "integer"}]))
-      end
-
-      it "translates a layout whose properties are strings, such as one read from JSON" do
-        layout = JSON.parse('[{"size": 5, "key": "id", "type": "integer"}, {"size": 2}, {"size": "remainder", "key": "rest"}]')
-
-        assert_equal({fields:      [{name: "id", type: "integer", width: 5},
-                                    {name: "rest", type: "string", width: "remainder", truncate: true, start: 8}],
-                      fieldsMatch: "subset"},
-                     IOStreams::Tabular::Parser::Fixed.schema(layout: layout))
-      end
-
-      it "raises for a column with a property both as a string and as a symbol" do
-        error = assert_raises(IOStreams::Errors::InvalidLayout) do
-          IOStreams::Tabular::Parser::Fixed.schema(layout: [{:size => 5, "size" => 6, :key => "id"}])
-        end
-        assert_match(/both as a String and as a Symbol/, error.message)
-      end
-
-      it "skips the keys of a record written that the layout does not have, as a layout did" do
-        layout = [{size: 10, key: :name}, {size: 3, key: :age, type: :integer}]
-        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
-
-        assert_equal "Jill      022", fixed.render({name: "Jill", age: 22, id: 5})
-        assert_equal "Jill      022", IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout}, columns: %w[name age id]).render(["Jill", 22, 5])
-      end
-
-      it "takes the key of a record written that is the key of the layout, when it also has the other kind" do
-        layout = [{size: 10, key: :name}, {size: 3, key: :age, type: :integer}]
-        fixed  = IOStreams::Tabular.new(format: :fixed, format_options: {layout: layout})
-
-        assert_equal "Jill      022", fixed.render({"name" => "Jack", :name => "Jill", :age => 22})
-        assert_equal "Jill      022", fixed.render({:name => "Jill", "name" => "Jack", :age => 22})
-      end
-
-      it "raises for an invalid layout" do
-        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{key: "id"}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 0, key: "id"}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id", type: :date}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) do
-          IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: 2, key: "b"}])
-        end
-      end
-
-      it "raises for a layout that its schema cannot hold: two columns with one key, a key of another kind, or negative decimals" do
-        [
-          [{size: 2, key: :filler}, {size: 2, key: :filler}],
-          [{size: 2, key: :a}, {size: 2, key: "a"}],
-          [{size: 2, key: 1}],
-          [{size: 2, key: :pay, type: :float, decimals: -1}],
-          [{size: 2, key: :pay, type: :float, decimals: "-2"}]
-        ].each do |layout|
-          assert_raises(IOStreams::Errors::InvalidLayout, layout.inspect) { IOStreams::Tabular::Parser::Fixed.schema(layout: layout) }
-        end
-        # The decimals of a column that is not a float, which have no effect, as before it was deprecated.
-        assert_equal [{name: :id, type: "integer", width: 2}],
-                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: :id, type: :integer, decimals: -1}])[:fields]
       end
     end
   end

@@ -8,11 +8,6 @@ module Tabular
     describe IOStreams::Tabular::Mapping do
       let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
 
-      # The schema of the layout of a fixed width file, which is deprecated, as Tabular translates it.
-      let(:layout) do
-        IOStreams::Schema.new(IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}]))
-      end
-
       def header(**)
         IOStreams::Tabular::Header.new(**)
       end
@@ -29,11 +24,11 @@ module Tabular
       end
 
       describe "IOStreams::Tabular.new" do
-        it "maps the columns by the header without a schema, by the fields of a schema, or by the layout of a fixed width file" do
+        it "maps the columns by the header without a schema, or by the fields of a schema" do
           assert_instance_of IOStreams::Tabular::HeaderMapping, IOStreams::Tabular.new(format: :csv).mapping
           assert_instance_of IOStreams::Tabular::SchemaMapping, IOStreams::Tabular.new(format: :csv, schema: schema).mapping
-          assert_instance_of IOStreams::Tabular::LayoutMapping,
-                             IOStreams::Tabular.new(format: :fixed, format_options: {layout: [{size: 2, key: :id}]}).mapping
+          assert_instance_of IOStreams::Tabular::SchemaMapping,
+                             IOStreams::Tabular.new(format: :fixed, schema: IOStreams::Schema.new(fields: [{name: :id, width: 2}])).mapping
         end
 
         it "holds the header of its mapping" do
@@ -262,64 +257,6 @@ module Tabular
           assert_equal %w[id pay], json.headerless_columns
           assert_equal [nil, "2.5"], json.row_parse(%({"PAY":"2.5"}))
           assert_equal({"id" => 1, "pay" => "2.5"}, json.record_parse([1, "2.5"]))
-        end
-      end
-
-      describe IOStreams::Tabular::LayoutMapping do
-        def mapping(cleanse: true, **)
-          IOStreams::Tabular::LayoutMapping.new(layout, header: header(**), parser: parser(:fixed, layout), format: :fixed, cleanse: cleanse)
-        end
-
-        it "reads and renders the values of the records by the schema of the layout, whose keys are those of the layout" do
-          fixed = mapping
-
-          refute_predicate fixed, :field_names?
-          assert_equal({id: 7, code: "abc"}, fixed.record_parse("07abc"))
-          assert_equal [7, "abc"], fixed.row_parse("07abc")
-          assert_equal({id: 7, code: "abc"}, fixed.record_parse([7, "abc"]))
-          assert_equal %i[id code], fixed.headerless_columns
-          assert_equal "07x  ", fixed.render({code: "x", id: 7})
-          assert_equal "07x  ", fixed.render([7, "x"])
-        end
-
-        it "reads the rows by the columns supplied, as they are supplied, which name the keys of the layout" do
-          supplied = mapping(columns: %w[Code id], allowed_columns: %w[id])
-          supplied.restrict_columns
-
-          assert_equal %w[__rejected__Code id], supplied.header.columns
-          refute_predicate supplied, :rows_header?
-          assert_predicate mapping, :rows_header?
-          assert_equal ["abc", 7], supplied.row_parse("07abc")
-          assert_equal %w[Code id], supplied.headerless_columns
-          assert_equal({"id" => 7}, supplied.record_parse(["abc", 7]))
-          assert_equal({"id" => 7}, supplied.record_parse("07abc"))
-        end
-
-        it "applies the columns supplied, and the restrictions of the columns, to the records, as before the layout was deprecated" do
-          supplied = mapping(columns: %w[ID Code])
-
-          assert_nil supplied.read_header(%w[ID Code])
-          assert_equal %w[id code], supplied.header.columns
-          assert_equal({"id" => 7, "code" => "abc"}, supplied.record_parse("07abc"))
-          assert_equal "07abc", supplied.render({"code" => "abc", "id" => 7})
-
-          restricted = mapping(allowed_columns: %w[id])
-
-          assert_equal({id: 7}, restricted.read_record("07abc"))
-          assert_equal({id: 7, code: "abc"}, restricted.record_parse("07abc"))
-        end
-
-        it "takes the columns of the rows written from the header row written before them, unless the columns were supplied" do
-          fixed = mapping
-
-          refute_predicate fixed, :requires_header?
-          refute_predicate fixed, :first_row_header?
-          assert_predicate fixed, :columns_from_header_row?
-          assert_nil fixed.render_header(%w[code id])
-          assert_equal "07abc", fixed.render(%w[abc 7])
-          assert_nil fixed.take_columns(%w[id code])
-          assert_equal "07abc", fixed.render([7, "abc"])
-          refute_predicate mapping(columns: %w[id code]), :columns_from_header_row?
         end
       end
     end

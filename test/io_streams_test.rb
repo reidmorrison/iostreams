@@ -323,24 +323,21 @@ module IOStreams
         end
 
         it "cannot be changed through the settings that it returns" do
-          layout  = [{size: 2, key: :id}]
+          fields  = [{name: :id, width: 2}]
           options = {level: 1}
-          root    = assert_deprecated(/#format_options is deprecated/) do
-            IOStreams.add_root(
-              :frozen_test, IOStreams.path("exports.csv.gz").option(:gz, **options).encoding("UTF-8").format_options(layout: layout)
-            )
-          end
-          root_layout = assert_deprecated(/#format_options is deprecated/) { root.format_options[:layout] }
+          root    = IOStreams.add_root(
+            :frozen_test, IOStreams.path("exports.csv.gz").option(:gz, **options).encoding("UTF-8").schema(fields: fields)
+          )
 
           assert_raises(FrozenError) { root.setting(:gz)[:level] = 9 }
           assert_raises(FrozenError) { root.pipeline[:encode][:encoding] = "BINARY" }
-          assert_raises(FrozenError) { root_layout << {size: 1, key: :x} }
+          assert_raises(FrozenError) { root.schema[:fields] << {name: :x, width: 1} }
           assert_raises(FrozenError) { root.option_or_stream(:gz, level: 9) }
           assert_raises(FrozenError) { root.remove_from_pipeline(:gz) }
           assert_equal({encode: {encoding: "UTF-8"}, gz: {level: 1}}, IOStreams.root(:frozen_test).pipeline)
-          assert_equal [{size: 2, key: :id}], assert_deprecated(/#format_options is deprecated/) { IOStreams.root(:frozen_test).format_options[:layout] }
+          assert_equal [{name: :id, width: 2}], IOStreams.root(:frozen_test).schema[:fields]
           # The objects that the caller supplied are not frozen.
-          refute_predicate layout, :frozen?
+          refute_predicate fields, :frozen?
           refute_predicate options, :frozen?
         ensure
           TestRegistry.remove_root(:frozen_test)

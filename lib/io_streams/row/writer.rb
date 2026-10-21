@@ -82,12 +82,12 @@ module IOStreams
         self
       end
 
-      # Supply a hash or an array to render. Without a schema, the first row is the header row, unless the columns were
-      # supplied, see `IOStreams::Tabular#render_row`, and with one, every row is the values of the fields, in order, see
-      # above. A header row that `IOStreams::Stream#each(:array)` yields, an `IOStreams::Row::HeaderRow`, is written as
-      # the header row of the rows after it, see #write_header: with a schema, whichever row it is, otherwise as the first
-      # row, as any first row is, so that the rows read from one file can be written to another as they are, whatever
-      # their formats.
+      # Supply an array of the values of a row to render, otherwise it raises ArgumentError. Without a schema, the first
+      # row is the header row, unless the columns were supplied, see `IOStreams::Tabular#render_row`, and with one, every
+      # row is the values of the fields, in order, see above. A header row that `IOStreams::Stream#each(:array)` yields,
+      # an `IOStreams::Row::HeaderRow`, is written as the header row of the rows after it, see #write_header: with a
+      # schema, whichever row it is, otherwise as the first row, as any first row is, so that the rows read from one file
+      # can be written to another as they are, whatever their formats.
       #
       # Returns self, so that calls can be chained.
       def <<(array)

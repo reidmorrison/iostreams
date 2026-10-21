@@ -52,7 +52,7 @@ module IOStreams
   #       "cleansed":       the name once cleansed as `cleanse_header` cleanses a header row, see .cleansed, such as
   #                         "first_name" for the name "First Name".
   #       "symbol":         the name as a Symbol, such as :zip for the name "zip", so that a schema held as JSON, whose
-  #                         names are Strings, reads the Symbol keys of a layout, see .from_layout.
+  #                         names are Strings, reads Symbol keys.
   #       "cleansedSymbol": the cleansed name as a Symbol, such as :first_name for the name "First Name".
   #     The names of the fields are still the columns of the header row written, and the keys of the records written
   #     can be the keys that it forms, as well as the names, see #field_for.
@@ -147,22 +147,6 @@ module IOStreams
         name = path.respond_to?(:display_name) ? path.display_name : path.inspect
         raise(ArgumentError, "Invalid schema in #{name}: #{e.message}")
       end
-    end
-
-    # Returns [Hash] the descriptor of the schema of the layout of a fixed width file, set with the deprecated
-    # `IOStreams::Stream#format_options`, so that the layout held by an application, such as the format options of a
-    # Rocket Job category, can be replaced with its schema. The names of its fields are the keys of the layout, so that
-    # the records read with it have the same keys. See `IOStreams::Tabular::Parser::Fixed.schema` for the layout,
-    # whose columns can have String keys, such as a layout read from JSON.
-    #
-    # Unlike `IOStreams::Stream#format_options`, it reports no deprecation warning, since it replaces the layout.
-    #
-    # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, and ArgumentError for a property that a
-    # column of a layout does not have, or when its schema is not valid.
-    def self.from_layout(layout:, truncate: true)
-      descriptor = IOStreams::Tabular::Parser::Fixed.schema(layout: layout, truncate: truncate)
-      new(descriptor)
-      descriptor
     end
 
     # Returns [String|nil] the text by which a column is compared loosely to the names and aliases of the fields, see

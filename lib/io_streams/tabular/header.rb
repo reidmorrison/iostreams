@@ -78,7 +78,13 @@ module IOStreams
       #       #to_hash skips them entirely, as if they were not in the file at all.
       #     false:
       #       Raises IOStreams::Errors::InvalidHeader for a column that is not in `allowed_columns`, see #cleanse!.
+      #
+      # Raises ArgumentError for columns that are not an Array.
       def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
+        unless columns.nil? || columns.is_a?(::Array)
+          raise(ArgumentError, "columns: must be an Array of the names of the columns: #{columns.inspect}")
+        end
+
         @columns          = stringify(columns)
         @row              = nil
         @required_columns = required_columns
@@ -198,6 +204,18 @@ module IOStreams
         end
       end
 
+      # Returns [Hash] the record written for the row, an Array or a Hash, by every column, as #to_hash names them, with
+      # nil for a column that the row does not supply, so that a format of keyed records, such as JSON, writes every
+      # column, as IOStreams 2.1 did, also for a record without any of them.
+      #
+      # Raises `IOStreams::Errors::TypeMismatch` when the columns are not known, see #to_array.
+      def to_record(row)
+        values = to_array(row)
+        record = {}
+        hash_columns.each { |column, index| record[column] = values[index] }
+        record
+      end
+
       # Returns [true|false] whether `allowed_columns` or `required_columns` restrict the columns.
       def restricted?
         !allowed_columns.nil? || !required_columns.nil?
@@ -312,8 +330,8 @@ module IOStreams
       # record returned, worked out once for each set of keys, or nil for a record without keys, whose restricted hash
       # is blank. Like the plans of #cleanse_hash, it is worked out from the position of each key.
       #
-      # A key that is already the name of its column is kept as it is, such as the Symbol key `:zip` of a fixed width
-      # layout, so that restricting the columns does not change the keys of the columns that it keeps. A key that
+      # A key that is already the name of its column is kept as it is, such as the Symbol key `:zip` of a `:hash`
+      # record, so that restricting the columns does not change the keys of the columns that it keeps. A key that
       # cleansing renames, such as `"First Name"`, is the name of its column, `"first_name"`.
       #
       # Raises `IOStreams::Errors::InvalidHeader` each time for keys that the restrictions do not accept, see #cleanse!.

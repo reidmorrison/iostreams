@@ -58,6 +58,8 @@ module IOStreams
       end
     end
 
+    # Nothing raises it since v3.0 removed the layout of a fixed width file, which a schema replaces. It is kept so that
+    # code that rescues it still works.
     class InvalidLayout < Error
     end
 

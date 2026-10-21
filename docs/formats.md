@@ -630,7 +630,7 @@ and `#copy_to`, whose options only apply to the target.
   while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
-  of fixed width files always have. IOStreams adds this property.
+  of fixed width files did before v3.0. IOStreams adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record, and a Parquet file has no column for it. It takes only the properties
@@ -660,6 +660,12 @@ JSON writes a `BigDecimal`, `Date` or `Time` as that text, within an object or a
 keeps all of its digits, and writes every other value as itself, such as a number or `true`. The `:hash` and `:array`
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
+
+### Schemas in IOStreams 2.2 and 3.0
+
+IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
+runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
+as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30).
 
 ## Parquet files
 

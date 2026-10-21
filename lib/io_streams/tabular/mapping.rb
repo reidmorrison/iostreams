@@ -9,8 +9,6 @@ module IOStreams
     #   supplied in place of one, and the column options, which are deprecated, held by its header, see
     #   `IOStreams::Tabular::Header`.
     # * `IOStreams::Tabular::SchemaMapping`: by the fields of a schema, see `IOStreams::Schema::Columns`.
-    # * `IOStreams::Tabular::LayoutMapping`: by the layout of a fixed width file, which is deprecated, whose schema reads
-    #   and renders the values, while the column options still apply to its records.
     #
     # Each one does the same things, in its own way:
     # * Reads the lines of a file: its header row, `#parse_header` and `#read_header`, and its rows and records,
@@ -29,6 +27,8 @@ module IOStreams
     #   `#take_columns` takes, and `#columns_supplied?`.
     # * Answers whether the keys of the records read are the names of fields, `#field_names?`, and the columns of the
     #   rows of a file without a header row, `#headerless_columns`.
+    # * Cleanses the columns of the header row, `#cleanse_header!`, without a schema, whose fields name the keys of the
+    #   records read instead.
     # * Checks the keys of the first record of a file whose rows are handed on without being parsed, `#check_keys`, see
     #   `IOStreams::Tabular#read_line`.
     #
@@ -55,6 +55,89 @@ module IOStreams
         @header = header
         @parser = parser
         @format = format
+      end
+
+      # The methods of the role, which each mapping implements in its own way, see above, and which
+      # `IOStreams::Tabular` asks it, so that a mapping that leaves one out raises NotImplementedError, rather than
+      # NoMethodError. Each is described where `IOStreams::Tabular` calls it, such as `IOStreams::Tabular#row_parse`.
+      def requires_header?
+        raise(NotImplementedError, "#{self.class.name} does not implement #requires_header?")
+      end
+
+      def header?
+        raise(NotImplementedError, "#{self.class.name} does not implement #header?")
+      end
+
+      def rows_header?
+        raise(NotImplementedError, "#{self.class.name} does not implement #rows_header?")
+      end
+
+      def field_names?
+        raise(NotImplementedError, "#{self.class.name} does not implement #field_names?")
+      end
+
+      def headerless_columns
+        raise(NotImplementedError, "#{self.class.name} does not implement #headerless_columns")
+      end
+
+      def columns_supplied?
+        raise(NotImplementedError, "#{self.class.name} does not implement #columns_supplied?")
+      end
+
+      def columns_from_first_row?
+        raise(NotImplementedError, "#{self.class.name} does not implement #columns_from_first_row?")
+      end
+
+      def first_row_header?
+        raise(NotImplementedError, "#{self.class.name} does not implement #first_row_header?")
+      end
+
+      def columns_from_header_row?
+        raise(NotImplementedError, "#{self.class.name} does not implement #columns_from_header_row?")
+      end
+
+      def take_columns(_columns)
+        raise(NotImplementedError, "#{self.class.name} does not implement #take_columns")
+      end
+
+      def parse_header(_line)
+        raise(NotImplementedError, "#{self.class.name} does not implement #parse_header")
+      end
+
+      def read_header(_line, **)
+        raise(NotImplementedError, "#{self.class.name} does not implement #read_header")
+      end
+
+      def read_rows_header(_line)
+        raise(NotImplementedError, "#{self.class.name} does not implement #read_rows_header")
+      end
+
+      def restrict_columns(**)
+        raise(NotImplementedError, "#{self.class.name} does not implement #restrict_columns")
+      end
+
+      def row_parse(_line)
+        raise(NotImplementedError, "#{self.class.name} does not implement #row_parse")
+      end
+
+      def record_parse(_line)
+        raise(NotImplementedError, "#{self.class.name} does not implement #record_parse")
+      end
+
+      def read_record(_line)
+        raise(NotImplementedError, "#{self.class.name} does not implement #read_record")
+      end
+
+      def render(_row)
+        raise(NotImplementedError, "#{self.class.name} does not implement #render")
+      end
+
+      def render_header(_columns = nil)
+        raise(NotImplementedError, "#{self.class.name} does not implement #render_header")
+      end
+
+      def cleanse_header!
+        raise(NotImplementedError, "#{self.class.name} does not implement #cleanse_header!")
       end
 
       # Checks the keys of the first record of a file whose rows are handed on without being parsed, see

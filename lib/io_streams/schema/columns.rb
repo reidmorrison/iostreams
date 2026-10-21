@@ -375,9 +375,9 @@ module IOStreams
       # Returns [Array<Array(IOStreams::Schema::Field, Object, Integer)>] each field of the schema, in order, with the key
       # of a record written that supplies it, or nil when the record does not, and its position, worked out once for
       # each list of keys, which are compared as a Hash compares them, see #read_plan. When `fieldsMatch` skips the keys
-      # that are not fields, of two keys that are the same field, the one that is its name supplies it, as a layout of
-      # the deprecated format options always took it. A field that is skipped, see `IOStreams::Schema::Field#skip?`,
-      # takes no value, so that it is written empty, whatever the key of its column holds.
+      # that are not fields, of two keys that are the same field, such as `"zip"` and `:zip`, the one that is its name
+      # supplies it. A field that is skipped, see `IOStreams::Schema::Field#skip?`, takes no value, so that it is written
+      # empty, whatever the key of its column holds.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when a key is not a field, unless `fieldsMatch` skips it.
       def write_plan(keys)

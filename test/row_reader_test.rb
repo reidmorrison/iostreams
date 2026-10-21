@@ -92,17 +92,6 @@ class RowReaderTest < Minitest::Test
           assert_empty read_fixed("")
         end
 
-        it "yields the keys of a layout, or the columns supplied for it, as the header row" do
-          layout = {layout: [{size: 4, key: "name"}, {size: 5, key: :zip, type: :integer}]}
-          rows   = []
-          assert_deprecated(/#format_options is deprecated/) do
-            IOStreams.stream(StringIO.new("Jack12345\n")).format(:fixed).format_options(layout).each(:array) { |row| rows << row }
-          end
-
-          assert_equal [["name", :zip], ["Jack", 12_345]], rows
-          assert_instance_of IOStreams::Row::HeaderRow, rows.first
-        end
-
         it "writes the rows that a loop copies into a file with a header row, which it writes once" do
           output = StringIO.new
           IOStreams.stream(output).format(:csv).writer(:array) do |io|

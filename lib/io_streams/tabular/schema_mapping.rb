@@ -68,6 +68,15 @@ module IOStreams
         @requires_header ? header? : !@names_read
       end
 
+      # Raises ArgumentError: the header row is not cleansed with a schema, whose fields name the keys of the records read
+      # instead, which the columns of the header row are matched to, so that the header keeps the header row as it was
+      # read, for `read_header(header.columns)`, see above.
+      def cleanse_header!
+        raise(ArgumentError, "The header row cannot be cleansed with a schema, since the keys of its records are the " \
+                             "names of its fields, which the columns of the header row are matched to, see " \
+                             "IOStreams::Schema#field_for")
+      end
+
       # Returns [true] the keys of the records read are the names of the fields, see `IOStreams::Tabular#field_names?`.
       def field_names?
         true
@@ -127,8 +136,8 @@ module IOStreams
       # Returns [Array<String|Symbol>] the names of the fields of its columns, in the order of the fields.
       # Returns nil when the line is blank, or the file has no header row.
       #
-      # Raises ArgumentError for `cleanse`, other than nil or `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which leave the
-      # header row as it is, since the keys of the records are the names of the fields, which its columns are matched to
+      # Raises ArgumentError for `cleanse`, other than nil or the default of `IOStreams::Tabular#read_header`, which leave
+      # the header row as it is, since the keys of the records are the names of the fields, which its columns are matched to
       # instead.
       def read_header(line, cleanse: nil)
         unless cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT)

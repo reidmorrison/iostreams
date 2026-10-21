@@ -242,7 +242,6 @@ class BuilderTest < Minitest::Test
 
         [
           -> { streams.stream(:gz) },
-          -> { streams.stream(:none) },
           -> { streams.option(:gz) },
           -> { streams.encoding("UTF-8") },
           -> { streams.option(:encode, encoding: "UTF-8") }
@@ -251,6 +250,22 @@ class BuilderTest < Minitest::Test
 
           assert_includes error.message, "after #raw, which reads and writes the data as it is stored"
         end
+      end
+
+      it "names the method called in the message" do
+        streams.raw
+
+        error = assert_raises(ArgumentError) { streams.option_or_stream(:gz) }
+        assert_equal "Cannot call #option_or_stream after #raw, which reads and writes the data as it is stored", error.message
+      end
+
+      it "accepts the deprecated stream(:none) afterwards, which applies no streams either, and stays raw" do
+        streams.raw
+        assert_deprecated(/stream\(:none\) is deprecated, use #raw/) { streams.stream(:none) }
+        assert_deprecated(/option_or_stream\(:none\) is deprecated, use #raw/) { streams.option_or_stream(:none) }
+
+        assert_predicate streams, :raw?
+        assert_empty streams.pipeline
       end
 
       it "is kept by a copy" do
@@ -543,9 +558,24 @@ class BuilderTest < Minitest::Test
       end
 
       it "is set by the deprecated stream(:encode), which still stops the streams from the file name" do
-        assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) { streams.stream(:encode, encoding: "BINARY") }
+        assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated, use #encoding instead, which keeps the streams that the file name implies, #raw to read or write the data as it is stored, or #file_name to read a file that is not named for its format/) do
+          streams.stream(:encode, encoding: "BINARY")
+        end
 
         assert_equal({encode: {encoding: "BINARY"}}, streams.pipeline)
+      end
+
+      it "is set by the deprecated option_or_stream(:encode), whose warning names it" do
+        assert_deprecated(/\AIOStreams: option_or_stream\(:encode, \.\.\.\) is deprecated, use #encoding instead\n\z|: option_or_stream\(:encode, \.\.\.\) is deprecated, use #encoding instead\n\z/) do
+          streams.option_or_stream(:encode, encoding: "BINARY")
+        end
+        assert_equal({encode: {encoding: "BINARY"}, **streams.pipeline.except(:encode)}, streams.pipeline)
+
+        without_name = IOStreams::Builder.new
+        assert_deprecated(/option_or_stream\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
+          without_name.option_or_stream(:encode, encoding: "BINARY")
+        end
+        assert_equal({encode: {encoding: "BINARY"}}, without_name.pipeline)
       end
 
       it "is cleared by stream(:none)" do

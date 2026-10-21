@@ -3041,7 +3041,7 @@ and `#copy_to`, whose options only apply to the target.
   while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
-  of fixed width files always have. IOStreams adds this property.
+  of fixed width files did before v3.0. IOStreams adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record, and a Parquet file has no column for it. It takes only the properties
@@ -3071,6 +3071,12 @@ JSON writes a `BigDecimal`, `Date` or `Time` as that text, within an object or a
 keeps all of its digits, and writes every other value as itself, such as a number or `true`. The `:hash` and `:array`
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
+
+### Schemas in IOStreams 2.2 and 3.0
+
+IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
+runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
+as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30).
 
 ## Parquet files
 
@@ -3991,9 +3997,9 @@ IOStreams raises these classes itself:
     required has no value, see [Schema](formats#schema).
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
-  * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width file, set with the deprecated `#format_options`,
-    is not valid. It is raised when the layout is set, see
-    [Upgrading](upgrading#format_options-is-replaced-by-schema).
+  * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a
+    schema replaces, see [Upgrading](upgrading#format_options-is-replaced-by-schema). It is kept so that code that
+    rescues it still works.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
@@ -5594,7 +5600,9 @@ and the security issues to check. For every change in each release, see the
 v3.0 is a major release. It reads text as UTF-8 by default, makes the breaking changes that were postponed from v2.1,
 and fixes bugs whose fixes change behavior that existing code may depend on. In v2.1 each postponed change logged a
 warning via `IOStreams.logger` when it would change the result, so check your logs from v2.1 for them before
-upgrading. Every change is listed in the
+upgrading. v2.2 reports a deprecation warning for each method or option that v3.0 deprecates, and for most of what
+v3.0 removes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22). Every change is
+listed in the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md); this section describes those that
 may need a change to your application, grouped by what they affect, each with its fix.
 
@@ -5605,6 +5613,7 @@ Start with the changes that apply to your application:
 | Runs on Ruby 3.2 | [Ruby 3.3 or later is required](#ruby-33-or-later-is-required) |
 | Reads text files that are not UTF-8, such as Windows-1252 exports, or depends on binary strings | [Text is read as UTF-8](#text-is-read-as-utf-8) |
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
+| Sets the layout of a fixed width file with `#format_options` | [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema) |
 | Uses `allowed_columns`, `required_columns`, `columns:` or `cleanse_header:` | [Column restrictions apply to every input](#column-restrictions-apply-to-every-input), and [The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
@@ -5615,7 +5624,7 @@ Start with the changes that apply to your application:
 | Uses `~` in local file names, root paths from `IOStreams.add_root`, or compares paths | [Paths](#paths) and [Local files](#local-files) |
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
 | Registers its own extensions with `IOStreams.register_extension` | [Extending IOStreams](#extending-iostreams) |
-| Uses `option(:encode, ...)`, `stream(:none)`, `#format_options` or `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
+| Uses `option(:encode, ...)`, `stream(:none)` or `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
 
 ### Ruby 3.3 or later is required
 
@@ -5781,7 +5790,7 @@ When either `allowed_columns` or `required_columns` is set, JSON keys are now cl
 as a header row, for example `"Name"` becomes `"name"`. Unknown keys are skipped, or raise
 `IOStreams::Errors::InvalidHeader` when `skip_unknown: false`, and a record that is missing a
 required column raises `IOStreams::Errors::InvalidHeader`. The keys of the columns that are kept stay as they are
-when they are already the names of their columns, such as the Symbol keys of a fixed width layout, so that
+when they are already the names of their columns, such as the Symbol keys of `:hash` records, so that
 `{name: "Jack", zip: 12}` read with `allowed_columns: ["name"]` is `{name: "Jack"}`.
 
 Fix: check that the JSON files you read with these options have the expected keys. See
@@ -5894,7 +5903,10 @@ which set the format of a stream without one in the `:array` and `:hash` modes, 
 [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 
 Fix: set the format on the path with `#format`, and the layout of a fixed width file with `#schema`, see
-[`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema):
+[`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema). A file name supplied to a call
+only chose the format, when the path had none, and not the streams, as `#file_name` does, so set the format that it
+names, such as `format(:json)` for `data.json`, and `default_format:` only applied when the path had no format, so set
+it only then, such as `path.format(:json) unless path.format`:
 
 ~~~ruby
 # Before
@@ -5919,10 +5931,93 @@ path.format(:fixed).schema(fields: fields).each(:hash) do |row|
   p row
 end
 
-IOStreams.stream(io).file_name("data.json").each(:hash) do |row|
+IOStreams.stream(io).format(:json).each(:hash) do |row|
   p row
 end
 ~~~
+
+#### `#format_options` is replaced by `#schema`
+
+`#format_options`, the layout of a fixed width file, is removed in v3.0, so calling it raises `NoMethodError`. A
+schema replaces it: it gives the `width` of each field of a fixed width file, and the type of each field of every
+format, and can be held in a JSON file, see [Schema](formats#schema). v2.2 deprecates `#format_options`, and its
+`IOStreams::Schema.from_layout` returns the schema of a layout, so convert each layout with v2.2 before upgrading, save
+the schema, for example as JSON, and set it with `#schema`, see [Moving a layout to a schema](#moving-a-layout-to-a-schema):
+
+~~~ruby
+# With v2.2, once for each layout
+schema = IOStreams::Schema.from_layout(layout: layout)
+File.write("config/schemas/people.json", JSON.pretty_generate(schema))
+
+# With v3.0
+path.format(:fixed).schema("config/schemas/people.json").each(:hash) do |person|
+  p person
+end
+~~~
+
+To convert a layout by hand, each column of a layout is a field of the schema:
+
+| Layout | Schema |
+|--------|--------|
+| `key:` | `name` |
+| `size:` | `width` |
+| `size: :remainder` | `width: "remainder"` |
+| A column without a `key:`, a filler | `start` on the field after it, or the `width` of the schema at the end of the line |
+| `type: :string` | `type: "string"`, with `truncate: true` unless the layout has `truncate: false` |
+| `type: :integer` | `type: "integer"` |
+| `type: :float` and `decimals:` | `type: "number"`, with `floatNumber: true` and `decimals:`, without `decimals` for a column with `size: :remainder`, which writes the digits that the value has |
+| A record written with keys that the layout does not have, which are skipped | `fieldsMatch: "subset"` |
+
+~~~ruby
+# Before, removed in v3.0
+path.format(:fixed).format_options(
+  layout: [
+    {size: 23, key: "name"},
+    {size: 2},
+    {size: 5, key: "zip", type: :integer}
+  ]
+)
+
+# After
+path.format(:fixed).schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "name", type: "string",  width: 23, truncate: true},
+    {name: "zip",  type: "integer", width: 5,  start: 26}
+  ]
+)
+~~~
+
+Without `fieldsMatch: "subset"`, a schema has `"exact"`, so that writing a record with a key that is not a field raises
+`IOStreams::Errors::InvalidHeader`, rather than skip it as a layout did.
+
+Saved as a JSON file, the names of the fields of a schema are strings, so when every key of a layout is a Symbol, the
+schema that `from_layout` returns has `keyType: "symbol"`, which keeps the keys of the records read Symbols, as the
+layout returned them, see [Keys of the records read](formats#keys-of-the-records-read).
+
+Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
+for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema that
+`from_layout` returns sets both, so that it reads and writes as the layout did, except as described in
+[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises).
+
+`IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
+columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or
+negative `decimals:` on a `:float` column. Fix: remove the `key:` of each filler, which needs none, such as two columns
+keyed `:filler`, give every other column a key of its own, such as `"1"` for `1`, and give a `:float` column
+`decimals:` of 0 or more.
+
+A schema writes a record whose keys are strings or symbols, whether its names are strings or symbols. A layout
+ignored a key of the other kind, and wrote its column as spaces, or as zeros for a number.
+
+The characters between the fields of a schema, where a layout had a filler, are written as spaces. A layout wrote a
+filler with a `type:` of `:integer` or `:float` as zeros, so to write zeros, give the column a field of type
+`integer`, and leave it out of the records written, since a missing number is written as zeros.
+
+A `string` field writes any value as its text, as a `:string` column did, except a `Hash` or an `Array`, which holds
+several values, and raises `IOStreams::Errors::InvalidValue`, where a layout wrote its `to_s`, such as `[1, 2]`. A
+`BigDecimal` is written as `12.5`, and a `Date` or `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where a layout
+wrote their `to_s`, such as `0.125e2` or `2026-10-13 09:30:00 UTC`. To keep another form, convert the value to text
+before writing it.
 
 #### Options that only apply when reading raise when writing or copying
 
@@ -5996,8 +6091,8 @@ corrupt file was read without an error. Writing such a value also raises, as doe
 as `12.0`, as `12`, as `to_i` did, but a fraction, such as `12.5`, raises. A blank column is still read as `nil`,
 and a missing number is still written as zeros.
 
-Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, or `type: :string` in the
-layout, and convert it in the application.
+Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, and convert it in the
+application.
 
 #### The rows of a spreadsheet are CSV
 
@@ -6942,7 +7037,8 @@ these matches why it was used:
 
 * To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no streams and no encoding, so text, including lines, rows and records, is read
   and written as bytes, where `stream(:none)` reads it as UTF-8, or ASCII for fixed width files.
-  Setting a stream, option or encoding after `#raw` raises `ArgumentError`.
+  Setting a stream, option or encoding after `#raw` raises `ArgumentError`, apart from the deprecated
+  `stream(:none)`, which applies no streams either, so it leaves the path as `#raw` set it.
 * To read a file that is not named for its format, set the file name that names it with `#file_name`.
 * To copy a file as it is stored, such as downloading a zip file without unzipping it, use
   `copy_to(target, convert: false)`, since the target applies the streams of its own file name.
@@ -6961,82 +7057,6 @@ IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) do |row|
 end
 ~~~
 
-#### `#format_options` is replaced by `#schema`
-
-`#format_options` is deprecated. It still works, so no change is needed: it translates the layout of a fixed width
-file and its `truncate:` option into a schema, which `#schema` returns, and which then reads and writes the file.
-A schema gives the type of each field of every format, and can be held in a JSON file, see
-[Schema](formats#schema). Each column of a layout is a field of the schema:
-
-| Layout | Schema |
-|--------|--------|
-| `key:` | `name` |
-| `size:` | `width` |
-| `size: :remainder` | `width: "remainder"` |
-| A column without a `key:`, a filler | `start` on the field after it, or the `width` of the schema at the end of the line |
-| `type: :string` | `type: "string"`, with `truncate: true` unless the layout has `truncate: false` |
-| `type: :integer` | `type: "integer"` |
-| `type: :float` and `decimals:` | `type: "number"`, with `floatNumber: true` and `decimals:`, without `decimals` for a column with `size: :remainder`, which writes the digits that the value has |
-| A record written with keys that the layout does not have, which are skipped | `fieldsMatch: "subset"` |
-
-~~~ruby
-# Before (deprecated)
-path.format(:fixed).format_options(
-  layout: [
-    {size: 23, key: "name"},
-    {size: 2},
-    {size: 5, key: "zip", type: :integer}
-  ]
-)
-
-# After
-path.format(:fixed).schema(
-  fieldsMatch: "subset",
-  fields:      [
-    {name: "name", type: "string",  width: 23, truncate: true},
-    {name: "zip",  type: "integer", width: 5,  start: 26}
-  ]
-)
-~~~
-
-Without `fieldsMatch: "subset"`, a schema has `"exact"`, so that writing a record with a key that is not a field raises
-`IOStreams::Errors::InvalidHeader`, rather than skip it as a layout does.
-
-To see the schema of a layout, set the layout with `#format_options` and call `#schema`. Saved as a JSON file, the
-names of its fields are strings, so when every key of the layout is a Symbol, its schema has `keyType: "symbol"`,
-which keeps the keys of the records read Symbols, as the layout returns them, see
-[Keys of the records read](formats#keys-of-the-records-read). The layout is translated each time that the file is read or written, as it was used before, so
-`#schema` and the file read agree with the layout, even when it is changed after it is set. A layout only describes a
-fixed width file, so it raises `ArgumentError` for any other format, as it did before.
-
-Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
-for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema of a layout sets
-both, so that it reads and writes as the layout did, except as described in
-[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises).
-
-An invalid layout now raises when it is set with `#format_options`, rather than when the file is read:
-`IOStreams::Errors::InvalidLayout` for a column without a `size:`, with a `size:` that is not positive, with an
-unknown `type:` or `type: nil`, after a column with the size `:remainder`, which was ignored when reading, for two
-columns with the same key, including `:a` and `"a"`, for a key that is neither a String nor a Symbol, such as `1`, for
-negative `decimals:` on a `:float` column, and for a layout that is not an Array of Hashes, and `ArgumentError` for
-any other key or option.
-
-Fix: remove the `key:` of each filler, which needs none, such as two columns keyed `:filler`, give every other column
-a key of its own, such as `"1"` for `1`, and give a `:float` column `decimals:` of 0 or more.
-
-Writing a fixed width file now accepts string and symbol keys, whichever the layout uses. Previously a key of the
-other kind was ignored, and its column written as spaces, or as zeros for a number.
-
-A filler is written as spaces, as the layout documented, including one with a `type:` of `:integer` or `:float`,
-which was written as zeros. To write zeros, give the column a `key:` and leave it out of the records written, since a
-missing number is written as zeros.
-
-A `:string` column still writes any value as its text, except a `Hash` or an `Array`, which holds several values, and
-now raises `IOStreams::Errors::InvalidValue`, where its `to_s`, such as `[1, 2]`, was written. A `BigDecimal` is
-written as `12.5`, and a `Date` or `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where their `to_s`, such as
-`0.125e2` or `2026-10-13 09:30:00 UTC`, was written. To keep another form, convert the value to text before writing
-it.
-
 #### The column options of each call are deprecated
 
 `columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` are deprecated. They still
@@ -7054,9 +7074,8 @@ named as the column was cleansed. With `cleanse_header: false`, they are the col
 them as they are.
 
 With a schema, the options raise `ArgumentError`, unless they are nil. `skip_unknown:` only applies to
-`allowed_columns:`, so it is accepted, so that code can supply the same options with and without a schema. The layout
-of a fixed width file set with the deprecated `#format_options` still accepts them, as it did before. The property of
-a schema that replaces each one:
+`allowed_columns:`, so it is accepted, so that code can supply the same options with and without a schema. The property
+of a schema that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|
@@ -7174,17 +7193,22 @@ A schema reads the same records as the options it replaces, named as above, exce
 * A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
   `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
   read it as an empty record, `{}`.
-* JSON writes every field of each record, `null` for a key that the record does not have, where `columns:` wrote only
-  the keys that it had, so that the file reads back with the same schema.
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.
+* A name that v2.1 cleansed without its letters that are not ASCII, such as `prnom` for the column `Prénom`, which an
+  application may have kept in `allowed_columns:`, is not the field of that column, since a schema matches it as
+  `prénom`, see [Cleansing a header row keeps letters that are not ASCII](#cleansing-a-header-row-keeps-letters-that-are-not-ascii).
+  With `fieldsMatch: "subset"` or `"partial"` the column is skipped without an error, so name the field `prénom`, or
+  keep the name and give the field the column as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
+* A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
+  written, where `columns:` wrote an empty value.
 
 ##### When to keep the deprecated options
 
-The options still work without a schema, so keep them where a schema does not describe the file yet:
-
-* `required_columns:` without `allowed_columns:`, or `cleanse_header: false` on its own, read every column of the
-  file, while a schema reads only its fields. List every column of the file as a field to replace them.
-* `columns:` with `nil` for a column to skip, in a file without a header row, since a field must have a name.
+Every use of the options has a schema form, see the table above, including `required_columns:` without
+`allowed_columns:` and `cleanse_header: false` on its own, which read every column, with `extraColumns: "keep"`,
+and `columns:` with `nil` for a column to skip, with `skip: true`. The options still work without a schema, so keep
+them until the schema has been checked against the files of the application, since it reads some of them
+differently, see above.
 
 ##### The deprecated options
 
@@ -7285,6 +7309,83 @@ for each one.
 - Reading rows or records keeps a newline within a quoted CSV value in its row when CSV is the default format, such as
   for `data.txt`, a stream without a file name, or a spreadsheet, where the lines were split at the newline, which
   raised `CSV::MalformedCSVError`.
+
+## Upgrading to v2.2
+
+v2.2 prepares applications for v3.0. It adds the methods that replace those that v3.0 deprecates or removes, and
+reports a deprecation warning when the application uses one of those, so that it can move to the replacement while
+it still runs v2.2, and then upgrade to v3.0 with fewer changes. What is deprecated still works as before, and apart
+from the deprecation warnings, v2.2 changes no existing behavior, other than the
+[changes in behavior in v2.2](#changes-in-behavior-in-v22) below. Ruby shows the warnings only while
+`Warning[:deprecated]` is on, which Minitest and test-unit turn on, see
+[Seeing deprecation warnings](#seeing-deprecation-warnings).
+
+| v2.2 adds | In place of | See |
+|-----------|-------------|-----|
+| `#raw` | `stream(:none)` | [Data as it is stored](streams#data-as-it-is-stored) |
+| `#encoding` | `option(:encode, ...)` and `stream(:encode, ...)` | [Deprecated, and still working](#deprecated-and-still-working) |
+| `#schema` | `#format_options`, and `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` | [Moving a layout to a schema](#moving-a-layout-to-a-schema), and [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
+| `IOStreams.tabular_formats` | `IOStreams::Tabular.registered_formats`, which is internal | |
+
+v2.2 also reports a deprecation warning for most of what v3.0 removes, or raises `ArgumentError` for, such as
+`format:` supplied to each call of `#each`, `#reader` or `#writer`, the options that a writer ignores, the Zip
+writer's `zip_file_name`, and a file name ending in `.encode`. Unlike v3.0, v2.2 does not deprecate
+`IOStreams.enforce_column_restrictions=`, which it still follows.
+
+To prepare for v3.0: upgrade to v2.2, run your tests, which show the deprecation warnings, and move each use to what
+replaces it. Then read [Upgrading to v3.0](#upgrading-to-v30), since v3.0 also changes behavior that cannot be
+reported as a deprecation, such as reading text as UTF-8 by default.
+
+### Moving a layout to a schema
+
+A schema replaces `#format_options` in v2.2, as in v3.0. v2.2 still reads and writes a file with a layout as v2.1
+did, and its `IOStreams::Schema.from_layout` returns the schema of a layout, which reads and writes the file as a
+schema does in v3.0, so check that it reads the files of the application before it replaces the layout. How each
+column of a layout becomes a field, and what reads differently, are in
+[`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema).
+
+### Moving the column options to a schema
+
+A schema replaces `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` in
+v2.2, as in v3.0, including `required_columns:` alone, `cleanse_header: false` and a `nil` in `columns:`, with the
+schema properties `keyType`, `extraColumns` and `skip`, which IOStreams adds. The property of a schema that replaces
+each one, and what reads differently, are in
+[The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated).
+
+### A schema in v2.2 and v3.0
+
+A schema reads and writes the rows and records of a file in v2.2 as it does in v3.0, so code that uses one keeps
+working after an upgrade, apart from the changes that v3.0 makes to every file:
+
+* v2.2 reads the text of a file with a schema as UTF-8, and raises `IOStreams::Errors::InvalidEncoding` for text that
+  is not valid UTF-8, unless an encoding is set with `#encoding`, or the file is read with `#raw`. It keeps a byte
+  order mark at its start, which is part of the first column of the header row, and its line endings as they are,
+  while v3.0 removes the byte order mark, see [Text is read as UTF-8](#text-is-read-as-utf-8).
+* v2.2 counts the characters of the UTF-8 text of a fixed width file, while v3.0 reads it as ASCII, see
+  [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii).
+* A file without a schema is read and written in v2.2 as in v2.1: its `each(:array)` yields its header row as an
+  Array, rather than an `IOStreams::Row::HeaderRow`, see
+  [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays),
+  and it writes a `BigDecimal` that a copy reads from a file with a schema as `0.125e2`, see
+  [`BigDecimal` and `Time` values are written as their usual text](#bigdecimal-and-time-values-are-written-as-their-usual-text).
+* A writer with a schema in v2.2 takes binary text written to it, such as the values that v2.2 reads without a
+  schema, as UTF-8, while v3.0 reads text as UTF-8 to begin with.
+* Parquet files are only in v3.0.
+
+### Changes in behavior in v2.2
+
+* A failed copy no longer deletes a target that it did not write. `#copy_from`, `#copy_to` and `#move_to` open the
+  source before the target, as v3.0 does, and an error raised before the target is opened, such as for a source that
+  does not exist, or a mode that a copy does not convert with, leaves an existing target as it was, where v2.1 deleted
+  it, and a failed copy to S3 keeps the existing object. A copy that fails part way still leaves no part of the file,
+  see [When a copy fails](copy_files#when-a-copy-fails).
+* A mode that a copy does not convert with, such as `copy_from(source, mode: :stream)`, raises `ArgumentError` before
+  the source or the target is opened, with a message that starts with v2.1's, `Invalid mode: :stream`, and then lists
+  the modes.
+* A copy of a path, made with `dup`, has its own streams and options, so that changing it does not change the path
+  that it was copied from, and a copy with `convert: false` no longer changes the streams of the source or the target.
+  A copy with `convert: false` from a source with options set with `#option` copies it, where v2.1 raised
+  `ArgumentError`.
 
 ## Upgrading to v2.1
 

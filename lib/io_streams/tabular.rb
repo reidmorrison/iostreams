@@ -32,7 +32,6 @@ module IOStreams
   class Tabular
     autoload :Header, "io_streams/tabular/header"
     autoload :HeaderMapping, "io_streams/tabular/header_mapping"
-    autoload :LayoutMapping, "io_streams/tabular/layout_mapping"
     autoload :Mapping, "io_streams/tabular/mapping"
     autoload :SchemaMapping, "io_streams/tabular/schema_mapping"
     autoload :Settings, "io_streams/tabular/settings"
@@ -51,18 +50,21 @@ module IOStreams
     attr_reader :format, :parser, :schema
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file to the values of its rows and records,
-    # by the header row or the columns supplied, by the fields of a schema, or by the layout of a fixed width file, which
-    # is chosen when the Tabular is created, see #initialize.
+    # by the header row or the columns supplied, or by the fields of a schema, which is chosen when the Tabular is
+    # created, see #initialize.
     attr_reader :mapping
 
     # The default of the `cleanse_header` option, see #initialize, and of `cleanse:`, see #read_header, which cleanses
-    # the header row without a schema. Distinct from nil, which does not cleanse it, as before.
-    CLEANSE_BY_DEFAULT = :default
+    # the header row without a schema. Distinct from nil, which does not cleanse it, as before. An object of its own,
+    # which no caller can supply, so that a value supplied, such as `:default`, is always taken as supplied: with a
+    # schema it raises, and without one it reports the deprecation of `cleanse_header:`.
+    CLEANSE_BY_DEFAULT = Object.new.freeze
+    private_constant :CLEANSE_BY_DEFAULT
 
     # The options of #initialize that describe the format of the file, which reading and writing both accept. They are
     # set on the path, see `IOStreams::Tabular::Settings`, so that a call to read or write the rows cannot supply them,
     # see `IOStreams::Stream::PATH_SETTINGS`.
-    FORMAT_OPTION_NAMES = %i[format file_name schema format_options default_format row_format_options].freeze
+    FORMAT_OPTION_NAMES = %i[format file_name schema default_format row_format_options].freeze
 
     # The options of #initialize that only apply when reading: whether to cleanse the header row read, see #read_header.
     READ_OPTION_NAMES = %i[cleanse_header].freeze
@@ -108,11 +110,6 @@ module IOStreams
     #     `columns`, `allowed_columns` and `required_columns`, raise ArgumentError with it, unless they are nil.
     #     `skip_unknown` only applies to `allowed_columns`, so it does not.
     #     Optional. Default: nil
-    #
-    #   format_options: [Hash]
-    #     Deprecated, use `schema:`. The layout and truncate option of a fixed width file, which are translated into
-    #     the schema, see `IOStreams::Tabular::Parser::Fixed.schema`, so it raises ArgumentError for any other format.
-    #     The options below still apply to its records, as they did before it was deprecated.
     #
     #   columns [Array<String|Symbol>]
     #     Deprecated: the fields of a schema are the columns, see `schema:`.
@@ -161,8 +158,8 @@ module IOStreams
     #     #read_record and #restrict_columns apply, unless #read_header is told otherwise. nil does not cleanse it, as
     #     before it was deprecated. With a schema it raises ArgumentError, including for nil, since it would have no effect.
     #     Default: CLEANSE_BY_DEFAULT, which cleanses it.
-    def initialize(format: nil, file_name: nil, schema: nil, format_options: nil, default_format: :csv,
-                   row_format_options: nil, cleanse_header: CLEANSE_BY_DEFAULT, **args)
+    def initialize(format: nil, file_name: nil, schema: nil, default_format: :csv, row_format_options: nil,
+                   cleanse_header: CLEANSE_BY_DEFAULT, **args)
       if schema
         reject_header_options(args)
         reject_header_cleansing(cleanse_header)
@@ -172,12 +169,11 @@ module IOStreams
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
 
-      layout              = legacy_schema(format_options, schema)
-      @schema             = layout || schema
+      @schema             = schema
       @row_format_options = row_format_options || {}
       @parser             = self.class.parser_class(@format).new(schema: @schema)
-      @mapping            = build_mapping(header, schema, layout, cleanse_header ? true : false)
-      warn_deprecated_options(args, cleanse_header)
+      @mapping            = build_mapping(header, schema, cleanse_header ? true : false)
+      warn_deprecated_options(args, cleanse_header, schema)
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the columns supplied in
@@ -197,10 +193,9 @@ module IOStreams
     # rows after it, see #read_row, until it is read: the header row of a file with one, see #header?, otherwise the
     # columns of the rows of a file without one, which are not a line of their own, see
     # `IOStreams::Tabular::Mapping#read_rows_header`: the names of the fields of a schema, such as of fixed width, of
-    # JSON or Parquet, or of a file whose schema has `header: false`, the keys of the layout of a fixed width file, or
-    # for a format of keyed records, such as JSON, without a schema, the keys of its first record, since the columns of
-    # its rows are not known until then. False when the columns were supplied, which name the values of the rows
-    # instead.
+    # JSON or Parquet, or of a file whose schema has `header: false`, or for a format of keyed records, such as JSON,
+    # without a schema, the keys of its first record, since the columns of its rows are not known until then. False when
+    # the columns were supplied, which name the values of the rows instead.
     def rows_header?
       @mapping.rows_header?
     end
@@ -208,8 +203,7 @@ module IOStreams
     # Returns [Array<String|Symbol>] the columns of the rows that #row_parse returns of a file without a header row, which
     # #read_row yields as their header row unless they were supplied, see #rows_header?, so that a copy can give them to
     # the target, see `IOStreams::Row::Reader#copy_to`: the names of the fields of a schema, see
-    # `IOStreams::Schema#header?`, such as of fixed width or JSON, or the keys of the layout of a fixed width file, or
-    # the columns supplied for it.
+    # `IOStreams::Schema#header?`, such as of fixed width or JSON.
     # Returns nil for any other file, such as one whose rows start with a header row of its own, see #rows_header?.
     def headerless_columns
       @mapping.headerless_columns
@@ -343,10 +337,13 @@ module IOStreams
       @mapping.render_header(columns)
     end
 
-    # Returns [Array<String>] the cleansed columns
+    # Returns [Array<String>] the columns of the header row once they are cleansed, see
+    # `IOStreams::Tabular::Header#cleanse!`.
+    #
+    # Raises ArgumentError with a schema, whose fields name the keys of the records read instead, so that the header
+    # keeps the header row as it was read, see `IOStreams::Tabular::SchemaMapping`.
     def cleanse_header!
-      header.cleanse!
-      header.columns
+      @mapping.cleanse_header!
     end
 
     # Reading applies `allowed_columns`, `required_columns` and `skip_unknown` to every input: a header row, supplied
@@ -355,8 +352,7 @@ module IOStreams
     # a warning is logged, once, when applying them would change the result, see `IOStreams::Tabular::HeaderMapping`.
 
     # Parses the header row, then cleanses its columns when `cleanse:` is truthy, otherwise applies the column
-    # restrictions to them as they are, see #restrict_columns. For a format without a header row, such as the layout of
-    # a fixed width file, they apply to the columns supplied. `cleanse:` defaults to the `cleanse_header` option, see
+    # restrictions to them as they are, see #restrict_columns. `cleanse:` defaults to the `cleanse_header` option, see
     # #initialize, which cleanses them unless it is false or nil.
     #
     # With a schema, matches its columns to the fields instead, see `IOStreams::Schema::Columns#match`, so `cleanse:`
@@ -614,45 +610,33 @@ module IOStreams
 
     # Reports a deprecation warning, see `IOStreams::Deprecation`, for the options of the header that are supplied, which
     # are not nil, and `cleanse_header:`, including nil, which does not cleanse the header row, since a schema describes
-    # the columns of the file instead, and names the keys of the records read.
-    def warn_deprecated_options(args, cleanse_header)
+    # the columns of the file instead, and names the keys of the records read. With a schema, the only one that is
+    # accepted, `skip_unknown:`, has no effect, so the advice is to remove it.
+    def warn_deprecated_options(args, cleanse_header, schema)
       names = args.compact.keys & Header::OPTION_NAMES
       names << :cleanse_header unless cleanse_header.equal?(CLEANSE_BY_DEFAULT)
       return if names.empty?
 
+      advice =
+        if schema
+          "and #{names.size == 1 ? 'has' : 'have'} no effect with a schema, which describes the columns of the file, " \
+            "so remove #{names.size == 1 ? 'it' : 'them'}"
+        else
+          "describe the columns of the file with #schema instead"
+        end
       Deprecation.warn("#{names.map { |name| "#{name}:" }.join(', ')} #{names.size == 1 ? 'is' : 'are'} deprecated, " \
-                       "describe the columns of the file with #schema instead")
+                       "#{advice}")
     end
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the
-    # schema supplied, by the layout supplied as format options, which are deprecated, see #legacy_schema, whose records
-    # the options of the header still apply to, as before it was deprecated, otherwise by the header, which applies the
-    # options of the header, and cleanses the header row read when `cleanse`.
-    def build_mapping(header, schema, layout, cleanse)
+    # schema supplied, otherwise by the header, which applies the options of the header, and cleanses the header row
+    # read when `cleanse`.
+    def build_mapping(header, schema, cleanse)
       if schema
         SchemaMapping.new(schema, header: header, parser: parser, format: format)
-      elsif layout
-        LayoutMapping.new(layout, header: header, parser: parser, format: format, cleanse: cleanse)
       else
         HeaderMapping.new(header: header, parser: parser, format: format, cleanse: cleanse)
       end
-    end
-
-    # Returns [IOStreams::Schema] the schema of the fixed width layout supplied as format options, which are deprecated,
-    # or nil when there are none.
-    #
-    # Raises ArgumentError for a format other than fixed width, which a layout does not describe, as before it was
-    # deprecated, when its parser raised for the options that it did not take.
-    def legacy_schema(format_options, schema)
-      return if format_options.nil? || format_options.empty?
-      raise(ArgumentError, "Supply either schema: or format_options:, not both") if schema
-      unless @format.to_s == "fixed"
-        raise(ArgumentError, "format_options: is the layout of a fixed width file, so it only applies to the :fixed " \
-                             "format, not #{@format.inspect}. Set the format with #format, or use a schema, see " \
-                             "IOStreams::Stream#schema")
-      end
-
-      IOStreams::Schema.new(Parser::Fixed.schema(**format_options))
     end
   end
 end

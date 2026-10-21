@@ -1007,6 +1007,20 @@ class StreamTest < Minitest::Test
           assert_equal %({"first_name":"Jack","last_name":"Johnson"}\n), io.string, io.string.inspect
         end
 
+        it "writes every supplied column to a format of keyed records, null for a key that the record does not have, as before" do
+          io = StringIO.new
+          assert_deprecated(/describe the columns of the file with #schema instead/) do
+            IOStreams::Stream.new(io).format(:json).writer(:hash, columns: %w[first_name last_name]) do |stream|
+              stream << {"first_name" => "Jack"}
+              stream << {"Last Name" => "Jones"}
+              stream << {"other" => 1}
+            end
+          end
+
+          assert_equal %({"first_name":"Jack","last_name":null}\n{"first_name":null,"last_name":"Jones"}\n) +
+                       %({"first_name":null,"last_name":null}\n), io.string
+        end
+
         it "auto detects format" do
           io = StringIO.new
           IOStreams::Stream.new(io).file_name("abc.psv").writer(:array) do |stream|
@@ -1143,497 +1157,220 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe "#format_options" do
-      # The options of each call that describe the columns still apply to the records of a layout, and are tested here.
-      allow_deprecation(/#format_options is deprecated/, /describe the columns of the file with #schema instead/)
+    describe "fixed width columns" do
+      let(:schema) { {fields: [{name: "name", type: "string", width: 6}, {name: "city", type: "string", width: 7}]} }
 
-      it "reports a deprecation warning when it is set or read" do
-        stream = IOStreams::Stream.new(StringIO.new)
-
-        assert_deprecated(/#format_options is deprecated, use #schema instead/) { stream.format_options(layout: [{size: 2, key: "id"}]) }
-        assert_deprecated(/#format_options is deprecated, use #schema instead/) { stream.format_options = {layout: [{size: 2, key: "id"}]} }
-        assert_deprecated(/#format_options is deprecated, use #schema instead/) { stream.format_options }
-      end
-
-      it "returns the format options that were set" do
-        stream.format_options = {layout: [{size: 2, key: "id"}]}
-
-        assert_equal({layout: [{size: 2, key: "id"}]}, stream.format_options)
-      end
-
-      it "is nil when not set" do
-        assert_nil stream.format_options
-      end
-
-      it "writes records with keys that the layout does not have, skipping them as before it was deprecated" do
-        out = StringIO.new
-        IOStreams::Stream.new(out).format(:fixed).format_options(layout: [{size: 10, key: :name}, {size: 3, key: :age, type: :integer}]).writer(:hash) do |io|
-          io << {name: "Jack", age: 21, extra: "x"}
-        end
-
-        assert_equal "Jack      021\n", out.string
-      end
-
-      it "raises when copying rows whose header row has no key of the layout, as before it was deprecated, rather than write empty records" do
-        source = IOStreams::Stream.new(StringIO.new("Full Name,Postal\nJack,12345\n")).format(:csv)
-        layout = {layout: [{size: 6, key: :name}, {size: 5, key: :zip, type: :integer}]}
-        out    = StringIO.new
-
-        error = assert_raises(IOStreams::Errors::InvalidHeader) do
-          IOStreams::Stream.new(out).format(:fixed).format_options(layout).copy_from(source, mode: :array)
-        end
-        assert_match(/\AThe header row does not match the schema: the columns "Full Name" and "Postal" are not fields/, error.message)
-        assert_equal "", out.string
-      end
-
-      it "reads each row as the values of the layout, in order, after a header row of its keys, or of the columns supplied, by their keys, without one" do
-        layout = {layout: [{size: 4, key: "name"}, {size: 2}, {size: 5, key: :zip, type: :integer}]}
-        rows   = []
-        IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).each(:array) { |row| rows << row }
-
-        assert_equal [["name", :zip], ["Jack", 12_345]], rows
-
-        rows = []
-        IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).
-          each(:array, columns: %w[Zip name], allowed_columns: %w[name]) { |row| rows << row }
-
-        # The columns supplied name the values of the rows, so that no header row names them, as for any other format.
-        assert_equal [[12_345, "Jack"]], rows
-        refute IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout).reader(:array, columns: %w[Zip name], &:header?)
-      end
-
-      it "copies its rows into a file with a header row of the keys of the layout" do
-        layout = {layout: [{size: 4, key: "name"}, {size: 2}, {size: 5, key: :zip, type: :integer}]}
-        source = IOStreams::Stream.new(StringIO.new("Jackxx12345\n")).format(:fixed).format_options(layout)
-        out    = StringIO.new
-        IOStreams::Stream.new(out).format(:csv).copy_from(source, mode: :array)
-
-        assert_equal "name,zip\nJack,12345\n", out.string
-      end
-
-      it "copies a file with more columns than the layout into it" do
-        out    = StringIO.new
-        source = IOStreams::Stream.new(StringIO.new("name,age,id\nJill,22,5\n")).format(:csv)
-        IOStreams::Stream.new(out).format(:fixed).format_options(layout: [{size: 10, key: "name"}, {size: 3, key: "age", type: :integer}]).
-          copy_from(source, mode: :hash)
-
-        assert_equal "Jill      022\n", out.string
-      end
-
-      it "keeps a schema set with #schema when the format options are empty" do
-        schema = {fields: [{name: "name"}, {name: "age", type: "integer"}]}
-        [{}, nil].each do |empty|
+      # Returns [Array<Hash>] the records read from the data, which is written as bytes, as a fixed width file.
+      def read_fixed(data, **encode)
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(::File.join(dir, "people.txt"), data.b)
+          path = IOStreams.path(dir, "people.txt").format(:fixed).schema(schema)
+          path.encoding(**encode) unless encode.empty?
           rows = []
-          IOStreams::Stream.new(StringIO.new("name,age\nJack,0042\n")).file_name("a.csv").schema(schema).format_options({}).format_options(empty).
-            each(:hash) { |row| rows << row }
-
-          assert_equal [{"name" => "Jack", "age" => 42}], rows, empty.inspect
-        end
-      end
-
-      it "reads with the layout as it is, which #schema returns, when the layout is changed after it is set" do
-        layout = [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}]
-        path   = IOStreams::Stream.new(StringIO.new("07ab\n")).format(:fixed).format_options(layout: layout)
-        layout[1][:size] = 2
-        rows = []
-        path.each(:hash) { |row| rows << row }
-
-        assert_equal [{id: 7, code: "ab"}], rows
-        assert_equal 2, path.schema[:fields].last[:width]
-      end
-
-      it "is copied with its layout, so that changing the layout of the copy does not change the original" do
-        stream.format(:fixed).format_options(layout: [{size: 2, key: "id"}])
-        copy = IOStreams.stream(stream)
-        copy.format_options[:layout].first[:size] = 5
-        copy.format_options[:layout] << {size: 3, key: "code"}
-
-        assert_equal({layout: [{size: 2, key: "id"}]}, stream.format_options)
-      end
-
-      it "raises for a format other than fixed width, which the layout does not describe" do
-        path  = IOStreams::Stream.new(StringIO.new("First Name,Age\nJack,21\n")).file_name("a.csv").format_options(layout: [{size: 10, key: :first_name}])
-        error = assert_raises(ArgumentError) { path.each(:hash, cleanse_header: false) { |row| row } }
-        assert_match(/\Aformat_options: is the layout of a fixed width file, so it only applies to the :fixed format, not :csv/, error.message)
-      end
-
-      it "is copied, so that changing the copy does not change the original" do
-        stream.format(:fixed).format_options(layout: [{size: 2, key: "id"}])
-        copy = IOStreams.stream(stream)
-        copy.format_options[:truncate] = false
-
-        assert_equal :fixed, copy.format
-        assert_equal({layout: [{size: 2, key: "id"}]}, stream.format_options)
-      end
-
-      it "reads rows in the format with its options" do
-        rows = []
-        IOStreams::Stream.new(StringIO.new("01Jack\n02Jill\n")).
-          format(:fixed).
-          format_options(layout: [{size: 2, key: "id"}, {size: 4, key: "name"}]).
-          each(:hash) { |row| rows << row }
-
-        assert_equal [{"id" => "01", "name" => "Jack"}, {"id" => "02", "name" => "Jill"}], rows
-      end
-
-      it "is translated into the schema, which #schema returns" do
-        stream.format_options(
-          layout:   [{size: 2, key: :id, type: :integer}, {size: 1}, {size: 4, key: :name}, {size: 6, key: :pay, type: :float}],
-          truncate: false
-        )
-
-        expected = {
-          fields:      [
-            {name: :id, type: "integer", width: 2},
-            {name: :name, type: "string", width: 4, start: 4},
-            {name: :pay, type: "number", width: 6, floatNumber: true, decimals: 2}
-          ],
-          fieldsMatch: "subset",
-          keyType:     "symbol"
-        }
-
-        assert_equal expected, stream.schema
-      end
-
-      it "truncates strings unless truncate is false" do
-        stream.format_options(layout: [{size: 4, key: "name"}, {size: 2}])
-
-        assert_equal({fields: [{name: "name", type: "string", width: 4, truncate: true}], fieldsMatch: "subset", width: 6}, stream.schema)
-      end
-
-      it "raises for an invalid layout when it is set" do
-        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{key: "id"}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 2, key: "id", type: :money}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 2, key: "id", type: nil}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: {size: 2, key: "id"}) }
-        assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [[2, "id"]]) }
-        assert_raises(ArgumentError) { stream.format_options(layout: [{size: 2, key: "id", width: 3}]) }
-        assert_raises(ArgumentError) { stream.format_options(layout: [], compress: true) }
-        assert_nil stream.format_options
-      end
-
-      it "raises when it is set for two columns with the same key, rather than when the file is read" do
-        error = assert_raises(IOStreams::Errors::InvalidLayout) do
-          stream.format_options(layout: [{size: 1, key: :filler}, {size: 2, key: :id}, {size: 3, key: :filler}])
-        end
-        assert_equal "More than one column of the layout has the key :filler, but each column needs a key of its own, " \
-                     "its key in each record. A column without a key is a filler, which is skipped when reading and " \
-                     "written as spaces, so remove the key of a filler.", error.message
-
-        error = assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 2, key: :id}, {size: 2, key: "id"}]) }
-        assert_match(/\AThe columns of the layout with the keys :id and "id" have the same key/, error.message)
-        assert_nil stream.format_options
-      end
-
-      it "raises when it is set for a key that is neither a String nor a Symbol, or a float with negative decimals" do
-        error = assert_raises(IOStreams::Errors::InvalidLayout) { stream.format_options(layout: [{size: 4, key: 1}]) }
-        assert_equal "The key of a column of the layout must be a String or a Symbol, such as \"1\", or none for a " \
-                     "filler: 1", error.message
-
-        error = assert_raises(IOStreams::Errors::InvalidLayout) do
-          stream.format_options(layout: [{size: 6, key: :pay, type: :float, decimals: -1}])
-        end
-        assert_equal "The decimals of the column :pay of the layout must be 0 or more: -1", error.message
-        assert_nil stream.format_options
-      end
-
-      it "writes a float column that takes the remainder of the line with the digits that it has, as before it was deprecated" do
-        layout = {layout: [{size: 2, key: :id}, {size: :remainder, key: :pay, type: :float}]}
-        out    = StringIO.new
-        IOStreams::Stream.new(out).format(:fixed).format_options(layout).writer(:hash) do |io|
-          io << {id: "a", pay: 1.5} << {id: "b"} << {id: "c", pay: BigDecimal("2.255")} << {id: "d", pay: 3}
-        end
-
-        assert_equal "a 1.5\nb 0.0\nc 2.255\nd 3.0\n", out.string
-        pays = []
-        IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout).each(:hash) { |row| pays << row[:pay] }
-
-        assert_equal [1.5, 0.0, 2.255, 3.0], pays
-      end
-
-      it "is replaced by #schema" do
-        stream.format_options(layout: [{size: 2, key: "id"}])
-        stream.schema(fields: [{name: "id", type: "integer", width: 2}])
-
-        assert_nil stream.format_options
-        assert_equal({fields: [{name: "id", type: "integer", width: 2}]}, stream.schema)
-      end
-
-      it "removes the schema of its layout when it is set to nil, but not a schema set with #schema" do
-        stream.format_options(layout: [{size: 2, key: "id"}]).format_options(nil)
-
-        assert_nil stream.schema
-
-        stream.schema(fields: [{name: "id"}]).format_options(nil)
-
-        assert_equal({fields: [{name: "id"}]}, stream.schema)
-      end
-
-      it "reads integers and floats, and writes them zero filled" do
-        layout = [{size: 2, key: "id", type: :integer}, {size: 6, key: "pay", type: :float}]
-        out    = StringIO.new
-        IOStreams::Stream.new(out).format(:fixed).format_options(layout: layout).writer(:hash) do |io|
-          io << {"id" => 7, "pay" => 12.5}
-          io << {"id" => 8}
-        end
-
-        assert_equal "07012.50\n08000.00\n", out.string
-
-        rows = []
-        IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout: layout).each(:hash) { |row| rows << row }
-
-        assert_equal [{"id" => 7, "pay" => 12.5}, {"id" => 8, "pay" => 0.0}], rows
-        assert_kind_of Float, rows.first["pay"]
-      end
-
-      it "raises for a column that is not a number, rather than return 0" do
-        path = IOStreams::Stream.new(StringIO.new("N/A\n")).format(:fixed).format_options(layout: [{size: 3, key: "id", type: :integer}])
-
-        error = assert_raises(IOStreams::Errors::InvalidValue) { path.each(:hash) { |row| row } }
-        assert_equal 'Field "id": "N/A" is not a valid integer', error.message
-      end
-
-      it "keeps the Symbol keys of the layout in the records that allowed_columns or required_columns restrict, as before" do
-        layout = {layout: [{size: 6, key: :name}, {size: 5, key: :zip, type: :integer}]}
-        read   = lambda do |**options|
-          rows = []
-          IOStreams::Stream.new(StringIO.new("Jack  00012\n")).format(:fixed).format_options(layout).each(:hash, **options) { |row| rows << row }
+          path.each(:hash) { |row| rows << row }
           rows
         end
-
-        assert_equal [{name: "Jack"}], read.call(allowed_columns: %w[name])
-        assert_equal [{name: "Jack", zip: 12}], read.call(required_columns: %w[zip])
-        assert_equal [{name: "Jack"}], read.call(allowed_columns: %w[name], cleanse_header: false)
-        assert_raises(IOStreams::Errors::InvalidHeader) { read.call(required_columns: %w[missing]) }
       end
 
-      it "reads an integer column of a whole number with a decimal point, as before it was deprecated, but not a fraction" do
-        layout = {layout: [{size: 4, key: "id", type: :integer}]}
-        rows   = []
-        IOStreams::Stream.new(StringIO.new("12.0\n1.00\n")).format(:fixed).format_options(layout).each(:hash) { |row| rows << row }
-
-        assert_equal [{"id" => 12}, {"id" => 1}], rows
-        error = assert_raises(IOStreams::Errors::InvalidValue) do
-          IOStreams::Stream.new(StringIO.new("12.5\n")).format(:fixed).format_options(layout).each(:hash) { |row| row }
+      # Returns [String] the bytes written as a fixed width file.
+      def write_fixed(record, **encode)
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.txt").format(:fixed).schema(schema)
+          path.encoding(**encode) unless encode.empty?
+          path.writer(:hash) { |io| io << record }
+          ::File.binread(path.to_s)
         end
-        assert_equal 'Field "id": "12.5" is not a valid integer', error.message
       end
 
-      describe "fixed width columns" do
-        let(:layout) { [{size: 6, key: "name"}, {size: 7, key: "city"}] }
+      it "reads an ASCII file as UTF-8 strings without any options" do
+        rows = read_fixed("Jack  London \n")
 
-        # Returns [Array<Hash>] the records read from the data, which is written as bytes, as a fixed width file.
-        def read_fixed(data, layout: self.layout, **encode)
-          Dir.mktmpdir do |dir|
-            ::File.binwrite(::File.join(dir, "people.txt"), data.b)
-            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.encoding(**encode) unless encode.empty?
-            rows = []
-            path.each(:hash) { |row| rows << row }
-            rows
-          end
+        assert_equal [{"name" => "Jack", "city" => "London"}], rows
+        assert_equal Encoding::UTF_8, rows.first["name"].encoding
+      end
+
+      it "raises for a byte that is not ASCII, naming the byte and its offset" do
+        error = assert_raises(IOStreams::Errors::InvalidEncoding) { read_fixed("Jos\xE9  Paris  \n") }
+
+        assert_includes error.message, '"\\xE9" is not valid US-ASCII'
+        assert_equal 3, error.byte_offset
+      end
+
+      it "reads a single-byte code page as UTF-8, with sizes that count bytes" do
+        rows = read_fixed("Jos\xE9  Z\xFCrich \n", encoding: "ISO-8859-1:UTF-8")
+
+        assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+        assert_equal Encoding::UTF_8, rows.first["name"].encoding
+      end
+
+      it "reads an EBCDIC file as UTF-8" do
+        rows = read_fixed("Jos\u00e9  Z\u00fcrich ".encode("IBM037").b + "\x25".b, encoding: "IBM037:UTF-8")
+
+        assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+      end
+
+      it "replaces bytes that are not ASCII, keeping the columns aligned" do
+        rows = read_fixed("Jos\xE9  Paris  \n", replace: " ")
+
+        assert_equal [{"name" => "Jos", "city" => "Paris"}], rows
+      end
+
+      it "keeps the ASCII default when other encode options are set" do
+        assert_equal [{"name" => "Jos", "city" => "Paris"}], read_fixed("Jos\xE9  Paris  \n", replace: " ")
+        assert_raises(IOStreams::Errors::InvalidEncoding) do
+          read_fixed("Jos\xE9  Paris  \n", cleaner: :replace_non_printable)
         end
+      end
 
-        # Returns [String] the bytes written as a fixed width file.
-        def write_fixed(record, **encode)
-          Dir.mktmpdir do |dir|
-            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.encoding(**encode) unless encode.empty?
-            path.writer(:hash) { |io| io << record }
-            ::File.binread(path.to_s)
-          end
+      it "keeps the columns aligned when replacing non-printable characters" do
+        rows = read_fixed("Jack\0\0London\0\n", cleaner: :replace_non_printable, replace: " ")
+
+        assert_equal [{"name" => "Jack", "city" => "London"}], rows
+      end
+
+      it "moves the columns when removing non-printable characters" do
+        assert_raises(IOStreams::Errors::InvalidLineLength) do
+          read_fixed("Jack\0\0London\0\n", cleaner: :printable, replace: " ")
         end
+      end
 
-        it "reads an ASCII file as UTF-8 strings without any options" do
-          rows = read_fixed("Jack  London \n")
+      it "reads UTF-8 whose sizes count characters with the UTF-8 encoding" do
+        rows = read_fixed("Jos\u00e9  Z\u00fcrich \n", encoding: "UTF-8")
 
-          assert_equal [{"name" => "Jack", "city" => "London"}], rows
-          assert_equal Encoding::UTF_8, rows.first["name"].encoding
+        assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+      end
+
+      # UTF-8 that is not ASCII, so that only reading it as ASCII raises.
+      let(:utf8_line) { "Jos\u00e9 Paris  \n" }
+
+      it "reads lines as ASCII in the fixed format" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(::File.join(dir, "people.txt"), utf8_line.b)
+          path  = IOStreams.path(dir, "people.txt").format(:fixed)
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:line) { |_line| nil } }
+
+          assert_equal "\"\\xC3\" is not valid US-ASCII at byte offset 3 on line 1", error.message
         end
+      end
 
-        it "raises for a byte that is not ASCII, naming the byte and its offset" do
-          error = assert_raises(IOStreams::Errors::InvalidEncoding) { read_fixed("Jos\xE9  Paris  \n") }
+      it "reads lines as ASCII in a file named for the fixed format" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(::File.join(dir, "people.fixed"), utf8_line.b)
+          path = IOStreams.path(dir, "people.fixed")
 
-          assert_includes error.message, '"\\xE9" is not valid US-ASCII'
-          assert_equal 3, error.byte_offset
+          assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:line) { |_line| nil } }
         end
+      end
 
-        it "reads a single-byte code page as UTF-8, with sizes that count bytes" do
-          rows = read_fixed("Jos\xE9  Z\xFCrich \n", encoding: "ISO-8859-1:UTF-8")
+      it "reads rows as ASCII in the fixed format" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(::File.join(dir, "people.txt"), utf8_line.b)
+          path = IOStreams.path(dir, "people.txt").format(:fixed).schema(schema)
 
-          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
-          assert_equal Encoding::UTF_8, rows.first["name"].encoding
+          assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:array) { |_row| nil } }
         end
+      end
 
-        it "reads an EBCDIC file as UTF-8" do
-          rows = read_fixed("Jos\u00e9  Z\u00fcrich ".encode("IBM037").b + "\x25".b, encoding: "IBM037:UTF-8")
+      it "writes lines as ASCII in the fixed format" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.txt").format(:fixed)
 
-          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+          assert_raises(Encoding::UndefinedConversionError) { path.writer(:line) { |io| io << "Jos\u00e9" } }
         end
+      end
 
-        it "replaces bytes that are not ASCII, keeping the columns aligned" do
-          rows = read_fixed("Jos\xE9  Paris  \n", replace: " ")
+      it "writes rows as ASCII in the fixed format" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.txt").format(:fixed).schema(schema)
+          path.writer(:array) { |io| io << %w[Jack Paris] }
 
-          assert_equal [{"name" => "Jos", "city" => "Paris"}], rows
-        end
-
-        it "keeps the ASCII default when other encode options are set" do
-          assert_equal [{"name" => "Jos", "city" => "Paris"}], read_fixed("Jos\xE9  Paris  \n", replace: " ")
-          assert_raises(IOStreams::Errors::InvalidEncoding) do
-            read_fixed("Jos\xE9  Paris  \n", cleaner: :replace_non_printable)
-          end
-        end
-
-        it "keeps the columns aligned when replacing non-printable characters" do
-          rows = read_fixed("Jack\0\0London\0\n", cleaner: :replace_non_printable, replace: " ")
-
-          assert_equal [{"name" => "Jack", "city" => "London"}], rows
-        end
-
-        it "moves the columns when removing non-printable characters" do
-          assert_raises(IOStreams::Errors::InvalidLineLength) do
-            read_fixed("Jack\0\0London\0\n", cleaner: :printable, replace: " ")
-          end
-        end
-
-        it "reads UTF-8 whose sizes count characters with the UTF-8 encoding" do
-          rows = read_fixed("Jos\u00e9  Z\u00fcrich \n", encoding: "UTF-8")
-
-          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
-        end
-
-        # UTF-8 that is not ASCII, so that only reading it as ASCII raises.
-        let(:utf8_line) { "Jos\u00e9 Paris  \n" }
-
-        it "reads lines as ASCII in the fixed format" do
-          Dir.mktmpdir do |dir|
-            ::File.binwrite(::File.join(dir, "people.txt"), utf8_line.b)
-            path  = IOStreams.path(dir, "people.txt").format(:fixed)
-            error = assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:line) { |_line| nil } }
-
-            assert_equal "\"\\xC3\" is not valid US-ASCII at byte offset 3 on line 1", error.message
-          end
-        end
-
-        it "reads lines as ASCII in a file named for the fixed format" do
-          Dir.mktmpdir do |dir|
-            ::File.binwrite(::File.join(dir, "people.fixed"), utf8_line.b)
-            path = IOStreams.path(dir, "people.fixed")
-
-            assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:line) { |_line| nil } }
-          end
-        end
-
-        it "reads rows as ASCII in the fixed format" do
-          Dir.mktmpdir do |dir|
-            ::File.binwrite(::File.join(dir, "people.txt"), utf8_line.b)
-            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-
-            assert_raises(IOStreams::Errors::InvalidEncoding) { path.each(:array) { |_row| nil } }
-          end
-        end
-
-        it "writes lines as ASCII in the fixed format" do
-          Dir.mktmpdir do |dir|
-            path = IOStreams.path(dir, "people.txt").format(:fixed)
-
-            assert_raises(Encoding::UndefinedConversionError) { path.writer(:line) { |io| io << "Jos\u00e9" } }
-          end
-        end
-
-        it "writes rows as ASCII in the fixed format" do
-          Dir.mktmpdir do |dir|
-            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.writer(:array, columns: %w[name city]) { |io| io << %w[Jack Paris] }
-
-            assert_equal "Jack  Paris  \n", ::File.binread(path.to_s)
-            assert_raises(Encoding::UndefinedConversionError) do
-              path.writer(:array, columns: %w[name city]) { |io| io << %W[Jos\u00e9 Paris] }
-            end
-          end
-        end
-
-        it "does not change the encode options of the path" do
-          Dir.mktmpdir do |dir|
-            ::File.binwrite(::File.join(dir, "people.txt"), "Jack  London \n")
-            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.encoding(replace: " ")
-            path.each(:hash) { |_row| nil }
-
-            assert_equal({replace: " "}, path.setting(:encode))
-          end
-        end
-
-        it "reads a stream without a file name as ASCII" do
-          io = StringIO.new("Jos\xE9  Paris  \n".b)
-
-          assert_raises(IOStreams::Errors::InvalidEncoding) do
-            IOStreams.stream(io).format(:fixed).format_options(layout: layout).each(:hash) { |_row| nil }
-          end
-        end
-
-        it "raises when writing a value that is not ASCII" do
+          assert_equal "Jack  Paris  \n", ::File.binread(path.to_s)
           assert_raises(Encoding::UndefinedConversionError) do
-            write_fixed({"name" => "Jos\u00e9", "city" => "Paris"})
+            path.writer(:array) { |io| io << %W[Jos\u00e9 Paris] }
           end
         end
+      end
 
-        it "writes each line as the length of the layout in bytes in a single-byte code page" do
-          data = write_fixed({"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}, encoding: "ISO-8859-1")
+      it "does not change the encode options of the path" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(::File.join(dir, "people.txt"), "Jack  London \n")
+          path = IOStreams.path(dir, "people.txt").format(:fixed).schema(schema)
+          path.encoding(replace: " ")
+          path.each(:hash) { |_row| nil }
 
-          assert_equal "Jos\xE9  Z\xFCrich \n".b, data
-          assert_equal 14, data.bytesize
+          assert_equal({replace: " "}, path.setting(:encode))
         end
+      end
 
-        it "writes UTF-8 whose sizes count characters with the UTF-8 encoding" do
-          data = write_fixed({"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}, encoding: "UTF-8")
+      it "reads a stream without a file name as ASCII" do
+        io = StringIO.new("Jos\xE9  Paris  \n".b)
 
-          assert_equal "Jos\u00e9  Z\u00fcrich \n".b, data
+        assert_raises(IOStreams::Errors::InvalidEncoding) do
+          IOStreams.stream(io).format(:fixed).schema(schema).each(:hash) { |_row| nil }
         end
+      end
 
-        it "replaces characters that are not ASCII when writing" do
-          assert_equal "Jos   Paris  \n", write_fixed({"name" => "Jos\u00e9", "city" => "Paris"}, replace: " ")
+      it "raises when writing a value that is not ASCII" do
+        assert_raises(Encoding::UndefinedConversionError) do
+          write_fixed({"name" => "Jos\u00e9", "city" => "Paris"})
         end
+      end
 
-        it "raises an error that is rescued as an Encoding::UndefinedConversionError" do
-          assert_raises(Encoding::UndefinedConversionError) { read_fixed("Jos\xE9  Paris  \n") }
-        end
+      it "writes each line as the length of its fields in bytes in a single-byte code page" do
+        data = write_fixed({"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}, encoding: "ISO-8859-1")
 
-        it "leaves the other formats as UTF-8" do
-          Dir.mktmpdir do |dir|
-            %i[csv psv json].each do |format|
-              path = IOStreams.path(dir, "people.#{format}")
-              path.writer(:hash) { |io| io << {"name" => "Jos\u00e9"} }
-              rows = []
-              path.each(:hash) { |row| rows << row }
+        assert_equal "Jos\xE9  Z\xFCrich \n".b, data
+        assert_equal 14, data.bytesize
+      end
 
-              assert_equal [{"name" => "Jos\u00e9"}], rows, format
-            end
-          end
-        end
+      it "writes UTF-8 whose sizes count characters with the UTF-8 encoding" do
+        data = write_fixed({"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}, encoding: "UTF-8")
 
-        it "reads a file that it wrote with multi-byte characters as UTF-8 text" do
-          Dir.mktmpdir do |dir|
-            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            path.encoding("UTF-8")
-            path.writer(:hash) { |io| io << {"name" => "Jos\u00e9", "city" => "Z\u00fcrich"} }
+        assert_equal "Jos\u00e9  Z\u00fcrich \n".b, data
+      end
+
+      it "replaces characters that are not ASCII when writing" do
+        assert_equal "Jos   Paris  \n", write_fixed({"name" => "Jos\u00e9", "city" => "Paris"}, replace: " ")
+      end
+
+      it "raises an error that is rescued as an Encoding::UndefinedConversionError" do
+        assert_raises(Encoding::UndefinedConversionError) { read_fixed("Jos\xE9  Paris  \n") }
+      end
+
+      it "leaves the other formats as UTF-8" do
+        Dir.mktmpdir do |dir|
+          %i[csv psv json].each do |format|
+            path = IOStreams.path(dir, "people.#{format}")
+            path.writer(:hash) { |io| io << {"name" => "Jos\u00e9"} }
             rows = []
             path.each(:hash) { |row| rows << row }
 
-            assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+            assert_equal [{"name" => "Jos\u00e9"}], rows, format
           end
         end
+      end
 
-        it "counts bytes when read as binary" do
-          Dir.mktmpdir do |dir|
-            # "José " is 6 bytes and "Zürich" is 7 bytes.
-            IOStreams.path(dir, "people.txt").write("Jos\u00e9 Z\u00fcrich\n")
-            path = IOStreams.path(dir, "people.txt").format(:fixed).format_options(layout: layout)
-            rows = []
-            path.encoding("BINARY").each(:hash) { |row| rows << row }
+      it "reads a file that it wrote with multi-byte characters as UTF-8 text" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.txt").format(:fixed).schema(schema)
+          path.encoding("UTF-8")
+          path.writer(:hash) { |io| io << {"name" => "Jos\u00e9", "city" => "Z\u00fcrich"} }
+          rows = []
+          path.each(:hash) { |row| rows << row }
 
-            assert_equal [{"name" => "Jos\u00e9".b, "city" => "Z\u00fcrich".b}], rows
-          end
+          assert_equal [{"name" => "Jos\u00e9", "city" => "Z\u00fcrich"}], rows
+        end
+      end
+
+      it "counts bytes when read as binary" do
+        Dir.mktmpdir do |dir|
+          # "José " is 6 bytes and "Zürich" is 7 bytes.
+          IOStreams.path(dir, "people.txt").write("Jos\u00e9 Z\u00fcrich\n")
+          path = IOStreams.path(dir, "people.txt").format(:fixed).schema(schema)
+          rows = []
+          path.encoding("BINARY").each(:hash) { |row| rows << row }
+
+          assert_equal [{"name" => "Jos\u00e9".b, "city" => "Z\u00fcrich".b}], rows
         end
       end
     end
@@ -2012,6 +1749,28 @@ class StreamTest < Minitest::Test
           assert_deprecated(/describe the columns of the file with #schema instead/) { csv.copy_from(source, mode: :array, columns: %w[age name]) }
 
           assert_equal "age,name\nAge,Name\n21,Jack\n", csv.read
+        end
+      end
+
+      it "hands the header row of a source with a schema to a target whose columns are supplied as its columns, which they name instead" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "in.csv").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+          source.write("name,age\nJack,21\n")
+
+          json = IOStreams.path(dir, "out.json")
+          assert_deprecated(/describe the columns of the file with #schema instead/) { json.copy_from(source, mode: :array, columns: %w[who years]) }
+
+          assert_equal %({"who":"Jack","years":21}\n), json.read
+
+          csv = IOStreams.path(dir, "out.csv")
+          assert_deprecated(/describe the columns of the file with #schema instead/) { csv.copy_from(source, mode: :array, columns: %w[who years]) }
+
+          assert_equal "who,years\nJack,21\n", csv.read
+
+          plain = IOStreams.path(dir, "plain.csv")
+          plain.copy_from(source, mode: :array)
+
+          assert_equal "name,age\nJack,21\n", plain.read
         end
       end
 
@@ -2594,7 +2353,9 @@ class StreamTest < Minitest::Test
         it "accept skip_unknown without allowed_columns, which it only applies to" do
           stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
           rows   = []
-          stream.each(:hash, skip_unknown: false) { |row| rows << row }
+          assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema/) do
+            stream.each(:hash, skip_unknown: false) { |row| rows << row }
+          end
 
           assert_equal [record], rows
         end
@@ -2644,18 +2405,11 @@ class StreamTest < Minitest::Test
           end
         end
 
-        it "still apply without a schema, and to the layout of the deprecated format options" do
+        it "still apply without a schema" do
           rows = []
           IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").each(:hash, allowed_columns: %w[id]) { |row| rows << row }
 
           assert_equal [{"id" => "0042"}], rows
-
-          fixed = IOStreams::Stream.new(StringIO.new("07abc\n")).format(:fixed)
-          assert_deprecated(/#format_options is deprecated/) { fixed.format_options(layout: [{size: 2, key: :id, type: :integer}, {size: 3, key: :code}]) }
-          rows = []
-          fixed.each(:hash, columns: ["id"]) { |row| rows << row }
-
-          assert_equal [{"id" => 7}], rows
         end
       end
 
@@ -2767,19 +2521,13 @@ class StreamTest < Minitest::Test
           assert_equal [BigDecimal("Infinity"), BigDecimal("-Infinity")], pays[1..]
         end
 
-        it "reads back a number that is not finite from the layout of the deprecated format options" do
-          layout = {layout: [{size: 8, key: :pay, type: :float, decimals: 2}]}
-          out    = StringIO.new
-          assert_deprecated(/#format_options is deprecated/) do
-            IOStreams::Stream.new(out).format(:fixed).format_options(layout).writer(:hash) do |io|
-              [Float::NAN, -Float::INFINITY, -1.5].each { |pay| io << {pay: pay} }
-            end
-          end
-          pays  = []
-          input = assert_deprecated(/#format_options is deprecated/) { IOStreams::Stream.new(StringIO.new(out.string)).format(:fixed).format_options(layout) }
-          input.each(:hash) { |record| pays << record[:pay] }
+        it "reads back a Float that is not finite, with floatNumber and decimals" do
+          schema  = {fields: [{name: :pay, type: "number", width: 8, floatNumber: true, decimals: 2}]}
+          written = write_fixed({pay: Float::NAN}, {pay: -Float::INFINITY}, {pay: -1.5}, schema: schema)
 
-          assert_equal "     NaN\n    -INF\n-0001.50\n", out.string
+          assert_equal "     NaN\n    -INF\n-0001.50\n", written
+          pays = read_fixed(written, schema: schema).map { |record| record[:pay] }
+
           assert_predicate pays[0], :nan?
           assert_equal [-Float::INFINITY, -1.5], pays[1..]
         end
@@ -2863,6 +2611,34 @@ class StreamTest < Minitest::Test
           assert_equal "07any length\n", write_fixed({"id" => 7, "note" => "any length"}, schema: schema)
         end
 
+        it "writes a number that takes the remainder of the line with the digits that it has" do
+          schema  = {fields: [{name: "id", width: 2}, {name: "pay", type: "number", width: "remainder", floatNumber: true}]}
+          written = write_fixed({id: "a", pay: 1.5}, {id: "b"}, {id: "c", pay: BigDecimal("2.255")}, {id: "d", pay: 3}, schema: schema)
+
+          assert_equal "a 1.5\nb 0.0\nc 2.255\nd 3.0\n", written
+          pays = read_fixed(written, schema: schema).map { |record| record["pay"] }
+
+          assert_equal [1.5, 0.0, 2.255, 3.0], pays
+        end
+
+        it "reads a Float with floatNumber, and writes it zero filled with its decimals" do
+          schema  = {fields: [{name: "id", type: "integer", width: 2}, {name: "pay", type: "number", width: 6, floatNumber: true, decimals: 2}]}
+          written = write_fixed({"id" => 7, "pay" => 12.5}, {"id" => 8}, schema: schema)
+
+          assert_equal "07012.50\n08000.00\n", written
+          rows = read_fixed(written, schema: schema)
+
+          assert_equal [{"id" => 7, "pay" => 12.5}, {"id" => 8, "pay" => 0.0}], rows
+          assert_kind_of Float, rows.first["pay"]
+        end
+
+        it "raises for a column of a number that holds no number, rather than return 0" do
+          error = assert_raises(IOStreams::Errors::InvalidValue) do
+            read_fixed("N/A\n", schema: {fields: [{name: "id", type: "integer", width: 3}]})
+          end
+          assert_equal 'Field "id": "N/A" is not a valid integer', error.message
+        end
+
         it "accepts lines of any length with a schema width of remainder" do
           schema = {fields: [{name: "id", type: "integer", width: 2}], width: "remainder"}
 
@@ -2894,12 +2670,11 @@ class StreamTest < Minitest::Test
       end
 
       describe "supplied to each call" do
-        it "raises for the format, format options or schema, since they are set on the path" do
+        it "raises for the format or schema, since they are set on the path" do
           error = assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:hash, format: :json) { |row| row } }
           assert_equal ":format cannot be supplied to each call, set it on the path instead, for example: path.format(:json).each(:hash)",
                        error.message
 
-          assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:array, format_options: {layout: []}) { |row| row } }
           assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:hash, schema: people) { |row| row } }
           assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new(csv)).each(:line, format: :psv) { |row| row } }
           assert_raises(ArgumentError) { IOStreams::Stream.new(StringIO.new).writer(:hash, format: :json) { |io| io << {"a" => 1} } }
@@ -3191,6 +2966,16 @@ class StreamTest < Minitest::Test
         IOStreams.stream(io).freeze.write("abc")
 
         assert_equal "abc", io.string
+      end
+    end
+
+    describe "the deprecated skip_unknown: with a schema" do
+      it "says that it has no effect, so remove it" do
+        stream = IOStreams.stream(StringIO.new("a\n1\n")).format(:csv).schema(fieldsMatch: "partial", fields: [{name: "a"}])
+
+        assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema, which describes the columns of the file, so remove it/) do
+          stream.each(:hash, skip_unknown: true) { |row| row }
+        end
       end
     end
 

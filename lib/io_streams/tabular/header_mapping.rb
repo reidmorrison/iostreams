@@ -56,6 +56,13 @@ module IOStreams
         header? || (@keyed && @rows.nil? && @keys.nil?)
       end
 
+      # Returns [Array<String>] the columns of the header row once they are cleansed, see
+      # `IOStreams::Tabular::Header#cleanse!`.
+      def cleanse_header!
+        header.cleanse!
+        header.columns
+      end
+
       # Returns [false] the keys of the records read are the columns of the file, see `IOStreams::Tabular#field_names?`.
       def field_names?
         false
@@ -118,8 +125,7 @@ module IOStreams
       end
 
       # Parses the header row, see #parse_header, then cleanses its columns when `cleanse` is truthy, otherwise applies
-      # the column restrictions to them as they are, see #restrict_columns. For a format without a header row, such as
-      # the layout of a fixed width file, they apply to the columns supplied. The keys of a format of keyed records are
+      # the column restrictions to them as they are, see #restrict_columns. The keys of a format of keyed records are
       # only cleansed when the columns are restricted, as its records are, see #read_record.
       #
       # Returns [Array] the header row as read, before it is cleansed, or nil when the line is blank, or the format does
@@ -190,7 +196,10 @@ module IOStreams
       def render(row)
         return if IOStreams::Utils.blank?(row)
 
-        @parser.render(@keyed ? header.to_hash(row) : header.to_array(row))
+        # The columns of a format of keyed records, such as JSON, are known when they are supplied, or once the first row
+        # gives them, when the record written has every one of them, otherwise its keys are its columns.
+        record = @keyed && header.columns ? header.to_record(row) : row
+        @parser.render(@keyed ? header.to_hash(record) : header.to_array(row))
       end
 
       # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
