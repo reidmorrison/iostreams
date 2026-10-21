@@ -358,17 +358,43 @@ Or select it as its text, such as `valid_until::text AS valid_until_text`, which
 
 ## Connections and transactions
 
-The query borrows a connection from the pool of its model, and hands it back when the export ends, or the block is
-left with `break` or an exception, as `with_connection` does. It joins a transaction that the caller has open, so it
-reads the rows that the caller has not yet committed. Its rows are read within the fiber or thread of the caller, so a
-block that runs queries of its own runs them on the same connection, except on MySQL, see below.
+A relation that is read as one query is read on a connection of its own, which the query checks out of the pool of
+its model, and checks back in when the export ends, or the block is left with `break` or an exception. The block that
+the rows are yielded to runs its own queries on the connection of the caller, independently of the read, on every
+database:
 
-The queries of an export skip the query cache, which would keep every row in memory. On PostgreSQL and SQLite the
-block still uses the query cache of the application; while batches are read, Rails runs a query between the batches,
-so the query cache is off for the block too.
+* The block can read and write the database, such as to update each row that it exports. What it writes is part of
+  the transaction of the caller, when the caller has one open, and is otherwise committed at once, whatever happens to
+  the export.
+* An `ActiveRecord::Rollback` that the block raises reaches the caller, as it would from any other block: it rolls
+  back the transaction of the caller, or is raised by `#each` when there is none.
+* The read sees what was committed, rather than what the open transaction of the caller has written, which it has not
+  committed yet.
+* The queries that read the rows skip the query cache, which would keep every row in memory, while the queries of the
+  block use the query cache as the caller left it.
 
-One query holds one snapshot of the database for the whole export, which keeps PostgreSQL from vacuuming, and InnoDB
-from purging, the rows that change in the meantime. On a busy primary, export from a replica:
+So the pool needs a connection free besides the one of the caller. Otherwise the read waits for one, for the
+`checkout_timeout` of the pool, 5 seconds by default, and raises `ActiveRecord::ConnectionTimeoutError`, tagged as
+`IOStreams::Errors::Unavailable`. A pool needs one connection more than the threads that use it, for each thread that
+can export at the same time.
+
+The batches of a relation are read on the connection of the caller instead, as Rails reads them, each batch whole
+before its rows are yielded, so they see what the open transaction of the caller has written. The block runs its
+queries as it does for one query, and keeps the query cache as the caller left it, while each batch is read without
+it.
+
+In the transactional tests of Rails, which share one connection between the test and the application, the pool checks
+out that connection for the read too, so the read sees the fixtures, and what the test wrote. An in-memory SQLite
+database, and a SQLite database that is not in WAL mode, are read on the connection of the caller instead, see
+[SQLite](#sqlite).
+
+One query reads one snapshot of the database for the whole export, so that it reads each row once, as it was when the
+export started, however the block, or anything else, changes the table meanwhile, apart from where SQLite reads on the
+connection of the caller. Holding that snapshot keeps PostgreSQL from vacuuming, and InnoDB from purging, the old
+versions of the rows that change while the export runs, and keeps SQLite from starting its WAL file again. The batches
+of a relation each read a snapshot of their own.
+
+To spare a busy primary, export from a replica:
 
 ~~~ruby
 ActiveRecord::Base.connected_to(role: :reading) do
@@ -376,60 +402,104 @@ ActiveRecord::Base.connected_to(role: :reading) do
 end
 ~~~
 
+On PostgreSQL, a hot standby that replays the vacuum of rows that the snapshot of an export still needs cancels the
+export, once it has waited for `max_standby_streaming_delay`, 30 seconds by default, with an exception tagged as
+`Unavailable`, which a retry can meet again. With `hot_standby_feedback` on, the standby does not cancel it, but holds
+back vacuum on the primary for as long as the export runs, as an export on the primary does. Raise
+`max_standby_streaming_delay` on a standby that exports, which delays its replay instead, or read the query in batches,
+whose snapshots each last for one batch. On MySQL, an export on a replica holds back the purge of that replica only.
+
 ## Each database
 
 | Database | How a query is read |
 |----------|---------------------|
-| PostgreSQL | A cursor, which fetches 10,000 rows at a time |
-| MySQL, with `mysql2` | The `stream: true` mode of `mysql2` |
-| MySQL, with `trilogy` | Raises `ArgumentError`, since `trilogy` reads every row of a result at once: read it in batches |
-| SQLite, with `sqlite3` | A statement, which steps through the rows |
-| Any other database | Raises `ArgumentError`: read it in batches |
+| PostgreSQL, also through PostGIS | A cursor, which fetches 100 rows, then as many as hold about 8 MB of their values, at most 10,000 at a time |
+| MySQL, with `mysql2` | The `stream: true` mode of `mysql2`, which reads one row at a time |
+| SQLite, with `sqlite3` | A statement of the `sqlite3` gem, which steps through the rows |
+| MySQL with `trilogy`, or with AR-JDBC on JRuby, SQLite without `sqlite3`, as on JRuby, and any other database | Raises `ArgumentError`: read it in batches |
 
-A query that cannot be streamed raises rather than read the query in batches without being asked, so that a query
-only runs once for each batch when that is the choice.
+A query that cannot be streamed raises, before a copy opens its target, rather than read the query in batches without
+being asked, so that a query only runs once for each batch when that is the choice. Its message says how:
+`IOStreams.stream(relation.in_batches(of: 10_000))`.
 
 ### PostgreSQL
 
-A cursor needs a transaction, so the export runs in one, or joins that of the caller. The queries of the block run on
-the same connection, within that transaction, so what the block writes is committed when the export ends, and rolled
-back when it fails, and the rows that it changes stay locked until then. The caller's `statement_timeout`
-applies to each fetch of 10,000 rows, rather than to the whole export, while the first fetch of a sorted query still
-waits for the sort. To give a long sort more time, set it for the transaction of the export:
+A cursor needs a transaction, which the read opens on its own connection, so that the statements of the block are not
+part of it. In the transactional tests of Rails, whose connection the read shares, it is a savepoint of the
+transaction of the test, which a read that fails rolls back, rather than the transaction of the test.
 
-~~~ruby
-Order.transaction do
-  Order.with_connection do |connection|
-    connection.execute("SET LOCAL statement_timeout = '10min'")
-  end
-  IOStreams.path("orders.csv").copy_from(Order.order(:amount), mode: :hash)
-end
+The `statement_timeout` of the connection that reads the query applies to each fetch, rather than to the whole export,
+while the first fetch of a sorted query still waits for the sort. A `SET` on the connection of the caller, such as a
+`SET LOCAL statement_timeout` within its transaction, does not reach that connection. So set the timeout of an export
+for every connection of the pool that it reads, with the `variables` of its database configuration, such as for the
+replica that `connected_to(role: :reading)` reads, see [Connections and transactions](#connections-and-transactions):
+
+~~~yaml
+# config/database.yml
+production:
+  primary_replica:
+    <<: *default
+    replica: true
+    variables:
+      statement_timeout: 10min
 ~~~
 
+Or set it for the role of PostgreSQL that the export connects as, with
+`ALTER ROLE exporter SET statement_timeout = '10min'`.
+
 Within the transaction, IOStreams sets `cursor_tuple_fraction` to 1.0, so that PostgreSQL plans the query for every
-row, as it plans a query that is not a cursor, rather than for its first 10%, and `idle_in_transaction_session_timeout`
-to 0, so that a target that is slow to write, such as an upload, does not leave the transaction idle for long enough
-that PostgreSQL closes the connection. They end with the transaction, or are set back in the transaction of the caller.
+row, rather than for its first 10%, `idle_in_transaction_session_timeout` to 0, from PostgreSQL 9.6, so that a target
+that is slow to write, such as an upload, does not leave the transaction idle for long enough that PostgreSQL closes the
+connection, and `transaction_timeout` to 0, from PostgreSQL 17, so that the transaction of a long export is not ended.
+They end with the transaction, or are set back in a transaction that was already open, as in transactional tests.
+
+A cursor never runs its query in parallel, so a query that PostgreSQL runs with parallel workers otherwise, such as an
+aggregate of a large table, can take longer to export than it takes in `psql`.
+
+When the block raises, or the export is interrupted, such as by `Timeout`, Active Record rolls back the transaction of
+the cursor, which cancels a fetch that is still running. A failure to close the cursor, after the block finishes or
+leaves with `break`, is raised, so that the export does not return as if it had ended where the block left it.
 
 ### MySQL
 
-MySQL ends a query when the client does not take a row within `net_write_timeout` seconds, 60 by default, so a slow
-target could lose the connection. IOStreams raises it to an hour while the rows are read, and sets it back afterwards.
+`mysql2` streams the rows of a query on a connection of its own, which cannot run another query until every row is
+read, so that the block queries the database on the connection of the caller, as on the other databases.
 
-While `mysql2` streams the rows of a query, the connection cannot run another query until every row is read. So on
-MySQL the block cannot query the database, and doing so raises `ArgumentError`, whose cause is the `Commands out of
-sync` error of `mysql2`. A copy is not affected, since it only writes the target. To query the database for each row,
-read the query in batches:
+MySQL ends a query whose client does not take a row within `net_write_timeout` seconds, 60 by default, so that a slow
+target could lose the connection, and `max_execution_time` ends a `SELECT` that runs for longer than it allows, which
+counts the time that the client takes to read its rows. While the rows are read, IOStreams raises the
+`net_write_timeout` of the session to an hour, unless it is higher, and lifts its `max_execution_time`, and sets them
+back afterwards. A limit of the query itself still applies, such as
+`Order.optimizer_hints("MAX_EXECUTION_TIME(600000)")`.
 
-~~~ruby
-IOStreams.stream(Order.where(paid: true).in_batches(of: 1_000)).each(:hash) do |order|
-  customer = Customer.find(order["customer_id"])
-  # ...
-end
-~~~
+Leaving the block early, with `break` or an exception, ends the connection of the read, which ends the query on the
+server at once, rather than read the rest of its rows, and the pool connects it again when it is next checked out.
 
-Leaving the block early, with `break` or an exception, reads the rest of the result from the server before the
-connection can be used again, as MySQL requires, at millions of rows a second.
+A connection that the read shares with the caller, such as the one of the transactional tests of Rails, is read whole
+before the first row is yielded, so that the block can query it.
+
+Leave `prepared_statements` false, the default of `mysql2`, for a connection that IOStreams reads: `mysql2` cannot
+stream a prepared statement, and with `prepared_statements: true`, `mysql2` 0.5.7 raises `NoMemoryError` for a query
+without rows, such as the one that describes the columns of a query.
+
+`trilogy` reads every row of a query at once, so a query on a connection of `trilogy` raises `ArgumentError`: read it
+in batches, whose failures are tagged as they are for `mysql2`, see [Errors](#errors). So does the MySQL adapter of
+AR-JDBC on JRuby, which cannot load `mysql2`.
+
+### SQLite
+
+A statement of the `sqlite3` gem steps through the rows, on a connection of its own when the database is in WAL mode,
+the default of Rails, whose readers each read a snapshot that the writes of other connections, such as those of the
+block, neither change nor wait for. While a read is open, SQLite cannot start its WAL file again, so the WAL file grows
+with every write to the database until the export ends.
+
+An in-memory database, which is a database of its own on each connection, and a database in another journal mode, are
+read on the connection of the caller instead, and in the transactional tests of Rails the read shares their connection.
+There, a block that changes the rows that the query reads, such as by updating the column that the query is sorted by,
+can read them again, without end: change them once the export ends, or read the query in batches of its primary key. In
+the other journal modes, a read also keeps the writes of other connections waiting until it ends.
+
+JRuby cannot load the `sqlite3` gem, so a query on SQLite raises there: read it in batches.
 
 ## Errors
 
