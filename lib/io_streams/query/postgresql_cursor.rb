@@ -53,6 +53,11 @@ module IOStreams
       # has, as `server_version_num` numbers it, on which the transaction sets it, see #settings.
       SETTING_VERSIONS = {"idle_in_transaction_session_timeout" => 90_600, "transaction_timeout" => 170_000}.freeze
 
+      # The names of the adapters of Active Record whose databases it reads, see .reads?: that of PostgreSQL, and that of
+      # PostGIS, which adds the types of its extension to it, rather than every subclass of the adapter of PostgreSQL,
+      # such as that of CockroachDB, whose server may not take the settings of the cursor, see SETTINGS.
+      ADAPTERS = %w[PostgreSQL PostGIS].freeze
+
       # The types of field whose columns that are `NOT NULL` always have a value once Active Record casts it, see
       # .requirable_types.
       REQUIRABLE_TYPES = %w[integer number boolean date datetime].freeze
@@ -103,9 +108,9 @@ module IOStreams
         Failure::NONE            => Regexp.union(/could not translate host name /, /database ".*" does not exist/)
       }.freeze
 
-      # Returns [true|false] whether the connection is to PostgreSQL.
+      # Returns [true|false] whether the connection is to PostgreSQL, through an adapter of ADAPTERS.
       def self.reads?(connection)
-        connection.adapter_name == "PostgreSQL"
+        ADAPTERS.include?(connection.adapter_name)
       end
 
       # Returns [true] whether the database of the connection can be read on a connection of its own, see

@@ -623,6 +623,24 @@ class PostgresqlCursorTest < Minitest::Test
     end
   end
 
+  describe ".reads?" do
+    # Returns [true|false] whether a connection through the adapter of the supplied name is read.
+    def reads?(adapter_name)
+      IOStreams::Query::PostgresqlCursor.reads?(Struct.new(:adapter_name).new(adapter_name))
+    end
+
+    it "reads PostgreSQL, and PostGIS, which adds the types of its extension to it" do
+      assert reads?("PostgreSQL")
+      assert reads?("PostGIS")
+    end
+
+    it "does not read any other adapter, such as that of CockroachDB, which subclasses that of PostgreSQL" do
+      refute reads?("CockroachDB")
+      refute reads?("SQLite")
+      refute reads?("Mysql2")
+    end
+  end
+
   describe ".failure_kind" do
     before { skip "The pg gem is a C extension, which JRuby cannot load" unless QueryDatabase.driver?("pg") }
 
