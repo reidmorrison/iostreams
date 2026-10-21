@@ -26,6 +26,8 @@ module IOStreams
     #     "boolean":  true or false, see `trueValues` and `falseValues`.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set.
+    #     "time":     a time of day, a Time on 2000-01-01, as Active Record holds the value of a `time` column, written as
+    #                 the time of its own clock, such as `09:30:00`, without its offset from UTC, unless `format` is set.
     #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
     #                 format of JSON as an object.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
@@ -34,7 +36,7 @@ module IOStreams
     #     Default: "any"
     #
     #   format: [String]
-    #     For a date or datetime, the strptime pattern of its text, such as "%d/%m/%Y" or "%Y%m%d%H%M%S".
+    #     For a date, datetime or time, the strptime pattern of its text, such as "%d/%m/%Y", "%Y%m%d%H%M%S" or "%I:%M %p".
     #     Default: "default", the ISO 8601 form above.
     #
     #   trueValues: [Array<String>]
@@ -93,12 +95,12 @@ module IOStreams
     # Properties that only describe the field to people, `title`, `description`, `example` and `rdfType`, are
     # accepted and have no effect, as are the properties of other tools, whose names include a `:`.
     #
-    # Any other property raises `ArgumentError`, as does a type that IOStreams does not support yet, such as "time",
+    # Any other property raises `ArgumentError`, as does a type that IOStreams does not support yet, such as "year",
     # and the Frictionless properties that it does not support yet, such as `missingValues`, so that a schema never
     # appears to check a value that it does not.
     class Field
       # The types of field that IOStreams supports.
-      TYPES = %w[any array boolean date datetime integer number object string].freeze
+      TYPES = %w[any array boolean date datetime integer number object string time].freeze
 
       # The properties that each type of field accepts, in addition to those that every field accepts.
       TYPE_PROPERTIES = {
@@ -106,7 +108,8 @@ module IOStreams
         "date"     => %w[format],
         "datetime" => %w[format],
         "number"   => %w[decimals floatNumber],
-        "string"   => %w[truncate]
+        "string"   => %w[truncate],
+        "time"     => %w[format]
       }.freeze
 
       # The properties that every field accepts.
@@ -142,8 +145,11 @@ module IOStreams
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
       DATETIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
-      # The offset from UTC at the end of the text of a datetime that DATETIME matches.
+      # The offset from UTC at the end of the text of a datetime that DATETIME matches, or of a time that TIME matches.
       OFFSET   = /(?:Z|[+-]\d{2}:\d{2})\z/
+      # A time of day, whose hour, minute and second are checked, see #cast_time, since `Time` moves 24:00:00, and a leap
+      # second, into the next day.
+      TIME     = /\A(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -209,6 +215,21 @@ module IOStreams
         seconds = datetime.sec + datetime.sec_fraction
         Time.new(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds,
                  (datetime.offset * 86_400).to_i)
+      end
+
+      # Returns [Time] the time of day of the supplied Time, the time of its clock at its offset from UTC, on 2000-01-01,
+      # as Active Record holds the value of a `time` column, or the time itself when it is on that day.
+      #
+      # A time on another day, such as a Parquet time of day, which the `parquet` gem reads on the day that it is read, or
+      # an `ActiveSupport::TimeWithZone` of a Rails app, whose time of day can be on 1999-12-31 once Active Record
+      # converts it to the time zone of the application, is moved to that day, keeping the time of its clock.
+      def self.time_of_day(time)
+        return time if time.day == 1 && time.month == 1 && time.year == 2000
+
+        seconds = time.sec + time.subsec
+        return Time.utc(2000, 1, 1, time.hour, time.min, seconds) if time.utc?
+
+        Time.new(2000, 1, 1, time.hour, time.min, seconds, time.utc_offset)
       end
 
       # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
@@ -291,14 +312,17 @@ module IOStreams
 
       # Returns [String] the time in ISO 8601, with as many digits of its fraction of a second as it needs.
       def self.time_text(value)
-        nanoseconds = value.nsec
-        digits      =
-          if nanoseconds.zero? then 0
-          elsif (nanoseconds % 1_000_000).zero? then 3
-          elsif (nanoseconds % 1000).zero? then 6
-          else 9
-          end
-        value.iso8601(digits)
+        value.iso8601(fraction_digits(value))
+      end
+
+      # Returns [Integer] the digits of the fraction of a second of the time that its text needs: 0, 3, 6 or 9.
+      def self.fraction_digits(time)
+        nanoseconds = time.nsec
+        if nanoseconds.zero? then 0
+        elsif (nanoseconds % 1_000_000).zero? then 3
+        elsif (nanoseconds % 1000).zero? then 6
+        else 9
+        end
       end
       private_class_method :time_text, :json_hash, :json_array, :textual?
 
@@ -357,6 +381,7 @@ module IOStreams
         when "number" then cast_number(value)
         when "boolean" then cast_boolean(value)
         when "date" then cast_date(value)
+        when "time" then cast_time(value)
         when "object" then cast_json(value, ::Hash)
         when "array" then cast_json(value, ::Array)
         else cast_datetime(value)
@@ -401,8 +426,20 @@ module IOStreams
         when "boolean" then value ? @true_values.first : @false_values.first
         when "date" then @format ? value.strftime(@format) : self.class.any_text(value)
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
+        when "time" then time_text(value)
         else self.class.any_text(value)
         end
+      end
+
+      # Returns [String] the time of day in the format of this field, or as `09:30:00`, with as many digits of its
+      # fraction of a second as it needs, such as `09:30:00.250`. Either way it is the time of the clock of the value, at
+      # its own offset from UTC, as a Rails app shows it, which the default form does not write, so that a time of the
+      # application, an `ActiveSupport::TimeWithZone` on 2000-01-01, is written as the time that its users entered.
+      def time_text(time)
+        return time.strftime(@format) if @format
+
+        digits = self.class.fraction_digits(time)
+        digits.zero? ? time.strftime("%H:%M:%S") : time.strftime("%H:%M:%S.%#{digits}N")
       end
 
       # Returns [String] the time in the format of this field. Text without a zone is read as UTC, see #parse_time, so a
@@ -421,7 +458,7 @@ module IOStreams
 
       # Returns [true|false] whether the type is one that Frictionless defines, but IOStreams does not support yet.
       def known_type?
-        %w[list time year yearmonth duration geopoint geojson].include?(type)
+        %w[list year yearmonth duration geopoint geojson].include?(type)
       end
 
       def check_properties(descriptor)
@@ -442,11 +479,11 @@ module IOStreams
         end
       end
 
-      # Returns [String|nil] the strptime pattern of a date or datetime, or nil for the default form.
+      # Returns [String|nil] the strptime pattern of a date, datetime or time, or nil for the default form.
       def check_format(format)
         return if format.nil? || format == "default"
 
-        unless %w[date datetime].include?(type) && format.is_a?(String) && format.include?("%")
+        unless %w[date datetime time].include?(type) && format.is_a?(String) && format.include?("%")
           raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a #{type} field")
         end
 
@@ -641,6 +678,38 @@ module IOStreams
         Time.iso8601(OFFSET.match?(value) ? value : "#{value}Z")
       rescue ArgumentError
         invalid(value)
+      end
+
+      # Returns [Time] the time of day, on 2000-01-01, see .time_of_day: of a Time or a DateTime, at its offset from UTC, or
+      # of text such as `09:30:00`, `09:30:00.250` or `09:30:00-05:00`, or in the format of this field, which is read at
+      # the offset of its zone, or in UTC without one, as a datetime field reads it, see #cast_datetime.
+      #
+      # Its hour, minute and second are checked, since `Time` moves 24:00:00, and a leap second, into the next day.
+      def cast_time(value)
+        return self.class.time_of_day(value) if value.is_a?(Time)
+        return self.class.time_of_day(self.class.time_of(value)) if value.is_a?(DateTime)
+        return invalid(value) unless value.is_a?(String)
+        return parse_time_of_day(value) if @format
+
+        clock = TIME.match(value)
+        return invalid(value) unless clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
+
+        Time.iso8601("2000-01-01T#{OFFSET.match?(value) ? value : "#{value}Z"}")
+      rescue ArgumentError
+        invalid(value)
+      end
+
+      # Returns [Time] the time of day of the text read with the strptime pattern of the format, see #parse_time.
+      def parse_time_of_day(text)
+        parts = Date._strptime(text, @format)
+        return invalid(text) if parts.nil? || !clock_time?(parts.fetch(:hour, 0), parts.fetch(:min, 0), parts.fetch(:sec, 0))
+
+        self.class.time_of_day(parse_time(Time, text))
+      end
+
+      # Returns [true|false] whether the hour, minute and second are those of a clock, from 00:00:00 to 23:59:59.
+      def clock_time?(hour, minute, second)
+        hour < 24 && minute < 60 && second < 60
       end
 
       # Returns [true|false] whether the strftime pattern of the format writes a zone, such as `%z`, `%:z` or `%Z`, so
