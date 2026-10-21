@@ -630,7 +630,7 @@ and `#copy_to`, whose options only apply to the target.
   while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
-  of fixed width files always have. IOStreams adds this property.
+  of fixed width files did before v3.0. IOStreams adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record, and a Parquet file has no column for it. It takes only the properties

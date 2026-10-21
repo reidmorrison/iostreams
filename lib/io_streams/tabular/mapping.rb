@@ -9,8 +9,6 @@ module IOStreams
     #   supplied in place of one, and the column options, which are deprecated, held by its header, see
     #   `IOStreams::Tabular::Header`.
     # * `IOStreams::Tabular::SchemaMapping`: by the fields of a schema, see `IOStreams::Schema::Columns`.
-    # * `IOStreams::Tabular::LayoutMapping`: by the layout of a fixed width file, which is deprecated, whose schema reads
-    #   and renders the values, while the column options still apply to its records.
     #
     # Each one does the same things, in its own way:
     # * Reads the lines of a file: its header row, `#parse_header` and `#read_header`, and its rows and records,

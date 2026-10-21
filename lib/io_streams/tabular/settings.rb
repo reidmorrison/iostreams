@@ -3,9 +3,8 @@
 module IOStreams
   class Tabular
     # The settings of a stream that describe its rows and records: the tabular format set with `IOStreams::Stream#format`,
-    # the schema set with `IOStreams::Stream#schema`, the layout of a fixed width file set with the deprecated
-    # `IOStreams::Stream#format_options`, and the options of the rows of each tabular format whose rows are not lines of
-    # text, such as `option(:parquet, compression: "zstd")`, which its format reads and writes, see
+    # the schema set with `IOStreams::Stream#schema`, and the options of the rows of each tabular format whose rows are
+    # not lines of text, such as `option(:parquet, compression: "zstd")`, which its format reads and writes, see
     # `IOStreams::Tabular#read_rows`.
     #
     # It checks each one when it is set, decides the format of the rows, and builds the `IOStreams::Tabular` that reads
@@ -16,28 +15,24 @@ module IOStreams
     # file name.
     class Settings
       def initialize
-        @format         = nil
-        @format_options = nil
-        @schema         = nil
-        @schema_source  = nil
-        @row_options    = nil
+        @format        = nil
+        @schema        = nil
+        @schema_source = nil
+        @row_options   = nil
       end
 
-      # A copy has its own layout and options, so that changing them does not change the original. It shares the source
-      # of the schema, which does not change, so that a schema file is read once, and the schema as it was set, which is
-      # frozen.
+      # A copy has its own options, so that changing them does not change the original. It shares the source of the
+      # schema, which does not change, so that a schema file is read once, and the schema as it was set, which is frozen.
       def initialize_copy(source)
         super
-        @format_options = Utils.deep_copy(@format_options)
-        @row_options    = Utils.deep_copy(@row_options)
+        @row_options = Utils.deep_copy(@row_options)
       end
 
-      # Freezes these settings, holding frozen copies of their layout and options, so that neither their methods nor a
-      # change to the Hashes that #format_options and #row_options return can change them, see
-      # `IOStreams::Stream#freeze`. The objects that the caller supplied are not frozen.
+      # Freezes these settings, holding a frozen copy of their options, so that neither their methods nor a change to
+      # the Hashes that #row_options returns can change them, see `IOStreams::Stream#freeze`. The objects that the
+      # caller supplied are not frozen.
       def freeze
-        @format_options = Utils.frozen_copy(@format_options)
-        @row_options    = Utils.frozen_copy(@row_options)
+        @row_options = Utils.frozen_copy(@row_options)
         super
       end
 
@@ -74,52 +69,29 @@ module IOStreams
                              "as #{text_format.inspect}. Set the format to #{text_format.inspect}, or to nil.")
       end
 
-      # Returns [Hash|nil] the layout of a fixed width file that was set, see #format_options=.
-      attr_reader :format_options
-
-      # Sets the layout of a fixed width file, `layout:` and `truncate:`, which is deprecated, and replaces the schema,
-      # which it is translated into, see `IOStreams::Tabular::Parser::Fixed.schema`, each time that the rows are read or
-      # written, as it was used before it was deprecated, so that #schema and the file read always agree with the layout,
-      # even when it is changed after it is set. Empty format options are no layout, so they keep a schema set with
-      # #schema=.
-      #
-      # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, and ArgumentError for an option that a
-      # layout does not have, as soon as it is set, since the schema that it is translated into is checked.
-      def format_options=(format_options)
-        if layout?(format_options)
-          IOStreams::Schema.from_layout(**format_options)
-          @schema        = nil
-          @schema_source = nil
-        end
-        @format_options = format_options
-      end
-
       # Returns [Hash|String|IOStreams::Stream|nil] the schema as it was set, see #schema=, which is frozen, so that
       # neither the caller changing the object that it supplied, nor a change to the object that is returned, changes
-      # it, or the schema of the layout of a fixed width file, see #format_options=, or nil when neither was set.
-      def schema
-        layout? ? IOStreams::Tabular::Parser::Fixed.schema(**@format_options) : @schema
-      end
+      # it, or nil when none was set.
+      attr_reader :schema
 
-      # Sets the schema of the rows and records, see `IOStreams::Stream#schema`, which replaces a layout: a Hash, which is
-      # checked now, or the path or url of a JSON file that holds one, which is read the first time that a reader or
-      # writer needs it, see `IOStreams::Schema::Source`, or nil to remove it.
+      # Sets the schema of the rows and records, see `IOStreams::Stream#schema`: a Hash, which is checked now, or the path
+      # or url of a JSON file that holds one, which is read the first time that a reader or writer needs it, see
+      # `IOStreams::Schema::Source`, or nil to remove it.
       #
       # A frozen copy of it is held, so that the caller changing the object that it supplied changes neither #schema nor
       # the schema that is read.
       #
       # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
       def schema=(schema)
-        schema          = schema.is_a?(IOStreams::Stream) ? schema.dup.freeze : Utils.frozen_copy(schema)
-        @schema_source  = schema.nil? ? nil : IOStreams::Schema::Source.new(schema)
-        @schema         = schema
-        @format_options = nil
+        schema         = schema.is_a?(IOStreams::Stream) ? schema.dup.freeze : Utils.frozen_copy(schema)
+        @schema_source = schema.nil? ? nil : IOStreams::Schema::Source.new(schema)
+        @schema        = schema
       end
 
-      # Returns [true|false] whether a format, a schema or a layout is set, which describe the rows of the file, unlike
-      # the options of the rows of a tabular format, see #merge_row_options.
+      # Returns [true|false] whether a format or a schema is set, which describe the rows of the file, unlike the options
+      # of the rows of a tabular format, see #merge_row_options.
       def described?
-        !(@format.nil? && @schema.nil? && !layout?)
+        !(@format.nil? && @schema.nil?)
       end
 
       # Validates the options of the rows of the tabular format of the supplied name, such as `:parquet`, see
@@ -145,9 +117,6 @@ module IOStreams
       # CSV, see `IOStreams::Tabular.new`, with the schema, reading its file the first time, and the options of the rows of
       # that format, see #merge_row_options.
       #
-      # The layout set with #format_options=, which is deprecated, is supplied as the layout, so that the options of each
-      # call that describe its columns, such as `columns:`, still apply to it as they did before. They raise with a schema.
-      #
       # Parameters:
       #   file_name: [String]
       #     The file name, from which the format is detected when no other applies.
@@ -160,13 +129,8 @@ module IOStreams
       def tabular(file_name:, text_format:, **)
         format = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
-        if layout?
-          IOStreams::Tabular.new(file_name: file_name, format: format, format_options: @format_options,
-                                 row_format_options: row_format_options, **)
-        else
-          IOStreams::Tabular.new(file_name: file_name, format: format, schema: @schema_source&.schema,
-                                 row_format_options: row_format_options, **)
-        end
+        IOStreams::Tabular.new(file_name: file_name, format: format, schema: @schema_source&.schema,
+                               row_format_options: row_format_options, **)
       end
 
       # Returns [String] these settings for `#inspect` on a path, see `IOStreams::Path#inspect`, each one only when it is
@@ -182,14 +146,6 @@ module IOStreams
       # Does not display the values of sensitive options, see #inspect_fields.
       def inspect
         "#<#{self.class.name}#{inspect_fields}>"
-      end
-
-      private
-
-      # Returns [true|false] whether the format options set the layout of a fixed width file: they are neither nil nor
-      # empty, see #format_options=.
-      def layout?(format_options = @format_options)
-        !(format_options.nil? || format_options.empty?)
       end
     end
   end

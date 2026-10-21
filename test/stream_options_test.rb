@@ -165,10 +165,19 @@ class StreamOptionsTest < Minitest::Test
         assert_equal ":default_format cannot be supplied to each call, set the format on the path instead, when it has none, " \
                      "for example: path.format(:json) unless path.format",
                      error.message
-        error = assert_raises(ArgumentError) { path("a.csv").each(:hash, format_options: {layout: []}) { |row| row } }
-        assert_match(/path\.schema\(IOStreams::Schema\.from_layout\(layout: layout\)\)/, error.message)
         assert_raises(ArgumentError) { path("a.csv").each(:line, file_name: "a.json") { |row| row } }
         assert_raises(ArgumentError) { path("b.csv").writer(:array, file_name: "b.json") { |io| io << [1] } }
+      end
+
+      it "raises for format_options: as an unknown option, since v3.0 removed the layout of a fixed width file" do
+        path("a.csv").write(data)
+
+        error = assert_raises(ArgumentError) { path("a.csv").each(:hash, format_options: {layout: []}) { |row| row } }
+        assert_match(/\AUnknown option :format_options for the :hash mode\./, error.message)
+        assert_raises(ArgumentError) { path("a.csv").each(:array, format_options: {layout: []}) { |row| row } }
+        refute_respond_to IOStreams::Stream.new(StringIO.new), :format_options
+        refute_respond_to IOStreams::Stream.new(StringIO.new), :format_options=
+        assert_raises(NoMethodError) { path("a.csv").format_options(layout: [{size: 2, key: "id"}]) }
       end
     end
 

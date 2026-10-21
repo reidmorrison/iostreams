@@ -118,22 +118,20 @@ module IOStreams
       end
 
       describe "#format" do
-        allow_deprecation(/#format_options is deprecated/)
+        let(:path) { IOStreams.path("/data/a.txt").format(:fixed).schema(fields: [{name: "id", width: 2}]) }
 
-        let(:path) { IOStreams.path("/data/a.txt").format(:fixed).format_options(layout: [{size: 2, key: "id"}]) }
-
-        it "is cleared by #join and #directory, with the format options" do
+        it "is cleared by #join and #directory, with the schema" do
           assert_equal :json, path.join("b.json").format
-          assert_nil path.join("b.json").format_options
+          assert_nil path.join("b.json").schema
           assert_nil path.directory.format
-          assert_nil path.directory.format_options
+          assert_nil path.directory.schema
         end
 
         it "is kept by a copy" do
           copy = IOStreams.path(path)
 
           assert_equal :fixed, copy.format
-          assert_equal({layout: [{size: 2, key: "id"}]}, copy.format_options)
+          assert_equal({fields: [{name: "id", width: 2}]}, copy.schema)
         end
       end
 

@@ -8,10 +8,6 @@ module IOStreams
     # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
     COPY_MODES = %i[line array hash].freeze
 
-    # The deprecation warning of #format_options and #format_options=.
-    FORMAT_OPTIONS_DEPRECATION = "#format_options is deprecated, use #schema instead, which gives the width of each " \
-                                 "field of a fixed width file"
-
     # How to set each of the settings of rows and records that describe the file on the path instead, with an example,
     # rather than supply it to each call of a reader or writer, which raises, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`.
     # A file name supplied to a call only chose the format, when the path had none, and not the streams, as #file_name
@@ -22,8 +18,6 @@ module IOStreams
                           "path.format(:json) unless path.format",
       file_name:          "where it only chose the format, set the format on the path instead, for example: " \
                           "path.format(:json).each(:hash)",
-      format_options:     "set a schema on the path instead, which gives the width of each field of a fixed width file, " \
-                          "for example: path.schema(IOStreams::Schema.from_layout(layout: layout)).each(:hash)",
       schema:             "set it on the path instead, for example: path.schema(\"people.json\").each(:hash)",
       row_format_options: "set them on the path instead, for example: " \
                           "path.option(:parquet, compression: \"zstd\").writer(:hash)"
@@ -489,35 +483,6 @@ module IOStreams
       tabular_settings.format = format
     end
 
-    # Deprecated: use #schema, which gives the width of each field of a fixed width file, see docs/formats.md.
-    # Reports a deprecation warning, see `IOStreams::Deprecation`.
-    #
-    # Set/get the layout of a fixed width file, `layout:` and `truncate:`, which are translated into the schema,
-    # see `IOStreams::Tabular::Parser::Fixed.schema`, so that #schema returns the schema of the layout. The layout is
-    # translated each time that it is read or written, as it was before it was deprecated, so that #schema and the
-    # file read always agree with the layout, even when it is changed after it is set.
-    def format_options(format_options = :none)
-      if format_options == :none
-        Deprecation.warn(FORMAT_OPTIONS_DEPRECATION)
-        tabular_settings.format_options
-      else
-        self.format_options = format_options
-        self
-      end
-    end
-
-    # Deprecated: use #schema=, see #format_options.
-    #
-    # A layout replaces the schema. Empty format options are no layout, so they keep a schema set with #schema.
-    #
-    # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, as soon as it is set, rather than when the
-    # file is read, see `IOStreams::Tabular::Settings#format_options=`.
-    def format_options=(format_options)
-      raise_if_frozen!
-      tabular_settings.format_options = format_options
-      Deprecation.warn(FORMAT_OPTIONS_DEPRECATION)
-    end
-
     # Set/get the schema of the rows and records of this file: the name and type of each field, so that reading
     # rows and records returns each value as its type, such as an Integer or a Date, and writing them writes each
     # value in the text form of its type. It applies to every tabular format, and gives the position of each field of
@@ -530,8 +495,7 @@ module IOStreams
     #     nil removes the schema.
     #
     # Returns [Hash|String|IOStreams::Path] the schema as it was set, which is frozen, so that changing the object that
-    # was supplied afterwards does not change it, or the schema of the layout set with the deprecated #format_options,
-    # or [nil] when neither was set.
+    # was supplied afterwards does not change it, or [nil] when none was set.
     #
     # Examples:
     #
@@ -561,10 +525,9 @@ module IOStreams
     end
 
     # Freezes this stream, so that the methods that set its streams, options, file name, format and schema raise
-    # FrozenError, see `IOStreams.add_root`, and so does changing the Hashes that `#setting`, `#pipeline`,
-    # `#format_options` and `#schema` return. The builder is created first, if it was not already, so that a frozen
-    # stream can still be read and written. A stream without tabular settings needs none to be read, see
-    # #tabular_settings.
+    # FrozenError, see `IOStreams.add_root`, and so does changing the Hashes that `#setting`, `#pipeline` and `#schema`
+    # return. The builder is created first, if it was not already, so that a frozen stream can still be read and
+    # written. A stream without tabular settings needs none to be read, see #tabular_settings.
     def freeze
       builder.freeze
       @tabular_settings&.freeze
@@ -1007,7 +970,7 @@ module IOStreams
 
       names  = options.compact.keys.map(&:inspect)
       names << "#stream, #option or #encoding" unless builder.pipeline.empty?
-      names << "#format, #schema or #format_options" unless format_applies || !tabular_settings.described?
+      names << "#format or #schema" unless format_applies || !tabular_settings.described?
       return true if names.empty?
 
       raise(ArgumentError, "#{names.join(', ')} cannot be applied to the #{klass.name} supplied to IOStreams.stream, " \

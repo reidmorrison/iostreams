@@ -133,8 +133,8 @@ module IOStreams
       NUMERIC_TYPES = %w[integer number].freeze
 
       INTEGER  = /\A[+-]?\d+\z/
-      # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and a
-      # fixed width layout read the column with `to_i` before it was deprecated.
+      # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and the
+      # layout of a fixed width file, before v3.0 replaced it with a schema, read the column with `to_i`.
       WHOLE    = /\A([+-]?\d+)\.0*\z/
       NUMBER   = /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
       # A decimal point without digits after it, such as in "12.", which NUMBER accepts, as Ruby 3.4 does, but

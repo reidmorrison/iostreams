@@ -125,8 +125,7 @@ module IOStreams
       end
 
       # Parses the header row, see #parse_header, then cleanses its columns when `cleanse` is truthy, otherwise applies
-      # the column restrictions to them as they are, see #restrict_columns. For a format without a header row, such as
-      # the layout of a fixed width file, they apply to the columns supplied. The keys of a format of keyed records are
+      # the column restrictions to them as they are, see #restrict_columns. The keys of a format of keyed records are
       # only cleansed when the columns are restricted, as its records are, see #read_record.
       #
       # Returns [Array] the header row as read, before it is cleansed, or nil when the line is blank, or the format does

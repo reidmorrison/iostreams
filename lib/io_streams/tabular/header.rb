@@ -330,8 +330,8 @@ module IOStreams
       # record returned, worked out once for each set of keys, or nil for a record without keys, whose restricted hash
       # is blank. Like the plans of #cleanse_hash, it is worked out from the position of each key.
       #
-      # A key that is already the name of its column is kept as it is, such as the Symbol key `:zip` of a fixed width
-      # layout, so that restricting the columns does not change the keys of the columns that it keeps. A key that
+      # A key that is already the name of its column is kept as it is, such as the Symbol key `:zip` of a `:hash`
+      # record, so that restricting the columns does not change the keys of the columns that it keeps. A key that
       # cleansing renames, such as `"First Name"`, is the name of its column, `"first_name"`.
       #
       # Raises `IOStreams::Errors::InvalidHeader` each time for keys that the restrictions do not accept, see #cleanse!.

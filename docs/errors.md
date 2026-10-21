@@ -140,9 +140,9 @@ IOStreams raises these classes itself:
     required has no value, see [Schema](formats#schema).
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
-  * `IOStreams::Errors::InvalidLayout`: the layout of a fixed width file, set with the deprecated `#format_options`,
-    is not valid. It is raised when the layout is set, see
-    [Upgrading](upgrading#format_options-is-replaced-by-schema).
+  * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a
+    schema replaces, see [Upgrading](upgrading#format_options-is-replaced-by-schema). It is kept so that code that
+    rescues it still works.
 * `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
   is the line that the value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
