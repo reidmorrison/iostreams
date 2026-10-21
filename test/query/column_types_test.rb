@@ -5,8 +5,34 @@ require_relative "query_helper"
 # The types of the columns of a query, on each database of QueryDatabase: the type that casts each column, as `pluck`
 # chooses it, see `IOStreams::Query::CastTypes`.
 class ColumnTypesTest < Minitest::Test
+  # A whole number of cents, the value of an attribute of a type of the application.
+  Cents = Struct.new(:value) do
+    def to_s = format("%.2f", value.fdiv(100))
+  end
+
+  # A type of the application, whose values are Cents rather than the Integers of the type that it extends.
+  class CentsType < ActiveModel::Type::Integer
+    def deserialize(value)
+      cents = super
+      cents && Cents.new(cents)
+    end
+
+    def cast(value)
+      return value if value.is_a?(Cents)
+
+      cents = super
+      cents && Cents.new(cents)
+    end
+
+    # Rather than super, which casts it again in Active Model 7.2.
+    def serialize(value)
+      value.is_a?(Cents) ? value.value : value
+    end
+  end
+
   # The models of these tests on a database, in a namespace of their own: a Buyer, of a Region, whose `status` enum has
-  # other values than the one of a Purchase, which is of a Buyer. The warehouses table has no model.
+  # other values than the one of a Purchase, which is of a Buyer, and has attributes that Active Record decorates, and
+  # one of a type of the application. The warehouses table has no model.
   module Models
     # Returns [Module] the namespace of the models on the database, once it creates their tables.
     def self.build(database)
@@ -34,6 +60,12 @@ class ColumnTypesTest < Minitest::Test
         self.table_name = "purchases"
         belongs_to :buyer, class_name: "#{namespace.name}::Buyer", optional: true
         enum :status, {pending: 0, shipped: 1}
+        # In the order that the Rails guide gives, so that the serialized attribute is encrypted.
+        serialize :payload, coder: JSON
+        encrypts :payload
+        enum :kind, {plain: 0, rich: 1}
+        normalizes :kind, with: ->(kind) { kind.to_s.strip }
+        attribute :cents, CentsType.new
       end
       namespace
     end
@@ -52,6 +84,9 @@ class ColumnTypesTest < Minitest::Test
       connection.create_table(:purchases, force: true) do |t|
         t.references :buyer
         t.integer :status, null: false, default: 0
+        t.text :payload
+        t.integer :kind, null: false, default: 0
+        t.integer :cents
       end
       connection.create_table(:warehouses, force: true) do |t|
         t.references :purchase
@@ -71,8 +106,8 @@ class ColumnTypesTest < Minitest::Test
       acme    = models::Buyer.create!(region: west, tier: :gold, status: :closed, ssn: "123-45-6789",
                                       joined_at: Time.utc(2026, 1, 2, 3, 4, 5.25r))
       globex  = models::Buyer.create!(tier: :silver, status: :suspended)
-      shipped = models::Purchase.create!(buyer: acme, status: :shipped)
-      models::Purchase.create!(buyer: globex)
+      shipped = models::Purchase.create!(buyer: acme, status: :shipped, payload: {"a" => 1}, kind: :rich, cents: 1250)
+      models::Purchase.create!(buyer: globex, payload: [1, 2], cents: 0)
       models::Purchase.create!
       models::Purchase.with_connection do |connection|
         connection.execute("INSERT INTO warehouses (purchase_id, opened_at) VALUES (#{shipped.id}, '2026-05-06 07:08:09')")
@@ -162,6 +197,66 @@ class ColumnTypesTest < Minitest::Test
         assert_plucked purchases.joins(:buyer), Arel.sql("purchases.*"), "buyers.tier"
         assert_equal [[1, "shipped"], [0, "pending"]], purchases.joins(:buyer).pluck(Arel.sql("buyers.tier, purchases.status"))
       end
+    end
+
+    describe "#{IOStreams::Query::Columns.name} on #{database.name}" do
+      let(:purchases) { models::Purchase.order(:id) }
+
+      before { Models.load(models) }
+
+      # Returns [Hash] the field of the schema of the query of the column, by its name.
+      def field(relation, name)
+        IOStreams.stream(relation.select(:id, name)).schema[:fields].find { |field| field[:name] == name.to_s }
+      end
+
+      # Returns [Array<Hash>] the records of the query.
+      def records(relation)
+        records = []
+        IOStreams.stream(relation).each(:hash) { |record| records << record }
+        records
+      end
+
+      it "reads a serialized attribute that is encrypted as any value, as pluck returns it" do
+        assert_equal({name: "payload", type: "any"}, field(purchases, :payload))
+        assert_equal(purchases.pluck(:payload), records(purchases.select(:payload)).map { |record| record["payload"] })
+        assert_equal [{"a" => 1}, [1, 2], nil], purchases.pluck(:payload)
+      end
+
+      it "reads an enum that is normalized as the names of its values, which a column that is never null does not require" do
+        assert_equal({name: "kind", type: "string"}, field(purchases, :kind))
+        assert_equal(%w[rich plain plain], records(purchases.select(:kind)).map { |record| record["kind"] })
+      end
+
+      it "reads an attribute of a type of the application as any value, since it may not be of the type that it answers" do
+        assert_equal({name: "cents", type: "any"}, field(purchases, :cents))
+        assert_equal([Cents.new(1250), Cents.new(0), nil], records(purchases.select(:cents)).map { |record| record["cents"] })
+      end
+
+      it "copies them to CSV" do
+        output = StringIO.new
+        IOStreams.stream(output).format(:csv).copy_from(purchases.select(:payload, :kind, :cents), mode: :hash)
+
+        assert_equal "payload,kind,cents\n\"{\"\"a\"\":1}\",rich,12.50\n\"[1,2]\",plain,0.00\n,plain,\n", output.string
+      end
+    end
+  end
+
+  describe IOStreams::Query::Columns do
+    # Returns [Hash] the field of the schema of a column of the type.
+    def field(type)
+      IOStreams::Query::Columns.new(names: ["c"], types: [type], not_null: [false]).schema[:fields].first
+    end
+
+    it "looks through the decorators of Active Record to the type within them" do
+      time_zone = ActiveRecord::AttributeMethods::TimeZoneConversion::TimeZoneConverter.new(ActiveRecord::Type::DateTime.new)
+
+      assert_equal({name: "c", type: "datetime"}, field(time_zone))
+      assert_equal({name: "c", type: "integer"}, field(ActiveRecord::Locking::LockingType.new(ActiveModel::Type::Integer.new)))
+    end
+
+    it "does not look through a decorator of the application, nor trust a type of its own" do
+      assert_equal({name: "c", type: "any"}, field(SimpleDelegator.new(ActiveModel::Type::Integer.new)))
+      assert_equal({name: "c", type: "any"}, field(CentsType.new))
     end
   end
 end

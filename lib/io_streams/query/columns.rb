@@ -81,12 +81,14 @@ module IOStreams
 
       # Returns [Hash] the type of the field whose values the Active Record type casts, and its other properties, such
       # as the decimals of a number, or "any" for a type that a field has no type for, such as JSON, a time of day, or a
-      # binary or serialized column.
+      # binary or serialized column, or whose class is not one of Active Model or Active Record, see #own?. The type
+      # within the decorators of the type decides it, see #undecorated.
       def type_properties(type)
+        type = undecorated(type)
         # Before the type itself, since an enum answers the type of its column, such as :integer, while it casts the
         # names of its values, and a serialized column answers :text, while it casts any object.
-        return {type: "string"} if defined?(::ActiveRecord::Enum::EnumType) && type.is_a?(::ActiveRecord::Enum::EnumType)
-        return {type: "any"} if defined?(::ActiveRecord::Type::Serialized) && type.is_a?(::ActiveRecord::Type::Serialized)
+        return {type: "string"} if enum?(type)
+        return {type: "any"} if serialized?(type) || !own?(type)
         # Such as a decimal without a scale, which casts an Integer.
         return {type: "integer"} if type.is_a?(::ActiveModel::Type::Integer)
 
@@ -106,6 +108,47 @@ module IOStreams
       # such as a PostgreSQL `numeric`, or a sum.
       def number_properties(type)
         type.scale ? {type: "number", decimals: type.scale} : {type: "number"}
+      end
+
+      # Returns [ActiveModel::Type::Value] the type within the decorators of Active Model and Active Record that wrap it,
+      # which cast the values that it casts, and answer its `type`, such as of an encrypted attribute, which decrypts
+      # the value first, of a normalized one, or of a time in the time zone of the application, so that the type within
+      # them decides the field, see #type_properties. Each decorator knows the type within it: an encrypted attribute
+      # its `cast_type`, and a `Delegator`, such as `TimeZoneConverter` or `NormalizedValueType`, its `__getobj__`. A
+      # serialized attribute is a `Delegator` too, whose coder casts any object, so it is not looked through, nor is an
+      # enum, which casts the names of its values, a type that holds others, such as an array of a PostgreSQL column,
+      # or a type of the application, see #own?.
+      def undecorated(type)
+        while (inner = decorated(type))
+          type = inner
+        end
+        type
+      end
+
+      # Returns [ActiveModel::Type::Value|nil] the type that the type decorates, see #undecorated, or nil when it is not a
+      # decorator of Active Model or Active Record.
+      def decorated(type)
+        return unless own?(type) && !serialized?(type)
+        return type.__getobj__ if type.is_a?(::Delegator)
+
+        type.cast_type if type.respond_to?(:cast_type)
+      end
+
+      # Returns [true|false] whether the class of the type is one of Active Model or Active Record, or of an adapter of a
+      # database in their namespace, so that its values are of the type that it answers, see #type_properties, unlike a
+      # type of the application or of another gem, such as a subclass of `ActiveModel::Type::Integer` whose
+      # `deserialize` returns an object of the application.
+      def own?(type)
+        name = type.class.name
+        !name.nil? && name.start_with?("ActiveModel::", "ActiveRecord::")
+      end
+
+      def enum?(type)
+        defined?(::ActiveRecord::Enum::EnumType) && type.is_a?(::ActiveRecord::Enum::EnumType)
+      end
+
+      def serialized?(type)
+        defined?(::ActiveRecord::Type::Serialized) && type.is_a?(::ActiveRecord::Type::Serialized)
       end
     end
   end
