@@ -22,7 +22,7 @@ module QueryDatabase
     def order = namespace::Order
     def pool = record.connection_pool
 
-    # Returns the raw connection of the driver, of the one connection of the pool, see QueryDatabase.configs.
+    # Returns the raw connection of the driver, of the connection that the caller borrows.
     def raw_connection
       record.with_connection(&:raw_connection)
     end
@@ -36,7 +36,9 @@ module QueryDatabase
   end
 
   # Returns [Hash<String, Hash>] the configuration of each database that the tests can read: SQLite, unless its gem
-  # cannot be loaded, as on JRuby. Each pool has one connection, so that a test can stub the connection that is read.
+  # cannot be loaded, as on JRuby. Each pool has two connections: the one that a query is read on, which it checks out
+  # of the pool, and the one of the caller, which the block that the rows are yielded to queries on, see
+  # `IOStreams::Query#open`.
   #
   # The file of the SQLite database, and its WAL files, are removed once the tests have run, after every connection to
   # them is closed, rather than at exit, which would run before the tests do, since Minitest runs them at exit too.
@@ -48,7 +50,7 @@ module QueryDatabase
         ActiveRecord::Base.connection_handler.connection_pool_list(:all).each(&:disconnect!)
         FileUtils.rm_f([file, "#{file}-wal", "#{file}-shm"])
       end
-      configs["SQLite"] = {adapter: "sqlite3", database: file, pool: 1}
+      configs["SQLite"] = {adapter: "sqlite3", database: file, pool: 2}
     end
     configs
   end
@@ -75,6 +77,12 @@ module QueryDatabase
   # Returns [Database] the first database, for the tests that do not depend on the database.
   def self.first
     all.first
+  end
+
+  # Returns [Database] an in-memory SQLite database, set up the first time, which is a database of its own on each
+  # connection, unlike those of .all.
+  def self.memory
+    @memory ||= build("SQLiteMemory", {adapter: "sqlite3", database: ":memory:", pool: 2})
   end
 
   def self.build(name, config)

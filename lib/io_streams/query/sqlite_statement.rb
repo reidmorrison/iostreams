@@ -13,6 +13,16 @@ module IOStreams
         connection.raw_connection.is_a?(::SQLite3::Database)
       end
 
+      # Returns [true|false] whether the database of the connection can be read on a connection of its own, while the
+      # block that the rows are yielded to writes on another, see `IOStreams::Query#open`: a database in WAL mode, the
+      # default of Rails, whose readers each read a snapshot of it, which the writes of another connection neither
+      # change nor wait for. Not a database whose journal is a rollback journal, whose readers keep the writes of every
+      # other connection waiting until they finish, nor an in-memory database, which is a database of its own on each
+      # connection, unless its cache is shared, when a reader locks its tables against the writes of the others.
+      def self.own_connection?(connection)
+        connection.raw_connection.journal_mode == "wal"
+      end
+
       # Returns [Module] the kind of failure that an exception raised by the sqlite3 gem means, or nil when it is none of
       # them: `Unavailable` for a database that another connection has locked, and `PermissionDenied` for an access that
       # it does not permit.

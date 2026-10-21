@@ -12,10 +12,11 @@ module IOStreams
   # relation is read as one query, so that a sorted or grouped query is not run again for every batch, and the batches
   # of Rails keep their own settings, such as `of:` and `cursor:`.
   #
-  # Each row is cast as `pluck` casts it, see `IOStreams::Query::Columns`. The query is read with a connection that it
-  # borrows from the pool of its model, and hands back when it finishes, and its queries skip the query cache, which
-  # would keep every row read, or return the same rows again. The rows are yielded within the loop that reads them, in
-  # the fiber of the caller, so that the block runs its own queries on the connection of the caller.
+  # Each row is cast as `pluck` casts it, see `IOStreams::Query::Columns`. A relation is read as one query on a
+  # connection of its own, which it checks out of the pool of its model, and checks back in when it finishes, so that
+  # the block that the rows are yielded to runs its own queries on the connection of the caller, independently of the
+  # read, see #open. Its queries skip the query cache, which would keep every row read, or return the same rows again.
+  # The rows are yielded within the loop that reads them, in the fiber of the caller.
   #
   # Active Record 7.2 or later is needed. The application loads Active Record and the driver of its database; IOStreams
   # does not depend on them.
@@ -29,6 +30,7 @@ module IOStreams
 
     # The sources that each read a relation as one query on their database, see #source. Each one answers:
     #   `.reads?(connection)`: whether it reads the database of the connection.
+    #   `.own_connection?(connection)`: whether that database can be read on a connection of its own, see #with_source.
     #   `.failure_kind(exception)`: the kind of failure that an exception of the driver of that database means.
     #   `.new(connection).open(statement, columns) { |reader| }`: yields once the statement, see
     #   `IOStreams::Query::Statement`, is open on the connection, and the names of its columns are checked, see
@@ -85,11 +87,11 @@ module IOStreams
     # traversal continues where the first stopped, as the lines of a file do.
     #
     # A relation is read as one query, which is open before the block is called: its source, see #source, has run the
-    # SQL and binds that Active Record runs for it, see `IOStreams::Query::Statement`, on a connection that it borrows
-    # from the pool for the whole query, and checked the names of its columns, so that a copy opens its target only once
-    # the query is open, see `IOStreams::Stream#copy_from`, and a query that cannot be read leaves an existing target as
-    # it was. The query is closed, and its connection handed back, when the block finishes, or is left with `break` or
-    # an exception. The batches of a relation are each read as the block reads them, see `IOStreams::Query::Batches`, so
+    # SQL and binds that Active Record runs for it, see `IOStreams::Query::Statement`, on the connection that it is read
+    # on, see #with_source, and checked the names of its columns, so that a copy opens its target only once the query is
+    # open, see `IOStreams::Stream#copy_from`, and a query that cannot be read leaves an existing target as it was. The
+    # query is closed, and its connection checked back in, when the block finishes, or is left with `break` or an
+    # exception. The batches of a relation are each read as the block reads them, see `IOStreams::Query::Batches`, so
     # that a second traversal of them starts again from the first batch.
     #
     # Raises the exception of a failure of the database, tagged with the kind of failure that it means, such as
@@ -101,8 +103,8 @@ module IOStreams
 
       yielding = false
       tag_failure(-> { yielding }) do
-        @model.with_connection(prevent_permanent_checkout: true) do |connection|
-          source(connection).new(connection).open(Statement.new(connection, @relation.arel), columns) do |reader|
+        with_source do |source, connection|
+          source.new(connection).open(Statement.new(connection, @relation.arel), columns) do |reader|
             # A failure to close the query, once the block has finished, is a failure of the query.
             Utils.finish_or_abort(finish: -> { yielding = false }) do
               yielding = true
@@ -152,6 +154,35 @@ module IOStreams
         end
         count
       end
+    end
+
+    # Yields [Class, ActiveRecord::ConnectionAdapters::AbstractAdapter] the source that reads the query, see #source, and
+    # the connection that it reads the query on.
+    #
+    # The connection is one of its own, which it checks out of the pool of the model, and checks back in when the block
+    # ends, so that the block that the rows are yielded to runs its own queries on the connection of the caller,
+    # independently of the read, such as to update the rows that it reads, and the read sees what was committed, rather
+    # than a transaction of the caller. So the pool needs a connection free besides that of the caller, otherwise it
+    # waits for one, and raises `ActiveRecord::ConnectionTimeoutError`, as Active Record does. In the transactional
+    # tests of Rails, the pool checks out the connection that the tests share, so the query reads their fixtures.
+    #
+    # A database that cannot be read on a connection of its own is read on the connection of the caller instead, which
+    # it borrows, see `with_connection`: one that Active Record cannot use on more than one connection at a time, such
+    # as an in-memory SQLite database, which is a database of its own on each connection, so that it does not open
+    # another, or one whose source says so, see the `.own_connection?` of each of the SOURCES.
+    def with_source
+      if @model.with_connection(prevent_permanent_checkout: true, &:supports_concurrent_connections?)
+        pool       = @model.connection_pool
+        connection = pool.checkout
+        begin
+          found = source(connection)
+          return yield(found, connection) if found.own_connection?(connection)
+        ensure
+          pool.checkin(connection)
+        end
+      end
+
+      @model.with_connection(prevent_permanent_checkout: true) { |connection| yield(source(connection), connection) }
     end
 
     # Returns [Class] the source that reads a query as one query on the database of the connection, see SOURCES.

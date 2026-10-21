@@ -36,6 +36,13 @@ class QueryStreamTest < Minitest::Test
         payloads
       end
 
+      # Returns [Class] the source that reads a query on the database, see `IOStreams::Query::SOURCES`.
+      def source
+        IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }.find do |source|
+          db.record.with_connection { |connection| source.reads?(connection) }
+        end
+      end
+
       # Yields while no source reads the connection, as for an adapter that cannot stream a query, such as trilogy.
       def without_sources(sources = IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }, &)
         return yield if sources.empty?
@@ -231,7 +238,7 @@ class QueryStreamTest < Minitest::Test
           assert_equal [2, 2, 2], counts
         end
 
-        it "borrows a connection, and hands it back to the pool" do
+        it "checks a connection out of the pool, and checks it back in" do
           busy = []
           IOStreams.stream(orders).each(:hash) { |_order| busy << db.pool.stat[:busy] }
 
@@ -239,17 +246,21 @@ class QueryStreamTest < Minitest::Test
           assert_equal 0, db.pool.stat[:busy]
         end
 
-        it "hands the connection back when the block breaks out of the loop" do
+        it "checks the connection back in when the block breaks out of the loop" do
           IOStreams.stream(orders).each(:hash) { |_order| break } # rubocop:disable Lint/UnreachableLoop -- leaves on its first row on purpose
 
           assert_equal 0, db.pool.stat[:busy]
           assert_equal 3, db.order.count
         end
 
-        it "hands the connection back when the block leases it for the thread" do
-          IOStreams.stream(orders).each(:hash) { |_order| db.order.lease_connection }
+        it "checks its connection back in when the block leases one for the thread, which is the lease of the caller" do
+          leased = []
+          IOStreams.stream(orders).each(:hash) { |_order| leased << db.order.lease_connection }
 
-          assert_equal 0, db.pool.stat[:busy]
+          assert_equal 1, leased.uniq.size
+          assert_equal 1, db.pool.stat[:busy]
+        ensure
+          db.pool.release_connection
         end
 
         it "reads with an application that does not permit a connection to be held, which it hands back" do
@@ -271,13 +282,103 @@ class QueryStreamTest < Minitest::Test
           end
         end
 
-        it "reads the rows of a transaction that the caller has not committed" do
+        it "reads the rows that were committed, on a connection of its own, not those that the caller has not committed" do
           db.record.transaction do
             db.order.create!(name: "d", amount: 1)
 
-            assert_equal 4, each(IOStreams.stream(orders)).size
+            assert_equal(%w[a b c], each(IOStreams.stream(orders)).map { |order| order["name"] })
             raise ActiveRecord::Rollback
           end
+        end
+
+        it "reads the rows of the connection that transactional tests pin, which the pool checks out" do
+          db.pool.pin_connection!(false)
+          db.order.create!(name: "d", amount: 1)
+
+          assert_equal(%w[a b c d], each(IOStreams.stream(orders)).map { |order| order["name"] })
+        ensure
+          db.pool.unpin_connection!
+        end
+      end
+
+      describe "the connection that a query is read on" do
+        # Returns [Array] the connection of each statement that reads a query within the block.
+        def read_connections(&)
+          events("IOStreams Query", &).map { |payload| payload[:connection] }
+        end
+
+        it "is one of its own, so that the block runs its queries on the connection of the caller" do
+          callers = []
+          read    = read_connections do
+            IOStreams.stream(orders).each(:hash) { |_order| callers << db.record.with_connection { |connection| connection } }
+          end
+
+          assert_equal 1, read.size
+          assert_equal 1, callers.uniq.size
+          refute_same read.first, callers.first
+        end
+
+        it "is that of the caller when the source says that its database cannot be read on one of its own" do
+          source.stub(:own_connection?, false) do
+            db.record.with_connection do |connection|
+              assert_equal([connection], read_connections { each(IOStreams.stream(orders)) })
+            end
+          end
+
+          assert_equal 0, db.pool.stat[:busy]
+        end
+
+        it "is that of the caller, without checking out another, when Active Record cannot use more than one" do
+          db.record.with_connection do |connection|
+            connection.stub(:supports_concurrent_connections?, false) do
+              db.pool.stub(:checkout, ->(*) { flunk "A connection was checked out" }) do
+                assert_equal([connection], read_connections { each(IOStreams.stream(orders)) })
+              end
+            end
+          end
+        end
+
+        it "reads each row once while the block updates the rows that it reads, which moves them later in its order" do
+          db.record.with_connection { |connection| connection.add_index(:orders, :amount) }
+          expected = db.order.order(:amount).pluck(:id)
+          ids      = []
+          IOStreams.stream(db.order.order(:amount)).each(:hash) do |order|
+            ids << order["id"]
+            # So that a read of the same rows again, without end, fails rather than hangs.
+            break if ids.size > expected.size
+
+            db.order.find(order["id"]).update!(amount: order["amount"] + 1000)
+          end
+
+          assert_equal expected, ids
+        ensure
+          db.record.with_connection { |connection| connection.remove_index(:orders, :amount) }
+        end
+
+        it "reads each row once while the block inserts rows" do
+          expected = orders.pluck(:id)
+          ids      = []
+          IOStreams.stream(orders).each(:hash) do |order|
+            ids << order["id"]
+            break if ids.size > expected.size
+
+            db.order.create!(name: "new", amount: 1)
+          end
+
+          assert_equal expected, ids
+        end
+
+        it "tags a connection that cannot be checked out as Unavailable" do
+          stream = IOStreams.stream(orders)
+          stream.schema
+          error = assert_raises(ActiveRecord::ConnectionTimeoutError) do
+            db.pool.stub(:checkout, ->(*) { raise ActiveRecord::ConnectionTimeoutError, "no connection free" }) do
+              each(stream)
+            end
+          end
+
+          assert_kind_of IOStreams::Errors::Unavailable, error
+          assert_equal "#{db.order.name} query: no connection free", error.message
         end
       end
 
