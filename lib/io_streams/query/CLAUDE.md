@@ -77,9 +77,12 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   that holds others, such as an array). The `type` that a type answers is trusted only when its class is in the
   namespace of Active Model or Active Record (`#own?`), so a type of the application is `any`. An integer column of
   more than 18 digits (`INTEGER_DIGITS`), such as `decimal(20, 0)`, is a number without decimals, whose values are
-  BigDecimals, since Parquet's int64 cannot hold it. A PostgreSQL `inet` or `cidr` address is cast as the text that
-  PostgreSQL returns (`TEXT`), such as "10.0.0.0/8", since its type casts an `IPAddr`, whose text drops the prefix, and
-  a PostgreSQL array (`OID::Array`) is an `array` field. A column is required only when it is `NOT NULL`, the query
+  BigDecimals, since Parquet's int64 cannot hold it. A PostgreSQL `inet` or `cidr` address, also within decorators such as
+  that of `normalizes`, is cast as the text that PostgreSQL returns (`TEXT`, `#cast_type`), such as "10.0.0.0/8", and an
+  array of addresses as an array of that text (`#text_array`), since its type casts an `IPAddr`, whose text drops the
+  prefix, and the host of an address with both, while a decorator of an address only changes the values written; a
+  PostgreSQL array (`OID::Array`), also within decorators, such as the `TimeZoneConverter` of an array of times, is an
+  `array` field. A column is required only when it is `NOT NULL`, the query
   selects and groups by only the columns of the table of the model (`Query#plain_columns?`), and its type is one that
   the source of its database says always has a value once Active Record casts it (`.requirable_types`, asked by
   `Query#requirable_types` whether or not the query is read in batches, none when no source reads the database), and
@@ -117,13 +120,33 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   |reader| }`, which runs the statement, checks the names of its columns, and steps to its first row before it yields,
   and closes the statement in an `ensure`, and whose reader's `#each` yields the raw values of each row, from the row
   after the last one that it yielded.
-- `Query::PostgresqlCursor`: reads PostgreSQL with `DECLARE ... NO SCROLL CURSOR` and `FETCH FORWARD`, through the API
-  of Active Record, so that each statement is logged and its result typed by PostgreSQL, and any driver of PostgreSQL
-  works. A cursor needs a transaction, and within it the cursor sets `cursor_tuple_fraction` to 1.0, so that the query
-  is planned for every row rather than its first 10%, and `idle_in_transaction_session_timeout` to 0, so that a slow
-  target does not get the connection closed; `statement_timeout` applies to each fetch rather than the whole query.
-  Its statements run within `uncached(dirties: false)`. It tells the failures of a connection apart by the message of
-  `PG::ConnectionBad` (`CONNECTION_KINDS`), and those of a statement by the class of the pg gem's exception
+- `Query::PostgresqlCursor`: reads PostgreSQL (`ADAPTERS`, the adapters named PostgreSQL and PostGIS, rather than every
+  subclass of the adapter, since that of CockroachDB may reject the settings) with `DECLARE ... NO SCROLL CURSOR` and
+  `FETCH FORWARD`, through the API of Active Record, so that each statement is logged, with the query transformers of
+  Active Record, its result typed by PostgreSQL, and any driver of PostgreSQL works. `#declare` runs the SQL and binds
+  of the `Statement` with `exec_query`, whose binds PostgreSQL takes as the `$1` parameters of `DECLARE`, named
+  `Statement::NAME`, so that the DECLARE is reported as the statement of the query. `#open` declares the cursor,
+  fetches its first rows and checks the names of their columns before it yields itself, whose `#each` yields the rows
+  of the last fetch that are left, releasing each as it yields it, then fetches more: `FIRST_FETCH` (100) rows, then as
+  many as hold about `FETCH_BYTES` (8 MiB) of raw values, by a sample of the rows of the last fetch (`#next_size`), at
+  most `MAX_FETCH` (10,000). A cursor needs a transaction, which it opens with `transaction(requires_new: true)` on the
+  read's own connection: a real transaction there, and a savepoint on a pinned connection whose transaction is open, as
+  in transactional tests, so that a read that fails rolls back only its savepoint. Within it the cursor sets
+  `cursor_tuple_fraction` to 1.0, so that the query is planned for every row rather than its first 10%,
+  `idle_in_transaction_session_timeout` to 0, so that a slow target does not get the connection closed, and
+  `transaction_timeout` to 0, so that a long export is not ended, each only on the versions of PostgreSQL that have it
+  (`SETTING_VERSIONS`, by Active Record's `database_version`), and sets them back in a transaction that was already
+  open; `statement_timeout` applies to each fetch rather than the whole query. As `Utils.finish_or_abort` decides, once
+  the block finishes or leaves with `break` it closes the cursor and sets back the settings, raising a failure to do
+  so, while after an exception or an interrupt it does neither, so that the rollback of Active Record, which first
+  cancels a fetch that is still running, ends them; an `ActiveRecord::Rollback` that the block raises is raised again
+  after the transaction of the cursor, which would rescue it. `.own_connection?` is true, and `.requirable_types` are
+  integer, number, boolean, date, datetime and array: a column holds only values of its type, a date or time of
+  'infinity' is cast to `Float::INFINITY` rather than nil, and an array to an Array, which can be empty, as a required
+  field of arrays takes it. Its statements run within `uncached(dirties: false)`. It tells the failures of a connection
+  apart by the last attempt that the message of `PG::ConnectionBad` reports (`ATTEMPT`, `CONNECTION_KINDS`), since libpq
+  reports each address that it tried, and answers `Query::Failure::NONE` for a host that does not resolve or a database
+  that does not exist; the failures of a statement are told apart by the class of the pg gem's exception
   (`FAILURE_KINDS`).
 - `Query::SqliteStatement`: reads SQLite with a statement of the sqlite3 gem (`prepare`, `bind_params`, `step`), which
   steps through the result one row at a time. `.reads?` asks the name of the adapter and whether the sqlite3 gem is
@@ -167,11 +190,20 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   reverse). `QueryDatabase.memory` is an in-memory SQLite database. Tests are defined for each database with
   `QueryDatabase.each { |database| describe ... }`, and `QueryTestMethods` holds the helpers that the test files share,
   such as `#each` and `#statements`.
+- PostgreSQL's tables and types are created in a schema of each test process (`QueryDatabase::PostgresqlSchema`, by
+  `schema_search_path`), which is dropped after the run, with the role that the tests create, so that runs that share
+  a database do not collide. The tests refuse a database whose name does not start with `iostreams` and is neither
+  `test` nor ends in `_test`, and a url that sets `schema_search_path`. A database that cannot be set up, such as a
+  server that cannot be reached, leaves out only its own tests, with a warning, and fails `QueryDatabaseTest`.
 - Active Record 8.1 by default; CI's Ruby 3.3 job runs 7.2.3 (`ACTIVERECORD_VERSION`), the latest 7.2 that minitest 6
   allows, with json < 3, see the Gemfile. To run it locally without touching the worktree's Gemfile.lock, copy the
   Gemfile to tmp/ with `gemspec path: ".."` and run `ACTIVERECORD_VERSION=7.2.3 BUNDLE_GEMFILE=tmp/Gemfile.ar72 bundle
   exec rake query_test`. `cursor:` needs Active Record 8.0, so its tests skip on 7.2.
 - JRuby cannot load the sqlite3 gem, a C extension, so the SQLite tests skip there.
+- A test of what the read sees in a transaction that is open pins the connection of the pool (`pool.pin_connection!`),
+  as transactional tests do, since the read checks out a connection of its own; a test of a setting of the read's own
+  connection, such as `statement_timeout`, uses a pool whose `variables:` set it (`orders_with` in
+  postgresql_cursor_test.rb).
 - A failure before the target opens is tested with a copy to an existing file, whose contents must survive. A read
   that a regression could repeat without end, such as a block that updates the rows that it reads, breaks after a
   number of rows, so that the test fails rather than hang.
@@ -188,7 +220,16 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   checked out, so call it only on the read's own connection.
 - In Rails' transactional tests, and with `lock_threads`, `pool.checkout` returns the pinned connection, which the test
   and the threads of the application share, so the read and the block share it there.
-- Active Record commits a transaction that a block leaves with `break`, `return` or `throw`.
+- Active Record commits a transaction that a block leaves with `break`, `return` or `throw`, and its `transaction`
+  rescues an `ActiveRecord::Rollback` that its block raises, so a source that yields within a transaction of its own
+  raises a Rollback of the block again after it (`PostgresqlCursor#open`).
+- Active Record 7.2 builds the Arel of a relation (`Relation#arel`) within `with_connection`, which borrows a connection
+  of the pool, while 8.1 builds it without one, so `Query#open` builds it before the read checks out its own
+  connection, or a pool of one connection would wait for the checkout timeout.
+- PostgreSQL's rollback of a transaction cancels a query that is still running, while a statement sent after an
+  interrupted one waits for it to finish, so a source sends nothing after an exception or an interrupt; a savepoint's
+  rollback does not cancel, so an interrupt of a read in a pinned connection's savepoint still waits for its fetch.
+- Active Record 8.1 names a statement that it prepares (`:statement_name` in the payload), which a DECLARE never is.
 - Prefer the public API of Active Record. `to_sql_and_binds` and `type_casted_binds` are private in 7.2 and 8.1, so
   `Query::Statement` uses the public `to_sql`, `visitor`, Arel's collectors and `type_cast` instead.
 - Rails' batches: two queries for each batch (the ids, then the rows); the order of an ordered relation is ignored, and
