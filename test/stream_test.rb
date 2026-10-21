@@ -724,6 +724,15 @@ class StreamTest < Minitest::Test
         assert_equal "a\n1\n", io.string
       end
 
+      it "copies the records of a file into a record writer, which writes them with its own settings" do
+        io = StringIO.new
+        IOStreams.stream(io).format(:psv).writer(:hash) do |records|
+          IOStreams.stream(records).copy_from(StringIO.new("a,b\n1,2\n"), mode: :hash)
+        end
+
+        assert_equal "a|b\n1|2\n", io.string
+      end
+
       it "raises for anything that the open writer cannot apply" do
         io = StringIO.new
         IOStreams.stream(io).writer(:line) do |lines|

@@ -417,8 +417,9 @@ module IOStreams
     #   cannot be read, for example when it does not exist.
     # - A target without a schema, see #schema, writes the rows of an Active Record query by the schema of its columns,
     #   such as the decimals of a number, which a Parquet file needs, see `IOStreams::Query::Stream#schema`, unless the
-    #   copy supplies its columns, with the deprecated `columns:`. The schema of a file is not given to the target, since
-    #   it describes the text of that file, such as the format of its dates.
+    #   copy supplies its columns, with the deprecated `columns:`, or the target is a row or record writer that is
+    #   already open, supplied to `IOStreams.stream`, which writes with its own settings. The schema of a file is not
+    #   given to the target, since it describes the text of that file, such as the format of its dates.
     def copy_from(source, convert: true, mode: nil, **args)
       unless mode.nil? || COPY_MODES.include?(mode)
         raise(ArgumentError, "Invalid mode: #{mode.inspect}. A copy converts lines, rows or records with mode: " \
@@ -433,7 +434,7 @@ module IOStreams
           )
           reject_unknown_options!(mode, mode_writer(mode), args)
           stream.reader(mode) do |rows|
-            with_copy_schema(stream, args).writer(mode, **args) { |output| rows.copy_to(output) }
+            with_copy_schema(stream, mode, args).writer(mode, **args) { |output| rows.copy_to(output) }
           end
         else
           reject_copy_options!("when copying without a `mode:`", **args)
@@ -682,8 +683,10 @@ module IOStreams
     # Returns [IOStreams::Stream] this stream, unless it has no schema, and a copy of the rows of the supplied source
     # gives it one, see #copy_schema, when it returns a copy of this stream with that schema, so that the schema of this
     # stream is not changed. The columns that the options of the copy supply, such as the deprecated `columns:`, describe
-    # the columns written instead, so they keep this stream as it is.
-    def with_copy_schema(source, options)
+    # the columns written instead, so they keep this stream as it is, and so does a writer of the mode that is already
+    # open, which writes with its own settings, see #open_writer?.
+    def with_copy_schema(source, mode, options)
+      return self if open_writer?(mode)
       return self unless schema.nil? && IOStreams::Tabular::Header.column_option_names(options).empty?
 
       copied = source.copy_schema
@@ -692,6 +695,13 @@ module IOStreams
       copy        = dup
       copy.schema = copied
       copy
+    end
+
+    # Returns [true|false] whether the IO of this stream is a writer of the supplied mode that is already open, such as
+    # the record writer that `writer(:hash)` yields, handed to `IOStreams.stream`, which #writer then yields as it is,
+    # since it writes with its own settings, see #open_writer_supplied?.
+    def open_writer?(mode)
+      io_stream.is_a?(mode_writer(mode))
     end
 
     # Returns [IOStreams::Stream] the supplied stream or path itself, otherwise a new one for the

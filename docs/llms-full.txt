@@ -1285,8 +1285,10 @@ way of UTF-8, so it can only store text, and one that changes the bytes written 
 stream, so open it in binary mode, such as `File.open(name, "wb")`.
 
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
-that calls `IOStreams.stream(io).writer(:hash)` itself, which then writes into it. Since the open writer writes with
-its own settings, options, streams or an encoding supplied to that call raise `ArgumentError`.
+that calls `IOStreams.stream(io).writer(:hash)` itself, or `IOStreams.stream(io).copy_from(source, mode: :hash)`, which
+then writes into it. Since the open writer writes with its own settings, options, streams or an encoding supplied to
+that call raise `ArgumentError`, and a copy into a row or record writer does not give it the schema of the rows of an
+Active Record query.
 
 ---
 
