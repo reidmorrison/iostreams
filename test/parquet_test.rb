@@ -621,6 +621,14 @@ class ParquetTest < Minitest::Test
       assert_equal expected, read
     end
 
+    it "writes no column for a field that is skipped, and reads its column as nothing" do
+      skipping = {fields: [{name: "id", type: "integer"}, {name: "unused", skip: true}, {name: "name", type: "string"}]}
+      write(path.schema(skipping), [{"id" => 1, "unused" => "x", "name" => "Jack"}])
+
+      assert_equal [{"id" => 1, "name" => "Jack"}], read(path.schema(fieldsMatch: "exact", fields: [{name: "id", type: "integer"}, {name: "name", type: "string"}]))
+      assert_equal [{"id" => 1, "name" => "Jack"}], read(path.schema(fieldsMatch: "superset", fields: skipping[:fields]))
+    end
+
     describe "a schema that skips the columns that it does not list" do
       # Returns [Array] the columns that each read asks the gem for, and the records read.
       def read_columns(source)

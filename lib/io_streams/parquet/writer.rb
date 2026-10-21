@@ -67,14 +67,16 @@ module IOStreams
         nil
       end
 
-      # Returns [Array<IOStreams::Parquet::Column>] the column of each field of the schema.
+      # Returns [Array<IOStreams::Parquet::Column>] the column of each field of the schema, apart from a field that is
+      # skipped, see `IOStreams::Schema::Field#skip?`, since the records written leave it out, and a Parquet column is
+      # found by its name, so no column needs a place held.
       def self.columns_of(schema)
         unless schema
           raise(ArgumentError, "Writing Parquet needs a schema, set with #schema on the path, since a Parquet file records " \
                                "the type of each of its columns")
         end
 
-        schema.fields.map { |field| Column.new(field) }
+        schema.fields.reject(&:skip?).map { |field| Column.new(field) }
       end
       private_class_method :columns_of
 

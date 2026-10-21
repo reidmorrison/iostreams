@@ -1487,7 +1487,7 @@ a schema that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|
-| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write |
+| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write. A `nil` column, which was not read, is a field with `skip: true`, see [Field properties](formats#field-properties) |
 | `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
 | `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
