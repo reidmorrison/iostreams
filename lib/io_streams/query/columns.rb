@@ -37,6 +37,9 @@ module IOStreams
       # SQLite, then the hour, which MySQL allows to be negative, or of more than two digits, see #check_clock.
       CLOCK = /\A(-)?(?:\d{4}-\d{2}-\d{2}[ T])?(\d+):\d{2}/
 
+      # The raw text of an infinite interval, which PostgreSQL 17 holds, in every `IntervalStyle`, see #check_duration.
+      INFINITE = /\A-?infinity\z/
+
       # Returns [Array<String>] the names of the columns, in the order of the result.
       attr_reader :names
 
@@ -88,7 +91,9 @@ module IOStreams
         @requirable_types = (requirable_types - EMPTY_TEXT_TYPES).freeze
         @unknown          = unknown.dup.freeze
         @unknown_type     = -unknown_type
-        @clocks           = @types.each_index.select { |index| type_properties(@types[index])[:type] == "time" }.freeze
+        @clocks           = indexes_of("time")
+        @durations        = indexes_of("duration")
+        @checks           = !(@clocks.empty? && @durations.empty?)
         @text_values      = !@clocks.empty? && @types.all? { |type| casts_text?(type) }
         freeze
       end
@@ -107,10 +112,11 @@ module IOStreams
       # columns, each cast by the type of its column, as `pluck` casts them: an enum attribute returns the name of its
       # value, an encrypted attribute its plain text, and a datetime an `ActiveSupport::TimeWithZone` in a Rails app.
       #
-      # Raises `IOStreams::Errors::InvalidValue` for a time of day outside a day, see #check_clock.
+      # Raises `IOStreams::Errors::InvalidValue` for a value that Active Record would cast to a wrong one: a time of day
+      # outside a day, see #check_clock, or an infinite interval, see #check_duration.
       def cast(values)
         types = @types
-        @clocks.each { |index| check_clock(values[index], index) } unless @clocks.empty?
+        check_values(values) if @checks
         Array.new(values.size) { |index| types[index].deserialize(values[index]) }
       end
 
@@ -132,6 +138,29 @@ module IOStreams
       end
 
       private
+
+      # Returns [Array<Integer>] the indexes of the columns whose field is of the supplied type, see #type_properties.
+      def indexes_of(field_type)
+        @types.each_index.select { |index| type_properties(@types[index])[:type] == field_type }.freeze
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` for a raw value of a row that Active Record would cast to a wrong one,
+      # see #cast.
+      def check_values(values)
+        @clocks.each { |index| check_clock(values[index], index) }
+        @durations.each { |index| check_duration(values[index], index) }
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` for the raw value of an infinite interval, `infinity` or `-infinity`,
+      # which PostgreSQL 17 holds, rather than export the nil that Active Record casts it to, which a duration cannot
+      # hold either.
+      def check_duration(value, index)
+        return unless value.is_a?(String) && INFINITE.match?(value)
+
+        raise(IOStreams::Errors::InvalidValue, "Column #{@names[index].inspect}: #{value.inspect} is an infinite interval, " \
+                                               "which a duration field cannot hold, and Active Record reads as nil, so " \
+                                               "select it as null when it is not finite, or as text, instead")
+      end
 
       # Raises `IOStreams::Errors::InvalidValue` for the raw value of a time of day that is outside a day, from 00:00:00
       # to 23:59:59, such as PostgreSQL's `24:00:00`, or a MySQL `TIME`, which holds a length of time too, such as

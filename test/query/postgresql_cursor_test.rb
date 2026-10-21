@@ -622,12 +622,38 @@ class PostgresqlCursorTest < Minitest::Test
           end
         end
 
-        it "requires a time that is never null, but not an interval, which Active Record reads as nil when it is infinite" do
+        it "requires a time and an interval that are never null" do
           execute("ALTER TABLE pg_types ALTER COLUMN opens SET NOT NULL, ALTER COLUMN wait SET NOT NULL")
           model.reset_column_information
 
-          assert_equal [{name: "opens", type: "time", constraints: {required: true}}, {name: "wait", type: "duration"}],
-                       IOStreams.stream(model.select(:opens, :wait)).schema[:fields]
+          assert_equal(
+            [{name: "opens", type: "time", constraints: {required: true}}, {name: "wait", type: "duration", constraints: {required: true}}],
+            IOStreams.stream(model.select(:opens, :wait)).schema[:fields]
+          )
+        end
+
+        it "raises for an infinite interval, which Active Record reads as nil, whether or not it can be null" do
+          skip "An interval is infinite only from PostgreSQL 17" if db.record.with_connection(&:database_version) < 170_000
+
+          %w[infinity -infinity].each do |infinite|
+            execute("UPDATE pg_types SET wait = '#{infinite}'")
+
+            assert_nil model.pluck(:wait).first
+            error = assert_raises(IOStreams::Errors::InvalidValue, infinite) { each(IOStreams.stream(model.select(:id, :wait))) }
+            assert_equal "Column \"wait\": #{infinite.inspect} is an infinite interval, which a duration field cannot hold, " \
+                         "and Active Record reads as nil, so select it as null when it is not finite, or as text, instead",
+                         error.message
+            assert_raises(IOStreams::Errors::InvalidValue, infinite) do
+              each(IOStreams.stream(model.select(:id, :wait).in_batches))
+            end
+          end
+          execute("ALTER TABLE pg_types ALTER COLUMN wait SET NOT NULL")
+          model.reset_column_information
+
+          assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.select(:id, :wait))) }
+          finite = model.select(:id, Arel.sql("CASE WHEN isfinite(wait) THEN wait END AS wait"))
+
+          assert_equal [{"id" => model.first.id, "wait" => nil}], each(IOStreams.stream(finite))
         end
 
         it "raises for a time of 24:00:00, which PostgreSQL holds, rather than read it as the start of the next day" do

@@ -91,7 +91,9 @@ changes, and docs/errors.md when what it raises does.
   value, such as a `timetz`, otherwise "any". `#cast` raises `IOStreams::Errors::InvalidValue` for the raw value of a
   time column outside a day (`#check_clock`, `CLOCK`): text with a sign or an hour of 24 or more, such as PostgreSQL's
   `24:00:00` or a MySQL `TIME` of `25:30:00`, or a Time that a driver cast that is not on 2000-01-01, since Active
-  Record reads them as nil or as the next day; `#text_values?` says that a query has a time column, and that every
+  Record reads them as nil or as the next day, and for the raw text of an infinite interval of a duration column
+  (`#check_duration`, `INFINITE`), `infinity` or `-infinity`, which PostgreSQL 17 holds and Active Record reads as nil;
+  `#text_values?` says that a query has a time column, and that every
   column is cast by a type that casts text as it casts the value of the driver (`#casts_text?`: a type of Active Record
   other than `ActiveModel::Type::Value`, which returns either as it is, such as for a computed column of MySQL), so
   that a source whose driver casts its values, mysql2, reads them as text (`Mysql2Stream::TEXT_STREAM`, `cast:
@@ -157,8 +159,8 @@ changes, and docs/errors.md when what it raises does.
   so, while after an exception or an interrupt it does neither, so that the rollback of Active Record, which first
   cancels a fetch that is still running, ends them; an `ActiveRecord::Rollback` that the block raises is raised again
   after the transaction of the cursor, which would rescue it. `.own_connection?` is true, and `.requirable_types` are
-  integer, number, boolean, date, datetime, time and array, not an interval, which Active Record casts to nil when it
-  is infinite, as PostgreSQL 17 allows: a column holds only values of its type, a date or time of
+  integer, number, boolean, date, datetime, time, duration and array: a column holds only values of its type, a time
+  outside a day and an infinite interval raise (`Columns#cast`) rather than be cast to nil, a date or time of
   'infinity' is cast to `Float::INFINITY` rather than nil, and an array to an Array, which can be empty, as a required
   field of arrays takes it. Its statements run within `uncached(dirties: false)`. It tells the failures of a connection
   apart by the last attempt that the message of `PG::ConnectionBad` reports (`ATTEMPT`, `CONNECTION_KINDS`), since libpq

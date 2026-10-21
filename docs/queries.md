@@ -271,13 +271,12 @@ a model that the query joins, otherwise the type that the database gives the col
 * A column is required, so that its Parquet column is not nullable, when it is `NOT NULL`, the query selects only
   columns of the table of the model, by their names, without joins, and groups by nothing else, and the database
   always gives such a column a value of its type once Active Record casts it: on PostgreSQL an integer, number,
-  boolean, date, datetime, time or array, but not an `interval`, which Active Record reads as nil when it is infinite,
-  as PostgreSQL 17 allows, and on MySQL with `mysql2` an integer, number or boolean, since `mysql2` reads a zero date,
-  such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no column is required,
-  since its columns hold values of any type, such as empty text in an integer column, which Active Record casts to nil,
-  nor on a database that IOStreams cannot stream a query from, such as MySQL with `trilogy`. A string is never
-  required, since it can be empty, and a query that joins another table, computes any column, or groups by anything
-  else, such as with `ROLLUP`, requires none of its columns.
+  boolean, date, datetime, time, interval or array, and on MySQL with `mysql2` an integer, number or boolean, since
+  `mysql2` reads a zero date, such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no
+  column is required, since its columns hold values of any type, such as empty text in an integer column, which Active
+  Record casts to nil, nor on a database that IOStreams cannot stream a query from, such as MySQL with `trilogy`. A
+  string is never required, since it can be empty, and a query that joins another table, computes any column, or
+  groups by anything else, such as with `ROLLUP`, requires none of its columns.
 
 ### Columns that need a type
 
@@ -390,8 +389,11 @@ such as `25:30:00`, while `24:00:00` raises `IOStreams::Errors::InvalidValue`. `
 batches, also reads a negative `TIME`, or one such as `838:59:59`, as nil.
 
 A PostgreSQL `interval` is read as an `ActiveSupport::Duration`, as a `duration` field, which keeps its months and days
-apart from its seconds, and writes it in ISO 8601, such as `P1M2DT3H`. A `timetz`, which Active Record does not know,
-is read as the text that PostgreSQL returns, such as `17:00:00+02`, as a `string`.
+apart from its seconds, and writes it in ISO 8601, such as `P1M2DT3H`. An infinite interval, `infinity` or `-infinity`,
+which PostgreSQL 17 holds, raises `IOStreams::Errors::InvalidValue`, since Active Record reads it as nil, which would
+export an empty value. Select it as null when it is not finite, such as with
+`CASE WHEN isfinite(wait) THEN wait END AS wait`, or as text, such as `wait::text AS wait_text`. A `timetz`, which
+Active Record does not know, is read as the text that PostgreSQL returns, such as `17:00:00+02`, as a `string`.
 
 ## Connections and transactions
 

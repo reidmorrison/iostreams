@@ -138,8 +138,8 @@ IOStreams raises these classes itself:
     row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
   * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, or a field that is
-    required has no value, see [Schema](formats#schema), or a time of day that a query reads is outside a day, see
-    [Times of day](queries#times-of-day).
+    required has no value, see [Schema](formats#schema), or a time of day that a query reads is outside a day, or an
+    interval that it reads is infinite, see [Times of day](queries#times-of-day).
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a
