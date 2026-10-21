@@ -11,7 +11,8 @@ module IOStreams
     # Its rows start with a header row of the names of the columns of the query, followed by the values of each row,
     # cast as `pluck` casts them, in the `:array` format, see #format. They are read by the schema that the types of the
     # columns describe, see #schema, unless a schema is set, which a copy gives a target without one, see
-    # `IOStreams::Stream#copy_from`, so that, for example, a Parquet file keeps the types of the columns.
+    # `IOStreams::Stream#copy_from`, so that, for example, a Parquet file keeps the types of the columns. The query is
+    # open before its reader is yielded, see #open_rows, so that a copy opens its target only once the query can be read.
     #
     # A query holds rows rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
@@ -71,13 +72,25 @@ module IOStreams
         super(default_schema: IOStreams::Schema.new(io_stream.columns.schema), blank_rows: false, **)
       end
 
-      # Returns [#each] a header row of the names of the columns of the query, followed by each of its rows, see
-      # `IOStreams::Query#each`.
-      def rows
-        query = io_stream
-        Enumerator.new do |rows|
-          rows << query.columns.names.dup
-          query.each { |row| rows << row }
+      # Yields [#each] the rows of the query, once it is open, see `IOStreams::Query#open`, after a header row of the names
+      # of its columns. Its `#each` returns the number of rows that it yielded, header row included, as that of the lines
+      # of a file does, and a second traversal continues where the first stopped, so the header row is yielded only once.
+      #
+      # Returns the result of the block.
+      def open_rows(_tabular)
+        query  = io_stream
+        header = query.columns.names.dup
+        query.open do |rows|
+          yield(Enumerator.new do |yielder|
+            count = 0
+            if header
+              names  = header
+              header = nil
+              yielder << names
+              count = 1
+            end
+            count + rows.each { |row| yielder << row }
+          end)
         end
       end
     end

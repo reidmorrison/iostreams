@@ -26,6 +26,15 @@ class SqliteStatementTest < Minitest::Test
         assert(db.record.with_connection { |connection| IOStreams::Query::SqliteStatement.reads?(connection) })
       end
 
+      it "steps to the first row before it yields, so that a failure of the first row raises before the block runs" do
+        relation = orders.select(Arel.sql("abs(-9223372036854775807 - 1) AS overflow"))
+        stream   = IOStreams.stream(relation)
+        stream.schema
+        error = assert_raises(SQLite3::SQLException) { stream.reader(:hash) { |_reader| flunk "The block ran" } }
+
+        assert_equal "integer overflow", error.message
+      end
+
       it "reads the query with one statement, which it closes" do
         capture_statements(orders) do |statements|
           records = []

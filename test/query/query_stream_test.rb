@@ -28,6 +28,13 @@ class QueryStreamTest < Minitest::Test
         names
       end
 
+      # Yields while no source reads the connection, as for an adapter that cannot stream a query, such as trilogy.
+      def without_sources(sources = IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }, &)
+        return yield if sources.empty?
+
+        sources.first.stub(:reads?, false) { without_sources(sources.drop(1), &) }
+      end
+
       describe "IOStreams.stream" do
         it "returns the stream of a relation, which is a stream" do
           stream = IOStreams.stream(orders)
@@ -266,6 +273,32 @@ class QueryStreamTest < Minitest::Test
         end
       end
 
+      describe "#reader" do
+        it "continues a second traversal where the first stopped, rather than running the query again" do
+          first, rest = IOStreams.stream(orders.select(:name)).reader(:hash) { |reader| [reader.first, reader.to_a] }
+
+          assert_equal({"name" => "a"}, first)
+          assert_equal [{"name" => "b"}, {"name" => "c"}], rest
+
+          header, rows = IOStreams.stream(orders.select(:name)).reader(:array) { |reader| [reader.first, reader.to_a] }
+
+          assert_equal %w[name], header
+          assert_equal [%w[a], %w[b], %w[c]], rows
+        end
+
+        it "returns the number of rows read, header row included, as for the lines of a file of the same rows" do
+          csv = StringIO.new
+          IOStreams.stream(csv).format(:csv).copy_from(orders.select(:name), mode: :array)
+          lines = IOStreams.stream(StringIO.new(csv.string)).format(:csv).each(:hash) { |_record| nil }
+
+          assert_equal 4, lines
+          assert_equal lines, IOStreams.stream(orders.select(:name)).each(:hash) { |_order| nil }
+          assert_equal lines, IOStreams.stream(orders.select(:name)).each(:array) { |_row| nil }
+          assert_equal lines, IOStreams.stream(db.order.select(:id, :name).in_batches(of: 2)).each(:hash) { |_order| nil }
+          assert_equal lines, IOStreams.stream(StringIO.new).format(:csv).copy_from(orders.select(:name), mode: :hash)
+        end
+      end
+
       describe "#schema" do
         it "describes the columns of the query as the fields of a schema" do
           expected = {
@@ -350,6 +383,32 @@ class QueryStreamTest < Minitest::Test
 
       describe "#copy_from" do
         let(:relation) { orders.select(:id, :name, :amount, :status, :shipped_on, :paid_at, :paid, :notes, :data) }
+
+        # Yields a local file that holds "existing\n", whose contents a copy that fails must keep.
+        def existing_file
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "orders.csv")
+            path.write("existing\n")
+            yield path
+
+            assert_equal "existing\n", path.read
+          end
+        end
+
+        it "opens the query before the target, so that a query that no source can stream keeps the target" do
+          existing_file do |path|
+            without_sources { assert_raises(ArgumentError) { path.copy_from(orders, mode: :hash) } }
+          end
+        end
+
+        it "opens the query before the target, so that a query that fails at its first row keeps the target" do
+          existing_file do |path|
+            relation = orders.select(Arel.sql("abs(-9223372036854775807 - 1) AS overflow"))
+            error    = assert_raises(StandardError) { path.copy_from(relation, mode: :hash) }
+
+            assert_match(/overflow|out of range/, error.message)
+          end
+        end
 
         it "writes CSV by the schema of the columns" do
           output = StringIO.new
@@ -566,13 +625,6 @@ class QueryStreamTest < Minitest::Test
             db.record.with_connection { |connection| connection.remove_column(:orders, :extra) }
             db.order.reset_column_information
           end
-        end
-
-        # Yields while no source reads the connection, as for an adapter that cannot stream a query, such as trilogy.
-        def without_sources(sources = IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }, &)
-          return yield if sources.empty?
-
-          sources.first.stub(:reads?, false) { without_sources(sources.drop(1), &) }
         end
 
         it "raises for an adapter that cannot stream a query, suggesting batches" do

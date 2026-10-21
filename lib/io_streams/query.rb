@@ -26,7 +26,13 @@ module IOStreams
     autoload :SqliteStatement, "io_streams/query/sqlite_statement"
     autoload :Stream,          "io_streams/query/stream"
 
-    # The sources that each read a relation as one query on their database, see #source.
+    # The sources that each read a relation as one query on their database, see #source. Each one answers:
+    #   `.reads?(connection)`: whether it reads the database of the connection.
+    #   `.failure_kind(exception)`: the kind of failure that an exception of the driver of that database means.
+    #   `.new(connection).open(sql, columns) { |reader| }`: yields once the SQL is running on the connection, and the
+    #   names of its columns are checked, see `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw
+    #   values of each row, from the row after the last one that it yielded, until the block ends, and closes the
+    #   statement when it does.
     SOURCES = %i[SqliteStatement].freeze
 
     # The earliest version of Active Record that a query is read with.
@@ -73,21 +79,43 @@ module IOStreams
       @columns ||= tag_failure { describe }
     end
 
-    # Yields [Array] each row of the query, its values cast as `pluck` casts them, see
-    # `IOStreams::Query::Columns#cast`.
+    # Yields [#each] the rows of the query, once it is open, whose `#each` yields each row, its values cast as `pluck`
+    # casts them, see `IOStreams::Query::Columns#cast`, and returns the number of rows that it yielded. A second
+    # traversal continues where the first stopped, as the lines of a file do.
+    #
+    # A relation is read as one query, which is open before the block is called: its source, see #source, has run its
+    # SQL, on a connection that it borrows from the pool for the whole query, and checked the names of its columns, so
+    # that a copy opens its target only once the query is open, see `IOStreams::Stream#copy_from`, and a query that
+    # cannot be read leaves an existing target as it was. The query is closed, and its connection handed back, when the
+    # block finishes, or is left with `break` or an exception. The batches of a relation are each read as the block
+    # reads them, see `IOStreams::Query::Batches`, so that a second traversal of them starts again from the first batch.
     #
     # Raises the exception of a failure of the database, tagged with the kind of failure that it means, such as
     # `IOStreams::Errors::Unavailable`, see #failure_kind, but not an exception that the block raises.
-    def each
+    #
+    # Returns the result of the block.
+    def open
+      return yield(rows { |&row| Batches.new(@batches).each(columns, &row) }) if @batches
+
       yielding = false
       tag_failure(-> { yielding }) do
-        read do |values|
-          row      = columns.cast(values)
-          yielding = true
-          yield row
-          yielding = false
+        @model.with_connection(prevent_permanent_checkout: true) do |connection|
+          source(connection).new(connection).open(@relation.to_sql, columns) do |reader|
+            # A failure to close the query, once the block has finished, is a failure of the query.
+            Utils.finish_or_abort(finish: -> { yielding = false }) do
+              yielding = true
+              yield(rows { |&row| reader.each(&row) })
+            end
+          end
         end
       end
+    end
+
+    # Yields [Array] each row of the query, its values cast as `pluck` casts them, see #open.
+    #
+    # Returns [Integer] the number of rows yielded.
+    def each(&)
+      open { |rows| rows.each(&) }
     end
 
     # Returns [String] the name of the query in the message of a failure, such as "Order query".
@@ -102,14 +130,25 @@ module IOStreams
 
     private
 
-    # Yields [Array] each row of the query, its raw values as the driver of its database returns them: in the batches
-    # supplied, see `IOStreams::Query::Batches`, otherwise as one query, by the source that reads it on its database, see
-    # #source, with a connection borrowed from the pool for the whole query.
-    def read(&)
-      return Batches.new(@batches).each(columns, &) if @batches
-
-      @model.with_connection(prevent_permanent_checkout: true) do |connection|
-        source(connection).new(connection).each(@relation.to_sql, columns, &)
+    # Returns [Enumerator] whose `#each` yields each row that the supplied block yields, its raw values as the driver of
+    # the database returns them, cast as `pluck` casts them, see `IOStreams::Query::Columns#cast`, and returns the
+    # number of rows that it yielded. It tags a failure of the database as it reads the rows, see #tag_failure, before
+    # the code that reads them sees it, but not an exception of the block that each row is yielded to.
+    def rows(&read)
+      columns = self.columns
+      Enumerator.new do |yielder|
+        count    = 0
+        yielding = false
+        tag_failure(-> { yielding }) do
+          read.call do |values|
+            row      = columns.cast(values)
+            yielding = true
+            yielder << row
+            yielding = false
+            count += 1
+          end
+        end
+        count
       end
     end
 

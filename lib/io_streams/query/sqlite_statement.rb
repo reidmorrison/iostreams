@@ -30,18 +30,43 @@ module IOStreams
       #     The connection that the query is read on, which the caller holds while it is read.
       def initialize(connection)
         @connection = connection
+        @statement  = nil
+        @first      = nil
       end
 
-      # Yields [Array] each row of the result of the SQL, its raw values as the sqlite3 gem returns them, once the names
-      # of its columns are checked against those that the query was described by, see
-      # `IOStreams::Query::Columns#check`. The statement is closed when the block finishes, or is left with `break` or an
-      # exception.
-      def each(sql, columns, &)
-        statement = @connection.raw_connection.prepare(sql)
-        columns.check(statement.columns)
-        statement.each(&)
+      # Yields [IOStreams::Query::SqliteStatement] itself, whose #each yields the rows, once the statement of the SQL is
+      # open: prepared on the connection, stepped to its first row, and the names of its columns checked against those
+      # that the query was described by, see `IOStreams::Query::Columns#check`, so that a statement that fails, or cannot
+      # start, raises before the block is called. The statement is closed when the block finishes, or is left with
+      # `break` or an exception.
+      #
+      # Returns the result of the block.
+      def open(sql, columns)
+        @statement = @connection.raw_connection.prepare(sql)
+        @first     = @statement.step
+        columns.check(@statement.columns)
+        yield self
       ensure
-        statement&.close
+        @statement&.close
+        @statement = nil
+      end
+
+      # Yields [Array] each row of the result, its raw values as the sqlite3 gem returns them, from the row after the last
+      # one that it yielded, so that a second traversal continues where the first stopped, as the lines of a file do.
+      def each
+        while (row = next_row)
+          yield row
+        end
+      end
+
+      private
+
+      # Returns [Array|nil] the next row of the result: the first one, which #open stepped to, then each one after it, or
+      # nil once every row has been read, since the statement then stays done.
+      def next_row
+        row    = @first
+        @first = nil
+        row || @statement.step
       end
     end
   end

@@ -11,7 +11,8 @@ module IOStreams
     # and `:line` modes, the streams and options of #stream and #option, an encoding, #raw, and the options of lines,
     # such as `delimiter:`. Its rows are only read, so #writer, #write and #copy_from raise too.
     #
-    # Each subclass names its source, see #source_name, and supplies its rows, see #rows.
+    # Each subclass names its source, see #source_name, and supplies its rows, see #rows, or opens them, when they must
+    # be opened to be read, see #open_rows.
     class Stream < IOStreams::Stream
       # Yields the reader of the rows in the supplied mode, see `IOStreams::Stream#reader`: `:array`, `:hash`, or
       # `:slice`, which reads them in slices.
@@ -84,9 +85,18 @@ module IOStreams
       end
 
       # Returns [#each] the rows that the readers of rows and records read, starting with their header row, which they
-      # read as the header row of a file, see `IOStreams::Tabular#read_header`.
+      # read as the header row of a file, see `IOStreams::Tabular#read_header`, see #open_rows.
       def rows
-        raise(NotImplementedError, "#{self.class.name} must implement #rows")
+        raise(NotImplementedError, "#{self.class.name} must implement #rows or #open_rows")
+      end
+
+      # Yields [#each] the rows that the readers of rows and records read, which the tabular reads, see #rows. A source
+      # whose rows must be opened before they are read opens them instead, so that its reader is yielded only once they
+      # can be read, such as a query, see `IOStreams::Query::Stream#open_rows`.
+      #
+      # Returns the result of the block.
+      def open_rows(_tabular)
+        yield rows
       end
 
       # Returns [String|nil] how to read the rows as they are, which the message of the `:stream` and `:line` modes
@@ -107,10 +117,10 @@ module IOStreams
         reject_bytes!("The streams and options of #stream and #option")
       end
 
-      # Yields [#each] the rows, see #rows. A header row that was already parsed is read as it is, see
-      # `IOStreams::Tabular::Parser::Base`. The options of lines were rejected by #reader.
-      def open_rows_reader(_tabular, _delimiter, _embedded_within, _buffer_size)
-        yield rows
+      # Yields [#each] the rows, see #open_rows, which the tabular reads. A header row that was already parsed is read as
+      # it is, see `IOStreams::Tabular::Parser::Base`. The options of lines were rejected by #reader.
+      def open_rows_reader(tabular, _delimiter, _embedded_within, _buffer_size, &)
+        open_rows(tabular, &)
       end
 
       # Raises ArgumentError for the options of lines of a call that reads the rows, `delimiter:`, `embedded_within:` and
