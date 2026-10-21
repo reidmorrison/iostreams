@@ -71,7 +71,7 @@ module IOStreams
 
     # The options of #initialize that the stream of a source of rows that is not a file supplies, rather than the path
     # or a call: whether a row whose every value is blank is a blank row, which the rows of a database query are not, see
-    # `IOStreams::Query::Stream`.
+    # `IOStreams::Query::Stream`, nor the rows of a slice of them, which carries it, see `IOStreams::Slice::Stream`.
     SOURCE_OPTION_NAMES = %i[blank_rows].freeze
 
     # Returns [Array<Symbol>] the options of #initialize that a call to read rows or records supplies, see
@@ -157,7 +157,8 @@ module IOStreams
     #   blank_rows: [true|false]
     #     Whether a row whose every value is blank, such as a line of CSV of only commas, is a blank row, read as nil, see
     #     `IOStreams::Tabular::Mapping`. False for rows that are each a record whatever their values, such as the rows of
-    #     a database query, see `IOStreams::Query::Stream`. Not an option of a call that reads or writes rows.
+    #     a database query, see `IOStreams::Query::Stream`, and of a slice that says so, see `IOStreams::Slice::Stream`.
+    #     Not an option of a call that reads or writes rows.
     #     Default: true
     #
     #   cleanse_header: [true|false|nil]
@@ -228,6 +229,14 @@ module IOStreams
     # or a schema whose `header` is false, or when the columns were supplied in place of one.
     def header_row
       header.row if requires_header?
+    end
+
+    # Returns [true|false] whether a row whose every value is blank is a blank row, read as nil, as in a file, see
+    # `IOStreams::Tabular::Mapping`, rather than a record, as each row of a database query is, see `blank_rows:` of
+    # #initialize, so that a slice of the rows carries it, see `IOStreams::Slice#blank_rows?`, and its rows are read the
+    # same way where the slice is parsed.
+    def blank_rows?
+      @mapping.blank_rows?
     end
 
     # Returns [true|false] whether the keys of the records read are the names of the fields of a schema, rather than the

@@ -29,6 +29,12 @@ class SliceTest < Minitest::Test
         assert_equal 2, slice.size
         assert_instance_of Array, slice.to_h["rows"]
       end
+
+      it "holds blank_rows: false for a slice whose every row is a record, such as the rows of a query" do
+        records = IOStreams::Slice.new([[nil, nil]], header: %w[name age].freeze, format: :array, blank_rows: false)
+
+        assert_equal({"rows" => [[nil, nil]], "header" => %w[name age], "format" => "array", "blank_rows" => false}, records.to_h)
+      end
     end
 
     describe "IOStreams.slice" do
@@ -71,6 +77,15 @@ class SliceTest < Minitest::Test
 
         assert_nil copy.header
         assert_nil copy.format
+        assert_predicate copy, :blank_rows?
+      end
+
+      it "turns back a slice whose every row is a record, once stored as JSON, or with a Symbol key" do
+        records = IOStreams::Slice.new([[nil, nil]], header: %w[name age].freeze, format: :array, blank_rows: false)
+
+        refute_predicate IOStreams.slice(JSON.parse(JSON.generate(records.to_h))), :blank_rows?
+        refute_predicate IOStreams.slice(rows: [], blank_rows: false), :blank_rows?
+        assert_predicate IOStreams.slice(rows: [], blank_rows: true), :blank_rows?
       end
 
       it "turns back the slices that a file was read in, whose rows a Tabular parses by what each one carries" do
@@ -98,7 +113,12 @@ class SliceTest < Minitest::Test
 
       it "raises for a key that a slice does not have" do
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line" => 1) }
-        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format"', error.message
+        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows"', error.message
+      end
+
+      it "raises for a blank_rows that is not true or false" do
+        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "blank_rows" => "false") }
+        assert_equal 'The blank_rows of a slice must be true or false: "false"', error.message
       end
 
       it "raises for a header row that is not an Array of Strings" do

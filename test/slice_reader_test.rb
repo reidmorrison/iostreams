@@ -53,6 +53,16 @@ class SliceReaderTest < Minitest::Test
         assert_equal [:psv], slices(stream("name|age\nJack|21\n").format(:psv), size: 2).map(&:format)
       end
 
+      it "gives each slice whether its blank rows are records, which its tabular says" do
+        assert_equal [true, true], slices(stream(csv), size: 2).map(&:blank_rows?)
+
+        tabular = IOStreams::Tabular.new(format: :array, blank_rows: false)
+        list    = IOStreams::Slice::Reader.new([%w[name age], [nil, nil]], tabular: tabular, size: 2).to_a
+
+        assert_equal [[[nil, nil]]], list
+        refute_predicate list.first, :blank_rows?
+      end
+
       it "yields no slice for a file with a header row and no rows" do
         assert_empty slices(stream("Name,AGE\n"), size: 2)
       end
@@ -268,9 +278,10 @@ class SliceReaderTest < Minitest::Test
       assert_equal :csv, slice.format
     end
 
-    it "has no header row nor format by default" do
+    it "has no header row nor format by default, and its blank rows are blank rows, as in a file" do
       assert_nil IOStreams::Slice.new.header
       assert_nil IOStreams::Slice.new.format
+      assert_predicate IOStreams::Slice.new, :blank_rows?
     end
   end
 end

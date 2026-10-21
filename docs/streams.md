@@ -165,6 +165,10 @@ slice = IOStreams.slice(store.pop)
 slice.to_h  # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
 ~~~
 
+A slice of the rows of an Active Record query, each of which is a record whatever its values, also holds
+`"blank_rows" => false`, so that a row whose every value is null or empty is read as a record where the slice is
+parsed, rather than as a [blank row](#blank-rows).
+
 `IOStreams.slice` also takes the keys, and the format, as Symbols, and raises `ArgumentError` for a Hash that does not
 describe a slice, such as one with a key that a slice does not have. Read the slice it returns with
 `IOStreams.stream(slice)`:

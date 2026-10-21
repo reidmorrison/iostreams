@@ -64,6 +64,12 @@ module IOStreams
         @blank_rows = blank_rows
       end
 
+      # Returns [true|false] whether a row whose every value is blank is a blank row, read as nil, as in a file, see
+      # #initialize, rather than a record, as each row of a database query is.
+      def blank_rows?
+        @blank_rows
+      end
+
       # The methods of the role, which each mapping implements in its own way, see above, and which
       # `IOStreams::Tabular` asks it, so that a mapping that leaves one out raises NotImplementedError, rather than
       # NoMethodError. Each is described where `IOStreams::Tabular` calls it, such as `IOStreams::Tabular#row_parse`.

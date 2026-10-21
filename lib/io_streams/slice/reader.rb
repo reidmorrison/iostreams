@@ -8,7 +8,8 @@ module IOStreams
     # The tabular reads the header row, and decides which row it is, see `IOStreams::Tabular#read_line`, so that the
     # header row is matched to the fields of the schema, and raises `IOStreams::Errors::InvalidHeader` when they do not
     # match, before the first slice is yielded. It is not a row of any slice: each slice carries it instead, see
-    # `IOStreams::Slice#header`.
+    # `IOStreams::Slice#header`, with the format of the rows and whether their blank rows are records, which the tabular
+    # says, see `IOStreams::Tabular#blank_rows?`.
     class Reader
       include Enumerable
 
@@ -97,7 +98,7 @@ module IOStreams
         @rows.each do |row|
           @tabular.read_line(row) do |line|
             @tabular.record_parse(line) if @validate
-            slice ||= Slice.new(header: header, format: @tabular.format)
+            slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
             slice << line
             count += 1
             next if slice.size < @size

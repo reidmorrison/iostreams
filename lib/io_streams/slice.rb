@@ -15,6 +15,9 @@ module IOStreams
   # format whose rows are not lines, such as Parquet, the rows that its reader returns. The methods of an Array that
   # return a new Array, such as `map`, return an Array rather than a slice.
   #
+  # A row whose every value is blank is a blank row, as in a file, unless each row of the slice is a record, such as a
+  # slice of the rows of an Active Record query, see #blank_rows?.
+  #
   # A slice does not name the file, nor its streams, such as `.gz` or `.enc`: they were applied when the file was read,
   # so its rows are text in its format.
   #
@@ -25,15 +28,15 @@ module IOStreams
     autoload :Stream, "io_streams/slice/stream"
 
     # The keys of the Hash of a slice, see #to_h.
-    KEYS = %w[rows header format].freeze
+    KEYS = %w[rows header format blank_rows].freeze
 
     # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which #to_h returned, see `IOStreams.slice`.
     # Its keys can be Strings or Symbols, and its format a String or a Symbol, as storing it may have changed them. The
     # header row is a frozen copy, since every slice of a file shares it.
     #
     # Raises ArgumentError when it does not describe a slice: when it is not a Hash, has no rows, or a key that a slice
-    # does not have, or when its rows are not an Array, its header row is not an Array of Strings, or its format is not
-    # a tabular format, see `IOStreams.tabular_formats`.
+    # does not have, or when its rows are not an Array, its header row is not an Array of Strings, its format is not a
+    # tabular format, see `IOStreams.tabular_formats`, or its `blank_rows` is not true or false.
     def self.from_h(hash)
       raise(ArgumentError, "A slice must be the Hash that #to_h returns, not #{hash.class.name}") unless hash.is_a?(::Hash)
 
@@ -44,7 +47,8 @@ module IOStreams
                              "slice. Valid keys: #{KEYS.map(&:inspect).join(', ')}")
       end
 
-      new(rows_of(values["rows"]), header: header_of(values["header"]), format: format_of(values["format"]))
+      new(rows_of(values["rows"]), header: header_of(values["header"]), format: format_of(values["format"]),
+          blank_rows: blank_rows_of(values["blank_rows"]))
     end
 
     # Returns [Array] the rows of the Hash of a slice, see .from_h.
@@ -80,6 +84,16 @@ module IOStreams
     end
     private_class_method :format_of
 
+    # Returns [true|false] whether a row of the Hash of a slice whose every value is blank is a blank row, see .from_h
+    # and #blank_rows?: true, as in a file, when the Hash does not say, since #to_h only holds it when it is false.
+    def self.blank_rows_of(blank_rows)
+      return true if blank_rows.nil?
+      return blank_rows if [true, false].include?(blank_rows)
+
+      raise(ArgumentError, "The blank_rows of a slice must be true or false: #{blank_rows.inspect}")
+    end
+    private_class_method :blank_rows_of
+
     # Returns [Array<String>] the header row of the file, as it was read, before it was cleansed or matched to the
     # fields of a schema, which every slice of the file shares, so it is frozen, as are its columns.
     # Returns nil when the file has no header row, such as fixed width, JSON, or a schema whose `header` is false.
@@ -88,23 +102,37 @@ module IOStreams
     # Returns [Symbol] the tabular format of the rows, such as `:csv`, see `IOStreams.tabular_formats`.
     attr_reader :format
 
-    def initialize(rows = [], header: nil, format: nil)
+    def initialize(rows = [], header: nil, format: nil, blank_rows: true)
       super(rows)
-      @header = header
-      @format = format
+      @header     = header
+      @format     = format
+      @blank_rows = blank_rows
+    end
+
+    # Returns [true|false] whether a row whose every value is blank, such as a line of CSV of only commas, is a blank
+    # row, read as nil, as in a file, see `IOStreams::Tabular::Mapping`, which the tabular that read the rows decided,
+    # see `IOStreams::Tabular#blank_rows?`. False when each row is a record, whatever its values, such as the rows of an
+    # Active Record query, see `IOStreams::Query::Stream`, so that the stream of the slice reads a row whose every value
+    # is null as a record too, see `IOStreams::Slice::Stream`.
+    def blank_rows?
+      @blank_rows
     end
 
     # Returns [Hash] what this slice holds, to store it or send it elsewhere, such as in the document of a job, which
     # `IOStreams.slice` turns back into a slice: its rows, the header row of its file, and the format of its rows, by
-    # String keys, with Strings, Arrays and nil, as JSON and BSON hold them, so that it is the same once stored. The
-    # rows of a format whose rows are not lines, such as Parquet, are the records that its reader returned, whose
-    # values are only kept as they are by a store that keeps their types.
+    # String keys, with Strings, Arrays and nil, as JSON and BSON hold them, so that it is the same once stored. When
+    # each of its rows is a record, see #blank_rows?, it also holds `"blank_rows" => false`, which is otherwise left
+    # out, so that the Hash of a slice of a file holds only those three. The rows of a format whose rows are not lines,
+    # such as Parquet, are the records that its reader returned, whose values are only kept as they are by a store that
+    # keeps their types.
     #
     # Example:
     #   slice.to_h
     #   # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
     def to_h
-      {"rows" => to_a, "header" => header, "format" => format&.to_s}
+      hash = {"rows" => to_a, "header" => header, "format" => format&.to_s}
+      hash["blank_rows"] = false unless blank_rows?
+      hash
     end
   end
 end

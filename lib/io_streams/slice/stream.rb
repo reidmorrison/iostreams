@@ -9,7 +9,8 @@ module IOStreams
     #
     # Its rows start with the header row that the slice carries, which the tabular reads, see
     # `IOStreams::Tabular#read_header`, so that each row is read by the columns of the file that it came from, in the
-    # format that the slice carries, see #format.
+    # format that the slice carries, see #format, and a row whose every value is blank is a blank row unless the slice
+    # says that each of its rows is a record, see #tabular.
     #
     # A slice holds rows, already split and decoded, rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
@@ -42,6 +43,13 @@ module IOStreams
       # `IOStreams::Stream#text_format`, so that #format returns it, and reading raises for another format that is set.
       def text_format
         io_stream.format
+      end
+
+      # Returns [IOStreams::Tabular] that reads the rows of the slice, see `IOStreams::Stream#tabular`, reading a row
+      # whose every value is blank as the slice says, see `IOStreams::Slice#blank_rows?`, so that a row of a query whose
+      # every value is null is a record wherever its slice is read, as it is where the query is read.
+      def tabular(**)
+        super(blank_rows: io_stream.blank_rows?, **)
       end
 
       # Returns [#each] the rows of the slice, after its header row, when it carries one, which the readers of rows and

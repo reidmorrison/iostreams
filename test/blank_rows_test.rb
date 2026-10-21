@@ -151,6 +151,16 @@ class BlankRowsTest < Minitest::Test
         assert_nil tabular.record_parse(",")
         assert_equal jack, tabular.record_parse(%w[Jack 21])
       end
+
+      it "says whether a row whose every value is blank is a blank row, or a record, as it reads them" do
+        assert_predicate IOStreams::Tabular.new(format: :csv), :blank_rows?
+
+        records = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "name"}]), blank_rows: false)
+        records.read_header("name")
+
+        refute_predicate records, :blank_rows?
+        assert_equal({"name" => nil}, records.record_parse([nil]))
+      end
     end
 
     describe "skip_blanks:" do

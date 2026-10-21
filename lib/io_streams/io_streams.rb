@@ -535,8 +535,8 @@ module IOStreams
   end
 
   # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which `IOStreams::Slice#to_h` returned, such
-  # as one that a job stored, with its rows, the header row of its file and the format of its rows, so that its rows
-  # can be parsed where the slice is processed.
+  # as one that a job stored, with its rows, the header row of its file, the format of its rows, and whether its blank
+  # rows are records, see `IOStreams::Slice#blank_rows?`, so that its rows can be parsed where the slice is processed.
   #
   # Parameters:
   #   hash: [Hash]
