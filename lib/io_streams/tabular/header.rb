@@ -78,7 +78,13 @@ module IOStreams
       #       #to_hash skips them entirely, as if they were not in the file at all.
       #     false:
       #       Raises IOStreams::Errors::InvalidHeader for a column that is not in `allowed_columns`, see #cleanse!.
+      #
+      # Raises ArgumentError for columns that are not an Array.
       def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
+        unless columns.nil? || columns.is_a?(::Array)
+          raise(ArgumentError, "columns: must be an Array of the names of the columns: #{columns.inspect}")
+        end
+
         @columns          = stringify(columns)
         @row              = nil
         @required_columns = required_columns

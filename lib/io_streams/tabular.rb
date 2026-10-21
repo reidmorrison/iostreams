@@ -56,8 +56,11 @@ module IOStreams
     attr_reader :mapping
 
     # The default of the `cleanse_header` option, see #initialize, and of `cleanse:`, see #read_header, which cleanses
-    # the header row without a schema. Distinct from nil, which does not cleanse it, as before.
-    CLEANSE_BY_DEFAULT = :default
+    # the header row without a schema. Distinct from nil, which does not cleanse it, as before. An object of its own,
+    # which no caller can supply, so that a value supplied, such as `:default`, is always taken as supplied: with a
+    # schema it raises, and without one it reports the deprecation of `cleanse_header:`.
+    CLEANSE_BY_DEFAULT = Object.new.freeze
+    private_constant :CLEANSE_BY_DEFAULT
 
     # The options of #initialize that describe the format of the file, which reading and writing both accept. They are
     # set on the path, see `IOStreams::Tabular::Settings`, so that a call to read or write the rows cannot supply them,
@@ -343,10 +346,13 @@ module IOStreams
       @mapping.render_header(columns)
     end
 
-    # Returns [Array<String>] the cleansed columns
+    # Returns [Array<String>] the columns of the header row once they are cleansed, see
+    # `IOStreams::Tabular::Header#cleanse!`.
+    #
+    # Raises ArgumentError with a schema, whose fields name the keys of the records read instead, so that the header
+    # keeps the header row as it was read, see `IOStreams::Tabular::SchemaMapping`.
     def cleanse_header!
-      header.cleanse!
-      header.columns
+      @mapping.cleanse_header!
     end
 
     # Reading applies `allowed_columns`, `required_columns` and `skip_unknown` to every input: a header row, supplied

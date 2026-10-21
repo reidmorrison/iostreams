@@ -141,6 +141,14 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
+    describe "columns:" do
+      it "raises ArgumentError for columns that are not an Array, before the file is opened" do
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:hash, columns: 5) { |io| io << {"a" => 1} } }
+        assert_equal "columns: must be an Array of the names of the columns: 5", error.message
+        refute_predicate path("a.csv"), :exist?
+      end
+    end
+
     describe "settings that describe the file" do
       it "gives an example of setting each one on the path" do
         assert_equal IOStreams::Tabular::FORMAT_OPTION_NAMES.sort, IOStreams::Stream::PATH_SETTINGS.keys.sort

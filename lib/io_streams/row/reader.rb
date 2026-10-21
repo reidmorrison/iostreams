@@ -95,17 +95,21 @@ module IOStreams
       # a format without one, such as JSON, takes their columns from it, rather than write it as a row of values, or, for
       # a file without a header row, whose header row #each yields from the names of the fields of its schema, or the
       # keys of its layout, those columns instead, see `IOStreams::Row::Writer#write_columns`, which the columns supplied
-      # to the writer name instead. A blank line, which #each yields as nil, is not a row, so it is not written.
+      # to the writer name instead. The header row of a file with a schema names its fields, see
+      # `IOStreams::Tabular#field_names?`, so it is written as their columns too, which the columns supplied to the writer
+      # name instead, while the header row of a file without one is written as before, as the first row. A blank line,
+      # which #each yields as nil, is not a row, so it is not written.
       #
       # Returns the result of #each.
       def copy_to(writer)
         columns = @tabular.headerless_columns
         writer.write_columns(columns) if columns
+        fields  = @tabular.field_names?
         each do |row|
           # The header row of a file without one is the columns, which were written above.
           next if row.nil? || (columns && row.is_a?(HeaderRow))
 
-          writer << row
+          fields && row.is_a?(HeaderRow) ? writer.write_columns(row) : writer << row
         end
       end
 

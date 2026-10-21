@@ -1613,15 +1613,26 @@ class TabularTest < Minitest::Test
       end
 
       it "raises for cleansing the header row, whose columns are matched to the fields instead" do
-        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, cleanse_header: IOStreams::Tabular::CLEANSE_BY_DEFAULT)
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
 
         assert_predicate tabular, :field_names?
         assert_equal %w[id pay], tabular.read_header("ID,Pay")
-        [true, false, nil].each do |cleanse|
+        [true, false, nil, :default].each do |cleanse|
           error = assert_raises(ArgumentError, cleanse.inspect) { IOStreams::Tabular.new(format: :csv, schema: schema, cleanse_header: cleanse) }
           assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
         end
         assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
+        assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: :default) }
+      end
+
+      it "raises for cleansing the header row once it is read, so that the header keeps it as it was read" do
+        schema  = IOStreams::Schema.new(fieldsMatch: "partial", fields: [{name: "E-mail"}, {name: "e_mail"}])
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+        tabular.read_header("E-mail,e_mail")
+
+        error = assert_raises(ArgumentError) { tabular.cleanse_header! }
+        assert_match(/\AThe header row cannot be cleansed with a schema/, error.message)
+        assert_equal %w[E-mail e_mail], IOStreams::Tabular.new(format: :csv, schema: schema).read_header(tabular.header.columns)
       end
 
       it "raises for the columns before cleanse_header, with a schema" do

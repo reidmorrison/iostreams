@@ -2015,6 +2015,28 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "hands the header row of a source with a schema to a target whose columns are supplied as its columns, which they name instead" do
+        Dir.mktmpdir do |dir|
+          source = IOStreams.path(dir, "in.csv").schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+          source.write("name,age\nJack,21\n")
+
+          json = IOStreams.path(dir, "out.json")
+          assert_deprecated(/describe the columns of the file with #schema instead/) { json.copy_from(source, mode: :array, columns: %w[who years]) }
+
+          assert_equal %({"who":"Jack","years":21}\n), json.read
+
+          csv = IOStreams.path(dir, "out.csv")
+          assert_deprecated(/describe the columns of the file with #schema instead/) { csv.copy_from(source, mode: :array, columns: %w[who years]) }
+
+          assert_equal "who,years\nJack,21\n", csv.read
+
+          plain = IOStreams.path(dir, "plain.csv")
+          plain.copy_from(source, mode: :array)
+
+          assert_equal "name,age\nJack,21\n", plain.read
+        end
+      end
+
       it "writes the rows read with a schema whose fields can be missing in the columns of their fields" do
         schema = {fieldsMatch: "superset", fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "score", type: "integer"}]}
         Dir.mktmpdir do |dir|

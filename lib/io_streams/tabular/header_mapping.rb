@@ -56,6 +56,13 @@ module IOStreams
         header? || (@keyed && @rows.nil? && @keys.nil?)
       end
 
+      # Returns [Array<String>] the columns of the header row once they are cleansed, see
+      # `IOStreams::Tabular::Header#cleanse!`.
+      def cleanse_header!
+        header.cleanse!
+        header.columns
+      end
+
       # Returns [false] the keys of the records read are the columns of the file, see `IOStreams::Tabular#field_names?`.
       def field_names?
         false
