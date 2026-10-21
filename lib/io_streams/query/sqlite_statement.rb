@@ -43,10 +43,12 @@ module IOStreams
       #
       # Returns the result of the block.
       def open(statement, columns)
-        binds      = statement.type_casted_binds
-        @statement = @connection.raw_connection.prepare(statement.sql)
-        @statement.bind_params(binds) unless binds.empty?
-        @first = @statement.step
+        raw    = @connection.raw_connection
+        @first = statement.instrument do |sql, binds|
+          @statement = raw.prepare(sql)
+          @statement.bind_params(binds) unless binds.empty?
+          @statement.step
+        end
         columns.check(@statement.columns)
         yield self
       ensure

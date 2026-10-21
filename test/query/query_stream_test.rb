@@ -28,6 +28,14 @@ class QueryStreamTest < Minitest::Test
         names
       end
 
+      # Returns [Array<Hash>] the payload of each `sql.active_record` event of the supplied name within the block.
+      def events(name, &)
+        payloads = []
+        callback = ->(_name, _start, _finish, _id, payload) { payloads << payload if payload[:name] == name }
+        ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &)
+        payloads
+      end
+
       # Yields while no source reads the connection, as for an adapter that cannot stream a query, such as trilogy.
       def without_sources(sources = IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }, &)
         return yield if sources.empty?
@@ -175,7 +183,7 @@ class QueryStreamTest < Minitest::Test
         it "reads a relation with one query, and its columns with another of no rows" do
           names = statements { each(IOStreams.stream(orders)) }
 
-          assert_equal ["IOStreams Columns"], names
+          assert_equal ["IOStreams Columns", "IOStreams Query"], names
         end
 
         it "describes the columns once for each stream" do
@@ -186,7 +194,7 @@ class QueryStreamTest < Minitest::Test
             each(stream, :array)
           end
 
-          assert_equal ["IOStreams Columns"], names
+          assert_equal ["IOStreams Columns", "IOStreams Query", "IOStreams Query"], names
         end
 
         it "reads the rows in slices" do
@@ -286,19 +294,40 @@ class QueryStreamTest < Minitest::Test
             assert_equal expected, each(IOStreams.stream(relation)), relation.to_sql
           end
         end
+
+        it "is reported as Active Record reports its own statements, with its query transformers applied" do
+          transformer = ->(sql, _connection) { "#{sql} /* exported */" }
+          ActiveRecord.query_transformers << transformer
+          relation = orders.where(paid: true)
+          load     = events("#{db.order.name} Load") { relation.to_a }
+          read     = events("IOStreams Query") { assert_equal 1, each(IOStreams.stream(relation)).size }
+
+          assert_equal 1, read.size
+          assert_match(%r{ /\* exported \*/\z}, read.first[:sql])
+          assert_equal load.first[:sql], read.first[:sql]
+          assert_equal load.first[:binds], read.first[:binds]
+          assert_equal load.first[:type_casted_binds], read.first[:type_casted_binds]
+          assert_empty load.first.keys - read.first.keys
+        ensure
+          ActiveRecord.query_transformers.delete(transformer)
+        end
       end
 
       describe "#reader" do
         it "continues a second traversal where the first stopped, rather than running the query again" do
-          first, rest = IOStreams.stream(orders.select(:name)).reader(:hash) { |reader| [reader.first, reader.to_a] }
+          names = statements do
+            first, rest = IOStreams.stream(orders.select(:name)).reader(:hash) { |reader| [reader.first, reader.to_a] }
 
-          assert_equal({"name" => "a"}, first)
-          assert_equal [{"name" => "b"}, {"name" => "c"}], rest
+            assert_equal({"name" => "a"}, first)
+            assert_equal [{"name" => "b"}, {"name" => "c"}], rest
 
-          header, rows = IOStreams.stream(orders.select(:name)).reader(:array) { |reader| [reader.first, reader.to_a] }
+            header, rows = IOStreams.stream(orders.select(:name)).reader(:array) { |reader| [reader.first, reader.to_a] }
 
-          assert_equal %w[name], header
-          assert_equal [%w[a], %w[b], %w[c]], rows
+            assert_equal %w[name], header
+            assert_equal [%w[a], %w[b], %w[c]], rows
+          end
+
+          assert_equal 2, names.count("IOStreams Query")
         end
 
         it "returns the number of rows read, header row included, as for the lines of a file of the same rows" do
