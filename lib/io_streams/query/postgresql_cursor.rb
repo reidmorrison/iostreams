@@ -46,21 +46,41 @@ module IOStreams
         UnableToSend:          Errors::Unavailable
       }.freeze
 
-      # The kind of failure that the message of `PG::ConnectionBad` means, for a connection that could not be made, which
-      # libpq reports in its message, such as `password authentication failed for user "jack"`. A host that does not
-      # resolve, such as a mistyped host, is neither, unless name resolution failed for the time being, as for a path,
-      # see `IOStreams::Errors::Unavailable.unknown_host?`.
+      # The start of each attempt to connect that the message of `PG::ConnectionBad` reports, see .connection_kind.
+      # libpq tries each address of each host in turn, such as both addresses of `localhost`, and reports why each one
+      # failed on a line that starts with the address, `connection to server at "db" (10.0.0.1), port 5432 failed: ` or
+      # `connection to server on socket "/tmp/.s.PGSQL.5432" failed: `, from libpq 14, and before it with
+      # `could not connect to server: `, or with the error of the server itself, such as
+      # `FATAL:  database "orders" does not exist`. A host that does not resolve, which has no address to try, is
+      # reported on a line of its own, such as `could not translate host name "db" to address: Name or service not known`.
+      ATTEMPT = /^(?=connection to server |could not connect to server|could not translate host name |FATAL:  )/
+
+      # The kind of failure that the message of `PG::ConnectionBad` means, by the last attempt to connect that it reports:
+      # the first kind whose pattern the attempt matches, see .connection_kind. `IOStreams::Query::Failure::NONE` is for
+      # an attempt that failed for a reason that is neither, so that it is not tagged as Active Record names it: a
+      # database that does not exist, and a host that does not resolve, such as a mistyped host, unless name resolution
+      # failed for the time being, as for a path, see `IOStreams::Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE`.
       CONNECTION_KINDS = {
         Errors::PermissionDenied => Regexp.union(
-          /password authentication failed/, /no pg_hba\.conf entry/, /role ".*" does not exist/, /no password supplied/
+          # Credentials that the server does not accept, such as `password authentication failed for user "jack"`, or the
+          # same for another method of authentication, such as peer, ident, PAM, LDAP, RADIUS, certificate, GSSAPI or
+          # SSPI, a role that may not log in, or connect to the database, or a host that pg_hba.conf rejects.
+          /authentication failed for user/, /no password supplied/, /connection requires a valid client certificate/,
+          /no pg_hba\.conf entry/, /pg_hba\.conf rejects /, /role ".*" does not exist/,
+          /role ".*" is not permitted to log in/, /permission denied for database/
         ),
         Errors::Unavailable      => Regexp.union(
           /Connection refused/, /timeout expired/, /timed out/, /could not connect to server/,
-          /server closed the connection unexpectedly/, /Connection reset/, /Network is unreachable/, /No route to host/,
+          /connection to server on socket .* failed: No such file or directory/,
+          /server closed the connection unexpectedly/, /Connection reset/,
+          # The text of `Errno::ENETUNREACH` and `Errno::EHOSTUNREACH` with glibc and on macOS, and then with musl.
+          /Network is unreachable/, /No route to host/, /Network unreachable/, /Host is unreachable/,
           /the database system is (?:starting up|shutting down|in recovery mode|not yet accepting connections)/,
           /too many clients already/, /too many connections/, /remaining connection slots are reserved/,
-          /Temporary failure in name resolution/, /SSL SYSCALL error/
-        )
+          /could not translate host name ".*" to address: #{Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE}/,
+          /SSL SYSCALL error/
+        ),
+        Failure::NONE            => Regexp.union(/could not translate host name /, /database ".*" does not exist/)
       }.freeze
 
       # Returns [true|false] whether the connection is to PostgreSQL.
@@ -82,20 +102,28 @@ module IOStreams
         REQUIRABLE_TYPES
       end
 
-      # Returns [Module] the kind of failure that an exception raised by the pg gem means, or nil when it is none of
-      # them: `PermissionDenied` for a table or column that the user may not read, or credentials that the server does
-      # not accept, and `Unavailable` for a server that cannot be reached, ended the query, or has no connection free,
-      # see FAILURE_KINDS and CONNECTION_KINDS.
+      # Returns [Module] the kind of failure that an exception raised by the pg gem means: `PermissionDenied` for a table
+      # or column that the user may not read, or credentials, or a host, that the server does not accept, and
+      # `Unavailable` for a server that cannot be reached, ended the query, or has no connection free, see FAILURE_KINDS
+      # and CONNECTION_KINDS. Returns `IOStreams::Query::Failure::NONE` for a connection that failed for a reason that is
+      # neither, such as a host that does not resolve, and nil for any other exception, or a reason that it does not
+      # know, which Active Record names.
       def self.failure_kind(exception)
         return unless defined?(::PG::Error) && exception.is_a?(::PG::Error)
-
-        if exception.is_a?(::PG::ConnectionBad)
-          message = exception.message
-          return CONNECTION_KINDS.find { |_kind, pattern| pattern.match?(message) }&.first
-        end
+        return connection_kind(exception.message) if exception.is_a?(::PG::ConnectionBad)
 
         FAILURE_KINDS.find { |name, _kind| exception.is_a?(::PG.const_get(name)) }&.last
       end
+
+      # Returns [Module] the kind of failure that the message of `PG::ConnectionBad` means, by the last attempt to connect
+      # that it reports, see ATTEMPT and CONNECTION_KINDS, rather than an earlier one, so that an address that refused
+      # the connection does not make a database that does not exist on the next one `Unavailable`. A message without
+      # the start of an attempt, such as for a connection that was lost, is one attempt.
+      def self.connection_kind(message)
+        attempt = message.split(ATTEMPT).last || message
+        CONNECTION_KINDS.find { |_kind, pattern| pattern.match?(attempt) }&.first
+      end
+      private_class_method :connection_kind
 
       # Parameters:
       #   connection: [ActiveRecord::ConnectionAdapters::PostgreSQLAdapter]

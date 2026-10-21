@@ -193,23 +193,23 @@ class PostgresqlCursorTest < Minitest::Test
       def orders_at(name)
         url = URI(QueryDatabase::PostgresqlSchema.url)
         yield url
+        orders_on(name, url: url.to_s)
+      end
+
+      # Returns [Class] a model of the orders table on a connection of the supplied configuration.
+      def orders_on(name, config)
         record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
         constant = :"#{name}Record"
         QueryDatabase::PostgreSQL.send(:remove_const, constant) if QueryDatabase::PostgreSQL.const_defined?(constant)
         QueryDatabase::PostgreSQL.const_set(constant, record)
-        record.establish_connection(url: url.to_s, pool: 1, connect_timeout: 2)
+        record.establish_connection(pool: 1, connect_timeout: 2, **config)
         Class.new(record) { self.table_name = "orders" }
       end
 
       # Returns [Class] a model of the orders table, on a pool of one connection of its own, whose connections set the
       # supplied variables, such as `statement_timeout`, as the `variables` of the configuration of a database do.
       def orders_with(name, variables)
-        record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
-        constant = :"#{name}Record"
-        QueryDatabase::PostgreSQL.send(:remove_const, constant) if QueryDatabase::PostgreSQL.const_defined?(constant)
-        QueryDatabase::PostgreSQL.const_set(constant, record)
-        record.establish_connection(db.record.connection_db_config.configuration_hash.merge(pool: 1, variables: variables))
-        Class.new(record) { self.table_name = "orders" }
+        orders_on(name, db.record.connection_db_config.configuration_hash.except(:pool).merge(variables: variables))
       end
 
       it "tags a server that refuses the connection as Unavailable" do
@@ -232,6 +232,71 @@ class PostgresqlCursorTest < Minitest::Test
         error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
 
         refute_kind_of IOStreams::Errors::StorageError, error
+      end
+
+      # Active Record names a connection that could not be made by what the message of libpq includes: any failure for
+      # the database postgres as a connection that could not be established, one whose message includes the name of the
+      # database as a database that does not exist, and one whose message includes the name of the user as a user name
+      # or password that the server rejects.
+
+      it "does not tag a host that does not resolve, which Active Record names as credentials when it includes the user" do
+        orders = orders_at("UnknownOfUser") do |url|
+          # Setting the host clears the user.
+          url.host = "iostreams-db.invalid"
+          url.user = "iostreams"
+        end
+        error = assert_raises(ActiveRecord::DatabaseConnectionError) { each(IOStreams.stream(orders.all)) }
+
+        assert_match(%r{username/password}, error.message)
+        refute_kind_of IOStreams::Errors::StorageError, error
+      end
+
+      it "does not tag a host that does not resolve, which Active Record does not name for the database postgres" do
+        orders = orders_at("UnknownOfPostgres") do |url|
+          url.host = "iostreams-no-such-host.invalid"
+          url.path = "/postgres"
+        end
+        error = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+
+        assert_match(/could not translate host name/, error.message)
+        refute_kind_of IOStreams::Errors::StorageError, error
+      end
+
+      it "does not tag a database that does not exist on the last address that it tried, after one that refused it" do
+        url = URI(QueryDatabase::PostgresqlSchema.url)
+        skip "POSTGRES_URL names no host" if url.host.to_s.empty?
+
+        orders = orders_on(
+          "Retried",
+          adapter: "postgresql", host: "#{url.host},#{url.host}", port: "1,#{url.port || 5432}",
+          username: url.user && URI.decode_uri_component(url.user),
+          password: url.password && URI.decode_uri_component(url.password), database: "iostreams_no_such_database"
+        )
+        error = assert_raises(ActiveRecord::NoDatabaseError) { each(IOStreams.stream(orders.all)) }
+
+        assert_match(/Connection refused.*database "iostreams_no_such_database" does not exist/m, error.cause.message)
+        refute_kind_of IOStreams::Errors::StorageError, error
+      end
+
+      it "tags a role that may not log in as PermissionDenied, whatever Active Record names it" do
+        name  = role
+        named = {
+          "postgres"                                    => ActiveRecord::ConnectionNotEstablished,
+          # The name of the role starts with that of the database.
+          db.record.with_connection(&:current_database) => ActiveRecord::NoDatabaseError
+        }
+        named.each_pair do |database, error_class|
+          orders = orders_at("NotPermitted") do |url|
+            url.user     = name
+            url.password = QueryDatabase::PostgresqlSchema::PASSWORD
+            url.path     = "/#{database}"
+          end
+          error = assert_raises(error_class) { each(IOStreams.stream(orders.all)) }
+
+          assert_instance_of error_class, error
+          assert_kind_of IOStreams::Errors::PermissionDenied, error, database
+          assert_match(/role "#{name}" is not permitted to log in/, error.cause.message)
+        end
       end
 
       it "reads the rows of each batch in the order of the primary key, after updates move them" do
@@ -343,30 +408,125 @@ class PostgresqlCursorTest < Minitest::Test
   end
 
   describe ".failure_kind" do
-    it "returns the kind of failure of an exception of the pg gem" do
-      skip "The pg gem is a C extension, which JRuby cannot load" unless QueryDatabase.driver?("pg")
+    before { skip "The pg gem is a C extension, which JRuby cannot load" unless QueryDatabase.driver?("pg") }
 
-      assert_equal IOStreams::Errors::PermissionDenied,
-                   IOStreams::Query::PostgresqlCursor.failure_kind(PG::InsufficientPrivilege.new("denied"))
-      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::PostgresqlCursor.failure_kind(PG::AdminShutdown.new("shutdown"))
-      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::PostgresqlCursor.failure_kind(PG::UnableToSend.new("lost"))
-      {
-        "FATAL:  sorry, too many clients already"                                     => IOStreams::Errors::Unavailable,
-        "FATAL:  the database system is starting up"                                  => IOStreams::Errors::Unavailable,
-        "could not translate host name \"db\" to address: Temporary failure in name resolution" =>
-          IOStreams::Errors::Unavailable,
-        "FATAL:  password authentication failed for user \"jack\""                    => IOStreams::Errors::PermissionDenied,
-        "FATAL:  no pg_hba.conf entry for host \"10.0.0.1\", user \"jack\""          => IOStreams::Errors::PermissionDenied,
-        "could not translate host name \"db\" to address: Name or service not known"  => nil,
-        "FATAL:  database \"missing\" does not exist"                                 => nil
-      }.each_pair do |message, kind|
+    # Asserts that a connection that failed with each message of libpq is the supplied kind of failure.
+    def assert_connection_kind(kind, messages)
+      messages.each do |message|
         actual = IOStreams::Query::PostgresqlCursor.failure_kind(PG::ConnectionBad.new(message))
 
         kind ? assert_equal(kind, actual, message) : assert_nil(actual, message)
       end
+    end
 
+    it "returns the kind of failure of an exception of the pg gem that a statement raises" do
+      assert_equal IOStreams::Errors::PermissionDenied,
+                   IOStreams::Query::PostgresqlCursor.failure_kind(PG::InsufficientPrivilege.new("denied"))
+      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::PostgresqlCursor.failure_kind(PG::AdminShutdown.new("shutdown"))
+      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::PostgresqlCursor.failure_kind(PG::UnableToSend.new("lost"))
       assert_nil IOStreams::Query::PostgresqlCursor.failure_kind(PG::UndefinedTable.new("no table"))
       assert_nil IOStreams::Query::PostgresqlCursor.failure_kind(RuntimeError.new("other"))
+    end
+
+    # The messages of the connections below are those that libpq reported against PostgreSQL 17: libpq 18 on macOS,
+    # libpq 17 and 18 on Linux, with glibc and with musl, and libpq 13, whose messages have the format of before 14.
+
+    it "returns PermissionDenied for credentials, or a host, that the server does not accept, by any method" do
+      assert_connection_kind(
+        IOStreams::Errors::PermissionDenied,
+        [
+          "connection to server at \"127.0.0.1\", port 55432 failed: FATAL:  password authentication failed for user " \
+          "\"postgres\"\n",
+          "connection to server at \"127.0.0.1\", port 55432 failed: fe_sendauth: no password supplied\n",
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  Ident authentication failed for user " \
+          "\"iostreams_fix_qp_ident\"\n",
+          "connection to server on socket \"/var/run/postgresql/.s.PGSQL.5432\" failed: FATAL:  Peer authentication " \
+          "failed for user \"iostreams_fix_qp_peer\"\n",
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  PAM authentication failed for user " \
+          "\"iostreams_fix_qp_pam\"\n",
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  LDAP authentication failed for user " \
+          "\"iostreams_fix_qp_ldap\"\n",
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  RADIUS authentication failed for user " \
+          "\"iostreams_fix_qp_radius\"\n",
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  connection requires a valid client " \
+          "certificate\n",
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  certificate authentication failed for user " \
+          "\"iostreams_fix_qp_cert\"\n",
+          # The messages of PostgreSQL for GSSAPI and SSPI, which were not run.
+          "connection to server at \"127.0.0.1\", port 5432 failed: FATAL:  GSSAPI authentication failed for user " \
+          "\"jack\"\n",
+          "connection to server at \"127.0.0.1\", port 5432 failed: FATAL:  SSPI authentication failed for user \"jack\"\n",
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  pg_hba.conf rejects connection for host " \
+          "\"172.17.0.1\", user \"iostreams_fix_qp_reject\", database \"app\", no encryption\n",
+          "FATAL:  no pg_hba.conf entry for host \"10.0.0.1\", user \"jack\"",
+          "connection to server at \"127.0.0.1\", port 55432 failed: FATAL:  role \"iostreams_fix_qp_nologin\" is not " \
+          "permitted to log in\n",
+          "connection to server at \"127.0.0.1\", port 55432 failed: FATAL:  permission denied for database " \
+          "\"iostreams_fix_qp_noconnect\"\nDETAIL:  User does not have CONNECT privilege.\n",
+          "FATAL:  permission denied for database \"iostreams_fix_qp_noconnect\"\nDETAIL:  User does not have CONNECT " \
+          "privilege.\n"
+        ]
+      )
+    end
+
+    it "returns Unavailable for a server that cannot be reached, or has no connection free" do
+      assert_connection_kind(
+        IOStreams::Errors::Unavailable,
+        [
+          "connection to server at \"127.0.0.1\", port 1 failed: Connection refused\n\tIs the server running on that " \
+          "host and accepting TCP/IP connections?\nconnection to server at \"::1\", port 1 failed: Connection refused\n" \
+          "\tIs the server running on that host and accepting TCP/IP connections?\n",
+          "connection to server at \"10.255.255.1\", port 55432 failed: timeout expired",
+          # glibc, and musl.
+          "connection to server at \"10.1.2.3\", port 5432 failed: Network is unreachable\n\tIs the server running on " \
+          "that host and accepting TCP/IP connections?\n",
+          "connection to server at \"172.21.0.250\", port 5432 failed: No route to host\n\tIs the server running on " \
+          "that host and accepting TCP/IP connections?\n",
+          "connection to server at \"2001:db8::1\", port 5432 failed: Network unreachable\n\tIs the server running on " \
+          "that host and accepting TCP/IP connections?\n",
+          "connection to server at \"172.21.0.250\", port 5432 failed: Host is unreachable\n\tIs the server running on " \
+          "that host and accepting TCP/IP connections?\n",
+          "could not connect to server: Host is unreachable\n\tIs the server running on host \"172.21.0.250\" and " \
+          "accepting\n\tTCP/IP connections on port 5432?\n",
+          # A server that is not running locally.
+          "connection to server on socket \"/tmp/iostreams_fix_qp_nosocket/.s.PGSQL.55432\" failed: No such file or " \
+          "directory\n\tIs the server running locally and accepting connections on that socket?\n",
+          "could not connect to server: No such file or directory\n\tIs the server running locally and accepting\n" \
+          "\tconnections on Unix domain socket \"/tmp/nosocket/.s.PGSQL.5432\"?\n",
+          # A temporary failure of name resolution, with glibc, and musl.
+          "could not translate host name \"db.example.org\" to address: Temporary failure in name resolution\n",
+          "could not translate host name \"db.example.org\" to address: Try again\n",
+          "FATAL:  sorry, too many clients already",
+          "FATAL:  the database system is starting up",
+          # The last attempt timed out, after the first was refused.
+          "connection to server at \"127.0.0.1\", port 55498 failed: FATAL:  RADIUS authentication failed for user " \
+          "\"iostreams_fix_qp_radius\"\nconnection to server at \"127.0.0.1\", port 55498 failed: timeout expired"
+        ]
+      )
+    end
+
+    it "returns NONE for a host that does not resolve, or a database that does not exist, by the last attempt" do
+      assert_connection_kind(
+        IOStreams::Query::Failure::NONE,
+        [
+          # macOS, glibc, and musl.
+          "could not translate host name \"postgres-db.invalid\" to address: nodename nor servname provided, or not " \
+          "known\n",
+          "could not translate host name \"iostreams-no-such-host.invalid\" to address: Name or service not known\n",
+          "could not translate host name \"iostreams-no-such-host.invalid\" to address: Name does not resolve\n",
+          "connection to server at \"127.0.0.1\", port 55432 failed: FATAL:  database \"iostreams_fix_qp_missing\" does " \
+          "not exist\n",
+          "FATAL:  database \"iostreams_fix_qp_missing\" does not exist\n",
+          # Each address of a host, the first of which refused the connection.
+          "connection to server at \"pgdual\" (172.21.0.2), port 5432 failed: Connection refused\n\tIs the server " \
+          "running on that host and accepting TCP/IP connections?\nconnection to server at \"pgdual\" (172.21.0.3), " \
+          "port 5432 failed: FATAL:  database \"iostreams_fix_qp_missing\" does not exist\n"
+        ]
+      )
+    end
+
+    it "returns nil for any other failure of a connection, such as one that the pg gem closed, which Active Record names" do
+      assert_connection_kind(nil, ["connection is closed"])
     end
   end
 end
