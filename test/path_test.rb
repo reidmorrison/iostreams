@@ -170,7 +170,8 @@ module IOStreams
         end
 
         it "shows each byte of a name that is not valid UTF-8 as \\xHH" do
-          path = IOStreams.path("/data/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+          # Not with IOStreams.path, whose ::File.join replaces each byte that is not valid UTF-8 with U+FFFD on JRuby.
+          path = IOStreams::Paths::File.new("/data/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
 
           assert_equal "/data/caf\\xE9.csv", path.display_name
         end
