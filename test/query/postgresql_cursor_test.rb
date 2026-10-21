@@ -130,10 +130,10 @@ class PostgresqlCursorTest < Minitest::Test
         sql.grep(/set_config|current_setting/)
       end
 
-      it "sets idle_in_transaction_session_timeout only on PostgreSQL 9.6 and later, which have it" do
+      it "sets idle_in_transaction_session_timeout on PostgreSQL 9.6 and later, and transaction_timeout on 17 and later" do
         pinned do
           db.record.with_connection do |connection|
-            [[90_500, false], [90_600, true]].each do |version, set|
+            [[90_500, false, false], [90_600, true, false], [170_000, true, true]].each do |version, idle, transaction|
               sql = connection.stub(:database_version, version) do
                 settings_statements { assert_equal 3, each(IOStreams.stream(orders)).size }
               end
@@ -141,10 +141,23 @@ class PostgresqlCursorTest < Minitest::Test
               # It reads the settings of the transaction that is open, sets them, and sets them back.
               assert_equal 3, sql.size, version
               assert_equal [true] * 3, sql.map { |text| text.include?("cursor_tuple_fraction") }, version
-              assert_equal [set] * 3, sql.map { |text| text.include?("idle_in_transaction_session_timeout") }, version
+              assert_equal [idle] * 3, sql.map { |text| text.include?("idle_in_transaction_session_timeout") }, version
+              assert_equal [transaction] * 3, sql.map { |text| text.include?("'transaction_timeout'") }, version
             end
           end
         end
+      end
+
+      it "reads for longer than the transaction_timeout of the connection, on PostgreSQL 17 and later" do
+        skip "PostgreSQL has transaction_timeout from 17" if db.record.with_connection(&:database_version) < 170_000
+
+        names = []
+        IOStreams.stream(orders_with("Transaction", transaction_timeout: 500).order(:id)).each(:hash) do |order|
+          sleep(0.3)
+          names << order["name"]
+        end
+
+        assert_equal %w[a b c], names
       end
 
       it "applies the statement_timeout of the connection to each fetch, rather than to the whole query" do

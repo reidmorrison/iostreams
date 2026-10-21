@@ -23,6 +23,9 @@ module IOStreams
     #   idle_in_transaction_session_timeout = 0
     #     So that a target that is slow to write, such as an upload, does not leave the transaction idle for long
     #     enough that PostgreSQL closes the connection, on PostgreSQL 9.6 and later, which have it.
+    #   transaction_timeout = 0
+    #     So that a `transaction_timeout` of the role, the database or the session does not end the transaction of an
+    #     export that takes longer, on PostgreSQL 17 and later, which have it.
     # They end with the transaction, and are set back to what they were in a transaction that was already open. The
     # `statement_timeout` of the connection, such as one that the `variables` of the configuration of the database set,
     # applies to each fetch, rather than to the whole query.
@@ -40,11 +43,15 @@ module IOStreams
       VALUE_BYTES = 8
 
       # The settings of the transaction that reads the query, see above.
-      SETTINGS = {"cursor_tuple_fraction" => "1.0", "idle_in_transaction_session_timeout" => "0"}.freeze
+      SETTINGS = {
+        "cursor_tuple_fraction"               => "1.0",
+        "idle_in_transaction_session_timeout" => "0",
+        "transaction_timeout"                 => "0"
+      }.freeze
 
       # The earliest version of PostgreSQL that has each of the SETTINGS that not every version that Active Record reads
       # has, as `server_version_num` numbers it, on which the transaction sets it, see #settings.
-      SETTING_VERSIONS = {"idle_in_transaction_session_timeout" => 90_600}.freeze
+      SETTING_VERSIONS = {"idle_in_transaction_session_timeout" => 90_600, "transaction_timeout" => 170_000}.freeze
 
       # The types of field whose columns that are `NOT NULL` always have a value once Active Record casts it, see
       # .requirable_types.
