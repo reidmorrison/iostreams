@@ -218,6 +218,25 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal 3, db.order.count
       end
 
+      # With lock_threads, the threads of the application, such as the server of a system test, share the pinned
+      # connection, as the read does.
+      it "lets another thread query a connection that it shares while the block runs" do
+        db.pool.pin_connection!(true)
+        begin
+          names  = []
+          counts = []
+          IOStreams.stream(orders.select(:name)).each(:hash) do |order|
+            names << order["name"]
+            counts << Thread.new { db.order.count }.value
+          end
+
+          assert_equal %w[a b c], names
+          assert_equal [3, 3, 3], counts
+        ensure
+          db.pool.unpin_connection!
+        end
+      end
+
       # A connection that the application used raw is one that Active Record no longer verifies, nor reconnects, until
       # it is checked out again, which a caller that holds it does not do.
       it "does not use the raw connection of a connection that it shares, such as a pinned one" do
