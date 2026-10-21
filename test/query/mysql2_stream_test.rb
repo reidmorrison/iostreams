@@ -61,6 +61,26 @@ class Mysql2StreamTest < Minitest::Test
         db.orders_at("#{scheme.capitalize}Runner", scheme: scheme, user: reader, password: "reader")
       end
 
+      # Returns [ActiveRecord::Relation] a query of 103 orders that is still running when the block reads its first row,
+      # since the server takes 0.05 seconds for each row, which is wider than its buffer, so that it is sent at once. The
+      # annotation names the query, so that another connection finds it, see #kill.
+      def slow_orders(annotation)
+        execute("INSERT INTO orders (name, amount, status) SELECT CONCAT('x', n), n, 0 FROM " \
+                "(WITH RECURSIVE numbers (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 100) " \
+                "SELECT n FROM numbers) AS numbers")
+        orders.select("orders.id, REPEAT('x', 20000) AS wide, SLEEP(0.05) AS slept").annotate(annotation)
+      end
+
+      # Ends the query of the supplied annotation, or its connection, with KILL QUERY or KILL CONNECTION from another
+      # connection, see #slow_orders.
+      def kill(what, annotation)
+        monitor.with_connection do |connection|
+          id = connection.select_value("SELECT ID FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() AND " \
+                                       "INFO LIKE '%#{annotation}%'")
+          connection.execute("KILL #{what} #{Integer(id)}")
+        end
+      end
+
       # Returns [String] the net_write_timeout of the session of the supplied id, which another connection reads, since
       # the connection that reads a query cannot run a query while it streams a result.
       def net_write_timeout(connection_id)
@@ -135,6 +155,50 @@ class Mysql2StreamTest < Minitest::Test
         end
 
         assert_equal 3, db.order.count
+      end
+
+      # mysql2 raises an error that ends a streamed result without its number, see `IOStreams::Query::MysqlFailure`.
+      it "tags a query that KILL QUERY ends while its rows are read as Unavailable" do
+        rows  = 0
+        error = assert_raises(Mysql2::Error) do
+          IOStreams.stream(slow_orders("iostreams kill query")).each(:hash) do |_order|
+            kill("QUERY", "iostreams kill query") if rows.zero?
+            rows += 1
+          end
+        end
+
+        assert_kind_of IOStreams::Errors::Unavailable, error
+        assert_nil error.error_number
+        assert_equal "#{db.order.name} query: Query execution was interrupted", error.message
+        assert_operator rows, :<, 103
+      end
+
+      it "tags a query that max_execution_time ends while its rows are read as Unavailable" do
+        rows   = 0
+        stream = IOStreams.stream(slow_orders("iostreams timeout").optimizer_hints("MAX_EXECUTION_TIME(300)"))
+        error  = assert_raises(Mysql2::Error) { stream.each(:hash) { |_order| rows += 1 } }
+
+        assert_kind_of IOStreams::Errors::Unavailable, error
+        assert_nil error.error_number
+        assert_equal "#{db.order.name} query: Query execution was interrupted, maximum statement execution time exceeded",
+                     error.message
+        assert_operator rows, :<, 103
+      end
+
+      it "tags a connection that the server ends while the rows are read as Unavailable" do
+        rows  = 0
+        error = assert_raises(Mysql2::Error) do
+          IOStreams.stream(slow_orders("iostreams kill connection")).each(:hash) do |_order|
+            kill("CONNECTION", "iostreams kill connection") if rows.zero?
+            rows += 1
+          end
+        end
+
+        assert_kind_of IOStreams::Errors::Unavailable, error
+        assert_nil error.error_number
+        # As the client library of Oracle, or that of MariaDB, says it.
+        assert_match(/\A#{db.order.name} query: Lost connection to (?:MySQL )?server during query\z/, error.message)
+        assert_operator rows, :<, 103
       end
 
       it "types the computed columns as any, since mysql2 reports no types, while their values are typed" do
@@ -299,6 +363,20 @@ class Mysql2StreamTest < Minitest::Test
       assert_equal IOStreams::Errors::Unavailable, kind(numbered_error(2013, "Lost connection to MySQL server during query"))
       assert_nil kind(numbered_error(1146, "Table 'shop.order' doesn't exist"))
       assert_nil kind(RuntimeError.new("other"))
+    end
+
+    # As `Mysql2::Result#each` raises an error that ends a streamed result: with its message alone.
+    it "returns what MySQL says of the message of an error without a number" do
+      assert_equal IOStreams::Errors::Unavailable, kind(Mysql2::Error.new("Lost connection to MySQL server during query"))
+      assert_equal IOStreams::Errors::Unavailable, kind(Mysql2::Error.new("Query execution was interrupted"))
+      assert_nil kind(Mysql2::Error.new("Invalid date in field 'shipped_on': 2026-00-15"))
+    end
+
+    it "tags its own timeout, of the read_timeout of the connection, which has no number, as Unavailable" do
+      timeout = Mysql2::Error::TimeoutError.new("Timeout waiting for a response from the last query. (waited 1 seconds)")
+
+      assert_nil timeout.error_number
+      assert_equal IOStreams::Errors::Unavailable, kind(timeout)
     end
   end
 end

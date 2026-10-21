@@ -12,7 +12,7 @@ module IOStreams
       # `IOStreams::Errors::Unavailable.network_error?`.
       def self.failure_kind(exception)
         return unless defined?(::Trilogy::Error) && exception.is_a?(::Trilogy::Error)
-        return MysqlFailure.kind(exception.error_code) if exception.error_code
+        return MysqlFailure.kind(exception.error_code, exception.message) if exception.error_code
 
         if exception.is_a?(::Trilogy::TimeoutError) || exception.is_a?(::Trilogy::EOFError) ||
            Errors::Unavailable.network_error?(exception)
