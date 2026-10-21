@@ -717,6 +717,17 @@ class QueryStreamTest < Minitest::Test
           assert_nil stream.encoding
         end
 
+        it "raises for a file name, which has no effect on a query, whose rows are always :array" do
+          error = assert_raises(ArgumentError) { stream.file_name("orders.csv") }
+
+          assert_equal "A query has no file name, since its rows are always in the :array format: name the file that " \
+                       "its rows are copied to instead, such as with `copy_to(\"orders.csv\", mode: :hash)`", error.message
+          assert_raises(ArgumentError) { stream.file_name = "orders.json" }
+          assert_raises(ArgumentError) { stream.file_name(nil) }
+          assert_nil stream.file_name
+          assert_equal :array, stream.format
+        end
+
         it "raises for blank_rows:, which the stream supplies, rather than a call" do
           error = assert_raises(ArgumentError) { each(stream, :hash, blank_rows: true) }
 

@@ -15,7 +15,8 @@ module IOStreams
     # columns. The query is open before its reader is yielded, see #open_rows, so that a copy opens its target only once
     # the query can be read.
     #
-    # A query holds rows rather than bytes, and is only read, see `IOStreams::Row::Stream`.
+    # A query holds rows rather than bytes, and is only read, see `IOStreams::Row::Stream`, and has no file name, see
+    # #file_name=.
     class Stream < IOStreams::Row::Stream
       # Parameters
       #   query: [ActiveRecord::Relation|ActiveRecord::Batches::BatchEnumerator]
@@ -46,6 +47,14 @@ module IOStreams
       # Returns [String] the class and the query, rather than every instance variable, such as the relation.
       def inspect
         "#<#{self.class.name} #{io_stream.inspect}>"
+      end
+
+      # Raises ArgumentError, rather than ignore a file name, which has no effect on a query, whose rows are always in the
+      # `:array` format, see #format: name the file of the target instead. A query has no file name, so `#file_name`
+      # without an argument returns nil, see `IOStreams::Stream#file_name`.
+      def file_name=(_file_name)
+        raise(ArgumentError, "A query has no file name, since its rows are always in the :array format: name the file " \
+                             "that its rows are copied to instead, such as with `copy_to(\"orders.csv\", mode: :hash)`")
       end
 
       private
