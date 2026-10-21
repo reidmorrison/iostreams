@@ -7,7 +7,8 @@ module IOStreams
     #
     # The server waits for the client to take each row for at most `net_write_timeout` seconds, 60 by default, before it
     # ends the query, so a target that is slow to write, such as an upload, can lose the connection. So the
-    # `net_write_timeout` of the session is NET_WRITE_TIMEOUT while the rows are read, and is set back afterwards.
+    # `net_write_timeout` of the session is raised to NET_WRITE_TIMEOUT while the rows are read, unless it is higher, and
+    # is set back afterwards.
     #
     # The query is read on a connection of its own, see `IOStreams::Query#open`, since while mysql2 streams a result, its
     # connection cannot run any other query, so that the block that the rows are yielded to queries the database on the
@@ -71,6 +72,7 @@ module IOStreams
         @done       = false
         @rows       = nil
         @index      = 0
+        @previous   = nil
       end
 
       # Yields [IOStreams::Query::Mysql2Stream] itself, whose #each yields the rows, once the statement of the query is
@@ -113,23 +115,17 @@ module IOStreams
       # freed when every row was read, otherwise the connection is ended, see #discard, when the block is left early,
       # with `break` or an exception, or the read failed.
       def stream(statement, columns)
-        previous = net_write_timeout
-        self.net_write_timeout = NET_WRITE_TIMEOUT
-        finished = false
-        begin
-          raw    = @connection.raw_connection
-          fields = statement.instrument { |sql, values| start(raw, sql, values) }
-          columns.check(fields)
-          result   = yield self
-          finished = true
-          result
-        ensure
-          if @done || @result.nil?
-            @result&.free
-            restore(previous, finished)
-          else
-            discard
-          end
+        raise_net_write_timeout
+        raw    = @connection.raw_connection
+        fields = statement.instrument { |sql, values| start(raw, sql, values) }
+        columns.check(fields)
+        yield self
+      ensure
+        if @done || @result.nil?
+          @result&.free
+          set_back
+        else
+          discard
         end
       end
 
@@ -200,12 +196,33 @@ module IOStreams
         first
       end
 
-      # Sets back the `net_write_timeout` of the session. A failure to do so, such as when the connection was lost, is
-      # raised only when the block finished, so that it never replaces the exception that left the block.
-      def restore(previous, finished)
-        self.net_write_timeout = previous
+      # Raises the `net_write_timeout` of the session to NET_WRITE_TIMEOUT, unless it is not lower, such as one that the
+      # `variables` of the configuration of the connection set, which it keeps. The one to set back is known before it is
+      # raised, see #set_back, so that an interrupt in between, such as of a Timeout, cannot leave it raised.
+      def raise_net_write_timeout
+        current = Integer(net_write_timeout)
+        return if current >= NET_WRITE_TIMEOUT
+
+        @previous = current
+        self.net_write_timeout = NET_WRITE_TIMEOUT
+      end
+
+      # Sets back the `net_write_timeout` of the session, when it was raised, see #raise_net_write_timeout. When that
+      # fails, such as for a connection that was lost, or is interrupted, such as by a Timeout, the connection is ended
+      # instead, so that the pool never keeps a session with it raised, and a read whose every row was read does not fail
+      # for it.
+      def set_back
+        return unless @previous
+
+        set = false
+        begin
+          self.net_write_timeout = @previous
+          set = true
+        ensure
+          @connection.disconnect! unless set
+        end
       rescue StandardError
-        raise if finished
+        nil
       end
 
       def net_write_timeout

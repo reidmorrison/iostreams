@@ -118,6 +118,34 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal default.to_s, net_write_timeout(sessions.first)
       end
 
+      it "keeps a net_write_timeout of the session that is higher" do
+        patient  = db.orders_at("Patient", variables: {net_write_timeout: 7200})
+        sessions = []
+        timeout  = []
+        IOStreams.stream(with_session(patient.order(:id))).each(:hash) do |order|
+          sessions << order["session"]
+          timeout << net_write_timeout(order["session"])
+        end
+
+        assert_equal %w[7200 7200 7200], timeout
+        assert_equal "7200", net_write_timeout(sessions.first)
+      end
+
+      it "ends the connection whose net_write_timeout it cannot set back, rather than fail a read of every row" do
+        sessions = []
+        IOStreams.stream(with_session(orders)).each(:hash) do |order|
+          sessions << order["session"]
+          # Every row, and the end of the result, have been sent, so that the connection is lost only to set it back.
+          next unless sessions.size == 3
+
+          monitor.with_connection { |connection| connection.execute("KILL CONNECTION #{Integer(order['session'])}") }
+        end
+
+        assert_equal 3, sessions.size
+        refute session?(sessions.first)
+        assert_equal 3, each(IOStreams.stream(orders)).size
+      end
+
       it "keeps the connection while the block is slower than the net_write_timeout of the session" do
         execute("SET SESSION cte_max_recursion_depth = 20000")
         execute("INSERT INTO orders (name, amount, status) SELECT CONCAT(REPEAT('x', 200), n), n, 0 FROM " \
