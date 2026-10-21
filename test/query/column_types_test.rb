@@ -322,5 +322,11 @@ class ColumnTypesTest < Minitest::Test
       assert_equal({name: "c", type: "integer"}, field(ActiveRecord::Type::DecimalWithoutScale.new(precision: 18)))
       assert_equal({name: "c", type: "integer"}, field(ActiveModel::Type::Integer.new(limit: 8)))
     end
+
+    it "describes an unsigned integer of 8 bytes, whose values a 64-bit integer cannot all hold, as a number without decimals" do
+      assert_equal({name: "c", type: "number", decimals: 0}, field(ActiveRecord::Type::UnsignedInteger.new(limit: 8)))
+      assert_equal({name: "c", type: "integer"}, field(ActiveRecord::Type::UnsignedInteger.new(limit: 4)))
+      assert_equal({name: "c", type: "integer"}, field(ActiveRecord::Type::UnsignedInteger.new))
+    end
   end
 end

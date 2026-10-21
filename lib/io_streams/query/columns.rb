@@ -122,11 +122,21 @@ module IOStreams
         end
       end
 
-      # Returns [Hash] an integer, or a number without decimals for an integer of a column that holds more digits than a
-      # 64-bit integer does, see INTEGER_DIGITS, such as a `decimal(20, 0)`, whose values a format of 64-bit integers,
-      # such as Parquet, could not hold, while a number holds them in any format, as a BigDecimal.
+      # Returns [Hash] an integer, or a number without decimals for an integer of a column whose values can be beyond
+      # those of a 64-bit integer, which a format of 64-bit integers, such as Parquet, could not hold, while a number
+      # holds them in any format, as a BigDecimal: one that holds more digits than a 64-bit integer does, see
+      # INTEGER_DIGITS, such as a `decimal(20, 0)`, or an unsigned integer of 8 bytes, such as a MySQL `bigint unsigned`,
+      # whose values reach 18446744073709551615.
       def integer_properties(type)
-        type.precision && type.precision > INTEGER_DIGITS ? {type: "number", decimals: 0} : {type: "integer"}
+        wide = (type.precision && type.precision > INTEGER_DIGITS) || unsigned_64_bit?(type)
+        wide ? {type: "number", decimals: 0} : {type: "integer"}
+      end
+
+      # Returns [true|false] whether the type is an unsigned integer of 8 bytes, whose values a 64-bit integer, which is
+      # signed, holds only up to half of, see #integer_properties.
+      def unsigned_64_bit?(type)
+        defined?(::ActiveRecord::Type::UnsignedInteger) && type.is_a?(::ActiveRecord::Type::UnsignedInteger) &&
+          type.limit.to_i >= 8
       end
 
       # Returns [ActiveModel::Type::Value] the type that casts the raw values of a column of the supplied type: the type

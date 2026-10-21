@@ -412,6 +412,38 @@ class Mysql2StreamTest < Minitest::Test
         refute_kind_of IOStreams::Errors::StorageError, error
       end
 
+      describe "an unsigned bigint" do
+        let(:model) do
+          unless QueryDatabase::MySQL.const_defined?(:Serial)
+            QueryDatabase::MySQL.const_set(:Serial, Class.new(db.record) { self.table_name = "serials" })
+          end
+          QueryDatabase::MySQL::Serial
+        end
+
+        before do
+          execute("DROP TABLE IF EXISTS serials")
+          execute("CREATE TABLE serials (id INT NOT NULL PRIMARY KEY, serial BIGINT UNSIGNED)")
+          execute("INSERT INTO serials VALUES (1, 18446744073709551615), (2, 1)")
+          model.reset_column_information
+        end
+
+        after { execute("DROP TABLE IF EXISTS serials") }
+
+        it "is a number without decimals, since a 64-bit integer cannot hold all of its values" do
+          stream = IOStreams.stream(model.order(:id).select(:serial))
+
+          assert_equal [{name: "serial", type: "number", decimals: 0}], stream.schema[:fields]
+          serials = each(stream).map { |row| row["serial"] }
+
+          assert_equal [BigDecimal("18446744073709551615"), BigDecimal(1)], serials
+          assert_equal model.order(:id).pluck(:serial), serials
+          csv = StringIO.new
+          IOStreams.stream(csv).format(:csv).copy_from(model.order(:id).select(:serial), mode: :hash)
+
+          assert_equal "serial\n18446744073709551615\n1\n", csv.string
+        end
+      end
+
       describe "trilogy" do
         before do
           skip "The trilogy gem is not installed, see the mysql group of the Gemfile" unless QueryDatabase.driver?("trilogy")
