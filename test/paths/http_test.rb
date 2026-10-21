@@ -58,6 +58,15 @@ module Paths
       end
 
       describe "#to_s" do
+        it "returns a frozen url, leaving the url supplied as it is" do
+          supplied = +"https://example.com/files"
+
+          assert_predicate IOStreams.path(supplied).to_s, :frozen?
+          refute_predicate supplied, :frozen?
+          assert_predicate IOStreams.path(supplied).join("a.csv").to_s, :frozen?
+          assert_predicate IOStreams.path(supplied, parameters: {a: 1}).to_s, :frozen?
+        end
+
         it "returns the root path of a url without a path" do
           %w[https://example.com https://example.com/].each do |url|
             path = IOStreams::Paths::HTTP.new(url)

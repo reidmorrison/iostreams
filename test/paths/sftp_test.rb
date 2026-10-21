@@ -713,6 +713,15 @@ module Paths
           assert_equal url, new_path(url, username: "jack", password: "secret").to_s
         end
 
+        it "returns a frozen url, leaving the url supplied as it is" do
+          supplied = +url
+
+          assert_predicate new_path(supplied).to_s, :frozen?
+          refute_predicate supplied, :frozen?
+          assert_predicate new_path(url).join("a.csv").to_s, :frozen?
+          assert_predicate new_path(url).directory.to_s, :frozen?
+        end
+
         it "returns the root directory of a url without a path" do
           %w[sftp://example.org sftp://example.org/].each do |url|
             path = new_path(url)

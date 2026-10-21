@@ -375,8 +375,12 @@ module IOStreams
     protected
 
     # Sets the path of a new path, for example in `#join` or `#directory`, which change a copy of this path.
-    # Not public, since a path is a hash key, see #hash, and must not change once it has been returned.
-    attr_writer :path
+    # Not public, since a path is a hash key, see #hash, and must not change once it has been returned. It holds a
+    # frozen copy, as #initialize does, so that the name of the new path cannot be changed in place either, through
+    # #to_s, and the String supplied is left as it is.
+    def path=(path)
+      @path = path.frozen? ? path : path.dup.freeze
+    end
 
     # Returns [String] the name with `.`, `..` and repeated `/` removed, like `Pathname#cleanpath`, see #cleanpath,
     # keeping a trailing `/` when it names another file, see #trailing_slash_significant?. A path class whose names

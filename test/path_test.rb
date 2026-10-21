@@ -74,6 +74,30 @@ module IOStreams
             assert_equal name, path.to_s
           end
         end
+
+        it "gives the paths that #join, #directory, #cleanpath and #sub_ext return a name that cannot be changed in place" do
+          path  = IOStreams::Path.new("/data/a/b.csv")
+          paths = [path.join("c.csv"), path.directory, IOStreams::Path.new("/data/./a/../b.csv").cleanpath, path.sub_ext(".tsv")]
+
+          paths.each { |other| assert_predicate other.path, :frozen?, other.path }
+
+          joined = path.join("c.csv")
+          keys   = {joined => 1}
+          assert_raises(FrozenError) { joined.to_s << ".bak" }
+          assert_equal 1, keys[joined]
+        end
+
+        it "holds a frozen copy, leaving the name supplied as it is" do
+          path = IOStreams::Path.new("/data")
+          name = +"/data/b.csv"
+          path.send(:path=, name)
+
+          assert_predicate path.path, :frozen?
+          refute_predicate name, :frozen?
+          name << ".bak"
+
+          assert_equal "/data/b.csv", path.path
+        end
       end
 
       describe "#builder=" do

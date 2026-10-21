@@ -116,7 +116,8 @@ module IOStreams
         @original_uri_cache  = {}
         @headers             = validate_headers(headers)
         url                  = Utils::URI.root(url)
-        @url                 = parameters ? add_parameters(url, parameters) : url
+        # A frozen copy, so that the url returned by #to_s, which is downloaded, cannot be changed in place.
+        @url                 = -(parameters ? add_parameters(url, parameters) : url)
         # Decoded like S3 and SFTP paths, so that for example `#basename` is the file name rather than its url form.
         # Unlike a query string, `+` in a path is not a space. A url without a path is the root path `/`.
         path                 = URI.decode_uri_component(uri.path)
@@ -257,7 +258,7 @@ module IOStreams
         uri.path      = self.path.split("/", -1).each_with_index.map do |name, index|
           encoded[index] && URI.decode_uri_component(encoded[index]) == name ? encoded[index] : escape_path(name)
         end.join("/")
-        @url = uri.to_s
+        @url = uri.to_s.freeze
         @original_uri_cache.clear
       end
 

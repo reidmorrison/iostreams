@@ -128,7 +128,8 @@ module IOStreams
         @hostname = uri.hostname
         @mkdir    = false
         @username = username || uri.user
-        @url      = Utils::URI.root(url)
+        # A frozen copy, so that the url returned by #to_s cannot be changed in place, nor the String supplied.
+        @url      = -Utils::URI.root(url)
         @password = password || uri.password
         @port     = uri.port || 22
         # A copy of each option, so that a String supplied as an option is not shared, see #ssh_options.
@@ -340,7 +341,7 @@ module IOStreams
         # The directory of a path within the login directory, such as `~/a.csv`, is the login directory.
         super([".", ""].include?(path) ? "~" : path)
         separator = self.path.start_with?("/") ? "" : "/"
-        @url      = "#{Utils::URI.authority(url)}#{separator}#{Utils::URI.encode_path(self.path)}"
+        @url      = "#{Utils::URI.authority(url)}#{separator}#{Utils::URI.encode_path(self.path)}".freeze
       end
 
       # Returns [String] the name with `.`, `..` and repeated `/` removed, see `IOStreams::Path#clean_name`. A name
