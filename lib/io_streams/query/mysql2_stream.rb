@@ -141,18 +141,13 @@ module IOStreams
       end
 
       # Yields itself once every row of the result of the statement is read, see #open, so that the connection is free
-      # for other queries while the block runs.
+      # for other queries while the block runs. They are read through Active Record, which logs the statement, rather
+      # than with the raw connection, which would mark the connection, which the read shares with the caller, as used by
+      # the application, so that Active Record would no longer verify it, nor reconnect it once its session ended.
       def read_whole(statement, columns)
-        raw    = @connection.raw_connection
-        fields = statement.instrument do |sql, values|
-          refuse_binds(values)
-          result = raw.query(sql, as: :array)
-          # Before its rows, since mysql2 frees a result once it has read every row.
-          names = result.fields
-          @rows = result.to_a
-          names
-        end
-        columns.check(fields)
+        result = uncached { @connection.select_all(statement.sql, Statement::NAME, statement.binds) }
+        columns.check(result.columns)
+        @rows = result.rows
         yield self
       end
 

@@ -173,6 +173,31 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal 3, db.order.count
       end
 
+      # A connection that the application used raw is one that Active Record no longer verifies, nor reconnects, until
+      # it is checked out again, which a caller that holds it does not do.
+      it "does not use the raw connection of a connection that it shares, such as a pinned one" do
+        db.pool.pin_connection!(false)
+        begin
+          pinned = db.pool.checkout
+
+          pinned.stub(:raw_connection, -> { flunk("The read used the raw connection of the connection that it shares") }) do
+            assert_equal 3, each(IOStreams.stream(orders)).size
+          end
+        ensure
+          db.pool.unpin_connection!
+        end
+      end
+
+      it "leaves the connection of the caller to Active Record, which reconnects it once its session has ended" do
+        db.record.with_connection do |connection|
+          assert_equal 3, each(IOStreams.stream(orders)).size
+          id = connection.select_value("SELECT CONNECTION_ID()")
+          monitor.with_connection { |watcher| watcher.execute("KILL CONNECTION #{Integer(id)}") }
+
+          assert_equal %w[a b c], db.order.order(:id).pluck(:name)
+        end
+      end
+
       it "does not explain any other exception of the block" do
         assert_raises(ActiveRecord::RecordNotFound) do
           IOStreams.stream(orders).each(:hash) { |_order| raise ActiveRecord::RecordNotFound } # rubocop:disable Lint/UnreachableLoop -- raises on its first row
