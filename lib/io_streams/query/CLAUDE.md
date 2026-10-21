@@ -3,7 +3,9 @@
 How IOStreams reads the rows of an Active Record query, for work on `lib/io_streams/query.rb`, the files under
 `lib/io_streams/query/`, and the tests in `test/query/`. The public API boundary, backward compatibility and the
 conventions that apply everywhere are in the [root CLAUDE.md](../../../CLAUDE.md), and how streams, schemas, tabulars,
-rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
+rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md). The user's guide is
+[docs/queries.md](../../../docs/queries.md): update it, and run `bundle exec rake llms_full`, when what a query does
+changes, and docs/errors.md when what it raises does.
 
 ## How a query is read
 

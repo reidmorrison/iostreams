@@ -4082,15 +4082,14 @@ the memory that it takes.
 Rails gives each batch no order of its own, so IOStreams reads the rows of each batch in the order of the primary key,
 which is the order of the batches by default. With another `cursor:`, or `order: :desc`, the batches are in that order,
 while the rows within each batch are in the ascending order of the primary key, so the rows are in neither order. The
-rows of each batch of a model without a primary key, or of a distinct query, are in the order that the database returns
-them. `cursor:` needs Active Record 8.0 or later.
+rows of each batch of a model without a primary key are in the order that the database returns them. `cursor:` needs
+Active Record 8.0 or later.
 
 Some queries return other rows in batches than as one query, or cannot be read in batches:
 
 * A grouped query, with `group` or `having`, raises `ArgumentError`, since each batch would aggregate only its own rows,
-  and so does a query with an `offset`, which Rails applies to each batch. Read them as one query.
-* A distinct query is distinct within each batch only, so the same row can be read in more than one batch. Read it as
-  one query.
+  and so do a distinct query, since each batch would be distinct only within its own rows, and a query with an
+  `offset`, which Rails applies to each batch. Read them as one query.
 * A relation that was already loaded, such as by `to_a`, `present?` or a preloaded association, is read by the primary
   keys of its records, each row once, as it is now in the database. When its records have no primary key, since the
   model has none, or the query does not select it, it raises `ArgumentError`. To find whether there is anything to
