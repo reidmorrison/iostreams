@@ -13,7 +13,7 @@ module IOStreams
   #
   # The columns of a file are matched to the fields by their names, see #field_for, and the keys of each record that is
   # read are the names of its fields. The columns that the schema does not list are skipped when `fieldsMatch` allows
-  # them, see `IOStreams::Schema::Columns`.
+  # them, or kept with `extraColumns`, see `IOStreams::Schema::Columns`.
   #
   # Properties at the top level of the schema:
   #   fields: [Array<Hash>]
@@ -58,6 +58,18 @@ module IOStreams
   #     can be the keys that it forms, as well as the names, see #field_for.
   #     Default: the names as they are given, a String or a Symbol.
   #
+  #   extraColumns: [String]
+  #     What reading does with the columns that the schema does not list, which `fieldsMatch` "subset" and "partial"
+  #     accept, which IOStreams adds to the properties of Frictionless:
+  #       "skip": leaves them out of the rows and records read.
+  #       "keep": keeps them, after the fields, in the order of the columns, each by the key that `keyType` forms from
+  #               its column, see #key_for, and with its value as it is, as for a field of type "any". So a schema can
+  #               then have no fields, with "subset", to read every column. The keys of each JSON record are kept the
+  #               same way. A fixed width file has only its fields, so it ignores it.
+  #     Writing writes only the fields, whichever it is, since a file that is written has the columns of its fields.
+  #     Raises ArgumentError for "keep" with any other `fieldsMatch`, which does not accept those columns.
+  #     Default: "skip"
+  #
   # Properties that only describe the schema to people, `$schema`, `title` and `description`, are accepted and have
   # no effect, as are the properties of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other
   # property raises `ArgumentError`, including those of Frictionless that IOStreams does not support yet, such as
@@ -71,7 +83,7 @@ module IOStreams
     autoload :Source,      "io_streams/schema/source"
 
     # The properties of a schema that IOStreams supports.
-    PROPERTIES = %w[fields fieldsMatch header width keyType].freeze
+    PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns].freeze
 
     # The properties of a schema that only describe it to people.
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
@@ -84,6 +96,9 @@ module IOStreams
     FIELDS_MATCH      = %w[exact equal subset superset partial].freeze
     SKIPS_UNKNOWN     = %w[subset partial].freeze
     NEEDS_EVERY_FIELD = %w[exact equal subset].freeze
+
+    # The values of `extraColumns`, see above.
+    EXTRA_COLUMNS = %w[skip keep].freeze
 
     # The characters that the loose comparison of a column and a field ignores, see .match_key: all but letters, the
     # marks that combine with them, and digits, in every language.
@@ -189,6 +204,7 @@ module IOStreams
       @fields_match = check_fields_match(descriptor["fieldsMatch"])
       @width        = check_width(descriptor["width"])
       @keys         = Keys.new(descriptor["keyType"], @fields)
+      @keep_extra   = check_extra_columns(descriptor["extraColumns"])
       @named        = build_named
       @loose        = build_loose { |name| self.class.match_key(name) }
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
@@ -367,13 +383,13 @@ module IOStreams
     # its field as by #field_for.
     #
     # Returns nil when every column must be read: when `fieldsMatch` does not skip the columns that the schema does not
-    # list, so that they are checked, see #check_columns, or when no column, or several columns, are the same field,
-    # so that reading them raises as it does without skipping any.
+    # list, so that they are checked, see #check_columns, or when the schema keeps them, see #keep_extra?, or when no
+    # column, or several columns, are the same field, so that reading them raises as it does without skipping any.
     #
     # Yields to get the columns of the file, in order, only when some could be skipped, since a reader may have to read
     # them from the file, such as from the end of a Parquet file.
     def projection
-      return unless skip_unknown?
+      return if !skip_unknown? || keep_extra?
 
       labels = yield
 
@@ -392,6 +408,11 @@ module IOStreams
     # `fieldsMatch` above.
     def skip_unknown?
       SKIPS_UNKNOWN.include?(fields_match)
+    end
+
+    # Returns [true|false] whether reading keeps the columns that the schema does not list, see `extraColumns` above.
+    def keep_extra?
+      @keep_extra
     end
 
     private
@@ -558,6 +579,20 @@ module IOStreams
       end
 
       fields_match
+    end
+
+    def check_extra_columns(extra_columns)
+      return false if extra_columns.nil?
+
+      unless EXTRA_COLUMNS.include?(extra_columns)
+        raise(ArgumentError, "The schema extraColumns must be one of #{sentence(EXTRA_COLUMNS.map(&:inspect))}: " \
+                             "#{extra_columns.inspect}")
+      end
+      return false if extra_columns == "skip"
+      return true if skip_unknown?
+
+      raise(ArgumentError, "The schema extraColumns \"keep\" keeps the columns that the schema does not list, which " \
+                           "fieldsMatch #{fields_match.inspect} does not accept; \"subset\" and \"partial\" accept them")
     end
 
     def check_width(width)

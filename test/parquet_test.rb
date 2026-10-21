@@ -658,6 +658,24 @@ class ParquetTest < Minitest::Test
         assert_equal [{"born" => Date.new(2000, 2, 29)}, nil], list
       end
 
+      it "reads every column when the schema keeps the others, after its fields" do
+        write
+        keep = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "name", type: "string"}]}
+
+        requested, list = read_columns(path.schema(keep))
+
+        assert_equal [nil], requested
+        assert_equal(expected.map { |record| {"name" => record["name"]}.merge(record.except("name")) }, list)
+        assert_equal ["name", *(expected.first.keys - ["name"])], list.first.keys
+      end
+
+      it "raises for the rows of a schema that keeps the others, since each record can have keys that its header row does not name" do
+        write
+        keep = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "name", type: "string"}]}
+
+        assert_raises(ArgumentError) { path.schema(keep).each(:array) { |_row| nil } }
+      end
+
       it "reads every column when the schema checks the others" do
         write
 

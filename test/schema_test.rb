@@ -335,6 +335,27 @@ class SchemaTest < Minitest::Test
       end
     end
 
+    describe "extraColumns" do
+      it "keeps the columns that the schema does not list only with a fieldsMatch that accepts them" do
+        assert_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "subset", extraColumns: "keep"), :keep_extra?
+        assert_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "partial", extraColumns: "keep"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "partial", extraColumns: "skip"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "exact", extraColumns: "skip"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: []), :keep_extra?
+
+        %w[exact equal superset].each do |fields_match|
+          error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: fields_match, extraColumns: "keep") }
+          assert_equal "The schema extraColumns \"keep\" keeps the columns that the schema does not list, which fieldsMatch " \
+                       "#{fields_match.inspect} does not accept; \"subset\" and \"partial\" accept them", error.message
+        end
+      end
+
+      it "raises for a value that it does not know" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: "subset", extraColumns: true) }
+        assert_equal 'The schema extraColumns must be one of "skip" and "keep": true', error.message
+      end
+    end
+
     describe "#key_for" do
       it "forms the key of a name as keyType says" do
         keys = %w[string cleansed symbol cleansedSymbol].map do |key_type|
