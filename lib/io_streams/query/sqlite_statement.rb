@@ -34,16 +34,19 @@ module IOStreams
         @first      = nil
       end
 
-      # Yields [IOStreams::Query::SqliteStatement] itself, whose #each yields the rows, once the statement of the SQL is
-      # open: prepared on the connection, stepped to its first row, and the names of its columns checked against those
-      # that the query was described by, see `IOStreams::Query::Columns#check`, so that a statement that fails, or cannot
-      # start, raises before the block is called. The statement is closed when the block finishes, or is left with
-      # `break` or an exception.
+      # Yields [IOStreams::Query::SqliteStatement] itself, whose #each yields the rows, once the statement of the query
+      # is open: prepared on the connection with the SQL and binds that Active Record runs for the query, see
+      # `IOStreams::Query::Statement`, stepped to its first row, and the names of its columns checked against those
+      # that the query was described by, see `IOStreams::Query::Columns#check`, so that a statement that fails, or
+      # cannot start, raises before the block is called. The statement is closed when the block finishes, or is left
+      # with `break` or an exception.
       #
       # Returns the result of the block.
-      def open(sql, columns)
-        @statement = @connection.raw_connection.prepare(sql)
-        @first     = @statement.step
+      def open(statement, columns)
+        binds      = statement.type_casted_binds
+        @statement = @connection.raw_connection.prepare(statement.sql)
+        @statement.bind_params(binds) unless binds.empty?
+        @first = @statement.step
         columns.check(@statement.columns)
         yield self
       ensure

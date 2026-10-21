@@ -24,15 +24,16 @@ module IOStreams
     autoload :Columns,         "io_streams/query/columns"
     autoload :Failure,         "io_streams/query/failure"
     autoload :SqliteStatement, "io_streams/query/sqlite_statement"
+    autoload :Statement,       "io_streams/query/statement"
     autoload :Stream,          "io_streams/query/stream"
 
     # The sources that each read a relation as one query on their database, see #source. Each one answers:
     #   `.reads?(connection)`: whether it reads the database of the connection.
     #   `.failure_kind(exception)`: the kind of failure that an exception of the driver of that database means.
-    #   `.new(connection).open(sql, columns) { |reader| }`: yields once the SQL is running on the connection, and the
-    #   names of its columns are checked, see `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw
-    #   values of each row, from the row after the last one that it yielded, until the block ends, and closes the
-    #   statement when it does.
+    #   `.new(connection).open(statement, columns) { |reader| }`: yields once the statement, see
+    #   `IOStreams::Query::Statement`, is open on the connection, and the names of its columns are checked, see
+    #   `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw values of each row, from the row after
+    #   the last one that it yielded, until the block ends, and closes the statement when it does.
     SOURCES = %i[SqliteStatement].freeze
 
     # The earliest version of Active Record that a query is read with.
@@ -83,12 +84,13 @@ module IOStreams
     # casts them, see `IOStreams::Query::Columns#cast`, and returns the number of rows that it yielded. A second
     # traversal continues where the first stopped, as the lines of a file do.
     #
-    # A relation is read as one query, which is open before the block is called: its source, see #source, has run its
-    # SQL, on a connection that it borrows from the pool for the whole query, and checked the names of its columns, so
-    # that a copy opens its target only once the query is open, see `IOStreams::Stream#copy_from`, and a query that
-    # cannot be read leaves an existing target as it was. The query is closed, and its connection handed back, when the
-    # block finishes, or is left with `break` or an exception. The batches of a relation are each read as the block
-    # reads them, see `IOStreams::Query::Batches`, so that a second traversal of them starts again from the first batch.
+    # A relation is read as one query, which is open before the block is called: its source, see #source, has run the
+    # SQL and binds that Active Record runs for it, see `IOStreams::Query::Statement`, on a connection that it borrows
+    # from the pool for the whole query, and checked the names of its columns, so that a copy opens its target only once
+    # the query is open, see `IOStreams::Stream#copy_from`, and a query that cannot be read leaves an existing target as
+    # it was. The query is closed, and its connection handed back, when the block finishes, or is left with `break` or
+    # an exception. The batches of a relation are each read as the block reads them, see `IOStreams::Query::Batches`, so
+    # that a second traversal of them starts again from the first batch.
     #
     # Raises the exception of a failure of the database, tagged with the kind of failure that it means, such as
     # `IOStreams::Errors::Unavailable`, see #failure_kind, but not an exception that the block raises.
@@ -100,7 +102,7 @@ module IOStreams
       yielding = false
       tag_failure(-> { yielding }) do
         @model.with_connection(prevent_permanent_checkout: true) do |connection|
-          source(connection).new(connection).open(@relation.to_sql, columns) do |reader|
+          source(connection).new(connection).open(Statement.new(connection, @relation.arel), columns) do |reader|
             # A failure to close the query, once the block has finished, is a failure of the query.
             Utils.finish_or_abort(finish: -> { yielding = false }) do
               yielding = true

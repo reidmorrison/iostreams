@@ -273,6 +273,21 @@ class QueryStreamTest < Minitest::Test
         end
       end
 
+      describe "the SQL of a query" do
+        it "is that of Active Record, with the binds that it sends, so that the rows are those that it reads" do
+          [
+            orders.select(:id, Arel.sql("amount * ?", 2)),
+            orders.where("amount < ?", Rational(7, 2)).select(:id, :name),
+            orders.where("weight >= ?", -Float::INFINITY).select(:id, :name)
+          ].each do |relation|
+            expected = relation.to_a.map(&:attributes)
+
+            refute_empty expected, relation.to_sql
+            assert_equal expected, each(IOStreams.stream(relation)), relation.to_sql
+          end
+        end
+      end
+
       describe "#reader" do
         it "continues a second traversal where the first stopped, rather than running the query again" do
           first, rest = IOStreams.stream(orders.select(:name)).reader(:hash) { |reader| [reader.first, reader.to_a] }
