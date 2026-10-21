@@ -23,11 +23,18 @@ The path decides the format, compression, encryption and storage, so the same co
 encrypted Parquet on S3 in production, when the path comes from configuration:
 
 ~~~ruby
-IOStreams.path(ENV.fetch("ORDERS_EXPORT_PATH")).copy_from(Order.where(paid: true), mode: :hash)
+orders = Order.where(paid: true).select(:id, :customer_id, :amount, :status, :created_at)
+
+IOStreams.path(ENV.fetch("ORDERS_EXPORT_PATH")).copy_from(orders, mode: :hash)
 ~~~
 
-The query runs once, and its rows are streamed from the database as they are written, so an export of any size runs
-in constant memory. Active Record 7.2 or later is needed.
+Every format holds the values of these columns, while a column of JSON or binary data needs more care, see
+[Columns that need a type](#columns-that-need-a-type).
+
+The query runs once, and its rows are read from the database in small parts while they are written, so the memory
+that an export takes does not grow with the number of its rows. Active Record 7.2 or later is needed. PostgreSQL,
+MySQL with the `mysql2` gem, and SQLite stream the rows of a query, and any database can read them in batches, see
+[Each database](#each-database).
 
 ## Exporting a query
 
@@ -35,13 +42,18 @@ Copy a relation into a path with `#copy_from`, in the `:hash` mode, which copies
 `:array` mode, which copies each row as its values, after a header row of the names of the columns:
 
 ~~~ruby
-paid_orders = Order.where(paid: true).order(:created_at)
+paid_orders = Order.where(paid: true).order(:created_at).select(:id, :customer_id, :amount, :status, :created_at)
 
 IOStreams.path("orders.csv").copy_from(paid_orders, mode: :hash)
 IOStreams.path("orders.json").copy_from(paid_orders, mode: :hash)
-IOStreams.path("orders.xlsx").copy_from(paid_orders, mode: :array)
 IOStreams.path("orders.parquet").copy_from(paid_orders, mode: :hash)
+IOStreams.path("orders.xlsx").option(:xlsx, auto_format: true).copy_from(paid_orders, mode: :array)
 ~~~
+
+A spreadsheet is written with each value as text, unless `auto_format: true` writes those that look like numbers,
+dates, times or booleans as the values of Excel, so that Excel can add up the amounts, and sort by date. It applies to
+every column, so text that looks like a number, such as the zip code `01234`, is written as a number too, see
+[Excel spreadsheets](formats#excel-spreadsheets).
 
 Select the columns to export with `select`, which can join other tables and compute columns, as any query can:
 
@@ -57,10 +69,34 @@ IOStreams.path("totals.csv").copy_from(report, mode: :hash)
 ~~~
 
 The columns of the file are the columns of the query, in order. Give each column a name of its own with `AS`, since a
-record has one value for each name: two columns of the same name raise `ArgumentError`.
+record has one value for each name: two columns of the same name raise `ArgumentError`. A column named with `AS` has
+the type that the database gives it, rather than that of an attribute, see
+[Keeping the types of the columns](#keeping-the-types-of-the-columns).
 
 A copy needs a mode, since a query holds rows rather than bytes, so `copy_from(relation)` without one raises
-`ArgumentError`.
+`ArgumentError`. It returns the number of rows read, header row included, as the copy of a file returns the number of
+its lines.
+
+A relation that is read as one query is opened, and its first rows are read, before the copy opens its target, so that
+a query that cannot run, such as on a database that cannot stream it, keeps an existing file as it was. A failure after
+that, such as of a value that the schema does not accept, fails the copy part way, see
+[When a copy fails](copy_files#when-a-copy-fails).
+
+### Into a writer that is already open
+
+A copy into a row or record writer that is already open, such as the one that `writer(:hash)` yields, handed to
+`IOStreams.stream`, writes the rows with the settings of that writer, rather than by the types of the columns of the
+query, see [Streams of an IO](streams#streams-of-an-io). For example, to write the rows of two queries into one file:
+
+~~~ruby
+IOStreams.path("orders.csv").writer(:hash) do |writer|
+  IOStreams.stream(writer).copy_from(Order.where(paid: true).select(:id, :amount), mode: :hash)
+  IOStreams.stream(writer).copy_from(ArchivedOrder.where(paid: true).select(:id, :amount), mode: :hash)
+end
+~~~
+
+So a number is written with the digits that it has, such as `12.5`, rather than with the decimals of its column, unless
+the path has a schema.
 
 ## Reading the rows of a query
 
@@ -85,13 +121,50 @@ end
 # [2, 0.3e1]
 ~~~
 
-Each value is cast as `pluck` casts it, rather than as a model would hold it: an enum attribute is the name of its
-value, such as `"shipped"`, an encrypted attribute is its plain text, and a datetime is an
-`ActiveSupport::TimeWithZone` in the time zone of the application. No model is built for a row, so a row is several
-times faster to read than a record of `find_each`.
+`#each` returns the number of rows that it read, header row included, as it returns the number of lines of a file. A
+second traversal of the reader that `#reader` yields continues where the first stopped, as for a file.
+
+Each value is cast as `pluck` casts it, which is how the attributes of a model hold it, but without building a model,
+so that its methods, such as a reader that it overrides, do not run: an enum attribute is the name of its value, such
+as `"shipped"`, an encrypted attribute is its plain text, a JSON column is the value of its JSON, such as a Hash, and a
+datetime is an `ActiveSupport::TimeWithZone` in the time zone of the application. The columns of a joined table are
+cast by the attributes of its model, such as the enum `tier` of `select("orders.id", "customers.tier")`.
+
+The query runs the SQL, with its binds, that Active Record runs for the relation, so it reads the rows that
+`relation.to_a` would read. Before it reads them, a query of no rows, with `LIMIT 0`, describes its columns, once for
+each stream. The log of Rails, and the subscribers of Active Record, such as for APM, see these queries as those of
+Active Record, with the tags of `ActiveRecord::QueryLogs`: the query that describes the columns as `IOStreams Columns`,
+and the query that reads the rows as `IOStreams Query`.
 
 Every row of a query is a record, so a row whose every value is null or empty is read and copied, unlike a
-[blank row](streams#blank-rows) of a file.
+[blank row](streams#blank-rows) of a file, which `skip_blanks: true` would skip.
+
+### Slices of a query
+
+`each(:slice)` yields the rows of a query in slices, as for a file, such as to hand them to other threads or jobs, see
+[Slices](streams#slices). A slice of a query holds the values of its rows as the query cast them, such as an
+`ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format. Each of its rows is a
+record, also where the slice is parsed, so a row of nulls is not read as a blank row. Read its rows with the schema of
+the query, so that each value is read as its type:
+
+~~~ruby
+relation = Order.where(paid: true).select(:id, :amount, :created_at)
+schema   = IOStreams.stream(relation).schema
+
+IOStreams.stream(relation).each(:slice, size: 1_000) do |slice|
+  queue << slice
+end
+
+# Elsewhere, such as in another thread:
+IOStreams.stream(queue.pop).schema(schema).each(:hash) do |order|
+  p order
+end
+~~~
+
+Since `slice.to_h` holds the values themselves, a store of slices must keep them. JSON holds a time as text: the
+`to_json` of ActiveSupport writes it to the millisecond, while `JSON.generate` writes the text of `Time#to_s`, without
+its fraction of a second, which a `datetime` field does not read. BSON keeps a time to the millisecond. So the times of
+a stored slice are read back to the millisecond at best, rather than to the microsecond that a database can hold.
 
 ## One query or batches
 

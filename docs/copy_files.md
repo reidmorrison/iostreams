@@ -56,7 +56,8 @@ The source of a copy in the `:array` or `:hash` mode can also be an Active Recor
 one query, and written by the types of its columns, see [Exporting queries](queries):
 
 ~~~ruby
-IOStreams.path("s3://my-bucket/exports/orders.parquet").copy_from(Order.where(paid: true), mode: :hash)
+orders = Order.where(paid: true).select(:id, :amount, :created_at)
+IOStreams.path("s3://my-bucket/exports/orders.parquet").copy_from(orders, mode: :hash)
 ~~~
 
 ## Copying as stored
