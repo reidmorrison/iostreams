@@ -15,6 +15,9 @@ module IOStreams
       # can be empty, which a field that is required rejects.
       REQUIRABLE_TYPES = %w[integer number boolean date datetime].freeze
 
+      # The most digits that a 64-bit integer holds, whatever they are, see #integer_properties.
+      INTEGER_DIGITS = 18
+
       # Returns [Array<String>] the names of the columns, in the order of the result.
       attr_reader :names
 
@@ -90,7 +93,7 @@ module IOStreams
         return {type: "string"} if enum?(type)
         return {type: "any"} if serialized?(type) || !own?(type)
         # Such as a decimal without a scale, which casts an Integer.
-        return {type: "integer"} if type.is_a?(::ActiveModel::Type::Integer)
+        return integer_properties(type) if type.is_a?(::ActiveModel::Type::Integer)
 
         case type.type
         when :integer, :big_integer then {type: "integer"}
@@ -102,6 +105,13 @@ module IOStreams
         when :datetime, :timestamp, :timestamptz then {type: "datetime"}
         else {type: "any"}
         end
+      end
+
+      # Returns [Hash] an integer, or a number without decimals for an integer of a column that holds more digits than a
+      # 64-bit integer does, see INTEGER_DIGITS, such as a `decimal(20, 0)`, whose values a format of 64-bit integers,
+      # such as Parquet, could not hold, while a number holds them in any format, as a BigDecimal.
+      def integer_properties(type)
+        type.precision && type.precision > INTEGER_DIGITS ? {type: "number", decimals: 0} : {type: "integer"}
       end
 
       # Returns [Hash] a number with the decimals of the scale of its column, or without decimals when it has no scale,

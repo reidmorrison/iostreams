@@ -87,6 +87,8 @@ class ColumnTypesTest < Minitest::Test
         t.text :payload
         t.integer :kind, null: false, default: 0
         t.integer :cents
+        t.decimal :quantity, precision: 20, scale: 0
+        t.decimal :units, precision: 18, scale: 0
       end
       connection.create_table(:warehouses, force: true) do |t|
         t.references :purchase
@@ -106,7 +108,9 @@ class ColumnTypesTest < Minitest::Test
       acme    = models::Buyer.create!(region: west, tier: :gold, status: :closed, ssn: "123-45-6789",
                                       joined_at: Time.utc(2026, 1, 2, 3, 4, 5.25r))
       globex  = models::Buyer.create!(tier: :silver, status: :suspended)
-      shipped = models::Purchase.create!(buyer: acme, status: :shipped, payload: {"a" => 1}, kind: :rich, cents: 1250)
+      # A quantity of more digits than a 64-bit integer holds, which a double holds exactly, since SQLite stores it as one.
+      shipped = models::Purchase.create!(buyer: acme, status: :shipped, payload: {"a" => 1}, kind: :rich, cents: 1250,
+                                         quantity: 10**19, units: 123_456_789_012_345_678)
       models::Purchase.create!(buyer: globex, payload: [1, 2], cents: 0)
       models::Purchase.create!
       models::Purchase.with_connection do |connection|
@@ -194,7 +198,7 @@ class ColumnTypesTest < Minitest::Test
 
       it "casts by the name of each column, as pluck does, when a selected value is several columns" do
         assert_plucked purchases.joins(:buyer), Arel.sql("purchases.id, buyers.tier")
-        assert_plucked purchases.joins(:buyer), Arel.sql("purchases.*"), "buyers.tier"
+        assert_plucked purchases.joins(:buyer), Arel.sql("purchases.id, purchases.status"), "buyers.tier"
         assert_equal [[1, "shipped"], [0, "pending"]], purchases.joins(:buyer).pluck(Arel.sql("buyers.tier, purchases.status"))
       end
     end
@@ -238,6 +242,38 @@ class ColumnTypesTest < Minitest::Test
 
         assert_equal "payload,kind,cents\n\"{\"\"a\"\":1}\",rich,12.50\n\"[1,2]\",plain,0.00\n,plain,\n", output.string
       end
+
+      it "describes a decimal without a scale as a number without decimals when it holds more digits than a 64-bit integer" do
+        assert_equal({name: "quantity", type: "number", decimals: 0}, field(purchases, :quantity))
+        assert_equal({name: "units", type: "integer"}, field(purchases, :units))
+        # A BigDecimal, as a number is, of the Integer that pluck returns.
+        quantity = records(purchases.select(:quantity)).first["quantity"]
+
+        assert_instance_of BigDecimal, quantity
+        assert_equal purchases.pluck(:quantity).first, quantity
+        assert_equal 10**19, quantity
+      end
+
+      it "copies a decimal of more digits than a 64-bit integer to CSV, JSON and Parquet" do
+        relation = purchases.where.not(quantity: nil).select(:quantity, :units)
+        csv      = StringIO.new
+        json     = StringIO.new
+        IOStreams.stream(csv).format(:csv).copy_from(relation, mode: :hash)
+        IOStreams.stream(json).format(:json).copy_from(relation, mode: :hash)
+
+        assert_equal "quantity,units\n10000000000000000000,123456789012345678\n", csv.string
+        assert_equal "{\"quantity\":10000000000000000000,\"units\":123456789012345678}\n", json.string
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "purchases.parquet")
+          path.copy_from(relation, mode: :hash)
+          records = []
+          path.schema(IOStreams.stream(relation).schema).each(:hash) { |record| records << record }
+
+          assert_equal [{"quantity" => 10**19, "units" => 123_456_789_012_345_678}], records
+        end
+      end
     end
   end
 
@@ -257,6 +293,12 @@ class ColumnTypesTest < Minitest::Test
     it "does not look through a decorator of the application, nor trust a type of its own" do
       assert_equal({name: "c", type: "any"}, field(SimpleDelegator.new(ActiveModel::Type::Integer.new)))
       assert_equal({name: "c", type: "any"}, field(CentsType.new))
+    end
+
+    it "describes an integer of more digits than a 64-bit integer holds as a number without decimals" do
+      assert_equal({name: "c", type: "number", decimals: 0}, field(ActiveRecord::Type::DecimalWithoutScale.new(precision: 19)))
+      assert_equal({name: "c", type: "integer"}, field(ActiveRecord::Type::DecimalWithoutScale.new(precision: 18)))
+      assert_equal({name: "c", type: "integer"}, field(ActiveModel::Type::Integer.new(limit: 8)))
     end
   end
 end
