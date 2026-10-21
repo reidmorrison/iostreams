@@ -444,6 +444,88 @@ class Mysql2StreamTest < Minitest::Test
         end
       end
 
+      describe "a TIME" do
+        let(:model) do
+          unless QueryDatabase::MySQL.const_defined?(:Clock)
+            QueryDatabase::MySQL.const_set(:Clock, Class.new(db.record) { self.table_name = "clocks" })
+          end
+          QueryDatabase::MySQL::Clock
+        end
+
+        before do
+          execute("DROP TABLE IF EXISTS clocks")
+          execute(<<~SQL)
+            CREATE TABLE clocks (
+              id INT NOT NULL PRIMARY KEY, starts_at TIME(6), ends_at TIME, amount DECIMAL(10, 2), items INT,
+              gift TINYINT(1), due_on DATE, seen_at DATETIME(6), doc JSON, name VARCHAR(20), ratio DOUBLE,
+              serial BIGINT UNSIGNED, born YEAR
+            )
+          SQL
+          execute(<<~SQL)
+            INSERT INTO clocks VALUES
+              (1, '14:30:15.250000', '23:59:59', 12.5, 3, 1, '2026-10-13', '2026-10-13 09:30:00.123456', '{"a": [1, 2]}',
+               'Jack', 0.1, 18446744073709551615, 2026),
+              (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+          SQL
+          model.reset_column_information
+        end
+
+        after { execute("DROP TABLE IF EXISTS clocks") }
+
+        it "is a time, of the clock of the app" do
+          stream = IOStreams.stream(model.order(:id).select(:starts_at, :ends_at))
+
+          assert_equal [{name: "starts_at", type: "time"}, {name: "ends_at", type: "time"}], stream.schema[:fields]
+          csv = StringIO.new
+          IOStreams.stream(csv).format(:csv).copy_from(stream, mode: :hash)
+
+          assert_equal "starts_at,ends_at\n09:30:15.250,18:59:59\n,\n", csv.string
+        end
+
+        it "reads the text of the values of a query with a time, and casts each as pluck casts it" do
+          # Apart from the unsigned bigint, a number without decimals, whose BigDecimal equals the Integer of pluck.
+          names   = model.column_names - ["serial"]
+          rows    = each(IOStreams.stream(model.order(:id).select(*names)), :array).drop(1)
+          plucked = model.order(:id).pluck(*names)
+
+          assert_equal plucked, rows
+          assert_equal(plucked.map { |row| row.map(&:class) }, rows.map { |row| row.map(&:class) })
+          assert_instance_of ActiveSupport::TimeWithZone, rows.first[names.index("seen_at")]
+          assert_equal({"a" => [1, 2]}, rows.first[names.index("doc")])
+          serials = each(IOStreams.stream(model.order(:id).select(:starts_at, :serial))).map { |row| row["serial"] }
+
+          assert_equal [BigDecimal("18446744073709551615"), nil], serials
+        end
+
+        it "keeps the values that mysql2 casts of a query with a time and a column that it computes, as pluck does" do
+          computed = [Arel.sql("items * 2 AS doubled"), Arel.sql("amount + 1 AS more"), Arel.sql("COUNT(*) OVER () AS total")]
+          relation = model.order(:id).select(:id, :starts_at, *computed)
+          rows     = each(IOStreams.stream(relation), :array).drop(1)
+          plucked  = model.order(:id).pluck(:id, :starts_at, *computed)
+
+          assert_equal plucked, rows
+          assert_equal(plucked.map { |row| row.map(&:class) }, rows.map { |row| row.map(&:class) })
+          assert_equal [1, 6, BigDecimal("13.5"), 2], rows.first.values_at(0, 2, 3, 4)
+        end
+
+        it "raises for a TIME outside a day, which mysql2 reads as nil, or the next day, or raises for" do
+          ["25:30:00", "-01:00:00", "838:59:59", "24:00:00", "-00:00:01"].each do |time|
+            execute("UPDATE clocks SET starts_at = '#{time}' WHERE id = 2")
+
+            error = assert_raises(IOStreams::Errors::InvalidValue, time) { each(IOStreams.stream(model.order(:id))) }
+            assert_match(/\AColumn "starts_at": "#{time}\.000000" is not a time of day, from 00:00:00 to 23:59:59/,
+                         error.message)
+          end
+        end
+
+        it "raises for a TIME of 24:00:00 in batches, which mysql2 reads as a time of the next day" do
+          execute("UPDATE clocks SET starts_at = '24:00:00' WHERE id = 2")
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.in_batches(of: 1))) }
+          assert_match(/\AColumn "starts_at": 2000-01-02 00:00:00 UTC is not a time of day/, error.message)
+        end
+      end
+
       describe "trilogy" do
         before do
           skip "The trilogy gem is not installed, see the mysql group of the Gemfile" unless QueryDatabase.driver?("trilogy")

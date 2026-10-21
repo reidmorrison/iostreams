@@ -33,6 +33,12 @@ module IOStreams
       # casts.
       STREAM = {stream: true, cache_rows: false, as: :array}.freeze
 
+      # The query options of mysql2 that stream a result as the text of its values, which the columns cast, when they
+      # check the text that MySQL returns, see `IOStreams::Query::Columns#text_values?`: a `TIME` outside a day, such as
+      # `25:30:00` or `-01:00:00`, which mysql2 casts to nil, or to a time of the next day, or raises for, as it does when
+      # `pluck` reads it.
+      TEXT_STREAM = STREAM.merge(cast: false).freeze
+
       # Returns [true|false] whether the connection is to MySQL through the mysql2 gem, unlike trilogy, whose queries
       # return every row at once, or the MySQL adapter of AR-JDBC on JRuby, which cannot load the gem, but is named
       # "Mysql2" too. It does not ask the connection for its raw connection, which would mark the connection of the
@@ -68,6 +74,13 @@ module IOStreams
       # returns as nil.
       def self.requirable_types
         %w[integer number boolean].freeze
+      end
+
+      # Returns [String] the type of field of a column of a type that Active Record does not know, see
+      # `IOStreams::Query::Columns`: "any", since MySQL gives no type to a column that the query computes, whose values
+      # mysql2 casts, such as to an Integer.
+      def self.unknown_type
+        "any"
       end
 
       # Parameters:
@@ -125,7 +138,7 @@ module IOStreams
       def stream(statement, columns)
         raise_limits
         raw    = @connection.raw_connection
-        fields = statement.instrument { |sql, values| start(raw, sql, values) }
+        fields = statement.instrument { |sql, values| start(raw, sql, values, columns) }
         columns.check(fields)
         yield self
       ensure
@@ -150,10 +163,11 @@ module IOStreams
       end
 
       # Returns [Array<String>] the names of the columns of the result of the SQL, which mysql2 streams, once its first
-      # row is read, see #first_row.
-      def start(raw, sql, values)
+      # row is read, see #first_row. The values are the text that MySQL returns when the columns check it, see
+      # TEXT_STREAM, which they cast as `pluck` casts the values of mysql2.
+      def start(raw, sql, values, columns)
         refuse_binds(values)
-        @result = raw.query(sql, **STREAM)
+        @result = raw.query(sql, **(columns.text_values? ? TEXT_STREAM : STREAM))
         # Before any row, since mysql2 frees the result of a query that it streams once it has read every row.
         fields = @result.fields
         @first = first_row

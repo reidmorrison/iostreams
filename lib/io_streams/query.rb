@@ -106,7 +106,7 @@ module IOStreams
     #
     # The type of each column is the one that `pluck` chooses, see `IOStreams::Query::CastTypes`. A column of the table
     # of the model that is `NOT NULL` is never null, when the query selects only the columns of that table, see
-    # #plain_columns?, and is required when a column of its type always has a value once cast, see #requirable_types.
+    # #plain_columns?, and is required when a column of its type always has a value once cast, see #describe.
     def columns
       @columns ||= tag_failure { describe }
     end
@@ -237,23 +237,26 @@ module IOStreams
     end
 
     # Returns [IOStreams::Query::Columns] the columns that the query returns, from its result for no rows.
+    #
+    # The source that reads the database of the connection, see SOURCES, whether or not the query is read in batches,
+    # knows the types of field whose columns that are `NOT NULL` always have a value once Active Record casts it, see
+    # `.requirable_types`, none when no source reads it, and the type of a column of a type that Active Record does not
+    # know, see `.unknown_type`, "any" when no source reads it, which applies to a column that the result gives such a
+    # type, as PostgreSQL does for a `timetz`, rather than to one that Active Record casts as it is for another reason,
+    # such as a column of a common table expression, whose value the driver casts.
     def describe
       @model.uncached do
         @model.with_connection(prevent_permanent_checkout: true) do |connection|
           result   = connection.select_all(@relation.limit(0).arel, "IOStreams Columns")
           plain    = plain_columns?
           not_null = result.columns.map { |name| plain && @model.columns_hash[name]&.null == false }
+          source   = source_for(connection)
+          unknown  = result.columns.each_index.map { |index| result.column_types[index].instance_of?(::ActiveModel::Type::Value) }
           Columns.new(names: result.columns, types: CastTypes.new(@relation).of(result), not_null: not_null,
-                      requirable_types: requirable_types(connection))
+                      requirable_types: source&.requirable_types || [], unknown: unknown,
+                      unknown_type: source&.unknown_type || "any")
         end
       end
-    end
-
-    # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record
-    # casts it, on the database of the connection, which the source that reads it knows, see SOURCES, whether or not
-    # the query is read in batches, or none when no source reads it, see `IOStreams::Query::Columns`.
-    def requirable_types(connection)
-      source_for(connection)&.requirable_types || []
     end
 
     # Returns [true|false] whether every column of the result is a column of the table of the model, so that one that

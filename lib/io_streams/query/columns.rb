@@ -18,8 +18,24 @@ module IOStreams
       # The most digits that a 64-bit integer holds, whatever they are, see #integer_properties.
       INTEGER_DIGITS = 18
 
+      # The type of field of each type that an Active Record type names, apart from a number, see #type_properties.
+      FIELD_TYPES = {
+        integer: "integer", big_integer: "integer",
+        string: "string", text: "string", uuid: "string", citext: "string", enum: "string", inet: "string",
+        cidr: "string", macaddr: "string",
+        boolean: "boolean",
+        date: "date",
+        datetime: "datetime", timestamp: "datetime", timestamptz: "datetime",
+        time: "time",
+        interval: "duration"
+      }.freeze
+
       # The type that casts the value of a column as the text that the database returns, see #initialize.
       TEXT = ActiveModel::Type::String.new
+
+      # The raw text of a time of day, as the databases return it: optionally a date, such as Active Record writes on
+      # SQLite, then the hour, which MySQL allows to be negative, or of more than two digits, see #check_clock.
+      CLOCK = /\A(-)?(?:\d{4}-\d{2}-\d{2}[ T])?(\d+):\d{2}/
 
       # Returns [Array<String>] the names of the columns, in the order of the result.
       attr_reader :names
@@ -44,8 +60,22 @@ module IOStreams
       #     `IOStreams::Query::SqliteStatement.requirable_types`, so that a field of them is required when its column is
       #     never null, see #field, apart from those whose values can be empty text, see EMPTY_TEXT_TYPES.
       #
+      #   unknown: [Array<true|false>]
+      #     Whether the database gives each column a type that Active Record does not know, such as a PostgreSQL
+      #     `timetz`, which Active Record casts with `ActiveModel::Type::Value`, returning the value as the driver returns
+      #     it, so that a column that Active Record casts so too is of the `unknown_type`, see #field. A column that the
+      #     database gives a type that Active Record knows, such as a column of a common table expression, keeps the
+      #     value that the driver casts, even when Active Record casts it with `ActiveModel::Type::Value`.
+      #     Default: none
+      #
+      #   unknown_type: [String]
+      #     The type of field of a column of a type that Active Record does not know, see `unknown`, on the database of
+      #     the query, which the source of the database knows, such as "string" for PostgreSQL, which returns the text of
+      #     such a value, see `IOStreams::Query::PostgresqlCursor.unknown_type`.
+      #     Default: "any"
+      #
       # Raises ArgumentError when two columns have the same name, since a record has one value for each name.
-      def initialize(names:, types:, not_null:, requirable_types:)
+      def initialize(names:, types:, not_null:, requirable_types:, unknown: [], unknown_type: "any")
         duplicates = names.tally.select { |_name, count| count > 1 }.keys
         unless duplicates.empty?
           raise(ArgumentError, "The query has more than one column named #{duplicates.map(&:inspect).join(', ')}: give " \
@@ -56,14 +86,31 @@ module IOStreams
         @types            = types.map { |type| cast_type(type) }.freeze
         @not_null         = not_null.dup.freeze
         @requirable_types = (requirable_types - EMPTY_TEXT_TYPES).freeze
+        @unknown          = unknown.dup.freeze
+        @unknown_type     = -unknown_type
+        @clocks           = @types.each_index.select { |index| type_properties(@types[index])[:type] == "time" }.freeze
+        @text_values      = !@clocks.empty? && @types.all? { |type| casts_text?(type) }
         freeze
+      end
+
+      # Returns [true|false] whether the raw values of a row are to be the text that the database returns, rather than
+      # values that the driver casts, so that #cast can check them: those of a query with a time of day, which a driver
+      # such as mysql2 casts to nil, or to a time of the next day, when it is outside a day, see #check_clock, when the
+      # type of each column casts its text as it casts the value of the driver, see #casts_text?. A query that also has a
+      # column whose values only the driver casts, such as one that it computes, keeps the values of the driver, so that
+      # its values are those of `pluck`, as is every query read in Rails' batches.
+      def text_values?
+        @text_values
       end
 
       # Returns [Array] the raw values of a row, as the driver of the database returns them, in the order of the
       # columns, each cast by the type of its column, as `pluck` casts them: an enum attribute returns the name of its
       # value, an encrypted attribute its plain text, and a datetime an `ActiveSupport::TimeWithZone` in a Rails app.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a time of day outside a day, see #check_clock.
       def cast(values)
         types = @types
+        @clocks.each { |index| check_clock(values[index], index) } unless @clocks.empty?
         Array.new(values.size) { |index| types[index].deserialize(values[index]) }
       end
 
@@ -80,24 +127,49 @@ module IOStreams
       # Returns [Hash] the descriptor of the schema whose fields are these columns, in order, see `IOStreams::Schema`,
       # each of the type of the values that its Active Record type casts, see #field. It is frozen.
       def schema
-        fields = @names.each_with_index.map { |name, index| field(name, @types[index], @not_null[index]) }
+        fields = @names.each_with_index.map { |name, index| field(name, @types[index], @not_null[index], @unknown[index]) }
         Utils.frozen_copy({fields: fields})
       end
 
       private
 
+      # Raises `IOStreams::Errors::InvalidValue` for the raw value of a time of day that is outside a day, from 00:00:00
+      # to 23:59:59, such as PostgreSQL's `24:00:00`, or a MySQL `TIME`, which holds a length of time too, such as
+      # `25:30:00` or `-01:00:00`, rather than export a value that Active Record casts to nil, or to a time of the next
+      # day, whose time of day is then wrong. Its text is checked, as the databases return it, or the time that a driver
+      # casts it to, which is on 2000-01-01 when it is within a day, such as when mysql2 reads it in Rails' batches.
+      # Other text is left to Active Record, as `pluck` leaves it.
+      def check_clock(value, index)
+        case value
+        when String
+          clock = CLOCK.match(value)
+          return if clock.nil? || (clock[1].nil? && clock[2].to_i < 24)
+        when Time
+          return if value.day == 1 && value.month == 1 && value.year == 2000
+        else
+          return
+        end
+
+        raise(IOStreams::Errors::InvalidValue, "Column #{@names[index].inspect}: #{value.inspect} is not a time of day, " \
+                                               "from 00:00:00 to 23:59:59, which a time field holds, so select it as " \
+                                               "text, or as a number of seconds, instead")
+      end
+
       # Returns [Hash] the descriptor of the field of a column, see `IOStreams::Schema::Field`: its name, and the type
-      # of the values that its Active Record type casts, see #type_properties. A column that is never null is required,
+      # of the values that its Active Record type casts, see #type_properties, or the `unknown_type` for a column of a
+      # type that neither the database nor Active Record knows, see #initialize. A column that is never null is required,
       # when a column of its type always has a value once cast on the database, see `requirable_types` in #initialize.
-      def field(name, type, not_null)
-        descriptor = {name: name, **type_properties(type)}
+      def field(name, type, not_null, unknown)
+        unknown  &&= undecorated(type).instance_of?(::ActiveModel::Type::Value)
+        descriptor = {name: name, **(unknown ? {type: @unknown_type} : type_properties(type))}
         descriptor[:constraints] = {required: true} if not_null && @requirable_types.include?(descriptor[:type])
         descriptor
       end
 
       # Returns [Hash] the type of the field whose values the Active Record type casts, and its other properties, such
-      # as the decimals of a number, or "any" for a type that a field has no type for, such as JSON, a time of day, or a
-      # binary or serialized column, or whose class is not one of Active Model or Active Record, see #own?. The type
+      # as the decimals of a number, or "any" for a type that a field has no type for, such as JSON, or a binary or
+      # serialized column, or whose class is not one of Active Model or Active Record, see #own?. A time of day is a
+      # time, and a PostgreSQL interval, which Active Record casts to an `ActiveSupport::Duration`, a duration. The type
       # within the decorators of the type decides it, see #undecorated.
       def type_properties(type)
         type = undecorated(type)
@@ -111,14 +183,9 @@ module IOStreams
         return integer_properties(type) if type.is_a?(::ActiveModel::Type::Integer)
 
         case type.type
-        when :integer, :big_integer then {type: "integer"}
         when :decimal, :money then number_properties(type)
         when :float then {type: "number", floatNumber: true}
-        when :string, :text, :uuid, :citext, :enum, :inet, :cidr, :macaddr then {type: "string"}
-        when :boolean then {type: "boolean"}
-        when :date then {type: "date"}
-        when :datetime, :timestamp, :timestamptz then {type: "datetime"}
-        else {type: "any"}
+        else {type: FIELD_TYPES.fetch(type.type, "any")}
         end
       end
 
@@ -208,6 +275,15 @@ module IOStreams
       def own?(type)
         name = type.class.name
         !name.nil? && name.start_with?("ActiveModel::", "ActiveRecord::")
+      end
+
+      # Returns [true|false] whether the type casts the text of a value, as the database returns it, as it casts the value
+      # that the driver casts from that text: a type of Active Model or Active Record that knows the type of its values,
+      # within its decorators, see #undecorated, unlike `ActiveModel::Type::Value`, which returns either as it is, such
+      # as for a column that the query computes, or a type of the application, see #own?, see #text_values?.
+      def casts_text?(type)
+        type = undecorated(type)
+        own?(type) && !type.instance_of?(::ActiveModel::Type::Value)
       end
 
       def enum?(type)

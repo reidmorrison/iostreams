@@ -84,10 +84,24 @@ changes, and docs/errors.md when what it raises does.
   array of addresses as an array of that text (`#text_array`), since its type casts an `IPAddr`, whose text drops the
   prefix, and the host of an address with both, while a decorator of an address only changes the values written; a
   PostgreSQL array (`OID::Array`), also within decorators, such as the `TimeZoneConverter` of an array of times, is an
-  `array` field. A column is required only when it is `NOT NULL`, the query
+  `array` field. The fields of the types that a type names are in `FIELD_TYPES`: a `time` is a time field, and a
+  PostgreSQL `interval`, which Active Record casts to an `ActiveSupport::Duration`, a duration. A type that Active
+  Record does not know, which it casts with `ActiveModel::Type::Value` itself, is of the field that the source of the
+  database says (`.unknown_type`, asked by `Query#describe`): "string" on PostgreSQL, which returns the text of such a
+  value, such as a `timetz`, otherwise "any". `#cast` raises `IOStreams::Errors::InvalidValue` for the raw value of a
+  time column outside a day (`#check_clock`, `CLOCK`): text with a sign or an hour of 24 or more, such as PostgreSQL's
+  `24:00:00` or a MySQL `TIME` of `25:30:00`, or a Time that a driver cast that is not on 2000-01-01, since Active
+  Record reads them as nil or as the next day; `#text_values?` says that a query has a time column, and that every
+  column is cast by a type that casts text as it casts the value of the driver (`#casts_text?`: a type of Active Record
+  other than `ActiveModel::Type::Value`, which returns either as it is, such as for a computed column of MySQL), so
+  that a source whose driver casts its values, mysql2, reads them as text (`Mysql2Stream::TEXT_STREAM`, `cast:
+  false`). The `unknown_type` applies only to a column that the result gives a type that Active Record does not know
+  (`unknown:`, from `result.column_types` in `Query#describe`), not to one that Active Record casts with
+  `ActiveModel::Type::Value` for another reason, such as a column of a common table expression or an attribute without
+  a type, whose value the driver casts. A column is required only when it is `NOT NULL`, the query
   selects and groups by only the columns of the table of the model (`Query#plain_columns?`), and its type is one that
   the source of its database says always has a value once Active Record casts it (`.requirable_types`, asked by
-  `Query#requirable_types` whether or not the query is read in batches, none when no source reads the database), and
+  `Query#describe` whether or not the query is read in batches, none when no source reads the database), and
   never a string or `any` (`EMPTY_TEXT_TYPES`), which can be empty. It never knows a file format: `Parquet::Column`
   turns the fields into Parquet types.
 - `Query::CastTypes`: the type that casts each column of a relation's result as `pluck` chooses it
@@ -118,7 +132,7 @@ changes, and docs/errors.md when what it raises does.
   the database of the connection, which must not call `connection.raw_connection`, since that makes Active Record stop
   verifying and reconnecting the connection until it is next checked out, and `.reads?` is asked of the connection of
   the caller too, for every describe; `.own_connection?(connection)`; `.failure_kind(exception)`, a kind,
-  `Query::Failure::NONE`, or nil, see Failures; `.requirable_types`; and `.new(connection).open(statement, columns) {
+  `Query::Failure::NONE`, or nil, see Failures; `.requirable_types`; `.unknown_type`; and `.new(connection).open(statement, columns) {
   |reader| }`, which runs the statement, checks the names of its columns, and steps to its first row before it yields,
   and closes the statement in an `ensure`, and whose reader's `#each` yields the raw values of each row, from the row
   after the last one that it yielded.

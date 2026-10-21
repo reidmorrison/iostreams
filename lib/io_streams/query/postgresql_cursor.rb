@@ -128,6 +128,13 @@ module IOStreams
         REQUIRABLE_TYPES
       end
 
+      # Returns [String] the type of field of a column of a type that Active Record does not know, such as `timetz`, see
+      # `IOStreams::Query::Columns`: "string", since PostgreSQL returns the value of such a column as its text, which
+      # Active Record returns as it is.
+      def self.unknown_type
+        "string"
+      end
+
       # Returns [Module] the kind of failure that an exception raised by the pg gem means: `PermissionDenied` for a table
       # or column that the user may not read, or credentials, or a host, that the server does not accept, and
       # `Unavailable` for a server that cannot be reached, ended the query, or has no connection free, see FAILURE_KINDS
