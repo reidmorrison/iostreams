@@ -622,6 +622,14 @@ class PostgresqlCursorTest < Minitest::Test
           end
         end
 
+        it "requires a time that is never null, but not an interval, which Active Record reads as nil when it is infinite" do
+          execute("ALTER TABLE pg_types ALTER COLUMN opens SET NOT NULL, ALTER COLUMN wait SET NOT NULL")
+          model.reset_column_information
+
+          assert_equal [{name: "opens", type: "time", constraints: {required: true}}, {name: "wait", type: "duration"}],
+                       IOStreams.stream(model.select(:opens, :wait)).schema[:fields]
+        end
+
         it "raises for a time of 24:00:00, which PostgreSQL holds, rather than read it as the start of the next day" do
           execute("UPDATE pg_types SET opens = '24:00:00'")
 

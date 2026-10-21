@@ -157,7 +157,8 @@ changes, and docs/errors.md when what it raises does.
   so, while after an exception or an interrupt it does neither, so that the rollback of Active Record, which first
   cancels a fetch that is still running, ends them; an `ActiveRecord::Rollback` that the block raises is raised again
   after the transaction of the cursor, which would rescue it. `.own_connection?` is true, and `.requirable_types` are
-  integer, number, boolean, date, datetime and array: a column holds only values of its type, a date or time of
+  integer, number, boolean, date, datetime, time and array, not an interval, which Active Record casts to nil when it
+  is infinite, as PostgreSQL 17 allows: a column holds only values of its type, a date or time of
   'infinity' is cast to `Float::INFINITY` rather than nil, and an array to an Array, which can be empty, as a required
   field of arrays takes it. Its statements run within `uncached(dirties: false)`. It tells the failures of a connection
   apart by the last attempt that the message of `PG::ConnectionBad` reports (`ATTEMPT`, `CONNECTION_KINDS`), since libpq

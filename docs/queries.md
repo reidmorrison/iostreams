@@ -271,8 +271,9 @@ a model that the query joins, otherwise the type that the database gives the col
 * A column is required, so that its Parquet column is not nullable, when it is `NOT NULL`, the query selects only
   columns of the table of the model, by their names, without joins, and groups by nothing else, and the database
   always gives such a column a value of its type once Active Record casts it: on PostgreSQL an integer, number,
-  boolean, date, datetime or array, and on MySQL with `mysql2` an integer, number or boolean, since `mysql2` reads a
-  zero date, such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no column is required,
+  boolean, date, datetime, time or array, but not an `interval`, which Active Record reads as nil when it is infinite,
+  as PostgreSQL 17 allows, and on MySQL with `mysql2` an integer, number or boolean, since `mysql2` reads a zero date,
+  such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no column is required,
   since its columns hold values of any type, such as empty text in an integer column, which Active Record casts to nil,
   nor on a database that IOStreams cannot stream a query from, such as MySQL with `trilogy`. A string is never
   required, since it can be empty, and a query that joins another table, computes any column, or groups by anything
