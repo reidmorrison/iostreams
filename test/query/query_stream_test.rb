@@ -917,5 +917,23 @@ class QueryStreamTest < Minitest::Test
 
       assert_equal [nil, [exception]], kind(exception)
     end
+
+    it "does not tag an exception that the source of its driver knows to be none of the kinds, whatever Active Record " \
+       "names it" do
+      cause = RuntimeError.new("could not translate host name \"jack-db.invalid\" to address: Name or service not known")
+      none  = IOStreams::Query::Failure::NONE
+
+      [
+        ActiveRecord::ConnectionNotEstablished.new("could not translate host name"),
+        ActiveRecord::DatabaseConnectionError.username_error("jack"),
+        ActiveRecord::DatabaseConnectionError.hostname_error("jack-db.invalid"),
+        ActiveRecord::NoDatabaseError.new("no database"),
+        ActiveRecord::StatementInvalid.new("invalid")
+      ].each do |exception|
+        assert_nil IOStreams::Query::Failure.kind(caused(exception, cause)) { none }, exception.class.name
+      end
+
+      assert_nil IOStreams::Query::Failure.kind(cause) { none }
+    end
   end
 end

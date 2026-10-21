@@ -263,7 +263,8 @@ module IOStreams
     end
 
     # Returns [Module] the kind of failure that an exception of the driver of a database means, which the source of
-    # that database knows, see SOURCES, or nil when it is none of them.
+    # that database knows, see SOURCES, `IOStreams::Query::Failure::NONE` when that source knows it to be none of them,
+    # or nil when no source knows it.
     def driver_failure_kind(exception)
       SOURCES.each do |name|
         kind = Query.const_get(name).failure_kind(exception)
