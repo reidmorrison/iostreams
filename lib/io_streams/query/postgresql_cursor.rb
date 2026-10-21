@@ -22,7 +22,7 @@ module IOStreams
     #     its first 10%, which can choose a slower plan for the whole result.
     #   idle_in_transaction_session_timeout = 0
     #     So that a target that is slow to write, such as an upload, does not leave the transaction idle for long
-    #     enough that PostgreSQL closes the connection.
+    #     enough that PostgreSQL closes the connection, on PostgreSQL 9.6 and later, which have it.
     # They end with the transaction, and are set back to what they were in a transaction that was already open. The
     # `statement_timeout` of the connection, such as one that the `variables` of the configuration of the database set,
     # applies to each fetch, rather than to the whole query.
@@ -41,6 +41,10 @@ module IOStreams
 
       # The settings of the transaction that reads the query, see above.
       SETTINGS = {"cursor_tuple_fraction" => "1.0", "idle_in_transaction_session_timeout" => "0"}.freeze
+
+      # The earliest version of PostgreSQL that has each of the SETTINGS that not every version that Active Record reads
+      # has, as `server_version_num` numbers it, on which the transaction sets it, see #settings.
+      SETTING_VERSIONS = {"idle_in_transaction_session_timeout" => 90_600}.freeze
 
       # The types of field whose columns that are `NOT NULL` always have a value once Active Record casts it, see
       # .requirable_types.
@@ -168,7 +172,7 @@ module IOStreams
         rollback = nil
         result   = @connection.transaction(requires_new: true) do
           previous = joined ? current_settings : nil
-          apply_settings(SETTINGS)
+          apply_settings(settings)
           declare(statement)
           fetch(columns)
           Utils.finish_or_abort(finish: -> { restore(previous) }) { yield self }
@@ -237,18 +241,25 @@ module IOStreams
         apply_settings(previous) if previous
       end
 
-      # Returns [Hash<String, String>] the value of each of the SETTINGS in the transaction.
+      # Returns [Hash<String, String>] the SETTINGS that the version of PostgreSQL of the connection has, see
+      # SETTING_VERSIONS, as Active Record answers it, which it asks once for each pool.
+      def settings
+        version = @connection.database_version
+        SETTINGS.select { |name, _value| version >= SETTING_VERSIONS.fetch(name, 0) }
+      end
+
+      # Returns [Hash<String, String>] the value of each of the settings in the transaction, see #settings.
       def current_settings
-        names  = SETTINGS.keys
+        names  = settings.keys
         values = uncached do
           @connection.select_rows("SELECT #{names.map { |name| "current_setting('#{name}')" }.join(', ')}", "IOStreams")
         end.first
         names.zip(values).to_h
       end
 
-      # Sets each of the settings for the rest of the transaction.
-      def apply_settings(settings)
-        assignments = settings.map do |name, value|
+      # Sets each of the supplied settings, of their names and values, for the rest of the transaction.
+      def apply_settings(values)
+        assignments = values.map do |name, value|
           "set_config(#{@connection.quote(name)}, #{@connection.quote(value)}, true)"
         end
         uncached { @connection.select_rows("SELECT #{assignments.join(', ')}", "IOStreams") }

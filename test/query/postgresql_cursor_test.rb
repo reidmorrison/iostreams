@@ -122,6 +122,31 @@ class PostgresqlCursorTest < Minitest::Test
         end
       end
 
+      # Returns [Array<String>] the SQL of each statement of the settings of a cursor that runs within the block.
+      def settings_statements(&)
+        sql      = []
+        callback = ->(_name, _start, _finish, _id, payload) { sql << payload[:sql] if payload[:name] == "IOStreams" }
+        ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &)
+        sql.grep(/set_config|current_setting/)
+      end
+
+      it "sets idle_in_transaction_session_timeout only on PostgreSQL 9.6 and later, which have it" do
+        pinned do
+          db.record.with_connection do |connection|
+            [[90_500, false], [90_600, true]].each do |version, set|
+              sql = connection.stub(:database_version, version) do
+                settings_statements { assert_equal 3, each(IOStreams.stream(orders)).size }
+              end
+
+              # It reads the settings of the transaction that is open, sets them, and sets them back.
+              assert_equal 3, sql.size, version
+              assert_equal [true] * 3, sql.map { |text| text.include?("cursor_tuple_fraction") }, version
+              assert_equal [set] * 3, sql.map { |text| text.include?("idle_in_transaction_session_timeout") }, version
+            end
+          end
+        end
+      end
+
       it "applies the statement_timeout of the connection to each fetch, rather than to the whole query" do
         add_orders(25_000)
         count = 0
