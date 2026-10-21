@@ -144,6 +144,21 @@ class PostgresqlCursorTest < Minitest::Test
         assert_equal 0, db.pool.stat[:busy]
       end
 
+      it "raises a failure to close the cursor once the block breaks out of the loop, tagged, rather than return" do
+        error = assert_raises(ActiveRecord::ActiveRecordError) do
+          with_read_connections do |connections|
+            IOStreams.stream(orders).each(:hash) do |_order| # rubocop:disable Lint/UnreachableLoop -- leaves on its first row on purpose
+              # The server ends the connection of the read while the block runs.
+              execute("SELECT pg_terminate_backend(#{connections.last.select_value('SELECT pg_backend_pid()')})")
+              break
+            end
+          end
+        end
+
+        assert_kind_of IOStreams::Errors::Unavailable, error
+        assert_equal 0, db.pool.stat[:busy]
+      end
+
       it "raises an ActiveRecord::Rollback of the block, which rolls back the transaction of the caller" do
         db.record.transaction do
           db.customer.create!(name: "before")

@@ -141,11 +141,14 @@ module IOStreams
       # the query was described by, see `IOStreams::Query::Columns#check`, so that a query that fails, or cannot start,
       # raises before the block is called.
       #
-      # The cursor is closed when the block finishes, or is left with `break` or an exception, and the settings are set
-      # back, unless the database failed, which aborts the transaction, see #restore. An `ActiveRecord::Rollback` that
-      # the block raises, for a transaction of the caller, is raised again once the transaction of the cursor has rolled
-      # back, rather than rescued by it, as Active Record rescues it in any transaction, so that it reaches the
-      # transaction of the caller, or the caller, as it does when the block runs anywhere else.
+      # The cursor is closed, and the settings set back, once the block finishes, or is left with `break`, which raises a
+      # failure to do so, such as of a connection that was lost, rather than return as if the read had ended where the
+      # block left it, as `IOStreams::Utils.finish_or_abort` decides, see #restore. When the block, or a fetch, raises
+      # instead, a failure to do so is not raised, so that it never replaces the exception that left the block. An
+      # `ActiveRecord::Rollback` that the block raises, for a transaction of the caller, is raised again once the
+      # transaction of the cursor has rolled back, rather than rescued by it, as Active Record rescues it in any
+      # transaction, so that it reaches the transaction of the caller, or the caller, as it does when the block runs
+      # anywhere else.
       #
       # Returns the result of the block.
       def open(statement, columns)
@@ -153,20 +156,13 @@ module IOStreams
         rollback = nil
         result   = @connection.transaction(requires_new: true) do
           previous = joined ? current_settings : nil
-          finished = false
-          begin
-            apply_settings(SETTINGS)
-            declare(statement)
-            fetch(columns)
-            result   = yield self
-            finished = true
-            result
-          rescue ::ActiveRecord::Rollback => e
-            rollback = e
-            raise
-          ensure
-            restore(previous, finished)
-          end
+          apply_settings(SETTINGS)
+          declare(statement)
+          fetch(columns)
+          Utils.finish_or_abort(finish: -> { restore(previous) }, abort: -> { restore_quietly(previous) }) { yield self }
+        rescue ::ActiveRecord::Rollback => e
+          rollback = e
+          raise
         end
         raise rollback if rollback
 
@@ -208,13 +204,18 @@ module IOStreams
         @done = @rows.size < FETCH_SIZE
       end
 
-      # Closes the cursor, and sets back the settings of the transaction that was already open. A failure to do so is
-      # raised only when every row was read, so that it never replaces the exception that left the block.
-      def restore(previous, finished)
+      # Closes the cursor, and sets back the settings of the transaction that was already open.
+      def restore(previous)
         run("CLOSE #{@name}")
         apply_settings(previous) if previous
+      end
+
+      # Closes the cursor, and sets back the settings, see #restore, once the block raised, without raising a failure to
+      # do so, which would replace the exception that left the block.
+      def restore_quietly(previous)
+        restore(previous)
       rescue StandardError
-        raise if finished
+        nil
       end
 
       # Returns [Hash<String, String>] the value of each of the SETTINGS in the transaction.
