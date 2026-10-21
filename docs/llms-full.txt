@@ -7187,14 +7187,21 @@ A schema reads the same records as the options it replaces, named as above, exce
   `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
   read it as an empty record, `{}`.
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.
+* A name that v2.1 cleansed without its letters that are not ASCII, such as `prnom` for the column `Prénom`, which an
+  application may have kept in `allowed_columns:`, is not the field of that column, since a schema matches it as
+  `prénom`, see [Cleansing a header row keeps letters that are not ASCII](#cleansing-a-header-row-keeps-letters-that-are-not-ascii).
+  With `fieldsMatch: "subset"` or `"partial"` the column is skipped without an error, so name the field `prénom`, or
+  keep the name and give the field the column as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
+* A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
+  written, where `columns:` wrote an empty value.
 
 ##### When to keep the deprecated options
 
-The options still work without a schema, so keep them where a schema does not describe the file yet:
-
-* `required_columns:` without `allowed_columns:`, or `cleanse_header: false` on its own, read every column of the
-  file, while a schema reads only its fields. List every column of the file as a field to replace them.
-* `columns:` with `nil` for a column to skip, in a file without a header row, since a field must have a name.
+Every use of the options has a schema form, see the table above, including `required_columns:` without
+`allowed_columns:` and `cleanse_header: false` on its own, which read every column, with `extraColumns: "keep"`,
+and `columns:` with `nil` for a column to skip, with `skip: true`. The options still work without a schema, so keep
+them until the schema has been checked against the files of the application, since it reads some of them
+differently, see above.
 
 ##### The deprecated options
 
