@@ -48,6 +48,10 @@ module IOStreams
     # return every row at once, but whose queries are read in batches.
     DRIVER_FAILURES = [*SOURCES, :TrilogyFailure].freeze
 
+    # How to read a query in batches, which a source, or #source, suggests in the message of the ArgumentError that it
+    # raises for a query that it cannot read as one query.
+    IN_BATCHES = "read it in batches, such as with `IOStreams.stream(relation.in_batches(of: 10_000))`"
+
     # The earliest version of Active Record that a query is read with.
     MINIMUM_VERSION = "7.2"
 
@@ -219,8 +223,7 @@ module IOStreams
     # suggesting batches, so that a query is only run once for each batch when the caller asks for it.
     def source(connection)
       source_for(connection) ||
-        raise(ArgumentError, "IOStreams cannot stream a query on #{connection.adapter_name}, so read it in batches, " \
-                             "such as with `IOStreams.stream(relation.in_batches(of: 10_000))`")
+        raise(ArgumentError, "IOStreams cannot stream a query on #{connection.adapter_name}, so #{IN_BATCHES}")
     end
 
     # Returns [Class|nil] the first of SOURCES that reads the database of the connection, see its `.reads?`, or nil

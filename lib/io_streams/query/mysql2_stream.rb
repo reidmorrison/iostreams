@@ -120,8 +120,7 @@ module IOStreams
 
         raise(ArgumentError, "The block cannot query MySQL on the connection that the rows of a query are read on, since " \
                              "mysql2 streams them on it, and it cannot run another query until every row is read, such " \
-                             "as the pinned connection of transactional tests. Read the query in batches instead, such " \
-                             "as with `IOStreams.stream(relation.in_batches(of: 10_000))`: #{e.message}")
+                             "as the pinned connection of transactional tests, so #{Query::IN_BATCHES}: #{e.message}")
       end
 
       private
