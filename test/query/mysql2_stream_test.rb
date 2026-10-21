@@ -300,6 +300,16 @@ class Mysql2StreamTest < Minitest::Test
           assert_match(/SELECT command denied to user '#{reader}'/, error.message)
         end
 
+        # trilogy raises its own exception for the socket that cannot resolve the host, which Active Record raises as
+        # `ConnectionNotEstablished`, without naming the host, which is otherwise Unavailable.
+        it "does not tag a host that does not resolve" do
+          orders = db.orders_at("TrilogyUnknown", scheme: "trilogy", host: "iostreams-no-such-host.invalid")
+          error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+
+          refute_kind_of IOStreams::Errors::StorageError, error
+          assert_instance_of Trilogy::BaseConnectionError, error.cause
+        end
+
         # The query that describes the columns connects before trilogy is refused as a source, while `in_batches` would
         # connect in Rails, for the primary key.
         it "tags a user that may not use the database as PermissionDenied, which Active Record says does not exist" do

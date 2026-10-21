@@ -11,7 +11,7 @@ module IOStreams
       # The kind of failure of each error number of MySQL that is one: an access that MySQL denies, including an
       # account that it does not let connect, such as one that is locked, which a retry does not change, or a server
       # that could not be reached, lost the connection, or could not run the query at the time. A host that does not
-      # resolve, CR_UNKNOWN_HOST, 2005, is none of them, as for a path, see `IOStreams::Errors::Unavailable.unknown_host?`.
+      # resolve is not one of them, see UNKNOWN_HOST.
       NUMBER_KINDS = {
         1044 => Errors::PermissionDenied, # ER_DBACCESS_DENIED_ERROR
         1045 => Errors::PermissionDenied, # ER_ACCESS_DENIED_ERROR
@@ -53,12 +53,30 @@ module IOStreams
         /\AThe client was disconnected by the server because of inactivity\b/ => 4031 # ER_CLIENT_INTERACTION_TIMEOUT
       }.freeze
 
+      # The error number of the client library for a host that does not resolve, CR_UNKNOWN_HOST, which it raises for
+      # every failure to resolve one, with the error of getaddrinfo at the end of its message, such as
+      # "Unknown MySQL server host 'db.example.com' (-2)", see .unknown_host_kind.
+      UNKNOWN_HOST = 2005
+
       # Returns [Module] the kind of failure of the error of MySQL of the supplied number, see NUMBER_KINDS, or of the
-      # supplied message when the driver raised it without a number, see MESSAGE_NUMBERS, or nil when it is none of them.
+      # supplied message when the driver raised it without a number, see MESSAGE_NUMBERS, or nil when it is none of them,
+      # or `IOStreams::Query::Failure::NONE` for a host that does not resolve, see .unknown_host_kind.
       def self.kind(number, message)
         number ||= MESSAGE_NUMBERS.find { |pattern, _number| pattern.match?(message) }&.last
+        return unknown_host_kind(message) if number == UNKNOWN_HOST
+
         NUMBER_KINDS[number]
       end
+
+      # Returns [Module] `Unavailable` for a temporary failure to resolve the host, `Socket::EAI_AGAIN`, which is how a
+      # DNS outage, or a network without DNS, is reported, otherwise `IOStreams::Query::Failure::NONE`, for a host that
+      # does not resolve, such as a mistyped host, so that the same request cannot succeed later, as for a path, see
+      # `IOStreams::Errors::Unavailable.unknown_host?`.
+      def self.unknown_host_kind(message)
+        temporary = defined?(::Socket::EAI_AGAIN) && message.end_with?("(#{::Socket::EAI_AGAIN})")
+        temporary ? Errors::Unavailable : Failure::NONE
+      end
+      private_class_method :unknown_host_kind
     end
   end
 end

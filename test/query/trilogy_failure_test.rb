@@ -43,6 +43,25 @@ class TrilogyFailureTest < Minitest::Test
       end
     end
 
+    # Returns [Trilogy::BaseConnectionError] the exception that trilogy raises when the socket of Ruby that it connects
+    # with cannot resolve the host, whose cause is the failure of the socket.
+    def unresolved(error_code)
+      raise resolution_error(error_code)
+    rescue SocketError => e
+      begin
+        raise Trilogy::BaseConnectionError, "unable to connect to \"db.example.com:3306\": #{e.message}"
+      rescue Trilogy::BaseConnectionError => error
+        error
+      end
+    end
+
+    it "tags a temporary failure to resolve the host as Unavailable, and any other as no kind of failure" do
+      skip_without_resolution_error
+
+      assert_equal IOStreams::Errors::Unavailable, kind(unresolved(Socket::EAI_AGAIN))
+      assert_same IOStreams::Query::Failure::NONE, kind(unresolved(Socket::EAI_NONAME))
+    end
+
     it "does not tag any other exception" do
       [
         Trilogy::SSLError.new("trilogy_connect: SSL Error: certificate verify failed"),

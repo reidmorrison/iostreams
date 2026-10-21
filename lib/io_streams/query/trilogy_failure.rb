@@ -8,17 +8,27 @@ module IOStreams
     module TrilogyFailure
       # Returns [Module] the kind of failure that an exception raised by the trilogy gem means, or nil when it is none
       # of them: as MySQL says of the error number that the server sent, see `IOStreams::Query::MysqlFailure`, and
-      # `Unavailable` for a timeout, a connection that the server closed, or a server that cannot be reached, see
-      # `IOStreams::Errors::Unavailable.network_error?`.
+      # `Unavailable` for a timeout, a connection that the server closed, or a server that cannot be reached, or
+      # `IOStreams::Query::Failure::NONE` for a host that does not resolve, see .socket_kind.
       def self.failure_kind(exception)
         return unless defined?(::Trilogy::Error) && exception.is_a?(::Trilogy::Error)
         return MysqlFailure.kind(exception.error_code, exception.message) if exception.error_code
+        return Errors::Unavailable if exception.is_a?(::Trilogy::TimeoutError) || exception.is_a?(::Trilogy::EOFError)
 
-        if exception.is_a?(::Trilogy::TimeoutError) || exception.is_a?(::Trilogy::EOFError) ||
-           Errors::Unavailable.network_error?(exception)
-          Errors::Unavailable
-        end
+        socket_kind(exception.cause.is_a?(::SocketError) ? exception.cause : exception)
       end
+
+      # Returns [Module] the kind of failure of the socket that trilogy connects with: `Unavailable` for a server that
+      # cannot be reached, see `IOStreams::Errors::Unavailable.network_error?`, or `IOStreams::Query::Failure::NONE` for a
+      # host that does not resolve, see `IOStreams::Errors::Unavailable.unknown_host?`. trilogy raises the `SocketError`
+      # of a host that does not resolve as the cause of a `Trilogy::BaseConnectionError` of its own, which Active Record
+      # raises as an `ActiveRecord::ConnectionNotEstablished` that does not name the host, which is otherwise Unavailable.
+      def self.socket_kind(exception)
+        return Failure::NONE if Errors::Unavailable.unknown_host?(exception)
+
+        Errors::Unavailable if Errors::Unavailable.network_error?(exception)
+      end
+      private_class_method :socket_kind
     end
   end
 end

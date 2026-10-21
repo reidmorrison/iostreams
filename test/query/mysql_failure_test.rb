@@ -27,8 +27,20 @@ class MysqlFailureTest < Minitest::Test
       end
     end
 
-    it "does not tag any other error, such as a table that does not exist, or a host that does not resolve" do
-      [1146, 1064, 2005].each { |number| assert_nil kind(number), number }
+    it "does not tag any other error, such as a table that does not exist" do
+      [1146, 1064].each { |number| assert_nil kind(number), number }
+    end
+
+    # The client library reports every failure to resolve the host as CR_UNKNOWN_HOST, with the error of getaddrinfo,
+    # as the client library of Oracle, or that of MariaDB, says it, such as "Unknown server host 'db.example.com' (-3)"
+    # for EAI_AGAIN on Linux, where EAI_NONAME is -2.
+    it "tags a temporary failure to resolve the host as Unavailable, and any other as no kind of failure" do
+      skip "JRuby does not have Socket::EAI_AGAIN, nor the drivers of MySQL" unless defined?(Socket::EAI_AGAIN)
+
+      ["Unknown MySQL server host 'db.example.com' (%d)", "Unknown server host 'db.example.com' (%d)"].each do |message|
+        assert_equal IOStreams::Errors::Unavailable, kind(2005, format(message, Socket::EAI_AGAIN)), message
+        assert_same IOStreams::Query::Failure::NONE, kind(2005, format(message, Socket::EAI_NONAME)), message
+      end
     end
 
     # The messages as mysql2 raises them while it streams a result, without their number: of the client library of

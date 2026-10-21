@@ -41,9 +41,9 @@ module IOStreams
       # Returns [Module] the kind of failure that an exception raised by the mysql2 gem means, such as while it streams
       # a result, which Active Record does not see, or for a connection that could not be made, see
       # `IOStreams::Query::Failure`, or nil when it is none of them: what MySQL says of its error number, or of its
-      # message, since mysql2 raises an error that ends a streamed result without its number, see
-      # `IOStreams::Query::MysqlFailure`, and `Unavailable` for its own timeout, of the `read_timeout` of the connection,
-      # which has no number either.
+      # message, since mysql2 raises an error that ends a streamed result without its number, including
+      # `IOStreams::Query::Failure::NONE` for a host that does not resolve, see `IOStreams::Query::MysqlFailure`, and
+      # `Unavailable` for its own timeout, of the `read_timeout` of the connection, which has no number either.
       def self.failure_kind(exception)
         return unless defined?(::Mysql2::Error) && exception.is_a?(::Mysql2::Error)
         return Errors::Unavailable if exception.is_a?(::Mysql2::Error::TimeoutError) && !exception.error_number
