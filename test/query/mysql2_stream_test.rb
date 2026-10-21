@@ -81,16 +81,21 @@ class Mysql2StreamTest < Minitest::Test
         end
       end
 
-      # Returns [String] the net_write_timeout of the session of the supplied id, which another connection reads, since
-      # the connection that reads a query cannot run a query while it streams a result.
-      def net_write_timeout(connection_id)
+      # Returns [String] the value of the supplied variable of the session of the supplied id, which another connection
+      # reads, since the connection that reads a query cannot run a query while it streams a result.
+      def variable(connection_id, name)
         monitor.with_connection do |connection|
           connection.select_value(<<~SQL)
             SELECT VARIABLE_VALUE FROM performance_schema.variables_by_thread AS variables
             JOIN performance_schema.threads AS threads ON threads.THREAD_ID = variables.THREAD_ID
-            WHERE threads.PROCESSLIST_ID = #{Integer(connection_id)} AND VARIABLE_NAME = 'net_write_timeout'
+            WHERE threads.PROCESSLIST_ID = #{Integer(connection_id)} AND VARIABLE_NAME = #{connection.quote(name)}
           SQL
         end
+      end
+
+      # Returns [String] the net_write_timeout of the session of the supplied id, see #variable.
+      def net_write_timeout(connection_id)
+        variable(connection_id, "net_write_timeout")
       end
 
       # Returns [ActiveRecord::Relation] the orders with the id of the session of the connection that reads them, see
@@ -144,6 +149,18 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal 3, sessions.size
         refute session?(sessions.first)
         assert_equal 3, each(IOStreams.stream(orders)).size
+      end
+
+      # Since it counts the time that the client takes as well, and MySQL ends the query when it is over, which a retry
+      # would meet again.
+      it "lifts a max_execution_time of the session while the rows are read, and sets it back" do
+        limited  = db.orders_at("Limited", variables: {max_execution_time: 300})
+        sessions = []
+        relation = limited.order(:id).select(:id, Arel.sql("CONNECTION_ID() AS session"), Arel.sql("SLEEP(0.2) AS slept"))
+        IOStreams.stream(relation).each(:hash) { |order| sessions << order["session"] }
+
+        assert_equal 3, sessions.size
+        assert_equal "300", variable(sessions.first, "max_execution_time")
       end
 
       it "keeps the connection while the block is slower than the net_write_timeout of the session" do

@@ -5,10 +5,9 @@ module IOStreams
     # Reads the rows of a query on MySQL one at a time with the mysql2 gem, which streams the result from the server
     # rather than load all of it, see `IOStreams::Query`.
     #
-    # The server waits for the client to take each row for at most `net_write_timeout` seconds, 60 by default, before it
-    # ends the query, so a target that is slow to write, such as an upload, can lose the connection. So the
-    # `net_write_timeout` of the session is raised to NET_WRITE_TIMEOUT while the rows are read, unless it is higher, and
-    # is set back afterwards.
+    # The server ends a query whose client is slow to take its rows, as it is behind a target that is slow to write, such
+    # as an upload, by the limits of the session, LIMITS, so each one is raised while the rows are read, unless it is
+    # higher, and is set back afterwards.
     #
     # The query is read on a connection of its own, see `IOStreams::Query#open`, since while mysql2 streams a result, its
     # connection cannot run any other query, so that the block that the rows are yielded to queries the database on the
@@ -19,6 +18,15 @@ module IOStreams
     class Mysql2Stream
       # The `net_write_timeout` of the session while the rows are read, in seconds.
       NET_WRITE_TIMEOUT = 3600
+
+      # The limits of the session by which the server ends a query whose client is slow to take its rows, and their
+      # values while the rows are read, see #raise_limits, 0 being no limit:
+      #   net_write_timeout: the seconds that the server waits for the client to take a row, 60 by default.
+      #   max_execution_time: the milliseconds that a SELECT may run, 0 by default, which an application can set for the
+      #   statements of its requests, but which counts the time that the client takes too, so that it would end a long
+      #   read, and each retry of it the same way. A limit of the query itself still applies, such as
+      #   `relation.optimizer_hints("MAX_EXECUTION_TIME(3600000)")`, whose hint MySQL takes over that of the session.
+      LIMITS = {"net_write_timeout" => NET_WRITE_TIMEOUT, "max_execution_time" => 0}.freeze
 
       # The query options of mysql2 that stream a result, rather than load all of it, as Arrays of the raw values of its
       # columns, on top of those of the connection, which Active Record sets, so that the values are those that `pluck`
@@ -110,12 +118,12 @@ module IOStreams
 
       private
 
-      # Yields itself once the statement streams its result on the raw connection, see #open, with the
-      # `net_write_timeout` of the session raised while the rows are read, and set back afterwards. The result is
-      # freed when every row was read, otherwise the connection is ended, see #discard, when the block is left early,
-      # with `break` or an exception, or the read failed.
+      # Yields itself once the statement streams its result on the raw connection, see #open, with the limits of the
+      # session raised while the rows are read, see #raise_limits, and set back afterwards. The result is freed when
+      # every row was read, otherwise the connection is ended, see #discard, when the block is left early, with `break`
+      # or an exception, or the read failed.
       def stream(statement, columns)
-        raise_net_write_timeout
+        raise_limits
         raw    = @connection.raw_connection
         fields = statement.instrument { |sql, values| start(raw, sql, values) }
         columns.check(fields)
@@ -196,27 +204,35 @@ module IOStreams
         first
       end
 
-      # Raises the `net_write_timeout` of the session to NET_WRITE_TIMEOUT, unless it is not lower, such as one that the
-      # `variables` of the configuration of the connection set, which it keeps. The one to set back is known before it is
-      # raised, see #set_back, so that an interrupt in between, such as of a Timeout, cannot leave it raised.
-      def raise_net_write_timeout
-        current = Integer(net_write_timeout)
-        return if current >= NET_WRITE_TIMEOUT
+      # Raises each of the LIMITS of the session that is lower, keeping one that is not, such as one that the `variables`
+      # of the configuration of the connection set. Those to set back are known before they are raised, see #set_back,
+      # so that an interrupt in between, such as of a Timeout, cannot leave them raised.
+      def raise_limits
+        names   = LIMITS.keys
+        current = uncached do
+          @connection.select_rows("SELECT #{names.map { |name| "@@SESSION.#{name}" }.join(', ')}", "IOStreams").first
+        end
+        lower = names.zip(current.map { |value| Integer(value) }).to_h.select { |name, value| lower?(value, LIMITS[name]) }
+        return if lower.empty?
 
-        @previous = current
-        self.net_write_timeout = NET_WRITE_TIMEOUT
+        @previous = lower
+        assign(LIMITS.slice(*lower.keys))
       end
 
-      # Sets back the `net_write_timeout` of the session, when it was raised, see #raise_net_write_timeout. When that
-      # fails, such as for a connection that was lost, or is interrupted, such as by a Timeout, the connection is ended
-      # instead, so that the pool never keeps a session with it raised, and a read whose every row was read does not fail
-      # for it.
+      # Returns [true|false] whether the limit of the session is lower than the one that the read needs, 0 being no limit.
+      def lower?(current, needed)
+        !current.zero? && (needed.zero? || current < needed)
+      end
+
+      # Sets back the limits of the session that were raised, see #raise_limits. When that fails, such as for a connection
+      # that was lost, or is interrupted, such as by a Timeout, the connection is ended instead, so that the pool never
+      # keeps a session with them raised, and a read whose every row was read does not fail for it.
       def set_back
         return unless @previous
 
         set = false
         begin
-          self.net_write_timeout = @previous
+          assign(@previous)
           set = true
         ensure
           @connection.disconnect! unless set
@@ -225,12 +241,10 @@ module IOStreams
         nil
       end
 
-      def net_write_timeout
-        uncached { @connection.select_value("SELECT @@SESSION.net_write_timeout", "IOStreams") }
-      end
-
-      def net_write_timeout=(seconds)
-        uncached { @connection.execute("SET SESSION net_write_timeout = #{Integer(seconds)}", "IOStreams") }
+      # Sets the supplied limits of the session, see LIMITS.
+      def assign(limits)
+        assignments = limits.map { |name, value| "#{name} = #{Integer(value)}" }.join(", ")
+        uncached { @connection.execute("SET SESSION #{assignments}", "IOStreams") }
       end
 
       # Yields without the query cache, and without clearing the query cache of the application, which Active Record
