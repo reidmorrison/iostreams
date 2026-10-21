@@ -3072,6 +3072,12 @@ keeps all of its digits, and writes every other value as itself, such as a numbe
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
 
+### Schemas in IOStreams 2.2 and 3.0
+
+IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
+runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
+as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30).
+
 ## Parquet files
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
@@ -5594,7 +5600,9 @@ and the security issues to check. For every change in each release, see the
 v3.0 is a major release. It reads text as UTF-8 by default, makes the breaking changes that were postponed from v2.1,
 and fixes bugs whose fixes change behavior that existing code may depend on. In v2.1 each postponed change logged a
 warning via `IOStreams.logger` when it would change the result, so check your logs from v2.1 for them before
-upgrading. Every change is listed in the
+upgrading. v2.2 reports a deprecation warning for each method or option that v3.0 deprecates, and for most of what
+v3.0 removes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22). Every change is
+listed in the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md); this section describes those that
 may need a change to your application, grouped by what they affect, each with its fix.
 
@@ -7287,6 +7295,83 @@ for each one.
 - Reading rows or records keeps a newline within a quoted CSV value in its row when CSV is the default format, such as
   for `data.txt`, a stream without a file name, or a spreadsheet, where the lines were split at the newline, which
   raised `CSV::MalformedCSVError`.
+
+## Upgrading to v2.2
+
+v2.2 prepares applications for v3.0. It adds the methods that replace those that v3.0 deprecates or removes, and
+reports a deprecation warning when the application uses one of those, so that it can move to the replacement while
+it still runs v2.2, and then upgrade to v3.0 with fewer changes. What is deprecated still works as before, and apart
+from the deprecation warnings, v2.2 changes no existing behavior, other than the
+[changes in behavior in v2.2](#changes-in-behavior-in-v22) below. Ruby shows the warnings only while
+`Warning[:deprecated]` is on, which Minitest and test-unit turn on, see
+[Seeing deprecation warnings](#seeing-deprecation-warnings).
+
+| v2.2 adds | In place of | See |
+|-----------|-------------|-----|
+| `#raw` | `stream(:none)` | [Data as it is stored](streams#data-as-it-is-stored) |
+| `#encoding` | `option(:encode, ...)` and `stream(:encode, ...)` | [Deprecated, and still working](#deprecated-and-still-working) |
+| `#schema` | `#format_options`, and `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` | [Moving a layout to a schema](#moving-a-layout-to-a-schema), and [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
+| `IOStreams.tabular_formats` | `IOStreams::Tabular.registered_formats`, which is internal | |
+
+v2.2 also reports a deprecation warning for most of what v3.0 removes, or raises `ArgumentError` for, such as
+`format:` supplied to each call of `#each`, `#reader` or `#writer`, the options that a writer ignores, the Zip
+writer's `zip_file_name`, and a file name ending in `.encode`. Unlike v3.0, v2.2 does not deprecate
+`IOStreams.enforce_column_restrictions=`, which it still follows.
+
+To prepare for v3.0: upgrade to v2.2, run your tests, which show the deprecation warnings, and move each use to what
+replaces it. Then read [Upgrading to v3.0](#upgrading-to-v30), since v3.0 also changes behavior that cannot be
+reported as a deprecation, such as reading text as UTF-8 by default.
+
+### Moving a layout to a schema
+
+A schema replaces `#format_options` in v2.2, as in v3.0. v2.2 still reads and writes a file with a layout as v2.1
+did, and its `IOStreams::Schema.from_layout` returns the schema of a layout, which reads and writes the file as a
+schema does in v3.0, so check that it reads the files of the application before it replaces the layout. How each
+column of a layout becomes a field, and what reads differently, are in
+[`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema).
+
+### Moving the column options to a schema
+
+A schema replaces `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` in
+v2.2, as in v3.0, including `required_columns:` alone, `cleanse_header: false` and a `nil` in `columns:`, with the
+schema properties `keyType`, `extraColumns` and `skip`, which IOStreams adds. The property of a schema that replaces
+each one, and what reads differently, are in
+[The column options of each call are deprecated](#the-column-options-of-each-call-are-deprecated).
+
+### A schema in v2.2 and v3.0
+
+A schema reads and writes the rows and records of a file in v2.2 as it does in v3.0, so code that uses one keeps
+working after an upgrade, apart from the changes that v3.0 makes to every file:
+
+* v2.2 reads the text of a file with a schema as UTF-8, and raises `IOStreams::Errors::InvalidEncoding` for text that
+  is not valid UTF-8, unless an encoding is set with `#encoding`, or the file is read with `#raw`. It keeps a byte
+  order mark at its start, which is part of the first column of the header row, and its line endings as they are,
+  while v3.0 removes the byte order mark, see [Text is read as UTF-8](#text-is-read-as-utf-8).
+* v2.2 counts the characters of the UTF-8 text of a fixed width file, while v3.0 reads it as ASCII, see
+  [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii).
+* A file without a schema is read and written in v2.2 as in v2.1: its `each(:array)` yields its header row as an
+  Array, rather than an `IOStreams::Row::HeaderRow`, see
+  [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays),
+  and it writes a `BigDecimal` that a copy reads from a file with a schema as `0.125e2`, see
+  [`BigDecimal` and `Time` values are written as their usual text](#bigdecimal-and-time-values-are-written-as-their-usual-text).
+* A writer with a schema in v2.2 takes binary text written to it, such as the values that v2.2 reads without a
+  schema, as UTF-8, while v3.0 reads text as UTF-8 to begin with.
+* Parquet files are only in v3.0.
+
+### Changes in behavior in v2.2
+
+* A failed copy no longer deletes a target that it did not write. `#copy_from`, `#copy_to` and `#move_to` open the
+  source before the target, as v3.0 does, and an error raised before the target is opened, such as for a source that
+  does not exist, or a mode that a copy does not convert with, leaves an existing target as it was, where v2.1 deleted
+  it, and a failed copy to S3 keeps the existing object. A copy that fails part way still leaves no part of the file,
+  see [When a copy fails](copy_files#when-a-copy-fails).
+* A mode that a copy does not convert with, such as `copy_from(source, mode: :stream)`, raises `ArgumentError` before
+  the source or the target is opened, with a message that starts with v2.1's, `Invalid mode: :stream`, and then lists
+  the modes.
+* A copy of a path, made with `dup`, has its own streams and options, so that changing it does not change the path
+  that it was copied from, and a copy with `convert: false` no longer changes the streams of the source or the target.
+  A copy with `convert: false` from a source with options set with `#option` copies it, where v2.1 raised
+  `ArgumentError`.
 
 ## Upgrading to v2.1
 

@@ -661,6 +661,12 @@ keeps all of its digits, and writes every other value as itself, such as a numbe
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
 
+### Schemas in IOStreams 2.2 and 3.0
+
+IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
+runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
+as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30).
+
 ## Parquet files
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
