@@ -120,8 +120,10 @@ module IOStreams
 
       yielding = false
       tag_failure(-> { yielding }) do
+        # Before the read checks out a connection of its own, since Active Record 7.2 borrows one of the pool to build it.
+        arel = @relation.arel
         with_source do |source, connection|
-          source.new(connection).open(Statement.new(connection, @relation.arel), columns) do |reader|
+          source.new(connection).open(Statement.new(connection, arel), columns) do |reader|
             # A failure to close the query, once the block has finished, is a failure of the query.
             Utils.finish_or_abort(finish: -> { yielding = false }) do
               yielding = true

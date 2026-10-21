@@ -384,6 +384,19 @@ class QueryStreamTest < Minitest::Test
           assert_kind_of IOStreams::Errors::Unavailable, error
           assert_equal "#{db.order.name} query: no connection free", error.message
         end
+
+        it "reads with a pool of one connection, which the read checks out, while the block runs no queries of its own" do
+          record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
+          db.namespace.send(:remove_const, :SingleRecord) if db.namespace.const_defined?(:SingleRecord, false)
+          db.namespace.const_set(:SingleRecord, record)
+          record.establish_connection(db.record.connection_db_config.configuration_hash.merge(pool: 1, checkout_timeout: 1))
+          single = Class.new(record) { self.table_name = "orders" }
+
+          assert_equal 3, each(IOStreams.stream(single.order(:id))).size
+          assert_equal 0, record.connection_pool.stat[:busy]
+        ensure
+          record&.connection_pool&.disconnect!
+        end
       end
 
       describe "the SQL of a query" do
