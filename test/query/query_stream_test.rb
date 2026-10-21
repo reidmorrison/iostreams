@@ -66,6 +66,21 @@ class QueryStreamTest < Minitest::Test
           end
         end
 
+        it "raises for the batches of a grouped relation, each of which would aggregate only its own rows" do
+          totals = db.order.group(:customer_id).select("customer_id, COUNT(*) AS orders")
+          names  = statements do
+            [totals, db.order.select("COUNT(*) AS orders").having("COUNT(*) > 1")].each do |relation|
+              error = assert_raises(ArgumentError) { IOStreams.stream(relation.in_batches(of: 2)) }
+
+              assert_equal "A grouped query cannot be read in batches, since each batch would aggregate only its own " \
+                           "rows: read it as one query instead, such as with `IOStreams.stream(relation)`", error.message
+            end
+          end
+
+          assert_empty names
+          assert_equal 3, each(IOStreams.stream(totals)).size
+        end
+
         it "only takes a relation" do
           assert_raises(ArgumentError) { IOStreams::Query::Stream.new([1, 2]) }
         end

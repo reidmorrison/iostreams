@@ -45,8 +45,9 @@ module IOStreams
     #   query: [ActiveRecord::Relation|ActiveRecord::Batches::BatchEnumerator]
     #     The relation to read as one query, or the batches of one to read in those batches.
     #
-    # Raises ArgumentError for any other object, for a version of Active Record before 7.2, and for a relation that loads
-    # the associations of models, with `includes`, `preload` or `eager_load`, since its rows are not models.
+    # Raises ArgumentError for any other object, for a version of Active Record before 7.2, for a relation that loads
+    # the associations of models, with `includes`, `preload` or `eager_load`, since its rows are not models, and for the
+    # batches of a grouped relation, since each batch would aggregate only its own rows.
     def initialize(query)
       unless self.class.query?(query)
         raise(ArgumentError, "Not an Active Record relation: #{query.class.name}, see IOStreams.stream")
@@ -57,6 +58,7 @@ module IOStreams
       @relation = @batches ? @batches.relation : query
       @model    = @relation.klass
       reject_associations
+      reject_grouped_batches
       @columns = nil
     end
 
@@ -212,6 +214,16 @@ module IOStreams
 
       raise(ArgumentError, "#{names.join(', ')} cannot be read as rows, since they load the associations of models: " \
                            "join their tables with `joins` and select their columns instead")
+    end
+
+    # Raises ArgumentError for the batches of a relation that is grouped, with `group` or `having`, since Rails reads
+    # each batch as the query of only the rows whose primary keys it found for that batch, so each batch would aggregate
+    # only those rows, rather than every row of each group.
+    def reject_grouped_batches
+      return unless @batches && !(@relation.group_values.empty? && @relation.having_clause.empty?)
+
+      raise(ArgumentError, "A grouped query cannot be read in batches, since each batch would aggregate only its own " \
+                           "rows: read it as one query instead, such as with `IOStreams.stream(relation)`")
     end
   end
 end
