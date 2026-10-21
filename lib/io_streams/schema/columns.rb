@@ -9,8 +9,9 @@ module IOStreams
     #
     # Converts each row and record that is read into the values of its fields, in the order of the fields, and gives the
     # value of each field of each row and record that is written, so that the columns that the schema does not list are
-    # skipped. A column is matched once, when the header row is read or written, or once for each list of keys of the
-    # records, which are usually the same for every record, rather than for each value.
+    # skipped, unless reading keeps them, see `IOStreams::Schema#keep_extra?`, after the fields. A column is matched
+    # once, when the header row is read or written, or once for each list of keys of the records, which are usually the
+    # same for every record, rather than for each value.
     #
     # Each reader or writer has its own, see `IOStreams::Schema#columns`, since it holds the columns of its file.
     class Columns
@@ -19,10 +20,21 @@ module IOStreams
       # whose keys are all different do not fill the memory.
       PLANS = 64
 
+      # The columns kept of a file whose schema does not keep them, see #extra_columns.
+      NO_EXTRA = [].freeze
+
       def initialize(schema)
         @schema       = schema
-        # Each field of the header row read, in the order of the fields, with the position of its column, and the
-        # number of columns of the header row.
+        @keep_extra   = schema.keep_extra?
+        # The fields whose values the rows and records read have, those that are not skipped, see
+        # `IOStreams::Schema::Field#skip?`, in order, and whether any is skipped.
+        @values       = schema.fields.reject(&:skip?).freeze
+        @skips        = @values.size != schema.fields.size
+        # The position and key of each column of the header row read that the schema does not list, which it keeps, in
+        # the order of the columns, see #extra_columns.
+        @extra        = NO_EXTRA
+        # Each field of the header row read, in the order of the fields, with the position of its column and its key
+        # in the records read, see `IOStreams::Schema#key`, and the number of columns of the header row.
         @matched      = nil
         @width        = nil
         # Whether the columns are the fields in order, for a file without a header row, see #match_fields.
@@ -48,7 +60,8 @@ module IOStreams
       # such as the empty column after a delimiter at the end of the line, which a spreadsheet exports, are not columns,
       # see #named, so a value in one is a value after the last column, see #row.
       #
-      # Returns [Array<String|Symbol>] the names of the fields of the columns, in the order of the fields.
+      # Returns [Array<String|Symbol>] the keys of the fields of the columns in the records read, in the order of the
+      # fields, see #names.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when the columns do not match the fields, see
       # `IOStreams::Schema#check_columns`.
@@ -56,7 +69,10 @@ module IOStreams
         labels = named(labels)
         found, unknown, positions = find_fields(labels, "column")
         @schema.check_columns(found, unknown, ordered: true, noun: "column")
-        @matched = @schema.fields.filter_map { |field| [field, positions[field]] if positions.key?(field) }
+        @matched = @schema.fields.filter_map do |field|
+          [field, positions[field], @schema.key(field)] if positions.key?(field) && !field.skip?
+        end
+        @extra   = extra_columns(labels, positions, "column")
         @width   = labels.size
         names
       end
@@ -76,8 +92,10 @@ module IOStreams
       # matches itself: by the position of each field of a fixed width file, or by the keys of each record of JSON,
       # see #read_row.
       def match_in_order
-        @matched = @schema.fields.each_with_index.to_a
-        @width   = @matched.size
+        @matched = @schema.fields.each_with_index.filter_map do |field, index|
+          [field, index, @schema.key(field)] unless field.skip?
+        end
+        @width = @schema.fields.size
       end
 
       # Returns [true|false] whether the columns of the file read are known, see #match.
@@ -99,7 +117,7 @@ module IOStreams
         labels = named(labels)
         found, unknown, positions = find_fields(labels, "column")
         @schema.check_written_columns(found, unknown, fields_in_order: @fields_in_order)
-        @written       = @schema.fields.map { |field| [field, positions[field]] }
+        @written       = @schema.fields.map { |field| [field, field.skip? ? nil : positions[field]] }
         @written_width = labels.size
       end
 
@@ -108,42 +126,52 @@ module IOStreams
         !@written.nil?
       end
 
-      # Returns [Array<String|Symbol>] the names of the fields of the columns, in the order of the fields, each a String
-      # of its own, so that a caller that changes one does not change the field.
+      # Returns [Array<String|Symbol>] the keys of the fields of the columns in the records read, in the order of the
+      # fields, which are their names unless the schema forms them otherwise, see `IOStreams::Schema#key`, then those of
+      # the columns that it keeps, see #extra_columns, each a String of its own, so that a caller that changes one does
+      # not change the field.
       def names
-        matched.map { |field, _index| field.name.dup }
+        names = matched.map { |_field, _index, key| key.dup }
+        @extra.each { |extra| names << extra.last.dup }
+        names
       end
 
       # Returns [Array] the values of a row read, in the order of the columns, converted to the type of each field,
-      # in the order of the fields, without the columns that the schema does not list.
+      # in the order of the fields, without the columns that the schema does not list, unless it keeps them, see
+      # #extra_columns, whose values follow, as they are.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
       def row(values)
         columns = matched
         check_extra(values, @width, "column")
-        columns.map { |field, index| field.cast(values[index]) }
+        row = columns.map { |field, index| field.cast(values[index]) }
+        @extra.each { |extra| row << values[extra.first] }
+        row
       end
 
       # Returns [Hash] the values of a row read, in the order of the columns, converted to the type of each field, by
-      # the name of the field, in the order of the fields.
+      # the key of the field, see `IOStreams::Schema#key`, in the order of the fields, then the values of the columns
+      # that the schema keeps, see #extra_columns, as they are.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
       def record(values)
         columns = matched
         check_extra(values, @width, "column")
         record = {}
-        columns.each { |field, index| record[field.name] = field.cast(values[index]) }
+        columns.each { |field, index, key| record[key] = field.cast(values[index]) }
+        @extra.each { |index, key| record[key] = values[index] }
         record
       end
 
-      # Returns [Hash] a record read, whose keys are its columns, converted to the type of each field, by the name of
-      # the field, in the order of the fields.
+      # Returns [Hash] a record read, whose keys are its columns, converted to the type of each field, by the key of
+      # the field, see `IOStreams::Schema#key`, in the order of the fields, then the values of the keys that the schema
+      # keeps, see #extra_columns, as they are.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when its keys do not match the fields, see
       # `IOStreams::Schema#check_columns`.
       def read_hash(hash)
         record = {}
-        read_plan(hash.keys).each { |field, key| record[field.name] = field.cast(hash[key]) }
+        read_plan(hash.keys).each { |field, key, name| record[name] = field ? field.cast(hash[key]) : hash[key] }
         record
       end
 
@@ -153,7 +181,15 @@ module IOStreams
       #
       # Raises `IOStreams::Errors::InvalidHeader` when its keys do not match the fields, see
       # `IOStreams::Schema#check_columns`.
+      # Raises ArgumentError when the schema keeps the keys that it does not list, see #extra_columns, which the rows
+      # cannot hold, since each record can have other keys, which the header row of the rows does not name.
       def read_row(hash)
+        if @keep_extra
+          raise(ArgumentError, "A schema with extraColumns \"keep\" cannot read the rows of a format whose records " \
+                               "supply their own keys, such as JSON, since each record can have keys that the header row " \
+                               "of the rows does not name. Read its records, with each(:hash)")
+        end
+
         keys = hash.keys
         plan = keys.eql?(@row_keys) ? @row_plan : row_plan(keys)
         plan.map { |field, key| key.nil? ? nil : field.cast(hash[key]) }
@@ -235,8 +271,9 @@ module IOStreams
       # Returns [Array] the field of each label that is one, in the order of the labels, the labels that are not
       # fields, and the position of the label of each field.
       #
-      # When `by_name`, of two labels that are the same field, the one that is its name is the field, and the other is
-      # not a field, such as the key `"zip"` of a record written that also has the key `:zip` of the field `:zip`.
+      # When `by_name`, of two labels that are the same field, the one that is its name or key, see
+      # `IOStreams::Schema#key`, is the field, and the other is not a field, such as the key `"zip"` of a record written
+      # that also has the key `:zip` of the field `:zip`.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when two labels are the same field, such as `id` and `ID`.
       def find_fields(labels, noun, by_name: false)
@@ -246,13 +283,13 @@ module IOStreams
         labels.each_with_index do |label, index|
           field = @schema.field_for(label, noun)
           # The label before it is the name of the field, so this one is not the field.
-          field = nil if by_name && field && positions.key?(field) && labels[positions[field]].eql?(field.name)
+          field = nil if by_name && field && positions.key?(field) && own_label?(labels[positions[field]], field)
           if field.nil?
             unknown << label
           elsif !positions.key?(field)
             positions[field] = index
             found << field
-          elsif by_name && label.eql?(field.name)
+          elsif by_name && own_label?(label, field)
             unknown << labels[positions[field]]
             positions[field] = index
           else
@@ -266,9 +303,45 @@ module IOStreams
         [found, unknown, positions]
       end
 
-      # Returns [Array<Array(IOStreams::Schema::Field, Object)>] each field that the keys of a record read supply, in
-      # the order of the fields, with its key, worked out once for each list of keys. The keys are compared as a Hash
-      # compares them, so that a key that is only `==` to another, such as `1.0` and `1`, is not taken for it.
+      # Returns [Array<Array(Integer, String|Symbol)>] the position and key of each label that is not a field, in the
+      # order of the labels, when the schema keeps them, see `IOStreams::Schema#keep_extra?`, each by the key that it
+      # forms from the label, see `IOStreams::Schema#key_for`, without those without a name, which are blank, see
+      # `IOStreams::Utils.blank_value?`, since they cannot be a key.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` when a label kept has the key of a field, or of another label kept,
+      # such as `Notes` and `notes` with keyType "cleansed", since a record could not hold both.
+      def extra_columns(labels, positions, noun)
+        return NO_EXTRA unless @keep_extra
+
+        taken = positions.values.to_h { |index| [index, true] }
+        keys  = positions.to_h { |field, index| [@schema.key(field), labels[index]] }
+        extra = []
+        labels.each_with_index do |label, index|
+          next if taken.key?(index) || IOStreams::Utils.blank_value?(label)
+
+          key = @schema.key_for(label)
+          if keys.key?(key)
+            raise(IOStreams::Errors::InvalidHeader,
+                  "The #{noun}s #{keys[key].inspect} and #{label.inspect} are both the key #{key.inspect} of the records " \
+                  "read, so either could be meant")
+          end
+
+          keys[key] = label
+          extra << [index, key]
+        end
+        extra.freeze
+      end
+
+      # Returns [true|false] whether the label is the name or key of the field itself, see #find_fields.
+      def own_label?(label, field)
+        label.eql?(field.name) || label.eql?(@schema.key(field))
+      end
+
+      # Returns [Array<Array(IOStreams::Schema::Field, Object, String|Symbol)>] each field that the keys of a record
+      # read supply, in the order of the fields, with the key that supplies it, and its key in the record read, see
+      # `IOStreams::Schema#key`, then each key that the schema keeps, see #extra_columns, without a field, worked out
+      # once for each list of keys. The keys are compared as a Hash compares them, so that a key that is only `==` to
+      # another, such as `1.0` and `1`, is not taken for it.
       def read_plan(keys)
         return @read_plan if keys.eql?(@read_keys)
 
@@ -276,20 +349,24 @@ module IOStreams
           found, unknown, positions = find_fields(keys, "key")
           @schema.check_columns(found, unknown, ordered: false, noun: "key")
           @read_plans.clear if @read_plans.size >= PLANS
-          @read_plans[keys] = @schema.fields.filter_map { |field| [field, keys[positions[field]]] if positions.key?(field) }
+          plan = @schema.fields.filter_map do |field|
+            [field, keys[positions[field]], @schema.key(field)] if positions.key?(field) && !field.skip?
+          end
+          extra_columns(keys, positions, "key").each { |index, name| plan << [nil, keys[index], name] }
+          @read_plans[keys] = plan
         end
         @read_keys = keys
         @read_plan
       end
 
-      # Returns [Array<Array(IOStreams::Schema::Field, Object)>] each field of the schema, in order, with the key of a
-      # record read that supplies it, see #read_plan, or nil when the record does not, worked out once for each list of
-      # keys. A key is never nil, since no field is the column nil, see `IOStreams::Schema#field_for`.
+      # Returns [Array<Array(IOStreams::Schema::Field, Object)>] each field of the schema that is not skipped, in order,
+      # with the key of a record read that supplies it, see #read_plan, or nil when the record does not, worked out once
+      # for each list of keys. A key is never nil, since no field is the column nil, see `IOStreams::Schema#field_for`.
       def row_plan(keys)
         @row_plan = @row_plans.fetch(keys) do
-          supplied = read_plan(keys).to_h
+          supplied = read_plan(keys).to_h { |field, key, _name| [field, key] }
           @row_plans.clear if @row_plans.size >= PLANS
-          @row_plans[keys] = @schema.fields.map { |field| [field, supplied[field]] }
+          @row_plans[keys] = @values.map { |field| [field, supplied[field]] }
         end
         @row_keys = keys
         @row_plan
@@ -299,7 +376,8 @@ module IOStreams
       # of a record written that supplies it, or nil when the record does not, and its position, worked out once for
       # each list of keys, which are compared as a Hash compares them, see #read_plan. When `fieldsMatch` skips the keys
       # that are not fields, of two keys that are the same field, the one that is its name supplies it, as a layout of
-      # the deprecated format options always took it.
+      # the deprecated format options always took it. A field that is skipped, see `IOStreams::Schema::Field#skip?`,
+      # takes no value, so that it is written empty, whatever the key of its column holds.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when a key is not a field, unless `fieldsMatch` skips it.
       def write_plan(keys)
@@ -308,7 +386,7 @@ module IOStreams
           @schema.check_unknown(unknown, noun: "key", fields_in_order: @fields_in_order)
           @write_plans.clear if @write_plans.size >= PLANS
           @write_plans[keys] = @schema.fields.each_with_index.map do |field, index|
-            [field, positions.key?(field) ? keys[positions[field]] : nil, index]
+            [field, !field.skip? && positions.key?(field) ? keys[positions[field]] : nil, index]
           end
         end
         @write_keys = keys
@@ -316,10 +394,13 @@ module IOStreams
       end
 
       # Returns [Array|Hash] the rendered value of each field from the record, by the key that the plan gives for the
-      # field, see #render.
+      # field, see #render. A record of a format whose records supply their own keys, such as JSON, has no key for a
+      # field that is skipped, see `IOStreams::Schema::Field#skip?`, since it has no column whose place it holds.
       def render_record(row, form, keyed, plan)
         out = keyed ? {} : ::Array.new(plan.size)
         plan.each do |field, key, index|
+          next if keyed && field.skip?
+
           out[keyed ? field.name : index] = field.render(key.nil? ? nil : row[key], form)
         end
         out
@@ -330,6 +411,7 @@ module IOStreams
       # column, see #check_extra.
       def render_values(row, form, keyed)
         return render_columns(row, form, keyed) if @written
+        return render_skipping(row, form, keyed) if @skips
 
         fields = @schema.fields
         check_extra(row, fields.size, "field")
@@ -338,12 +420,33 @@ module IOStreams
         out
       end
 
+      # Returns [Array|Hash] the rendered value of each field from a row whose values are those of the fields that are
+      # not skipped, see `IOStreams::Schema::Field#skip?`, in order, as the rows read have them, with an empty value for
+      # each field that is skipped, or no key, see #render_record.
+      def render_skipping(row, form, keyed)
+        check_extra(row, @values.size, "field")
+        out      = keyed ? {} : ::Array.new(@schema.fields.size)
+        position = 0
+        @schema.fields.each_with_index do |field, index|
+          if field.skip?
+            out[index] = field.render(nil, form) unless keyed
+          else
+            out[keyed ? field.name : index] = field.render(row[position], form)
+            position += 1
+          end
+        end
+        out
+      end
+
       # Returns [Array|Hash] the rendered value of each field from a row whose values are in the columns of the header
-      # row written, see #match_written.
+      # row written, see #match_written, with an empty value for each field that is skipped, or no key, see
+      # #render_record.
       def render_columns(row, form, keyed)
         check_extra(row, @written_width, "column")
         out = keyed ? {} : ::Array.new(@written.size)
         @written.each_with_index do |(field, position), index|
+          next if keyed && field.skip?
+
           out[keyed ? field.name : index] = field.render(position.nil? ? nil : row[position], form)
         end
         out

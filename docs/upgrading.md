@@ -1430,8 +1430,9 @@ Without `fieldsMatch: "subset"`, a schema has `"exact"`, so that writing a recor
 `IOStreams::Errors::InvalidHeader`, rather than skip it as a layout does.
 
 To see the schema of a layout, set the layout with `#format_options` and call `#schema`. Saved as a JSON file, the
-names of its fields are strings, so the keys of the records read are strings too, where a layout with Symbol keys
-returns Symbol keys. The layout is translated each time that the file is read or written, as it was used before, so
+names of its fields are strings, so when every key of the layout is a Symbol, its schema has `keyType: "symbol"`,
+which keeps the keys of the records read Symbols, as the layout returns them, see
+[Keys of the records read](formats#keys-of-the-records-read). The layout is translated each time that the file is read or written, as it was used before, so
 `#schema` and the file read agree with the layout, even when it is changed after it is set. A layout only describes a
 fixed width file, so it raises `ArgumentError` for any other format, as it did before.
 
@@ -1486,11 +1487,13 @@ a schema that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|
-| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write |
+| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write. A `nil` column, which was not read, is a field with `skip: true`, see [Field properties](formats#field-properties) |
 | `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
 | `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
-| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
+| `required_columns:` without `allowed_columns:`, which also read the other columns | Also `fieldsMatch: "subset"`, `extraColumns: "keep"` and `keyType: "cleansed"`, which keep the other columns, keyed as `cleanse_header` cleansed them, see [Keeping the other columns](formats#keeping-the-other-columns) |
+| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to, or with `keyType: "cleansed"` the names once cleansed, as `cleanse_header: true` cleansed the columns, see [Keys of the records read](formats#keys-of-the-records-read) |
+| `cleanse_header: false` without the other options, which read every column as it is written | `fieldsMatch: "subset"`, `extraColumns: "keep"` and no fields |
 
 ~~~ruby
 # Before (deprecated)

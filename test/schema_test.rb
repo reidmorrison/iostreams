@@ -216,7 +216,8 @@ class SchemaTest < Minitest::Test
       it "returns the schema of the layout as a Hash, without a deprecation warning" do
         expected = {
           fields:      [{name: :name, type: "string", width: 10, truncate: true}, {name: :zip, type: "integer", width: 5, start: 13}],
-          fieldsMatch: "subset"
+          fieldsMatch: "subset",
+          keyType:     "symbol"
         }
 
         assert_equal expected, IOStreams::Schema.from_layout(layout: layout)
@@ -226,6 +227,21 @@ class SchemaTest < Minitest::Test
         path = assert_deprecated(/format_options/) { IOStreams.stream(StringIO.new).format_options(layout: layout, truncate: false) }
 
         assert_equal path.schema, IOStreams::Schema.from_layout(layout: layout, truncate: false)
+      end
+
+      it "gives a layout whose keys are all Symbols keyType symbol, so that a schema held as JSON reads the same keys" do
+        schema = JSON.parse(JSON.generate(IOStreams::Schema.from_layout(layout: layout)))
+        path   = IOStreams.stream(StringIO.new("Jack        01234\n")).format(:fixed).schema(schema)
+
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_equal [{name: "Jack", zip: 1234}], records
+      end
+
+      it "leaves out keyType for a layout with a String key, whose keys stay as they are" do
+        refute IOStreams::Schema.from_layout(layout: [{size: 2, key: :id}, {size: 3, key: "code"}]).key?(:keyType)
+        refute IOStreams::Schema.from_layout(layout: [{size: 2}]).key?(:keyType)
       end
 
       it "translates a layout read from JSON" do
@@ -316,6 +332,105 @@ class SchemaTest < Minitest::Test
       it "compares the ASCII letters of text that is not Unicode" do
         assert_equal "name", IOStreams::Schema.match_key("Na\xE9me".b)
         assert_nil IOStreams::Schema.match_key("\xFF".dup.force_encoding("UTF-8"))
+      end
+    end
+
+    describe "a field that is skipped" do
+      it "takes only the properties that place its column" do
+        field = IOStreams::Schema::Field.new(name: "filler", skip: true, type: "any", width: 3, start: 4, aliases: ["x"], title: "Filler", "tool:x" => 1)
+
+        assert_predicate field, :skip?
+        refute_predicate IOStreams::Schema::Field.new(name: "id"), :skip?
+        refute_predicate IOStreams::Schema::Field.new(name: "id", skip: false, type: "integer"), :skip?
+      end
+
+      it "raises for a type, constraints or any other property that reads its values" do
+        [{type: "integer"}, {constraints: {required: true}}, {format: "%Y"}, {truncate: true}].each do |property|
+          error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: true, **property) }
+          assert_equal "Field \"filler\": #{property.keys.first.to_s.inspect} does not apply to a field with skip: true, which only " \
+                       "holds the place of its column, since its values are not read", error.message
+        end
+      end
+
+      it "raises for a skip that is not true or false" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: "yes") }
+        assert_equal 'Field "filler": skip must be true or false: "yes"', error.message
+      end
+    end
+
+    describe "extraColumns" do
+      it "keeps the columns that the schema does not list only with a fieldsMatch that accepts them" do
+        assert_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "subset", extraColumns: "keep"), :keep_extra?
+        assert_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "partial", extraColumns: "keep"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "partial", extraColumns: "skip"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "exact", extraColumns: "skip"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: []), :keep_extra?
+
+        %w[exact equal superset].each do |fields_match|
+          error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: fields_match, extraColumns: "keep") }
+          assert_equal "The schema extraColumns \"keep\" keeps the columns that the schema does not list, which fieldsMatch " \
+                       "#{fields_match.inspect} does not accept; \"subset\" and \"partial\" accept them", error.message
+        end
+      end
+
+      it "raises for a value that it does not know" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: "subset", extraColumns: true) }
+        assert_equal 'The schema extraColumns must be one of "skip" and "keep": true', error.message
+      end
+    end
+
+    describe "#key_for" do
+      it "forms the key of a name as keyType says" do
+        keys = %w[string cleansed symbol cleansedSymbol].map do |key_type|
+          schema = IOStreams::Schema.new(fields: [], keyType: key_type)
+          [schema.key_for("First Name"), schema.key_for(:Zip)]
+        end
+
+        assert_equal [["First Name", "Zip"], %w[first_name zip], [:"First Name", :Zip], %i[first_name zip]], keys
+      end
+
+      it "keeps the names as they are given without keyType" do
+        schema = IOStreams::Schema.new(fields: [{name: "First Name"}, {name: :zip}])
+
+        assert_nil schema.key_type
+        assert_equal(["First Name", :zip], schema.fields.map { |field| schema.key(field) })
+      end
+
+      it "returns frozen Strings, which a record uses as its keys without copying them" do
+        schema = IOStreams::Schema.new(fields: [], keyType: "cleansed")
+
+        assert_predicate schema.key_for(+"First Name"), :frozen?
+        assert_predicate IOStreams::Schema.new(fields: []).key_for(+"Name"), :frozen?
+      end
+
+      it "raises for a keyType that it does not know" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], keyType: "upcase") }
+        assert_equal 'The schema keyType must be one of "string", "cleansed", "symbol" and "cleansedSymbol": "upcase"', error.message
+      end
+
+      it "raises for two fields with the same key, which a record could not hold" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "First Name"}, {name: "first-name"}], keyType: "cleansed") }
+        assert_equal 'The fields "First Name" and "first-name" both have the key "first_name", which keyType "cleansed" forms from ' \
+                     "their names, but a record read holds each field by a key of its own", error.message
+      end
+
+      it "raises for a key that is the name or an alias of another field, since a column of that name could be either" do
+        error = assert_raises(ArgumentError) do
+          IOStreams::Schema.new(fields: [{name: "First Name"}, {name: "given", aliases: ["first_name"]}], keyType: "cleansed")
+        end
+        assert_equal 'Field "given": the alias "first_name" is already the name or an alias of the field "First Name"', error.message
+
+        error = assert_raises(ArgumentError) do
+          IOStreams::Schema.new(fields: [{name: "given", aliases: ["first_name"]}, {name: "First Name"}], keyType: "cleansed")
+        end
+        assert_equal 'Field "First Name": its key "first_name", which keyType "cleansed" forms, is already the name or an alias ' \
+                     'of the field "given"', error.message
+      end
+
+      it "matches a column or key that is the key of a field to the field" do
+        schema = IOStreams::Schema.new(fields: [{name: "Area (m²)"}], keyType: "cleansed")
+
+        assert_equal "Area (m²)", schema.field_for("area_m").name
       end
     end
 

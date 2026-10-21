@@ -1288,7 +1288,8 @@ class StreamTest < Minitest::Test
             {name: :name, type: "string", width: 4, start: 4},
             {name: :pay, type: "number", width: 6, floatNumber: true, decimals: 2}
           ],
-          fieldsMatch: "subset"
+          fieldsMatch: "subset",
+          keyType:     "symbol"
         }
 
         assert_equal expected, stream.schema
@@ -2126,6 +2127,208 @@ class StreamTest < Minitest::Test
         it "matches the field named as the column once cleansed, which drops the characters that Unicode makes digits" do
           assert_equal [{"area_m" => "12", "score" => "3"}], read("Area (m²),Score ①\n12,3\n", schema: {fields: [{name: "area_m"}, {name: "score"}]})
           assert_equal "Area (m²)\n12\n", write([{"area_m" => 12}], schema: {fields: [{name: "Area (m²)"}]})
+        end
+      end
+
+      describe "keyType" do
+        let(:readable) { {fields: [{name: "First Name"}, {name: "Zip", type: "integer"}]} }
+
+        let(:csv) { "First Name,Zip\nJack,12345\n" }
+
+        it "forms the keys of the records read from the names of the fields" do
+          assert_equal [{"First Name" => "Jack", "Zip" => 12_345}], read(csv, schema: readable.merge(keyType: "string"))
+          assert_equal [{"first_name" => "Jack", "zip" => 12_345}], read(csv, schema: readable.merge(keyType: "cleansed"))
+          assert_equal [{"First Name": "Jack", Zip: 12_345}], read(csv, schema: readable.merge(keyType: "symbol"))
+          assert_equal [{first_name: "Jack", zip: 12_345}], read(csv, schema: readable.merge(keyType: "cleansedSymbol"))
+        end
+
+        it "forms the keys of JSON records the same way" do
+          assert_equal [{first_name: "Jack", zip: 12_345}],
+                       read(%({"First Name":"Jack","Zip":12345}\n), file_name: "people.json", schema: readable.merge(keyType: "cleansedSymbol"))
+        end
+
+        it "makes String names Symbols, so that a schema held as JSON reads Symbol keys" do
+          schema = JSON.parse(JSON.generate(fields: [{name: :id, type: "integer"}, {name: :name}], keyType: "symbol"))
+
+          assert_equal [{id: 1, name: "Jack"}], read("id,name\n1,Jack\n", schema: schema)
+        end
+
+        it "makes Symbol names Strings" do
+          assert_equal [{"id" => 1}], read("id\n1\n", schema: {fields: [{name: :id, type: "integer"}], keyType: "string"})
+        end
+
+        it "yields the keys as the header row of the rows read" do
+          rows = read(csv, :array, schema: readable.merge(keyType: "cleansedSymbol"))
+
+          assert_equal [%i[first_name zip], ["Jack", 12_345]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "writes the names of the fields as the header row, from records keyed as the records read" do
+          schema = readable.merge(keyType: "cleansedSymbol")
+
+          assert_equal csv, write([{first_name: "Jack", zip: 12_345}], schema: schema)
+          assert_equal csv, write(read(csv, schema: schema), schema: schema)
+          assert_equal csv, write(read(csv, :array, schema: schema), :array, schema: schema)
+        end
+
+        it "writes JSON keyed by the names of the fields" do
+          assert_equal %({"First Name":"Jack","Zip":12345}\n),
+                       write([{first_name: "Jack", zip: 12_345}], file_name: "people.json", schema: readable.merge(keyType: "cleansedSymbol"))
+        end
+      end
+
+      describe "extraColumns" do
+        let(:upload) { "First Name,Zip,Notes\nJack,12345,hi\n" }
+
+        # Returns [Array] the records read with the deprecated column options, as v2.1 read them.
+        def read_deprecated(text, pattern, **options)
+          records = []
+          assert_deprecated(pattern) do
+            IOStreams::Stream.new(StringIO.new(text)).file_name("people.csv").each(:hash, **options) { |record| records << record }
+          end
+          records
+        end
+
+        it "keeps the columns that the schema does not list, as required_columns: alone did" do
+          schema = {
+            fieldsMatch:  "subset",
+            extraColumns: "keep",
+            keyType:      "cleansed",
+            fields:       [{name: "zip", constraints: {required: true}, allowBlank: true}]
+          }
+          records = read(upload, schema: schema)
+
+          assert_equal [{"zip" => "12345", "first_name" => "Jack", "notes" => "hi"}], records
+          assert_equal read_deprecated(upload, /required_columns: is deprecated/, required_columns: ["zip"]), records
+          assert_equal %w[zip first_name notes], records.first.keys
+        end
+
+        it "keeps every column as it is written, with no fields, as cleanse_header: false alone did" do
+          schema  = {fieldsMatch: "subset", extraColumns: "keep", fields: []}
+          records = read(upload, schema: schema)
+
+          assert_equal [{"First Name" => "Jack", "Zip" => "12345", "Notes" => "hi"}], records
+          assert_equal read_deprecated(upload, /cleanse_header: is deprecated/, cleanse_header: false), records
+        end
+
+        it "keeps them by the keys that keyType forms" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", keyType: "cleansedSymbol", fields: [{name: "zip", type: "integer"}]}
+
+          assert_equal [{zip: 12_345, first_name: "Jack", notes: "hi"}], read(upload, schema: schema)
+        end
+
+        it "keeps them after the fields in the rows read, and their keys in the header row" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "zip", type: "integer"}]}
+          rows   = read(upload, :array, schema: schema)
+
+          assert_equal [["zip", "First Name", "Notes"], [12_345, "Jack", "hi"]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "keeps the keys of JSON records that the schema does not list, with their values as they are" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "id", type: "integer"}]}
+          json   = %({"id":"7","tags":["a"],"age":21}\n{"id":"8"}\n)
+
+          assert_equal [{"id" => 7, "tags" => ["a"], "age" => 21}, {"id" => 8}], read(json, file_name: "people.json", schema: schema)
+        end
+
+        it "raises for the rows of JSON, since each record can have keys that the header row does not name" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "id"}]}
+
+          error = assert_raises(ArgumentError) { read(%({"id":"7","age":21}\n), :array, file_name: "people.json", schema: schema) }
+          assert_match(/extraColumns "keep" cannot read the rows of a format whose records supply their own keys/, error.message)
+        end
+
+        it "raises for two columns kept with the same key, rather than lose one of them" do
+          schema = {fieldsMatch: "subset", extraColumns: "keep", keyType: "cleansed", fields: []}
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { read("Notes,notes\na,b\n", schema: schema) }
+          assert_equal 'The columns "Notes" and "notes" are both the key "notes" of the records read, so either could be meant', error.message
+        end
+
+        it "does not keep a column without a name" do
+          schema = {fieldsMatch: "subset", extraColumns: "keep", fields: []}
+
+          assert_equal [{"a" => "1", "c" => "3"}], read("a,,c\n1,2,3\n", schema: schema)
+        end
+
+        it "skips them with skip, as without extraColumns" do
+          schema = {fieldsMatch: "partial", extraColumns: "skip", fields: [{name: "zip"}]}
+
+          assert_equal [{"zip" => "12345"}], read(upload, schema: schema)
+        end
+
+        it "writes only the fields" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "id"}, {name: "name"}]}
+
+          assert_equal "id,name\n1,Jack\n", write([{"id" => 1, "name" => "Jack", "notes" => "hi"}], schema: schema)
+        end
+
+        it "is ignored by a fixed width file, which has only its fields" do
+          schema  = {fieldsMatch: "subset", extraColumns: "keep", fields: [{name: "id", width: 2}], width: 5}
+          records = []
+          IOStreams::Stream.new(StringIO.new("12abc\n")).format(:fixed).schema(schema).each(:hash) { |record| records << record }
+
+          assert_equal [{"id" => "12"}], records
+        end
+      end
+
+      describe "a field that is skipped" do
+        let(:skipping) { {header: false, fields: [{name: "name"}, {name: "unused", skip: true}, {name: "zip", type: "integer"}]} }
+
+        it "reads the column but leaves it out of the records, as a nil in columns: did" do
+          records = read("Jack,x,12345\n", schema: skipping)
+
+          assert_equal [{"name" => "Jack", "zip" => 12_345}], records
+          deprecated = []
+          assert_deprecated(/columns: is deprecated/) do
+            IOStreams::Stream.new(StringIO.new("Jack,x,12345\n")).file_name("people.csv").
+              each(:hash, columns: ["name", nil, "zip"]) { |record| deprecated << record }
+          end
+          assert_equal [{"name" => "Jack", "zip" => "12345"}], deprecated
+        end
+
+        it "leaves it out of the rows read and of their header row" do
+          assert_equal [%w[name zip], ["Jack", 12_345]], read("Jack,x,12345\n", :array, schema: skipping)
+        end
+
+        it "still counts its column, so a value after the last column raises" do
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { read("Jack,x,12345,y\n", schema: skipping) }
+          assert_match(/1 value after the last column/, error.message)
+        end
+
+        it "writes an empty value in its column, from records and from the rows read" do
+          assert_equal "Jack,,12345\n", write([{"name" => "Jack", "zip" => 12_345}], schema: skipping)
+          assert_equal "Jack,,12345\n", write([{"name" => "Jack", "unused" => "x", "zip" => 12_345}], schema: skipping)
+          assert_equal "Jack,,12345\n", write(read("Jack,x,12345\n", :array, schema: skipping), :array, schema: skipping)
+          assert_equal "Jack,,12345\n", write([["Jack", 12_345]], :array, schema: skipping)
+        end
+
+        it "matches its column in a header row, which writing writes" do
+          schema = {fieldsMatch: "exact", fields: [{name: "name"}, {name: "unused", skip: true}, {name: "zip"}]}
+
+          assert_equal [{"name" => "Jack", "zip" => "12345"}], read("name,unused,zip\nJack,x,12345\n", schema: schema)
+          assert_equal "name,unused,zip\nJack,,12345\n", write([{"name" => "Jack", "zip" => "12345"}], schema: schema)
+        end
+
+        it "leaves its key out of JSON records, when reading and when writing" do
+          schema = {fieldsMatch: "partial", fields: [{name: "name"}, {name: "unused", skip: true}]}
+
+          assert_equal [{"name" => "Jack"}], read(%({"name":"Jack","unused":"x"}\n), file_name: "people.json", schema: schema)
+          assert_equal [%w[name], ["Jack"]], read(%({"name":"Jack","unused":"x"}\n), :array, file_name: "people.json", schema: schema)
+          assert_equal %({"name":"Jack"}\n), write([{"name" => "Jack", "unused" => "x"}], file_name: "people.json", schema: schema)
+        end
+
+        it "holds the place of a column of a fixed width file" do
+          schema  = {fields: [{name: "id", width: 2}, {name: "filler", width: 3, skip: true}, {name: "zip", width: 5}]}
+          records = []
+          IOStreams::Stream.new(StringIO.new("12abc12345\n")).format(:fixed).schema(schema).each(:hash) { |record| records << record }
+          out = StringIO.new
+          IOStreams::Stream.new(out).format(:fixed).schema(schema).writer(:hash) { |io| io << {"id" => "12", "zip" => "12345"} }
+
+          assert_equal [{"id" => "12", "zip" => "12345"}], records
+          assert_equal "12   12345\n", out.string
         end
       end
 

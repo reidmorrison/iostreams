@@ -614,6 +614,21 @@ class ParquetTest < Minitest::Test
       end
     end
 
+    it "forms the keys of the records read as keyType says, and writes the names of the fields" do
+      write(path.schema(schema.merge(keyType: "symbol")), records.map { |record| record.transform_keys(&:to_sym) })
+
+      assert_equal(expected.map { |record| record.transform_keys(&:to_sym) }, read(path.schema(schema.merge(keyType: "symbol"))))
+      assert_equal expected, read
+    end
+
+    it "writes no column for a field that is skipped, and reads its column as nothing" do
+      skipping = {fields: [{name: "id", type: "integer"}, {name: "unused", skip: true}, {name: "name", type: "string"}]}
+      write(path.schema(skipping), [{"id" => 1, "unused" => "x", "name" => "Jack"}])
+
+      assert_equal [{"id" => 1, "name" => "Jack"}], read(path.schema(fieldsMatch: "exact", fields: [{name: "id", type: "integer"}, {name: "name", type: "string"}]))
+      assert_equal [{"id" => 1, "name" => "Jack"}], read(path.schema(fieldsMatch: "superset", fields: skipping[:fields]))
+    end
+
     describe "a schema that skips the columns that it does not list" do
       # Returns [Array] the columns that each read asks the gem for, and the records read.
       def read_columns(source)
@@ -649,6 +664,24 @@ class ParquetTest < Minitest::Test
         # The record of the second row holds no value in the only column read, so it is blank, as a line of CSV of only
         # commas is.
         assert_equal [{"born" => Date.new(2000, 2, 29)}, nil], list
+      end
+
+      it "reads every column when the schema keeps the others, after its fields" do
+        write
+        keep = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "name", type: "string"}]}
+
+        requested, list = read_columns(path.schema(keep))
+
+        assert_equal [nil], requested
+        assert_equal(expected.map { |record| {"name" => record["name"]}.merge(record.except("name")) }, list)
+        assert_equal ["name", *(expected.first.keys - ["name"])], list.first.keys
+      end
+
+      it "raises for the rows of a schema that keeps the others, since each record can have keys that its header row does not name" do
+        write
+        keep = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "name", type: "string"}]}
+
+        assert_raises(ArgumentError) { path.schema(keep).each(:array) { |_row| nil } }
       end
 
       it "reads every column when the schema checks the others" do

@@ -345,11 +345,12 @@ The columns are matched once, when the header row is read, or once for each set 
 are usually the same for every record, rather than for each value.
 
 The keys of the records read are the names of their fields as they are given, so a field named with a Symbol, such as
-`name: :id`, returns the key `:id`, whatever the column of the file is called. For a format with a header row, such
-as CSV, `each(:array)` returns a header row of the names of the fields of its columns, and then the values of those
-fields of each row, in the order of the fields. A file without a header row, such as JSON, Parquet or fixed width,
-or with a schema whose `header` is false, returns the names of the fields as its header row, and then the values of
-every field of each row, in order, `nil` for a key that a JSON record does not have. A column that the schema does not
+`name: :id`, returns the key `:id`, whatever the column of the file is called, unless `keyType` forms them otherwise,
+see [Keys of the records read](#keys-of-the-records-read). For a format with a header row, such as CSV,
+`each(:array)` returns a header row of the keys of the fields of its columns, and then the values of those fields of
+each row, in the order of the fields. A file without a header row, such as JSON, Parquet or fixed width, or with a
+schema whose `header` is false, returns the keys of the fields as its header row, and then the values of every field
+of each row, in order, `nil` for a key that a JSON record does not have. A column that the schema does not
 list is skipped, or raises, see [fieldsMatch](#fieldsmatch).
 
 A column that could be either of two fields raises `IOStreams::Errors::InvalidHeader`, rather than guess, such as
@@ -396,6 +397,48 @@ report.read
 # => "First Name,Date of Birth\nJack,2001-02-03\n"
 ~~~
 
+### Keys of the records read
+
+`keyType`, which IOStreams adds to the properties of a schema, forms the key of each field in the records read from
+its name:
+
+| `keyType` | The key of the field named `First Name` |
+|-----------|-----------------------------------------|
+| None, the default | `"First Name"`, the name as it is given, a String or a Symbol |
+| `string` | `"First Name"`, also for a name that is a Symbol |
+| `cleansed` | `"first_name"`, the name once cleansed: lowercase, without leading and trailing spaces, with the spaces and dashes within it made `_`, and the characters other than letters, digits and `_`, in any language, removed |
+| `symbol` | `:"First Name"`, also for a name that is a String |
+| `cleansedSymbol` | `:first_name` |
+
+So a file can have readable column names, which are the names of the fields, while the code reads the keys that it
+needs:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  fieldsMatch: "partial",
+  keyType:     "cleansedSymbol",
+  fields:      [
+    {name: "First Name"},
+    {name: "Date of Birth", type: "date"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "First Name,Date of Birth\nJack,2001-02-03\n" => {first_name: "Jack", date_of_birth: #<Date: 2001-02-03 ...>}
+
+path.writer(:hash) do |io|
+  io << {first_name: "Jill", date_of_birth: Date.new(2002, 3, 4)}
+end
+# => "First Name,Date of Birth\nJill,2002-03-04\n"
+~~~
+
+The header row written is still the names of the fields, and a record written can be keyed by the keys of the
+records read, as well as by the names, so that the records read can be written back. A schema held as JSON, or in a
+database such as MongoDB, has String names, so `keyType: "symbol"` reads the Symbol keys that a schema in Ruby gives.
+Two fields with the same key, such as `First Name` and `first-name` with `cleansed`, raise `ArgumentError`, since a
+record could not hold both, and so does a key that is the name or an alias of another field.
+
 ### fieldsMatch
 
 `fieldsMatch` says how the columns of the file must match the fields, as Frictionless defines it:
@@ -430,6 +473,35 @@ A file that is written always has every field, so writing only checks the keys o
 header row of the rows written, and the values of each row after the last field or column: `subset` and `partial`
 skip them, and the others raise `IOStreams::Errors::InvalidHeader`. A field that a record does not supply is written
 as empty, or as `null` in JSON.
+
+### Keeping the other columns
+
+`extraColumns: "keep"`, which IOStreams adds to the properties of a schema, keeps the columns that `subset` and
+`partial` would skip, after the fields, in the order of the columns, each by the key that
+[keyType](#keys-of-the-records-read) forms from its column, and with its value as it is. So a file can need some
+columns, and the code still read every other column that it has:
+
+~~~ruby
+path = IOStreams.path("upload.csv").schema(
+  fieldsMatch:  "subset",
+  extraColumns: "keep",
+  keyType:      "cleansed",
+  fields:       [{name: "zip_code", constraints: {required: true}, allowBlank: true}]
+)
+path.each(:hash) do |record|
+  p record
+end
+# "Zip Code,First Name,Notes\n12345,Jack,hi\n" => {"zip_code" => "12345", "first_name" => "Jack", "notes" => "hi"}
+~~~
+
+With `subset`, a schema can then have no fields, to read every column of every file, keyed as `keyType` forms them,
+or as the columns are written without it. The keys of each JSON or Parquet record are kept the same way, so their
+rows, which have a header row of the keys of the fields, cannot be read with `each(:array)`, which raises
+`ArgumentError`, and a Parquet file reads every column, rather than only those of the fields. A fixed
+width file has only its fields, so it ignores `extraColumns`. Two columns kept with the same key, such as `Notes` and
+`notes` with `keyType: "cleansed"`, raise `IOStreams::Errors::InvalidHeader`, rather than lose one of them, and a
+column without a name is not kept. Writing writes only the fields, whichever it is. The default, `"skip"`, leaves them
+out, and any other `fieldsMatch` raises `ArgumentError` for `"keep"`, since it does not accept them.
 
 ### Required fields
 
@@ -487,13 +559,19 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
 
 ### Schema properties
 
-* `fields` The fields of the file, in the order of its columns. Required.
+* `fields` The fields of the file, in the order of its columns, which can be empty with `extraColumns: "keep"`.
+  Required.
 * `fieldsMatch` How the columns of the file must match the fields, see [fieldsMatch](#fieldsmatch). Default: `exact`
 * `header` `false` when the file has no header row, as in a Frictionless Table Dialect. The columns of the file are
   then the fields, in order: reading takes every line as a row, after the names of the fields as the header row that
   `each(:array)` yields, and writing writes no header row, and the fields in order. A format without a header row, such
   as JSON or fixed width, ignores it. Default: `true`
 * `width` The length of every line of a fixed width file, see [Fixed width files](#fixed-width-files).
+* `keyType` How the keys of the records read are formed from the names of the fields: `string`, `cleansed`, `symbol`
+  or `cleansedSymbol`, see [Keys of the records read](#keys-of-the-records-read). IOStreams adds this property.
+  Default: the names as they are given.
+* `extraColumns` `keep` to keep the columns that the schema does not list, which `subset` and `partial` skip, see
+  [Keeping the other columns](#keeping-the-other-columns). IOStreams adds this property. Default: `skip`
 
 `$schema`, `title` and `description` describe the schema to people and have no effect.
 
@@ -511,6 +589,27 @@ path.each(:hash) do |person|
 end
 # => {"name" => "Jack", "age" => 21}
 ~~~
+
+A column of a file without a header row that the code does not read still needs a field, which holds its place, so
+give it `skip: true`, and the records read leave it out:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "unused", skip: true},
+    {name: "age", type: "integer"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "Jack,x,21\n" => {"name" => "Jack", "age" => 21}
+~~~
+
+The rows read leave it out too, and writing writes an empty value in its column, from records, and from rows of the
+values of the other fields, in order, as the rows read have them.
 
 Since the schema is set on the path, every reader of the path reads the file the same way, including `#copy_from`
 and `#copy_to`, whose options only apply to the target.
@@ -532,6 +631,10 @@ and `#copy_to`, whose options only apply to the target.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
   of fixed width files always have. IOStreams adds this property.
+* `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
+  that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
+  column, or leaves it out of a JSON record, and a Parquet file has no column for it. It takes only the properties
+  that place its column, `name`, `aliases`, `width` and `start`. IOStreams adds this property.
 * `width`, `start` and `truncate` The position of the field in a fixed width file, see
   [Fixed width files](#fixed-width-files). IOStreams adds these properties. The other formats ignore them, so that
   one schema can describe both a fixed width file and the CSV file that it is converted to.
