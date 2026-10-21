@@ -5,49 +5,44 @@ require_relative "query_helper"
 # Reads a query on MySQL with the mysql2 gem, see `IOStreams::Query::Mysql2Stream`, when MYSQL_URL is set.
 class Mysql2StreamTest < Minitest::Test
   if (database = QueryDatabase.find("MySQL"))
-    # Connects to the same database as the supplied url, with the supplied scheme, user and password, and the rest of
-    # the supplied configuration, so that a test can watch the connection that reads a query, or read it as another
-    # user, with other settings of the session, or with trilogy.
-    def self.connect(name, scheme: nil, user: nil, password: nil, host: nil, port: nil, **config)
-      url          = URI(ENV.fetch("MYSQL_URL"))
-      url.scheme   = scheme if scheme
-      url.user     = user if user
-      url.password = password if password
-      url.host     = host if host
-      url.port     = port if port
-      record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
-      QueryDatabase::MySQL.const_set(:"#{name}Record", record)
-      record.establish_connection(url: url.to_s, pool: 2, **config)
-      order = Class.new(record) { self.table_name = "orders" }
-      QueryDatabase::MySQL.const_set(:"#{name}Order", order)
-      order
-    end
-
-    MONITOR = connect("Monitor")
-    TRILOGY = connect("Trilogy", scheme: "trilogy")
-    READER  = connect("Reader", user: "iostreams_reader", password: "reader")
-    REFUSED = connect("Refused", port: 1)
-    WRONG   = connect("Wrong", password: "wrong")
-    UNKNOWN = connect("Unknown", host: "iostreams-no-such-host.invalid")
-    # The orders on connections that the server ends when the client takes no row within a second.
-    HASTY = connect("Hasty", variables: {net_write_timeout: 1})
-
     describe IOStreams::Query::Mysql2Stream do
       include QueryTestMethods
 
       let(:db) { database }
       let(:orders) { db.order.order(:id) }
+      # The orders on another pool, which watches the connection that reads a query, since that cannot run a query
+      # while it streams a result.
+      let(:monitor) { db.orders_at("Monitor") }
+      # The orders on connections that the server ends when the client takes no row within a second.
+      let(:hasty) { db.orders_at("Hasty", variables: {net_write_timeout: 1}) }
+      # The users of MySQL that the test created, see #create_user.
+      let(:users) { [] }
 
       before { db.load }
+
+      after do
+        users.each { |user| execute("DROP USER IF EXISTS '#{user}'@'%'") }
+      end
 
       def execute(sql)
         db.record.with_connection { |connection| connection.execute(sql) }
       end
 
-      # Returns [String] the net_write_timeout of the session of the connection of the pool, which another connection
-      # reads, since the connection cannot run a query while it streams a result.
+      # Returns [String] the name of a user of MySQL of this process, whose password is its role, created with the
+      # supplied options of CREATE USER, such as `ACCOUNT LOCK`, and dropped once the test has run, see
+      # QueryDatabase::MysqlDatabase.user.
+      def create_user(role, options = nil)
+        user = QueryDatabase::MysqlDatabase.user(role)
+        execute("DROP USER IF EXISTS '#{user}'@'%'")
+        execute("CREATE USER '#{user}'@'%' IDENTIFIED BY '#{role}' #{options}")
+        users << user
+        user
+      end
+
+      # Returns [String] the net_write_timeout of the session of the supplied id, which another connection reads, since
+      # the connection that reads a query cannot run a query while it streams a result.
       def net_write_timeout(connection_id)
-        MONITOR.with_connection do |connection|
+        monitor.with_connection do |connection|
           connection.select_value(<<~SQL)
             SELECT VARIABLE_VALUE FROM performance_schema.variables_by_thread AS variables
             JOIN performance_schema.threads AS threads ON threads.THREAD_ID = variables.THREAD_ID
@@ -76,7 +71,7 @@ class Mysql2StreamTest < Minitest::Test
 
         assert_equal %w[3600 3600 3600], timeout
         assert_equal 1, sessions.uniq.size
-        default = MONITOR.with_connection { |connection| connection.select_value("SELECT @@GLOBAL.net_write_timeout") }
+        default = monitor.with_connection { |connection| connection.select_value("SELECT @@GLOBAL.net_write_timeout") }
 
         assert_equal default.to_s, net_write_timeout(sessions.first)
       end
@@ -87,7 +82,7 @@ class Mysql2StreamTest < Minitest::Test
                 "(WITH RECURSIVE numbers (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 20000) " \
                 "SELECT n FROM numbers) AS numbers")
         count = 0
-        IOStreams.stream(HASTY.order(:id).select(:id, :name)).each(:hash) do |_order|
+        IOStreams.stream(hasty.order(:id).select(:id, :name)).each(:hash) do |_order|
           sleep(2.5) if count == 1
           count += 1
         end
@@ -128,17 +123,19 @@ class Mysql2StreamTest < Minitest::Test
       end
 
       it "tags a table that the user may not read as PermissionDenied" do
-        execute("CREATE USER IF NOT EXISTS 'iostreams_reader'@'%' IDENTIFIED BY 'reader'")
+        reader = create_user("reader")
         # A table of the database, so that the user can connect to it, but not the orders.
-        execute("GRANT SELECT ON customers TO 'iostreams_reader'@'%'")
-        error = assert_raises(ActiveRecord::StatementInvalid) { each(IOStreams.stream(READER.all)) }
+        execute("GRANT SELECT ON customers TO '#{reader}'@'%'")
+        orders = db.orders_at("Reader", user: reader, password: "reader")
+        error  = assert_raises(ActiveRecord::StatementInvalid) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::PermissionDenied, error
-        assert_match(/SELECT command denied to user 'iostreams_reader'/, error.message)
+        assert_match(/SELECT command denied to user '#{reader}'/, error.message)
       end
 
       it "tags a server that refuses the connection as Unavailable" do
-        error = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(REFUSED.all)) }
+        orders = db.orders_at("Refused", port: 1)
+        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::Unavailable, error
         # CR_CONNECTION_ERROR or CR_CONN_HOST_ERROR, as the client library reports a refused connection.
@@ -146,24 +143,32 @@ class Mysql2StreamTest < Minitest::Test
       end
 
       it "tags a password that the server rejects as PermissionDenied" do
-        error = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(WRONG.all)) }
+        orders = db.orders_at("Wrong", password: "wrong")
+        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::PermissionDenied, error
       end
 
       it "does not tag a host that does not resolve" do
-        error = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(UNKNOWN.all)) }
+        orders = db.orders_at("Unknown", host: "iostreams-no-such-host.invalid")
+        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
 
         refute_kind_of IOStreams::Errors::StorageError, error
       end
 
       describe "trilogy" do
+        before do
+          skip "The trilogy gem is not installed, see the mysql group of the Gemfile" unless QueryDatabase.driver?("trilogy")
+        end
+
+        let(:trilogy) { db.orders_at("Trilogy", scheme: "trilogy") }
+
         it "cannot stream a query, so it raises, suggesting batches, which it reads" do
-          error = assert_raises(ArgumentError) { each(IOStreams.stream(TRILOGY.order(:id))) }
+          error = assert_raises(ArgumentError) { each(IOStreams.stream(trilogy.order(:id))) }
 
           assert_equal "IOStreams cannot stream a query on Trilogy, so read it in batches, such as with " \
                        "`IOStreams.stream(relation.in_batches(of: 10_000))`", error.message
-          records = each(IOStreams.stream(TRILOGY.select(:id, :name).in_batches(of: 2)))
+          records = each(IOStreams.stream(trilogy.select(:id, :name).in_batches(of: 2)))
 
           assert_equal(orders.pluck(:name), records.map { |order| order["name"] })
         end
@@ -173,7 +178,9 @@ class Mysql2StreamTest < Minitest::Test
 
   describe ".failure_kind" do
     it "returns the kind of failure of an error number of MySQL" do
-      skip "The mysql2 gem is a C extension, which JRuby cannot load" unless QueryDatabase.driver?("mysql2")
+      unless QueryDatabase.driver?("mysql2")
+        skip "The mysql2 gem is not installed, see the optional mysql group of the Gemfile, and JRuby cannot load it"
+      end
 
       error = ->(number) { Mysql2::Error.new("failed", nil, number) }
 
