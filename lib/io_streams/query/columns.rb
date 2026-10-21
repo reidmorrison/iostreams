@@ -10,10 +10,10 @@ module IOStreams
     # `IOStreams::Query::Stream`. It never knows a format of file: `IOStreams::Parquet::Column`, for example, still turns
     # the fields into Parquet types.
     class Columns
-      # The types of field whose values cannot be empty, so that a column that is never null always has a value, which a
-      # field that is required checks, see #field. A string, or a value of any type, such as of a binary or JSON column,
-      # can be empty, which a field that is required rejects.
-      REQUIRABLE_TYPES = %w[integer number boolean date datetime].freeze
+      # The types of field whose values can be empty text: a string, or a value of any type, such as of a binary or JSON
+      # column, which a field that is required rejects, see `IOStreams::Schema::Constraints#no_text`, so that a column
+      # of them is never required, see #field.
+      EMPTY_TEXT_TYPES = %w[string any].freeze
 
       # The most digits that a 64-bit integer holds, whatever they are, see #integer_properties.
       INTEGER_DIGITS = 18
@@ -32,17 +32,24 @@ module IOStreams
       #   not_null: [Array<true|false>]
       #     Whether each column is never null, such as a column of the table of the model with `NOT NULL`.
       #
+      #   requirable_types: [Array<String>]
+      #     The types of field whose columns that are never null always have a value once Active Record casts it, on the
+      #     database of the query, which the source of the database knows, such as
+      #     `IOStreams::Query::SqliteStatement.requirable_types`, so that a field of them is required when its column is
+      #     never null, see #field, apart from those whose values can be empty text, see EMPTY_TEXT_TYPES.
+      #
       # Raises ArgumentError when two columns have the same name, since a record has one value for each name.
-      def initialize(names:, types:, not_null:)
+      def initialize(names:, types:, not_null:, requirable_types:)
         duplicates = names.tally.select { |_name, count| count > 1 }.keys
         unless duplicates.empty?
           raise(ArgumentError, "The query has more than one column named #{duplicates.map(&:inspect).join(', ')}: give " \
                                "each column a name of its own, such as with `AS`")
         end
 
-        @names    = names.map(&:-@).freeze
-        @types    = types.dup.freeze
-        @not_null = not_null.dup.freeze
+        @names            = names.map(&:-@).freeze
+        @types            = types.dup.freeze
+        @not_null         = not_null.dup.freeze
+        @requirable_types = (requirable_types - EMPTY_TEXT_TYPES).freeze
         freeze
       end
 
@@ -75,10 +82,10 @@ module IOStreams
 
       # Returns [Hash] the descriptor of the field of a column, see `IOStreams::Schema::Field`: its name, and the type
       # of the values that its Active Record type casts, see #type_properties. A column that is never null is required,
-      # when its values cannot be empty, see REQUIRABLE_TYPES.
+      # when a column of its type always has a value once cast on the database, see `requirable_types` in #initialize.
       def field(name, type, not_null)
         descriptor = {name: name, **type_properties(type)}
-        descriptor[:constraints] = {required: true} if not_null && REQUIRABLE_TYPES.include?(descriptor[:type])
+        descriptor[:constraints] = {required: true} if not_null && @requirable_types.include?(descriptor[:type])
         descriptor
       end
 

@@ -7,6 +7,10 @@ class QueryStreamTest < Minitest::Test
   # The columns of the orders table, in order.
   ORDER_COLUMNS = %w[id customer_id name amount status shipped_on paid_at paid weight notes data tags secret].freeze
 
+  # The types of field whose columns that are never null a database can always give a value, see
+  # `IOStreams::Query::SqliteStatement.requirable_types`.
+  REQUIRABLE_TYPES = %w[integer number boolean date datetime].freeze
+
   QueryDatabase.each do |database|
     describe "#{IOStreams::Query::Stream.name} on #{database.name}" do
       let(:db) { database }
@@ -453,6 +457,14 @@ class QueryStreamTest < Minitest::Test
       end
 
       describe "#schema" do
+        # Yields while every source says that a column that is never null always has a value once cast, when it is of
+        # one of the types, see `IOStreams::Query::SqliteStatement.requirable_types`.
+        def with_requirable_types(types, sources = IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }, &)
+          return yield if sources.empty?
+
+          sources.first.stub(:requirable_types, types) { with_requirable_types(types, sources.drop(1), &) }
+        end
+
         it "describes the columns of the query as the fields of a schema" do
           expected = {
             fields: [
@@ -472,7 +484,7 @@ class QueryStreamTest < Minitest::Test
             ]
           }
 
-          assert_equal expected, IOStreams.stream(orders).schema
+          with_requirable_types(REQUIRABLE_TYPES) { assert_equal expected, IOStreams.stream(orders).schema }
         end
 
         it "is frozen" do
@@ -484,9 +496,12 @@ class QueryStreamTest < Minitest::Test
             IOStreams.stream(relation).schema[:fields].select { |field| field[:constraints] }.map { |field| field[:name] }
           end
 
-          assert_equal %w[id amount], required.call(db.order.select(:id, "amount", :name))
-          assert_equal %w[amount], required.call(db.order.select(db.order.arel_table[:amount]))
-          assert_equal %w[id amount], required.call(db.order.where(paid: true).order(:id).group(:id, :amount).select(:id, :amount))
+          with_requirable_types(REQUIRABLE_TYPES) do
+            assert_equal %w[id amount], required.call(db.order.select(:id, "amount", :name))
+            assert_equal %w[amount], required.call(db.order.select(db.order.arel_table[:amount]))
+            assert_equal %w[id amount], required.call(db.order.where(paid: true).order(:id).group(:id, :amount).select(:id, :amount))
+          end
+          with_requirable_types(%w[number]) { assert_equal %w[amount], required.call(db.order.select(:id, :amount)) }
         end
 
         it "requires no column of a query that computes a column, or joins another table, which can be null" do
@@ -499,7 +514,7 @@ class QueryStreamTest < Minitest::Test
             db.order.group(Arel.sql("id, amount")).select(:id, :amount),
             db.order.with(paid_orders: db.order.where(paid: true)).select(:id, :amount)
           ].each do |relation|
-            fields = IOStreams.stream(relation).schema[:fields]
+            fields = with_requirable_types(REQUIRABLE_TYPES) { IOStreams.stream(relation).schema[:fields] }
 
             assert_equal [], fields.select { |field| field[:constraints] }, relation.to_sql
           end
@@ -794,29 +809,32 @@ class QueryStreamTest < Minitest::Test
   end
 
   describe IOStreams::Query::Columns do
-    # Returns [Array<String>] the names of the fields of the schema of columns of the supplied types, each never null,
-    # that are required.
-    def required(*types)
+    # Returns [Array<String>] the types of the fields of the schema of columns of the supplied types, each never null,
+    # that are required, on a database that always gives a value to a column of the requirable types that is never null.
+    def required(*types, requirable_types: REQUIRABLE_TYPES)
       columns = IOStreams::Query::Columns.new(names: types.each_index.map { |index| "c#{index}" }, types: types,
-                                              not_null: [true] * types.size)
+                                              not_null: [true] * types.size, requirable_types: requirable_types)
       columns.schema[:fields].select { |field| field[:constraints] }.map { |field| field[:type] }
     end
 
-    it "requires a column that is never null, when its values cannot be empty" do
-      assert_equal %w[integer number number boolean date datetime],
-                   required(ActiveModel::Type::Integer.new, ActiveModel::Type::Decimal.new(scale: 2),
-                            ActiveModel::Type::Float.new, ActiveModel::Type::Boolean.new, ActiveModel::Type::Date.new,
-                            ActiveModel::Type::DateTime.new)
+    it "requires a column that is never null, of a type that the database always gives a value" do
+      types = [ActiveModel::Type::Integer.new, ActiveModel::Type::Decimal.new(scale: 2), ActiveModel::Type::Float.new,
+               ActiveModel::Type::Boolean.new, ActiveModel::Type::Date.new, ActiveModel::Type::DateTime.new]
+
+      assert_equal %w[integer number number boolean date datetime], required(*types)
+      assert_equal %w[integer date], required(*types, requirable_types: %w[integer date])
+      assert_empty required(*types, requirable_types: [])
     end
 
-    it "does not require a column whose values can be empty, such as text, binary or JSON" do
+    it "does not require a column whose values can be empty, such as text, binary or JSON, whatever the database" do
       assert_empty required(ActiveModel::Type::String.new, ActiveModel::Type::Binary.new, ActiveRecord::Type::Json.new,
-                            ActiveModel::Type::Value.new)
+                            ActiveModel::Type::Value.new, requirable_types: REQUIRABLE_TYPES + %w[string any])
     end
 
     it "raises for two columns of the same name" do
       error = assert_raises(ArgumentError) do
-        IOStreams::Query::Columns.new(names: %w[id id], types: [ActiveModel::Type::Integer.new] * 2, not_null: [false] * 2)
+        IOStreams::Query::Columns.new(names: %w[id id], types: [ActiveModel::Type::Integer.new] * 2, not_null: [false] * 2,
+                                      requirable_types: [])
       end
 
       assert_match(/more than one column named "id"/, error.message)

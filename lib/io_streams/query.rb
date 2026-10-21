@@ -78,7 +78,7 @@ module IOStreams
     #
     # The type of each column is the one that `pluck` chooses, see `IOStreams::Query::CastTypes`. A column of the table
     # of the model that is `NOT NULL` is never null, when the query selects only the columns of that table, see
-    # #plain_columns?.
+    # #plain_columns?, and is required when a column of its type always has a value once cast, see #requirable_types.
     def columns
       @columns ||= tag_failure { describe }
     end
@@ -207,9 +207,21 @@ module IOStreams
           result   = connection.select_all(@relation.limit(0).arel, "IOStreams Columns")
           plain    = plain_columns?
           not_null = result.columns.map { |name| plain && @model.columns_hash[name]&.null == false }
-          Columns.new(names: result.columns, types: CastTypes.new(@relation).of(result), not_null: not_null)
+          Columns.new(names: result.columns, types: CastTypes.new(@relation).of(result), not_null: not_null,
+                      requirable_types: requirable_types(connection))
         end
       end
+    end
+
+    # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record
+    # casts it, on the database of the connection, which the source that reads it knows, see SOURCES, whether or not
+    # the query is read in batches, or none when no source reads it, see `IOStreams::Query::Columns`.
+    def requirable_types(connection)
+      SOURCES.each do |name|
+        source = Query.const_get(name)
+        return source.requirable_types if source.reads?(connection)
+      end
+      []
     end
 
     # Returns [true|false] whether every column of the result is a column of the table of the model, so that one that

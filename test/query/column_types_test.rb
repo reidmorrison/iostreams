@@ -89,6 +89,10 @@ class ColumnTypesTest < Minitest::Test
         t.integer :cents
         t.decimal :quantity, precision: 20, scale: 0
         t.decimal :units, precision: 18, scale: 0
+        t.integer :items, null: false, default: 0
+        t.decimal :price, precision: 10, scale: 2, null: false, default: 0
+        t.boolean :gift, null: false, default: false
+        t.date :due_on, null: false, default: "2026-01-01"
       end
       connection.create_table(:warehouses, force: true) do |t|
         t.references :purchase
@@ -243,6 +247,20 @@ class ColumnTypesTest < Minitest::Test
         assert_equal "payload,kind,cents\n\"{\"\"a\"\":1}\",rich,12.50\n\"[1,2]\",plain,0.00\n,plain,\n", output.string
       end
 
+      it "reads a value of a column that is never null as nil, as pluck does, when SQLite holds one not of its type" do
+        skip "Only a column of SQLite holds a value of any type" unless database.name == "SQLite"
+
+        models::Purchase.with_connection do |connection|
+          connection.execute("UPDATE purchases SET items = '', price = '', gift = '', due_on = 'soon' WHERE buyer_id IS NULL")
+        end
+        relation = purchases.select(:id, :items, :price, :gift, :due_on)
+
+        assert_empty IOStreams::Query::SqliteStatement.requirable_types
+        assert_empty(IOStreams.stream(relation).schema[:fields].select { |field| field[:constraints] })
+        assert_equal relation.pluck(:id, :items, :price, :gift, :due_on), records(relation).map(&:values)
+        assert_equal [nil, nil, nil, nil], relation.pluck(:items, :price, :gift, :due_on).last
+      end
+
       it "describes a decimal without a scale as a number without decimals when it holds more digits than a 64-bit integer" do
         assert_equal({name: "quantity", type: "number", decimals: 0}, field(purchases, :quantity))
         assert_equal({name: "units", type: "integer"}, field(purchases, :units))
@@ -280,7 +298,7 @@ class ColumnTypesTest < Minitest::Test
   describe IOStreams::Query::Columns do
     # Returns [Hash] the field of the schema of a column of the type.
     def field(type)
-      IOStreams::Query::Columns.new(names: ["c"], types: [type], not_null: [false]).schema[:fields].first
+      IOStreams::Query::Columns.new(names: ["c"], types: [type], not_null: [false], requirable_types: []).schema[:fields].first
     end
 
     it "looks through the decorators of Active Record to the type within them" do

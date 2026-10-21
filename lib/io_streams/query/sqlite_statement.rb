@@ -35,6 +35,14 @@ module IOStreams
         end
       end
 
+      # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record
+      # casts it, see `IOStreams::Query::Columns`: none, since a column of SQLite holds a value of any type, which Active
+      # Record casts to nil when it is not one of the type of the column, such as empty text in an integer, decimal or
+      # boolean column, or text that is not a date in a date column.
+      def self.requirable_types
+        [].freeze
+      end
+
       # Parameters:
       #   connection: [ActiveRecord::ConnectionAdapters::SQLite3Adapter]
       #     The connection that the query is read on, which the caller holds while it is read.
