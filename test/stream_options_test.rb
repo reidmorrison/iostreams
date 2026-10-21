@@ -150,9 +150,15 @@ class StreamOptionsTest < Minitest::Test
         path("a.csv").write(data)
 
         error = assert_raises(ArgumentError) { path("a.csv").each(:hash, file_name: "a.json") { |row| row } }
-        assert_equal ':file_name cannot be supplied to each call, set it on the path instead, for example: path.file_name("data.json").each(:hash)',
+        assert_equal ":file_name cannot be supplied to each call, where it only chose the format, set the format on the path " \
+                     "instead, for example: path.format(:json).each(:hash)",
                      error.message
-        assert_raises(ArgumentError) { path("a.csv").each(:hash, default_format: :json) { |row| row } }
+        error = assert_raises(ArgumentError) { path("a.csv").each(:hash, default_format: :json) { |row| row } }
+        assert_equal ":default_format cannot be supplied to each call, set the format on the path instead, when it has none, " \
+                     "for example: path.format(:json) unless path.format",
+                     error.message
+        error = assert_raises(ArgumentError) { path("a.csv").each(:hash, format_options: {layout: []}) { |row| row } }
+        assert_match(/path\.schema\(IOStreams::Schema\.from_layout\(layout: layout\)\)/, error.message)
         assert_raises(ArgumentError) { path("a.csv").each(:line, file_name: "a.json") { |row| row } }
         assert_raises(ArgumentError) { path("b.csv").writer(:array, file_name: "b.json") { |io| io << [1] } }
       end

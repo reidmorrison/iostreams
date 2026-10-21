@@ -12,15 +12,21 @@ module IOStreams
     FORMAT_OPTIONS_DEPRECATION = "#format_options is deprecated, use #schema instead, which gives the width of each " \
                                  "field of a fixed width file"
 
-    # An example of setting each of the settings of rows and records that describe the file on the path, rather than
-    # supplying it to each call of a reader or writer, which raises, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`.
+    # How to set each of the settings of rows and records that describe the file on the path instead, with an example,
+    # rather than supply it to each call of a reader or writer, which raises, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`.
+    # A file name supplied to a call only chose the format, when the path had none, and not the streams, as #file_name
+    # does, so the format replaces it.
     PATH_SETTINGS = {
-      format:             "path.format(:json).each(:hash)",
-      default_format:     "path.format(:json).each(:hash)",
-      file_name:          "path.file_name(\"data.json\").each(:hash)",
-      format_options:     "path.schema(\"layout.json\").each(:hash)",
-      schema:             "path.schema(\"people.json\").each(:hash)",
-      row_format_options: "path.option(:parquet, compression: \"zstd\").writer(:hash)"
+      format:             "set it on the path instead, for example: path.format(:json).each(:hash)",
+      default_format:     "set the format on the path instead, when it has none, for example: " \
+                          "path.format(:json) unless path.format",
+      file_name:          "where it only chose the format, set the format on the path instead, for example: " \
+                          "path.format(:json).each(:hash)",
+      format_options:     "set a schema on the path instead, which gives the width of each field of a fixed width file, " \
+                          "for example: path.schema(IOStreams::Schema.from_layout(layout: layout)).each(:hash)",
+      schema:             "set it on the path instead, for example: path.schema(\"people.json\").each(:hash)",
+      row_format_options: "set them on the path instead, for example: " \
+                          "path.option(:parquet, compression: \"zstd\").writer(:hash)"
     }.freeze
 
     attr_reader :io_stream
@@ -696,7 +702,7 @@ module IOStreams
       return if names.empty?
 
       messages = names.map do |name|
-        "#{name.inspect} cannot be supplied to each call, set it on the path instead, for example: #{PATH_SETTINGS.fetch(name)}"
+        "#{name.inspect} cannot be supplied to each call, #{PATH_SETTINGS.fetch(name)}"
       end
       raise(ArgumentError, messages.join(". "))
     end

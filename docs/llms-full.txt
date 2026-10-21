@@ -5894,7 +5894,10 @@ which set the format of a stream without one in the `:array` and `:hash` modes, 
 [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 
 Fix: set the format on the path with `#format`, and the layout of a fixed width file with `#schema`, see
-[`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema):
+[`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema). A file name supplied to a call
+only chose the format, when the path had none, and not the streams, as `#file_name` does, so set the format that it
+names, such as `format(:json)` for `data.json`, and `default_format:` only applied when the path had no format, so set
+it only then, such as `path.format(:json) unless path.format`:
 
 ~~~ruby
 # Before
@@ -5919,7 +5922,7 @@ path.format(:fixed).schema(fields: fields).each(:hash) do |row|
   p row
 end
 
-IOStreams.stream(io).file_name("data.json").each(:hash) do |row|
+IOStreams.stream(io).format(:json).each(:hash) do |row|
   p row
 end
 ~~~
@@ -6942,7 +6945,8 @@ these matches why it was used:
 
 * To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no streams and no encoding, so text, including lines, rows and records, is read
   and written as bytes, where `stream(:none)` reads it as UTF-8, or ASCII for fixed width files.
-  Setting a stream, option or encoding after `#raw` raises `ArgumentError`.
+  Setting a stream, option or encoding after `#raw` raises `ArgumentError`, apart from the deprecated
+  `stream(:none)`, which applies no streams either, so it leaves the path as `#raw` set it.
 * To read a file that is not named for its format, set the file name that names it with `#file_name`.
 * To copy a file as it is stored, such as downloading a zip file without unzipping it, use
   `copy_to(target, convert: false)`, since the target applies the streams of its own file name.

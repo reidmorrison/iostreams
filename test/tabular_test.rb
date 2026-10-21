@@ -1496,7 +1496,9 @@ class TabularTest < Minitest::Test
 
       it "accepts skip_unknown without allowed_columns, which it only applies to, as Rocket Job supplies it" do
         [true, false].each do |skip_unknown|
-          tabular = IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: skip_unknown)
+          tabular = assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema/) do
+            IOStreams::Tabular.new(format: :csv, schema: schema, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: skip_unknown)
+          end
 
           assert_equal %w[id pay], tabular.read_header("id,pay")
           assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, tabular.record_parse("1,2.5"))

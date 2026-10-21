@@ -2594,7 +2594,9 @@ class StreamTest < Minitest::Test
         it "accept skip_unknown without allowed_columns, which it only applies to" do
           stream = IOStreams::Stream.new(StringIO.new(csv)).file_name("people.csv").schema(people)
           rows   = []
-          stream.each(:hash, skip_unknown: false) { |row| rows << row }
+          assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema/) do
+            stream.each(:hash, skip_unknown: false) { |row| rows << row }
+          end
 
           assert_equal [record], rows
         end
@@ -3191,6 +3193,16 @@ class StreamTest < Minitest::Test
         IOStreams.stream(io).freeze.write("abc")
 
         assert_equal "abc", io.string
+      end
+    end
+
+    describe "the deprecated skip_unknown: with a schema" do
+      it "says that it has no effect, so remove it" do
+        stream = IOStreams.stream(StringIO.new("a\n1\n")).format(:csv).schema(fieldsMatch: "partial", fields: [{name: "a"}])
+
+        assert_deprecated(/skip_unknown: is deprecated, and has no effect with a schema, which describes the columns of the file, so remove it/) do
+          stream.each(:hash, skip_unknown: true) { |row| row }
+        end
       end
     end
 

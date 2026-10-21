@@ -177,7 +177,7 @@ module IOStreams
       @row_format_options = row_format_options || {}
       @parser             = self.class.parser_class(@format).new(schema: @schema)
       @mapping            = build_mapping(header, schema, layout, cleanse_header ? true : false)
-      warn_deprecated_options(args, cleanse_header)
+      warn_deprecated_options(args, cleanse_header, schema)
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the columns supplied in
@@ -614,14 +614,22 @@ module IOStreams
 
     # Reports a deprecation warning, see `IOStreams::Deprecation`, for the options of the header that are supplied, which
     # are not nil, and `cleanse_header:`, including nil, which does not cleanse the header row, since a schema describes
-    # the columns of the file instead, and names the keys of the records read.
-    def warn_deprecated_options(args, cleanse_header)
+    # the columns of the file instead, and names the keys of the records read. With a schema, the only one that is
+    # accepted, `skip_unknown:`, has no effect, so the advice is to remove it.
+    def warn_deprecated_options(args, cleanse_header, schema)
       names = args.compact.keys & Header::OPTION_NAMES
       names << :cleanse_header unless cleanse_header.equal?(CLEANSE_BY_DEFAULT)
       return if names.empty?
 
+      advice =
+        if schema
+          "and #{names.size == 1 ? 'has' : 'have'} no effect with a schema, which describes the columns of the file, " \
+            "so remove #{names.size == 1 ? 'it' : 'them'}"
+        else
+          "describe the columns of the file with #schema instead"
+        end
       Deprecation.warn("#{names.map { |name| "#{name}:" }.join(', ')} #{names.size == 1 ? 'is' : 'are'} deprecated, " \
-                       "describe the columns of the file with #schema instead")
+                       "#{advice}")
     end
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the
