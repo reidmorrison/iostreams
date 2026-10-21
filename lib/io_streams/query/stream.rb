@@ -8,11 +8,12 @@ module IOStreams
     #   IOStreams.path("orders.parquet").copy_from(Order.where(paid: true), mode: :hash)
     #   IOStreams.stream(Order.where(paid: true)).each(:hash) { |order| p order }
     #
-    # Its rows start with a header row of the names of the columns of the query, followed by the values of each row,
-    # cast as `pluck` casts them, in the `:array` format, see #format. They are read by the schema that the types of the
-    # columns describe, see #schema, unless a schema is set, which a copy gives a target without one, see
-    # `IOStreams::Stream#copy_from`, so that, for example, a Parquet file keeps the types of the columns. The query is
-    # open before its reader is yielded, see #open_rows, so that a copy opens its target only once the query can be read.
+    # Its rows start with a header row of the names of the columns of the query, unless a schema is set whose `header` is
+    # false, followed by the values of each row, cast as `pluck` casts them, in the `:array` format, see #format. They are
+    # read by the schema that the types of the columns describe, see #schema, unless a schema is set, which a copy gives a
+    # target without one, see `IOStreams::Stream#copy_from`, so that, for example, a Parquet file keeps the types of the
+    # columns. The query is open before its reader is yielded, see #open_rows, so that a copy opens its target only once
+    # the query can be read.
     #
     # A query holds rows rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
@@ -73,13 +74,15 @@ module IOStreams
       end
 
       # Yields [#each] the rows of the query, once it is open, see `IOStreams::Query#open`, after a header row of the names
-      # of its columns. Its `#each` returns the number of rows that it yielded, header row included, as that of the lines
-      # of a file does, and a second traversal continues where the first stopped, so the header row is yielded only once.
+      # of its columns, when the tabular reads one, see `IOStreams::Tabular#header?`, rather than a schema whose `header`
+      # is false, whose fields are the columns of the rows in order. Its `#each` returns the number of rows that it
+      # yielded, header row included, as that of the lines of a file does, and a second traversal continues where the
+      # first stopped, so the header row is yielded only once.
       #
       # Returns the result of the block.
-      def open_rows(_tabular)
+      def open_rows(tabular)
         query  = io_stream
-        header = query.columns.names.dup
+        header = (query.columns.names.dup if tabular.header?)
         query.open do |rows|
           yield(Enumerator.new do |yielder|
             count = 0

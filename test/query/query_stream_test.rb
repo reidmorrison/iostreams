@@ -431,6 +431,14 @@ class QueryStreamTest < Minitest::Test
           assert_equal 2, names.count("IOStreams Query")
         end
 
+        it "reads the rows by the position of the fields of a schema without a header row" do
+          stream = IOStreams.stream(orders.select(:id, :name))
+          stream.schema(header: false, fields: [{name: "number", type: "integer"}, {name: "label"}])
+
+          assert_equal(orders.pluck(:id, :name).map { |id, name| {"number" => id, "label" => name} }, each(stream))
+          assert_equal [%w[number label], *orders.pluck(:id, :name)], each(stream, :array)
+        end
+
         it "returns the number of rows read, header row included, as for the lines of a file of the same rows" do
           csv = StringIO.new
           IOStreams.stream(csv).format(:csv).copy_from(orders.select(:name), mode: :array)
