@@ -116,15 +116,21 @@ parses them does not need to know how the file was read:
 IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
   queue << slice
 end
+queue.close
 ~~~
 
 `IOStreams.stream(slice)` reads the rows of a slice as the rows of its file, by its header row and in its format, with
-the same settings, such as the schema, in the `:array` and `:hash` modes:
+the same settings, such as the schema, in the `:array` and `:hash` modes. Read a schema file once, and set its Hash on
+the stream of each slice, since a path set on the stream of each slice would read the file again for every slice:
 
 ~~~ruby
 # Elsewhere, such as in another thread:
-IOStreams.stream(queue.pop).schema("people.json").each(:hash) do |person|
-  p person
+schema = JSON.parse(IOStreams.path("people.json").read)
+
+while (slice = queue.pop)
+  IOStreams.stream(slice).schema(schema).each(:hash) do |person|
+    p person
+  end
 end
 ~~~
 
@@ -169,10 +175,11 @@ decimals, rather than text, see [Slices of a query](queries#slices-of-a-query).
 
 `IOStreams.slice` also takes the keys, and the format, as Symbols, and raises `ArgumentError` for a Hash that does not
 describe a slice, such as one with a key that a slice does not have. Read the slice it returns with
-`IOStreams.stream(slice)`:
+`IOStreams.stream(slice)`, and the schema read once, as above:
 
 ~~~ruby
-IOStreams.stream(IOStreams.slice(store.pop)).schema("people.json").each(:hash) do |person|
+slice = IOStreams.slice(store.pop)
+IOStreams.stream(slice).schema(schema).each(:hash) do |person|
   p person
 end
 ~~~

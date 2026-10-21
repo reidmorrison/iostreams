@@ -282,8 +282,9 @@ end
 ~~~
 
 A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
-so that setting it does not read the file, and the copies of a path read it once. `#schema` returns the schema
-that was set.
+so that setting it does not read the file, and the copies of a path read it once. Another stream that the file is set
+on reads it again, such as the stream of each slice of a file, so read the file once and set its Hash on each one
+instead, see [Slices](streams#slices). `#schema` returns the schema that was set.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
 `#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. It replaces the options of each call that

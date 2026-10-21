@@ -8,8 +8,9 @@ module IOStreams
   #
   #   IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) { |slice| queue << slice }
   #
-  #   # Elsewhere:
-  #   IOStreams.stream(queue.pop).schema("people.json").each(:hash) { |person| p person }
+  #   # Elsewhere, reading the schema file once, rather than once for each slice:
+  #   schema = JSON.parse(IOStreams.path("people.json").read)
+  #   IOStreams.stream(queue.pop).schema(schema).each(:hash) { |person| p person }
   #
   # It is an Array of the rows: lines of text for a format of lines, such as CSV, including a blank line, or for a
   # format whose rows are not lines, such as Parquet, the rows that its reader returns. The methods of an Array that
