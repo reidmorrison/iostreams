@@ -170,16 +170,18 @@ class PostgresqlCursorTest < Minitest::Test
         end
       end
 
+      # Returns [String] the name of the role of this process, which may not log in, nor read the tables, see
+      # QueryDatabase::PostgresqlSchema.role.
+      def role
+        db.record.with_connection { |connection| QueryDatabase::PostgresqlSchema.role(connection) }
+      end
+
       it "tags a table that the user may not read as PermissionDenied" do
-        execute(<<~SQL)
-          DO $$ BEGIN
-            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'iostreams_reader') THEN CREATE ROLE iostreams_reader; END IF;
-          END $$
-        SQL
+        reader = db.record.with_connection { |connection| connection.quote_column_name(role) }
         stream = IOStreams.stream(orders)
         stream.schema
         pinned do
-          execute("SET LOCAL ROLE iostreams_reader")
+          execute("SET LOCAL ROLE #{reader}")
           error = assert_raises(ActiveRecord::StatementInvalid) { each(stream) }
 
           assert_kind_of IOStreams::Errors::PermissionDenied, error
@@ -189,7 +191,7 @@ class PostgresqlCursorTest < Minitest::Test
 
       # Returns [Class] a model of the orders table on a connection to the url of POSTGRES_URL, changed by the block.
       def orders_at(name)
-        url = URI(ENV.fetch("POSTGRES_URL"))
+        url = URI(QueryDatabase::PostgresqlSchema.url)
         yield url
         record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
         constant = :"#{name}Record"
