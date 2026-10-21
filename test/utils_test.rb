@@ -2,6 +2,74 @@ require_relative "test_helper"
 
 class UtilsTest < Minitest::Test
   describe IOStreams::Utils do
+    describe ".redact_options" do
+      it "replaces the declared options, and those that are sensitive by name" do
+        options = {region: "east", license: "a", db_password: "b", session_token: "c", aws_credentials: "d"}
+
+        assert_equal({region: "east", license: "[FILTERED]", db_password: "[FILTERED]", session_token: "[FILTERED]",
+                      aws_credentials: "[FILTERED]"},
+                     IOStreams::Utils.redact_options(options, %i[license]))
+      end
+
+      it "replaces authentication, API key and private key options by name" do
+        options = {"Authorization" => "a", "X-Auth-Token" => "b", "X-Api-Key" => "c", private_key: "d", "Accept" => "text/csv"}
+
+        assert_equal({"Authorization" => "[FILTERED]", "X-Auth-Token" => "[FILTERED]", "X-Api-Key" => "[FILTERED]",
+                      private_key: "[FILTERED]", "Accept" => "text/csv"},
+                     IOStreams::Utils.redact_options(options))
+      end
+
+      it "matches names in any case, with or without _ and -" do
+        options = {"IdentityKey" => "a", "Proxy-Authorization" => "b", "Accept" => "text/csv"}
+
+        assert_equal({"IdentityKey" => "[FILTERED]", "Proxy-Authorization" => "[FILTERED]", "Accept" => "text/csv"},
+                     IOStreams::Utils.redact_options(options, %i[identity_key proxy_authorization]))
+      end
+
+      it "redacts the options within a Hash" do
+        options = {client: {region: "east", secret_access_key: "a"}}
+
+        assert_equal({client: {region: "east", secret_access_key: "[FILTERED]"}}, IOStreams::Utils.redact_options(options))
+      end
+
+      it "redacts the options within an Array of Hashes or of name and value pairs" do
+        options = {clients: [{region: "east", password: "a"}], headers: [["Authorization", "b"], ["Accept", "text/csv"]]}
+
+        assert_equal({clients: [{region: "east", password: "[FILTERED]"}],
+                      headers: [["Authorization", "[FILTERED]"], ["Accept", "text/csv"]]},
+                     IOStreams::Utils.redact_options(options))
+      end
+
+      it "keeps the values of an Array that are not options" do
+        assert_equal({hosts: %w[a b], ports: [[1, 2]]}, IOStreams::Utils.redact_options(hosts: %w[a b], ports: [[1, 2]]))
+      end
+
+      it "does not change the options" do
+        options = {password: "a"}
+        IOStreams::Utils.redact_options(options)
+
+        assert_equal({password: "a"}, options)
+      end
+    end
+
+    describe ".display_text" do
+      it "returns valid UTF-8 as it is" do
+        assert_equal "/data/café.csv", IOStreams::Utils.display_text("/data/café.csv")
+      end
+
+      it "reads a binary string as UTF-8" do
+        text = IOStreams::Utils.display_text("/data/café.csv".b)
+
+        assert_equal "/data/café.csv", text
+        assert_equal Encoding::UTF_8, text.encoding
+      end
+
+      it "shows each byte that is not valid UTF-8 as \\xHH" do
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".b)
+      end
+    end
+
     describe ".temp_file_name" do
       it "returns value from block" do
         result = IOStreams::Utils.temp_file_name("base", ".ext") { |_name| 257 }

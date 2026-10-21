@@ -309,7 +309,8 @@ end
 
   A username and password supplied in the url remain part of it, so `#to_s` returns them,
   as does any log or error message that includes the path. To keep them out of logs, supply them
-  with the `username:` and `password:` arguments instead.
+  with the `username:` and `password:` arguments instead, and log `#display_name`, which never
+  includes them.
 
 #### Optional Arguments:
 
@@ -378,7 +379,8 @@ Notes:
 
   A username and password supplied in the url remain part of it, so `#to_s` returns them,
   as does any log or error message that includes the path. To keep them out of logs, supply them
-  with the `username:` and `password:` arguments instead.
+  with the `username:` and `password:` arguments instead, and log `#display_name`, which never
+  includes them.
 
 #### Optional Arguments:
 
@@ -487,6 +489,20 @@ IOStreams.path("sample/data").mkpath
 Inspect the components of a path's file name:
 
 ~~~ruby
+# The full name of the path, without any user name, password or query in an SFTP or HTTP url,
+# for logging. Unlike #to_s it cannot be used to create the path again.
+IOStreams.path("sftp://jack:secret@sftp.example.org/data/ruby.rb").display_name
+# => "sftp://sftp.example.org/data/ruby.rb"
+
+# The options for creating a path, such as a password, with each secret replaced, for an application
+# that stores a url and its options, and displays them. The path class of the url decides which are
+# secret. `redact_stream_options` does the same for the options of streams.
+IOStreams.redact_path_options("sftp://sftp.example.org/data/ruby.rb", username: "jack", password: "secret")
+# => {username: "jack", password: "[FILTERED]"}
+
+IOStreams.redact_stream_options(pgp: {passphrase: "secret", recipient: "a@b.org"})
+# => {pgp: {passphrase: "[FILTERED]", recipient: "a@b.org"}}
+
 # The last component of the path.
 IOStreams.path("/home/gumby/work/ruby.rb").basename
 # => "ruby.rb"

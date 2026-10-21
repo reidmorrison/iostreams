@@ -5,6 +5,81 @@ module IOStreams
   module Utils
     MAX_TEMP_FILE_NAME_ATTEMPTS = 5
 
+    # Replaces the value of a sensitive option for display, see .redact_options.
+    FILTERED = "[FILTERED]".freeze
+
+    # Option names whose values are hidden as a precaution, even when they are not declared sensitive.
+    # Matched against the name in lower case without `_` or `-`, see .redact_options.
+    SENSITIVE_NAME = /passphrase|password|secret|token|credential|auth|apikey|privatekey/
+    private_constant :SENSITIVE_NAME
+
+    # Returns [Hash] the options with the value of each sensitive option replaced with FILTERED, so that they can be
+    # displayed, for example by `#inspect`, or in a web interface.
+    #
+    # An option is sensitive when its name is one of the supplied `sensitive_names`, or, as a precaution, contains
+    # `passphrase`, `password`, `secret`, `token`, `credential`, `auth`, `apikey` or `privatekey`. Names are compared in
+    # lower case, ignoring `_` and `-`, so that `:identity_key` matches the ssh option "IdentityKey", and the header
+    # "X-Api-Key" contains `apikey`. The options in a Hash value, such as `ssh_options:` or `client:`, are redacted the
+    # same way, as are those in an Array value, whether its elements are Hashes or `[name, value]` pairs.
+    def self.redact_options(options, sensitive_names = [])
+      redact_hash(options, sensitive_names.map { |name| normalize_option_name(name) })
+    end
+
+    # Returns [Hash] the options of each stream, by its name, such as those supplied to `IOStreams::Stream#stream`, with
+    # the value of each sensitive option replaced with FILTERED, as the extension that the block returns for the name of
+    # the stream decides, see `IOStreams::Extension#redact_options`.
+    #
+    # Every value of a stream is replaced when the block returns nil, since no extension can say which are sensitive,
+    # and options that are not a Hash are replaced whole, since they cannot say which of their values are sensitive.
+    # Options that are nil are kept.
+    def self.redact_streams(streams)
+      streams.to_h do |name, options|
+        next [name, options] if options.nil?
+        next [name, FILTERED] unless options.is_a?(Hash)
+
+        extension = yield(name)
+        [name, extension ? extension.redact_options(options) : options.transform_values { FILTERED }]
+      end
+    end
+
+    def self.redact_hash(options, sensitive)
+      options.to_h { |name, value| [name, redact_option(name, value, sensitive)] }
+    end
+    private_class_method :redact_hash
+
+    # Returns the value of the named option for display, see .redact_options.
+    def self.redact_option(name, value, sensitive)
+      key = normalize_option_name(name)
+      return FILTERED if sensitive.include?(key) || key.match?(SENSITIVE_NAME)
+
+      redact_value(value, sensitive)
+    end
+    private_class_method :redact_option
+
+    # Returns the value with the options within it redacted, when it is a Hash or an Array, see .redact_options.
+    def self.redact_value(value, sensitive)
+      case value
+      when Hash
+        redact_hash(value, sensitive)
+      when Array
+        value.map do |element|
+          if element.is_a?(Array) && element.size == 2 && (element.first.is_a?(String) || element.first.is_a?(Symbol))
+            [element.first, redact_option(element.first, element.last, sensitive)]
+          else
+            redact_value(element, sensitive)
+          end
+        end
+      else
+        value
+      end
+    end
+    private_class_method :redact_value
+
+    def self.normalize_option_name(name)
+      name.to_s.downcase.delete("_-")
+    end
+    private_class_method :normalize_option_name
+
     # Lazy load dependent gem so that it remains a soft dependency.
     def self.load_soft_dependency(gem_name, stream_type, require_name = gem_name)
       require require_name
@@ -48,6 +123,18 @@ module IOStreams
       other.respond_to?(:known_option_names) ? other.known_option_names : []
     end
     private_class_method :other_option_names
+
+    # Returns [String] the string as UTF-8 text that can be displayed or logged, such as the name of a file, which is not
+    # always valid UTF-8, since a file system stores the bytes that a program gave it: a binary string is read as UTF-8,
+    # and each byte that is not valid UTF-8 is shown as `\xHH`.
+    #
+    # For example the name of a file in Latin-1, `caf\xE9.csv`, is displayed as "caf\\xE9.csv".
+    def self.display_text(string)
+      text = string.encoding == Encoding::BINARY ? string.dup.force_encoding(Encoding::UTF_8) : string
+      return text if text.valid_encoding?
+
+      text.scrub { |bytes| bytes.unpack("C*").map { |byte| format("\\x%02X", byte) }.join }
+    end
 
     # Helper method: Returns [true|false] if a value is blank?
     def self.blank?(value)

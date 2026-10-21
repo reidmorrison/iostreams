@@ -7,6 +7,10 @@ module IOStreams
         %i[passphrase ignore_mdc_error verify_first]
       end
 
+      def self.sensitive_option_names
+        %i[passphrase]
+      end
+
       # Passphrase to use to open the private key to decrypt the received file
       class << self
         attr_writer :default_passphrase

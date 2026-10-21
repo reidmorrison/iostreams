@@ -137,9 +137,79 @@ module IOStreams
         end
       end
 
+      describe "#display_name" do
+        it "is the full name of the path" do
+          %w[/data/a.csv s3://bucket/data/a.csv sftp://example.org:2222/data/a.csv https://example.org:8443/a%20b.csv].each do |url|
+            assert_equal url, IOStreams.path(url).display_name
+          end
+        end
+
+        it "does not include credentials in the url" do
+          {
+            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "sftp://example.org/a.csv",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "https://example.org/a.csv"
+          }.each_pair do |url, name|
+            assert_equal name, IOStreams.path(url).display_name
+          end
+        end
+
+        it "does not include credentials supplied as arguments" do
+          path = IOStreams.path("sftp://example.org/a.csv", username: "jack", password: "TOP-SECRET")
+
+          assert_equal "sftp://example.org/a.csv", path.display_name
+        end
+
+        it "does not include the parameters of an HTTP url, which can hold credentials" do
+          path = IOStreams.path("https://example.org/a.csv", parameters: {token: "TOP-SECRET"})
+
+          assert_equal "https://example.org/a.csv", path.display_name
+        end
+
+        it "is the full name of a joined path" do
+          assert_equal "s3://bucket/data/b.csv", IOStreams.path("s3://bucket/data/a.csv").directory.join("b.csv").display_name
+        end
+
+        it "shows each byte of a name that is not valid UTF-8 as \\xHH" do
+          path = IOStreams.path("/data/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+
+          assert_equal "/data/caf\\xE9.csv", path.display_name
+        end
+      end
+
       describe "#inspect" do
         it "includes the class name and path" do
           assert_includes IOStreams::Path.new("a/b/file.csv").inspect, "a/b/file.csv"
+        end
+
+        it "includes the full name of the path" do
+          {
+            "/data/a.csv"                        => "/data/a.csv",
+            "s3://bucket/data/a.csv"             => "s3://bucket/data/a.csv",
+            "sftp://example.org:2222/data/a.csv" => "sftp://example.org:2222/data/a.csv",
+            "https://example.org:8443/a%20b.csv" => "https://example.org:8443/a%20b.csv"
+          }.each_pair do |url, name|
+            assert_equal "#<#{IOStreams.path(url).class.name}:#{name} pipeline={}>", IOStreams.path(url).inspect
+          end
+        end
+
+        it "does not display credentials in the url" do
+          {
+            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "SFTP:sftp://example.org/a.csv ",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "HTTP:https://example.org/a.csv "
+          }.each_pair do |url, name|
+            str = IOStreams.path(url).inspect
+
+            refute_includes str, "TOP-SECRET"
+            refute_includes str, "jack"
+            assert_includes str, name
+          end
+        end
+
+        it "does not display credentials supplied as arguments" do
+          str = IOStreams.path("sftp://example.org/a.csv", username: "jack", password: "TOP-SECRET").inspect
+
+          refute_includes str, "TOP-SECRET"
+          assert_includes str, "SFTP:sftp://example.org/a.csv "
         end
 
         it "does not display passphrases set as options" do
@@ -156,6 +226,25 @@ module IOStreams
 
           refute_includes str, "TOP-SECRET"
           assert_includes str, "a@b.org"
+        end
+
+        it "does not display options whose names suggest a secret" do
+          path = IOStreams.path("a/b/file.csv.pgp").option(:pgp, api_token: "TOP-SECRET", recipient: "a@b.org")
+          str  = path.inspect
+
+          refute_includes str, "TOP-SECRET"
+          assert_includes str, "a@b.org"
+        end
+      end
+
+      describe ".redact_options" do
+        it "replaces the options that the path class declares sensitive" do
+          assert_equal({username: "jack", password: "[FILTERED]"},
+                       IOStreams::Paths::SFTP.redact_options(username: "jack", password: "secret"))
+        end
+
+        it "replaces only the options that are sensitive by name for a path class without secrets" do
+          assert_equal({create_path: false, token: "[FILTERED]"}, IOStreams::Path.redact_options(create_path: false, token: "a"))
         end
       end
 

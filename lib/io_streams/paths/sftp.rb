@@ -36,6 +36,9 @@ module IOStreams
 
       attr_reader :hostname, :username, :ssh_options, :url, :port
 
+      # The password, and the private key supplied as the ssh option `IdentityKey`, see IOStreams::Path.redact_options.
+      def self.sensitive_option_names = %i[password identity_key]
+
       # Stream to a remote file over sftp.
       #
       # url: [String]
@@ -44,7 +47,8 @@ module IOStreams
       #   SECURITY WARNING:
       #     A username and password supplied in the url remain part of it, so `#to_s` and `#url`
       #     return them, as does any log or error message that includes the path.
-      #     Supply them with the `username:` and `password:` arguments instead.
+      #     Supply them with the `username:` and `password:` arguments instead,
+      #     and log `#display_name`, which never includes them.
       #
       # username: [String]
       #   Name of user to login with.
@@ -126,6 +130,11 @@ module IOStreams
 
       def to_s
         url
+      end
+
+      # Returns [String] the url without the user name, password, query or fragment, which can hold credentials.
+      def display_name
+        url.sub(%r{\A([^:/]+://)[^/?#]*@}, "\\1").sub(/[?#].*\z/m, "")
       end
 
       # Note that mkdir is delayed and only executed when the file write is performed.

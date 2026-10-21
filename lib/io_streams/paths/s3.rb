@@ -5,6 +5,10 @@ module IOStreams
     class S3 < IOStreams::Path
       attr_reader :bucket_name, :options
 
+      # The secret access key, also within `client:`, and the customer encryption keys, see
+      # IOStreams::Path.redact_options. A session token and credentials are always sensitive by name.
+      def self.sensitive_option_names = %i[secret_access_key sse_customer_key copy_source_sse_customer_key]
+
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
