@@ -25,6 +25,14 @@ class SqliteStatementTest < Minitest::Test
         assert(db.record.with_connection { |connection| IOStreams::Query::SqliteStatement.reads?(connection) })
       end
 
+      it "tells that it reads a connection without asking its raw connection, which Active Record would then not verify" do
+        db.record.with_connection do |connection|
+          connection.stub(:raw_connection, -> { flunk "asked the raw connection" }) do
+            assert IOStreams::Query::SqliteStatement.reads?(connection)
+          end
+        end
+      end
+
       describe ".own_connection?" do
         # Returns [Object] a connection whose raw connection is the supplied database of the sqlite3 gem.
         def connection(raw)

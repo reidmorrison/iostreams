@@ -6,11 +6,11 @@ module IOStreams
     # result rather than load all of it, see `IOStreams::Query`.
     class SqliteStatement
       # Returns [true|false] whether the connection is to SQLite through the sqlite3 gem, which this source reads with,
-      # unlike an adapter of SQLite on JRuby.
+      # unlike an adapter of SQLite on JRuby, which cannot load the gem, a C extension. It does not ask the raw
+      # connection, which Active Record would no longer verify or reconnect until it is checked in again, since it is
+      # asked of the connection of the caller too, see `IOStreams::Query#columns`.
       def self.reads?(connection)
-        return false unless connection.adapter_name == "SQLite" && defined?(::SQLite3::Database)
-
-        connection.raw_connection.is_a?(::SQLite3::Database)
+        connection.adapter_name == "SQLite" && defined?(::SQLite3::Database) ? true : false
       end
 
       # Returns [true|false] whether the database of the connection can be read on a connection of its own, while the
