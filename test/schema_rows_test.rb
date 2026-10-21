@@ -322,7 +322,14 @@ class SchemaRowsTest < Minitest::Test
 
         it "reads the lines as they are stored with #raw, as binary" do
           Dir.mktmpdir do |dir|
-            stored = Zlib.gzip("área,name\n12,Jos\xE9\n".b)
+            # A gzip header holds the time that it was written, whose bytes can be a line ending, such as "\r", which
+            # would split the line read there, so the time is fixed.
+            io = StringIO.new(+"")
+            gz = Zlib::GzipWriter.new(io)
+            gz.mtime = 1
+            gz.write("área,name\n12,Jos\xE9\n".b)
+            gz.finish
+            stored = io.string
             ::File.binwrite(File.join(dir, "people.csv.gz"), stored)
             lines = read(IOStreams.path(dir, "people.csv.gz").schema(schema).raw, :line)
 
