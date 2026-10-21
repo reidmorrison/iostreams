@@ -34,7 +34,7 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   (`with_connection(prevent_permanent_checkout: true)`) when Active Record cannot use another
   (`supports_concurrent_connections?`, false for an in-memory SQLite database, which is a database of its own on each
   connection) or the source says that its database cannot be read on one (`.own_connection?`). The source is the
-  first of `SOURCES` whose `.reads?` takes the connection, otherwise `ArgumentError` suggesting `in_batches`. It runs a
+  first of `SOURCES` whose `.reads?` takes the connection, otherwise `ArgumentError` suggesting `in_batches` (`Query::IN_BATCHES`). It runs a
   `Query::Statement` and checks the names of the columns of its result (`Columns#check`), since rows are cast by
   position, before it yields its reader. Batches are read by `Query::Batches#open`, on the connection of the caller,
   each batch loaded whole.
@@ -76,7 +76,8 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   `Delegator` such as `TimeZoneConverter` or `NormalizedValueType`, but not a serialized attribute, an enum, or a type
   that holds others, such as an array). The `type` that a type answers is trusted only when its class is in the
   namespace of Active Model or Active Record (`#own?`), so a type of the application is `any`. An integer column of
-  more than 18 digits (`INTEGER_DIGITS`), such as `decimal(20, 0)`, is a number without decimals, whose values are
+  more than 18 digits (`INTEGER_DIGITS`), such as `decimal(20, 0)`, and an unsigned integer of 8 bytes, such as MySQL's `bigint unsigned`, are numbers without
+  decimals, whose values are
   BigDecimals, since Parquet's int64 cannot hold it. A PostgreSQL `inet` or `cidr` address, also within decorators such as
   that of `normalizes`, is cast as the text that PostgreSQL returns (`TEXT`, `#cast_type`), such as "10.0.0.0/8", and an
   array of addresses as an array of that text (`#text_array`), since its type casts an `IPAddr`, whose text drops the
@@ -148,12 +149,41 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   reports each address that it tried, and answers `Query::Failure::NONE` for a host that does not resolve or a database
   that does not exist; the failures of a statement are told apart by the class of the pg gem's exception
   (`FAILURE_KINDS`).
-- `Query::Mysql2Stream`: reads MySQL with the `stream: true` mode of the raw connection of the mysql2 gem, with the
-  query options of Active Record, so that its raw values are those that `pluck` casts. The server ends a query whose
-  client does not take a row within `net_write_timeout`, 60 seconds by default, so it is raised for the session while
-  the rows are read, and set back afterwards. While mysql2 streams a result, its connection cannot run another
-  query, and the rest of the result is read from the server when it is freed after the block left early. trilogy
-  cannot stream a query, since its queries return every row at once, so it is read in batches.
+- `Query::Mysql2Stream`: reads MySQL with the mysql2 gem. On the read's own connection (`.own_connection?` true) it
+  streams the result (`stream: true`, with the query options of Active Record, so that the raw values are those that
+  `pluck` casts) within `Statement#instrument`, and reads the names of the columns before any row, since mysql2 frees a
+  streamed result once it has read every row, then the first row, before it yields its reader, whose `#each` continues
+  where a traversal stopped, as mysql2's streamed `Result#each` does after a break. The limits of the session by which
+  the server ends a query whose client is slow (`LIMITS`: `net_write_timeout`, raised to 3600 seconds, and
+  `max_execution_time`, lifted to 0, since it counts the time that the target takes, and a retry would meet it again;
+  a hint of the query, `optimizer_hints("MAX_EXECUTION_TIME(...)")`, still applies) are raised only when the session
+  has lower ones, known before they are raised, and set back afterwards; a set-back that fails, or is interrupted,
+  ends the connection instead. When the block leaves early, or the read fails, the connection is ended (`#discard`,
+  `disconnect!`), which ends the query, since `Result#free` would read the rest of the result with the GVL held, while
+  `mysql_close` does not, and the pool reconnects it at its next checkout. A connection that has a transaction open,
+  as only one that the read shares with the caller has (the pinned connection of transactional tests, with or without
+  `lock_threads`), is read whole with Active Record's `select_all`, uncached, never with its raw connection, so that
+  the block and other threads can query it: a query of the block on a streaming connection makes mysql2 end it, and
+  Active Record reconnects and runs the block's query again, so the read would end without the rest of its rows. A
+  connection that prepares statements, not mysql2's default, cannot be read: mysql2 0.5.7 crashes, with
+  `NoMemoryError`, on any empty result of a prepared statement, such as that of the query that describes the columns,
+  which runs before any source is asked, and a statement with binds, which Active Record sends only on such a
+  connection, raises `ArgumentError`, since mysql2 cannot stream a prepared statement whose columns hold text. `.reads?` asks
+  `defined?(::Mysql2::Client)` and the name of the adapter, since AR-JDBC's MySQL adapter on JRuby is named "Mysql2"
+  too; `.requirable_types` is integer, number and boolean, since mysql2 returns a zero date as nil; `.failure_kind`
+  asks `Query::MysqlFailure` with `error_number` and `message`, and tags its own numberless `TimeoutError` as
+  `Unavailable`. trilogy cannot stream a query, since its queries return every row at once, so it is read in batches.
+- `Query::MysqlFailure`: the kinds of failure of the error numbers of MySQL, whichever driver raised them
+  (`NUMBER_KINDS`: denials, including accounts that MySQL does not let connect, are `PermissionDenied`; lost or refused
+  connections, timeouts, kills and deadlocks are `Unavailable`), the starts of the messages of those that a driver
+  raises without their number (`MESSAGE_NUMBERS`: mysql2 raises every error that ends a streamed result so, worded as
+  the client library of Oracle ("MySQL server") and that of MariaDB, which Debian installs ("server"), say them, and
+  the server in English), and CR_UNKNOWN_HOST, 2005, which is `Unavailable` only for `Socket::EAI_AGAIN`, otherwise
+  `Query::Failure::NONE`. `Query::TrilogyFailure` asks it with trilogy's `error_code`, and knows trilogy's own
+  exceptions: `TimeoutError`, `EOFError` and the `SyscallError` of a server that cannot be reached are `Unavailable`,
+  and the `Socket::ResolutionError` that trilogy raises as the cause of a failure to resolve the host is `NONE` unless
+  it is `EAI_AGAIN`. `Query::DRIVER_FAILURES` lists the sources and `TrilogyFailure`, which `Query#driver_failure_kind`
+  asks, although no source reads with trilogy.
 - `Query::SqliteStatement`: reads SQLite with a statement of the sqlite3 gem (`prepare`, `bind_params`, `step`), which
   steps through the result one row at a time. `.reads?` asks the name of the adapter and whether the sqlite3 gem is
   loaded, which it cannot be on JRuby; `.own_connection?` only in WAL mode (`journal_mode`, the default of Rails), whose
@@ -173,7 +203,7 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   (`#connection_kind`), `QueryAborted`, `LockWaitTimeout` and `TransactionRollbackError` are `Unavailable`, and it yields
   the driver's exception (the exception itself when it is not Active Record's, otherwise the `#cause` of a
   `StatementInvalid`, including `NoDatabaseError`, or of a `ConnectionNotEstablished`) to `Query#driver_failure_kind`,
-  which asks the sources. A source answers a kind, `Query::Failure::NONE` (compared by identity) for an exception that
+  which asks `Query::DRIVER_FAILURES`: the sources, and `Query::TrilogyFailure`. A source answers a kind, `Query::Failure::NONE` (compared by identity) for an exception that
   it knows to be of no kind, which `Failure` leaves untagged rather than fall back on how Active Record named it, or nil
   for one that it does not know, or that another driver raised. Only for a `ConnectionNotEstablished` that the driver
   does not know does `Failure` fall back on Active Record's naming: `PermissionDenied` for its "username/password"
@@ -202,9 +232,25 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   `test` nor ends in `_test`, and a url that sets `schema_search_path`. A database that cannot be set up, such as a
   server that cannot be reached, leaves out only its own tests, with a warning, and fails `QueryDatabaseTest`.
 - MySQL is read when `MYSQL_URL` is set, such as `mysql2://root:mysql@127.0.0.1:3306/iostreams_test`, which CI runs as
-  a service. The MySQL drivers, mysql2 and trilogy, are in the optional `mysql` group of the Gemfile, since mysql2 needs
-  the MySQL client library to build: `bundle config set --local with mysql` installs them. Without a Gemfile.lock,
-  bundler still resolves the optional group, so a new worktree needs one, such as a copy of another worktree's.
+  a service. `QueryDatabase::MysqlDatabase` creates a database of its own for each test process on that server, named
+  after the one of the url (`iostreams_test_<hex>`), which must be named as a database for tests
+  (`QueryDatabase::TEST_DATABASE`, shared with `PostgresqlSchema`), and drops it once the tests have run; the users
+  that the tests create are named for the process (`MysqlDatabase.user`) and dropped after each test.
+  `Database#orders_at(name, scheme:, host:, port:, user:, password:, **options)` builds a model of the orders table on
+  a pool of its own at a changed url when a test needs it, changing the host and port before the user and password,
+  whose userinfo their setters clear, and waits at most `CONNECT_TIMEOUT` seconds to connect. The MySQL drivers,
+  mysql2 and trilogy, are in the optional `mysql` group of the Gemfile, since mysql2 needs the MySQL client library to
+  build: `bundle config set --local with mysql` installs them. Without a Gemfile.lock, bundler still resolves the
+  optional group, so a new worktree needs one, such as a copy of another worktree's.
+- Without the MySQL client library, run the MySQL tests in a `ruby:3.4` container on the Docker network of the MySQL
+  server: mount the checkout read-only and copy it inside, leaving out `tmp/` and `coverage/`, keep the gems in a named
+  volume, and `gem install` only what the query tests need (activerecord, mysql2, trilogy, minitest 6.0.6,
+  minitest-mock, amazing_print, symmetric-encryption, bigdecimal, sqlite3, pg; parquet is a Rust extension, too heavy
+  to build there). Run them without bundler, as `ruby -w -Ilib -Itest -e 'gem "minitest", "6.0.6"; gem
+  "minitest-mock"; Dir["test/query/**/*_test.rb"].sort.each { |file| require "./#{file}" }' -- --exclude /Parquet/`,
+  with `MYSQL_URL` naming the server by its container name. The `gem` calls are needed, since Ruby 3.4 bundles minitest
+  5, whose `minitest/mock` RubyGems would otherwise activate. Prefix `gem "activerecord", "7.2.3"; gem "activesupport",
+  "7.2.3";` to run Active Record 7.2. Debian's MySQL client library is MariaDB Connector/C.
 - Active Record 8.1 by default; CI's Ruby 3.3 job runs 7.2.3 (`ACTIVERECORD_VERSION`), the latest 7.2 that minitest 6
   allows, with json < 3, see the Gemfile. To run it locally without touching the worktree's Gemfile.lock, copy the
   Gemfile to tmp/ with `gemspec path: ".."` and run `ACTIVERECORD_VERSION=7.2.3 BUNDLE_GEMFILE=tmp/Gemfile.ar72 bundle
@@ -240,6 +286,15 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   interrupted one waits for it to finish, so a source sends nothing after an exception or an interrupt; a savepoint's
   rollback does not cancel, so an interrupt of a read in a pinned connection's savepoint still waits for its fetch.
 - Active Record 8.1 names a statement that it prepares (`:statement_name` in the payload), which a DECLARE never is.
+- mysql2 0.5.7: a streamed result is freed once every row is read, so read `Result#fields` before any row; a streamed
+  `Result#each` resumes after a `break`; `Result#free` of a result left early reads the rest of it with the GVL held,
+  while `Client#close` does not, after which `free` is safe; a query on a connection that streams a result raises
+  "Commands out of sync" and invalidates the socket, which Active Record then silently reconnects to retry the query;
+  with `prepared_statements: true` every empty result crashes, on Active Record 7.2 and 8.1 alike, and a streamed
+  prepared statement raises "IMPLBUG: caught MYSQL_DATA_TRUNCATED" for text columns; errors that end a streamed result
+  have no `error_number`.
+- A pinned connection keeps its transaction open, so Active Record never reconnects it within that transaction, and
+  `pool.checkout` verifies it, which reconnects it whatever its dirty flag.
 - Prefer the public API of Active Record. `to_sql_and_binds` and `type_casted_binds` are private in 7.2 and 8.1, so
   `Query::Statement` uses the public `to_sql`, `visitor`, Arel's collectors and `type_cast` instead.
 - Rails' batches: two queries for each batch (the ids, then the rows); the order of an ordered relation is ignored, and
