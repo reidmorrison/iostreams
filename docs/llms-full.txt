@@ -4059,23 +4059,48 @@ once, in the order that it asks for. To read a query in the batches of Rails ins
 IOStreams.path("orders.csv").copy_from(Order.where(paid: true).in_batches(of: 5_000), mode: :hash)
 ~~~
 
-Rails runs a query for each batch, and another to find where it starts, so the database filters and sorts the rows
-again for every batch. For a sorted query that grows with the size of the table. On PostgreSQL 17, exporting 833,415
-of 1,000,000 orders, sorted by an amount without an index:
+Rails runs two queries for each batch, one that finds the keys of its rows, or where it ends, and then the one that
+reads its rows, so the database filters and sorts the rows again for every batch. For a sorted query, that grows with
+the size of the table. Exporting 832,995 of 1,000,000 orders to a CSV file on local disk, sorted by an amount without
+an index, on PostgreSQL 17 in Docker on a laptop:
 
-| How the rows are read | Time | Rows the database read |
-|-----------------------|------|------------------------|
-| One query, as IOStreams streams a relation | 0.65 s | 1,000,000 |
-| `in_batches(of: 10_000, cursor: [:amount, :id], use_ranges: true)` | 8.45 s | 169,000,000 |
-| `in_batches(of: 1_000, cursor: [:amount, :id])`, the default size | about 60 s | about 834,000,000 |
+| How the rows are read | Export | Queries | Rows that PostgreSQL read |
+|-----------------------|--------|---------|---------------------------|
+| One query, `order(:amount, :id)` | 12.9 s | 1.7 s | 1,000,000 |
+| `in_batches(of: 10_000, cursor: [:amount, :id], use_ranges: true)` | 20.8 s | 9.1 s | 169,000,000 |
+| `in_batches(cursor: [:amount, :id])`, 1,000 rows at a time | 61.8 s | 41.6 s | about 834,000,000 |
 
-A grouped query cannot be read in batches at all. Batches still suit a scan of a large table in the order of its
-primary key, which costs little, and hands the connection back to the pool between batches, so that the database does
-not hold one query open for the whole export.
+The time of the export includes casting the values and writing the file, and the time of the queries is the time that
+PostgreSQL took to answer them, as Active Record reports it.
+
+Batches still suit a scan of a large table in the order of its primary key, which costs little: `in_batches(of: 10_000)`
+exported the same orders, by their ids, in 14.6 seconds. Each batch is a query of its own, so that the database holds
+no query, and no snapshot, open from one batch to the next, see
+[Connections and transactions](#connections-and-transactions). Each batch is read whole, so its size, `of:`, decides
+the memory that it takes.
 
 Rails gives each batch no order of its own, so IOStreams reads the rows of each batch in the order of the primary key,
 which is the order of the batches by default. With another `cursor:`, or `order: :desc`, the batches are in that order,
-while the rows within each batch are in the ascending order of the primary key.
+while the rows within each batch are in the ascending order of the primary key, so the rows are in neither order. The
+rows of each batch of a model without a primary key, or of a distinct query, are in the order that the database returns
+them. `cursor:` needs Active Record 8.0 or later.
+
+Some queries return other rows in batches than as one query, or cannot be read in batches:
+
+* A grouped query, with `group` or `having`, raises `ArgumentError`, since each batch would aggregate only its own rows,
+  and so does a query with an `offset`, which Rails applies to each batch. Read them as one query.
+* A distinct query is distinct within each batch only, so the same row can be read in more than one batch. Read it as
+  one query.
+* A relation that was already loaded, such as by `to_a`, `present?` or a preloaded association, is read by the primary
+  keys of its records, each row once, as it is now in the database. When its records have no primary key, since the
+  model has none, or the query does not select it, it raises `ArgumentError`. To find whether there is anything to
+  export, ask `exists?`, which loads no records, rather than `present?`, which loads them all.
+
+A relation that is read as one query is opened before a copy opens its target, see
+[Exporting a query](#exporting-a-query), while the batches of a relation are read as the target is written, so a
+failure of the first batch fails the copy part way. Rails starts its batches again each time that they are read, so a
+second traversal of the reader that `#reader` yields reads no row once the first read them all, and raises
+`ArgumentError` when the first stopped early.
 
 The `Enumerator` that `find_each` or `find_in_batches` return without a block raises `ArgumentError`, since it cannot
 say how it reads its rows: supply the relation, or `relation.in_batches(...)`.
