@@ -149,6 +149,30 @@ class Mysql2StreamTest < Minitest::Test
         refute_includes sessions, callers
       end
 
+      # Since mysql2 would end the connection, and its transaction, for a query of the block, which Active Record would then
+      # run on a new connection, so that the read would end without the rest of its rows.
+      it "reads the query whole on a connection that the block shares, such as a pinned one, so that the block can query it" do
+        db.pool.pin_connection!(false)
+        begin
+          db.order.create!(name: "d", amount: 4)
+          names  = []
+          counts = []
+          IOStreams.stream(orders.select(:name)).each(:hash) do |order|
+            names << order["name"]
+            counts << db.customer.count
+          end
+
+          assert_equal %w[a b c d], names
+          assert_equal [2, 2, 2, 2], counts
+          # The transaction of the connection is still open, with the order that it created.
+          assert_equal 4, db.order.count
+        ensure
+          db.pool.unpin_connection!
+        end
+
+        assert_equal 3, db.order.count
+      end
+
       it "does not explain any other exception of the block" do
         assert_raises(ActiveRecord::RecordNotFound) do
           IOStreams.stream(orders).each(:hash) { |_order| raise ActiveRecord::RecordNotFound } # rubocop:disable Lint/UnreachableLoop -- raises on its first row
