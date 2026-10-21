@@ -345,6 +345,30 @@ class Mysql2StreamTest < Minitest::Test
     end
   end
 
+  describe ".reads?" do
+    # Returns a connection of the supplied adapter name, which raises when it is asked for its raw connection, since
+    # that would mark the connection of the caller as used by the application.
+    def connection(adapter_name)
+      connection = Object.new
+      connection.define_singleton_method(:adapter_name) { adapter_name }
+      connection.define_singleton_method(:raw_connection) { raise "reads? asked for the raw connection" }
+      connection
+    end
+
+    it "reads a connection of mysql2, by the name of its adapter" do
+      skip "The mysql2 gem is not installed, see the optional mysql group of the Gemfile" unless QueryDatabase.driver?("mysql2")
+
+      assert IOStreams::Query::Mysql2Stream.reads?(connection("Mysql2"))
+      refute IOStreams::Query::Mysql2Stream.reads?(connection("Trilogy"))
+    end
+
+    it "does not read a connection named Mysql2 without the mysql2 gem, such as that of AR-JDBC on JRuby" do
+      skip "The mysql2 gem is loaded" if QueryDatabase.driver?("mysql2")
+
+      refute IOStreams::Query::Mysql2Stream.reads?(connection("Mysql2"))
+    end
+  end
+
   describe ".failure_kind" do
     before do
       unless QueryDatabase.driver?("mysql2")

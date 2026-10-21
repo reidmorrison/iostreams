@@ -27,8 +27,12 @@ module IOStreams
       STREAM = {stream: true, cache_rows: false, as: :array}.freeze
 
       # Returns [true|false] whether the connection is to MySQL through the mysql2 gem, unlike trilogy, whose queries
-      # return every row at once.
+      # return every row at once, or the MySQL adapter of AR-JDBC on JRuby, which cannot load the gem, but is named
+      # "Mysql2" too. It does not ask the connection for its raw connection, which would mark the connection of the
+      # caller as used by the application, so that Active Record would no longer verify or reconnect it.
       def self.reads?(connection)
+        return false unless defined?(::Mysql2::Client)
+
         connection.adapter_name == "Mysql2"
       end
 
