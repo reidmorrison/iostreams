@@ -142,12 +142,16 @@ module IOStreams
       # raises before the block is called.
       #
       # The cursor is closed when the block finishes, or is left with `break` or an exception, and the settings are set
-      # back, unless the database failed, which aborts the transaction, see #restore.
+      # back, unless the database failed, which aborts the transaction, see #restore. An `ActiveRecord::Rollback` that
+      # the block raises, for a transaction of the caller, is raised again once the transaction of the cursor has rolled
+      # back, rather than rescued by it, as Active Record rescues it in any transaction, so that it reaches the
+      # transaction of the caller, or the caller, as it does when the block runs anywhere else.
       #
       # Returns the result of the block.
       def open(statement, columns)
-        joined = @connection.transaction_open?
-        @connection.transaction(requires_new: true) do
+        joined   = @connection.transaction_open?
+        rollback = nil
+        result   = @connection.transaction(requires_new: true) do
           previous = joined ? current_settings : nil
           finished = false
           begin
@@ -157,10 +161,16 @@ module IOStreams
             result   = yield self
             finished = true
             result
+          rescue ::ActiveRecord::Rollback => e
+            rollback = e
+            raise
           ensure
             restore(previous, finished)
           end
         end
+        raise rollback if rollback
+
+        result
       end
 
       # Yields [Array] each row of the result, its raw values as Active Record returns them, from the row after the last

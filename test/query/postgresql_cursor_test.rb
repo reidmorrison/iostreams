@@ -144,6 +144,20 @@ class PostgresqlCursorTest < Minitest::Test
         assert_equal 0, db.pool.stat[:busy]
       end
 
+      it "raises an ActiveRecord::Rollback of the block, which rolls back the transaction of the caller" do
+        db.record.transaction do
+          db.customer.create!(name: "before")
+          IOStreams.stream(orders).each(:hash) { |order| raise ActiveRecord::Rollback if order["name"] == "b" }
+          db.customer.create!(name: "after")
+        end
+
+        assert_equal %w[Acme Globex], db.customer.order(:id).pluck(:name)
+        assert_raises(ActiveRecord::Rollback) do
+          IOStreams.stream(orders).each(:hash) { |_order| raise ActiveRecord::Rollback } # rubocop:disable Lint/UnreachableLoop -- raises on its first row on purpose
+        end
+        assert_equal 0, db.pool.stat[:busy]
+      end
+
       it "reads another query within the block, with a cursor of its own" do
         pairs = []
         IOStreams.stream(orders.select(:name)).each(:hash) do |order|
