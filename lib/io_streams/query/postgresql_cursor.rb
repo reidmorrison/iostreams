@@ -2,8 +2,8 @@
 
 module IOStreams
   class Query
-    # Reads the rows of a query on PostgreSQL with a cursor, which fetches FETCH_SIZE rows at a time, so that the whole
-    # result is never in memory, see `IOStreams::Query`.
+    # Reads the rows of a query on PostgreSQL with a cursor, which fetches about FETCH_BYTES of its rows at a time, so
+    # that the whole result is never in memory, however wide its rows are, see `IOStreams::Query`.
     #
     # It runs through the public API of Active Record, so that each statement is logged, with the query transformers of
     # Active Record applied, its result is typed by PostgreSQL, and it works with any driver of PostgreSQL. It declares
@@ -27,8 +27,17 @@ module IOStreams
     # `statement_timeout` of the connection, such as one that the `variables` of the configuration of the database set,
     # applies to each fetch, rather than to the whole query.
     class PostgresqlCursor
-      # The number of rows of each fetch.
-      FETCH_SIZE = 10_000
+      # The number of rows of the first fetch, by whose size those of the fetches after it are sized, see #next_size.
+      FIRST_FETCH = 100
+
+      # The size of the raw values of the rows of each fetch after the first, in bytes, about, see #next_size.
+      FETCH_BYTES = 8 * 1024 * 1024
+
+      # The most rows of a fetch, however narrow its rows are, see #next_size.
+      MAX_FETCH = 10_000
+
+      # The size of a raw value that is not text, such as an Integer that the driver decoded, in bytes, see #next_size.
+      VALUE_BYTES = 8
 
       # The settings of the transaction that reads the query, see above.
       SETTINGS = {"cursor_tuple_fraction" => "1.0", "idle_in_transaction_session_timeout" => "0"}.freeze
@@ -133,6 +142,7 @@ module IOStreams
         @name       = "iostreams_cursor_#{object_id}"
         @rows       = []
         @done       = false
+        @size       = FIRST_FETCH
       end
 
       # Yields [IOStreams::Query::PostgresqlCursor] itself, whose #each yields the rows, once the cursor of the query is
@@ -196,14 +206,28 @@ module IOStreams
         uncached { @connection.exec_query(sql, Statement::NAME, statement.binds) }
       end
 
-      # Fetches the next FETCH_SIZE rows of the cursor, whose rows #each yields, and checks the names of the columns of
-      # its result against the supplied columns, see `IOStreams::Query::Columns#check`, for the first fetch. Once a
-      # fetch returns fewer rows than it asked for, there are none left to fetch.
+      # Fetches the next rows of the cursor, whose rows #each yields: FIRST_FETCH rows the first time, then as many as
+      # the rows of the last fetch say, see #next_size. It checks the names of the columns of the result of the first
+      # fetch against the supplied columns, see `IOStreams::Query::Columns#check`. Once a fetch returns fewer rows than
+      # it asked for, there are none left to fetch.
       def fetch(columns = nil)
-        result = uncached { @connection.select_all("FETCH FORWARD #{FETCH_SIZE} FROM #{@name}", "IOStreams Fetch") }
+        size   = @size
+        result = uncached { @connection.select_all("FETCH FORWARD #{size} FROM #{@name}", "IOStreams Fetch") }
         columns&.check(result.columns)
         @rows = result.rows
-        @done = @rows.size < FETCH_SIZE
+        @done = @rows.size < size
+        @size = next_size(@rows) unless @done
+      end
+
+      # Returns [Integer] the number of rows of the next fetch: as many as hold about FETCH_BYTES of raw values, by the
+      # size of the first FIRST_FETCH of the supplied rows, of the last fetch, so that a fetch holds about as much memory
+      # however wide the rows are, which #each releases as it yields them, but at least one row, and at most MAX_FETCH,
+      # so that narrow rows are not fetched in more round trips than they need. A value that is text counts its bytes,
+      # and any other value VALUE_BYTES.
+      def next_size(rows)
+        sample = rows.first(FIRST_FETCH)
+        bytes  = sample.sum { |row| row.sum { |value| value.is_a?(String) ? value.bytesize : VALUE_BYTES } }
+        (FETCH_BYTES * sample.size / [bytes, 1].max).clamp(1, MAX_FETCH)
       end
 
       # Closes the cursor, and sets back the settings of the transaction that was already open, once the read finished,

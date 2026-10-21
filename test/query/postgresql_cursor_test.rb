@@ -60,14 +60,38 @@ class PostgresqlCursorTest < Minitest::Test
         assert(db.record.with_connection { |connection| IOStreams::Query::PostgresqlCursor.reads?(connection) })
       end
 
-      it "fetches the rows of the query FETCH_SIZE at a time, from one query" do
+      # Returns [Array<Integer>] the number of rows that each fetch of a cursor asks for within the block.
+      def fetch_sizes(&)
+        sql      = []
+        callback = ->(_name, _start, _finish, _id, payload) { sql << payload[:sql] if payload[:name] == "IOStreams Fetch" }
+        ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &)
+        sql.map { |text| Integer(text[/\AFETCH FORWARD (\d+) /, 1]) }
+      end
+
+      it "fetches the rows of one query, FIRST_FETCH, then MAX_FETCH at a time, since they are narrow" do
         add_orders(25_000)
         count = 0
-        names = statements { IOStreams.stream(orders).each(:hash) { |_order| count += 1 } }
+        sizes = fetch_sizes do
+          names = statements { IOStreams.stream(orders).each(:hash) { |_order| count += 1 } }
+
+          assert_equal 1, names.count("IOStreams Columns")
+        end
 
         assert_equal 25_003, count
-        assert_equal 3, names.count("IOStreams Fetch")
-        assert_equal 1, names.count("IOStreams Columns")
+        assert_equal [100, 10_000, 10_000, 10_000], sizes
+      end
+
+      it "fetches as many rows as hold about FETCH_BYTES of their values, once the first fetch shows how wide they are" do
+        add_orders(300)
+        # Rows of about 100 KB, which the query computes, so that the table stays small.
+        relation = orders.select("id, repeat(md5(id::text), 3125) AS wide")
+        count    = 0
+        sizes    = fetch_sizes { IOStreams.stream(relation).each(:hash) { |_order| count += 1 } }
+        each_row = 100_000 + IOStreams::Query::PostgresqlCursor::VALUE_BYTES
+
+        assert_equal 303, count
+        assert_equal IOStreams::Query::PostgresqlCursor::FETCH_BYTES / each_row, sizes[1]
+        assert_equal [100, 83, 83, 83], sizes
       end
 
       it "plans the query for every row, and keeps the transaction open while the block is slow, on its own connection" do
@@ -102,7 +126,7 @@ class PostgresqlCursorTest < Minitest::Test
         add_orders(25_000)
         count = 0
         IOStreams.stream(orders_with("Timeout", statement_timeout: 500).order(:id)).each(:hash) do |_order|
-          sleep(0.3) if (count % IOStreams::Query::PostgresqlCursor::FETCH_SIZE).zero?
+          sleep(0.3) if (count % IOStreams::Query::PostgresqlCursor::MAX_FETCH).zero?
           count += 1
         end
 
@@ -161,9 +185,9 @@ class PostgresqlCursorTest < Minitest::Test
       end
 
       # Returns [ActiveRecord::Relation] the orders of the model, whose last row takes the supplied number of seconds to
-      # read, which is after the first fetch, of FETCH_SIZE rows.
+      # read, which is after the first fetch, of FIRST_FETCH rows.
       def slow_last_row(model, seconds)
-        add_orders(IOStreams::Query::PostgresqlCursor::FETCH_SIZE)
+        add_orders(IOStreams::Query::PostgresqlCursor::FIRST_FETCH)
         last = model.maximum(:id)
         model.order(:id).select("id, CASE WHEN id = #{last} THEN pg_sleep(#{seconds})::text END AS slept")
       end
