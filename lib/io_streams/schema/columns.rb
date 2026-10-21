@@ -26,6 +26,10 @@ module IOStreams
       def initialize(schema)
         @schema       = schema
         @keep_extra   = schema.keep_extra?
+        # The fields whose values the rows and records read have, those that are not skipped, see
+        # `IOStreams::Schema::Field#skip?`, in order, and whether any is skipped.
+        @values       = schema.fields.reject(&:skip?).freeze
+        @skips        = @values.size != schema.fields.size
         # The position and key of each column of the header row read that the schema does not list, which it keeps, in
         # the order of the columns, see #extra_columns.
         @extra        = NO_EXTRA
@@ -66,7 +70,7 @@ module IOStreams
         found, unknown, positions = find_fields(labels, "column")
         @schema.check_columns(found, unknown, ordered: true, noun: "column")
         @matched = @schema.fields.filter_map do |field|
-          [field, positions[field], @schema.key(field)] if positions.key?(field)
+          [field, positions[field], @schema.key(field)] if positions.key?(field) && !field.skip?
         end
         @extra   = extra_columns(labels, positions, "column")
         @width   = labels.size
@@ -88,8 +92,10 @@ module IOStreams
       # matches itself: by the position of each field of a fixed width file, or by the keys of each record of JSON,
       # see #read_row.
       def match_in_order
-        @matched = @schema.fields.each_with_index.map { |field, index| [field, index, @schema.key(field)] }
-        @width   = @matched.size
+        @matched = @schema.fields.each_with_index.filter_map do |field, index|
+          [field, index, @schema.key(field)] unless field.skip?
+        end
+        @width = @schema.fields.size
       end
 
       # Returns [true|false] whether the columns of the file read are known, see #match.
@@ -111,7 +117,7 @@ module IOStreams
         labels = named(labels)
         found, unknown, positions = find_fields(labels, "column")
         @schema.check_written_columns(found, unknown, fields_in_order: @fields_in_order)
-        @written       = @schema.fields.map { |field| [field, positions[field]] }
+        @written       = @schema.fields.map { |field| [field, field.skip? ? nil : positions[field]] }
         @written_width = labels.size
       end
 
@@ -344,7 +350,7 @@ module IOStreams
           @schema.check_columns(found, unknown, ordered: false, noun: "key")
           @read_plans.clear if @read_plans.size >= PLANS
           plan = @schema.fields.filter_map do |field|
-            [field, keys[positions[field]], @schema.key(field)] if positions.key?(field)
+            [field, keys[positions[field]], @schema.key(field)] if positions.key?(field) && !field.skip?
           end
           extra_columns(keys, positions, "key").each { |index, name| plan << [nil, keys[index], name] }
           @read_plans[keys] = plan
@@ -353,14 +359,14 @@ module IOStreams
         @read_plan
       end
 
-      # Returns [Array<Array(IOStreams::Schema::Field, Object)>] each field of the schema, in order, with the key of a
-      # record read that supplies it, see #read_plan, or nil when the record does not, worked out once for each list of
-      # keys. A key is never nil, since no field is the column nil, see `IOStreams::Schema#field_for`.
+      # Returns [Array<Array(IOStreams::Schema::Field, Object)>] each field of the schema that is not skipped, in order,
+      # with the key of a record read that supplies it, see #read_plan, or nil when the record does not, worked out once
+      # for each list of keys. A key is never nil, since no field is the column nil, see `IOStreams::Schema#field_for`.
       def row_plan(keys)
         @row_plan = @row_plans.fetch(keys) do
           supplied = read_plan(keys).to_h { |field, key, _name| [field, key] }
           @row_plans.clear if @row_plans.size >= PLANS
-          @row_plans[keys] = @schema.fields.map { |field| [field, supplied[field]] }
+          @row_plans[keys] = @values.map { |field| [field, supplied[field]] }
         end
         @row_keys = keys
         @row_plan
@@ -370,7 +376,8 @@ module IOStreams
       # of a record written that supplies it, or nil when the record does not, and its position, worked out once for
       # each list of keys, which are compared as a Hash compares them, see #read_plan. When `fieldsMatch` skips the keys
       # that are not fields, of two keys that are the same field, the one that is its name supplies it, as a layout of
-      # the deprecated format options always took it.
+      # the deprecated format options always took it. A field that is skipped, see `IOStreams::Schema::Field#skip?`,
+      # takes no value, so that it is written empty, whatever the key of its column holds.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when a key is not a field, unless `fieldsMatch` skips it.
       def write_plan(keys)
@@ -379,7 +386,7 @@ module IOStreams
           @schema.check_unknown(unknown, noun: "key", fields_in_order: @fields_in_order)
           @write_plans.clear if @write_plans.size >= PLANS
           @write_plans[keys] = @schema.fields.each_with_index.map do |field, index|
-            [field, positions.key?(field) ? keys[positions[field]] : nil, index]
+            [field, !field.skip? && positions.key?(field) ? keys[positions[field]] : nil, index]
           end
         end
         @write_keys = keys
@@ -387,10 +394,13 @@ module IOStreams
       end
 
       # Returns [Array|Hash] the rendered value of each field from the record, by the key that the plan gives for the
-      # field, see #render.
+      # field, see #render. A record of a format whose records supply their own keys, such as JSON, has no key for a
+      # field that is skipped, see `IOStreams::Schema::Field#skip?`, since it has no column whose place it holds.
       def render_record(row, form, keyed, plan)
         out = keyed ? {} : ::Array.new(plan.size)
         plan.each do |field, key, index|
+          next if keyed && field.skip?
+
           out[keyed ? field.name : index] = field.render(key.nil? ? nil : row[key], form)
         end
         out
@@ -401,6 +411,7 @@ module IOStreams
       # column, see #check_extra.
       def render_values(row, form, keyed)
         return render_columns(row, form, keyed) if @written
+        return render_skipping(row, form, keyed) if @skips
 
         fields = @schema.fields
         check_extra(row, fields.size, "field")
@@ -409,12 +420,33 @@ module IOStreams
         out
       end
 
+      # Returns [Array|Hash] the rendered value of each field from a row whose values are those of the fields that are
+      # not skipped, see `IOStreams::Schema::Field#skip?`, in order, as the rows read have them, with an empty value for
+      # each field that is skipped, or no key, see #render_record.
+      def render_skipping(row, form, keyed)
+        check_extra(row, @values.size, "field")
+        out      = keyed ? {} : ::Array.new(@schema.fields.size)
+        position = 0
+        @schema.fields.each_with_index do |field, index|
+          if field.skip?
+            out[index] = field.render(nil, form) unless keyed
+          else
+            out[keyed ? field.name : index] = field.render(row[position], form)
+            position += 1
+          end
+        end
+        out
+      end
+
       # Returns [Array|Hash] the rendered value of each field from a row whose values are in the columns of the header
-      # row written, see #match_written.
+      # row written, see #match_written, with an empty value for each field that is skipped, or no key, see
+      # #render_record.
       def render_columns(row, form, keyed)
         check_extra(row, @written_width, "column")
         out = keyed ? {} : ::Array.new(@written.size)
         @written.each_with_index do |(field, position), index|
+          next if keyed && field.skip?
+
           out[keyed ? field.name : index] = field.render(position.nil? ? nil : row[position], form)
         end
         out

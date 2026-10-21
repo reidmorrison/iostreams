@@ -608,6 +608,27 @@ end
 # => {"name" => "Jack", "age" => 21}
 ~~~
 
+A column of a file without a header row that the code does not read still needs a field, which holds its place, so
+give it `skip: true`, and the records read leave it out:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  header: false,
+  fields: [
+    {name: "name"},
+    {name: "unused", skip: true},
+    {name: "age", type: "integer"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "Jack,x,21\n" => {"name" => "Jack", "age" => 21}
+~~~
+
+The rows read leave it out too, and writing writes an empty value in its column, from records, and from rows of the
+values of the other fields, in order, as the rows read have them.
+
 Since the schema is set on the path, every reader of the path reads the file the same way, including `#copy_from`
 and `#copy_to`, whose options only apply to the target.
 
@@ -628,6 +649,10 @@ and `#copy_to`, whose options only apply to the target.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
   of fixed width files always have. IOStreams adds this property.
+* `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
+  that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
+  column, or leaves it out of a JSON record. It takes only the properties that place its column, `name`, `aliases`,
+  `width` and `start`. IOStreams adds this property.
 * `width`, `start` and `truncate` The position of the field in a fixed width file, see
   [Fixed width files with a schema](#fixed-width-files-with-a-schema). IOStreams adds these properties. The other
   formats ignore them, so that one schema can describe both a fixed width file and the CSV file that it is converted
