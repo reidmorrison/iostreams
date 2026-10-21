@@ -44,12 +44,26 @@ module IOStreams
 
     # Returns [true|false] whether the object is a query that `IOStreams.stream` reads: an `ActiveRecord::Relation`, or
     # the batches of one that `relation.in_batches` returns without a block, an
-    # `ActiveRecord::Batches::BatchEnumerator`. Active Record is not loaded to find out.
+    # `ActiveRecord::Batches::BatchEnumerator`. `IOStreams.stream` asks it of every IO, so nothing is loaded to find out:
+    # while Active Record, or the class of either, is not loaded, such as `ActiveRecord::Relation`, which Active Record
+    # autoloads when it is first used, no object can be one, see .loaded?.
     def self.query?(object)
-      return false unless defined?(::ActiveRecord::Relation)
-
-      object.is_a?(::ActiveRecord::Relation) || object.is_a?(::ActiveRecord::Batches::BatchEnumerator)
+      (loaded?(:ActiveRecord, :Relation) && object.is_a?(::ActiveRecord::Relation)) ||
+        (loaded?(:ActiveRecord, :Batches, :BatchEnumerator) && object.is_a?(::ActiveRecord::Batches::BatchEnumerator))
     end
+
+    # Returns [true|false] whether the constant of the supplied names, one within the other from the top level, such as
+    # `ActiveRecord::Relation` for `:ActiveRecord, :Relation`, is defined and loaded, rather than an autoload that is not
+    # loaded yet, without loading anything.
+    def self.loaded?(*names)
+      names.reduce(::Object) do |namespace, name|
+        return false unless namespace.const_defined?(name, false) && !namespace.autoload?(name, false)
+
+        namespace.const_get(name, false)
+      end
+      true
+    end
+    private_class_method :loaded?
 
     # Parameters:
     #   query: [ActiveRecord::Relation|ActiveRecord::Batches::BatchEnumerator]
