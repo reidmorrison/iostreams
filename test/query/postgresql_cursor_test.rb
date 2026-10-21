@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "query_helper"
+require "timeout"
 
 # Reads a query on PostgreSQL with a cursor, see `IOStreams::Query::PostgresqlCursor`, when POSTGRES_URL is set.
 class PostgresqlCursorTest < Minitest::Test
@@ -157,6 +158,39 @@ class PostgresqlCursorTest < Minitest::Test
 
         assert_kind_of IOStreams::Errors::Unavailable, error
         assert_equal 0, db.pool.stat[:busy]
+      end
+
+      # Returns [ActiveRecord::Relation] the orders of the model, whose last row takes the supplied number of seconds to
+      # read, which is after the first fetch, of FETCH_SIZE rows.
+      def slow_last_row(model, seconds)
+        add_orders(IOStreams::Query::PostgresqlCursor::FETCH_SIZE)
+        last = model.maximum(:id)
+        model.order(:id).select("id, CASE WHEN id = #{last} THEN pg_sleep(#{seconds})::text END AS slept")
+      end
+
+      it "ends a read that is interrupted while it fetches, at once, rather than once the fetch finishes" do
+        stream = IOStreams.stream(slow_last_row(db.order, 4))
+        stream.schema
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        assert_raises(Timeout::Error) { Timeout.timeout(1.5) { each(stream) } }
+
+        assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 3
+        assert_equal 0, db.pool.stat[:busy]
+        assert_equal 3, each(IOStreams.stream(orders.limit(3))).size
+      end
+
+      it "neither closes the cursor nor sets back the settings after a fetch fails, which aborts the transaction" do
+        model    = orders_with("Canceled", statement_timeout: 500)
+        relation = slow_last_row(model, 2)
+        sql      = []
+        callback = ->(_name, _start, _finish, _id, payload) { sql << payload[:sql] }
+        error    = ActiveSupport::Notifications.subscribed(callback, "sql.active_record") do
+          assert_raises(ActiveRecord::QueryCanceled) { each(IOStreams.stream(relation)) }
+        end
+
+        assert_kind_of IOStreams::Errors::Unavailable, error
+        assert_includes sql, "ROLLBACK"
+        assert_empty(sql.grep(/\ACLOSE /))
       end
 
       it "raises an ActiveRecord::Rollback of the block, which rolls back the transaction of the caller" do

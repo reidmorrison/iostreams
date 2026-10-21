@@ -144,7 +144,9 @@ module IOStreams
       # The cursor is closed, and the settings set back, once the block finishes, or is left with `break`, which raises a
       # failure to do so, such as of a connection that was lost, rather than return as if the read had ended where the
       # block left it, as `IOStreams::Utils.finish_or_abort` decides, see #restore. When the block, or a fetch, raises
-      # instead, a failure to do so is not raised, so that it never replaces the exception that left the block. An
+      # instead, or the thread is interrupted, such as by `Timeout`, neither is done: Active Record rolls back the
+      # transaction, which ends the cursor and the settings, and first cancels a fetch that is still running, which a
+      # statement of the cursor would wait for, and then fail in a transaction that the failure aborted. An
       # `ActiveRecord::Rollback` that the block raises, for a transaction of the caller, is raised again once the
       # transaction of the cursor has rolled back, rather than rescued by it, as Active Record rescues it in any
       # transaction, so that it reaches the transaction of the caller, or the caller, as it does when the block runs
@@ -159,7 +161,7 @@ module IOStreams
           apply_settings(SETTINGS)
           declare(statement)
           fetch(columns)
-          Utils.finish_or_abort(finish: -> { restore(previous) }, abort: -> { restore_quietly(previous) }) { yield self }
+          Utils.finish_or_abort(finish: -> { restore(previous) }) { yield self }
         rescue ::ActiveRecord::Rollback => e
           rollback = e
           raise
@@ -204,18 +206,11 @@ module IOStreams
         @done = @rows.size < FETCH_SIZE
       end
 
-      # Closes the cursor, and sets back the settings of the transaction that was already open.
+      # Closes the cursor, and sets back the settings of the transaction that was already open, once the read finished,
+      # which also checks that its transaction was not aborted.
       def restore(previous)
         run("CLOSE #{@name}")
         apply_settings(previous) if previous
-      end
-
-      # Closes the cursor, and sets back the settings, see #restore, once the block raised, without raising a failure to
-      # do so, which would replace the exception that left the block.
-      def restore_quietly(previous)
-        restore(previous)
-      rescue StandardError
-        nil
       end
 
       # Returns [Hash<String, String>] the value of each of the SETTINGS in the transaction.
