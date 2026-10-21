@@ -3,6 +3,7 @@ require "io_streams/version"
 module IOStreams
   autoload :Builder,     "io_streams/builder"
   autoload :Deprecation, "io_streams/deprecation"
+  autoload :Encode,      "io_streams/encode"
   autoload :Errors,      "io_streams/errors"
   autoload :Path,        "io_streams/path"
   autoload :Pgp,         "io_streams/pgp"
@@ -24,11 +25,6 @@ module IOStreams
   module Bzip2
     autoload :Reader, "io_streams/bzip2/reader"
     autoload :Writer, "io_streams/bzip2/writer"
-  end
-
-  module Encode
-    autoload :Reader, "io_streams/encode/reader"
-    autoload :Writer, "io_streams/encode/writer"
   end
 
   module Gzip

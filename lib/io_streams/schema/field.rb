@@ -81,6 +81,15 @@ module IOStreams
     #     instead of raising `IOStreams::Errors::ValueTooLong`.
     #     Default: false
     #
+    #   skip: [true|false]
+    #     Whether the field only holds the place of its column, such as a column of a file without a header row that
+    #     the code does not read, as a `nil` in the deprecated `columns:` did: reading leaves it out of the rows and
+    #     records, and writing writes an empty value in its column, or leaves it out of a JSON record. Its column is
+    #     still a field when the columns are matched, see `fieldsMatch` in `IOStreams::Schema`. Since its values are
+    #     not read, it only takes the properties that place its column, `name`, `aliases`, `width` and `start`, and
+    #     the type "any". IOStreams adds this property.
+    #     Default: false
+    #
     # Properties that only describe the field to people, `title`, `description`, `example` and `rdfType`, are
     # accepted and have no effect, as are the properties of other tools, whose names include a `:`.
     #
@@ -101,7 +110,10 @@ module IOStreams
       }.freeze
 
       # The properties that every field accepts.
-      PROPERTIES = %w[name type format width start constraints aliases allowBlank].freeze
+      PROPERTIES = %w[name type format width start constraints aliases allowBlank skip].freeze
+
+      # The properties of a field that is skipped, see `skip` above, which place its column.
+      SKIP_PROPERTIES = %w[name type width start aliases skip].freeze
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
@@ -171,6 +183,7 @@ module IOStreams
 
         @type = (descriptor["type"] || "any").to_s
         check_type
+        @skip = check_skip(descriptor)
         check_properties(descriptor)
         @format       = check_format(descriptor["format"])
         @utc          = @type == "datetime" && !@format.nil? && !format_zone?
@@ -308,6 +321,9 @@ module IOStreams
 
       # Returns [true|false] whether a number is a Float rather than a BigDecimal, see `floatNumber` above.
       def float? = @float
+
+      # Returns [true|false] whether the field only holds the place of its column, see `skip` above.
+      def skip? = @skip
 
       # Returns [true|false] whether the header row, or each record, must have the field, and, unless it allows blank
       # values, a value, see `constraints` and `allowBlank` above.
@@ -448,6 +464,23 @@ module IOStreams
         return value if value.nil? || (value.is_a?(Integer) && value.positive?)
 
         raise(ArgumentError, "Field #{name.inspect}: #{property} must be a positive Integer: #{value.inspect}")
+      end
+
+      # Returns [true|false] whether the field is skipped, see `skip` above.
+      #
+      # Raises ArgumentError for a property of a field that is skipped other than those that place its column, or a
+      # type other than "any", since its values are not read.
+      def check_skip(descriptor)
+        return false unless check_flag("skip", descriptor["skip"])
+
+        other = descriptor.keys.find do |property|
+          !SKIP_PROPERTIES.include?(property) && !DESCRIPTIVE_PROPERTIES.include?(property) && !property.include?(":")
+        end
+        other ||= "type" unless type == "any"
+        return true if other.nil?
+
+        raise(ArgumentError, "Field #{name.inspect}: #{other.inspect} does not apply to a field with skip: true, which " \
+                             "only holds the place of its column, since its values are not read")
       end
 
       def check_flag(property, value)

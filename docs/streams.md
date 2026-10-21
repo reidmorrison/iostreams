@@ -280,7 +280,8 @@ IOStreams.path("example.csv.pgp").
 
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
 that lists the valid options. The exception is BZip2, which ignores options it does not accept and
-logs a warning instead. In v3.0 it will raise an `ArgumentError` too.
+logs a warning instead. One that neither reading nor writing takes also reports a deprecation warning,
+since in v3.0 it will raise an `ArgumentError` too.
 
 Options for a stream that is not in the pipeline are still ignored, as described above,
 since they are not passed to any reader or writer.
@@ -365,7 +366,8 @@ IOStreams.path("data.csv.gz").raw.write(gzipped_data)
 ~~~
 
 Setting a stream, option or encoding after `raw` raises `ArgumentError`, since the data is as stored.
-`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which still works.
+`raw?` returns whether `raw` was called. `raw` replaces `stream(:none)`, which is deprecated: it still works, and
+reports a deprecation warning, see [Upgrading](upgrading#deprecated-and-what-replaces-it).
 
 To copy a file as it is stored, such as downloading a zip file without unzipping it, use
 `copy_to(target, convert: false)` instead, since the target applies its own streams. To read a file that is not

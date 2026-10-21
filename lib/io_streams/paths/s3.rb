@@ -227,6 +227,7 @@ module IOStreams
         target = IOStreams.new(target_path)
         return super(target, convert: convert, **args) unless target.is_a?(self.class)
 
+        warn_unconverted_copy_options(args[:mode], args.except(:mode))
         authorize!
         target.authorize!
         source_name = ::File.join(bucket_name, path)

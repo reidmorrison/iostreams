@@ -212,28 +212,72 @@ class SchemaTest < Minitest::Test
     describe ".from_layout" do
       let(:layout) { [{size: 10, key: :name}, {size: 2}, {size: 5, key: :zip, type: :integer}] }
 
+      # Returns [Array] the records that the layout reads from the data, or the rows with mode: :array.
+      def layout_read(data, columns = layout, mode: :hash)
+        records = []
+        assert_deprecated(/#format_options is deprecated/) do
+          IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: columns).
+            each(mode) { |record| records << record }
+        end
+        records
+      end
+
+      # Returns [Array] the records that the schema of the layout reads from the data, or the rows with mode: :array,
+      # with the encoding of the data when one is supplied.
+      def schema_read(data, columns = layout, mode: :hash, encoding: nil)
+        path = IOStreams.stream(StringIO.new(data)).format(:fixed).schema(IOStreams::Schema.from_layout(layout: columns))
+        path.encoding(encoding) if encoding
+        records = []
+        path.each(mode) { |record| records << record }
+        records
+      end
+
+      # Returns [String] the lines that the layout writes for the records.
+      def layout_write(records, columns = layout)
+        io = StringIO.new(+"")
+        assert_deprecated(/#format_options is deprecated/) do
+          IOStreams.stream(io).format(:fixed).format_options(layout: columns).
+            writer(:hash) { |writer| records.each { |record| writer << record } }
+        end
+        io.string
+      end
+
+      # Returns [String] the lines that the schema writes for the records, the schema of the layout by default.
+      def schema_write(records, columns = layout, schema: IOStreams::Schema.from_layout(layout: columns))
+        io = StringIO.new(+"")
+        IOStreams.stream(io).format(:fixed).schema(schema).writer(:hash) { |writer| records.each { |record| writer << record } }
+        io.string
+      end
+
       it "returns the schema of the layout as a Hash" do
         expected = {
           fields:      [{name: :name, type: "string", width: 10, truncate: true}, {name: :zip, type: "integer", width: 5, start: 13}],
-          fieldsMatch: "subset"
+          fieldsMatch: "subset",
+          keyType:     "symbol"
         }
 
         assert_equal expected, IOStreams::Schema.from_layout(layout: layout)
       end
 
-      it "reads the same records as the layout" do
-        data = "Jack      xx01234\nJill      yy00042\n"
-        layout_records = []
-        assert_deprecated(/#format_options is deprecated/) do
-          IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
-            each(:hash) { |record| layout_records << record }
-        end
-        schema_records = []
-        IOStreams.stream(StringIO.new(data)).format(:fixed).schema(IOStreams::Schema.from_layout(layout: layout)).
-          each(:hash) { |record| schema_records << record }
+      it "gives a layout whose keys are all Symbols keyType symbol, so that a schema held as JSON reads the same keys" do
+        schema = JSON.parse(JSON.generate(IOStreams::Schema.from_layout(layout: layout)))
+        path   = IOStreams.stream(StringIO.new("Jack        01234\n")).format(:fixed).schema(schema)
 
-        assert_equal [{name: "Jack", zip: 1234}, {name: "Jill", zip: 42}], layout_records
-        assert_equal layout_records, schema_records
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_equal [{name: "Jack", zip: 1234}], records
+      end
+
+      it "leaves out keyType for a layout with a String key, whose keys stay as they are" do
+        refute IOStreams::Schema.from_layout(layout: [{size: 2, key: :id}, {size: 3, key: "code"}]).key?(:keyType)
+        refute IOStreams::Schema.from_layout(layout: [{size: 2}]).key?(:keyType)
+      end
+
+      it "takes the truncate option of the layout, and raises for any other" do
+        assert_equal [{name: :name, type: "string", width: 10}, {name: :zip, type: "integer", width: 5, start: 13}],
+                     IOStreams::Schema.from_layout(layout: layout, truncate: false)[:fields]
+        assert_raises(ArgumentError) { IOStreams::Schema.from_layout(layout: layout, encoding: "UTF-8") }
       end
 
       it "translates a layout read from JSON" do
@@ -246,24 +290,177 @@ class SchemaTest < Minitest::Test
         assert_equal [{"name" => "Jack", "zip" => 1234}], records
       end
 
-      it "raises for a column of the schema that holds no number, which the layout reads as zero" do
-        data = "Jack      xxN/A  \n"
-        layout_records = []
-        assert_deprecated(/#format_options is deprecated/) do
-          IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: layout).
-            each(:hash) { |record| layout_records << record }
-        end
-
-        assert_equal [{name: "Jack", zip: 0}], layout_records
-        assert_raises(IOStreams::Errors::InvalidValue) do
-          IOStreams.stream(StringIO.new(data)).format(:fixed).schema(IOStreams::Schema.from_layout(layout: layout)).
-            each(:hash) { |record| record }
-        end
-      end
-
       it "raises for an invalid layout" do
         assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Schema.from_layout(layout: [{key: "id"}]) }
         assert_raises(ArgumentError) { IOStreams::Schema.from_layout(layout: [{size: 2, key: "id", bogus: 1}]) }
+      end
+
+      # The schema reads and writes the file as IOStreams 3.0 does, which docs/upgrading.md compares with the layout.
+      describe "compared with the layout" do
+        let(:numbers) { [{size: 2}, {size: 6, key: :name}, {size: 5, key: :zip, type: :integer}, {size: 8, key: :pay, type: :float}, {size: 3}] }
+
+        it "reads the same strings and numbers, after a filler at the start of the line and before one at the end" do
+          data = "xxJack  0123400012.57yyy\nxxJill  -0012-0001.50   \nxxBob      42        zzz\n"
+
+          assert_equal [{name: "Jack", zip: 1234, pay: 12.57}, {name: "Jill", zip: -12, pay: -1.5}, {name: "Bob", zip: 42, pay: nil}],
+                       layout_read(data, numbers)
+          assert_equal layout_read(data, numbers), schema_read(data, numbers)
+        end
+
+        it "writes the same strings and numbers, with spaces for each filler" do
+          records = [
+            {name: "Jack", zip: 1234, pay: 12.567},
+            {name: "Jill", zip: -12, pay: -1.5},
+            {name: "Bob"},
+            {name: "Long name", zip: "42", pay: BigDecimal("1.5")},
+            {name: "a\nb", zip: 12.0, pay: 3},
+            {name: true, zip: nil, pay: nil, other: 1}
+          ]
+          expected = [
+            "  Jack  0123400012.57   ",
+            "  Jill  -0012-0001.50   ",
+            "  Bob   0000000000.00   ",
+            "  Long n0004200001.50   ",
+            "  a b   0001200003.00   ",
+            "  true  0000000000.00   "
+          ].map { |line| "#{line}\n" }.join
+
+          assert_equal expected, layout_write(records, numbers)
+          assert_equal expected, schema_write(records, numbers)
+        end
+
+        it "reads and writes the same remainder of the line" do
+          strings = [{size: 4, key: :name}, {size: :remainder, key: :rest}]
+          floats  = [{size: 4, key: :name}, {size: :remainder, key: :pay, type: :float}]
+
+          assert_equal [{name: "Jack", rest: "over there"}, {name: "Jill", rest: ""}], layout_read("Jack over there\nJill\n", strings)
+          assert_equal layout_read("Jack over there\nJill\n", strings), schema_read("Jack over there\nJill\n", strings)
+          assert_equal "Jackover there\nJill\n", layout_write([{name: "Jack", rest: "over there"}, {name: "Jill"}], strings)
+          assert_equal "Jackover there\nJill\n", schema_write([{name: "Jack", rest: "over there"}, {name: "Jill"}], strings)
+          assert_equal [{name: "Jack", pay: 12.5}], layout_read("Jack12.5\n", floats)
+          assert_equal [{name: "Jack", pay: 12.5}], schema_read("Jack12.5\n", floats)
+          assert_equal "Jack12.5\nJill12.0\n", layout_write([{name: "Jack", pay: 12.5}, {name: "Jill", pay: 12}], floats)
+          assert_equal "Jack12.5\nJill12.0\n", schema_write([{name: "Jack", pay: 12.5}, {name: "Jill", pay: 12}], floats)
+        end
+
+        it "leaves out a column after the remainder, which the layout writes but does not read" do
+          layout = [{size: 4, key: :name}, {size: :remainder, key: :rest}, {size: 1, key: :code}]
+
+          assert_equal [{name: "Jack", rest: "over there"}], layout_read("Jack over there\n", layout)
+          assert_equal [{name: "Jack", rest: "over there"}], schema_read("Jack over there\n", layout)
+          assert_equal "Jackover thereX\n", layout_write([{name: "Jack", rest: "over there", code: "X"}], layout)
+          assert_equal "Jackover there\n", schema_write([{name: "Jack", rest: "over there", code: "X"}], layout)
+        end
+
+        it "counts the characters of the UTF-8 text of a line, where the layout counts its bytes, unless it is read as binary" do
+          # The 10 bytes of "José" and its spaces, written by a program that counts bytes.
+          bytes = "Jos\xC3\xA9     xx01234\n".b
+
+          assert_equal [{name: "Jos\xC3\xA9".b, zip: 1234}], layout_read(bytes)
+          assert_raises(IOStreams::Errors::InvalidLineLength) { schema_read(bytes) }
+          assert_equal layout_read(bytes), schema_read(bytes, encoding: "BINARY")
+
+          # The 10 characters of "José" and its spaces, written by a program that counts characters.
+          characters = "José      xx01234\n"
+
+          assert_equal [{name: "José", zip: 1234}], schema_read(characters)
+          assert_raises(IOStreams::Errors::InvalidLineLength) { layout_read(characters) }
+        end
+
+        it "raises for text that is not UTF-8, such as Latin-1, unless the encoding of the file is set" do
+          latin1 = "Jos\xE9      xx01234\n".b
+
+          assert_equal [{name: "Jos\xE9".b, zip: 1234}], layout_read(latin1)
+          assert_raises(IOStreams::Errors::InvalidEncoding) { schema_read(latin1) }
+          records = schema_read(latin1, encoding: "ISO-8859-1")
+
+          assert_equal [{name: "Jos\xE9".b.force_encoding(Encoding::ISO_8859_1), zip: 1234}], records
+          assert_equal "José", records.first[:name].encode(Encoding::UTF_8)
+        end
+
+        it "reads a line whose fields are blank as a blank row, nil, where the layout reads a record" do
+          data = "          xx     \nJack      xx01234\n"
+
+          assert_equal [{name: "", zip: nil}, {name: "Jack", zip: 1234}], layout_read(data)
+          assert_equal [nil, {name: "Jack", zip: 1234}], schema_read(data)
+        end
+
+        it "yields a header row and then the values of each line from each(:array), where the layout yields records" do
+          data = "Jack      xx01234\nJill      yy00042\n"
+          rows = schema_read(data, mode: :array)
+
+          assert_equal [{name: "Jack", zip: 1234}, {name: "Jill", zip: 42}], layout_read(data, mode: :array)
+          assert_equal [%i[name zip], ["Jack", 1234], ["Jill", 42]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "raises for a number column that holds no number, or a fraction in an integer column, which the layout reads" do
+          {"Jack      xxN/A  \n" => 0, "Jack      xx  12-\n" => 12, "Jack      xx012.5\n" => 12}.each_pair do |line, zip|
+            assert_equal [{name: "Jack", zip: zip}], layout_read(line)
+            assert_raises(IOStreams::Errors::InvalidValue, line) { schema_read(line) }
+          end
+          assert_equal [{name: "Jack", zip: 12}], layout_read("Jack      xx012.0\n")
+          assert_equal [{name: "Jack", zip: 12}], schema_read("Jack      xx012.0\n")
+
+          assert_equal [{name: "Jack", zip: nil, pay: 1.0}], layout_read("xxJack       1,234.50   \n", numbers)
+          assert_raises(IOStreams::Errors::InvalidValue) { schema_read("xxJack       1,234.50   \n", numbers) }
+        end
+
+        it "reads a float that is not finite, which the layout reads as zero" do
+          layout  = [{size: 4, key: :name}, {size: 8, key: :pay, type: :float}]
+          records = [{name: "Jack", pay: Float::NAN}, {name: "Jill", pay: Float::INFINITY}]
+          data    = layout_write(records, layout)
+
+          assert_equal "Jack     NaN\nJill     Inf\n", data
+          assert_equal "Jack     NaN\nJill     INF\n", schema_write(records, layout)
+          assert_equal [{name: "Jack", pay: 0.0}, {name: "Jill", pay: 0.0}], layout_read(data, layout)
+          nan, infinity = schema_read(data, layout).map { |record| record[:pay] }
+
+          assert_predicate nan, :nan?
+          assert_equal Float::INFINITY, infinity
+        end
+
+        it "raises for a number written that is not one, which the layout writes as zero, and for a fraction in an integer" do
+          assert_equal "a           00012\n", layout_write([{name: "a", zip: 12.7}])
+          assert_equal "a           00000\n", layout_write([{name: "a", zip: "abc"}])
+          assert_equal "  a     0000000000.00   \n", layout_write([{name: "a", pay: "abc"}], numbers)
+          assert_raises(IOStreams::Errors::InvalidValue) { schema_write([{name: "a", zip: 12.7}]) }
+          assert_raises(IOStreams::Errors::InvalidValue) { schema_write([{name: "a", zip: "abc"}]) }
+          assert_raises(IOStreams::Errors::InvalidValue) { schema_write([{name: "a", pay: "abc"}], numbers) }
+        end
+
+        it "writes a Time or a BigDecimal as the text of a schema, and raises for a Hash or an Array" do
+          layout = [{size: 24, key: :value}]
+          time   = Time.utc(2026, 10, 20, 10)
+
+          assert_equal "2026-10-20 10:00:00 UTC \n", layout_write([{value: time}], layout)
+          assert_equal "2026-10-20T10:00:00Z    \n", schema_write([{value: time}], layout)
+          assert_equal "0.125e2                 \n", layout_write([{value: BigDecimal("12.5")}], layout)
+          assert_equal "12.5                    \n", schema_write([{value: BigDecimal("12.5")}], layout)
+
+          assert_equal "#{{a: 1}.to_s.ljust(24)}\n", layout_write([{value: {a: 1}}], layout)
+          assert_equal "[1, 2]                  \n", layout_write([{value: [1, 2]}], layout)
+          assert_raises(IOStreams::Errors::InvalidValue) { schema_write([{value: {a: 1}}], layout) }
+          assert_raises(IOStreams::Errors::InvalidValue) { schema_write([{value: [1, 2]}], layout) }
+          # A field of the type object or array writes its JSON text instead.
+          object = {fields: [{name: :value, type: "object", width: 24}], fieldsMatch: "subset"}
+          array  = {fields: [{name: :value, type: "array", width: 24}], fieldsMatch: "subset"}
+
+          assert_equal "#{'{"a":1}'.ljust(24)}\n", schema_write([{value: {a: 1}}], layout, schema: object)
+          assert_equal "#{'[1,2]'.ljust(24)}\n", schema_write([{value: [1, 2]}], layout, schema: array)
+        end
+
+        it "writes a filler as spaces, where the layout writes zeros for a filler of a number type" do
+          layout = [{size: 3, type: :integer}, {size: 4, key: :name}]
+
+          assert_equal "000Jack\n", layout_write([{name: "Jack"}], layout)
+          assert_equal "   Jack\n", schema_write([{name: "Jack"}], layout)
+        end
+
+        it "writes the value of a key that is a String for a Symbol, which the layout skips" do
+          assert_equal "            00000\n", layout_write([{"name" => "Jack", "zip" => 1234}])
+          assert_equal "Jack        01234\n", schema_write([{"name" => "Jack", "zip" => 1234}])
+        end
       end
     end
 
@@ -338,6 +535,105 @@ class SchemaTest < Minitest::Test
       it "compares the ASCII letters of text that is not Unicode" do
         assert_equal "name", IOStreams::Schema.match_key("Na\xE9me".b)
         assert_nil IOStreams::Schema.match_key("\xFF".dup.force_encoding("UTF-8"))
+      end
+    end
+
+    describe "a field that is skipped" do
+      it "takes only the properties that place its column" do
+        field = IOStreams::Schema::Field.new(name: "filler", skip: true, type: "any", width: 3, start: 4, aliases: ["x"], title: "Filler", "tool:x" => 1)
+
+        assert_predicate field, :skip?
+        refute_predicate IOStreams::Schema::Field.new(name: "id"), :skip?
+        refute_predicate IOStreams::Schema::Field.new(name: "id", skip: false, type: "integer"), :skip?
+      end
+
+      it "raises for a type, constraints or any other property that reads its values" do
+        [{type: "integer"}, {constraints: {required: true}}, {format: "%Y"}, {truncate: true}].each do |property|
+          error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: true, **property) }
+          assert_equal "Field \"filler\": #{property.keys.first.to_s.inspect} does not apply to a field with skip: true, which only " \
+                       "holds the place of its column, since its values are not read", error.message
+        end
+      end
+
+      it "raises for a skip that is not true or false" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: "yes") }
+        assert_equal 'Field "filler": skip must be true or false: "yes"', error.message
+      end
+    end
+
+    describe "extraColumns" do
+      it "keeps the columns that the schema does not list only with a fieldsMatch that accepts them" do
+        assert_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "subset", extraColumns: "keep"), :keep_extra?
+        assert_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "partial", extraColumns: "keep"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "partial", extraColumns: "skip"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: [], fieldsMatch: "exact", extraColumns: "skip"), :keep_extra?
+        refute_predicate IOStreams::Schema.new(fields: []), :keep_extra?
+
+        %w[exact equal superset].each do |fields_match|
+          error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: fields_match, extraColumns: "keep") }
+          assert_equal "The schema extraColumns \"keep\" keeps the columns that the schema does not list, which fieldsMatch " \
+                       "#{fields_match.inspect} does not accept; \"subset\" and \"partial\" accept them", error.message
+        end
+      end
+
+      it "raises for a value that it does not know" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], fieldsMatch: "subset", extraColumns: true) }
+        assert_equal 'The schema extraColumns must be one of "skip" and "keep": true', error.message
+      end
+    end
+
+    describe "#key_for" do
+      it "forms the key of a name as keyType says" do
+        keys = %w[string cleansed symbol cleansedSymbol].map do |key_type|
+          schema = IOStreams::Schema.new(fields: [], keyType: key_type)
+          [schema.key_for("First Name"), schema.key_for(:Zip)]
+        end
+
+        assert_equal [["First Name", "Zip"], %w[first_name zip], [:"First Name", :Zip], %i[first_name zip]], keys
+      end
+
+      it "keeps the names as they are given without keyType" do
+        schema = IOStreams::Schema.new(fields: [{name: "First Name"}, {name: :zip}])
+
+        assert_nil schema.key_type
+        assert_equal(["First Name", :zip], schema.fields.map { |field| schema.key(field) })
+      end
+
+      it "returns frozen Strings, which a record uses as its keys without copying them" do
+        schema = IOStreams::Schema.new(fields: [], keyType: "cleansed")
+
+        assert_predicate schema.key_for(+"First Name"), :frozen?
+        assert_predicate IOStreams::Schema.new(fields: []).key_for(+"Name"), :frozen?
+      end
+
+      it "raises for a keyType that it does not know" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], keyType: "upcase") }
+        assert_equal 'The schema keyType must be one of "string", "cleansed", "symbol" and "cleansedSymbol": "upcase"', error.message
+      end
+
+      it "raises for two fields with the same key, which a record could not hold" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "First Name"}, {name: "first-name"}], keyType: "cleansed") }
+        assert_equal 'The fields "First Name" and "first-name" both have the key "first_name", which keyType "cleansed" forms from ' \
+                     "their names, but a record read holds each field by a key of its own", error.message
+      end
+
+      it "raises for a key that is the name or an alias of another field, since a column of that name could be either" do
+        error = assert_raises(ArgumentError) do
+          IOStreams::Schema.new(fields: [{name: "First Name"}, {name: "given", aliases: ["first_name"]}], keyType: "cleansed")
+        end
+        assert_equal 'Field "given": the alias "first_name" is already the name or an alias of the field "First Name"', error.message
+
+        error = assert_raises(ArgumentError) do
+          IOStreams::Schema.new(fields: [{name: "given", aliases: ["first_name"]}, {name: "First Name"}], keyType: "cleansed")
+        end
+        assert_equal 'Field "First Name": its key "first_name", which keyType "cleansed" forms, is already the name or an alias ' \
+                     'of the field "given"', error.message
+      end
+
+      it "matches a column or key that is the key of a field to the field" do
+        schema = IOStreams::Schema.new(fields: [{name: "Area (m²)"}], keyType: "cleansed")
+
+        assert_equal "Area (m²)", schema.field_for("area_m").name
       end
     end
 

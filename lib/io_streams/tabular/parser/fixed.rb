@@ -17,13 +17,17 @@ module IOStreams
         # The layout itself is still read and written by this parser, as before.
         #
         # Its `fieldsMatch` is "subset", so that writing skips the keys of a record that the layout does not have, as a
-        # layout always did. A line that is read always has every field.
+        # layout always did. A line that is read always has every field. When every key of the layout is a Symbol, its
+        # `keyType` is "symbol", so that the records read have the same keys once the schema is held as JSON, or in a
+        # database such as MongoDB, whose names are Strings, see `IOStreams::Schema`.
         #
         # Parameters:
         #   layout: [Array<Hash>]
-        #     Each column of the file, in order, a Hash whose keys are Symbols or Strings:
+        #     Each column of the file, in order, a Hash whose keys are Symbols or Strings, such as those of a layout read
+        #     from JSON or YAML:
         #       size:     [Integer|:remainder] The number of characters of the column, or `:remainder` to take the
-        #                 rest of the line, for the last column only. Required.
+        #                 rest of the line. The layout reads nothing after a column of the size `:remainder`, so the
+        #                 columns after it are not in the schema. Required.
         #       key:      [String|Symbol] The key of the column in each record, which must be its own. A column without
         #                 a key is a filler, which is skipped when reading and is spaces when writing.
         #       type:     [:string|:integer|:float] Default: :string
@@ -38,114 +42,9 @@ module IOStreams
         #
         # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, including when its schema could not
         # hold it, such as for two columns with the same key, which the records read could not hold either.
-        def self.schema(layout:, truncate: true)
-          raise(Errors::InvalidLayout, "The layout must be an Array of columns: #{layout.inspect}") unless layout.is_a?(::Array)
-
-          fields   = []
-          keys     = {}
-          position = 1
-          last     = nil
-          layout.each do |column|
-            unless column.is_a?(::Hash)
-              raise(Errors::InvalidLayout, "Each column of the layout must be a Hash, such as {size: 10, key: :name}: " \
-                                           "#{column.inspect}")
-            end
-            column = layout_properties(column)
-            raise(Errors::InvalidLayout, "Missing required :size in: #{column.inspect}") unless column.key?(:size)
-            raise(Errors::InvalidLayout, "Only the last :size can be '-1' or :remainder in: #{column.inspect}") if last == -1
-
-            # A column after a filler starts after the filler.
-            filler      = last && fields.last.nil?
-            size, field = layout_field(column, filler ? position : nil, truncate)
-            check_key(field[:name], keys) if field
-            fields << field
-            last = size
-            position += size unless size == -1
-          end
-
-          schema = {fields: fields.compact, fieldsMatch: "subset"}
-          # A filler at the end of the line gives the width of the line.
-          schema[:width] = last == -1 ? "remainder" : position - 1 if last && fields.last.nil?
-          schema
+        def self.schema(layout:, **)
+          new(layout: Layout.properties(layout), **).schema
         end
-
-        # Returns [Array(Integer, Hash)] the size of a column of a layout, see .schema, and the field of the schema for
-        # it, or nil for a filler.
-        def self.layout_field(column, start, truncate)
-          size, key, type, decimals = layout_column(**column)
-          width = [:remainder, "remainder"].include?(size) ? -1 : size.to_i
-          unless width.positive? || width == -1
-            raise(Errors::InvalidLayout, "Size #{size.inspect} must be positive or :remainder")
-          end
-          unless type.respond_to?(:to_sym) && %i[string integer float].include?(type.to_sym)
-            raise(Errors::InvalidLayout, "Unknown type: #{type.inspect}")
-          end
-          return [width, nil] unless key
-
-          unless key.is_a?(String) || key.is_a?(Symbol)
-            raise(Errors::InvalidLayout, "The key of a column of the layout must be a String or a Symbol, such as " \
-                                         "#{key.to_s.inspect}, or none for a filler: #{key.inspect}")
-          end
-
-          field = {name: key, type: {string: "string", integer: "integer", float: "number"}[type.to_sym]}
-          field[:width] = width == -1 ? "remainder" : width
-          field[:start] = start if start
-          case type.to_sym
-          when :string then field[:truncate] = true if truncate
-          when :float
-            field[:floatNumber] = true
-            # The layout wrote a float that takes the remainder of the line with the digits that it has.
-            field[:decimals] = layout_decimals(key, decimals) unless width == -1
-          end
-          [width, field]
-        end
-
-        # Returns [Hash] the properties of a column of a layout with Symbol keys, so that a layout read from JSON or
-        # YAML, whose keys are Strings, such as `{"size" => 5, "key" => "zip"}`, is the same layout.
-        #
-        # Raises `IOStreams::Errors::InvalidLayout` when the column has a property both as a String and as a Symbol,
-        # since either could be meant.
-        def self.layout_properties(column)
-          properties = column.transform_keys { |name| name.is_a?(String) ? name.to_sym : name }
-          return properties if properties.size == column.size
-
-          raise(Errors::InvalidLayout, "A column of the layout has a property both as a String and as a Symbol: " \
-                                       "#{column.inspect}")
-        end
-
-        # Returns [Array] the properties of a column of a layout, raising ArgumentError for any other.
-        def self.layout_column(size:, key: nil, type: :string, decimals: 2)
-          [size, key, type, decimals]
-        end
-
-        # Returns [Integer] the decimals of a :float column of a layout, see .schema.
-        def self.layout_decimals(key, decimals)
-          digits = decimals.to_i
-          return digits unless digits.negative?
-
-          raise(Errors::InvalidLayout, "The decimals of the column #{key.inspect} of the layout must be 0 or more: " \
-                                       "#{decimals.inspect}")
-        end
-
-        # Raises `IOStreams::Errors::InvalidLayout` when another column of the layout has the same key as text, see
-        # .schema, since the key of each column is its key in each record, and the name of its field. Adds the key to
-        # the keys of the columns before it, by their text.
-        def self.check_key(key, keys)
-          other = keys[key.to_s]
-          keys[key.to_s] = key
-          return if other.nil?
-
-          subject =
-            if other.eql?(key)
-              "More than one column of the layout has the key #{key.inspect}"
-            else
-              "The columns of the layout with the keys #{other.inspect} and #{key.inspect} have the same key"
-            end
-          raise(Errors::InvalidLayout, "#{subject}, but each column needs a key of its own, its key in each record. A " \
-                                       "column without a key is a filler, which is skipped when reading and written as " \
-                                       "spaces, so remove the key of a filler.")
-        end
-        private_class_method :layout_properties, :layout_field, :layout_column, :layout_decimals, :check_key
 
         # Returns [IOStreams::Tabular::Parser]
         #
@@ -198,6 +97,11 @@ module IOStreams
         def initialize(layout:, truncate: true)
           @layout   = Layout.new(layout)
           @truncate = truncate
+        end
+
+        # Returns [Hash] the schema of this layout, see .schema.
+        def schema
+          layout.schema(truncate)
         end
 
         # The required line length for every fixed length line
@@ -254,6 +158,18 @@ module IOStreams
         class Layout
           attr_reader :columns, :length
 
+          # Returns [Array<Hash>] the columns of a layout held as data, such as a layout read from JSON or YAML, with
+          # the properties of each one as .new takes them, see `Column.properties`.
+          #
+          # Raises `IOStreams::Errors::InvalidLayout` when the layout is not an Array.
+          def self.properties(layout)
+            unless layout.is_a?(::Array)
+              raise(Errors::InvalidLayout, "The layout must be an Array of columns: #{layout.inspect}")
+            end
+
+            layout.map { |column| Column.properties(column) }
+          end
+
           # Returns [Array<FixedLayout>] the layout for this fixed width file.
           # Also validates values
           def initialize(layout)
@@ -261,7 +177,62 @@ module IOStreams
             @columns = parse_layout(layout)
           end
 
+          # Returns [Hash] the descriptor of the schema of this layout, whose fields are at the positions of its
+          # columns, see `IOStreams::Tabular::Parser::Fixed.schema`, with its strings truncated when `truncate` is true.
+          #
+          # A column after a filler starts after the filler, and a filler at the end of the line gives the width of the
+          # line. Since nothing is read after a column of the size `:remainder`, which takes the rest of the line, the
+          # columns after it are left out.
+          #
+          # Raises `IOStreams::Errors::InvalidLayout` when a field could not hold a column, see `Column#field`, or two
+          # columns have the same key.
+          def schema(truncate)
+            fields    = []
+            keys      = {}
+            position  = 0
+            filler    = false
+            remainder = false
+            columns.each do |column|
+              field = column.field(filler ? position + 1 : nil, truncate)
+              if field
+                check_key(field[:name], keys)
+                fields << field
+              end
+              filler    = field.nil?
+              remainder = column.size == -1
+              break if remainder
+
+              position += column.size
+            end
+
+            schema = {fields: fields, fieldsMatch: "subset"}
+            # A filler at the end of the line gives the width of the line.
+            schema[:width] = remainder ? "remainder" : position if filler
+            # Symbol keys stay Symbols once the schema is held as JSON, whose names are Strings.
+            schema[:keyType] = "symbol" if !fields.empty? && fields.all? { |field| field[:name].is_a?(Symbol) }
+            schema
+          end
+
           private
+
+          # Raises `IOStreams::Errors::InvalidLayout` when another column of the layout has the same key as text, see
+          # #schema, since the key of each column is its key in each record, and the name of its field. Adds the key to
+          # the keys of the columns before it, by their text.
+          def check_key(key, keys)
+            other = keys[key.to_s]
+            keys[key.to_s] = key
+            return if other.nil?
+
+            subject =
+              if other.eql?(key)
+                "More than one column of the layout has the key #{key.inspect}"
+              else
+                "The columns of the layout with the keys #{other.inspect} and #{key.inspect} have the same key"
+              end
+            raise(Errors::InvalidLayout, "#{subject}, but each column needs a key of its own, its key in each record. A " \
+                                         "column without a key is a filler, which is skipped when reading and written as " \
+                                         "spaces, so remove the key of a filler.")
+          end
 
           def parse_layout(layout)
             @length = 0
@@ -286,8 +257,45 @@ module IOStreams
         class Column
           TYPES = %i[string integer float].freeze
           LINE_BREAK = /\r\n|\r|\n/
+          # The type of the field of a schema for each type of column, see #field.
+          FIELD_TYPES = {string: "string", integer: "integer", float: "number"}.freeze
+          # The decimals of a :float column as text that #render writes: digits, or none for no decimals.
+          DECIMALS = /\A\d*\z/
 
           attr_reader :key, :size, :type, :decimals
+
+          # Returns [Hash] the properties of a column of a layout held as data, such as one read from JSON or YAML, or
+          # taken from the params of a Rails request, with Symbol keys, as .new takes them.
+          #
+          # Raises `IOStreams::Errors::InvalidLayout` when the column is not a Hash, has a property both as a String and
+          # as a Symbol, since either could be meant, or has a size or a type that .new cannot convert, such as true or
+          # nil, for which .new raises NoMethodError, as it did before.
+          def self.properties(column)
+            unless column.is_a?(::Hash)
+              raise(Errors::InvalidLayout, "Each column of the layout must be a Hash, such as {size: 10, key: :name}: " \
+                                           "#{column.inspect}")
+            end
+
+            # A plain Hash, since a Hash of another class, such as ActiveSupport::HashWithIndifferentAccess, can keep its
+            # keys as Strings.
+            properties = column.to_h.transform_keys { |name| name.is_a?(String) ? name.to_sym : name }
+            unless properties.size == column.size
+              raise(Errors::InvalidLayout, "A column of the layout has a property both as a String and as a Symbol: " \
+                                           "#{column.inspect}")
+            end
+
+            size = properties[:size]
+            unless size == :remainder || size.respond_to?(:to_i)
+              raise(Errors::InvalidLayout, "The size of a column of the layout must be a number or :remainder: " \
+                                           "#{column.inspect}")
+            end
+            if properties.key?(:type) && !properties[:type].respond_to?(:to_sym)
+              raise(Errors::InvalidLayout, "The type of a column of the layout must be :string, :integer or :float: " \
+                                           "#{column.inspect}")
+            end
+
+            properties
+          end
 
           def initialize(size:, key: nil, type: :string, decimals: 2)
             @key      = key
@@ -346,6 +354,53 @@ module IOStreams
             end
 
             formatted
+          end
+
+          # Returns [Hash|nil] the field of a schema for this column, named by its key, with its size, type and decimals,
+          # see `IOStreams::Tabular::Parser::Fixed.schema`, or nil for a filler, which has no key.
+          #
+          # Parameters:
+          #   start: [Integer|nil]
+          #     The position of the first character of the column, counting from 1, or nil when it is right after the
+          #     field before it.
+          #
+          #   truncate: [true|false]
+          #     Whether #render truncates a string that is longer than its column.
+          #
+          # Raises `IOStreams::Errors::InvalidLayout` when a field cannot hold the column: for a key that is neither a
+          # String nor a Symbol, which cannot name a field, or for decimals that #render cannot write.
+          def field(start, truncate)
+            return unless key
+
+            unless key.is_a?(String) || key.is_a?(Symbol)
+              raise(Errors::InvalidLayout, "The key of a column of the layout must be a String or a Symbol, such as " \
+                                           "#{key.to_s.inspect}, or none for a filler: #{key.inspect}")
+            end
+
+            field = {name: key, type: FIELD_TYPES[type], width: size == -1 ? "remainder" : size}
+            field[:start] = start if start
+            case type
+            when :string then field[:truncate] = true if truncate
+            when :float
+              field[:floatNumber] = true
+              # A float that takes the remainder of the line is written with the digits that it has.
+              field[:decimals] = field_decimals unless size == -1
+            end
+            field
+          end
+
+          private
+
+          # Returns [Integer] the decimals of a :float column, see #field, as #render writes them: nil or empty text
+          # for none.
+          #
+          # Raises `IOStreams::Errors::InvalidLayout` for decimals that #render cannot write, such as -1, 2.5 or "abc".
+          def field_decimals
+            return decimals if decimals.is_a?(Integer) && !decimals.negative?
+            return decimals.to_i if decimals.nil? || (decimals.is_a?(String) && DECIMALS.match?(decimals))
+
+            raise(Errors::InvalidLayout, "The decimals of the column #{key.inspect} of the layout must be a whole " \
+                                         "number of 0 or more: #{decimals.inspect}")
           end
         end
       end

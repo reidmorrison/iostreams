@@ -15,6 +15,10 @@ module IOStreams
       @builder   = nil
     end
 
+    # Returns [IOStreams::Path] a new path with the elements joined to this path, created with the same arguments as
+    # this path, such as the credentials of an SFTP path, but without the streams, options, format and schema set on
+    # this one. Without any elements it returns this path itself.
+    #
     # If elements already contains the current path then it is used as is without
     # adding the current path for a second time
     def join(*elements)
@@ -102,18 +106,6 @@ module IOStreams
       raise NotImplementedError
     end
 
-    # Cleanup an incomplete write to the target "file" if the copy fails.
-    # rubocop:disable-next Lint/SuppressedException
-    def copy_from(source, **args)
-      super
-    rescue StandardError => e
-      begin
-        delete
-      rescue NotImplementedError
-      end
-      raise(e)
-    end
-
     # Moves the file by copying it to the new path and then deleting the current path.
     # Returns [IOStreams::Path] the target path.
     #
@@ -127,7 +119,8 @@ module IOStreams
       target
     end
 
-    # Returns [IOStreams::Path] the directory for this file.
+    # Returns [IOStreams::Path] the directory for this file, a new path created with the same arguments as this path,
+    # but without the streams, options, format and schema set on this one, see #join.
     #
     # If `path` does not include a directory name then "." is returned.
     #
@@ -214,9 +207,10 @@ module IOStreams
       str << " pipeline=#{redact(pipeline).inspect}>"
     end
 
-    # Deprecated: changing a path in place also changes its #hash, so a path used as a Hash key, or in a Set, could
-    # no longer be found. Use #join or #directory, which return a new path with the same settings, or `IOStreams.path`
-    # with the new name. Reports a deprecation warning, see `IOStreams::Deprecation`.
+    # Deprecated: a path can be used by many objects at once, such as a root path that file names are joined to, so
+    # changing it in place changes it for all of them. Use #join or #directory, which return a new path, without the
+    # streams, options, format and schema set on this one, or `IOStreams.path` with the new name. Reports a
+    # deprecation warning, see `IOStreams::Deprecation`.
     def path=(path)
       Deprecation.warn("#path= is deprecated, use #join or #directory, which return a new path, or IOStreams.path " \
                        "with the new name")

@@ -8,9 +8,17 @@ module IOStreams
         nil
       end
 
+      # Returns [Array<Symbol>] the options that this class takes, which v3.0 declares as its `option_names`, so that
+      # an option of this class supplied to the writer is not reported as deprecated, since v3.0 accepts it there, and
+      # ignores it, see `IOStreams::Utils.warn_unknown_options`.
+      def self.known_option_names
+        OPTION_NAMES
+      end
+
       # Read from a Bzip2 stream, decompressing the contents as it is read
       #
-      # Any other option is ignored and logs a warning. It will raise `ArgumentError` in v3.0.
+      # Any other option is ignored, and logs a warning. One that the writer does not take either also reports a
+      # deprecation warning, since it will raise `ArgumentError` in v3.0.
       #
       # Parameters are passed through to `Bzip2::FFI::Reader`:
       #   autoclose: [true|false]
@@ -25,7 +33,7 @@ module IOStreams
       #     Use an alternative decompression algorithm that uses less memory but is slower.
       #     Default: false
       def self.stream(input_stream, autoclose: false, first_only: false, small: false, **unknown)
-        Utils.warn_unknown_options(unknown, :bz2, "reading", OPTION_NAMES)
+        Utils.warn_unknown_options(unknown, :bz2, :reader, OPTION_NAMES)
         Utils.load_soft_dependency("bzip2-ffi", "Bzip2", "bzip2/ffi") unless defined?(::Bzip2::FFI)
 
         begin

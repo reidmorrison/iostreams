@@ -429,8 +429,20 @@ Using `writer(:hash)` makes it easier to develop the application without regard 
 - Specialized escaping of values to handle row or column delimiters
 
 Note: The first row written determines the column names as well as the order of the elements to be written.
-To supply the header columns up front, to set the order or to filter out which columns should be written to the
-target file, pass them to the writer: `path.writer(:hash, columns: ["name", "login"])`.
+To set the columns up front, in your own order, describe them with a [schema](formats#schema) on the path: its
+fields are the columns, in order, and `fieldsMatch: "subset"` skips the other keys of each record:
+~~~ruby
+path = IOStreams.path("sample/logins.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [{name: "login"}, {name: "name"}]
+)
+path.writer(:hash) do |io|
+  io << {"name" => "Jack Jones", "login" => "jjones", "notes" => "Not written"}
+  io << {"login" => "jsmith", "name" => "Jill Smith"}
+end
+path.read
+# => "login,name\njjones,Jack Jones\njsmith,Jill Smith\n"
+~~~
 
 Now lets write the same data into a JSON file, then read it to see what it looks like:
 ~~~ruby

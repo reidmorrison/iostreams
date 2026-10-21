@@ -5,13 +5,17 @@ module IOStreams
         %i[zip_file_name entry_file_name]
       end
 
+      # The default of `zip_file_name`, which tells that it was not supplied, since it is deprecated even when it is nil.
+      NO_ZIP_FILE_NAME = Object.new.freeze
+      private_constant :NO_ZIP_FILE_NAME
+
       # When writing to a file, default the entry name within the zip to the file name
       # without the `.zip` extension, unless an entry name was explicitly supplied.
       #
-      # `zip_file_name` is deprecated, see `entry_file_name`, and reports a deprecation warning, see
-      # `IOStreams::Deprecation`.
-      def self.file(file_name, zip_file_name: nil, entry_file_name: zip_file_name, &)
-        warn_zip_file_name unless zip_file_name.nil?
+      # `zip_file_name` is deprecated, see `entry_file_name`, and reports a deprecation warning when it is supplied,
+      # even when it is nil, see `IOStreams::Deprecation`, since v3.0 raises `ArgumentError` for it.
+      def self.file(file_name, zip_file_name: NO_ZIP_FILE_NAME, entry_file_name: zip_file_name, &)
+        entry_file_name = supplied_entry_file_name(zip_file_name, entry_file_name)
         entry_file_name = file_name.to_s[0..-5] if entry_file_name.nil? && file_name.to_s =~ /\.zip\z/i
 
         super(file_name, entry_file_name: entry_file_name, &)
@@ -38,8 +42,8 @@ module IOStreams
       #   then copied across. `zip_kit` streams to non-seekable outputs by emitting
       #   data descriptors instead, so we can write straight to the output stream and
       #   avoid the temp file round-trip.
-      def self.stream(output_stream, zip_file_name: nil, entry_file_name: zip_file_name)
-        warn_zip_file_name unless zip_file_name.nil?
+      def self.stream(output_stream, zip_file_name: NO_ZIP_FILE_NAME, entry_file_name: zip_file_name)
+        entry_file_name   = supplied_entry_file_name(zip_file_name, entry_file_name)
         entry_file_name ||= "file"
 
         Utils.load_soft_dependency("zip_kit", "Zip") unless defined?(ZipKit::Streamer)
@@ -51,10 +55,15 @@ module IOStreams
         result
       end
 
-      def self.warn_zip_file_name
-        Deprecation.warn("zip_file_name: is deprecated, use entry_file_name: instead")
+      # Returns [String|nil] the entry name supplied, whose default is `zip_file_name`, or nil when neither was
+      # supplied, and reports that `zip_file_name` is deprecated when it was supplied.
+      def self.supplied_entry_file_name(zip_file_name, entry_file_name)
+        unless zip_file_name.equal?(NO_ZIP_FILE_NAME)
+          Deprecation.warn("zip_file_name: is deprecated, use entry_file_name: instead")
+        end
+        entry_file_name unless entry_file_name.equal?(NO_ZIP_FILE_NAME)
       end
-      private_class_method :warn_zip_file_name
+      private_class_method :supplied_entry_file_name
     end
   end
 end

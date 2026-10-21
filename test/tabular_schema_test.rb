@@ -14,6 +14,22 @@ class TabularSchemaTest < Minitest::Test
         assert_instance_of IOStreams::Tabular::SchemaMapping,
                            IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "id"}])).mapping
       end
+
+      it "declares each method of the role of a mapping, which raises NotImplementedError until a mapping implements it" do
+        role    = %i[header? requires_header? rows_header? headerless_columns parse_header read_header row_parse record_parse
+                     render render_header read_row read_record_line restrict_columns cleanse_header! start_copy copy_row
+                     start_rows render_row render_header_row start_records render_record]
+        mapping = IOStreams::Tabular::Mapping.new(header: IOStreams::Tabular::Header.new, parser: IOStreams::Tabular::Parser::Csv.new, format: :csv)
+
+        assert_equal role.sort, (IOStreams::Tabular::Mapping.public_instance_methods(false) - %i[header]).sort
+        role.each do |name|
+          arguments = Array.new(mapping.method(name).parameters.count { |type, _| type == :req }, "a")
+          assert_raises(NotImplementedError, name.inspect) { mapping.public_send(name, *arguments) }
+        end
+        [IOStreams::Tabular::HeaderMapping, IOStreams::Tabular::SchemaMapping].each do |klass|
+          role.each { |name| refute_equal IOStreams::Tabular::Mapping, klass.instance_method(name).owner, "#{klass}##{name}" }
+        end
+      end
     end
 
     describe "the parsers" do
@@ -337,16 +353,58 @@ class TabularSchemaTest < Minitest::Test
         tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
 
         assert_equal %w[id pay], tabular.read_header("ID,Pay")
-        [true, false, nil, IOStreams::Tabular::CLEANSE_BY_DEFAULT].each do |cleanse|
+        # A Symbol such as :default is supplied, so it raises too.
+        [true, false, nil, :default].each do |cleanse|
           error = assert_raises(ArgumentError, cleanse.inspect) { IOStreams::Tabular.new(format: :csv, schema: schema, cleanse_header: cleanse) }
           assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
         end
-        assert_raises(ArgumentError) { tabular.read_header("id,pay", cleanse: false) }
-        [true, false, nil].each do |cleanse|
-          error = assert_raises(ArgumentError, cleanse.inspect) { tabular.read_row("1,2", cleanse: cleanse) { |row| row } }
-          assert_match(/\Acleanse_header: cannot be supplied with a schema/, error.message)
-          assert_raises(ArgumentError, cleanse.inspect) { tabular.read_record_line("1,2", cleanse: cleanse) { |row| row } }
-          assert_raises(ArgumentError, cleanse.inspect) { tabular.restrict_columns(cleanse: cleanse) }
+        [true, false, :default].each do |cleanse|
+          error = assert_raises(ArgumentError, cleanse.inspect) { IOStreams::Tabular.new(format: :csv, schema: schema).read_header("id,pay", cleanse: cleanse) }
+          assert_match(/\Acleanse: cannot be supplied with a schema/, error.message)
+        end
+        # nil leaves the header row as it is, as a schema does.
+        assert_equal %w[id pay], IOStreams::Tabular.new(format: :csv, schema: schema).read_header("ID,Pay", cleanse: nil)
+      end
+
+      it "raises for cleansing the header row read, which hands it on as it was read, to be matched to the fields again" do
+        schema  = IOStreams::Schema.new(fields: [{name: "area_m2"}])
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+        tabular.parse_header("Area (m²)")
+
+        error = assert_raises(ArgumentError) { tabular.cleanse_header! }
+        assert_match(/\AThe header row cannot be cleansed with a schema/, error.message)
+        assert_equal ["Area (m²)"], tabular.header.columns
+        assert_equal %w[area_m2], IOStreams::Tabular.new(format: :csv, schema: schema).read_header(tabular.header.columns)
+      end
+
+      it "takes the binary text of a row already read as UTF-8, as that of a line, unless the text was decoded" do
+        names = IOStreams::Schema.new(fields: [{name: "name"}])
+        csv   = IOStreams::Tabular.new(format: :csv, schema: names)
+        csv.read_header("name")
+
+        [["Jos\xC3\xA9".b], "Jos\xC3\xA9".b].each do |line|
+          record = csv.record_parse(line)
+
+          assert_equal({"name" => "José"}, record, line.inspect)
+          assert_equal Encoding::UTF_8, record["name"].encoding, line.inspect
+        end
+        assert_equal Encoding::UTF_8, csv.row_parse(["Jos\xC3\xA9".b]).first.encoding
+        assert_equal Encoding::UTF_8, IOStreams::Tabular.new(format: :hash, schema: names).record_parse({"name" => "Jos\xC3\xA9".b})["name"].encoding
+        assert_raises(IOStreams::Errors::InvalidEncoding) { csv.record_parse(["Jos\xE9".b]) }
+
+        decoded = IOStreams::Tabular.new(format: :csv, schema: names, decoded: true)
+        decoded.read_header(["name".b])
+
+        assert_equal Encoding::BINARY, decoded.record_parse(["Jos\xE9".b])["name"].encoding
+      end
+
+      it "raises for cleanse_header: supplied to a reader with the tabular of a schema, which it cannot change" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema)
+
+        [true, false, nil, :default].each do |cleanse|
+          error = assert_raises(ArgumentError, cleanse.inspect) { IOStreams::Row::Reader.new(["id,pay"], tabular: tabular, cleanse_header: cleanse) }
+          assert_equal "Supply either tabular: or the options that create it, not both", error.message
+          assert_raises(ArgumentError, cleanse.inspect) { IOStreams::Record::Reader.new(["id,pay"], tabular: tabular, cleanse_header: cleanse) }
         end
       end
 

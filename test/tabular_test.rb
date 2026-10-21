@@ -520,6 +520,185 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe "#mapping" do
+      it "maps the columns by the header without a schema, for every format" do
+        assert_instance_of IOStreams::Tabular::HeaderMapping, IOStreams::Tabular.new(format: :csv).mapping
+        assert_instance_of IOStreams::Tabular::HeaderMapping, IOStreams::Tabular.new(format: :json).mapping
+        assert_instance_of IOStreams::Tabular::HeaderMapping, fixed.mapping
+      end
+    end
+
+    # Reading a line at a time, as the readers of rows and records do, see IOStreams::Row::Reader, which cleanses the
+    # header row as the cleanse_header option of Tabular.new says.
+    describe "#read_header" do
+      it "returns the header row as it was read, and cleanses the header columns by default" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+
+        assert_equal ["First Name", "Age"], tabular.read_header("First Name,Age")
+        assert_equal %w[first_name age], tabular.header.columns
+      end
+
+      it "cleanses them for cleanse: true and cleanse_header: true as by default" do
+        [[{}, {cleanse: true}], [{cleanse_header: true}, {}], [{cleanse_header: false}, {cleanse: true}]].each do |options, call|
+          tabular = IOStreams::Tabular.new(format: :csv, **options)
+          tabular.read_header("First Name,Age", **call)
+
+          assert_equal %w[first_name age], tabular.header.columns, [options, call].inspect
+        end
+      end
+
+      it "leaves them as they are for cleanse: false, and cleanse_header: false or nil" do
+        [[{}, {cleanse: false}], [{cleanse_header: false}, {}], [{cleanse_header: nil}, {}], [{}, {cleanse: nil}]].each do |options, call|
+          tabular = IOStreams::Tabular.new(format: :csv, **options)
+
+          assert_equal ["First Name", "Age"], tabular.read_header("First Name,Age", **call), [options, call].inspect
+          assert_equal ["First Name", "Age"], tabular.header.columns, [options, call].inspect
+        end
+      end
+
+      it "applies the column restrictions without renaming the columns for cleanse: false, once they are enforced" do
+        IOStreams.enforce_column_restrictions = true
+        tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["First Name"])
+        tabular.read_header("First Name,Age", cleanse: false)
+
+        assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
+      ensure
+        IOStreams.enforce_column_restrictions = false
+      end
+
+      it "returns nil for a blank line, or a format without a header row" do
+        assert_nil IOStreams::Tabular.new(format: :csv).read_header("")
+        assert_nil IOStreams::Tabular.new(format: :json).read_header(%({"a":1}))
+      end
+    end
+
+    describe "#read_row" do
+      # Returns [Array] each row that reading the lines yields.
+      def read_rows(tabular, *lines)
+        rows = []
+        lines.each { |line| tabular.read_row(line) { |row| rows << row } }
+        rows
+      end
+
+      it "yields the header row as it was parsed, then each row, or nil for a blank line, and cleanses the header columns" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+
+        assert_equal [["First Name", "Age"], %w[Jack 21], nil], read_rows(tabular, "First Name,Age", "Jack,21", "")
+        assert_equal %w[first_name age], tabular.header.columns
+      end
+
+      it "leaves the header columns as they are with cleanse_header: false" do
+        tabular = IOStreams::Tabular.new(format: :csv, cleanse_header: false)
+        read_rows(tabular, "First Name,Age")
+
+        assert_equal ["First Name", "Age"], tabular.header.columns
+      end
+
+      it "yields every line as a row when the columns were supplied, and returns the result of the block" do
+        tabular = IOStreams::Tabular.new(format: :csv, columns: %w[name age])
+
+        assert_equal [%w[First Age], %w[Jack 21]], read_rows(tabular, "First,Age", "Jack,21")
+        assert_equal 2, tabular.read_row("Jack,21", &:size)
+      end
+    end
+
+    describe "#read_record_line" do
+      # Returns [Array] each record that reading the lines yields.
+      def read_records(tabular, *lines)
+        records = []
+        lines.each { |line| tabular.read_record_line(line) { |record| records << record } }
+        records
+      end
+
+      it "reads the header row, which it does not yield, then yields the record of each line, or nil for a blank one" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+
+        assert_equal [{"first_name" => "Jack", "age" => "21"}, nil], read_records(tabular, "First Name,Age", "Jack,21", "")
+      end
+
+      it "keys the records by the columns as they are with cleanse_header: false" do
+        tabular = IOStreams::Tabular.new(format: :csv, cleanse_header: false)
+
+        assert_equal [{"First Name" => "Jack"}], read_records(tabular, "First Name", "Jack")
+      end
+
+      it "applies the column restrictions to the keys of each JSON record, renaming them as the header row is cleansed" do
+        IOStreams.enforce_column_restrictions = true
+        line = %({"Name":"x","admin":true})
+
+        assert_equal [{"name" => "x"}], read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["name"]), line)
+        assert_equal [{"Name" => "x"}],
+                     read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"], cleanse_header: false), line)
+      ensure
+        IOStreams.enforce_column_restrictions = false
+      end
+    end
+
+    describe "#restrict_columns" do
+      it "applies the column restrictions to the columns supplied, renaming them as the header row read is cleansed" do
+        IOStreams.enforce_column_restrictions = true
+        tabular = IOStreams::Tabular.new(columns: ["First Name", "Age"], allowed_columns: ["first_name"])
+        tabular.restrict_columns
+
+        assert_equal %w[first_name __rejected__Age], tabular.header.columns
+
+        tabular = IOStreams::Tabular.new(columns: ["First Name", "Age"], allowed_columns: ["First Name"], cleanse_header: false)
+        tabular.restrict_columns
+
+        assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
+      ensure
+        IOStreams.enforce_column_restrictions = false
+      end
+
+      it "leaves the columns until the header row is read, and without restrictions" do
+        tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["name"])
+        tabular.restrict_columns
+
+        assert_nil tabular.header.columns
+
+        tabular = IOStreams::Tabular.new(columns: ["First Name"])
+        tabular.restrict_columns
+
+        assert_equal ["First Name"], tabular.header.columns
+      end
+    end
+
+    # Writing a line at a time, as the writers of rows and records do, see IOStreams::Row::Writer.
+    describe "writing" do
+      # Returns [Array] the lines that the block yields to the block that it is given.
+      def lines
+        lines = []
+        yield ->(line) { lines << line }
+        lines
+      end
+
+      it "#start_rows and #start_records yield the header line of the columns supplied, for a format with a header row" do
+        assert_equal(["a,b"], lines { |out| IOStreams::Tabular.new(columns: %w[a b]).start_rows(&out) })
+        assert_equal(["a,b"], lines { |out| IOStreams::Tabular.new(columns: %w[a b]).start_records(&out) })
+        assert_empty(lines { |out| IOStreams::Tabular.new.start_rows(&out) })
+        assert_empty(lines { |out| IOStreams::Tabular.new.start_records(&out) })
+        assert_empty(lines { |out| IOStreams::Tabular.new(format: :json, columns: %w[a b]).start_rows(&out) })
+      end
+
+      it "#render_row renders the first row as the header line, unless the columns were supplied" do
+        tabular = IOStreams::Tabular.new
+
+        assert_equal(["a,b", "1,2", nil], lines { |out| [%w[a b], [1, 2], []].each { |row| tabular.render_row(row, &out) } })
+        assert_equal %w[a b], tabular.header.columns
+        assert_equal(["x,y"], lines { |out| IOStreams::Tabular.new(columns: %w[a b]).render_row(%w[x y], &out) })
+        assert_equal 3, IOStreams::Tabular.new(columns: %w[a b]).render_row([1, 2], &:size)
+      end
+
+      it "#render_record renders the keys of the first record as the header line, unless the columns were supplied" do
+        tabular = IOStreams::Tabular.new
+
+        written = lines { |out| [{"a" => 1, "b" => 2}, {"b" => 3}].each { |record| tabular.render_record(record, &out) } }
+
+        assert_equal ["a,b", "1,2", ",3"], written
+        assert_equal(["2,1"], lines { |out| IOStreams::Tabular.new(columns: %w[b a]).render_record({"a" => 1, "b" => 2}, &out) })
+      end
+    end
+
     describe ".format_from_file_name" do
       it "detects the format from the file name" do
         assert_equal :csv, IOStreams::Tabular.format_from_file_name("sample.csv.gz")
@@ -529,6 +708,29 @@ class TabularTest < Minitest::Test
 
       it "is nil when the format cannot be inferred" do
         assert_nil IOStreams::Tabular.format_from_file_name("sample.unknown")
+      end
+    end
+
+    describe "the names of its options" do
+      it "names the options of .new that describe the file" do
+        keywords = IOStreams::Tabular.instance_method(:initialize).parameters.map(&:last)
+
+        assert_empty IOStreams::Tabular::FORMAT_OPTION_NAMES - keywords
+      end
+
+      it "names the deprecated options of a reader: those of the header that are not nil, and cleanse_header, even when it is nil" do
+        options = {columns: %w[a], allowed_columns: nil, required_columns: %w[a], skip_unknown: false, cleanse_header: nil,
+                   delimiter: "|", format: :csv}
+
+        assert_equal %i[columns required_columns skip_unknown cleanse_header], IOStreams::Tabular.deprecated_read_option_names(options)
+        assert_empty IOStreams::Tabular.deprecated_read_option_names(columns: nil, skip_unknown: nil, format: :csv)
+      end
+
+      it "names the deprecated options of a writer: those of the header that are not nil, other than those that only apply when reading" do
+        options = {columns: %w[a], allowed_columns: %w[a], required_columns: %w[a], skip_unknown: true, format: :csv}
+
+        assert_equal %i[columns], IOStreams::Tabular.deprecated_write_option_names(options)
+        assert_empty IOStreams::Tabular.deprecated_write_option_names(columns: nil)
       end
     end
 
@@ -564,7 +766,8 @@ class TabularTest < Minitest::Test
             {name: :age, type: "integer", width: 8},
             {name: :weight, type: "number", width: 10, floatNumber: true, decimals: 2}
           ],
-          fieldsMatch: "subset"
+          fieldsMatch: "subset",
+          keyType:     "symbol"
         }
 
         assert_equal expected, IOStreams::Tabular::Parser::Fixed.schema(layout: layout)
@@ -574,7 +777,7 @@ class TabularTest < Minitest::Test
         assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}], fieldsMatch: "subset"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "rest"}], truncate: false))
         # A float that takes the remainder of the line was written with all of its digits, whatever its decimals.
-        assert_equal({fields: [{name: :pay, type: "number", width: "remainder", floatNumber: true}], fieldsMatch: "subset"},
+        assert_equal({fields: [{name: :pay, type: "number", width: "remainder", floatNumber: true}], fieldsMatch: "subset", keyType: "symbol"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: :pay, type: :float, decimals: -1}]))
         assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: 5},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: 3}], truncate: false))
@@ -603,12 +806,86 @@ class TabularTest < Minitest::Test
         assert_match(/both as a String and as a Symbol/, error.message)
       end
 
+      it "translates a layout whose columns are a Hash that keeps its keys as Strings, such as the params of a Rails request" do
+        # Like ActiveSupport::HashWithIndifferentAccess, which keeps its keys as Strings, also those transformed.
+        indifferent = Class.new(Hash) do
+          def self.[](hash)
+            hash.each_with_object(new) { |(key, value), copy| copy[key] = value }
+          end
+
+          def []=(key, value)
+            super(key.to_s, value)
+          end
+
+          def key?(key)
+            super(key.to_s)
+          end
+
+          def transform_keys(&)
+            self.class[to_h.transform_keys(&)]
+          end
+        end
+        layout = [indifferent[size: 5, key: "zip", type: "integer"], indifferent[size: 2]]
+
+        assert_equal({fields: [{name: "zip", type: "integer", width: 5}], fieldsMatch: "subset", width: 7},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: layout))
+      end
+
+      it "leaves out the columns after a remainder, which the layout does not read" do
+        layout = [{size: 2, key: :id}, {size: :remainder, key: :rest}, {size: 1}]
+        fixed  = IOStreams::Tabular::Parser::Fixed.new(layout: layout)
+
+        assert_equal({id: "ab", rest: "cdef"}, fixed.parse("abcdef"))
+        assert_equal({fields:      [{name: :id, type: "string", width: 2, truncate: true},
+                                    {name: :rest, type: "string", width: "remainder", truncate: true}],
+                      fieldsMatch: "subset", keyType: "symbol"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: layout))
+        assert_equal({fields: [{name: :id, type: "string", width: 2, truncate: true}], fieldsMatch: "subset", width: "remainder", keyType: "symbol"},
+                     IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: :id}, {size: :remainder}, {size: 3, key: :code}]))
+      end
+
       it "raises for an invalid layout" do
         assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{key: "id"}]) }
         assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 0, key: "id"}]) }
         assert_raises(IOStreams::Errors::InvalidLayout) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id", type: :date}]) }
-        assert_raises(IOStreams::Errors::InvalidLayout) do
-          IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: 2, key: "b"}])
+        # Two columns of the size :remainder, which the layout rejects too.
+        error = assert_raises(IOStreams::Errors::InvalidLayout) do
+          IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "a"}, {size: :remainder, key: "b"}])
+        end
+        assert_match(/Only the last :size can be/, error.message)
+        assert_raises(ArgumentError) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}], bogus: true) }
+      end
+
+      it "raises for a size or a type that is not one, for which the layout raises NoMethodError" do
+        [
+          [{size: true, key: :id}],
+          [{size: :ten, key: :id}],
+          [{size: 2, key: :id, type: nil}],
+          [{size: 2, key: :id, type: 5}]
+        ].each do |layout|
+          assert_raises(IOStreams::Errors::InvalidLayout, layout.inspect) { IOStreams::Tabular::Parser::Fixed.schema(layout: layout) }
+        end
+      end
+
+      it "translates the decimals that the layout writes, and raises for those that it cannot write" do
+        translate = ->(decimals) { IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 8, key: :pay, type: :float, decimals: decimals}]) }
+        header    = IOStreams::Tabular::Header.new(columns: ["pay"])
+
+        # The layout writes nil and empty text as no decimals, and text of digits as those digits.
+        {nil => [0, "00000013"], "" => [0, "00000013"], 3 => [3, "0012.567"], "3" => [3, "0012.567"], "03" => [3, "0012.567"]}.
+          each_pair do |decimals, (digits, line)|
+            layout = [{size: 8, key: "pay", type: :float, decimals: decimals}]
+
+            assert_equal line, IOStreams::Tabular::Parser::Fixed.new(layout: layout).render({"pay" => 12.567}, header)
+            assert_equal digits, translate.call(decimals)[:fields].first[:decimals], decimals.inspect
+          end
+        # The layout reads a file with these decimals, but cannot write one.
+        [true, 2.9, 2.0, "abc", " 3", "3abc", "+3", 3r].each do |decimals|
+          assert_raises(StandardError, decimals.inspect) do
+            IOStreams::Tabular::Parser::Fixed.new(layout: [{size: 8, key: "pay", type: :float, decimals: decimals}]).render({"pay" => 12.567}, header)
+          end
+          error = assert_raises(IOStreams::Errors::InvalidLayout, decimals.inspect) { translate.call(decimals) }
+          assert_match(/The decimals of the column :pay of the layout must be a whole number of 0 or more/, error.message)
         end
       end
 

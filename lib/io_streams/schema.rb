@@ -13,7 +13,7 @@ module IOStreams
   #
   # The columns of a file are matched to the fields by their names, see #field_for, and the keys of each record that is
   # read are the names of its fields. The columns that the schema does not list are skipped when `fieldsMatch` allows
-  # them, see `IOStreams::Schema::Columns`.
+  # them, or kept with `extraColumns`, see `IOStreams::Schema::Columns`.
   #
   # Properties at the top level of the schema:
   #   fields: [Array<Hash>]
@@ -45,6 +45,31 @@ module IOStreams
   #     "remainder" accepts lines of any length, ignoring what follows the last field.
   #     Default: the end of the last field.
   #
+  #   keyType: [String]
+  #     How the key of each field in the records read is formed from its name, which IOStreams adds to the properties
+  #     of Frictionless, see #key_for:
+  #       "string":         the name as a String, such as "zip" for the name :zip.
+  #       "cleansed":       the name once cleansed as `cleanse_header` cleanses a header row, see .cleansed, such as
+  #                         "first_name" for the name "First Name".
+  #       "symbol":         the name as a Symbol, such as :zip for the name "zip", so that a schema held as JSON, whose
+  #                         names are Strings, reads the Symbol keys of a layout, see .from_layout.
+  #       "cleansedSymbol": the cleansed name as a Symbol, such as :first_name for the name "First Name".
+  #     The names of the fields are still the columns of the header row written, and the keys of the records written
+  #     can be the keys that it forms, as well as the names, see #field_for.
+  #     Default: the names as they are given, a String or a Symbol.
+  #
+  #   extraColumns: [String]
+  #     What reading does with the columns that the schema does not list, which `fieldsMatch` "subset" and "partial"
+  #     accept, which IOStreams adds to the properties of Frictionless:
+  #       "skip": leaves them out of the rows and records read.
+  #       "keep": keeps them, after the fields, in the order of the columns, each by the key that `keyType` forms from
+  #               its column, see #key_for, and with its value as it is, as for a field of type "any". So a schema can
+  #               then have no fields, with "subset", to read every column. The keys of each JSON record are kept the
+  #               same way. A fixed width file has only its fields, so it ignores it.
+  #     Writing writes only the fields, whichever it is, since a file that is written has the columns of its fields.
+  #     Raises ArgumentError for "keep" with any other `fieldsMatch`, which does not accept those columns.
+  #     Default: "skip"
+  #
   # Properties that only describe the schema to people, `$schema`, `title` and `description`, are accepted and have
   # no effect, as are the properties of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other
   # property raises `ArgumentError`, including those of Frictionless that IOStreams does not support yet, such as
@@ -54,10 +79,11 @@ module IOStreams
     autoload :Constraints, "io_streams/schema/constraints"
     autoload :Field,       "io_streams/schema/field"
     autoload :JsonNumber,  "io_streams/schema/json_number"
+    autoload :Keys,        "io_streams/schema/keys"
     autoload :Source,      "io_streams/schema/source"
 
     # The properties of a schema that IOStreams supports.
-    PROPERTIES = %w[fields fieldsMatch header width].freeze
+    PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns].freeze
 
     # The properties of a schema that only describe it to people.
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
@@ -70,6 +96,9 @@ module IOStreams
     FIELDS_MATCH      = %w[exact equal subset superset partial].freeze
     SKIPS_UNKNOWN     = %w[subset partial].freeze
     NEEDS_EVERY_FIELD = %w[exact equal subset].freeze
+
+    # The values of `extraColumns`, see above.
+    EXTRA_COLUMNS = %w[skip keep].freeze
 
     # The characters that the loose comparison of a column and a field ignores, see .match_key: all but letters, the
     # marks that combine with them, and digits, in every language.
@@ -141,12 +170,23 @@ module IOStreams
     # the records read with it have the same keys. See `IOStreams::Tabular::Parser::Fixed.schema` for the layout,
     # whose columns can have String keys, such as a layout read from JSON.
     #
+    # The schema reads and writes the file as IOStreams 3.0 does, which is not always as the layout does: for
+    # example, the width of each field counts the characters of the UTF-8 text of the line, where the layout counts its
+    # bytes, and a number field that holds no number raises, where the layout reads it as zero. So check that the
+    # schema reads the files of the application before it replaces the layout. See "Moving a layout to a schema" in
+    # docs/upgrading.md for each difference.
+    #
     # Unlike `IOStreams::Stream#format_options`, it reports no deprecation warning, since it replaces the layout.
     #
+    # Parameters:
+    #   format_options:
+    #     The format options of the layout, as `IOStreams::Stream#format_options` takes them: `layout:`, and
+    #     optionally `truncate:`, see `IOStreams::Tabular::Parser::Fixed.schema`.
+    #
     # Raises `IOStreams::Errors::InvalidLayout` when the layout is not valid, and ArgumentError for a property that a
-    # column of a layout does not have, or when its schema is not valid.
-    def self.from_layout(layout:, truncate: true)
-      descriptor = IOStreams::Tabular::Parser::Fixed.schema(layout: layout, truncate: truncate)
+    # column of a layout does not have, for any other format option, or when its schema is not valid.
+    def self.from_layout(**format_options)
+      descriptor = IOStreams::Tabular::Parser::Fixed.schema(**format_options)
       new(descriptor)
       descriptor
     end
@@ -189,6 +229,8 @@ module IOStreams
       @header       = check_header(descriptor["header"])
       @fields_match = check_fields_match(descriptor["fieldsMatch"])
       @width        = check_width(descriptor["width"])
+      @keys         = Keys.new(descriptor["keyType"], @fields)
+      @keep_extra   = check_extra_columns(descriptor["extraColumns"])
       @named        = build_named
       @loose        = build_loose { |name| self.class.match_key(name) }
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
@@ -207,6 +249,23 @@ module IOStreams
       @header
     end
 
+    # Returns [String|nil] how the keys of the records read are formed from the names of the fields, see `keyType`
+    # above, or nil when they are the names as they are given.
+    def key_type
+      @keys.type
+    end
+
+    # Returns [String|Symbol] the key in the records read of the field or column with the supplied name, formed as
+    # `keyType` says, see `IOStreams::Schema::Keys#key_for`.
+    def key_for(name)
+      @keys.key_for(name)
+    end
+
+    # Returns [String|Symbol] the key of the field in the records read, see #key_for.
+    def key(field)
+      @keys[field]
+    end
+
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
     # writer holds while it reads or writes the file.
     def columns
@@ -214,7 +273,8 @@ module IOStreams
     end
 
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:
-    # the field whose name or alias it is, whether it is a String or a Symbol, otherwise the field whose name or alias
+    # the field whose name, alias or key, see #key, it is, whether it is a String or a Symbol, so that a record written
+    # with the keys of the records read is written, otherwise the field whose name or alias
     # is the same once both are compared loosely, see .match_key, so that the field `first_name` is the column
     # `First Name`, and the field `E-mail` is the key `email`, otherwise the field whose name or alias is the same once
     # both are cleansed, see .cleansed, and then compared loosely. Cleansing drops the characters that Unicode makes
@@ -350,6 +410,11 @@ module IOStreams
       SKIPS_UNKNOWN.include?(fields_match)
     end
 
+    # Returns [true|false] whether reading keeps the columns that the schema does not list, see `extraColumns` above.
+    def keep_extra?
+      @keep_extra
+    end
+
     private
 
     # Returns [true|false] whether every field must be one of the columns.
@@ -455,24 +520,30 @@ module IOStreams
       fields
     end
 
-    # Returns [Hash<String, IOStreams::Schema::Field>] the field of each name and alias.
+    # Returns [Hash<String, IOStreams::Schema::Field>] the field of each name, alias and key, see #key, as text.
     #
-    # Raises ArgumentError for an alias that is the name or alias of another field, since a column of that name could
-    # be either field.
+    # Raises ArgumentError for an alias or key that is the name or alias of another field, since a column of that name
+    # could be either field.
     def build_named
       named = @fields.to_h { |field| [field.name.to_s, field] }
       @fields.each do |field|
-        field.aliases.each do |name|
-          other = named[name]
-          if other && !other.equal?(field)
-            raise(ArgumentError, "Field #{field.name.inspect}: the alias #{name.inspect} is already the name or an alias " \
-                                 "of the field #{other.name.inspect}")
-          end
+        field.aliases.each { |name| add_named(named, name, field, "the alias #{name.inspect}") }
+        next unless key_type
 
-          named[name] = field
-        end
+        name = key(field).to_s
+        add_named(named, name, field, "its key #{name.inspect}, which keyType #{key_type.inspect} forms,")
       end
       named
+    end
+
+    def add_named(named, name, field, what)
+      other = named[name]
+      if other && !other.equal?(field)
+        raise(ArgumentError, "Field #{field.name.inspect}: #{what} is already the name or an alias of the field " \
+                             "#{other.name.inspect}")
+      end
+
+      named[name] = field
     end
 
     # Returns [Hash<String, Array<IOStreams::Schema::Field>>] the fields whose names or aliases are the same when compared
@@ -508,6 +579,20 @@ module IOStreams
       end
 
       fields_match
+    end
+
+    def check_extra_columns(extra_columns)
+      return false if extra_columns.nil?
+
+      unless EXTRA_COLUMNS.include?(extra_columns)
+        raise(ArgumentError, "The schema extraColumns must be one of #{sentence(EXTRA_COLUMNS.map(&:inspect))}: " \
+                             "#{extra_columns.inspect}")
+      end
+      return false if extra_columns == "skip"
+      return true if skip_unknown?
+
+      raise(ArgumentError, "The schema extraColumns \"keep\" keeps the columns that the schema does not list, which " \
+                           "fieldsMatch #{fields_match.inspect} does not accept; \"subset\" and \"partial\" accept them")
     end
 
     def check_width(width)

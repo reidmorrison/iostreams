@@ -194,13 +194,14 @@ and converting to valid US ASCII.
 ~~~ruby
   apple_count = 0
   IOStreams::Gzip::Reader.open("hello.csv.gz") do |input|
-    IOStreams::Encode::Reader.open(input, 
-                                   encoding:       "US-ASCII", 
-                                   encode_replace: "", 
-                                   encode_cleaner: :printable) do |cleansed|
+    IOStreams::Encode::Reader.open(input,
+                                   encoding: "US-ASCII",
+                                   replace:  "",
+                                   cleaner:  :printable) do |cleansed|
       IOStreams::Line::Reader.open(cleansed) do |lines|
         lines.each { |line| apple_count += line.scan("apple").count}
       end
+    end
   end
   puts "Found the word 'apple' #{apple_count} times in hello.csv.gz"
 ~~~
@@ -210,7 +211,7 @@ Let IOStreams perform the above stream chaining automatically under the covers:
 ~~~ruby
   apple_count = 0
   IOStreams.path("hello.csv.gz").
-    option(:encode, encoding: "US-ASCII", replace: "", cleaner: :printable).
+    encoding("US-ASCII", replace: "", cleaner: :printable).
     each do |line|
       apple_count += line.scan("apple").count
     end

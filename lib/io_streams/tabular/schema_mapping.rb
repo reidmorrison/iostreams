@@ -15,18 +15,22 @@ module IOStreams
     # `read_header(header.columns)`.
     #
     # Its text is UTF-8, as IOStreams 3.0 reads and writes the text of every file by default: a line read as binary,
-    # as a file is read without an encoding, is taken as UTF-8, unless it is already in the encoding of its text, see
-    # `decoded:`, and so is binary text written, such as the values of rows read from a file without a schema, see
-    # `IOStreams::Utils.utf8`.
+    # as a file is read without an encoding, or a row already read, is taken as UTF-8, unless the text is already in the
+    # encoding that the application chose, see `decoded:`, and so is binary text written, such as the values of rows read
+    # from a file without a schema, see `IOStreams::Utils.utf8`, unless it is not valid UTF-8 and the application chose
+    # an encoding, which encodes it instead, see #written_row.
     class SchemaMapping < Mapping
       # Parameters:
       #   schema: [IOStreams::Schema]
       #     The fields of the rows and records.
       #
       #   decoded: [true|false]
-      #     Whether the lines read are already in the encoding of their text, as `IOStreams::Stream` reads them, see
-      #     `IOStreams::Builder#utf8_text?`, so that they are taken as they are, rather than a binary line as UTF-8,
-      #     see `IOStreams::Utils.utf8`, as for the lines that a caller of `IOStreams::Tabular` reads itself.
+      #     Whether the text is in the encoding that the application chose, rather than taken as UTF-8: with an encoding
+      #     set on the stream, or with #raw, see `IOStreams::Builder#utf8_text?`. Then the lines read are taken as they
+      #     are, rather than a binary line as UTF-8, see `IOStreams::Utils.utf8`, and binary text written that is not
+      #     valid UTF-8 is left as it is, for that encoding, see #written_row. The lines that `IOStreams::Stream` reads
+      #     without such an encoding are already UTF-8, see `IOStreams::Line::Utf8Reader`, as a caller of
+      #     `IOStreams::Tabular` hands them, so they are only checked.
       #     Default: false
       #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
@@ -100,11 +104,14 @@ module IOStreams
       # Returns [Array<String|Symbol>] the names of the fields of its columns, in the order of the fields.
       # Returns nil when the line is blank, or the file has no header row.
       #
-      # Raises ArgumentError for `cleanse`, other than nil or `IOStreams::Tabular::CLEANSE_BY_DEFAULT`, which leave the
-      # header row as it is, since the keys of the records are the names of the fields, which its columns are matched to
-      # instead.
+      # Raises ArgumentError for `cleanse` that is supplied, other than nil, which leaves the header row as it is, since
+      # the keys of the records are the names of the fields, which its columns are matched to instead.
       def read_header(line, cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse, "cleanse") unless cleanse.nil?
+        unless cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT)
+          raise(ArgumentError, "cleanse: cannot be supplied with a schema, since the keys of its records are the names " \
+                               "of its fields, which the columns of the header row are matched to, see " \
+                               "IOStreams::Schema#field_for")
+        end
 
         match_header(line)&.last
       end
@@ -139,7 +146,7 @@ module IOStreams
       def render(row)
         return @columns.render_blank if IOStreams::Utils.blank?(row)
 
-        @parser.render(@columns.render(utf8_row(row), @form, @keyed), @arranged)
+        @parser.render(@columns.render(written_row(row), @form, @keyed), @arranged)
       end
 
       # Returns [String] the header row of the file: the names of its fields.
@@ -159,12 +166,8 @@ module IOStreams
       # The header row is an `IOStreams::Row::HeaderRow`, so that a writer of rows takes it as the header row of the
       # rows after it, see `IOStreams::Row::Writer#<<`.
       #
-      # Raises ArgumentError for `cleanse`, the `cleanse_header` option of the reader, other than the default, see
-      # #read_header.
-      #
       # Returns the result of the block.
-      def read_row(line, cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse)
+      def read_row(line)
         # Once the header row is read, every line is a row, so that is asked first.
         return yield(row_parse(line)) unless rows_header?
         return yield(as_header_row(read_header(line))) if header?
@@ -177,10 +180,7 @@ module IOStreams
       # Yields [Hash|nil] the record of the line of a file of records, see #record_parse, or nil for a blank line, unless
       # the line is the header row, while it is expected, see #header?, which it reads instead, see #read_header, since
       # it names the keys of the records after it.
-      #
-      # Raises ArgumentError for `cleanse` other than the default, see #read_row.
-      def read_record_line(line, cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse)
+      def read_record_line(line)
         if header?
           read_header(line)
           nil
@@ -190,10 +190,7 @@ module IOStreams
       end
 
       # Returns nil: no column options apply, since the schema describes the columns instead.
-      #
-      # Raises ArgumentError for `cleanse` other than the default, see #read_row.
-      def restrict_columns(cleanse: CLEANSE_BY_DEFAULT)
-        reject_cleanse(cleanse)
+      def restrict_columns
         nil
       end
 
@@ -217,9 +214,11 @@ module IOStreams
 
       # Takes the columns of the rows written after them from a header row written before them, such as the
       # `IOStreams::Row::HeaderRow` that `IOStreams::Stream#each(:array)` yields, or the header row of a file without a
-      # schema that is copied, see `IOStreams::Row::Reader#copy_to`, once they are matched to the fields, see
+      # schema that is copied, see `IOStreams::Tabular#copy_row`, once they are matched to the fields, see
       # `IOStreams::Schema::Columns#match_written`, without a line, since the header row of the file is the names of the
-      # fields, which the schema writes, see #start_rows, or the file has none.
+      # fields, which the schema writes, see #start_rows, or the file has none. Its binary text is taken as UTF-8, see
+      # #utf8_row, whatever the encoding of this stream, since the header row is read from another file, and the names
+      # of the fields are matched in Unicode.
       #
       # Returns nil.
       def render_header_row(columns)
@@ -227,7 +226,29 @@ module IOStreams
         nil
       end
 
-      alias render_columns render_header_row
+      # Raises ArgumentError: the header row is not cleansed with a schema, since the keys of the records are the names
+      # of the fields, which the columns of the header row are matched to instead, as for `cleanse_header:`, see
+      # `IOStreams::Tabular.new`. The header keeps the header row as it was read, see #read_header.
+      def cleanse_header!
+        raise(ArgumentError, "The header row cannot be cleansed with a schema, since the keys of its records are the " \
+                             "names of its fields, which the columns of the header row are matched to, see " \
+                             "IOStreams::Schema#field_for")
+      end
+
+      # Yields [IOStreams::Row::HeaderRow] the names of the fields of a file without a header row, which are the columns
+      # of its rows, see #headerless_columns, which a copy writes before the first line, see
+      # `IOStreams::Tabular#start_copy`, so that the target has them even when the file has no lines. #read_row then
+      # does not yield them again.
+      def start_copy
+        return if @requires_header || @names_read
+
+        @names_read = true
+        yield as_header_row(@columns.names)
+      end
+
+      # Yields [Array|nil] each row of the line that a copy writes, see `IOStreams::Tabular#copy_row`, as #read_row
+      # yields it, whose header row is an `IOStreams::Row::HeaderRow`.
+      alias copy_row read_row
 
       private
 
@@ -237,7 +258,7 @@ module IOStreams
       def match_header(line)
         return unless @requires_header
 
-        columns = parse(line.is_a?(::Array) ? utf8_row(line) : line)
+        columns = parse(line)
         return if columns.nil?
 
         names          = @columns.match(columns)
@@ -246,7 +267,9 @@ module IOStreams
       end
 
       # Returns [Array|Hash] the values of the line, which the parser parses, or a row already read, an Array, as it is,
-      # since the parsers of keyed records, such as JSON, do not accept one without a schema.
+      # since the parsers of keyed records, such as JSON, do not accept one without a schema. Its binary text is taken
+      # as UTF-8, see `IOStreams::Utils.utf8`, whether it is a line or a row already read, unless the text is in the
+      # encoding that the application chose, see #initialize.
       #
       # Returns nil when it is blank, the same way in every format: a line that is blank, see
       # `IOStreams::Utils.blank_text?`, or a row or record whose every value is blank, see `IOStreams::Utils.blank_row?`,
@@ -257,6 +280,8 @@ module IOStreams
         if line.is_a?(String)
           line = IOStreams::Utils.utf8(line) unless @decoded
           return if IOStreams::Utils.blank_text?(line)
+        elsif !@decoded
+          line = utf8_row(line)
         end
 
         values = line.is_a?(::Array) ? line : @parser.parse(line)
@@ -283,6 +308,33 @@ module IOStreams
         binary_text?(value) ? IOStreams::Utils.utf8(value) : value
       end
 
+      # Returns [Array|Hash] the row or record written, see #render, whose binary text is taken as UTF-8, see #utf8_row.
+      # With an encoding set on the stream, see #initialize, which encodes the text written, binary text that is not
+      # valid UTF-8 is left as it is, for that encoding, rather than raise, as text read with it is taken as it is.
+      def written_row(row)
+        return utf8_row(row) unless @decoded
+
+        case row
+        when ::Array
+          row.any? { |value| binary_text?(value) } ? row.map { |value| written_text(value) } : row
+        when ::Hash
+          return row unless row.any? { |key, value| binary_text?(key) || binary_text?(value) }
+
+          row.to_h { |key, value| [written_text(key), written_text(value)] }
+        else
+          row
+        end
+      end
+
+      # Returns [Object] the value written with an encoding set on the stream, see #written_row: binary text as UTF-8
+      # when it is valid UTF-8, otherwise as it is.
+      def written_text(value)
+        return value unless binary_text?(value)
+
+        text = value.dup.force_encoding(::Encoding::UTF_8)
+        text.valid_encoding? ? text : value
+      end
+
       def binary_text?(value)
         value.is_a?(String) && value.encoding == ::Encoding::BINARY && !value.ascii_only?
       end
@@ -291,16 +343,6 @@ module IOStreams
       # such as for a blank line.
       def as_header_row(columns)
         IOStreams::Row::HeaderRow.new(columns) if columns
-      end
-
-      # Raises ArgumentError for the `cleanse_header` option of a reader, other than the default, since the keys of the
-      # records are the names of the fields, which the columns of the header row are matched to instead.
-      def reject_cleanse(cleanse, name = "cleanse_header")
-        return if cleanse.equal?(CLEANSE_BY_DEFAULT)
-
-        raise(ArgumentError, "#{name}: cannot be supplied with a schema, since the keys of its records are the " \
-                             "names of its fields, which the columns of the header row are matched to, see " \
-                             "IOStreams::Schema#field_for")
       end
     end
   end

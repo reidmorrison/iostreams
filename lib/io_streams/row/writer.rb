@@ -47,6 +47,7 @@ module IOStreams
           raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
         end
 
+        IOStreams::Tabular.check_write_options(args)
         @tabular     = tabular || IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
         @line_writer = line_writer
 
@@ -55,7 +56,7 @@ module IOStreams
         @tabular.start_rows { |line| @line_writer << line }
       end
 
-      # Supply a hash or an array to render
+      # Supply an array to render, otherwise it raises ArgumentError.
       #
       # Without a schema, the first row is the header row, unless the columns were supplied. With a schema, the header
       # row of a file with one is the names of its fields, which is written before the rows, so every row written is
@@ -72,22 +73,12 @@ module IOStreams
       # `IOStreams::Row::Reader#copy_to`, so that the value of each column of the rows after it is written to its
       # column, or to its field with a schema, whose columns it matches to the fields, without a line. Without a schema,
       # as the first row, see #<<, unless the format has no header row, such as JSON, and the columns are not known,
-      # when it gives the columns of the rows after it, see `IOStreams::Tabular#render_header_row`.
+      # when it gives the columns of the rows after it, or the columns were supplied, which name them instead, see
+      # `IOStreams::Tabular#render_header_row`.
       #
       # Returns self, so that calls can be chained.
       def write_header(columns)
         @tabular.render_header_row(columns) { |line| @line_writer << line }
-        self
-      end
-
-      # Takes the columns of the rows written after it, which are not a row of the file that they are read from, such as
-      # the fields of a file without a header row, see `IOStreams::Row::Reader#copy_to`: like its header row, see
-      # #write_header, they name the column, or with a schema the field, of each value of the rows, unless the columns
-      # were supplied, which name them instead, see `IOStreams::Tabular#render_columns`.
-      #
-      # Returns self, so that calls can be chained.
-      def write_columns(columns)
-        @tabular.render_columns(columns) { |line| @line_writer << line }
         self
       end
     end

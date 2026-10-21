@@ -112,7 +112,10 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "ignores an unknown option when writing, and warns" do
-        output = with_logger { path("a.bz2").option(:bz2, bogus: 1).write(data) }
+        line   = __LINE__ + 2
+        output = assert_deprecated(/stream_options_test\.rb:#{line}: warning: IOStreams: bogus: is deprecated for a :bz2 stream, which ignores it, so remove it\n\z/) do
+          with_logger { path("a.bz2").option(:bz2, bogus: 1).write(data) }
+        end
 
         assert_equal data, path("a.bz2").read
         assert_includes output, "Ignoring unknown option :bogus when writing a :bz2 stream. " \
@@ -122,11 +125,23 @@ class StreamOptionsTest < Minitest::Test
       it "ignores an unknown option when reading, and warns" do
         path("a.bz2").write(data)
         result = nil
-        output = with_logger { result = path("a.bz2").option(:bz2, bogus: 1, block_size: 1).read }
+        output = assert_deprecated(/IOStreams: bogus:, other: are deprecated for a :bz2 stream, which ignores them, so remove them\n\z/) do
+          with_logger { result = path("a.bz2").option(:bz2, bogus: 1, block_size: 1, other: 2).read }
+        end
 
         assert_equal data, result
-        assert_includes output, "Ignoring unknown options :bogus, :block_size when reading a :bz2 stream. " \
+        assert_includes output, "Ignoring unknown options :bogus, :block_size, :other when reading a :bz2 stream. " \
                                 "Valid options: :autoclose, :first_only, :small."
+      end
+
+      it "ignores an option of the other direction, which is not deprecated" do
+        output = refute_deprecated { with_logger { path("a.bz2").option(:bz2, first_only: true).write(data) } }
+
+        assert_includes output, "Ignoring unknown option :first_only when writing a :bz2 stream."
+
+        output = refute_deprecated { with_logger { path("a.bz2").option(:bz2, block_size: 1, work_factor: 30).read } }
+
+        assert_includes output, "Ignoring unknown options :block_size, :work_factor when reading a :bz2 stream."
       end
 
       def with_logger

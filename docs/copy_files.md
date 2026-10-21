@@ -72,4 +72,15 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 ~~~
 
 Notes:
-* `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`.
+* `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`. Any other mode raises
+  `ArgumentError` before the source or the target is opened.
+
+## When a copy fails
+
+* The source is opened before the target, so a source that does not exist, or cannot be read, raises before the target
+  is changed.
+* A copy that raises before the target is opened, such as for a schema file that does not exist, leaves the target as
+  it was.
+* When the copy fails part way, the target is not left with part of the file: a local file is removed, and an S3 or
+  SFTP file is only uploaded once the copy has written all of it, so an existing S3 object is kept.
+* A move only deletes the source once the copy completed.
