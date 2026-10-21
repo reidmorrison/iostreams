@@ -6,6 +6,9 @@ module IOStreams
     class HTTP < IOStreams::Path
       attr_reader :username, :password, :http_redirect_count, :url
 
+      # The password, and the query `parameters`, which can hold an access key, see IOStreams::Path.redact_options.
+      def self.sensitive_option_names = %i[password parameters]
+
       # Stream to/from a remote file over http(s).
       #
       # Parameters:

@@ -227,6 +227,25 @@ module IOStreams
           refute_includes str, "TOP-SECRET"
           assert_includes str, "a@b.org"
         end
+
+        it "does not display options whose names suggest a secret" do
+          path = IOStreams.path("a/b/file.csv.pgp").option(:pgp, api_token: "TOP-SECRET", recipient: "a@b.org")
+          str  = path.inspect
+
+          refute_includes str, "TOP-SECRET"
+          assert_includes str, "a@b.org"
+        end
+      end
+
+      describe ".redact_options" do
+        it "replaces the options that the path class declares sensitive" do
+          assert_equal({username: "jack", password: "[FILTERED]"},
+                       IOStreams::Paths::SFTP.redact_options(username: "jack", password: "secret"))
+        end
+
+        it "replaces only the options that are sensitive by name for a path class without secrets" do
+          assert_equal({create_path: false, token: "[FILTERED]"}, IOStreams::Path.redact_options(create_path: false, token: "a"))
+        end
       end
 
       describe "abstract methods" do

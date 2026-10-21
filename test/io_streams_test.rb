@@ -284,6 +284,98 @@ module IOStreams
         end
       end
 
+      describe ".redact_path_options" do
+        it "replaces the SFTP password and identity key" do
+          options = {"username" => "jack", "password" => "a", "ssh_options" => {"IdentityKey" => "b", "IdentityFile" => "~/.ssh/id"}}
+
+          assert_equal({"username" => "jack", "password" => "[FILTERED]",
+                        "ssh_options" => {"IdentityKey" => "[FILTERED]", "IdentityFile" => "~/.ssh/id"}},
+                       IOStreams.redact_path_options("sftp://example.org/a.csv", options))
+        end
+
+        it "replaces the S3 secrets, also within the client options" do
+          options = {client: {region: "east", secret_access_key: "a", session_token: "b"}, acl: "private", sse_customer_key: "c"}
+
+          assert_equal({client: {region: "east", secret_access_key: "[FILTERED]", session_token: "[FILTERED]"},
+                        acl: "private", sse_customer_key: "[FILTERED]"},
+                       IOStreams.redact_path_options("s3://bucket/a.csv", options))
+        end
+
+        it "replaces the HTTP password and parameters" do
+          options = {username: "jack", password: "a", parameters: {key: "b"}, http_redirect_count: 2}
+
+          assert_equal({username: "jack", password: "[FILTERED]", parameters: "[FILTERED]", http_redirect_count: 2},
+                       IOStreams.redact_path_options("https://example.org/a.csv", options))
+        end
+
+        it "keeps the options of a local path" do
+          assert_equal({create_path: false}, IOStreams.redact_path_options("/tmp/a.csv", create_path: false))
+        end
+
+        it "replaces every value when the url is not valid, since its path class is not known" do
+          assert_equal({password: "[FILTERED]", port: "[FILTERED]"}, IOStreams.redact_path_options("ftp://example.org/a", password: "a", port: 21))
+          assert_equal({port: "[FILTERED]"}, IOStreams.redact_path_options("sftp://u:p@ss@example.org/a", port: 22))
+        end
+
+        it "replaces every value when the class registered for the scheme cannot say which are sensitive" do
+          IOStreams.register_scheme(:other, Class.new)
+
+          assert_equal({region: "[FILTERED]"}, IOStreams.redact_path_options("other://bucket/a.csv", region: "east"))
+        ensure
+          IOStreams.instance_variable_get(:@schemes).delete(:other)
+        end
+      end
+
+      describe ".redact_stream_options" do
+        it "replaces the sensitive options of each stream" do
+          streams = {pgp: {passphrase: "a", recipient: "a@b.org"}, zip: nil}
+
+          assert_equal({pgp: {passphrase: "[FILTERED]", recipient: "a@b.org"}, zip: nil}, IOStreams.redact_stream_options(streams))
+        end
+
+        it "replaces the PGP signer passphrase, and keeps the options of a stream without secrets" do
+          streams = {pgp: {signer_passphrase: "a", recipient: "a@b.org"}, enc: {compress: true}}
+
+          assert_equal({pgp: {signer_passphrase: "[FILTERED]", recipient: "a@b.org"}, enc: {compress: true}},
+                       IOStreams.redact_stream_options(streams))
+        end
+
+        it "replaces the options of streams and options named by a String, as they are stored" do
+          streams = {"pgp" => {"passphrase" => "a", "recipient" => "a@b.org"}}
+
+          assert_equal({"pgp" => {"passphrase" => "[FILTERED]", "recipient" => "a@b.org"}}, IOStreams.redact_stream_options(streams))
+        end
+
+        it "replaces every option of a stream that is not registered" do
+          assert_equal({gone: {region: "[FILTERED]"}}, IOStreams.redact_stream_options(gone: {region: "east"}))
+        end
+
+        it "replaces options that are not a Hash, since they cannot say which of their values are sensitive" do
+          assert_equal({pgp: "[FILTERED]"}, IOStreams.redact_stream_options(pgp: "secret"))
+          assert_equal({pgp: "[FILTERED]"}, IOStreams.redact_stream_options(pgp: [[:passphrase, "secret"]]))
+        end
+
+        it "replaces the options of a registered extension as its reader and writer decide" do
+          reader = Class.new(IOStreams::Reader) do
+            def self.option_names = %i[level]
+            def self.sensitive_option_names = %i[level]
+          end
+          IOStreams.register_extension(:abc123, reader, nil)
+
+          assert_equal({abc123: {level: "[FILTERED]", other: 1}}, IOStreams.redact_stream_options(abc123: {level: 2, other: 1}))
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
+        it "replaces only the options that are sensitive by name for a registered class that does not declare them" do
+          IOStreams.register_extension(:abc123, Class.new, Class.new)
+
+          assert_equal({abc123: {api_key: "[FILTERED]", level: 2}}, IOStreams.redact_stream_options(abc123: {api_key: "a", level: 2}))
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+      end
+
       describe ".schemes" do
         it "includes the registered schemes" do
           %i[file http https sftp s3].each do |scheme|

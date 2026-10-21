@@ -1,9 +1,5 @@
 module IOStreams
   class Path < IOStreams::Stream
-    # Stream option names whose values must not be displayed, such as `passphrase` or `signer_passphrase`.
-    SENSITIVE_OPTION = /pass(phrase|word)|secret/i
-    private_constant :SENSITIVE_OPTION
-
     attr_reader :path
 
     def initialize(path)
@@ -200,7 +196,21 @@ module IOStreams
       path == other.path
     end
 
-    # Shows the full name of the path, see #display_name, without any credentials.
+    # Returns [Array<Symbol>] the options for creating a path of this class whose values must not be displayed,
+    # such as a password, see .redact_options. A path class with sensitive options overrides it.
+    def self.sensitive_option_names
+      []
+    end
+
+    # Returns [Hash] the supplied options for creating a path of this class, such as `password:`, with the value of
+    # each sensitive option replaced with "[FILTERED]", so that they can be displayed, for example by an application
+    # that stores them to create the path later. See .sensitive_option_names and `IOStreams::Utils.redact_options`.
+    def self.redact_options(options)
+      Utils.redact_options(options, sensitive_option_names)
+    end
+
+    # Shows the full name of the path, see #display_name, without any credentials, and the options of its streams
+    # without the values of sensitive options, such as a passphrase, see `IOStreams.redact_stream_options`.
     def inspect
       str = "#<#{self.class.name}:#{display_name}"
       str << " @builder=#{redact(builder.streams).inspect}" if builder.streams
@@ -308,11 +318,7 @@ module IOStreams
 
     # Returns [Hash<Symbol:Hash>] the streams with the values of sensitive options replaced.
     def redact(streams)
-      streams.transform_values do |options|
-        next options unless options.is_a?(Hash)
-
-        options.to_h { |name, value| [name, name.to_s.match?(SENSITIVE_OPTION) ? "[FILTERED]" : value] }
-      end
+      IOStreams.redact_stream_options(streams)
     end
 
     def builder

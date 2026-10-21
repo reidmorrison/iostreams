@@ -47,12 +47,51 @@ module IOStreams
   def self.path(*elements, **args)
     return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
 
-    elements         = elements.collect(&:to_s)
-    path             = ::File.join(*elements)
-    extracted_scheme = path.include?("://") ? Utils::URI.new(path).scheme : nil
-    klass            = scheme(extracted_scheme)
+    elements = elements.collect(&:to_s)
+    path     = ::File.join(*elements)
+    klass    = path_class(path)
     args.empty? ? klass.new(path) : klass.new(path, **args)
   end
+
+  # Returns [Hash] the options for creating the path of the url with `IOStreams.path(url, **options)`, with the value
+  # of each sensitive option, such as a password, replaced with "[FILTERED]", so that they can be displayed, for
+  # example by an application that stores a url and its options to create the path later.
+  #
+  # The path class of the url's scheme decides which options are sensitive, see `IOStreams::Path.redact_options`.
+  # Every value is replaced when the url is not valid, since then that class is not known, or when the class
+  # registered for the scheme, see `IOStreams.register_scheme`, cannot say which are sensitive.
+  #
+  # Example:
+  #   IOStreams.redact_path_options("sftp://example.org/a.csv", username: "jack", password: "secret")
+  #   # => {username: "jack", password: "[FILTERED]"}
+  def self.redact_path_options(url, options)
+    klass = path_class(url.to_s)
+    return klass.redact_options(options) if klass.respond_to?(:redact_options)
+
+    options.to_h { |name, _value| [name, Utils::FILTERED] }
+  rescue ArgumentError, ::URI::Error
+    options.to_h { |name, _value| [name, Utils::FILTERED] }
+  end
+
+  # Returns [Hash<Symbol:Hash>] the options of each stream, as supplied to `IOStreams::Path#stream`, with the value of
+  # each sensitive option, such as a PGP passphrase, replaced with "[FILTERED]", so that they can be displayed.
+  #
+  # The extension registered for each stream decides which of its options are sensitive, see
+  # `IOStreams::Extension#redact_options`, as it does for `#inspect`. Every value of a stream that is not registered is
+  # replaced, as are options that are not a Hash.
+  #
+  # Example:
+  #   IOStreams.redact_stream_options(pgp: {passphrase: "secret", recipient: "a@b.org"})
+  #   # => {pgp: {passphrase: "[FILTERED]", recipient: "a@b.org"}}
+  def self.redact_stream_options(streams)
+    Utils.redact_streams(streams) { |name| @extensions[name.to_s.to_sym] }
+  end
+
+  # Returns [Class] the path class of the scheme of the supplied path or url, such as `IOStreams::Paths::SFTP`.
+  def self.path_class(path)
+    scheme(path.include?("://") ? Utils::URI.new(path).scheme : nil)
+  end
+  private_class_method :path_class
 
   # For an existing IO Stream
   # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').read
@@ -435,7 +474,26 @@ module IOStreams
     @schemes[scheme_name&.to_sym] || raise(ArgumentError, "Unknown Scheme type: #{scheme_name.inspect}")
   end
 
-  Extension = Struct.new(:reader_class, :writer_class)
+  # The reader and writer classes registered for a file extension, see `IOStreams.register_extension`.
+  Extension = Struct.new(:reader_class, :writer_class) do
+    # Returns [Array<Symbol>] the options whose values must not be displayed, such as a passphrase, as declared
+    # by the reader and the writer with `sensitive_option_names`.
+    def sensitive_option_names
+      [reader_class, writer_class].flat_map do |klass|
+        (klass.sensitive_option_names if klass.respond_to?(:sensitive_option_names)) || []
+      end.uniq
+    end
+
+    # Returns [Hash] the options with the value of each sensitive option replaced with "[FILTERED]", so that
+    # they can be displayed, for example by `#inspect`.
+    #
+    # Sensitive options are those that the reader or the writer declares, see #sensitive_option_names, and,
+    # as a precaution, any option whose name suggests a secret, such as one that contains `password` or `token`, see
+    # `IOStreams::Utils.redact_options`, which owns that list.
+    def redact_options(options)
+      Utils.redact_options(options, sensitive_option_names)
+    end
+  end
 
   # Hold root paths
   @root_paths = {}
