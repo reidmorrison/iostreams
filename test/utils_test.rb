@@ -2,6 +2,24 @@ require_relative "test_helper"
 
 class UtilsTest < Minitest::Test
   describe IOStreams::Utils do
+    describe ".display_text" do
+      it "returns valid UTF-8 as it is" do
+        assert_equal "/data/café.csv", IOStreams::Utils.display_text("/data/café.csv")
+      end
+
+      it "reads a binary string as UTF-8" do
+        text = IOStreams::Utils.display_text("/data/café.csv".b)
+
+        assert_equal "/data/café.csv", text
+        assert_equal Encoding::UTF_8, text.encoding
+      end
+
+      it "shows each byte that is not valid UTF-8 as \\xHH" do
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".dup.force_encoding(Encoding::UTF_8))
+        assert_equal "/data/caf\\xE9.csv", IOStreams::Utils.display_text("/data/caf\xE9.csv".b)
+      end
+    end
+
     describe ".temp_file_name" do
       it "returns value from block" do
         result = IOStreams::Utils.temp_file_name("base", ".ext") { |_name| 257 }

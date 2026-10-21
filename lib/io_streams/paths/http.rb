@@ -21,7 +21,8 @@ module IOStreams
       #     SECURITY WARNING:
       #       A username and password supplied in the url remain part of it, so `#to_s` and `#url`
       #       return them, as does any log or error message that includes the path.
-      #       Supply them with the `username:` and `password:` arguments instead.
+      #       Supply them with the `username:` and `password:` arguments instead,
+      #       and log `#display_name`, which never includes them.
       #
       #   username: [String]
       #     When supplied, basic authentication is used with the username and password.
@@ -81,6 +82,16 @@ module IOStreams
 
       def to_s
         url
+      end
+
+      # Returns [String] the url without the user name, password, query or fragment, which can hold credentials,
+      # such as the signature of a pre-signed url, or the `parameters:` supplied to this path.
+      def display_name
+        uri          = URI.parse(url)
+        uri.user     = nil
+        uri.query    = nil
+        uri.fragment = nil
+        uri.to_s
       end
 
       private

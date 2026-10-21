@@ -49,6 +49,18 @@ module IOStreams
     end
     private_class_method :other_option_names
 
+    # Returns [String] the string as UTF-8 text that can be displayed or logged, such as the name of a file, which is not
+    # always valid UTF-8, since a file system stores the bytes that a program gave it: a binary string is read as UTF-8,
+    # and each byte that is not valid UTF-8 is shown as `\xHH`.
+    #
+    # For example the name of a file in Latin-1, `caf\xE9.csv`, is displayed as "caf\\xE9.csv".
+    def self.display_text(string)
+      text = string.encoding == Encoding::BINARY ? string.dup.force_encoding(Encoding::UTF_8) : string
+      return text if text.valid_encoding?
+
+      text.scrub { |bytes| bytes.unpack("C*").map { |byte| format("\\x%02X", byte) }.join }
+    end
+
     # Helper method: Returns [true|false] if a value is blank?
     def self.blank?(value)
       return true if value.nil?

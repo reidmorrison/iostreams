@@ -200,11 +200,24 @@ module IOStreams
       path == other.path
     end
 
+    # Shows the full name of the path, see #display_name, without any credentials.
     def inspect
-      str = "#<#{self.class.name}:#{path}"
+      str = "#<#{self.class.name}:#{display_name}"
       str << " @builder=#{redact(builder.streams).inspect}" if builder.streams
       str << " @options=#{redact(builder.options).inspect}" if builder.options
       str << " pipeline=#{redact(pipeline).inspect}>"
+    end
+
+    # Returns [String] the full name of this path, see #to_s, without any credentials, so that it can be logged
+    # or displayed. A user name, password or query in an SFTP or HTTP url is removed, since it can hold
+    # credentials, so unlike #to_s it cannot be used to create the path again. Each byte of a name that is not
+    # valid UTF-8 is shown as `\xHH`, see `IOStreams::Utils.display_text`.
+    #
+    # Example:
+    #   IOStreams.path("sftp://jack:secret@example.org/data/a.csv").display_name
+    #   # => "sftp://example.org/data/a.csv"
+    def display_name
+      Utils.display_text(to_s)
     end
 
     # Deprecated: a path can be used by many objects at once, such as a root path that file names are joined to, so
@@ -282,7 +295,7 @@ module IOStreams
     def allowed_child?(child)
       return true if child.allowed?
 
-      IOStreams.logger&.warn("Skipping #{child} since it is not within any of the allowed paths")
+      IOStreams.logger&.warn("Skipping #{child.display_name} since it is not within any of the allowed paths")
       false
     end
 
