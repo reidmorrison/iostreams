@@ -32,9 +32,12 @@ module IOStreams
       # `IOStreams::Query::Columns#schema`, which a query of no rows describes the first time, such as:
       #
       #   IOStreams.stream(Order.select(:id, :amount, :created_at)).schema
-      #   # => {fields: [{name: "id", type: "integer", constraints: {required: true}},
+      #   # => {fields: [{name: "id", type: "integer"},
       #   #             {name: "amount", type: "number", decimals: 2},
-      #   #             {name: "created_at", type: "datetime", constraints: {required: true}}]}
+      #   #             {name: "created_at", type: "datetime"}]}
+      #
+      # A column of the table of the model that is `NOT NULL` is required too, `constraints: {required: true}`, on a
+      # database whose source says that such a column always has a value once cast, see `IOStreams::Query#columns`.
       #
       # Set a schema of your own to change it, such as to give a JSON column the type "object", or a number without a
       # scale its decimals, which a Parquet file needs.
