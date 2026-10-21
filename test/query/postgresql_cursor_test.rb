@@ -255,6 +255,34 @@ class PostgresqlCursorTest < Minitest::Test
         assert_empty(sql.grep(/\ACLOSE /))
       end
 
+      it "commits the writes of the block on their own, which a failure of a statement of the block does not undo" do
+        names = []
+        IOStreams.stream(orders).each(:hash) do |order|
+          db.customer.create!(name: "for #{order['name']}")
+          begin
+            db.customer.create!(id: db.customer.minimum(:id), name: "duplicate")
+          rescue ActiveRecord::RecordNotUnique
+            # Rescued by the block, which goes on.
+          end
+          names << order["name"]
+        end
+
+        assert_equal %w[a b c], names
+        assert_equal ["for a", "for b", "for c"], db.customer.where("name LIKE 'for %'").order(:id).pluck(:name)
+      end
+
+      it "keeps the writes of the block for the rows before one that raises" do
+        assert_raises(RuntimeError) do
+          IOStreams.stream(orders).each(:hash) do |order|
+            raise "stop" if order["name"] == "c"
+
+            db.customer.create!(name: "kept #{order['name']}")
+          end
+        end
+
+        assert_equal ["kept a", "kept b"], db.customer.where("name LIKE 'kept %'").order(:id).pluck(:name)
+      end
+
       it "raises an ActiveRecord::Rollback of the block, which rolls back the transaction of the caller" do
         db.record.transaction do
           db.customer.create!(name: "before")
