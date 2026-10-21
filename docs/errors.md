@@ -97,7 +97,8 @@ end
 
 The kinds of failure are modules that tag the exception that the storage, or the gem of a stream, raised:
 
-* `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure of the storage includes it.
+* `IOStreams::Errors::StorageError`: the storage of a path, or the database of a query, failed, see
+  [What a query raises](#what-a-query-raises). Every kind of failure of the storage includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
   * `IOStreams::Errors::PermissionDenied`: the storage does not permit the access, or the credentials for it are
     missing or not valid.

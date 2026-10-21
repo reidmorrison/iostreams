@@ -4387,21 +4387,31 @@ JRuby cannot load the `sqlite3` gem, so a query on SQLite raises there: read it 
 ## Errors
 
 A failure of the database is tagged, as a failure of storage is, so that an export can be retried on
-`IOStreams::Errors::Unavailable`, such as when the database refuses the connection, or the query times out, whether it
-reads a query or a file, see [What a query raises](errors#what-a-query-raises):
+`IOStreams::Errors::Unavailable`, whether it reads a query or a file: such as when the database refuses the connection,
+or loses it, the query is canceled or times out, a lock wait times out, or the pool has no connection free. A failure
+that a retry does not change, such as a password that the database rejects, or a table that the user may not read, is
+`IOStreams::Errors::PermissionDenied`. No failure of a query is `NotFound`, since a mistake, such as a table that does
+not exist, a host that does not resolve, or an error in the SQL, is not tagged, nor is an exception that the block
+raises. See [What a query raises](errors#what-a-query-raises) for each database:
 
 ~~~ruby
 begin
-  IOStreams.path(ENV.fetch("ORDERS_EXPORT_PATH")).copy_from(Order.where(paid: true), mode: :hash)
+  IOStreams.path(ENV.fetch("ORDERS_EXPORT_PATH")).copy_from(orders, mode: :hash)
 rescue IOStreams::Errors::Unavailable => e
   # The database, or the storage of the target, could not be reached: the same export can succeed later.
   puts "Export failed, try again later: #{e.message}"
 end
 ~~~
 
-A stream of a query is only read: writing, the `:stream` and `:line` modes, `#stream`, `#option`, `#encoding` and
-`#raw` raise `ArgumentError`, as do `includes`, `preload` and `eager_load`, which load the associations of models
-rather than rows. Join their tables with `joins`, and select their columns, instead.
+The message of a failure of the query starts with the name of the query, such as `Order query`, which the exception
+answers as its `#display_name`.
+
+A stream of a query is only read, so writing, `#read`, the `:stream` and `:line` modes, `#stream`, `#option`,
+`#encoding`, `#raw`, a format other than `:array`, and the options of lines, such as `delimiter:`, raise
+`ArgumentError`, as for a slice: copy its rows to a path instead, such as with `copy_to("orders.csv", mode: :hash)`.
+So does a file name, which would have no effect on rows that are always in the `:array` format: name the file that the
+rows are copied to instead. So do `includes`, `preload` and `eager_load`, which load the associations of models rather
+than rows: join their tables with `joins`, and select their columns, instead.
 
 ---
 
@@ -4491,7 +4501,8 @@ end
 
 The kinds of failure are modules that tag the exception that the storage, or the gem of a stream, raised:
 
-* `IOStreams::Errors::StorageError`: the storage of a path failed. Every kind of failure of the storage includes it.
+* `IOStreams::Errors::StorageError`: the storage of a path, or the database of a query, failed, see
+  [What a query raises](#what-a-query-raises). Every kind of failure of the storage includes it.
   * `IOStreams::Errors::NotFound`: the file, a directory that it is in, or its S3 bucket, does not exist.
   * `IOStreams::Errors::PermissionDenied`: the storage does not permit the access, or the credentials for it are
     missing or not valid.
