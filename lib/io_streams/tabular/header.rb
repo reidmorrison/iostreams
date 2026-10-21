@@ -204,6 +204,18 @@ module IOStreams
         end
       end
 
+      # Returns [Hash] the record written for the row, an Array or a Hash, by every column, as #to_hash names them, with
+      # nil for a column that the row does not supply, so that a format of keyed records, such as JSON, writes every
+      # column, as IOStreams 2.1 did, also for a record without any of them.
+      #
+      # Raises `IOStreams::Errors::TypeMismatch` when the columns are not known, see #to_array.
+      def to_record(row)
+        values = to_array(row)
+        record = {}
+        hash_columns.each { |column, index| record[column] = values[index] }
+        record
+      end
+
       # Returns [true|false] whether `allowed_columns` or `required_columns` restrict the columns.
       def restricted?
         !allowed_columns.nil? || !required_columns.nil?

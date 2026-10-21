@@ -1007,6 +1007,20 @@ class StreamTest < Minitest::Test
           assert_equal %({"first_name":"Jack","last_name":"Johnson"}\n), io.string, io.string.inspect
         end
 
+        it "writes every supplied column to a format of keyed records, null for a key that the record does not have, as before" do
+          io = StringIO.new
+          assert_deprecated(/describe the columns of the file with #schema instead/) do
+            IOStreams::Stream.new(io).format(:json).writer(:hash, columns: %w[first_name last_name]) do |stream|
+              stream << {"first_name" => "Jack"}
+              stream << {"Last Name" => "Jones"}
+              stream << {"other" => 1}
+            end
+          end
+
+          assert_equal %({"first_name":"Jack","last_name":null}\n{"first_name":null,"last_name":"Jones"}\n) +
+                       %({"first_name":null,"last_name":null}\n), io.string
+        end
+
         it "auto detects format" do
           io = StringIO.new
           IOStreams::Stream.new(io).file_name("abc.psv").writer(:array) do |stream|

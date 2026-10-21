@@ -197,7 +197,10 @@ module IOStreams
       def render(row)
         return if IOStreams::Utils.blank?(row)
 
-        @parser.render(@keyed ? header.to_hash(row) : header.to_array(row))
+        # The columns of a format of keyed records, such as JSON, are known when they are supplied, or once the first row
+        # gives them, when the record written has every one of them, otherwise its keys are its columns.
+        record = @keyed && header.columns ? header.to_record(row) : row
+        @parser.render(@keyed ? header.to_hash(record) : header.to_array(row))
       end
 
       # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
