@@ -59,6 +59,7 @@ module IOStreams
         Enumerator.new do |rows|
           rows << slice.header if slice.header
           slice.each { |row| rows << row }
+          slice.size + (slice.header ? 1 : 0)
         end
       end
     end

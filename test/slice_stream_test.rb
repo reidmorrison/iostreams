@@ -63,6 +63,11 @@ class SliceStreamTest < Minitest::Test
         assert_equal [{"age" => "21", "name" => "Jack"}, {"age" => "22", "name" => "Jill"}], each(IOStreams.stream(slice))
       end
 
+      it "returns the number of rows read, header row included, as for a file" do
+        assert_equal 3, IOStreams.stream(slice).each(:array) { |_row| nil }
+        assert_equal 3, IOStreams.stream(slice).each(:hash) { |_record| nil }
+      end
+
       it "reads the rows, after the header row, as of a file" do
         rows = each(IOStreams.stream(slice).schema(schema), :array)
 
