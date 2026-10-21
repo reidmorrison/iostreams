@@ -3751,12 +3751,29 @@ A schema reads the same records as the options it replaces, named as above, as i
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
 * The text read is UTF-8, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
-* `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input.
+* `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input. So a schema applies
+  its fields to what the column options were not applied to, while `enforce_column_restrictions` is false, the
+  default: the keys of JSON records, the `columns:` of a file without a header row, and a header row read with
+  `cleanse_header: false`. One schema for the files of every format, such as uploads whose format is detected from
+  their file names, applies to each of them, where `allowed_columns:` restricted the columns of a CSV file but not the
+  keys of a JSON one. The names given to `columns:` were not cleansed, while a field named as one is matched to its
+  column loosely.
+* A name that the cleansing of v2.1 named without its letters that are not ASCII, such as `prnom` for the column
+  `Prénom`, which an application may have kept in `allowed_columns:`, is not the field of that column, since a schema
+  cleanses it to `prénom`, which IOStreams 3.0 also does without a schema. With `fieldsMatch: "subset"` or `"partial"`
+  the column is skipped without an error, so name the field `prénom`, or keep the name and give the field the column
+  as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
+* A `Time` written to a field without a type is written in ISO 8601, such as `2026-10-13T09:30:00.123456Z`, where
+  `columns:` wrote its `to_s`, `2026-10-13 09:30:00 UTC`. A `datetime` field with
+  `format: "%Y-%m-%d %H:%M:%S UTC"` writes the text that `to_s` wrote.
+* A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
+  written, where `columns:` wrote an empty value, and so is a Symbol key for a field named with a String, such as
+  `:name` for `"name"`, where a layout wrote spaces.
 
-Keep the deprecated options where a schema does not describe the file yet: `required_columns:` without
-`allowed_columns:`, or `cleanse_header: false` on its own, read every column of the file, while a schema reads only
-its fields, so list every column of the file as a field to replace them; and `columns:` with `nil` for a column to
-skip, in a file without a header row, since a field must have a name.
+Every use of the options has a schema form, see the table above, including `required_columns:` without
+`allowed_columns:` and `cleanse_header: false` on its own, which read every column, with `extraColumns: "keep"`, and
+`columns:` with `nil` for a column to skip, with `skip: true`. The options still work, so keep them until the schema
+has been checked against the files of the application, since it reads some of them differently, see above.
 
 ### Changes in behavior
 
