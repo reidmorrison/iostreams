@@ -169,13 +169,6 @@ class DeprecationTest < Minitest::Test
         assert_deprecated(/\AIOStreams: old is deprecated\n\z/) { LIBRARY_CALLER.call_in_thread("old is deprecated") }
       end
 
-      it "names the line of the application that used a deprecated method, rather than a line of IOStreams" do
-        line = __LINE__ + 2
-        assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: stream\(:none\) is deprecated/) do
-          IOStreams.path("data.csv.gz").stream(:none)
-        end
-      end
-
       it "reports nothing while deprecation warnings are off" do
         enabled  = Warning[:deprecated]
         reported = []

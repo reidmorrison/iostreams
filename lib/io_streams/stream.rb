@@ -81,8 +81,8 @@ module IOStreams
     #
     # See #option to set an option for one of the streams included based on the file name extensions.
     #
-    # Supplying `:none` to apply no streams is deprecated. Use #raw to read or write the data as it is stored,
-    # or set the file name with #file_name when the file is not named for its format.
+    # To apply no streams, use #raw to read or write the data as it is stored, or set the file name with #file_name
+    # when the file is not named for its format. Raises ArgumentError for `:none`, which v3.0 removed.
     #
     # Example:
     #
@@ -110,7 +110,7 @@ module IOStreams
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
     #
-    # Setting the encode stream with `option(:encode, ...)` is deprecated, use #encoding instead.
+    # The encoding of the text is set with #encoding. Raises ArgumentError for `:encode`, which v3.0 removed.
     #
     # The options of a tabular format whose rows are not lines of text, such as Parquet, apply when its rows or records
     # are read or written, see `IOStreams::Tabular#read_rows`, whether the format is set with #format or detected from
@@ -138,8 +138,6 @@ module IOStreams
     # `copy_to(target, convert: false)`, since the target applies its own streams. To read a file that is not named
     # for its format, such as a CSV file called `data.txt`, set the file name that names its format instead, for
     # example `file_name("data.csv")`.
-    #
-    # Replaces `stream(:none)`, which still works, but keeps the default encoding of the text, see #encoding.
     def raw
       raise_if_frozen!
       builder.raw
@@ -160,8 +158,6 @@ module IOStreams
     #
     # # Replace invalid characters with "?" instead of raising.
     # IOStreams.path("export.csv").encoding("UTF-8", replace: "?").read
-    #
-    # Replaces `option(:encode, ...)` and `stream(:encode, ...)`, which still work.
     #
     # Without any arguments, returns [String|Encoding|nil] the encoding that was set, or nil when none was, like
     # `IO#encoding`.

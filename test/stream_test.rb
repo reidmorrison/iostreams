@@ -175,9 +175,7 @@ class StreamTest < Minitest::Test
       it "decodes the text after the other streams, whatever order the streams are set in" do
         compressed = StringIO.new(+"")
         IOStreams.stream(compressed).stream(:gz).write(text)
-        data = assert_deprecated(/stream\(:encode, \.\.\.\) is deprecated/) do
-          IOStreams.stream(StringIO.new(compressed.string)).stream(:gz).stream(:encode, encoding: "UTF-8").read
-        end
+        data = IOStreams.stream(StringIO.new(compressed.string)).encoding("UTF-8").stream(:gz).read
 
         assert_equal text, data
       end
@@ -203,8 +201,7 @@ class StreamTest < Minitest::Test
 
       it "reads lines as UTF-8 without any other streams" do
         lines = []
-        stream = assert_deprecated(/stream\(:none\) is deprecated/) { IOStreams.stream(StringIO.new(text)).stream(:none) }
-        stream.each(:line) { |line| lines << line }
+        IOStreams.stream(StringIO.new(text)).each(:line) { |line| lines << line }
 
         assert_equal Encoding::UTF_8, lines.last.encoding
         assert_equal "Jos\u00e9,Z\u00fcrich", lines.last
@@ -2988,15 +2985,22 @@ class StreamTest < Minitest::Test
       end
     end
 
-    describe "the deprecated option(:encode)" do
-      it "sets the encoding of a stream without a file name" do
-        io = StringIO.new("caf\xE9".b)
+    describe "a reserved keyword" do
+      it "raises for the encode stream, whose options are set with #encoding" do
+        stream = IOStreams.stream(StringIO.new("caf\xE9".b))
 
-        stream = assert_deprecated(/option\(:encode, \.\.\.\) is deprecated, use #encoding instead/) do
-          IOStreams.stream(io).option(:encode, encoding: "ISO-8859-1:UTF-8")
-        end
+        error = assert_raises(ArgumentError) { stream.option(:encode, encoding: "ISO-8859-1:UTF-8") }
+        assert_equal "Cannot call #option with :encode, set the encoding of the text with #encoding instead", error.message
+        assert_raises(ArgumentError) { stream.stream(:encode, encoding: "ISO-8859-1:UTF-8") }
+        assert_nil stream.encoding
+      end
 
-        assert_equal "caf\u00e9", stream.read
+      it "raises for none, which #raw replaces" do
+        path = IOStreams.path("data.csv.gz")
+
+        error = assert_raises(ArgumentError) { path.stream(:none) }
+        assert_match(/\ACannot call #stream with :none, use #raw to read or write the data as it is stored/, error.message)
+        assert_equal({gz: {}}, path.pipeline)
       end
     end
 

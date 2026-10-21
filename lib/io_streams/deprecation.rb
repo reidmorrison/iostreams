@@ -43,7 +43,7 @@ module IOStreams
     # Reports that the application used something deprecated, unless deprecation warnings are off, with the message,
     # which says what is deprecated and what to use instead, after "IOStreams: ", at the line of the application that
     # used it, see .application_location, in the same form as `Kernel#warn` names the line of its caller, such as
-    # `app/jobs/export_job.rb:12: warning: IOStreams: stream(:none) is deprecated, ...`, or without a line when the
+    # `app/jobs/export_job.rb:12: warning: IOStreams: old is deprecated, use new instead`, or without a line when the
     # call stack has none outside this library.
     #
     # Returns nil.

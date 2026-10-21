@@ -6195,7 +6195,8 @@ Start with the changes that apply to your application:
 | Uses `~` in local file names, root paths from `IOStreams.add_root`, or compares paths | [Paths](#paths) and [Local files](#local-files) |
 | Uses S3, SFTP or HTTP(S) paths | [S3](#s3), [SFTP](#sftp) and [HTTP](#http) |
 | Registers its own extensions with `IOStreams.register_extension` | [Extending IOStreams](#extending-iostreams) |
-| Uses `option(:encode, ...)`, `stream(:none)` or `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
+| Uses `option(:encode, ...)`, `stream(:encode, ...)` or `stream(:none)` | [`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-), and [`#raw` replaces `stream(:none)`](#raw-replaces-streamnone) |
+| Uses `embedded_within:` | [Deprecated, and still working](#deprecated-and-still-working): nothing breaks |
 
 ### Ruby 3.3 or later is required
 
@@ -6237,7 +6238,7 @@ Fix: read a file in another encoding by setting it with `#encoding`, for example
 `encoding("Windows-1252:UTF-8")`, which converts it to UTF-8 as it is read, or `encoding("Windows-1252")`, whose
 strings are then in that encoding, or supply `replace:` to replace invalid characters instead of raising. To read
 binary strings, as before, supply `encoding("BINARY")`, which also works for a stream without a file name. See
-[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that v2 used, and
+[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) for the form that v2 used, which v3.0 removes, and
 [Text and binary data](streams#text-and-binary-data).
 
 #### Text written with an encoding to your IO keeps it
@@ -6275,6 +6276,42 @@ was read through. Previously reading the whole of a `.gz` or `.enc` file convert
 example `option(:encode, encoding: "Windows-1252").read` raised for a Windows-1252 `.gz` file.
 
 Fix: to convert a UTF-8 file into another encoding, read it as UTF-8 and call `String#encode`.
+
+#### `#encoding` replaces `option(:encode, ...)`
+
+The encoding of the text that the application reads or writes is now set with `#encoding`.
+Setting it with `option(:encode, ...)`, `stream(:encode, ...)` or `option_or_stream(:encode, ...)` raises
+`ArgumentError`, which v2.2 reports as deprecated. `#encoding` sets the same options, without two surprises of the
+old forms:
+
+* `option(:encode, ...)` raised `ArgumentError` after `#stream`, and without a file name, so a stream
+  set with `#stream` could not be combined with an encoding through `#option`. `#encoding` can.
+* `stream(:encode, ...)` stopped the streams being taken from the file name, like any other stream set
+  with `#stream`, so `IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")` read the
+  compressed bytes. `#encoding` keeps them.
+
+| Removed                                            | Use instead                       |
+|----------------------------------------------------|-----------------------------------|
+| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
+| `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
+| `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
+| `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
+
+~~~ruby
+# Before, removed in v3.0
+IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
+IOStreams.path("people.txt").option(:encode, replace: " ")
+IOStreams.stream(io).stream(:encode, encoding: "BINARY")
+
+# After
+IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8")
+IOStreams.path("people.txt").encoding(replace: " ")
+IOStreams.stream(io).encoding("BINARY")
+~~~
+
+To keep reading the data as it is stored, as `stream(:encode, encoding: "BINARY")` did for a file name
+with extensions, use `#raw`. For another encoding, such as a plain file whose name ends in `.gz`, set
+the file name that names its format with `#file_name`, then `#encoding`.
 
 #### Fixed width files are read and written as ASCII
 
@@ -6767,7 +6804,6 @@ last extension of the file name:
 
 * `IOStreams.path("data.csv.gz.pgp").compressed?` is now `true`.
 * `IOStreams.path("tempfile2527").stream(:gz).compressed?` is now `true`.
-* `IOStreams.path("data.csv.gz").stream(:none).compressed?` is now `false`.
 
 Compression within a PGP or `.enc` file is still not reported, since only the encrypted data records
 whether it was compressed.
@@ -6787,6 +6823,33 @@ Fix: to read or write the data as stored, as before, call `#raw` on the path:
 ~~~ruby
 IOStreams.temp_file("export", ".csv.gz") do |path|
   path.raw.write(gzipped_data)
+end
+~~~
+
+#### `#raw` replaces `stream(:none)`
+
+`stream(:none)` raises `ArgumentError`, which v2.2 reports as deprecated, and so do `option(:none)` and
+`option_or_stream(:none)`. Use whichever of these matches why it was used:
+
+* To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no
+  streams and no encoding, so text, including lines, rows and records, is read and written as bytes, where
+  `stream(:none)` read it as UTF-8, or ASCII for fixed width files. Setting a stream, option or encoding after
+  `#raw` raises `ArgumentError`.
+* To read a file that is not named for its format, set the file name that names it with `#file_name`.
+* To copy a file as it is stored, such as downloading a zip file without unzipping it, use
+  `copy_to(target, convert: false)`, since the target applies the streams of its own file name.
+
+~~~ruby
+# Before, removed in v3.0
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
+IOStreams.path("data.txt.gz").stream(:none).each(:hash) do |row|
+  p row
+end
+
+# After
+Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
+IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) do |row|
+  p row
 end
 ~~~
 
@@ -7513,7 +7576,8 @@ extension whose data is compressed or encrypted, register a format that says so,
 #### The encode stream is not a registered extension
 
 The `:encode` stream is now built in, since it converts the text that the application reads or writes,
-rather than the data of a file format. It is still applied with `#option` or `#stream`, as before, but:
+rather than the data of a file format. It is applied with `#encoding`, see
+[`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-), and:
 
 * `IOStreams.extensions` no longer includes `:encode`.
 * `IOStreams.register_extension(:encode, ...)` raises `ArgumentError`, since `:encode` is a reserved
@@ -7526,8 +7590,9 @@ example `stream(:my_text).stream(:gz)`.
 
 #### `:none` cannot be registered as an extension
 
-`:none` is a reserved keyword, which `#stream` takes to apply no streams, so
-`IOStreams.register_extension(:none, ...)` raises `ArgumentError`. Previously it registered a stream
+`:none` is a reserved keyword, so that `stream(:none)`, which applied no streams, keeps raising
+`ArgumentError`, see [`#raw` replaces `stream(:none)`](#raw-replaces-streamnone), rather than apply an extension of
+that name, so `IOStreams.register_extension(:none, ...)` raises `ArgumentError`. Previously it registered a stream
 that `stream(:none)` could not apply.
 
 Fix: register the stream under another name.
@@ -7543,7 +7608,7 @@ IOStreams reports the use of a deprecated method or option as a Ruby deprecation
 reports its own, which names the line of your application that used it, and what to use instead:
 
 ~~~
-app/jobs/export_job.rb:12: warning: IOStreams: stream(:none) is deprecated, use #raw to read or write the data as it is stored, or #file_name to read a file that is not named for its format
+app/jobs/export_job.rb:12: warning: IOStreams: columns: is deprecated, describe the columns of the file with #schema instead
 ~~~
 
 Ruby only shows deprecation warnings while `Warning[:deprecated]` is true, which it is not by default, so production
@@ -7571,69 +7636,6 @@ module IOStreamsDeprecations
   end
 end
 Warning.extend(IOStreamsDeprecations)
-~~~
-
-#### `#encoding` replaces `option(:encode, ...)`
-
-The encoding of the text that the application reads or writes is now set with `#encoding`.
-Setting it with `option(:encode, ...)` or `stream(:encode, ...)` is deprecated. Both still work, so no
-change is needed, but `#encoding` avoids two surprises of the old forms:
-
-* `option(:encode, ...)` raised `ArgumentError` after `#stream`, and without a file name, so a stream
-  set with `#stream` could not be combined with an encoding through `#option`. It now sets the same
-  options as `#encoding`, so it no longer raises in either case.
-* `stream(:encode, ...)` stops the streams being taken from the file name, like any other stream set
-  with `#stream`, so `IOStreams.path("data.csv.gz").stream(:encode, encoding: "BINARY")` reads the
-  compressed bytes. It still does, so that existing code keeps its behavior. `#encoding` does not.
-
-| Deprecated                                         | Use instead                       |
-|----------------------------------------------------|-----------------------------------|
-| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
-| `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
-| `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
-| `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
-
-~~~ruby
-# Before (deprecated)
-IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
-IOStreams.path("people.txt").option(:encode, replace: " ")
-IOStreams.stream(io).stream(:encode, encoding: "BINARY")
-
-# After
-IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8")
-IOStreams.path("people.txt").encoding(replace: " ")
-IOStreams.stream(io).encoding("BINARY")
-~~~
-
-To keep reading the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for a file name
-with extensions, use `#raw`. For another encoding, such as a plain file whose name ends in `.gz`, set
-the file name that names its format with `#file_name`, then `#encoding`.
-
-#### `#raw` replaces `stream(:none)`
-
-`stream(:none)` is deprecated. It still works as before, so no change is needed. Use whichever of
-these matches why it was used:
-
-* To read or write the data as it is stored, such as to checksum a compressed file, use `#raw`. It applies no streams and no encoding, so text, including lines, rows and records, is read
-  and written as bytes, where `stream(:none)` reads it as UTF-8, or ASCII for fixed width files.
-  Setting a stream, option or encoding after `#raw` raises `ArgumentError`, apart from the deprecated
-  `stream(:none)`, which applies no streams either, so it leaves the path as `#raw` set it.
-* To read a file that is not named for its format, set the file name that names it with `#file_name`.
-* To copy a file as it is stored, such as downloading a zip file without unzipping it, use
-  `copy_to(target, convert: false)`, since the target applies the streams of its own file name.
-
-~~~ruby
-# Before (deprecated)
-Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").stream(:none).read)
-IOStreams.path("data.txt.gz").stream(:none).each(:hash) do |row|
-  p row
-end
-
-# After
-Digest::SHA256.hexdigest(IOStreams.path("data.csv.gz").raw.read)
-IOStreams.path("data.txt.gz").file_name("data.csv").each(:hash) do |row|
-  p row
-end
 ~~~
 
 #### The column options of each call are deprecated
@@ -7902,7 +7904,7 @@ from the deprecation warnings, v2.2 changes no existing behavior, other than the
 | v2.2 adds | In place of | See |
 |-----------|-------------|-----|
 | `#raw` | `stream(:none)` | [Data as it is stored](streams#data-as-it-is-stored) |
-| `#encoding` | `option(:encode, ...)` and `stream(:encode, ...)` | [Deprecated, and still working](#deprecated-and-still-working) |
+| `#encoding` | `option(:encode, ...)` and `stream(:encode, ...)` | [`#encoding` replaces `option(:encode, ...)`](#encoding-replaces-optionencode-) |
 | `#schema` | `#format_options`, and `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` | [Moving a layout to a schema](#moving-a-layout-to-a-schema), and [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
 | `IOStreams.tabular_formats` | `IOStreams::Tabular.registered_formats`, which is internal | |
 
