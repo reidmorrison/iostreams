@@ -11,10 +11,9 @@ module IOStreams
     #
     # The query is read on a connection of its own, see `IOStreams::Query#open`, since while mysql2 streams a result, its
     # connection cannot run any other query, so that the block that the rows are yielded to queries the database on the
-    # connection of the caller. The result is freed when the block finishes, or is left with `break` or an exception,
-    # before the connection is used again. Freeing a result that was left early reads the rest of it from the server, as
-    # the protocol of MySQL needs, which takes a moment for a large query, at millions of rows a second. A connection that
-    # the read shares with the caller, such as the pinned connection of the transactional tests of Rails, is read whole
+    # connection of the caller. When the block is left early, with `break` or an exception, the connection is ended,
+    # which ends the query, rather than read the rest of the result from the server, see #discard. A connection that the
+    # read shares with the caller, such as the pinned connection of the transactional tests of Rails, is read whole
     # instead, so that the block can query it, see #open.
     class Mysql2Stream
       # The `net_write_timeout` of the session while the rows are read, in seconds.
@@ -111,7 +110,8 @@ module IOStreams
 
       # Yields itself once the statement streams its result on the raw connection, see #open, with the
       # `net_write_timeout` of the session raised while the rows are read, and set back afterwards. The result is
-      # freed when the block finishes, or is left with `break` or an exception.
+      # freed when every row was read, otherwise the connection is ended, see #discard, when the block is left early,
+      # with `break` or an exception, or the read failed.
       def stream(statement, columns)
         previous = net_write_timeout
         self.net_write_timeout = NET_WRITE_TIMEOUT
@@ -124,9 +124,25 @@ module IOStreams
           finished = true
           result
         ensure
-          @result&.free
-          restore(previous, finished)
+          if @done || @result.nil?
+            @result&.free
+            restore(previous, finished)
+          else
+            discard
+          end
         end
+      end
+
+      # Ends the session of the connection of the read, which is one of its own, see #open, so that the server ends the
+      # query, rather than send the rest of its rows, before the result is freed. Freeing a result that was left early
+      # reads the rest of it from the server, with the lock of the Ruby VM held, so that every thread of the process
+      # waits for it, which a Timeout cannot interrupt, while closing the connection of mysql2 does not read them, and
+      # the result is freed at once after it. The session needs no setting set back, and Active Record reconnects the
+      # connection when it is next checked out.
+      def discard
+        @connection.disconnect!
+      ensure
+        @result.free
       end
 
       # Returns [Array<String>] the names of the columns of the result of the SQL, which mysql2 streams, once its first

@@ -198,6 +198,35 @@ class Mysql2StreamTest < Minitest::Test
         end
       end
 
+      # Returns [true|false] whether the server still has the session of the supplied id, once it has had a second to end
+      # it.
+      def session?(connection_id)
+        sql      = "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE ID = #{Integer(connection_id)}"
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 1
+        loop do
+          open = monitor.with_connection { |connection| connection.select_value(sql) }.positive?
+          return open unless open && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+
+          sleep(0.05)
+        end
+      end
+
+      # Since freeing the result would read the rest of it, for which the server takes 0.05 seconds a row.
+      it "ends the session of its own connection when the block leaves early, rather than read the rest of the result" do
+        sessions = []
+        relation = slow_orders("iostreams early exit").select(Arel.sql("CONNECTION_ID() AS session"))
+        started  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        IOStreams.stream(relation).each(:hash) do |order| # rubocop:disable Lint/UnreachableLoop -- leaves on its first row
+          sessions << order["session"]
+          break
+        end
+
+        assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2
+        refute session?(sessions.first)
+        # The pool reconnects the connection when it is next checked out.
+        assert_equal 103, each(IOStreams.stream(orders)).size
+      end
+
       it "does not explain any other exception of the block" do
         assert_raises(ActiveRecord::RecordNotFound) do
           IOStreams.stream(orders).each(:hash) { |_order| raise ActiveRecord::RecordNotFound } # rubocop:disable Lint/UnreachableLoop -- raises on its first row
