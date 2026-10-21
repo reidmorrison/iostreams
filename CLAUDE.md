@@ -4,6 +4,7 @@
 
 - `test/test_helper.rb` generates PGP test keys on first run, so a working `gpg` binary is required.
 - S3 and SFTP path tests skip unless env vars are set (`S3_BUCKET_NAME`; `SFTP_HOSTNAME`, `SFTP_USERNAME`, `SFTP_PASSWORD`).
+- The query tests in `test/query/` load Active Record, which changes how ActiveSupport writes JSON, so `bundle exec rake` runs them in a process of their own (`rake query_test`); how they are set up, and run on other versions of Active Record, is in [lib/io_streams/query/CLAUDE.md](lib/io_streams/query/CLAUDE.md).
 - On JRuby, `bundle exec rake` first downloads the zstd-jni jar for `.zst` into `~/.m2/repository` (`bundle exec rake zstd_jni`, see `test/zstd_jni.rb`), since JRuby cannot load the zstd-ruby C extension.
 - The gem itself has zero runtime dependencies; format-specific gems (rubyzip, aws-sdk-s3, nokogiri, etc.) are dev-only and loaded lazily.
 
@@ -17,7 +18,7 @@ The public entry points are `IOStreams.path(...)` (returns a `Path` subclass bas
 
 **Paths are configuration, not code.** A path or url is meant to be externalized, for example into a centralized configuration system or an environment variable, so the exact same application code runs against local files in development and a completely different file store in staging or production. For example, while migrating production from on-prem to the cloud, the on-prem instance can use local files while the cloud instance uses S3, with only the configuration differing. Code should never need to know which file store a path refers to. So when a concept exists in one scheme, give the other schemes the equivalent form where it makes sense, even when that bends a url standard: `sftp://hostname/~/data/a.csv` is within the login directory, so `file://~/data/a.csv` is within the home directory, letting one setting switch between the two. Likewise, keep path operations behaving the same across schemes.
 
-**The internals of `lib/io_streams/`**, how the builder, schema, tabular mappings, Parquet, slices, readers, writers and format registries fit together, are in [lib/io_streams/CLAUDE.md](lib/io_streams/CLAUDE.md), which loads when working with the files there.
+**The internals of `lib/io_streams/`**, how the builder, schema, tabular mappings, Parquet, slices, readers, writers and format registries fit together, are in [lib/io_streams/CLAUDE.md](lib/io_streams/CLAUDE.md), which loads when working with the files there, and how an Active Record query is read is in [lib/io_streams/query/CLAUDE.md](lib/io_streams/query/CLAUDE.md).
 
 `lib/iostreams.rb` defines the top-level autoloads, and each format module autoloads its own reader and writer; everything is lazy-loaded so optional dependencies are only required when the corresponding format is used.
 
