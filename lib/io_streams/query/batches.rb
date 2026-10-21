@@ -10,6 +10,12 @@ module IOStreams
     # database filters and sorts the rows again for every batch. It suits a scan of a table in the order of its primary
     # key, and hands the connection back to the pool between batches.
     #
+    # Rails batches a relation that was loaded before it is read in batches, such as by `relation.present?` or
+    # `relation.to_a`, or a preloaded association, from the records that it holds, and yields each batch with those
+    # records but no condition on them. So each such batch is read by the primary keys of its records, as Rails reads
+    # the batches of a relation that is not loaded, see #loaded_query: the rows of the records that `start:` and
+    # `finish:` chose, each read once, as they are now in the database.
+    #
     # Rails yields each batch as a query without an order, so the rows of each batch are read in the order of the
     # primary key of the model, which is the order of the batches by default. With another `cursor:`, or
     # `order: :desc`, the batches are in that order, and the rows within each batch in the ascending order of the
@@ -20,6 +26,7 @@ module IOStreams
       #     What `relation.in_batches(...)` returns without a block.
       def initialize(batches)
         @batches = batches
+        @model   = batches.relation.klass
       end
 
       # Yields [Array] each row of each batch, its raw values as the driver of the database returns them, once the names
@@ -31,18 +38,63 @@ module IOStreams
       # The query cache is off while the batches are read, since it would keep each batch, and the query that finds where
       # it starts. Rails runs that query between the batches, within the loop that yields their rows, so the cache is off
       # for the block too, for the pool of the model. A write within the block still clears it.
+      #
+      # Raises ArgumentError for a relation that was loaded, whose records have no primary key, see #loaded_query.
       def each(columns, &)
-        model = @batches.relation.klass
-        model.uncached do
-          order = Array(model.primary_key).map { |key| model.arel_table[key] }
-          @batches.each do |batch|
-            result = model.with_connection(prevent_permanent_checkout: true) do |connection|
-              connection.select_all(batch.reorder(*order).arel, "IOStreams Batch")
+        @model.uncached do
+          order = Array(@model.primary_key).map { |key| @model.arel_table[key] }
+          each_query do |query|
+            result = @model.with_connection(prevent_permanent_checkout: true) do |connection|
+              connection.select_all(query.reorder(*order).arel, "IOStreams Batch")
             end
             columns.check(result.columns)
             result.rows.each(&)
           end
         end
+      end
+
+      private
+
+      # Yields [ActiveRecord::Relation] the query of the rows of each batch that Rails yields: the batch itself, unless
+      # Rails yields it with its records, for a relation that was loaded, see #loaded_query.
+      def each_query
+        read_ids = Set.new
+        @batches.each do |batch|
+          query = batch.loaded? ? loaded_query(batch, read_ids) : batch
+          yield query if query
+        end
+      end
+
+      # Returns [ActiveRecord::Relation|nil] the query of the rows of a batch that Rails yields with its records, which
+      # it does for a relation that was loaded, with the conditions of the relation but none on the records: the rows of
+      # the records by their primary keys, as they are in the database, without the limit and offset of the relation,
+      # which chose the records.
+      #
+      # The primary keys of the records that it reads are added to `read_ids`, which holds those of the earlier
+      # batches, so that the rows of a record that an earlier batch read are not read again, such as of one that the
+      # joins of the relation return more than once. Returns nil when an earlier batch read every record of this one.
+      #
+      # Raises ArgumentError when the records have no primary key, since the model has none, or the relation does not
+      # select it.
+      def loaded_query(batch, read_ids)
+        key = @model.primary_key
+        unless key
+          raise(ArgumentError, "#{@model.name} has no primary key, by which the batches of a relation that was loaded " \
+                               "are read: read the batches of a relation that is not loaded")
+        end
+
+        ids = batch.to_a.map(&:id_in_database).uniq
+        if ids.flatten.include?(nil)
+          raise(ArgumentError, "The batches of a relation that was loaded are read by the primary keys of their " \
+                               "records, which the relation does not select: select #{Array(key).join(', ')}, or " \
+                               "read the batches of a relation that is not loaded")
+        end
+
+        ids.reject! { |id| read_ids.include?(id) }
+        return if ids.empty?
+
+        read_ids.merge(ids)
+        batch.except(:limit, :offset).where(key => ids)
       end
     end
   end
