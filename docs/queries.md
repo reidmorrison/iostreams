@@ -251,8 +251,11 @@ a model that the query joins, otherwise the type that the database gives the col
 | boolean | `boolean` | boolean |
 | date | `date` | date32 |
 | datetime | `datetime` | timestamp in UTC |
+| time, as the time of its clock in the time zone of the application, see [Times of day](#times-of-day) | `time` | time of day, not adjusted to UTC |
+| a PostgreSQL `interval`, as an `ActiveSupport::Duration` | `duration` | the ISO 8601 text of the duration, such as `P1M2DT3H` |
+| a PostgreSQL type that Active Record does not know, such as `timetz`, as the text that PostgreSQL returns, such as `17:00:00+02` | `string` | string |
 | a PostgreSQL array, such as `text[]`, with an array of addresses as their text | `array` | the JSON text of the array |
-| json, time, binary, interval, a serialized attribute, or a type of the application | `any` | needs a type |
+| json, binary, a serialized attribute, or a type of the application | `any` | needs a type |
 
 * An attribute that Active Record decorates, such as one that `encrypts` or `normalizes`, has the type of the
   attribute within, so an encrypted string is a `string`. A serialized attribute, also one that is encrypted, and an
@@ -268,12 +271,12 @@ a model that the query joins, otherwise the type that the database gives the col
 * A column is required, so that its Parquet column is not nullable, when it is `NOT NULL`, the query selects only
   columns of the table of the model, by their names, without joins, and groups by nothing else, and the database
   always gives such a column a value of its type once Active Record casts it: on PostgreSQL an integer, number,
-  boolean, date, datetime or array, and on MySQL with `mysql2` an integer, number or boolean, since `mysql2` reads a
-  zero date, such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no column is required,
-  since its columns hold values of any type, such as empty text in an integer column, which Active Record casts to nil,
-  nor on a database that IOStreams cannot stream a query from, such as MySQL with `trilogy`. A string is never
-  required, since it can be empty, and a query that joins another table, computes any column, or groups by anything
-  else, such as with `ROLLUP`, requires none of its columns.
+  boolean, date, datetime, time, interval or array, and on MySQL with `mysql2` an integer, number or boolean, since
+  `mysql2` reads a zero date, such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no
+  column is required, since its columns hold values of any type, such as empty text in an integer column, which Active
+  Record casts to nil, nor on a database that IOStreams cannot stream a query from, such as MySQL with `trilogy`. A
+  string is never required, since it can be empty, and a query that joins another table, computes any column, or
+  groups by anything else, such as with `ROLLUP`, requires none of its columns.
 
 ### Columns that need a type
 
@@ -354,6 +357,43 @@ IOStreams.path("plans.parquet").copy_from(plans, mode: :hash)
 ~~~
 
 Or select it as its text, such as `valid_until::text AS valid_until_text`, which is `infinity` for an infinite one.
+
+### Times of day
+
+Rails stores a `time` column in UTC, on the date 2000-01-01, and Active Record reads it in the time zone of the
+application, so a shift that starts at 09:30 in New York is stored as `14:30:00`, and the application shows `09:30`. A
+query reads it as a `time` field, which writes the time that the application shows, its clock, without an offset:
+
+~~~ruby
+IOStreams.path("shifts.csv").copy_from(Shift.select(:name, :starts_at), mode: :hash)
+# name,starts_at
+# Morning,09:30:00
+~~~
+
+Its value is a `Time` on 2000-01-01, as Active Record holds it, so a time late in the evening of a time zone west of
+UTC, which Active Record reads on 1999-12-31, is moved to 2000-01-01, keeping the time of its clock. Parquet holds it as
+a time of day, not adjusted to UTC. Active Record reads every `time` column this way, as `pluck` does, also one that
+another program filled with local times rather than UTC, whose times then move by the offset of the time zone, so select
+such a column as text to export it as stored, such as `starts_at::text AS starts_at_text` on PostgreSQL.
+
+A time outside a day raises `IOStreams::Errors::InvalidValue`, naming the column and the value, rather than export a
+wrong one: PostgreSQL's `24:00:00`, the end of a day, which Active Record reads as the start of the next day, or a
+MySQL `TIME`, which also holds lengths of time, such as `25:30:00` or `-01:00:00`, which `mysql2` reads as nil, or
+raises for. Select such a column as text, or as a number of seconds, such as with `TIME_TO_SEC(duration)` on MySQL. So
+that it can check them, IOStreams reads the values of a query with a `time` column on MySQL as the text that MySQL
+returns, which it casts as `pluck` does, when Active Record knows the type of every column. A query that also has a
+column that only `mysql2` gives a type to, such as one that the query computes, or of a type of the application, is
+read as `mysql2` casts it, as are Rails' batches, and a connection with a transaction open, such as in transactional
+tests, so there `mysql2` reads a negative `TIME`, or one such as `838:59:59`, as nil, and raises `ArgumentError` for one
+such as `25:30:00`, while `24:00:00` raises `IOStreams::Errors::InvalidValue`. `trilogy`, whose queries are read in
+batches, also reads a negative `TIME`, or one such as `838:59:59`, as nil.
+
+A PostgreSQL `interval` is read as an `ActiveSupport::Duration`, as a `duration` field, which keeps its months and days
+apart from its seconds, and writes it in ISO 8601, such as `P1M2DT3H`. An infinite interval, `infinity` or `-infinity`,
+which PostgreSQL 17 holds, raises `IOStreams::Errors::InvalidValue`, since Active Record reads it as nil, which would
+export an empty value. Select it as null when it is not finite, such as with
+`CASE WHEN isfinite(wait) THEN wait END AS wait`, or as text, such as `wait::text AS wait_text`. A `timetz`, which
+Active Record does not know, is read as the text that PostgreSQL returns, such as `17:00:00+02`, as a `string`.
 
 ## Connections and transactions
 

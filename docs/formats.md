@@ -300,6 +300,8 @@ described the columns before v3.0, such as `columns:` and `allowed_columns:`, se
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
+| `time` | a time of day, a `Time` on 2000-01-01, as Active Record holds a `time` column, from ISO 8601, such as `09:30:00`, `09:30:00.250` or `09:30:00-05:00`, or text in its `format`. Text without an offset from UTC is read as UTC. A `Time` on another day keeps the time of its clock and its offset | the time of its clock, such as `09:30:00`, without its offset, or text in its `format` |
+| `duration` | an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its seconds. **Needs the `activesupport` gem**, see below | ISO 8601, such as `P1M2DT3H`, also in JSON |
 | `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
@@ -309,7 +311,13 @@ field, which keeps it.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
-or `datetime` that does not exist, such as `2026-02-30`.
+or `datetime` that does not exist, such as `2026-02-30`, and a `time` that is not on a clock, such as `24:00:00`.
+
+A `time` is written as the time of its own clock, as a Rails app shows it, so a shift that starts at 09:30 in New York
+is written as `09:30:00`, whatever time zone the server is in. A `time` read from text with an offset keeps it, such as
+`-05:00`, but writes the same `09:30:00`, so give its field a `format` with an offset, such as `"%H:%M:%S%:z"`, to
+write the offset too. Use an offset rather than the name of a zone, `%Z`, since a time moved from another day keeps its
+offset but not the name of its zone.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
@@ -320,6 +328,14 @@ values themselves.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
+
+**A `duration` field needs the `activesupport` gem**, since its values are `ActiveSupport::Duration`s, which keep the
+months and days of a duration, such as a PostgreSQL `interval`, apart from its seconds, as neither has a fixed number of
+seconds. Rails includes it. Any other application must add `gem "activesupport"` to its Gemfile, otherwise setting a
+schema with a `duration` field raises `LoadError`, naming the gem. IOStreams loads `ActiveSupport::Duration` and the
+parts of ActiveSupport that it needs, but not ActiveSupport's JSON, so it does not change how the application writes
+JSON. A duration is read only from ISO 8601
+text, so a number, such as `30600`, raises, since it does not say what it counts.
 
 ### Matching columns to fields
 
@@ -619,8 +635,8 @@ and `#copy_to`, whose options only apply to the target.
 * `name` The key of the field in each record, and its column in the header row written. Required.
 * `type` See [Types](#types). Default: `any`
 * `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
-* `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`.
-  Default: ISO 8601.
+* `format` For a `date`, a `datetime` or a `time`, the strptime pattern of its text, such as `"%d/%m/%Y"`, `"%Y%m%d"`
+  or `"%I:%M %p"` for `9:30 PM`. Default: ISO 8601.
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
@@ -642,7 +658,7 @@ and `#copy_to`, whose options only apply to the target.
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
 of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
 the parts of Frictionless that IOStreams does not support yet, such as `missingValues`, `primaryKey`, the constraints
-other than `required`, and the `time` type, so that a schema never appears to check a value that it does not.
+other than `required`, and the `year` type, so that a schema never appears to check a value that it does not.
 
 ### Values without a field
 
@@ -665,14 +681,16 @@ a type and a `format` in the schema.
 
 IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
 runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
-as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30).
+as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30). 3.0 also adds the `time`
+and `duration` types, which 2.2 raises `ArgumentError` for, as types that it does not support.
 
 ## Parquet files
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
-values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema. A `.parquet` file name selects the
-format, and it can also be compressed or encrypted, such as `data.parquet.pgp`. Install the
-[parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on JRuby.
+values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema. A column of times of day is read
+as a `Time` on 2000-01-01, in UTC, as a `time` field reads it. A `.parquet` file name selects the format, and it can also be compressed
+or encrypted, such as `data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is
+not available on JRuby.
 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
@@ -695,6 +713,8 @@ each type is written as:
 | `boolean` | `boolean` |
 | `date` | `date32` |
 | `datetime` | `timestamp_micros`, adjusted to UTC, so it is read back in UTC |
+| `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
+| `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after

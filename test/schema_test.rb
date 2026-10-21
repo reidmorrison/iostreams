@@ -166,8 +166,8 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for a type of Frictionless that is not supported" do
-        error = assert_raises(ArgumentError) { field(type: "time") }
-        assert_equal 'Field "value": the type "time" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(type: "year") }
+        assert_equal 'Field "value": the type "year" is not supported', error.message
       end
 
       it "raises for an unknown type" do
@@ -246,9 +246,9 @@ class SchemaTest < Minitest::Test
           error = assert_raises(ArgumentError) { IOStreams::Schema.read(path.to_s) }
           assert_match(/\AInvalid schema in .*people\.json: /, error.message)
 
-          path.write(JSON.generate(fields: [{name: "id", type: "time"}]))
+          path.write(JSON.generate(fields: [{name: "id", type: "year"}]))
           error = assert_raises(ArgumentError) { IOStreams::Schema.read(path.to_s) }
-          assert_match(/people\.json: Field "id": the type "time" is not supported\z/, error.message)
+          assert_match(/people\.json: Field "id": the type "year" is not supported\z/, error.message)
         end
       end
     end
@@ -1017,6 +1017,156 @@ class SchemaTest < Minitest::Test
           assert_equal "2026-10-13 09:30 -0400", field(type: "datetime", format: "%Y-%m-%d %H:%M %z").render(time, :text)
           assert_equal "2026-10-13 09:30 -04:00", field(type: "datetime", format: "%Y-%m-%d %H:%M %:z").render(time, :text)
           assert_equal "100% 2026-10-13 13:30", field(type: "datetime", format: "100%% %Y-%m-%d %H:%M").render(time, :text)
+        end
+      end
+
+      describe "time" do
+        let(:clock) { field(type: "time") }
+
+        it "reads ISO 8601 as a time of day, a Time on 2000-01-01, in UTC without an offset, whatever the time zone" do
+          original  = ENV.fetch("TZ", nil)
+          ENV["TZ"] = "America/New_York"
+
+          [clock.cast("09:30:00"), clock.cast("09:30:00Z")].each do |value|
+            assert_equal Time.utc(2000, 1, 1, 9, 30), value
+            assert_predicate value, :utc?
+          end
+          assert_equal Time.utc(2000, 1, 1, 23, 59, 59.999999r), clock.cast("23:59:59.999999")
+          assert_equal Time.utc(2000, 1, 1, 9, 30), clock.cast(" 09:30:00 ")
+        ensure
+          ENV["TZ"] = original
+        end
+
+        it "keeps the offset of text that has one, and the time of its clock" do
+          value = clock.cast("09:30:00.250-05:00")
+
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0.25r, "-05:00"), value
+          assert_equal(-18_000, value.utc_offset)
+          assert_equal "09:30:00.250", clock.render("09:30:00.250-05:00", :text)
+        end
+
+        it "raises for another form, or a time that is not on a clock, rather than move it into the next day" do
+          ["9:30:00", "09:30", "24:00:00", "23:60:00", "23:59:60", "09:30:00 PM", "09:30:00+5", "2026-10-13T09:30:00Z"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { clock.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid time", error.message
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { clock.cast(34_200) }
+          assert_raises(IOStreams::Errors::InvalidValue) { clock.cast(Date.new(2026, 10, 13)) }
+        end
+
+        it "moves a Time or a DateTime on another day to 2000-01-01, keeping the time of its clock and its offset" do
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0.25r, "-04:00"), clock.cast(Time.new(2026, 7, 15, 9, 30, 0.25r, "-04:00"))
+          assert_predicate clock.cast(Time.utc(2026, 7, 15, 9, 30)), :utc?
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:30"), clock.cast(DateTime.new(2026, 7, 15, 9, 30, 0, "+05:30"))
+          # As Active Record holds the time of day of a Rails app in its time zone, on the day before.
+          assert_equal Time.new(2000, 1, 1, 22, 0, 0, "-05:00"), clock.cast(Time.new(1999, 12, 31, 22, 0, 0, "-05:00"))
+        end
+
+        it "keeps a Time that is already on 2000-01-01" do
+          value = Time.new(2000, 1, 1, 9, 30, 0, "-05:00")
+
+          assert_same value, clock.cast(value)
+          assert_same value, clock.render(value, :typed)
+        end
+
+        it "writes the time of its clock, without its offset, with as many digits of a fraction of a second as it needs" do
+          assert_equal "09:30:00", clock.render(Time.utc(2000, 1, 1, 9, 30), :text)
+          assert_equal "09:30:00", clock.render(Time.new(2026, 7, 15, 9, 30, 0, "-04:00"), :text)
+          assert_equal "09:30:00.250", clock.render(Time.utc(2000, 1, 1, 9, 30, 0.25r), :text)
+          assert_equal "09:30:00.000001", clock.render(Time.utc(2000, 1, 1, 9, 30, 0.000001r), :text)
+          assert_equal "09:30:00.000000001", clock.render(Time.utc(2000, 1, 1, 9, 30, 0.000000001r), :text)
+          assert_equal "23:45:00", clock.render(Time.utc(2000, 1, 1, 23, 45), :json)
+        end
+
+        it "reads and writes the format" do
+          pattern = field(type: "time", format: "%I:%M %p")
+
+          assert_equal Time.utc(2000, 1, 1, 21, 30), pattern.cast("9:30 PM")
+          assert_equal Time.utc(2000, 1, 1, 0, 0), pattern.cast("12:00 AM")
+          assert_equal "09:30 PM", pattern.render(Time.utc(2000, 1, 1, 21, 30), :text)
+          assert_equal "09:30 PM", pattern.render(Time.new(2026, 7, 15, 21, 30, 0, "-04:00"), :json)
+          ["13:30 PM", "9:30", "9:30 PM extra"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
+          end
+        end
+
+        it "reads a zone of the format at its offset, raises for a zone whose offset is not known, and for 24:00" do
+          zone = field(type: "time", format: "%H:%M %Z")
+
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+01:00"), zone.cast("09:30 CET")
+          assert_equal 3600, zone.cast("09:30 CET").utc_offset
+          assert_raises(IOStreams::Errors::InvalidValue) { zone.cast("09:30 XYZ") }
+          assert_raises(IOStreams::Errors::InvalidValue) { zone.cast("24:00 UTC") }
+          assert_equal "09:30 +0100", field(type: "time", format: "%H:%M %z").render(zone.cast("09:30 CET"), :text)
+        end
+      end
+
+      describe "duration" do
+        let(:duration) { field(type: "duration") }
+
+        it "reads ISO 8601 as an ActiveSupport::Duration, keeping its months and days apart from its seconds" do
+          value = duration.cast("P1M2DT3H")
+
+          assert_instance_of ActiveSupport::Duration, value
+          assert_equal({months: 1, days: 2, hours: 3}, value.parts)
+          assert_equal({seconds: 0.5}, duration.cast("PT0.5S").parts)
+          assert_equal({days: -1}, duration.cast("-P1D").parts)
+          assert_equal({hours: 8, minutes: 30}, duration.cast(" PT8H30M ").parts)
+        end
+
+        it "keeps a Duration as it is" do
+          value = duration.cast("PT8H30M")
+
+          assert_same value, duration.cast(value)
+          assert_same value, duration.render(value, :typed)
+        end
+
+        it "raises for other text, and for a number, which does not say what it counts" do
+          ["P", "PT", "1 day", "PT1H30", "p1d", "30600", "08:30:00"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { duration.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid duration", error.message
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { duration.cast(30_600) }
+          assert_raises(IOStreams::Errors::InvalidValue) { duration.cast(1.5) }
+        end
+
+        it "writes ISO 8601, also in JSON" do
+          assert_equal "P1M2DT3H", duration.render("P1M2DT3H", :text)
+          # The field loads ActiveSupport::Duration, so it is loaded only once the field is created.
+          assert_equal "PT8H30M", duration.render(ActiveSupport::Duration.build(30_600), :text)
+          assert_equal "PT0.5S", duration.render("PT0.5S", :json)
+        end
+
+        it "raises for a format, which only a date, a datetime or a time has" do
+          assert_raises(ArgumentError) { field(type: "duration", format: "%H:%M") }
+        end
+
+        it "raises LoadError when the activesupport gem is not installed, naming it" do
+          # A new process, since the tests have already loaded ActiveSupport::Duration, which hides it, as if it were not
+          # installed.
+          script = <<~'RUBY'
+            module Kernel
+              alias_method :require_installed, :require
+
+              def require(name)
+                raise(LoadError, "cannot load such file -- #{name}") if name.start_with?("active_support")
+
+                require_installed(name)
+              end
+            end
+            require "iostreams"
+            begin
+              IOStreams::Schema.new(fields: [{name: "length", type: "duration"}])
+            rescue LoadError => e
+              print e.message
+            end
+          RUBY
+          lib     = File.expand_path("../lib", __dir__)
+          message = IO.popen([RbConfig.ruby, "-I", lib, "-e", script], err: File::NULL, &:read)
+
+          assert_equal 'Field "length": a duration field needs the activesupport gem, whose ActiveSupport::Duration ' \
+                       'holds its values, so add `gem "activesupport"` to the Gemfile: cannot load such file -- ' \
+                       "active_support/duration", message
         end
       end
 

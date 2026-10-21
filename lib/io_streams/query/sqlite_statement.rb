@@ -43,6 +43,13 @@ module IOStreams
         [].freeze
       end
 
+      # Returns [String] the type of field of a column of a type that Active Record does not know, see
+      # `IOStreams::Query::Columns`: "any", since SQLite gives a type only to a column of a table, so that a column that
+      # the query computes holds values of any type, such as an Integer or a Float.
+      def self.unknown_type
+        "any"
+      end
+
       # Parameters:
       #   connection: [ActiveRecord::ConnectionAdapters::SQLite3Adapter]
       #     The connection that the query is read on, which the caller holds while it is read.

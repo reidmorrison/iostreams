@@ -14,6 +14,11 @@ module IOStreams
     #   "boolean"   boolean
     #   "date"      date32
     #   "datetime"  timestamp_micros, adjusted to UTC, so the time read back is in UTC, and has whole microseconds.
+    #   "time"      time_micros, not adjusted to UTC, holding the time of the clock of the value, as a schema writes it in
+    #               a format of text, see `IOStreams::Schema::Field#render`, which is read back as a time of day in UTC,
+    #               with whole microseconds, see `IOStreams::Parquet::Reader`.
+    #   "duration"  string, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an
+    #               `ActiveSupport::Duration`, since the `parquet` gem has no interval type.
     #   "object"    string, holding the JSON text of the Hash, which a schema with the field reads back as the Hash.
     #   "array"     string, holding the JSON text of the Array, read back the same way.
     #
@@ -57,8 +62,10 @@ module IOStreams
       # is the Time at the start of its day in UTC, since the gem converts the text of a date at midnight in the time zone
       # of the process, which writes the day before east of UTC, and for a date before 1970 the day after west of UTC.
       # A time is a Time in UTC, since the gem only converts a Time itself, not a time that only acts as one, such as the
-      # `ActiveSupport::TimeWithZone` of a Rails app. A Hash or an Array, of an object or an array field, is its JSON
-      # text, see `IOStreams::Schema::Field#render`. A double that is not finite, such as NaN, is written as it is.
+      # `ActiveSupport::TimeWithZone` of a Rails app. A time of day is the time of its clock as a Time in UTC, since the
+      # gem writes the time of the clock of a Time, whatever its offset, and only a Time. A Hash or an Array, of an
+      # object or an array field, is its JSON text, see `IOStreams::Schema::Field#render`. A double that is not finite,
+      # such as NaN, is written as it is.
       #
       # Raises `IOStreams::Errors::InvalidValue` for a value that the column cannot hold: an integer outside the range
       # of an int64, or a decimal that is not finite, or that has more digits before its decimal point than its decimal
@@ -72,6 +79,7 @@ module IOStreams
         when :double then @field.round(value)
         when :date32 then Time.utc(value.year, value.month, value.day)
         when :timestamp_micros then value.getutc
+        when :time_micros then Time.utc(2000, 1, 1, value.hour, value.min, value.sec + value.subsec)
         when :string then value.is_a?(String) ? value : @field.render(value, :text)
         else value
         end
@@ -81,12 +89,13 @@ module IOStreams
 
       def parquet_type
         case @field.type
-        when "string", "object", "array" then :string
+        when "string", "duration", "object", "array" then :string
         when "integer" then :int64
         when "number" then number_type
         when "boolean" then :boolean
         when "date" then :date32
         when "datetime" then :timestamp_micros
+        when "time" then :time_micros
         else
           raise(ArgumentError, "Field #{@field.name.inspect}: a field of type #{@field.type.inspect} has no Parquet " \
                                "type, so give it the type of its values, such as \"string\" or \"integer\"")

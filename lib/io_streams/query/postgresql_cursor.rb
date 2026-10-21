@@ -60,7 +60,7 @@ module IOStreams
 
       # The types of field whose columns that are `NOT NULL` always have a value once Active Record casts it, see
       # .requirable_types.
-      REQUIRABLE_TYPES = %w[integer number boolean date datetime array].freeze
+      REQUIRABLE_TYPES = %w[integer number boolean date datetime time duration array].freeze
 
       # The kind of failure of each exception of the pg gem that a statement can raise, which Active Record does not tag
       # itself, see `IOStreams::Query::Failure`.
@@ -122,10 +122,19 @@ module IOStreams
 
       # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record
       # casts it, see `IOStreams::Query::Columns`: a column of PostgreSQL holds only values of its type, which Active Record
-      # casts to a value, such as a date or time of 'infinity' to `Float::INFINITY`, rather than nil, and an array to an
-      # Array, which can be empty, as a field of arrays that is required takes it.
+      # casts to a value, such as a date or time of 'infinity' to `Float::INFINITY`, rather than nil, a time of day to a
+      # Time and an interval to an `ActiveSupport::Duration`, since a time outside a day, and an infinite interval, which
+      # Active Record would cast to nil, raise, see `IOStreams::Query::Columns#cast`, and an array to an Array, which can
+      # be empty, as a field of arrays that is required takes it.
       def self.requirable_types
         REQUIRABLE_TYPES
+      end
+
+      # Returns [String] the type of field of a column of a type that Active Record does not know, such as `timetz`, see
+      # `IOStreams::Query::Columns`: "string", since PostgreSQL returns the value of such a column as its text, which
+      # Active Record returns as it is.
+      def self.unknown_type
+        "string"
       end
 
       # Returns [Module] the kind of failure that an exception raised by the pg gem means: `PermissionDenied` for a table

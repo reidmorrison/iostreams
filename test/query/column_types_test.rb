@@ -67,7 +67,14 @@ class ColumnTypesTest < Minitest::Test
         normalizes :kind, with: ->(kind) { kind.to_s.strip }
         attribute :cents, CentsType.new
       end
+
+      define_shift(namespace, record)
       namespace
+    end
+
+    # Defines the model of the shifts, whose table has a time of day, in the namespace.
+    def self.define_shift(namespace, record)
+      namespace.const_set(:Shift, Class.new(record) { self.table_name = "shifts" })
     end
 
     def self.create_tables(connection)
@@ -98,6 +105,10 @@ class ColumnTypesTest < Minitest::Test
         t.references :purchase
         t.datetime :opened_at
       end
+      connection.create_table(:shifts, force: true) do |t|
+        # With microseconds, which a TIME of MySQL leaves out by default.
+        t.time :starts_at, precision: 6
+      end
     end
 
     # Replaces the rows of the tables: a purchase of a buyer who is closed, in a region, one of a buyer who is suspended,
@@ -107,6 +118,7 @@ class ColumnTypesTest < Minitest::Test
       models::Buyer.delete_all
       models::Region.delete_all
       models::Purchase.with_connection { |connection| connection.execute("DELETE FROM warehouses") }
+      models::Shift.delete_all
 
       west    = models::Region.create!(zone: :south)
       acme    = models::Buyer.create!(region: west, tier: :gold, status: :closed, ssn: "123-45-6789",
@@ -270,6 +282,60 @@ class ColumnTypesTest < Minitest::Test
         assert_instance_of BigDecimal, quantity
         assert_equal purchases.pluck(:quantity).first, quantity
         assert_equal 10**19, quantity
+      end
+
+      describe "a time of day" do
+        let(:shifts) { models::Shift.order(:id) }
+
+        before do
+          # In the time zone of the app, America/New_York, which Rails stores in UTC on 2000-01-01, so that 22:00 is
+          # stored as 03:00, which Active Record reads as 22:00 on 1999-12-31.
+          models::Shift.create!(starts_at: "09:30")
+          models::Shift.create!(starts_at: "22:00:15.25")
+          models::Shift.create!
+        end
+
+        it "is a time, of the clock of the app, on 2000-01-01" do
+          assert_equal({name: "starts_at", type: "time"}, field(shifts, :starts_at))
+          assert_equal(
+            [Time.new(2000, 1, 1, 9, 30, 0, "-05:00"), Time.new(2000, 1, 1, 22, 0, 15.25r, "-05:00"), nil],
+            records(shifts.select(:starts_at)).map { |record| record["starts_at"] }
+          )
+          # The time of the clock that pluck returns, on 1999-12-31 for 22:00.
+          assert_equal(["09:30", "22:00", nil], shifts.pluck(:starts_at).map { |time| time&.strftime("%H:%M") })
+        end
+
+        it "copies it as the time of its clock to CSV and JSON" do
+          csv  = StringIO.new
+          json = StringIO.new
+          IOStreams.stream(csv).format(:csv).copy_from(shifts.select(:starts_at), mode: :hash)
+          IOStreams.stream(json).format(:json).copy_from(shifts.select(:starts_at), mode: :hash)
+
+          assert_equal "starts_at\n09:30:00\n22:00:15.250\n\n", csv.string
+          assert_equal %({"starts_at":"09:30:00"}\n{"starts_at":"22:00:15.250"}\n{"starts_at":null}\n), json.string
+        end
+
+        it "copies it to Parquet as the time of its clock" do
+          skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "shifts.parquet")
+            path.copy_from(shifts.select(:starts_at), mode: :hash)
+            times = []
+            path.each(:hash) { |record| times << record&.fetch("starts_at") }
+
+            # The last record, whose only value is null, is a blank row.
+            assert_equal [Time.utc(2000, 1, 1, 9, 30), Time.utc(2000, 1, 1, 22, 0, 15.25r), nil], times
+          end
+        end
+
+        it "raises for a time outside a day, rather than read it as nil, or as the start of the next day" do
+          models::Shift.with_connection { |connection| connection.execute("INSERT INTO shifts (starts_at) VALUES ('24:00:00')") }
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { records(shifts.select(:starts_at)) }
+          assert_match(/\AColumn "starts_at": .*24:00:00.* is not a time of day, from 00:00:00 to 23:59:59/, error.message)
+          assert_raises(IOStreams::Errors::InvalidValue) { records(shifts.select(:starts_at).in_batches(of: 2)) }
+        end
       end
 
       it "copies a decimal of more digits than a 64-bit integer to CSV, JSON and Parquet" do

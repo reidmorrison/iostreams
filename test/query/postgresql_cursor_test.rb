@@ -516,15 +516,15 @@ class PostgresqlCursorTest < Minitest::Test
             CREATE TABLE pg_types (
               id bigserial PRIMARY KEY, code uuid NOT NULL, doc jsonb, ints integer[], words text[], total numeric,
               price numeric(12, 3), cost money, wait interval, host inet, mac macaddr, seen timestamptz, opens time,
-              blob bytea, feeling mood, whole numeric(10, 0), network cidr, address inet
+              blob bytea, feeling mood, whole numeric(10, 0), network cidr, address inet, closes timetz
             )
           SQL
           execute(<<~SQL)
             INSERT INTO pg_types (code, doc, ints, words, total, price, cost, wait, host, mac, seen, opens, blob, feeling, whole,
-                                  network, address)
+                                  network, address, closes)
             VALUES ('9b3e9a64-4b7a-4b4e-9e8e-2f1d7c1a6b55', '{"a": [1, 2]}', '{1,2}', '{x,"y z"}', 12.345678, 1.5, 9.99,
-                    '1 day 2 hours', '192.168.0.1', '08:00:2b:01:02:03', '2026-10-20 12:30:00+02', '09:15', '\\x0102',
-                    'happy', 42, '10.0.0.0/8', '192.168.1.5/24')
+                    '1 mon 1 day 2 hours', '192.168.0.1', '08:00:2b:01:02:03', '2026-10-20 12:30:00+02', '09:15', '\\x0102',
+                    'happy', 42, '10.0.0.0/8', '192.168.1.5/24', '17:00:00+02')
           SQL
           model.reset_column_information
         end
@@ -544,16 +544,18 @@ class PostgresqlCursorTest < Minitest::Test
             {name: "total", type: "number"},
             {name: "price", type: "number", decimals: 3},
             {name: "cost", type: "number", decimals: 2},
-            {name: "wait", type: "any"},
+            {name: "wait", type: "duration"},
             {name: "host", type: "string"},
             {name: "mac", type: "string"},
             {name: "seen", type: "datetime"},
-            {name: "opens", type: "any"},
+            {name: "opens", type: "time"},
             {name: "blob", type: "any"},
             {name: "feeling", type: "string"},
             {name: "whole", type: "integer"},
             {name: "network", type: "string"},
-            {name: "address", type: "string"}
+            {name: "address", type: "string"},
+            # A timetz, which Active Record does not know, so that PostgreSQL returns its text.
+            {name: "closes", type: "string"}
           ]
 
           assert_equal expected, IOStreams.stream(model.all).schema[:fields]
@@ -576,6 +578,91 @@ class PostgresqlCursorTest < Minitest::Test
           assert_equal BigDecimal("9.99"), record["cost"]
           assert_equal Time.utc(2026, 10, 20, 10, 30), record["seen"]
           assert_equal 42, record["whole"]
+          assert_equal({months: 1, days: 1, hours: 2}, record["wait"].parts)
+          # 09:15 UTC, which Active Record reads in the time zone of the app.
+          assert_equal Time.new(2000, 1, 1, 4, 15, 0, "-05:00"), record["opens"]
+          assert_equal "17:00:00+02", record["closes"]
+        end
+
+        it "keeps the values that pg casts of columns that Active Record casts as they are, but whose types it knows" do
+          unless QueryDatabase::PostgreSQL.const_defined?(:PgScored)
+            QueryDatabase::PostgreSQL.const_set(:PgScored, Class.new(db.record) do
+              self.table_name = "pg_types"
+              attribute :score
+            end)
+          end
+          scored = QueryDatabase::PostgreSQL::PgScored
+          # A column of a common table expression, which Active Record casts by the table of no model, and an attribute
+          # without a type, both of which return the value that the driver casts.
+          cte    = model.with(t: model.select(:id, "whole AS n", "seen AS at")).joins("JOIN t ON t.id = pg_types.id")
+          stream = IOStreams.stream(cte.select("pg_types.id", "t.n", "t.at"))
+
+          assert_equal [{name: "id", type: "integer"}, {name: "n", type: "any"}, {name: "at", type: "any"}], stream.schema[:fields]
+          assert_equal [{"id" => model.first.id, "n" => 42, "at" => Time.utc(2026, 10, 20, 10, 30)}], each(stream)
+          stream = IOStreams.stream(scored.select("whole * 2 AS score"))
+
+          assert_equal [{name: "score", type: "any"}], stream.schema[:fields]
+          assert_equal [{"score" => 84}], each(stream)
+        end
+
+        it "copies a time of day, an interval and a timetz to CSV, and to Parquet, which they raised for as any" do
+          relation = model.select(:opens, :wait, :closes)
+          csv      = StringIO.new
+          IOStreams.stream(csv).format(:csv).copy_from(relation, mode: :hash)
+
+          assert_equal "opens,wait,closes\n04:15:00,P1M1DT2H,17:00:00+02\n", csv.string
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "types.parquet")
+            path.copy_from(relation, mode: :hash)
+            record = each(path.schema(IOStreams.stream(relation).schema)).first
+
+            assert_equal Time.utc(2000, 1, 1, 4, 15), record["opens"]
+            assert_equal({months: 1, days: 1, hours: 2}, record["wait"].parts)
+            assert_equal "17:00:00+02", record["closes"]
+          end
+        end
+
+        it "requires a time and an interval that are never null" do
+          execute("ALTER TABLE pg_types ALTER COLUMN opens SET NOT NULL, ALTER COLUMN wait SET NOT NULL")
+          model.reset_column_information
+
+          assert_equal(
+            [{name: "opens", type: "time", constraints: {required: true}}, {name: "wait", type: "duration", constraints: {required: true}}],
+            IOStreams.stream(model.select(:opens, :wait)).schema[:fields]
+          )
+        end
+
+        it "raises for an infinite interval, which Active Record reads as nil, whether or not it can be null" do
+          skip "An interval is infinite only from PostgreSQL 17" if db.record.with_connection(&:database_version) < 170_000
+
+          %w[infinity -infinity].each do |infinite|
+            execute("UPDATE pg_types SET wait = '#{infinite}'")
+
+            assert_nil model.pluck(:wait).first
+            error = assert_raises(IOStreams::Errors::InvalidValue, infinite) { each(IOStreams.stream(model.select(:id, :wait))) }
+            assert_equal "Column \"wait\": #{infinite.inspect} is an infinite interval, which a duration field cannot hold, " \
+                         "and Active Record reads as nil, so select it as null when it is not finite, or as text, instead",
+                         error.message
+            assert_raises(IOStreams::Errors::InvalidValue, infinite) do
+              each(IOStreams.stream(model.select(:id, :wait).in_batches))
+            end
+          end
+          execute("ALTER TABLE pg_types ALTER COLUMN wait SET NOT NULL")
+          model.reset_column_information
+
+          assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.select(:id, :wait))) }
+          finite = model.select(:id, Arel.sql("CASE WHEN isfinite(wait) THEN wait END AS wait"))
+
+          assert_equal [{"id" => model.first.id, "wait" => nil}], each(IOStreams.stream(finite))
+        end
+
+        it "raises for a time of 24:00:00, which PostgreSQL holds, rather than read it as the start of the next day" do
+          execute("UPDATE pg_types SET opens = '24:00:00'")
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.select(:id, :opens))) }
+          assert_equal 'Column "opens": "24:00:00" is not a time of day, from 00:00:00 to 23:59:59, which a time field ' \
+                       "holds, so select it as text, or as a number of seconds, instead", error.message
+          assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.select(:id, :opens).in_batches)) }
         end
 
         it "types computed columns by the types of the result" do

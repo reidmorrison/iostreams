@@ -193,6 +193,67 @@ class ParquetTest < Minitest::Test
       assert_equal Time.utc(2026, 10, 20, 13, 30, 0.25r), read.first["at"]
     end
 
+    describe "a time of day" do
+      let :times do
+        {fields: [{name: "id", type: "integer"}, {name: "at", type: "time"}]}
+      end
+
+      before do
+        zoned = Class.new(SimpleDelegator) do
+          def is_a?(klass)
+            klass == Time || super
+          end
+          alias_method :kind_of?, :is_a?
+        end
+        values = ["09:30:15.123456-05:00", Time.new(2026, 7, 15, 23, 45, 0, "+02:00"),
+                  zoned.new(Time.new(2000, 1, 1, 9, 30, 0.25r, "-05:00")), nil]
+        write(path.schema(times), values.each_with_index.map { |value, index| {"id" => index, "at" => value} })
+      end
+
+      # The time of the clock of each value written, in UTC, on 2000-01-01.
+      let :clocks do
+        [Time.utc(2000, 1, 1, 9, 30, 15.123456r), Time.utc(2000, 1, 1, 23, 45), Time.utc(2000, 1, 1, 9, 30, 0.25r), nil]
+      end
+
+      it "writes the time of its clock, in a column that is not adjusted to UTC" do
+        column = ::Parquet.metadata(path.to_s)["schema"]["fields"].find { |field| field["name"] == "at" }
+
+        assert_equal({"type" => "Time", "is_adjusted_to_utc" => "false", "unit" => "micros"}, column["logical_type"])
+      end
+
+      it "reads it on 2000-01-01, rather than on the day that it is read, with or without a schema" do
+        assert_equal(clocks, read.map { |record| record["at"] })
+        assert_equal(clocks, read(path.schema(times)).map { |record| record["at"] })
+      end
+
+      it "reads it with a schema that skips the other columns, or skips it" do
+        at = read(path.schema(fields: [{name: "at", type: "time"}], fieldsMatch: "subset"))
+        id = read(path.schema(fields: [{name: "id", type: "integer"}], fieldsMatch: "subset"))
+
+        # The last record, whose only value is null, is a blank row.
+        assert_equal(clocks, at.map { |record| record&.fetch("at") })
+        assert_equal([0, 1, 2, 3], id.map { |record| record["id"] })
+      end
+
+      it "copies it into a CSV file with the schema as the time of its clock" do
+        csv = path("times.csv").schema(times)
+        csv.copy_from(path, mode: :hash)
+
+        assert_equal "id,at\n0,09:30:15.123456\n1,23:45:00\n2,09:30:00.250\n3,\n", csv.read
+      end
+    end
+
+    it "writes a duration as its ISO 8601 text, which a schema with the field reads back as a Duration" do
+      durations = {fields: [{name: "id", type: "integer"}, {name: "length", type: "duration"}]}
+      write(path.schema(durations), [{"id" => 1, "length" => "P1M2DT3H"}, {"id" => 2, "length" => nil}])
+
+      assert_equal [{"id" => 1, "length" => "P1M2DT3H"}, {"id" => 2, "length" => nil}], read
+      length = read(path.schema(durations)).first["length"]
+
+      assert_instance_of ActiveSupport::Duration, length
+      assert_equal({months: 1, days: 2, hours: 3}, length.parts)
+    end
+
     it "writes object and array fields as their JSON text, which a schema with the fields reads back" do
       json   = {fields: [{name: "id", type: "integer"}, {name: "prefs", type: "object"}, {name: "tags", type: "array"}]}
       record = {"id" => 1, "prefs" => {"theme" => "dark", "limit" => BigDecimal("12.5")}, "tags" => ["a", 1]}

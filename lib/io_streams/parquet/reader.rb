@@ -3,7 +3,9 @@
 module IOStreams
   module Parquet
     # Reads the rows of a Parquet file, each one as a Hash of its typed values by the names of its columns, such as an
-    # Integer, BigDecimal, Date, Time, or an Array or Hash for a nested column.
+    # Integer, BigDecimal, Date, Time, or an Array or Hash for a nested column. A time of day of a column of the file is a
+    # Time on 2000-01-01, see `IOStreams::Schema::Field.time_of_day`, rather than on the day that the `parquet` gem reads
+    # it.
     #
     # A Parquet file records its columns at its end, so it is read from a file, and any other input is first copied
     # into a temp file, see `IOStreams::Reader.stream`.
@@ -46,7 +48,8 @@ module IOStreams
         @columns   = schema&.projection { labels }
       end
 
-      # Yields [Hash<String, Object>] each row, by the names of its columns, in the order of the columns.
+      # Yields [Hash<String, Object>] each row, by the names of its columns, in the order of the columns, with each time of
+      # day on 2000-01-01, see #time_columns.
       #
       # Raises the RuntimeError of the parquet gem, tagged as `IOStreams::Errors::Corrupt`, for a file that it cannot
       # read, see .failure_kind.
@@ -56,7 +59,9 @@ module IOStreams
       # block is not running.
       def each(&block)
         in_block = false
+        times    = time_columns
         ::Parquet.each_row(@file_name, columns: @columns) do |row|
+          times.each { |name| (time = row[name]) && (row[name] = Schema::Field.time_of_day(time)) }
           in_block = true
           block.call(row)
           # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.
@@ -75,7 +80,21 @@ module IOStreams
       # Returns [Array<String>] the names of the columns of the file, in order, which it records at its end, so that
       # they are known before any row is read.
       def labels
-        self.class.tag_failure { ::Parquet.metadata(@file_name) }["schema"]["fields"].map { |field| field["name"] }
+        fields.map { |field| field["name"] }
+      end
+
+      # Returns [Array<String>] the names of the columns of times of day that are read, whose values the `parquet` gem
+      # reads as a Time on the day that it reads them, in UTC, which #each moves to 2000-01-01, as Active Record holds a
+      # time of day, so that a value reads the same on every day. Only a column of the file itself, not a time of day
+      # within a column of structs or lists, which IOStreams does not write.
+      def time_columns
+        names = fields.filter_map { |field| field["name"] if field.dig("logical_type", "type") == "Time" }
+        @columns ? names & @columns : names
+      end
+
+      # Returns [Array<Hash>] the columns of the file, as the `parquet` gem describes them, read once from its end.
+      def fields
+        @fields ||= self.class.tag_failure { ::Parquet.metadata(@file_name) }["schema"]["fields"]
       end
     end
   end
