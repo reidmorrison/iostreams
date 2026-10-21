@@ -318,6 +318,18 @@ class PostgresqlCursorTest < Minitest::Test
         end
       end
 
+      it "clears the query cache of the application when a read in a transaction of its own fails, which Active Record " \
+         "rolls back" do
+        db.record.cache do
+          db.order.first
+          db.customer.first
+          stream = IOStreams.stream(db.order.select("1 / (id - id) AS ratio"))
+
+          assert_raises(ActiveRecord::StatementInvalid) { each(stream) }
+          assert_equal 0, db.pool.query_cache.size
+        end
+      end
+
       describe "the types of PostgreSQL" do
         let(:model) do
           QueryDatabase::PostgreSQL.const_set(:PgType, Class.new(db.record) { self.table_name = "pg_types" }) unless
