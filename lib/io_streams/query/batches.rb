@@ -19,7 +19,10 @@ module IOStreams
     # Rails yields each batch as a query without an order, so the rows of each batch are read in the order of the
     # primary key of the model, which is the order of the batches by default. With another `cursor:`, or
     # `order: :desc`, the batches are in that order, and the rows within each batch in the ascending order of the
-    # primary key, since the batches do not say their cursor.
+    # primary key, since the batches do not say their cursor. The rows of each batch are read in the order that the
+    # database returns them when the model has no primary key, such as a table that is batched by a `cursor:` of its
+    # unique columns, or when the query is distinct, which PostgreSQL and MySQL only sort by the columns that it
+    # selects, see #ordered.
     class Batches
       # Parameters:
       #   batches: [ActiveRecord::Batches::BatchEnumerator]
@@ -42,10 +45,9 @@ module IOStreams
       # Raises ArgumentError for a relation that was loaded, whose records have no primary key, see #loaded_query.
       def each(columns, &)
         @model.uncached do
-          order = Array(@model.primary_key).map { |key| @model.arel_table[key] }
           each_query do |query|
             result = @model.with_connection(prevent_permanent_checkout: true) do |connection|
-              connection.select_all(query.reorder(*order).arel, "IOStreams Batch")
+              connection.select_all(query.arel, "IOStreams Batch")
             end
             columns.check(result.columns)
             result.rows.each(&)
@@ -55,14 +57,25 @@ module IOStreams
 
       private
 
-      # Yields [ActiveRecord::Relation] the query of the rows of each batch that Rails yields: the batch itself, unless
-      # Rails yields it with its records, for a relation that was loaded, see #loaded_query.
+      # Yields [ActiveRecord::Relation] the query of the rows of each batch that Rails yields, in order, see #ordered:
+      # the batch itself, unless Rails yields it with its records, for a relation that was loaded, see #loaded_query.
       def each_query
         read_ids = Set.new
         @batches.each do |batch|
           query = batch.loaded? ? loaded_query(batch, read_ids) : batch
-          yield query if query
+          yield ordered(query) if query
         end
+      end
+
+      # Returns [ActiveRecord::Relation] the query of a batch in the order of the primary key of the model, since Rails
+      # yields each batch without an order, unless the model has no primary key, or the query is distinct, which
+      # PostgreSQL and MySQL only sort by the columns that it selects, when its rows are read in the order that the
+      # database returns them.
+      def ordered(query)
+        keys = Array(@model.primary_key)
+        return query if keys.empty? || query.distinct_value
+
+        query.reorder(*keys.map { |key| @model.arel_table[key] })
       end
 
       # Returns [ActiveRecord::Relation|nil] the query of the rows of a batch that Rails yields with its records, which

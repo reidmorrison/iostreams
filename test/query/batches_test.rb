@@ -125,6 +125,29 @@ class BatchesTest < Minitest::Test
                        "read: read the batches of a relation that is not loaded", error.message
         end
       end
+
+      describe "the order of the rows of a batch" do
+        it "is the order that the database returns, for a model without a primary key, batched by a cursor:" do
+          skip "cursor: needs Active Record 8.0" if ActiveRecord.version < Gem::Version.new("8.0")
+
+          event.insert_all([{code: "b", seq: 1}, {code: "a", seq: 2}, {code: "a", seq: 1}])
+          rows = nil
+          sql  = batch_sql { rows = each(IOStreams.stream(event.in_batches(of: 2, cursor: %i[code seq])), :array) }
+
+          assert_equal [%w[code seq], ["a", 1], ["a", 2], ["b", 1]], [rows.first, *rows.drop(1).sort]
+          assert_equal 2, sql.size
+          sql.each { |text| refute_match(/ORDER BY/i, text) }
+        end
+
+        it "is the order that the database returns, for a distinct query, which it only sorts by the columns selected" do
+          rows = nil
+          sql  = batch_sql { rows = each(IOStreams.stream(db.order.select(:customer_id).distinct.in_batches(of: 2))) }
+
+          assert_equal db.order.distinct.pluck(:customer_id).sort_by(&:to_i), rows.map { |row| row["customer_id"] }.sort_by(&:to_i)
+          assert_equal 2, sql.size
+          sql.each { |text| refute_match(/ORDER BY/i, text) }
+        end
+      end
     end
   end
 end
