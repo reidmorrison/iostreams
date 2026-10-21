@@ -358,11 +358,12 @@ The columns are matched once, when the header row is read, or once for each set 
 are usually the same for every record, rather than for each value.
 
 The keys of the records read are the names of their fields as they are given, so a field named with a Symbol, such as
-`name: :id`, returns the key `:id`, whatever the column of the file is called. For a format with a header row, such
-as CSV, `each(:array)` returns a header row of the names of the fields of its columns, and then the values of those
-fields of each row, in the order of the fields. A file without a header row, such as JSON or fixed width, or with a
-schema whose `header` is false, returns the names of the fields as its header row, and then the values of every field
-of each row, in order, `nil` for a key that a JSON record does not have. The header row is an
+`name: :id`, returns the key `:id`, whatever the column of the file is called, unless `keyType` forms them otherwise,
+see [Keys of the records read](#keys-of-the-records-read). For a format with a header row, such as CSV,
+`each(:array)` returns a header row of the keys of the fields of its columns, and then the values of those fields of
+each row, in the order of the fields. A file without a header row, such as JSON or fixed width, or with a schema whose
+`header` is false, returns the keys of the fields as its header row, and then the values of every field of each row,
+in order, `nil` for a key that a JSON record does not have. The header row is an
 `IOStreams::Row::HeaderRow`, an Array that says that it is the header row, so that code that reads the rows can skip
 it with `next if row.is_a?(IOStreams::Row::HeaderRow)`. A column that the schema does not list is skipped, or raises,
 see [fieldsMatch](#fieldsmatch).
@@ -411,6 +412,50 @@ end
 report.read
 # => "First Name,Date of Birth\nJack,2001-02-03\n"
 ~~~
+
+### Keys of the records read
+
+`keyType`, which IOStreams adds to the properties of a schema, forms the key of each field in the records read from
+its name:
+
+| `keyType` | The key of the field named `First Name` |
+|-----------|-----------------------------------------|
+| None, the default | `"First Name"`, the name as it is given, a String or a Symbol |
+| `string` | `"First Name"`, also for a name that is a Symbol |
+| `cleansed` | `"first_name"`, the name once cleansed as `cleanse_header` cleanses a header row, see [Header options](#header-options), keeping the letters of every language |
+| `symbol` | `:"First Name"`, also for a name that is a String |
+| `cleansedSymbol` | `:first_name` |
+
+So a file can have readable column names, which are the names of the fields, while the code reads the keys that it
+needs:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  fieldsMatch: "partial",
+  keyType:     "cleansedSymbol",
+  fields:      [
+    {name: "First Name"},
+    {name: "Date of Birth", type: "date"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "First Name,Date of Birth\nJack,2001-02-03\n" => {first_name: "Jack", date_of_birth: #<Date: 2001-02-03 ...>}
+
+path.writer(:hash) do |io|
+  io << {first_name: "Jill", date_of_birth: Date.new(2002, 3, 4)}
+end
+# => "First Name,Date of Birth\nJill,2002-03-04\n"
+~~~
+
+The header row written is still the names of the fields, and a record written can be keyed by the keys of the
+records read, as well as by the names, so that the records read can be written back. A schema held as JSON, or in a
+database such as MongoDB, has String names, so `keyType: "symbol"` keeps the Symbol keys that a schema in Ruby has,
+such as the schema of a layout, see `IOStreams::Schema.from_layout` in
+[Moving a layout to a schema](upgrading#moving-a-layout-to-a-schema). Two fields with the same key, such as
+`First Name` and `first-name` with `cleansed`, raise `ArgumentError`, since a record could not hold both, and so does
+a key that is the name or an alias of another field.
 
 ### fieldsMatch
 
@@ -511,6 +556,9 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
   as JSON or fixed width, ignores it. Default: `true`
 * `width` The length of every line of a fixed width file, see
   [Fixed width files with a schema](#fixed-width-files-with-a-schema).
+* `keyType` How the keys of the records read are formed from the names of the fields: `string`, `cleansed`, `symbol`
+  or `cleansedSymbol`, see [Keys of the records read](#keys-of-the-records-read). IOStreams adds this property.
+  Default: the names as they are given.
 
 `$schema`, `title` and `description` describe the schema to people and have no effect.
 

@@ -150,8 +150,10 @@ columns of the layout can have String keys, such as a layout read from JSON. A c
 with `#format_options`, so keep the schema that it returns rather than call it each time.
 
 The keys of the records read are the names of the fields, so a layout with Symbol keys, such as `key: :name`, reads
-Symbol keys, as does a schema whose field is named with that Symbol, while a schema saved as a JSON file names its
-fields with Strings, so the keys of its records are Strings. Without `fieldsMatch: "subset"`, a schema has
+Symbol keys, as does a schema whose field is named with that Symbol. A schema saved as a JSON file, or in a database
+such as MongoDB, names its fields with Strings, so when every key of the layout is a Symbol, `from_layout` adds
+`keyType: "symbol"`, which keeps the keys of its records Symbols, see
+[Keys of the records read](formats#keys-of-the-records-read). Without `fieldsMatch: "subset"`, a schema has
 `"exact"`, so that writing a record with a key that is not a field raises `IOStreams::Errors::InvalidHeader`, rather
 than skip it as a layout does. A schema and a layout cannot both be set on a path: reading or writing it raises
 `ArgumentError`.
@@ -220,7 +222,7 @@ that replaces each one:
 | `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"equal"` when `required_columns:` lists every allowed column |
 | `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` does, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
-| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to |
+| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to, or with `keyType: "cleansed"` the names once cleansed, as `cleanse_header: true` cleansed the columns, see [Keys of the records read](formats#keys-of-the-records-read) |
 
 ~~~ruby
 # Before (deprecated)

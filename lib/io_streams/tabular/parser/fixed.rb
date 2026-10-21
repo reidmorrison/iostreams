@@ -17,7 +17,9 @@ module IOStreams
         # The layout itself is still read and written by this parser, as before.
         #
         # Its `fieldsMatch` is "subset", so that writing skips the keys of a record that the layout does not have, as a
-        # layout always did. A line that is read always has every field.
+        # layout always did. A line that is read always has every field. When every key of the layout is a Symbol, its
+        # `keyType` is "symbol", so that the records read have the same keys once the schema is held as JSON, or in a
+        # database such as MongoDB, whose names are Strings, see `IOStreams::Schema`.
         #
         # Parameters:
         #   layout: [Array<Hash>]
@@ -206,6 +208,8 @@ module IOStreams
             schema = {fields: fields, fieldsMatch: "subset"}
             # A filler at the end of the line gives the width of the line.
             schema[:width] = remainder ? "remainder" : position if filler
+            # Symbol keys stay Symbols once the schema is held as JSON, whose names are Strings.
+            schema[:keyType] = "symbol" if !fields.empty? && fields.all? { |field| field[:name].is_a?(Symbol) }
             schema
           end
 
