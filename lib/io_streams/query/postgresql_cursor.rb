@@ -60,7 +60,7 @@ module IOStreams
 
       # The types of field whose columns that are `NOT NULL` always have a value once Active Record casts it, see
       # .requirable_types.
-      REQUIRABLE_TYPES = %w[integer number boolean date datetime].freeze
+      REQUIRABLE_TYPES = %w[integer number boolean date datetime array].freeze
 
       # The kind of failure of each exception of the pg gem that a statement can raise, which Active Record does not tag
       # itself, see `IOStreams::Query::Failure`.
@@ -122,7 +122,8 @@ module IOStreams
 
       # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record
       # casts it, see `IOStreams::Query::Columns`: a column of PostgreSQL holds only values of its type, which Active Record
-      # casts to a value, such as a date or time of 'infinity' to `Float::INFINITY`, rather than nil.
+      # casts to a value, such as a date or time of 'infinity' to `Float::INFINITY`, rather than nil, and an array to an
+      # Array, which can be empty, as a field of arrays that is required takes it.
       def self.requirable_types
         REQUIRABLE_TYPES
       end

@@ -433,6 +433,24 @@ class PostgresqlCursorTest < Minitest::Test
         assert_equal ids.sort, ids
       end
 
+      it "requires a column that is never null, of a type that always has a value on PostgreSQL, such as an array" do
+        execute("DROP TABLE IF EXISTS pg_required")
+        execute(<<~SQL)
+          CREATE TABLE pg_required (id bigserial PRIMARY KEY, tags text[] NOT NULL, starts date NOT NULL, note text NOT NULL)
+        SQL
+        execute("INSERT INTO pg_required (tags, starts, note) VALUES ('{}', '2026-10-21', '')")
+        model = Class.new(db.record) { self.table_name = "pg_required" }
+
+        assert_equal [{name: "id", type: "integer", constraints: {required: true}},
+                      {name: "tags", type: "array", constraints: {required: true}},
+                      {name: "starts", type: "date", constraints: {required: true}}, {name: "note", type: "string"}],
+                     IOStreams.stream(model.all).schema[:fields]
+        assert_equal [{"tags" => [], "starts" => Date.new(2026, 10, 21), "note" => ""}],
+                     each(IOStreams.stream(model.select(:tags, :starts, :note)))
+      ensure
+        execute("DROP TABLE IF EXISTS pg_required")
+      end
+
       it "does not clear the query cache of the application" do
         db.record.cache do
           db.order.first
