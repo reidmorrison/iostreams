@@ -28,6 +28,9 @@ module IOStreams
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set.
     #     "time":     a time of day, a Time on 2000-01-01, as Active Record holds the value of a `time` column, written as
     #                 the time of its own clock, such as `09:30:00`, without its offset from UTC, unless `format` is set.
+    #     "duration": an `ActiveSupport::Duration`, as Active Record holds the value of a PostgreSQL `interval`, read from
+    #                 and written as ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its
+    #                 seconds. It needs the activesupport gem, which the field loads when it is created.
     #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
     #                 format of JSON as an object.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
@@ -100,7 +103,7 @@ module IOStreams
     # appears to check a value that it does not.
     class Field
       # The types of field that IOStreams supports.
-      TYPES = %w[any array boolean date datetime integer number object string time].freeze
+      TYPES = %w[any array boolean date datetime duration integer number object string time].freeze
 
       # The properties that each type of field accepts, in addition to those that every field accepts.
       TYPE_PROPERTIES = {
@@ -204,6 +207,7 @@ module IOStreams
         @constraints  = Constraints.new(descriptor["constraints"], @name,
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
         require_bigdecimal if @type == "number" && !@float
+        require_duration if @type == "duration"
         freeze
       end
 
@@ -376,16 +380,7 @@ module IOStreams
           return @constraints.no_value if value.empty?
         end
 
-        case type
-        when "integer" then cast_integer(value)
-        when "number" then cast_number(value)
-        when "boolean" then cast_boolean(value)
-        when "date" then cast_date(value)
-        when "time" then cast_time(value)
-        when "object" then cast_json(value, ::Hash)
-        when "array" then cast_json(value, ::Array)
-        else cast_datetime(value)
-        end
+        cast_value(value)
       end
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
@@ -418,6 +413,22 @@ module IOStreams
 
       private
 
+      # Returns the value, which is neither nil nor blank text, converted to the type of this field, other than a string
+      # or any field, see #cast.
+      def cast_value(value)
+        case type
+        when "integer" then cast_integer(value)
+        when "number" then cast_number(value)
+        when "boolean" then cast_boolean(value)
+        when "date" then cast_date(value)
+        when "time" then cast_time(value)
+        when "duration" then cast_duration(value)
+        when "object" then cast_json(value, ::Hash)
+        when "array" then cast_json(value, ::Array)
+        else cast_datetime(value)
+        end
+      end
+
       # Returns [String] the text of a value of this type, once it is converted, see #cast, such as "12.50" for the
       # number `BigDecimal("12.5")` with 2 decimals.
       def text(value)
@@ -427,6 +438,7 @@ module IOStreams
         when "date" then @format ? value.strftime(@format) : self.class.any_text(value)
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
         when "time" then time_text(value)
+        when "duration" then value.iso8601
         else self.class.any_text(value)
         end
       end
@@ -458,7 +470,7 @@ module IOStreams
 
       # Returns [true|false] whether the type is one that Frictionless defines, but IOStreams does not support yet.
       def known_type?
-        %w[list year yearmonth duration geopoint geojson].include?(type)
+        %w[list year yearmonth geopoint geojson].include?(type)
       end
 
       def check_properties(descriptor)
@@ -556,6 +568,18 @@ module IOStreams
                          "the Gemfile, or set `floatNumber: true` to return a Float: #{e.message}")
       end
 
+      # ActiveSupport::Duration is loaded, which reads and writes ISO 8601 durations, with the parts of ActiveSupport that
+      # it needs, such as some extensions of core classes, but not the whole of ActiveSupport, nor its JSON, so that an
+      # application that does not use it otherwise, such as one without Rails, writes JSON as before. Its class is held
+      # by the gem, so the field raises when it is not installed, rather than hold a duration of another class.
+      def require_duration
+        require "active_support/duration"
+      rescue LoadError => e
+        raise(LoadError, "Field #{name.inspect}: a duration field needs the activesupport gem, whose " \
+                         "ActiveSupport::Duration holds its values, so add `gem \"activesupport\"` to the Gemfile: " \
+                         "#{e.message}")
+      end
+
       # A Hash or an Array holds several values, rather than one value of text, so it raises. Any other value is its
       # text, such as a `URI` or an id.
       def cast_string(value)
@@ -641,6 +665,18 @@ module IOStreams
         JSON.parse(text)
       rescue JSON::ParserError
         invalid(text)
+      end
+
+      # Returns [ActiveSupport::Duration] the duration, or the duration of its ISO 8601 text, such as `P1M2DT3H`, whose
+      # months and days are kept apart from its seconds, since a month, or a day in a time zone with daylight saving
+      # time, has no fixed number of seconds. A number raises, since it does not say what it counts.
+      def cast_duration(value)
+        return value if value.is_a?(::ActiveSupport::Duration)
+        return invalid(value) unless value.is_a?(String)
+
+        ::ActiveSupport::Duration.parse(value)
+      rescue ArgumentError
+        invalid(value)
       end
 
       def cast_boolean(value)

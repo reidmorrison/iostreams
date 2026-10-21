@@ -2726,6 +2726,7 @@ described the columns before v3.0, such as `columns:` and `allowed_columns:`, se
 | `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
 | `time` | a time of day, a `Time` on 2000-01-01, as Active Record holds a `time` column, from ISO 8601, such as `09:30:00`, `09:30:00.250` or `09:30:00-05:00`, or text in its `format`. Text without an offset from UTC is read as UTC. A `Time` on another day keeps the time of its clock and its offset | the time of its clock, such as `09:30:00`, without its offset, or text in its `format` |
+| `duration` | an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its seconds. **Needs the `activesupport` gem**, see below | ISO 8601, such as `P1M2DT3H`, also in JSON |
 | `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
@@ -2752,6 +2753,14 @@ values themselves.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
+
+**A `duration` field needs the `activesupport` gem**, since its values are `ActiveSupport::Duration`s, which keep the
+months and days of a duration, such as a PostgreSQL `interval`, apart from its seconds, as neither has a fixed number of
+seconds. Rails includes it. Any other application must add `gem "activesupport"` to its Gemfile, otherwise setting a
+schema with a `duration` field raises `LoadError`, naming the gem. IOStreams loads `ActiveSupport::Duration` and the
+parts of ActiveSupport that it needs, but not ActiveSupport's JSON, so it does not change how the application writes
+JSON. A duration is read only from ISO 8601
+text, so a number, such as `30600`, raises, since it does not say what it counts.
 
 ### Matching columns to fields
 
@@ -3098,7 +3107,7 @@ a type and a `format` in the schema.
 IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
 runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
 as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30). 3.0 also adds the `time`
-type, which 2.2 raises `ArgumentError` for, as a type that it does not support.
+and `duration` types, which 2.2 raises `ArgumentError` for, as types that it does not support.
 
 ## Parquet files
 
@@ -3130,6 +3139,7 @@ each type is written as:
 | `date` | `date32` |
 | `datetime` | `timestamp_micros`, adjusted to UTC, so it is read back in UTC |
 | `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
+| `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after

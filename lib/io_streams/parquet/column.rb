@@ -17,6 +17,8 @@ module IOStreams
     #   "time"      time_micros, not adjusted to UTC, holding the time of the clock of the value, as a schema writes it in
     #               a format of text, see `IOStreams::Schema::Field#render`, which is read back as a time of day in UTC,
     #               with whole microseconds, see `IOStreams::Parquet::Reader`.
+    #   "duration"  string, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an
+    #               `ActiveSupport::Duration`, since the `parquet` gem has no interval type.
     #   "object"    string, holding the JSON text of the Hash, which a schema with the field reads back as the Hash.
     #   "array"     string, holding the JSON text of the Array, read back the same way.
     #
@@ -87,7 +89,7 @@ module IOStreams
 
       def parquet_type
         case @field.type
-        when "string", "object", "array" then :string
+        when "string", "duration", "object", "array" then :string
         when "integer" then :int64
         when "number" then number_type
         when "boolean" then :boolean

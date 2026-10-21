@@ -243,6 +243,17 @@ class ParquetTest < Minitest::Test
       end
     end
 
+    it "writes a duration as its ISO 8601 text, which a schema with the field reads back as a Duration" do
+      durations = {fields: [{name: "id", type: "integer"}, {name: "length", type: "duration"}]}
+      write(path.schema(durations), [{"id" => 1, "length" => "P1M2DT3H"}, {"id" => 2, "length" => nil}])
+
+      assert_equal [{"id" => 1, "length" => "P1M2DT3H"}, {"id" => 2, "length" => nil}], read
+      length = read(path.schema(durations)).first["length"]
+
+      assert_instance_of ActiveSupport::Duration, length
+      assert_equal({months: 1, days: 2, hours: 3}, length.parts)
+    end
+
     it "writes object and array fields as their JSON text, which a schema with the fields reads back" do
       json   = {fields: [{name: "id", type: "integer"}, {name: "prefs", type: "object"}, {name: "tags", type: "array"}]}
       record = {"id" => 1, "prefs" => {"theme" => "dark", "limit" => BigDecimal("12.5")}, "tags" => ["a", 1]}

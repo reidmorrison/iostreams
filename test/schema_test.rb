@@ -1101,6 +1101,75 @@ class SchemaTest < Minitest::Test
         end
       end
 
+      describe "duration" do
+        let(:duration) { field(type: "duration") }
+
+        it "reads ISO 8601 as an ActiveSupport::Duration, keeping its months and days apart from its seconds" do
+          value = duration.cast("P1M2DT3H")
+
+          assert_instance_of ActiveSupport::Duration, value
+          assert_equal({months: 1, days: 2, hours: 3}, value.parts)
+          assert_equal({seconds: 0.5}, duration.cast("PT0.5S").parts)
+          assert_equal({days: -1}, duration.cast("-P1D").parts)
+          assert_equal({hours: 8, minutes: 30}, duration.cast(" PT8H30M ").parts)
+        end
+
+        it "keeps a Duration as it is" do
+          value = duration.cast("PT8H30M")
+
+          assert_same value, duration.cast(value)
+          assert_same value, duration.render(value, :typed)
+        end
+
+        it "raises for other text, and for a number, which does not say what it counts" do
+          ["P", "PT", "1 day", "PT1H30", "p1d", "30600", "08:30:00"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { duration.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid duration", error.message
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { duration.cast(30_600) }
+          assert_raises(IOStreams::Errors::InvalidValue) { duration.cast(1.5) }
+        end
+
+        it "writes ISO 8601, also in JSON" do
+          assert_equal "P1M2DT3H", duration.render("P1M2DT3H", :text)
+          # The field loads ActiveSupport::Duration, so it is loaded only once the field is created.
+          assert_equal "PT8H30M", duration.render(ActiveSupport::Duration.build(30_600), :text)
+          assert_equal "PT0.5S", duration.render("PT0.5S", :json)
+        end
+
+        it "raises for a format, which only a date, a datetime or a time has" do
+          assert_raises(ArgumentError) { field(type: "duration", format: "%H:%M") }
+        end
+
+        it "raises LoadError when the activesupport gem is not installed, naming it" do
+          # A new process, since the tests have already loaded ActiveSupport::Duration, which hides it, as if it were not
+          # installed.
+          script = <<~'RUBY'
+            module Kernel
+              alias_method :require_installed, :require
+
+              def require(name)
+                raise(LoadError, "cannot load such file -- #{name}") if name.start_with?("active_support")
+
+                require_installed(name)
+              end
+            end
+            require "iostreams"
+            begin
+              IOStreams::Schema.new(fields: [{name: "length", type: "duration"}])
+            rescue LoadError => e
+              print e.message
+            end
+          RUBY
+          lib     = File.expand_path("../lib", __dir__)
+          message = IO.popen([RbConfig.ruby, "-I", lib, "-e", script], err: File::NULL, &:read)
+
+          assert_equal 'Field "length": a duration field needs the activesupport gem, whose ActiveSupport::Duration ' \
+                       'holds its values, so add `gem "activesupport"` to the Gemfile: cannot load such file -- ' \
+                       "active_support/duration", message
+        end
+      end
+
       describe "object" do
         let(:object) { field(type: "object") }
 
