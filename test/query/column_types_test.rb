@@ -305,7 +305,11 @@ class ColumnTypesTest < Minitest::Test
       time_zone = ActiveRecord::AttributeMethods::TimeZoneConversion::TimeZoneConverter.new(ActiveRecord::Type::DateTime.new)
 
       assert_equal({name: "c", type: "datetime"}, field(time_zone))
-      assert_equal({name: "c", type: "integer"}, field(ActiveRecord::Locking::LockingType.new(ActiveModel::Type::Integer.new)))
+      # Active Record defines LockingType with its optimistic locking, which it loads with its first model, which JRuby,
+      # without a driver of a database, never builds.
+      locking = ActiveRecord::Locking::Optimistic && ActiveRecord::Locking::LockingType
+
+      assert_equal({name: "c", type: "integer"}, field(locking.new(ActiveModel::Type::Integer.new)))
     end
 
     it "does not look through a decorator of the application, nor trust a type of its own" do
