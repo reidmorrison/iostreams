@@ -371,7 +371,7 @@ module IOStreams
 
           assert_kind_of IOStreams::Stream, copy
           refute_same stream, copy
-          assert_same stream.io_stream, copy.io_stream
+          assert_equal "Hello World", copy.read
         end
 
         it "does not change the stream supplied" do
@@ -432,13 +432,15 @@ module IOStreams
           refute_kind_of IOStreams::Path, stream
         end
 
-        it "returns a copy of a stream" do
-          stream = IOStreams.stream(StringIO.new("Hello World")).stream(:gz)
+        it "returns a copy of a stream, which writes to the same IO" do
+          io     = StringIO.new
+          stream = IOStreams.stream(io).stream(:gz)
           copy   = IOStreams.new(stream)
           copy.stream(:enc)
+          copy.write("Hello World")
 
-          assert_same stream.io_stream, copy.io_stream
           assert_equal({gz: {}}, stream.pipeline)
+          assert_equal "Hello World", IOStreams.stream(StringIO.new(io.string)).stream(:gz).stream(:enc).read
         end
       end
 

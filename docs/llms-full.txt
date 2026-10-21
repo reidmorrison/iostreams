@@ -6739,6 +6739,14 @@ the open writer writes with its own settings. Previously they were ignored.
 
 Fix: set them where the writer is opened, or open a new writer for the data that needs them.
 
+#### `#io_stream` is not public
+
+`#io_stream` is no longer public on a stream or a path, so calling it raises `NoMethodError`. It returned the IO, or
+the other object, that was supplied to `IOStreams.stream`, which the caller already holds, or nil for a path, and it
+was never documented.
+
+Fix: keep the IO that you supply to `IOStreams.stream`, and use it instead.
+
 #### Leaving a write early keeps what was written
 
 Writing to an S3, SFTP or HTTP(S) path now stores what was written when the block leaves early, such as

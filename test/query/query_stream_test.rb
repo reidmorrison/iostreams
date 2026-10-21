@@ -48,7 +48,6 @@ class QueryStreamTest < Minitest::Test
 
           assert_instance_of IOStreams::Query::Stream, stream
           assert_kind_of IOStreams::Stream, stream
-          assert_instance_of IOStreams::Query, stream.io_stream
         end
 
         it "returns it for the batches of a relation" do

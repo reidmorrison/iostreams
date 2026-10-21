@@ -23,8 +23,6 @@ module IOStreams
                           "path.option(:parquet, compression: \"zstd\").writer(:hash)"
     }.freeze
 
-    attr_reader :io_stream
-
     # Returns [Array<Symbol>] the options that only the readers of lines, rows, records and slices accept, which no
     # writer accepts, so that a writer, and a copy, which uses its options to write its target, raise for them, rather
     # than ignore them. Each reader and writer declares the options that it accepts.
@@ -671,6 +669,11 @@ module IOStreams
     end
 
     private
+
+    # Returns the IO that this stream reads and writes, or the other source of its rows, such as a slice, as it was
+    # supplied to `IOStreams.stream`. Not public, since the caller already holds it, and the stream of an Active Record
+    # query holds an internal object for it, see `IOStreams::Query::Stream`.
+    attr_reader :io_stream
 
     # Returns [Hash|String|IOStreams::Path|nil] the schema of the rows that this stream reads, which a copy gives a target
     # without one, see #copy_schema: none, since the schema of a file describes its text, such as the format of its

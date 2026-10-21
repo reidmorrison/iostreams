@@ -33,7 +33,6 @@ class SliceStreamTest < Minitest::Test
 
         assert_instance_of IOStreams::Slice::Stream, stream
         assert_kind_of IOStreams::Stream, stream
-        assert_same slice, stream.io_stream
       end
 
       it "copies the stream of a slice, as it copies any stream" do
