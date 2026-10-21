@@ -163,20 +163,18 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal "300", variable(sessions.first, "max_execution_time")
       end
 
+      # The server sends 25 MB, far more than the buffers of the sockets in between hold, so that it waits for the client
+      # to take its rows while the block sleeps, for longer than the net_write_timeout of the session.
       it "keeps the connection while the block is slower than the net_write_timeout of the session" do
-        execute("SET SESSION cte_max_recursion_depth = 20000")
-        execute("INSERT INTO orders (name, amount, status) SELECT CONCAT(REPEAT('x', 200), n), n, 0 FROM " \
-                "(WITH RECURSIVE numbers (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 20000) " \
-                "SELECT n FROM numbers) AS numbers")
-        count = 0
-        IOStreams.stream(hasty.order(:id).select(:id, :name)).each(:hash) do |_order|
+        numbers = "WITH RECURSIVE numbers (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 50) " \
+                  "SELECT a.n FROM numbers AS a, numbers AS b"
+        count   = 0
+        IOStreams.stream(hasty.from("(#{numbers}) AS orders").select("n, REPEAT('x', 10000) AS wide")).each(:hash) do |_row|
           sleep(2.5) if count == 1
           count += 1
         end
 
-        assert_equal 20_003, count
-      ensure
-        execute("SET SESSION cte_max_recursion_depth = DEFAULT")
+        assert_equal 2_500, count
       end
 
       it "reads the query on a connection of its own, so that the block queries the database on that of the caller" do
