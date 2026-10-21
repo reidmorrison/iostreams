@@ -1288,7 +1288,8 @@ class StreamTest < Minitest::Test
             {name: :name, type: "string", width: 4, start: 4},
             {name: :pay, type: "number", width: 6, floatNumber: true, decimals: 2}
           ],
-          fieldsMatch: "subset"
+          fieldsMatch: "subset",
+          keyType:     "symbol"
         }
 
         assert_equal expected, stream.schema
@@ -2126,6 +2127,54 @@ class StreamTest < Minitest::Test
         it "matches the field named as the column once cleansed, which drops the characters that Unicode makes digits" do
           assert_equal [{"area_m" => "12", "score" => "3"}], read("Area (m²),Score ①\n12,3\n", schema: {fields: [{name: "area_m"}, {name: "score"}]})
           assert_equal "Area (m²)\n12\n", write([{"area_m" => 12}], schema: {fields: [{name: "Area (m²)"}]})
+        end
+      end
+
+      describe "keyType" do
+        let(:readable) { {fields: [{name: "First Name"}, {name: "Zip", type: "integer"}]} }
+
+        let(:csv) { "First Name,Zip\nJack,12345\n" }
+
+        it "forms the keys of the records read from the names of the fields" do
+          assert_equal [{"First Name" => "Jack", "Zip" => 12_345}], read(csv, schema: readable.merge(keyType: "string"))
+          assert_equal [{"first_name" => "Jack", "zip" => 12_345}], read(csv, schema: readable.merge(keyType: "cleansed"))
+          assert_equal [{"First Name": "Jack", Zip: 12_345}], read(csv, schema: readable.merge(keyType: "symbol"))
+          assert_equal [{first_name: "Jack", zip: 12_345}], read(csv, schema: readable.merge(keyType: "cleansedSymbol"))
+        end
+
+        it "forms the keys of JSON records the same way" do
+          assert_equal [{first_name: "Jack", zip: 12_345}],
+                       read(%({"First Name":"Jack","Zip":12345}\n), file_name: "people.json", schema: readable.merge(keyType: "cleansedSymbol"))
+        end
+
+        it "makes String names Symbols, so that a schema held as JSON reads Symbol keys" do
+          schema = JSON.parse(JSON.generate(fields: [{name: :id, type: "integer"}, {name: :name}], keyType: "symbol"))
+
+          assert_equal [{id: 1, name: "Jack"}], read("id,name\n1,Jack\n", schema: schema)
+        end
+
+        it "makes Symbol names Strings" do
+          assert_equal [{"id" => 1}], read("id\n1\n", schema: {fields: [{name: :id, type: "integer"}], keyType: "string"})
+        end
+
+        it "yields the keys as the header row of the rows read" do
+          rows = read(csv, :array, schema: readable.merge(keyType: "cleansedSymbol"))
+
+          assert_equal [%i[first_name zip], ["Jack", 12_345]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "writes the names of the fields as the header row, from records keyed as the records read" do
+          schema = readable.merge(keyType: "cleansedSymbol")
+
+          assert_equal csv, write([{first_name: "Jack", zip: 12_345}], schema: schema)
+          assert_equal csv, write(read(csv, schema: schema), schema: schema)
+          assert_equal csv, write(read(csv, :array, schema: schema), :array, schema: schema)
+        end
+
+        it "writes JSON keyed by the names of the fields" do
+          assert_equal %({"First Name":"Jack","Zip":12345}\n),
+                       write([{first_name: "Jack", zip: 12_345}], file_name: "people.json", schema: readable.merge(keyType: "cleansedSymbol"))
         end
       end
 

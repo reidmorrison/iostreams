@@ -41,7 +41,9 @@ module IOStreams
         # which is deprecated, so that the schema reads and writes the file instead, see `IOStreams::Schema`.
         #
         # Its `fieldsMatch` is "subset", so that writing skips the keys of a record that the layout does not have, as a
-        # layout always did. A line that is read always has every field.
+        # layout always did. A line that is read always has every field. When every key of the layout is a Symbol, its
+        # `keyType` is "symbol", so that the records read have the same keys once the schema is held as JSON, or in a
+        # database such as MongoDB, whose names are Strings, see `IOStreams::Schema`.
         #
         # Parameters:
         #   layout: [Array<Hash>]
@@ -90,6 +92,7 @@ module IOStreams
           schema = {fields: fields.compact, fieldsMatch: "subset"}
           # A filler at the end of the line gives the width of the line.
           schema[:width] = last == -1 ? "remainder" : position - 1 if last && fields.last.nil?
+          schema[:keyType] = "symbol" if symbol_keys?(schema[:fields])
           schema
         end
 
@@ -154,6 +157,12 @@ module IOStreams
         # Raises `IOStreams::Errors::InvalidLayout` when another column of the layout has the same key as text, see
         # .schema, since the key of each column is its key in each record, and the name of its field. Adds the key to
         # the keys of the columns before it, by their text.
+        # Returns [true|false] whether every key of the layout is a Symbol, so that its schema keeps them Symbols once it
+        # is held as JSON, whose names are Strings, see .schema.
+        def self.symbol_keys?(fields)
+          !fields.empty? && fields.all? { |field| field[:name].is_a?(Symbol) }
+        end
+
         def self.check_key(key, keys)
           other = keys[key.to_s]
           keys[key.to_s] = key
@@ -169,7 +178,7 @@ module IOStreams
                                        "column without a key is a filler, which is skipped when reading and written as " \
                                        "spaces, so remove the key of a filler.")
         end
-        private_class_method :layout_properties, :layout_field, :layout_column, :layout_decimals, :check_key
+        private_class_method :layout_properties, :layout_field, :layout_column, :layout_decimals, :symbol_keys?, :check_key
 
         # Returns [Integer] the length of every line, or -1 when a line can be any length, after a field or a schema
         # width of "remainder", or 0 when there are no fields.

@@ -1856,7 +1856,8 @@ class TabularTest < Minitest::Test
             {name: :age, type: "integer", width: 8},
             {name: :weight, type: "number", width: 10, floatNumber: true, decimals: 2}
           ],
-          fieldsMatch: "subset"
+          fieldsMatch: "subset",
+          keyType:     "symbol"
         }
 
         assert_equal expected, IOStreams::Tabular::Parser::Fixed.schema(layout: layout)
@@ -1866,7 +1867,7 @@ class TabularTest < Minitest::Test
         assert_equal({fields: [{name: "rest", type: "string", width: "remainder"}], fieldsMatch: "subset"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: "rest"}], truncate: false))
         # A float that takes the remainder of the line was written with all of its digits, whatever its decimals.
-        assert_equal({fields: [{name: :pay, type: "number", width: "remainder", floatNumber: true}], fieldsMatch: "subset"},
+        assert_equal({fields: [{name: :pay, type: "number", width: "remainder", floatNumber: true}], fieldsMatch: "subset", keyType: "symbol"},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: :remainder, key: :pay, type: :float, decimals: -1}]))
         assert_equal({fields: [{name: "id", type: "string", width: 2}], fieldsMatch: "subset", width: 5},
                      IOStreams::Tabular::Parser::Fixed.schema(layout: [{size: 2, key: "id"}, {size: 3}], truncate: false))

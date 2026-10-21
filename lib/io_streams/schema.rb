@@ -45,6 +45,19 @@ module IOStreams
   #     "remainder" accepts lines of any length, ignoring what follows the last field.
   #     Default: the end of the last field.
   #
+  #   keyType: [String]
+  #     How the key of each field in the records read is formed from its name, which IOStreams adds to the properties
+  #     of Frictionless, see #key_for:
+  #       "string":         the name as a String, such as "zip" for the name :zip.
+  #       "cleansed":       the name once cleansed as `cleanse_header` cleanses a header row, see .cleansed, such as
+  #                         "first_name" for the name "First Name".
+  #       "symbol":         the name as a Symbol, such as :zip for the name "zip", so that a schema held as JSON, whose
+  #                         names are Strings, reads the Symbol keys of a layout, see .from_layout.
+  #       "cleansedSymbol": the cleansed name as a Symbol, such as :first_name for the name "First Name".
+  #     The names of the fields are still the columns of the header row written, and the keys of the records written
+  #     can be the keys that it forms, as well as the names, see #field_for.
+  #     Default: the names as they are given, a String or a Symbol.
+  #
   # Properties that only describe the schema to people, `$schema`, `title` and `description`, are accepted and have
   # no effect, as are the properties of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other
   # property raises `ArgumentError`, including those of Frictionless that IOStreams does not support yet, such as
@@ -54,10 +67,11 @@ module IOStreams
     autoload :Constraints, "io_streams/schema/constraints"
     autoload :Field,       "io_streams/schema/field"
     autoload :JsonNumber,  "io_streams/schema/json_number"
+    autoload :Keys,        "io_streams/schema/keys"
     autoload :Source,      "io_streams/schema/source"
 
     # The properties of a schema that IOStreams supports.
-    PROPERTIES = %w[fields fieldsMatch header width].freeze
+    PROPERTIES = %w[fields fieldsMatch header width keyType].freeze
 
     # The properties of a schema that only describe it to people.
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
@@ -174,6 +188,7 @@ module IOStreams
       @header       = check_header(descriptor["header"])
       @fields_match = check_fields_match(descriptor["fieldsMatch"])
       @width        = check_width(descriptor["width"])
+      @keys         = Keys.new(descriptor["keyType"], @fields)
       @named        = build_named
       @loose        = build_loose { |name| self.class.match_key(name) }
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
@@ -192,6 +207,23 @@ module IOStreams
       @header
     end
 
+    # Returns [String|nil] how the keys of the records read are formed from the names of the fields, see `keyType`
+    # above, or nil when they are the names as they are given.
+    def key_type
+      @keys.type
+    end
+
+    # Returns [String|Symbol] the key in the records read of the field or column with the supplied name, formed as
+    # `keyType` says, see `IOStreams::Schema::Keys#key_for`.
+    def key_for(name)
+      @keys.key_for(name)
+    end
+
+    # Returns [String|Symbol] the key of the field in the records read, see #key_for.
+    def key(field)
+      @keys[field]
+    end
+
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
     # writer holds while it reads or writes the file.
     def columns
@@ -199,7 +231,8 @@ module IOStreams
     end
 
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:
-    # the field whose name or alias it is, whether it is a String or a Symbol, otherwise the field whose name or alias
+    # the field whose name, alias or key, see #key, it is, whether it is a String or a Symbol, so that a record written
+    # with the keys of the records read is written, otherwise the field whose name or alias
     # is the same once both are compared loosely, see .match_key, so that the field `first_name` is the column
     # `First Name`, and the field `E-mail` is the key `email`, otherwise the field whose name or alias is the same once
     # both are cleansed, see .cleansed, and then compared loosely. Cleansing drops the characters that Unicode makes
@@ -466,24 +499,30 @@ module IOStreams
       fields
     end
 
-    # Returns [Hash<String, IOStreams::Schema::Field>] the field of each name and alias.
+    # Returns [Hash<String, IOStreams::Schema::Field>] the field of each name, alias and key, see #key, as text.
     #
-    # Raises ArgumentError for an alias that is the name or alias of another field, since a column of that name could
-    # be either field.
+    # Raises ArgumentError for an alias or key that is the name or alias of another field, since a column of that name
+    # could be either field.
     def build_named
       named = @fields.to_h { |field| [field.name.to_s, field] }
       @fields.each do |field|
-        field.aliases.each do |name|
-          other = named[name]
-          if other && !other.equal?(field)
-            raise(ArgumentError, "Field #{field.name.inspect}: the alias #{name.inspect} is already the name or an alias " \
-                                 "of the field #{other.name.inspect}")
-          end
+        field.aliases.each { |name| add_named(named, name, field, "the alias #{name.inspect}") }
+        next unless key_type
 
-          named[name] = field
-        end
+        name = key(field).to_s
+        add_named(named, name, field, "its key #{name.inspect}, which keyType #{key_type.inspect} forms,")
       end
       named
+    end
+
+    def add_named(named, name, field, what)
+      other = named[name]
+      if other && !other.equal?(field)
+        raise(ArgumentError, "Field #{field.name.inspect}: #{what} is already the name or an alias of the field " \
+                             "#{other.name.inspect}")
+      end
+
+      named[name] = field
     end
 
     # Returns [Hash<String, Array<IOStreams::Schema::Field>>] the fields whose names or aliases are the same when compared

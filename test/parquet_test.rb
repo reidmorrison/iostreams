@@ -614,6 +614,13 @@ class ParquetTest < Minitest::Test
       end
     end
 
+    it "forms the keys of the records read as keyType says, and writes the names of the fields" do
+      write(path.schema(schema.merge(keyType: "symbol")), records.map { |record| record.transform_keys(&:to_sym) })
+
+      assert_equal(expected.map { |record| record.transform_keys(&:to_sym) }, read(path.schema(schema.merge(keyType: "symbol"))))
+      assert_equal expected, read
+    end
+
     describe "a schema that skips the columns that it does not list" do
       # Returns [Array] the columns that each read asks the gem for, and the records read.
       def read_columns(source)
