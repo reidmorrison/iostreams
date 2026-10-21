@@ -488,6 +488,7 @@ class PostgresqlCursorTest < Minitest::Test
             QueryDatabase::PostgreSQL.const_set(:PgDecorated, Class.new(db.record) do
               self.table_name = "pg_decorated"
               normalizes :labels, with: ->(labels) { labels.map(&:strip) }
+              normalizes :address, with: ->(address) { address }
             end)
           end
           QueryDatabase::PostgreSQL::PgDecorated
@@ -495,10 +496,15 @@ class PostgresqlCursorTest < Minitest::Test
 
         before do
           execute("DROP TABLE IF EXISTS pg_decorated")
-          execute("CREATE TABLE pg_decorated (id bigserial PRIMARY KEY, reminders timestamp[], labels text[])")
           execute(<<~SQL)
-            INSERT INTO pg_decorated (reminders, labels)
-            VALUES ('{"2026-10-20 12:30:00","2026-10-21 08:00:00"}', '{"a ","b"}')
+            CREATE TABLE pg_decorated (
+              id bigserial PRIMARY KEY, reminders timestamp[], labels text[], hosts inet[], networks cidr[], address inet
+            )
+          SQL
+          execute(<<~SQL)
+            INSERT INTO pg_decorated (reminders, labels, hosts, networks, address)
+            VALUES ('{"2026-10-20 12:30:00","2026-10-21 08:00:00"}', '{"a ","b"}', '{10.0.0.0/8,192.168.1.5/24}',
+                    '{10.0.0.0/8,192.168.1.0/24}', '192.168.1.5/24')
           SQL
           model.reset_column_information
         end
@@ -515,6 +521,24 @@ class PostgresqlCursorTest < Minitest::Test
           assert_equal [ActiveSupport::TimeWithZone], record["reminders"].map(&:class).uniq
           assert_equal Time.utc(2026, 10, 20, 12, 30), record["reminders"].first
           assert_equal ["a ", "b"], record["labels"]
+        end
+
+        it "reads an array of addresses, and one that is normalized, as the text that PostgreSQL returns, with its host" do
+          relation = model.select(:hosts, :networks, :address)
+          record   = each(IOStreams.stream(relation)).first
+
+          assert_equal [{name: "hosts", type: "array"}, {name: "networks", type: "array"}, {name: "address", type: "string"}],
+                       IOStreams.stream(relation).schema[:fields]
+          assert_equal({"hosts" => %w[10.0.0.0/8 192.168.1.5/24], "networks" => %w[10.0.0.0/8 192.168.1.0/24],
+                        "address" => "192.168.1.5/24"}, record)
+
+          csv = StringIO.new
+          IOStreams.stream(csv).format(:csv).copy_from(relation, mode: :hash)
+
+          assert_equal <<~CSV, csv.string
+            hosts,networks,address
+            "[""10.0.0.0/8"",""192.168.1.5/24""]","[""10.0.0.0/8"",""192.168.1.0/24""]",192.168.1.5/24
+          CSV
         end
 
         it "copies an array of times in the time zone of the application, or one that is normalized, to CSV and JSON" do

@@ -31,8 +31,9 @@ module IOStreams
       #   types: [Array<ActiveModel::Type::Value>]
       #     The Active Record type of each column, which casts its raw values, as `pluck` chooses it, see
       #     `IOStreams::Query::CastTypes`. A PostgreSQL `inet` or `cidr` address is cast as the text that PostgreSQL
-      #     returns instead, such as "10.0.0.0/8", since its type casts an IPAddr, whose text drops the prefix, and which
-      #     drops the host of an address with one.
+      #     returns instead, such as "10.0.0.0/8", also within decorators, and an array of them as an array of that text,
+      #     since its type casts an IPAddr, whose text drops the prefix, and which drops the host of an address with one,
+      #     see #cast_type.
       #
       #   not_null: [Array<true|false>]
       #     Whether each column is never null, such as a column of the table of the model with `NOT NULL`.
@@ -52,7 +53,7 @@ module IOStreams
         end
 
         @names            = names.map(&:-@).freeze
-        @types            = types.map { |type| postgresql_address?(type) ? TEXT : type }.freeze
+        @types            = types.map { |type| cast_type(type) }.freeze
         @not_null         = not_null.dup.freeze
         @requirable_types = (requirable_types - EMPTY_TEXT_TYPES).freeze
         freeze
@@ -126,6 +127,26 @@ module IOStreams
       # such as Parquet, could not hold, while a number holds them in any format, as a BigDecimal.
       def integer_properties(type)
         type.precision && type.precision > INTEGER_DIGITS ? {type: "number", decimals: 0} : {type: "integer"}
+      end
+
+      # Returns [ActiveModel::Type::Value] the type that casts the raw values of a column of the supplied type: the type
+      # itself, apart from a PostgreSQL address, `inet` or `cidr`, within the decorators of the type, if any, see
+      # #undecorated, which is cast as the text that PostgreSQL returns instead, see TEXT, such as "192.168.1.5/24", and
+      # an array of addresses, which is cast as an array of that text. The type of an address casts an IPAddr, whose text
+      # drops the prefix, and the host of an address with both, such as 192.168.1.0 for 192.168.1.5/24. The decorators
+      # of an address, such as that of `normalizes`, only change the values that are written, not those that are read.
+      def cast_type(type)
+        inner = undecorated(type)
+        return TEXT if postgresql_address?(inner)
+        return text_array(inner) if postgresql_array?(inner) && postgresql_address?(inner.subtype)
+
+        type
+      end
+
+      # Returns [ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Array] a PostgreSQL array with the delimiter of the
+      # supplied one, whose elements are cast as the text that PostgreSQL returns, see TEXT and #cast_type.
+      def text_array(array)
+        ::ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Array.new(TEXT, array.delimiter)
       end
 
       # Returns [true|false] whether the type is a PostgreSQL address, `inet` or `cidr`, which casts an IPAddr.
