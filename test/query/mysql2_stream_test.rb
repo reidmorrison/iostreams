@@ -39,6 +39,28 @@ class Mysql2StreamTest < Minitest::Test
         user
       end
 
+      # Returns [Array] each account that MySQL does not let connect: its role, the options of CREATE USER that make it
+      # so, the password that it connects with, and the number of the error that the server refuses it with.
+      def refused_accounts
+        [
+          ["locked", "ACCOUNT LOCK", "locked", 3118],
+          ["expired", "PASSWORD EXPIRE", "expired", 1862],
+          # Blocked by its first failed login, which the server refuses with this error too.
+          ["blocked", "FAILED_LOGIN_ATTEMPTS 1 PASSWORD_LOCK_TIME 1", "wrong", 3955]
+        ]
+      end
+
+      # Returns [Class] a model of the orders table on a connection as a user who may read the orders, but not run the
+      # function iostreams_double, which the database has, with the driver of the supplied scheme.
+      def orders_without_execute(scheme)
+        execute("DROP FUNCTION IF EXISTS iostreams_double")
+        execute("CREATE FUNCTION iostreams_double(amount DECIMAL(10, 2)) RETURNS DECIMAL(10, 2) DETERMINISTIC " \
+                "RETURN amount * 2")
+        reader = create_user("reader")
+        execute("GRANT SELECT ON orders TO '#{reader}'@'%'")
+        db.orders_at("#{scheme.capitalize}Runner", scheme: scheme, user: reader, password: "reader")
+      end
+
       # Returns [String] the net_write_timeout of the session of the supplied id, which another connection reads, since
       # the connection that reads a query cannot run a query while it streams a result.
       def net_write_timeout(connection_id)
@@ -158,6 +180,27 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal 1044, error.cause.error_number
       end
 
+      it "tags an account that MySQL does not let connect as PermissionDenied, such as one that is locked" do
+        refused_accounts.each do |role, options, password, number|
+          user   = create_user(role, options)
+          orders = db.orders_at("Refused#{role.capitalize}", user: user, password: password)
+          error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+
+          assert_kind_of IOStreams::Errors::PermissionDenied, error, role
+          assert_equal number, error.cause.error_number, role
+        end
+      end
+
+      it "tags a function that the user may not run as PermissionDenied" do
+        orders = orders_without_execute("mysql2")
+        error  = assert_raises(ActiveRecord::StatementInvalid) do
+          each(IOStreams.stream(orders.select("iostreams_double(amount) AS doubled")))
+        end
+
+        assert_kind_of IOStreams::Errors::PermissionDenied, error
+        assert_equal 1370, error.cause.error_number
+      end
+
       it "does not tag a host that does not resolve" do
         orders = db.orders_at("Unknown", host: "iostreams-no-such-host.invalid")
         error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
@@ -202,6 +245,27 @@ class Mysql2StreamTest < Minitest::Test
 
           assert_kind_of IOStreams::Errors::PermissionDenied, error
           assert_equal 1044, error.cause.error_code
+        end
+
+        it "tags an account that MySQL does not let connect as PermissionDenied, such as one that is locked" do
+          refused_accounts.each do |role, options, password, number|
+            user   = create_user(role, options)
+            orders = db.orders_at("TrilogyRefused#{role.capitalize}", scheme: "trilogy", user: user, password: password)
+            error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+
+            assert_kind_of IOStreams::Errors::PermissionDenied, error, role
+            assert_equal number, error.cause.error_code, role
+          end
+        end
+
+        it "tags a function that the user may not run as PermissionDenied" do
+          orders = orders_without_execute("trilogy")
+          error  = assert_raises(ActiveRecord::StatementInvalid) do
+            each(IOStreams.stream(orders.select("iostreams_double(amount) AS doubled")))
+          end
+
+          assert_kind_of IOStreams::Errors::PermissionDenied, error
+          assert_equal 1370, error.cause.error_code
         end
       end
     end

@@ -7,15 +7,23 @@ module IOStreams
     # `IOStreams::Query::TrilogyFailure`. The numbers are those of the MySQL server, such as ER_ACCESS_DENIED_ERROR,
     # 1045, and of its client library, such as CR_SERVER_LOST, 2013, which mysql2 raises.
     module MysqlFailure
-      # The kind of failure of each error number of MySQL that is one: an access that MySQL denies, or a server that
-      # could not be reached, lost the connection, or could not run the query at the time. A host that does not resolve,
-      # CR_UNKNOWN_HOST, 2005, is none of them, as for a path, see `IOStreams::Errors::Unavailable.unknown_host?`.
+      # The kind of failure of each error number of MySQL that is one: an access that MySQL denies, including an
+      # account that it does not let connect, such as one that is locked, which a retry does not change, or a server
+      # that could not be reached, lost the connection, or could not run the query at the time. A host that does not
+      # resolve, CR_UNKNOWN_HOST, 2005, is none of them, as for a path, see `IOStreams::Errors::Unavailable.unknown_host?`.
       NUMBER_KINDS = {
         1044 => Errors::PermissionDenied, # ER_DBACCESS_DENIED_ERROR
         1045 => Errors::PermissionDenied, # ER_ACCESS_DENIED_ERROR
+        1130 => Errors::PermissionDenied, # ER_HOST_NOT_PRIVILEGED, a client host that no account allows
         1142 => Errors::PermissionDenied, # ER_TABLEACCESS_DENIED_ERROR
         1143 => Errors::PermissionDenied, # ER_COLUMNACCESS_DENIED_ERROR
         1227 => Errors::PermissionDenied, # ER_SPECIFIC_ACCESS_DENIED_ERROR
+        1370 => Errors::PermissionDenied, # ER_PROCACCESS_DENIED_ERROR, a function that the user may not run
+        1698 => Errors::PermissionDenied, # ER_ACCESS_DENIED_NO_PASSWORD_ERROR
+        1820 => Errors::PermissionDenied, # ER_MUST_CHANGE_PASSWORD, an expired password, once connected
+        1862 => Errors::PermissionDenied, # ER_MUST_CHANGE_PASSWORD_LOGIN, an expired password
+        3118 => Errors::PermissionDenied, # ER_ACCOUNT_HAS_BEEN_LOCKED
+        3955 => Errors::PermissionDenied, # ER_USER_ACCESS_DENIED_FOR_USER_ACCOUNT_BLOCKED_BY_PASSWORD_LOCK, failed logins
         1040 => Errors::Unavailable,      # ER_CON_COUNT_ERROR, too many connections
         1053 => Errors::Unavailable,      # ER_SERVER_SHUTDOWN
         1205 => Errors::Unavailable,      # ER_LOCK_WAIT_TIMEOUT

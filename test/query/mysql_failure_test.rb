@@ -10,7 +10,13 @@ class MysqlFailureTest < Minitest::Test
     end
 
     it "tags an access that MySQL denies as PermissionDenied" do
-      [1044, 1045, 1142, 1143, 1227].each do |number|
+      [1044, 1045, 1142, 1143, 1227, 1370].each do |number|
+        assert_equal IOStreams::Errors::PermissionDenied, kind(number), number
+      end
+    end
+
+    it "tags an account that MySQL does not let connect as PermissionDenied, such as one that is locked" do
+      [1130, 1698, 1820, 1862, 3118, 3955].each do |number|
         assert_equal IOStreams::Errors::PermissionDenied, kind(number), number
       end
     end
