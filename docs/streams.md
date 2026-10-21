@@ -144,9 +144,6 @@ holds the rows as they are in the file.
   row, `nil`.
 * A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
 * The header row of every slice is the same frozen Array, so change a copy of it.
-* The column options, such as `columns:` and `allowed_columns:`, raise `ArgumentError` unless they are nil, as they do
-  with a schema, since the header row that they would change is read again where each slice is parsed: describe the
-  columns with a schema instead. So does `cleanse_header:`.
 * A `size` that is not a positive Integer, or a `validate` that is not true or false, raises `ArgumentError` before the
   file is opened.
 * `#reader(:slice, size: 100)` yields the reader, whose `#header` is the header row once it has been read, also for a
@@ -406,10 +403,10 @@ IOStreams checks where each setting is supplied:
 * An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
   `#writer`, rather than being ignored.
 * Any other option that the mode does not take, such as a misspelled `delimitr:`, raises `ArgumentError` before the
-  file is opened, naming the mode and listing the options that it takes, other than those that are deprecated:
+  file is opened, naming the mode and listing the options that it takes:
 
   ~~~
-  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size.
+  ArgumentError: Unknown option :delimitr for the :hash mode. Valid options: :delimiter, :buffer_size, :skip_blanks.
   ~~~
 * `#copy_from` and `#copy_to` use their options to write the target, so an option that only applies when reading
   raises `ArgumentError` for them too. The copy reads the source with the settings of the source path, so set what

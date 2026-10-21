@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
-require "logger"
 
 class RowReaderTest < Minitest::Test
   describe IOStreams::Row::Reader do
@@ -100,16 +99,6 @@ class RowReaderTest < Minitest::Test
 
           assert_equal "name,zip\nJack,12345\n", output.string
         end
-
-        it "copies the rows into a file whose columns are supplied, which name them instead of the fields, as before" do
-          source = IOStreams.stream(StringIO.new("Jack12345\n")).format(:fixed).schema(fixed)
-          output = StringIO.new
-          assert_deprecated(/describe the columns of the file with #schema instead/) do
-            IOStreams.stream(output).format(:csv).copy_from(source, mode: :array, columns: %w[who where])
-          end
-
-          assert_equal "who,where\nJack,12345\n", output.string
-        end
       end
 
       it "makes a row of values from a header row with the methods of an Array that return a new one" do
@@ -127,9 +116,6 @@ class RowReaderTest < Minitest::Test
         assert IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).reader(:array, &:header?)
         assert IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).schema(fields: [{name: "name"}]).reader(:array, &:header?)
         assert IOStreams.stream(StringIO.new("Jack\n")).schema(header: false, fields: [{name: "name"}]).reader(:array, &:header?)
-        refute(assert_deprecated(/describe the columns of the file with #schema instead/) do
-          IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).format(:json).reader(:array, columns: %w[name], &:header?)
-        end)
       end
     end
 
@@ -186,118 +172,6 @@ class RowReaderTest < Minitest::Test
 
         assert_equal %w[name Jack Jill], IOStreams.stream(StringIO.new(csv)).reader(:array) { |io| io.collect(&:first) }
         assert_equal [%w[name zip], %w[Jack 12345]], IOStreams.stream(StringIO.new(csv)).reader(:array) { |io| io.first(2) }
-      end
-    end
-
-    describe "allowed and required columns" do
-      allow_deprecation(/describe the columns of the file with #schema instead/)
-
-      let(:csv) { "Name,Secret\nJack,x\n" }
-
-      def read_rows(**args)
-        rows = []
-        IOStreams.stream(StringIO.new(csv)).each(:array, **args) { |row| rows << row }
-        rows
-      end
-
-      it "applies required columns to the header row" do
-        assert_raises(IOStreams::Errors::InvalidHeader) { read_rows(required_columns: ["missing"]) }
-      end
-
-      it "applies required columns to the header row when cleanse_header is false" do
-        assert_raises(IOStreams::Errors::InvalidHeader) { read_rows(required_columns: ["missing"], cleanse_header: false) }
-      end
-
-      it "compares the header row as-is when cleanse_header is false" do
-        rows = read_rows(required_columns: ["Name"], cleanse_header: false)
-
-        assert_equal [%w[Name Secret], %w[Jack x]], rows
-      end
-
-      it "applies allowed columns to supplied columns" do
-        assert_raises(IOStreams::Errors::InvalidHeader) do
-          read_rows(columns: %w[name secret], allowed_columns: ["name"], skip_unknown: false)
-        end
-      end
-
-      it "applies required columns to supplied columns" do
-        assert_raises(IOStreams::Errors::InvalidHeader) do
-          read_rows(columns: %w[name secret], required_columns: ["missing"])
-        end
-      end
-
-      it "yields the header row as read" do
-        rows = read_rows(allowed_columns: ["name"])
-
-        assert_equal [%w[Name Secret], %w[Jack x]], rows
-      end
-
-      # Returns [Array] the rows read from the JSON text.
-      def read_json_rows(json, **args)
-        rows = []
-        IOStreams.stream(StringIO.new(json)).format(:json).each(:array, **args) { |row| rows << row }
-        rows
-      end
-
-      it "applies them to the keys of the first record of JSON, which the header row holds as they are, as each row holds every value" do
-        json = %({"Name":"Jack","Secret":"x"}\n)
-
-        assert_equal [%w[Name Secret], %w[Jack x]], read_json_rows(json, allowed_columns: ["name"])
-        assert_equal [%w[Name Secret], %w[Jack x]], read_json_rows(json, required_columns: ["Name"], cleanse_header: false)
-        assert_raises(IOStreams::Errors::InvalidHeader) { read_json_rows(json, allowed_columns: ["name"], skip_unknown: false) }
-        assert_raises(IOStreams::Errors::InvalidHeader) { read_json_rows(json, required_columns: ["missing"]) }
-      end
-
-      it "reads the values of the columns supplied from the keys of JSON, or the keys that are the same once cleansed, without a header row" do
-        assert_equal [%w[Jack x]], read_json_rows(%({"name":"Jack","Secret":"x","admin":true}\n), columns: %w[Name secret])
-        assert_equal [["Jack", nil]], read_json_rows(%({"name":"Jack"}\n), columns: %w[name secret], allowed_columns: %w[name])
-      end
-
-      describe "when enforce_column_restrictions is false" do
-        allow_deprecation(/enforce_column_restrictions= is deprecated/)
-
-        # Returns [Array] the rows read, and the warnings logged.
-        def read_with_warnings(**args)
-          output   = StringIO.new
-          original = IOStreams.logger
-          IOStreams.logger = Logger.new(output, level: :warn)
-          rows = read_rows(**args)
-          [rows, output.string.lines.grep(/enforce_column_restrictions/).size]
-        ensure
-          IOStreams.logger = original
-        end
-
-        before do
-          IOStreams.enforce_column_restrictions = false
-        end
-
-        after do
-          IOStreams.enforce_column_restrictions = true
-        end
-
-        it "still applies required columns to the header row by default" do
-          assert_raises(IOStreams::Errors::InvalidHeader) { read_rows(required_columns: ["missing"]) }
-        end
-
-        it "warns instead of applying them with cleanse_header: false" do
-          rows, warnings = read_with_warnings(required_columns: ["missing"], cleanse_header: false)
-
-          assert_equal [%w[Name Secret], %w[Jack x]], rows
-          assert_equal 1, warnings
-        end
-
-        it "warns instead of applying them to supplied columns" do
-          rows, warnings = read_with_warnings(columns: %w[name secret], allowed_columns: ["name"], skip_unknown: false)
-
-          assert_equal [%w[Name Secret], %w[Jack x]], rows
-          assert_equal 1, warnings
-        end
-
-        it "does not warn when they would not change the columns" do
-          _rows, warnings = read_with_warnings(columns: %w[name secret], allowed_columns: %w[name secret])
-
-          assert_equal 0, warnings
-        end
       end
     end
 

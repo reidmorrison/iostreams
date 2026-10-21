@@ -11,11 +11,6 @@ module IOStreams
         %i[delimiter]
       end
 
-      # Returns [Array<Symbol>] the options of .option_names that are deprecated: none.
-      def self.deprecated_option_names
-        []
-      end
-
       # Write a line at a time to a stream.
       def self.stream(output_stream, **)
         yield new(output_stream, **)

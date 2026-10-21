@@ -147,8 +147,8 @@ class SliceStreamTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(slice).schema(schema)) }
       end
 
-      it "takes the options of the call, such as the column options" do
-        assert_equal people, each(IOStreams.stream(slice).schema(schema), :hash, columns: nil)
+      it "takes the options of the call, such as skip_blanks" do
+        assert_equal people, each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true)
       end
 
       it "reads the rows in slices again" do

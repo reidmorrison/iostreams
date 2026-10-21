@@ -9,10 +9,8 @@ module IOStreams
     # order, see `IOStreams::Schema#header?`, including those of a format whose records supply their own keys, whose rows
     # are the values of every field of each record.
     #
-    # The column options of a file without a schema do not apply, since the schema describes the columns, see
-    # `IOStreams::Tabular.new`. The header keeps the header row as it was read, so that another Tabular with the same
-    # schema, such as one that reads the rest of the file elsewhere, matches the same columns with
-    # `read_header(header.columns)`.
+    # The header keeps the header row as it was read, so that another Tabular with the same schema, such as one that
+    # reads the rest of the file elsewhere, matches the same columns with `read_header(header.columns)`.
     class SchemaMapping < Mapping
       # Parameters:
       #   schema: [IOStreams::Schema]
@@ -89,11 +87,6 @@ module IOStreams
         @columns.names if @columns.matched? && !@requires_header
       end
 
-      # Returns [false] the schema gives the columns, which cannot be supplied with it.
-      def columns_supplied?
-        false
-      end
-
       # Returns [false] the schema gives the columns of the rows and records written.
       def columns_from_first_row?
         false
@@ -135,16 +128,7 @@ module IOStreams
       #
       # Returns [Array<String|Symbol>] the names of the fields of its columns, in the order of the fields.
       # Returns nil when the line is blank, or the file has no header row.
-      #
-      # Raises ArgumentError for `cleanse`, other than nil or the default of `IOStreams::Tabular#read_header`, which leave
-      # the header row as it is, since the keys of the records are the names of the fields, which its columns are matched to
-      # instead.
-      def read_header(line, cleanse: nil)
-        unless cleanse.nil? || cleanse.equal?(CLEANSE_BY_DEFAULT)
-          raise(ArgumentError, "cleanse: cannot be supplied with a schema, since the keys of its records are the names of " \
-                               "its fields, which the columns of the header row are matched to")
-        end
-
+      def read_header(line)
         match_header(line)&.last
       end
 
@@ -172,11 +156,6 @@ module IOStreams
         @columns.names
       end
 
-      # Returns nil: no column options apply, since the schema describes the columns instead.
-      def restrict_columns
-        nil
-      end
-
       # Returns [Array] the values of the fields of the line, converted to their types, in the order of the fields: of
       # its columns, or, for a format whose records supply their own keys, such as JSON, of every field, nil for a key
       # that its record does not have, see `IOStreams::Schema::Columns#read_row`.
@@ -196,12 +175,6 @@ module IOStreams
         return if values.nil?
 
         values.is_a?(::Hash) ? @columns.read_hash(values) : @columns.record(values)
-      end
-
-      # Returns [Hash] the record of the line, see #record_parse, to which no column options apply, see
-      # #restrict_columns.
-      def read_record(line)
-        record_parse(line)
       end
 
       # Returns [String|Array|Hash] the line that the parser renders for the row or record, with the value of each field

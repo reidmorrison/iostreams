@@ -128,8 +128,8 @@ module IOStreams
       #     The schema of the rows when none is set, which the source of the rows describes, such as that of the columns
       #     of a database query, see `IOStreams::Query::Stream`.
       #
-      #   The other options are those of the call that reads or writes the rows, such as `columns:`, see
-      #   `IOStreams::Tabular.new`.
+      #   The other options are those that the source of the rows supplies, see
+      #   `IOStreams::Tabular::SOURCE_OPTION_NAMES`.
       def tabular(file_name:, text_format:, default_schema: nil, **)
         format = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}

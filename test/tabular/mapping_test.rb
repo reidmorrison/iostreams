@@ -8,8 +8,9 @@ module Tabular
     describe IOStreams::Tabular::Mapping do
       let(:schema) { IOStreams::Schema.new(fields: [{name: "id", type: "integer"}, {name: "pay", type: "number", decimals: 2}]) }
 
-      def header(**)
-        IOStreams::Tabular::Header.new(**)
+      # Returns [IOStreams::Tabular::Header] whose columns are the supplied columns, once they are known.
+      def header(columns = nil)
+        IOStreams::Tabular::Header.new.tap { |header| header.columns = columns if columns }
       end
 
       def parser(format, schema = nil)
@@ -39,46 +40,29 @@ module Tabular
       end
 
       describe IOStreams::Tabular::HeaderMapping do
-        def mapping(format = :csv, cleanse: true, **)
-          IOStreams::Tabular::HeaderMapping.new(header: header(**), parser: parser(format), format: format, cleanse: cleanse)
+        # Returns [IOStreams::Tabular::HeaderMapping] of the format, whose columns are the supplied columns, once they are
+        # known, as once its header row is read, or the first row written.
+        def mapping(format = :csv, columns: nil)
+          IOStreams::Tabular::HeaderMapping.new(header: header(columns), parser: parser(format), format: format)
         end
 
-        it "reads the header row, which it cleanses and restricts, then the rows and records by its columns" do
-          csv = mapping(allowed_columns: %w[name])
+        it "reads the header row, which it cleanses, then the rows and records by its columns" do
+          csv = mapping
 
           assert_predicate csv, :header?
           assert_equal %w[Name Secret], csv.read_header("Name,Secret")
           refute_predicate csv, :header?
-          assert_equal %w[name __rejected__Secret], csv.header.columns
+          assert_equal %w[name secret], csv.header.columns
           assert_equal %w[Jack x], csv.row_parse("Jack,x")
-          assert_equal({"name" => "Jack"}, csv.record_parse("Jack,x"))
+          assert_equal({"name" => "Jack", "secret" => "x"}, csv.record_parse("Jack,x"))
           refute_predicate csv, :field_names?
           assert_nil csv.headerless_columns
         end
 
-        it "compares the columns of the header row as they are when it does not cleanse them, unless it is told to" do
-          as_is = mapping(cleanse: false, allowed_columns: %w[Name])
-          as_is.read_header("Name,Secret")
-
-          assert_equal %w[Name __rejected__Secret], as_is.header.columns
-
-          told = mapping(cleanse: false, allowed_columns: %w[name])
-          told.read_header("Name,Secret", cleanse: true)
-
-          assert_equal %w[name __rejected__Secret], told.header.columns
-        end
-
-        it "applies the restrictions to the columns supplied, and to the keys of the records of a format without a header row" do
-          supplied = mapping(columns: %w[Name Secret], allowed_columns: %w[name])
-          supplied.restrict_columns
-
-          assert_equal %w[name __rejected__Secret], supplied.header.columns
-          assert_predicate supplied, :columns_supplied?
-
-          json = mapping(:json, allowed_columns: %w[name])
+        it "keeps the keys of the records of a format without a header row as they are" do
+          json = mapping(:json)
 
           refute_predicate json, :header?
-          assert_equal({"name" => "x"}, json.read_record(%({"Name":"x","admin":true})))
           assert_equal({"Name" => "x", "admin" => true}, json.record_parse(%({"Name":"x","admin":true})))
         end
 
@@ -96,11 +80,10 @@ module Tabular
           assert_equal "a,b", csv.render_header(%w[a b])
           refute_predicate csv, :first_row_header?
           refute_predicate csv, :columns_from_first_row?
-          refute_predicate csv, :columns_supplied?
         end
 
         it "arranges each row that it renders by whether the rows of the format are keyed, whether or not it has a header row" do
-          values = IOStreams::Tabular::HeaderMapping.new(header: header(columns: %w[a b]), parser: positional.new, format: :values)
+          values = IOStreams::Tabular::HeaderMapping.new(header: header(%w[a b]), parser: positional.new, format: :values)
 
           refute_predicate values, :requires_header?
           assert_equal [1, 2], values.render({"b" => 2, "A" => 1})
@@ -121,16 +104,6 @@ module Tabular
           assert_nil json.headerless_columns
           error = assert_raises(IOStreams::Errors::InvalidHeader) { json.row_parse(%({"a":1,"c":3})) }
           assert_match(/: the key "c" is not one of them\./, error.message)
-        end
-
-        it "reads the rows of a format of keyed records by the columns supplied, as they are supplied, whatever the restrictions make of them" do
-          json = mapping(:json, columns: %w[Name age], allowed_columns: %w[name])
-          json.restrict_columns
-
-          refute_predicate json, :rows_header?
-          assert_equal %w[name __rejected__age], json.header.columns
-          assert_equal ["Jack", 21], json.row_parse(%({"name":"Jack","age":21,"x":1}))
-          assert_equal({"name" => "Jack"}, json.record_parse(["Jack", 21]))
         end
 
         it "takes the columns of the rows written to a format of keyed records from the first row, which renders no line" do
@@ -195,8 +168,8 @@ module Tabular
         end
 
         it "raises for cleansing the header row, whose columns it matches to the fields instead" do
-          error = assert_raises(ArgumentError) { mapping.read_header("id,pay", cleanse: false) }
-          assert_match(/\Acleanse: cannot be supplied with a schema/, error.message)
+          error = assert_raises(ArgumentError) { mapping.cleanse_header! }
+          assert_match(/\AThe header row cannot be cleansed with a schema/, error.message)
         end
 
         it "renders the names of the fields as the header row, and matches a header row written to them" do
@@ -208,7 +181,6 @@ module Tabular
           assert_equal "1,2.50", csv.render([1, 2.5])
           assert_equal "id,pay", csv.render_header(%w[Pay ID])
           assert_equal "1,2.50", csv.render([2.5, 1])
-          refute_predicate csv, :columns_supplied?
 
           # Without a line, since the schema writes the header row of the file itself.
           assert_nil csv.take_columns(%w[ID Pay])

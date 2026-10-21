@@ -2,40 +2,24 @@
 
 module IOStreams
   class Tabular
-    # Process files / streams that start with a header.
-    #
-    # Its options, `columns`, `allowed_columns`, `required_columns` and `skip_unknown`, and the cleansing of the header
-    # row, are deprecated: a schema describes the columns of a file instead, see `IOStreams::Schema`.
+    # The columns of a file: those of its header row, which #cleanse! cleanses without a schema, or the keys of the first
+    # record of a format of keyed records, such as JSON, or of the first row or record written. With a schema it keeps
+    # the header row as it was read, see `IOStreams::Tabular::SchemaMapping`, since a schema describes the columns of a
+    # file instead, see `IOStreams::Schema`.
     class Header
-      # Column names that begin with this prefix have been rejected and should be ignored.
-      IGNORE_PREFIX = "__rejected__"
-
-      # The options of a header, see #initialize: the columns, and the restrictions of the columns read, which only
-      # apply when reading.
-      OPTION_NAMES      = %i[columns allowed_columns required_columns skip_unknown].freeze
-      READ_OPTION_NAMES = %i[allowed_columns required_columns skip_unknown].freeze
-
-      # The most sets of keys whose plans it keeps, see #restrict_hash and #to_hash, so that records whose keys vary,
-      # such as JSON records that leave out the keys without a value, are matched once for each set of keys, while
-      # records whose keys are all different do not fill the memory.
+      # The most sets of keys whose plans it keeps, see #to_hash and #to_array, so that records whose keys vary, such as
+      # JSON records that leave out the keys without a value, are matched once for each set of keys, while records whose
+      # keys are all different do not fill the memory.
       PLANS = 64
 
-      attr_reader :columns, :allowed_columns, :required_columns, :skip_unknown
+      attr_reader :columns
 
       # Returns [Array<String>] the header row of the file: the columns as they were set with #columns=, such as the header
-      # row read, before #cleanse! renamed or rejected them, so that another header, or another Tabular, reads the rest
+      # row read, before #cleanse! renamed them, so that another header, or another Tabular, reads the rest
       # of the file by the same columns. It is frozen, as are its columns, since it is shared, such as by every slice of
       # the file, see `IOStreams::Slice#header`.
-      # Returns nil until the columns are set, including when they were supplied in place of a header row, see
-      # #initialize.
+      # Returns nil until the columns are set.
       attr_reader :row
-
-      # Returns [Array<Symbol>] the names of the supplied options, see #initialize, that describe the columns of a file:
-      # those that are not nil, other than `skip_unknown`, which only applies to `allowed_columns`, so that on its own it
-      # never changes the columns. Any other option is left to #initialize, which raises for it.
-      def self.column_option_names(options)
-        (options.compact.keys & OPTION_NAMES) - %i[skip_unknown]
-      end
 
       # Returns [String] the name of a column once it is cleansed, see #cleanse!, so that other names can be
       # compared to columns in the same way, such as the fields of a schema, see `IOStreams::Schema.cleansed`.
@@ -54,47 +38,14 @@ module IOStreams
         cleansed
       end
 
-      # Header
-      #
-      # Parameters
-      #   columns [Array<String|Symbol>]
-      #     Columns in this header.
-      #     Note:
-      #       Column names are converted to strings.
-      #
-      #   allowed_columns [Array<String>]
-      #     List of columns to allow.
-      #     Default: nil ( Allow all columns )
-      #     Note:
-      #     * So that rejected columns can be identified in subsequent steps, they will be prefixed with `__rejected__`.
-      #       For example, `Unknown Column` would be cleansed as `__rejected__Unknown Column`.
-      #
-      #   required_columns [Array<String>]
-      #     List of columns that must be present, otherwise an Exception is raised.
-      #
-      #   skip_unknown [true|false]
-      #     true:
-      #       Skip the columns that are not in `allowed_columns`, by prefixing them with `__rejected__`, so that
-      #       #to_hash skips them entirely, as if they were not in the file at all.
-      #     false:
-      #       Raises IOStreams::Errors::InvalidHeader for a column that is not in `allowed_columns`, see #cleanse!.
-      #
-      # Raises ArgumentError for columns that are not an Array.
-      def initialize(columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: true)
-        unless columns.nil? || columns.is_a?(::Array)
-          raise(ArgumentError, "columns: must be an Array of the names of the columns: #{columns.inspect}")
-        end
-
-        @columns          = stringify(columns)
-        @row              = nil
-        @required_columns = required_columns
-        @allowed_columns  = allowed_columns
-        @skip_unknown     = skip_unknown
+      # The columns are set with #columns=, from the header row read, or the first row or record written.
+      def initialize
+        @columns = nil
+        @row     = nil
         clear_plans
       end
 
-      # A copy has plans of its own, so that changing its columns, as #cleanse_changes? does, keeps those of the
-      # original.
+      # A copy has plans of its own, so that changing its columns keeps those of the original.
       def initialize_copy(source)
         super
         clear_plans
@@ -111,73 +62,19 @@ module IOStreams
         @row = IOStreams::Utils.frozen_copy(@columns)
       end
 
-      def allowed_columns=(allowed_columns)
-        @allowed_columns = allowed_columns
-        clear_plans
-      end
-
-      def required_columns=(required_columns)
-        @required_columns = required_columns
-        clear_plans
-      end
-
-      def skip_unknown=(skip_unknown)
-        @skip_unknown = skip_unknown
-        clear_plans
-      end
-
-      # Returns [Array<String>] list columns that were ignored during cleansing.
-      #
-      # Each column is cleansed as follows:
+      # Cleanses the name of each column, as follows:
       # - Leading and trailing whitespace is stripped.
       # - All characters converted to lower case.
       # - Whitespace and '-' are converted to '_'. Whitespace that is not ASCII, such as a no-break space, is too.
       # - All characters except for letters, digits, and '_' are stripped. Letters and digits that are not ASCII,
       #   such as in `Prénom` or `日付`, are kept.
       #
-      # Parameters:
-      #   rename [true|false]
-      #     Whether to cleanse the column names as described above.
-      #     When false, the column names are compared to `allowed_columns` and `required_columns` as-is.
-      #     Default: true
+      # The header row, see #row, stays as it was set.
       #
-      # Notes:
-      # * So that rejected columns can be identified in subsequent steps, they will be prefixed with `__rejected__`.
-      #   For example, `Unknown Column` would be cleansed as `__rejected__Unknown Column`.
-      # * Raises IOStreams::Errors::InvalidHeader when every column is rejected, so that none is left after cleansing,
-      #   when a column is rejected and `skip_unknown` is false, or when a required column is missing.
-      def cleanse!(rename: true)
-        return [] if columns.nil? || columns.empty?
-
-        ignored_columns = []
-        cleansed        = columns.collect do |column|
-          name = rename ? cleanse_column(column) : column
-          if allowed_columns.nil? || allowed_columns.include?(name)
-            name
-          else
-            ignored_columns << column
-            "#{IGNORE_PREFIX}#{column}"
-          end
-        end
-        # The header row, see #row, stays as it was set.
-        change_columns(cleansed)
-
-        if !skip_unknown && !ignored_columns.empty?
-          raise(IOStreams::Errors::InvalidHeader, "Unknown columns after cleansing: #{ignored_columns.join(',')}")
-        end
-
-        if ignored_columns.size == columns.size
-          raise(IOStreams::Errors::InvalidHeader, "All columns are unknown after cleansing: #{ignored_columns.join(',')}")
-        end
-
-        if required_columns
-          missing_columns = required_columns - columns
-          unless missing_columns.empty?
-            raise(IOStreams::Errors::InvalidHeader, "Missing columns after cleansing: #{missing_columns.join(',')}")
-          end
-        end
-
-        ignored_columns
+      # Returns [Array<String>] the columns once cleansed, or nil until they are set.
+      def cleanse!
+        change_columns(columns.collect { |column| cleanse_column(column) }) unless columns.nil?
+        columns
       end
 
       # Marshal to Hash from Array or Hash by applying this header
@@ -216,42 +113,6 @@ module IOStreams
         record
       end
 
-      # Returns [true|false] whether `allowed_columns` or `required_columns` restrict the columns.
-      def restricted?
-        !allowed_columns.nil? || !required_columns.nil?
-      end
-
-      # Returns [true|false] whether #cleanse! would change the columns, or raise `IOStreams::Errors::InvalidHeader`,
-      # without changing them.
-      def cleanse_changes?(rename: true)
-        copy = dup
-        copy.cleanse!(rename: rename)
-        copy.columns != columns
-      rescue IOStreams::Errors::InvalidHeader
-        true
-      end
-
-      # Returns [true|false] whether #restrict_hash would change the hash, or raise `IOStreams::Errors::InvalidHeader`.
-      def restrict_hash_changes?(hash, rename: true)
-        restrict_hash(hash, rename: rename) != hash
-      rescue IOStreams::Errors::InvalidHeader
-        true
-      end
-
-      # Returns [Hash] the supplied hash after applying `allowed_columns`, `required_columns` and `skip_unknown`
-      # to its keys, as if its keys were the header row, or nil for an empty hash.
-      #
-      # Used for formats such as JSON where each record supplies its own keys instead of a header row. The keys are
-      # restricted once for each set of keys, see PLANS, rather than for every record.
-      def restrict_hash(hash, rename: true)
-        plan = restrict_plan(hash.keys, rename)
-        return if plan.nil?
-
-        record = {}
-        plan.each { |key, column| record[column] = hash[key] }
-        record
-      end
-
       def to_array(row, cleanse = true)
         if row.is_a?(Hash) && columns
           row = cleanse_hash(row) if cleanse
@@ -277,13 +138,11 @@ module IOStreams
       end
 
       # Returns [Array<Array(String, Integer)>] each column that #to_hash returns, with its position in a row:
-      # every column except a blank one, or one that #cleanse! rejected.
+      # every column except a blank one.
       #
       # Worked out once for the columns, rather than for every row, and again when #columns= changes them.
       def hash_columns
-        @hash_columns ||= columns.each_with_index.reject do |column, _index|
-          IOStreams::Utils.blank?(column) || column.start_with?(IGNORE_PREFIX)
-        end
+        @hash_columns ||= columns.each_with_index.reject { |column, _index| IOStreams::Utils.blank?(column) }
       end
 
       # Returns [Hash] the values of the hash for each column, see #column_values, by the key that supplies each one,
@@ -301,9 +160,8 @@ module IOStreams
       # both are cleansed, so that for example the key `"First Name"` supplies the column `"first_name"`.
       def column_values(hash)
         hash      = hash.transform_keys(&:to_s) unless hash.keys.all?(String)
-        allowed   = columns.reject { |column| column.start_with?(IGNORE_PREFIX) }
-        unmatched = allowed - hash.keys
-        return hash.slice(*allowed) if unmatched.empty?
+        unmatched = columns - hash.keys
+        return hash.slice(*columns) if unmatched.empty?
 
         wanted  = unmatched.to_h { |column| [cleanse_column(column), column] }
         matched = {}
@@ -311,7 +169,7 @@ module IOStreams
           column = wanted[cleanse_column(key)]
           matched[column] = value if column && !matched.key?(column)
         end
-        hash.slice(*allowed).merge(matched)
+        hash.slice(*columns).merge(matched)
       end
 
       # Returns [Array<Array(String, Object)>] each column that the keys of a record supply, see #column_values, with
@@ -326,34 +184,6 @@ module IOStreams
         @cleanse_plan
       end
 
-      # Returns [Array<Array(Object, Object)>|nil] each key of a record that #restrict_hash keeps, with its key in the
-      # record returned, worked out once for each set of keys, or nil for a record without keys, whose restricted hash
-      # is blank. Like the plans of #cleanse_hash, it is worked out from the position of each key.
-      #
-      # A key that is already the name of its column is kept as it is, such as the Symbol key `:zip` of a `:hash`
-      # record, so that restricting the columns does not change the keys of the columns that it keeps. A key that
-      # cleansing renames, such as `"First Name"`, is the name of its column, `"first_name"`.
-      #
-      # Raises `IOStreams::Errors::InvalidHeader` each time for keys that the restrictions do not accept, see #cleanse!.
-      def restrict_plan(keys, rename)
-        return @restrict_plan if keys.eql?(@restrict_keys) && rename == @restrict_rename
-
-        plans = (@restrict_plans[rename] ||= {})
-        plan  = plans.fetch(keys) do
-          header = self.class.new(columns: keys, allowed_columns: allowed_columns, required_columns: required_columns,
-                                  skip_unknown: skip_unknown)
-          names  = header.columns
-          header.cleanse!(rename: rename)
-          plans.clear if plans.size >= PLANS
-          plans[keys] = header.to_hash((0...keys.size).to_a)&.map do |column, index|
-            [keys[index], column == names[index] ? keys[index] : column]
-          end
-        end
-        @restrict_keys   = keys
-        @restrict_rename = rename
-        @restrict_plan   = plan
-      end
-
       # Changes the columns, converting the column names to strings, and forgets what was worked out from them, see
       # #hash_columns and #clear_plans.
       def change_columns(columns)
@@ -362,16 +192,11 @@ module IOStreams
         clear_plans
       end
 
-      # Forgets the plans of the records restricted and matched to the columns, see #restrict_plan and #cleanse_plan,
-      # when the columns or their restrictions change.
+      # Forgets the plans of the records matched to the columns, see #cleanse_plan, when the columns change.
       def clear_plans
-        @cleanse_plans   = {}
-        @cleanse_keys    = nil
-        @cleanse_plan    = nil
-        @restrict_plans  = {}
-        @restrict_keys   = nil
-        @restrict_rename = nil
-        @restrict_plan   = nil
+        @cleanse_plans = {}
+        @cleanse_keys  = nil
+        @cleanse_plan  = nil
       end
 
       def cleanse_column(name)

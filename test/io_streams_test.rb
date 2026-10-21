@@ -258,29 +258,9 @@ module IOStreams
       end
 
       describe ".enforce_column_restrictions=" do
-        after { IOStreams.instance_variable_set(:@enforce_column_restrictions, true) }
-
-        it "is deprecated, and still applies false" do
-          assert_deprecated(/enforce_column_restrictions= is deprecated, describe the columns of the file with #schema/) do
-            IOStreams.enforce_column_restrictions = false
-          end
-
-          refute_predicate IOStreams, :enforce_column_restrictions?
-        end
-
-        it "is deprecated when set to true, which is the default" do
-          IOStreams.instance_variable_set(:@enforce_column_restrictions, false)
-          assert_deprecated(/enforce_column_restrictions= is deprecated, and true is the default, so remove it/) do
-            IOStreams.enforce_column_restrictions = true
-          end
-
-          assert_predicate IOStreams, :enforce_column_restrictions?
-        end
-
-        it "raises for a value other than true or false, without a deprecation warning" do
-          refute_deprecated do
-            assert_raises(ArgumentError) { IOStreams.enforce_column_restrictions = "yes" }
-          end
+        it "is removed, since v3.0 removed the column options that it applied to" do
+          refute_respond_to IOStreams, :enforce_column_restrictions=
+          refute_respond_to IOStreams, :enforce_column_restrictions?
         end
       end
 

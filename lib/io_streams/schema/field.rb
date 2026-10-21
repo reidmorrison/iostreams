@@ -56,7 +56,7 @@ module IOStreams
     #
     #   allowBlank: [true|false]
     #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text. The
-    #     header row, or each JSON record, must still have the field, as the deprecated `required_columns:` checked, but
+    #     header row, or each JSON record, must still have the field, as `required_columns:` checked before v3.0, but
     #     a value is not required, both when reading and when writing. A property of the field rather than a constraint,
     #     since Frictionless defines `required` as a boolean, and a tool reports an error for a constraint that it does
     #     not support, while it accepts other properties of a field. Raises ArgumentError for a field that is not
@@ -83,7 +83,7 @@ module IOStreams
     #
     #   skip: [true|false]
     #     Whether the field only holds the place of its column, such as a column of a file without a header row that
-    #     the code does not read, as a `nil` in the deprecated `columns:` did: reading leaves it out of the rows and
+    #     the code does not read, as a `nil` in `columns:` did before v3.0: reading leaves it out of the rows and
     #     records, and writing writes an empty value in its column, or leaves it out of a JSON record. Its column is
     #     still a field when the columns are matched, see `fieldsMatch` in `IOStreams::Schema`. Since its values are
     #     not read, it only takes the properties that place its column, `name`, `aliases`, `width` and `start`, and

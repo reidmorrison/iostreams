@@ -56,9 +56,8 @@ changes, and docs/errors.md when what it raises does.
   slices of a query carry that (`Slice#blank_rows?`, `"blank_rows" => false` in `Slice#to_h`), so a stored slice reads
   such a row as a record too.
 - A copy gives a target without a schema the schema of the columns (`Stream#copy_schema`, which asks the private
-  `#rows_schema`, nil for a file, whose schema describes its text), once the source is open, unless the copy supplies
-  `columns:`, or the target is a row or record writer of the mode that is already open (`Stream#open_writer?`), which
-  writes with its own settings.
+  `#rows_schema`, nil for a file, whose schema describes its text), once the source is open, unless the target is a
+  row or record writer of the mode that is already open (`Stream#open_writer?`), which writes with its own settings.
 - It is a `Row::Stream`, so it raises `ArgumentError` for what needs bytes (`#stream`, `#option`, `#encoding`, `#raw`,
   the `:stream` and `:line` modes), for the options of lines (`delimiter:` and `buffer_size:`, which
   `Row::Stream#reader` rejects before the describe query runs), and for writing. `#file_name=` raises, since a file

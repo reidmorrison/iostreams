@@ -561,8 +561,8 @@ module Paths
         end
 
         it "raises for options that a direct copy cannot use" do
-          error = assert_raises(ArgumentError) { target.copy_from(source, convert: false, columns: %w[a]) }
-          assert_equal ":columns cannot be used with `convert: false`, which copies the data as-is", error.message
+          error = assert_raises(ArgumentError) { target.copy_from(source, convert: false, delimiter: "|") }
+          assert_equal ":delimiter cannot be used with `convert: false`, which copies the data as-is", error.message
           assert_raises(ArgumentError) { source.copy_to(target, convert: false, mode: :hash) }
           refute_predicate target, :exist?
         end

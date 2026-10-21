@@ -36,87 +36,67 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "raises for options to the :stream mode when writing" do
-        error = assert_raises(ArgumentError) { path("a.csv").writer(:stream, columns: [], delimiter: "|") { |io| io << data } }
-        assert_match(/\AUnknown options for the :stream mode: :columns, :delimiter\./, error.message)
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:stream, skip_blanks: true, delimiter: "|") { |io| io << data } }
+        assert_match(/\AUnknown options for the :stream mode: :skip_blanks, :delimiter\./, error.message)
       end
 
       it "raises for an option when copying without a mode" do
         path("a.csv").write(data)
 
-        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), columns: %w[id]) }
-        assert_equal ":columns cannot be used when copying without a `mode:`", error.message
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), delimiter: "|") }
+        assert_equal ":delimiter cannot be used when copying without a `mode:`", error.message
         refute_path_exists ::File.join(dir, "b.csv")
       end
 
       it "passes options to the writer when copying with a mode" do
         path("a.csv").write(data)
-        assert_deprecated(/describe the columns of the file with #schema instead/) { path("b.csv").copy_from(path("a.csv"), mode: :hash, columns: %w[name]) }
+        path("b.csv").copy_from(path("a.csv"), mode: :hash, delimiter: "\r\n")
 
-        assert_equal "name\nJack\n", path("b.csv").read
+        assert_equal "id,name\r\n1,Jack\r\n", path("b.csv").read
       end
 
       it "raises for options when copying without converting" do
         path("a.csv").write(data)
 
-        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), convert: false, mode: :hash, columns: %w[id]) }
-        assert_equal ":mode, :columns cannot be used with `convert: false`, which copies the data as-is", error.message
-        error = assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.csv"), convert: false, columns: %w[id]) }
-        assert_equal ":columns cannot be used with `convert: false`, which copies the data as-is", error.message
+        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), convert: false, mode: :hash, delimiter: "|") }
+        assert_equal ":mode, :delimiter cannot be used with `convert: false`, which copies the data as-is", error.message
+        error = assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.csv"), convert: false, delimiter: "|") }
+        assert_equal ":delimiter cannot be used with `convert: false`, which copies the data as-is", error.message
       end
     end
 
     describe "options that only apply when reading" do
       it "raises for them when writing, rather than ignore them" do
-        error = assert_raises(ArgumentError) { path("a.csv").writer(:hash, allowed_columns: %w[id]) { |io| io << {"id" => 1} } }
-        assert_equal ":allowed_columns only applies when reading, not when writing. To choose the columns that are written, set a schema on the path, whose fields are the columns",
-                     error.message
+        error = assert_raises(ArgumentError) { path("a.csv").writer(:hash, skip_blanks: true) { |io| io << {"id" => 1} } }
+        assert_equal ":skip_blanks only applies when reading, not when writing", error.message
 
         %i[array hash line].each do |mode|
-          assert_raises(ArgumentError) { path("a.csv").writer(mode, required_columns: %w[id]) { |io| io << [1] } }
-          assert_raises(ArgumentError) { path("a.csv").writer(mode, skip_unknown: false) { |io| io << [1] } }
-          assert_raises(ArgumentError) { path("a.csv").writer(mode, cleanse_header: false) { |io| io << [1] } }
+          assert_raises(ArgumentError) { path("a.csv").writer(mode, skip_blanks: false) { |io| io << [1] } }
           assert_raises(ArgumentError) { path("a.csv").writer(mode, embedded_within: '"') { |io| io << [1] } }
           assert_raises(ArgumentError) { path("a.csv").writer(mode, buffer_size: 10) { |io| io << [1] } }
         end
         refute_path_exists ::File.join(dir, "a.csv")
       end
 
-      it "only suggests a schema in the modes that have columns" do
-        error = assert_raises(ArgumentError) { path("a.csv").writer(:line, allowed_columns: %w[id]) { |io| io << "1" } }
-        assert_equal ":allowed_columns only applies when reading, not when writing", error.message
-
-        path("a.csv").write("id,name\n1,Jack\n")
-        error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("a.csv"), mode: :line, allowed_columns: %w[id]) }
-        assert_equal ":allowed_columns only applies when reading, but a copy uses its options to write the target", error.message
-      end
-
       it "raises for them when copying, since a copy uses its options to write the target" do
         path("a.csv").write("id,name\n1,Jack\n")
 
-        error = assert_raises(ArgumentError) { path("b.json").copy_from(path("a.csv"), mode: :hash, allowed_columns: %w[name]) }
-        assert_equal ":allowed_columns only applies when reading, but a copy uses its options to write the target. " \
-                     "To choose the columns that are written, set a schema on the path, whose fields are the columns", error.message
-        assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.json"), mode: :hash, cleanse_header: false) }
+        error = assert_raises(ArgumentError) { path("b.json").copy_from(path("a.csv"), mode: :hash, skip_blanks: true) }
+        assert_equal ":skip_blanks only applies when reading, but a copy uses its options to write the target", error.message
+        assert_raises(ArgumentError) { path("a.csv").copy_to(path("b.json"), mode: :line, buffer_size: 10) }
         refute_path_exists ::File.join(dir, "b.json")
-      end
-
-      it "copies the columns supplied with columns:" do
-        path("a.csv").write("id,name,secret\n1,Jack,x\n")
-        assert_deprecated(/describe the columns of the file with #schema instead/) { path("a.csv").copy_to(path("b.json"), mode: :hash, columns: %w[name]) }
-
-        assert_equal %({"name":"Jack"}\n), path("b.json").read
       end
     end
 
     describe "an option that the mode does not take" do
-      it "raises before the file is opened, naming the mode and its options that are not deprecated" do
+      it "raises before the file is opened, naming the mode and its options" do
         missing = path("missing.csv")
 
         error = assert_raises(ArgumentError) { missing.each(:hash, original_file_name: "a.json") { |row| row } }
         assert_equal "Unknown option :original_file_name for the :hash mode. Valid options: :delimiter, :buffer_size, " \
                      ":skip_blanks.", error.message
-        error = assert_raises(ArgumentError) { missing.each(:line, cleanse_header: false, bogus: 1) { |line| line } }
-        assert_equal "Unknown options :cleanse_header, :bogus for the :line mode. Valid options: :delimiter, :buffer_size, " \
+        error = assert_raises(ArgumentError) { missing.each(:line, skip_blanks: false, bogus: 1) { |line| line } }
+        assert_equal "Unknown options :skip_blanks, :bogus for the :line mode. Valid options: :delimiter, :buffer_size, " \
                      ":embedded_within.", error.message
         error = assert_raises(ArgumentError) { missing.reader(:array, bogus: 1) { |rows| rows } }
         assert_equal "Unknown option :bogus for the :array mode. Valid options: :delimiter, :buffer_size, :skip_blanks.",
@@ -138,14 +118,6 @@ class StreamOptionsTest < Minitest::Test
       it "raises when copying, before the source is opened" do
         error = assert_raises(ArgumentError) { path("b.csv").copy_from(path("missing.csv"), mode: :hash, bogus: 1) }
         assert_equal "Unknown option :bogus for the :hash mode. Valid options: :delimiter.", error.message
-      end
-    end
-
-    describe "columns:" do
-      it "raises ArgumentError for columns that are not an Array, before the file is opened" do
-        error = assert_raises(ArgumentError) { path("a.csv").writer(:hash, columns: 5) { |io| io << {"a" => 1} } }
-        assert_equal "columns: must be an Array of the names of the columns: 5", error.message
-        refute_predicate path("a.csv"), :exist?
       end
     end
 
@@ -488,93 +460,25 @@ class StreamOptionsTest < Minitest::Test
         assert_equal keywords(IOStreams::Line::Writer.instance_method(:initialize)).sort, IOStreams::Line::Writer.option_names.sort
       end
 
-      it "matches the keyword arguments of the tabular and its header, with the settings that describe the file" do
-        # The options that the stream of a source of rows that is not a file supplies, which neither a path nor a call does.
-        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize)) - IOStreams::Tabular::SOURCE_OPTION_NAMES
-        header    = keywords(IOStreams::Tabular::Header.instance_method(:initialize))
-        read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
-
-        assert_equal (tabular + header).sort, (IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular.read_option_names).sort
-        assert_equal (tabular + header - read_only).sort, (IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular.write_option_names).sort
+      it "matches the keyword arguments of the tabular, which are the settings that describe the file, and those of a source of rows" do
+        assert_equal keywords(IOStreams::Tabular.instance_method(:initialize)).sort,
+                     (IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular::SOURCE_OPTION_NAMES).sort
       end
 
-      it "are the options of each call of the mode, which the stream takes for the lines, and passes on to the tabular" do
-        file      = IOStreams::Tabular::FORMAT_OPTION_NAMES + IOStreams::Tabular::SOURCE_OPTION_NAMES
-        tabular   = keywords(IOStreams::Tabular.instance_method(:initialize)) + keywords(IOStreams::Tabular::Header.instance_method(:initialize)) - file
-        read_only = IOStreams::Tabular::READ_OPTION_NAMES + IOStreams::Tabular::Header::READ_OPTION_NAMES
-
+      it "are the options of each call of the mode, which the stream takes itself" do
         {
-          IOStreams::Row::Reader    => [:row_reader, tabular],
-          IOStreams::Record::Reader => [:record_reader, tabular],
-          IOStreams::Row::Writer    => [:row_writer, tabular - read_only],
-          IOStreams::Record::Writer => [:record_writer, tabular - read_only],
-          # The column options of slices, which are only accepted when they are nil, see IOStreams::Slice::Reader.check.
-          IOStreams::Slice::Reader  => [:slice_reader, IOStreams::Tabular::Header::OPTION_NAMES]
-        }.each_pair do |klass, (method, options)|
-          assert_equal (keywords(IOStreams::Stream.instance_method(method)) + options).sort, klass.option_names.sort, klass.name
+          IOStreams::Row::Reader    => :row_reader,
+          IOStreams::Record::Reader => :record_reader,
+          IOStreams::Row::Writer    => :row_writer,
+          IOStreams::Record::Writer => :record_writer,
+          IOStreams::Slice::Reader  => :slice_reader
+        }.each_pair do |klass, method|
+          assert_equal keywords(IOStreams::Stream.instance_method(method)).sort, klass.option_names.sort, klass.name
         end
       end
 
       it "gives the options that only apply when reading" do
-        assert_equal %i[allowed_columns buffer_size cleanse_header embedded_within required_columns size skip_blanks skip_unknown
-                        validate],
-                     IOStreams::Stream.read_option_names.sort
-      end
-    end
-
-    describe ".deprecated_option_names of lines, rows and records" do
-      # A value of each option of a call, which reads or writes `data`.
-      let :sample_options do
-        {
-          delimiter:        "\n",
-          buffer_size:      1024,
-          embedded_within:  '"',
-          cleanse_header:   false,
-          columns:          %w[id name],
-          allowed_columns:  %w[id name],
-          required_columns: %w[id],
-          skip_unknown:     false,
-          skip_blanks:      true
-        }
-      end
-
-      # Returns [Hash<Class, Proc>] a call in the mode of each class, with the options supplied to the Proc.
-      def calls
-        {
-          IOStreams::Line::Reader   => ->(options) { IOStreams.stream(StringIO.new(data)).each(:line, **options) { |line| line } },
-          IOStreams::Row::Reader    => ->(options) { IOStreams.stream(StringIO.new(data)).each(:array, **options) { |row| row } },
-          IOStreams::Record::Reader => ->(options) { IOStreams.stream(StringIO.new(data)).each(:hash, **options) { |record| record } },
-          IOStreams::Line::Writer   => ->(options) { IOStreams.stream(StringIO.new).writer(:line, **options) { |io| io << "1,Jack" } },
-          IOStreams::Row::Writer    => ->(options) { IOStreams.stream(StringIO.new).writer(:array, **options) { |io| io << %w[1 Jack] } },
-          IOStreams::Record::Writer => lambda do |options|
-            IOStreams.stream(StringIO.new).writer(:hash, **options) { |io| io << {"id" => 1, "name" => "Jack"} }
-          end
-        }
-      end
-
-      it "are the options of each call, which a call still accepts, but the message of an unknown option does not list" do
-        assert_empty IOStreams::Line::Reader.deprecated_option_names
-        assert_empty IOStreams::Line::Writer.deprecated_option_names
-        %w[Row Record].each do |name|
-          assert_equal %i[allowed_columns cleanse_header columns required_columns skip_unknown],
-                       IOStreams.const_get(name)::Reader.deprecated_option_names.sort
-          assert_equal %i[columns], IOStreams.const_get(name)::Writer.deprecated_option_names
-        end
-        assert_equal %i[allowed_columns columns required_columns skip_unknown],
-                     IOStreams::Slice::Reader.deprecated_option_names.sort
-      end
-
-      it "are the options that report a deprecation warning when a call supplies them" do
-        calls.each_pair do |klass, call|
-          klass.option_names.each do |name|
-            options = {name => sample_options.fetch(name)}
-            if klass.deprecated_option_names.include?(name)
-              assert_deprecated(/ #{name}: is deprecated/) { call.call(options) }
-            else
-              refute_deprecated { call.call(options) }
-            end
-          end
-        end
+        assert_equal %i[buffer_size embedded_within size skip_blanks validate], IOStreams::Stream.read_option_names.sort
       end
     end
 

@@ -286,9 +286,9 @@ so that setting it does not read the file, and the copies of a path read it once
 that was set.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
-`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. Since it describes the columns of the
-file, the deprecated options of each call that describe them without a schema, such as `columns:`, raise
-`ArgumentError` with it, see [Upgrading](upgrading#the-column-options-of-each-call-are-deprecated).
+`#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. It replaces the options of each call that
+described the columns before v3.0, such as `columns:` and `allowed_columns:`, see
+[Upgrading](upgrading#the-column-options-of-each-call-are-removed).
 
 ### Types
 

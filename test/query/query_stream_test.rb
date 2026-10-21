@@ -657,16 +657,6 @@ class QueryStreamTest < Minitest::Test
           assert_empty names
         end
 
-        it "writes the columns that the copy supplies, rather than the schema of the query" do
-          output = StringIO.new
-          target = IOStreams.stream(output).format(:csv)
-          assert_deprecated(/columns: is deprecated/) do
-            target.copy_from(orders.select(:name, :amount), mode: :hash, columns: %w[amount name])
-          end
-
-          assert_equal "amount,name\n12.5,a\n3.0,b\n100.25,c\n", output.string
-        end
-
         it "raises without a mode, since a query holds rows rather than bytes" do
           error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).copy_from(orders) }
 
