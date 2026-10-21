@@ -22,6 +22,7 @@ module IOStreams
   # does not depend on them.
   class Query
     autoload :Batches,         "io_streams/query/batches"
+    autoload :CastTypes,       "io_streams/query/cast_types"
     autoload :Columns,         "io_streams/query/columns"
     autoload :Failure,         "io_streams/query/failure"
     autoload :SqliteStatement, "io_streams/query/sqlite_statement"
@@ -75,9 +76,9 @@ module IOStreams
     # `LIMIT 0`, describes, the first time that they are needed, so that the schema of the rows is known before they are
     # read, see `IOStreams::Query::Stream#schema`.
     #
-    # The type of each column is the type of the attribute of the model of the same name, otherwise the type that the
-    # result gives it, as `pluck` chooses it. A column of the table of the model that is `NOT NULL` is never null, when
-    # the query selects only the columns of that table, see #plain_columns?.
+    # The type of each column is the one that `pluck` chooses, see `IOStreams::Query::CastTypes`. A column of the table
+    # of the model that is `NOT NULL` is never null, when the query selects only the columns of that table, see
+    # #plain_columns?.
     def columns
       @columns ||= tag_failure { describe }
     end
@@ -201,18 +202,14 @@ module IOStreams
 
     # Returns [IOStreams::Query::Columns] the columns that the query returns, from its result for no rows.
     def describe
-      result = @model.uncached do
+      @model.uncached do
         @model.with_connection(prevent_permanent_checkout: true) do |connection|
-          connection.select_all(@relation.limit(0).arel, "IOStreams Columns")
+          result   = connection.select_all(@relation.limit(0).arel, "IOStreams Columns")
+          plain    = plain_columns?
+          not_null = result.columns.map { |name| plain && @model.columns_hash[name]&.null == false }
+          Columns.new(names: result.columns, types: CastTypes.new(@relation).of(result), not_null: not_null)
         end
       end
-      names    = result.columns
-      plain    = plain_columns?
-      types    = names.map do |name|
-        @model.attribute_types.fetch(name) { result.column_types[name] || ::ActiveRecord::Type.default_value }
-      end
-      not_null = names.map { |name| plain && @model.columns_hash[name]&.null == false }
-      Columns.new(names: names, types: types, not_null: not_null)
     end
 
     # Returns [true|false] whether every column of the result is a column of the table of the model, so that one that

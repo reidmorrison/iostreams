@@ -23,8 +23,8 @@ module IOStreams
       #     The name of each column, as the result names it.
       #
       #   types: [Array<ActiveModel::Type::Value>]
-      #     The Active Record type of each column, which casts its raw values, such as the type of the attribute of the
-      #     model of the same name, as `pluck` chooses it.
+      #     The Active Record type of each column, which casts its raw values, as `pluck` chooses it, see
+      #     `IOStreams::Query::CastTypes`.
       #
       #   not_null: [Array<true|false>]
       #     Whether each column is never null, such as a column of the table of the model with `NOT NULL`.
