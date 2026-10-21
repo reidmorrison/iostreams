@@ -563,6 +563,102 @@ class StreamSchemaTest < Minitest::Test
         end
       end
 
+      describe "extraColumns" do
+        let(:upload) { "First Name,Zip,Notes\nJack,12345,hi\n" }
+
+        # Returns [Array] the records read with the deprecated column options, as v2.1 read them.
+        def read_deprecated(text, pattern, **options)
+          records = []
+          assert_deprecated(pattern) do
+            IOStreams::Stream.new(StringIO.new(text)).file_name("people.csv").each(:hash, **options) { |record| records << record }
+          end
+          records
+        end
+
+        it "keeps the columns that the schema does not list, as required_columns: alone did" do
+          schema = {
+            fieldsMatch:  "subset",
+            extraColumns: "keep",
+            keyType:      "cleansed",
+            fields:       [{name: "zip", constraints: {required: true}, allowBlank: true}]
+          }
+          records = read(upload, schema: schema)
+
+          assert_equal [{"zip" => "12345", "first_name" => "Jack", "notes" => "hi"}], records
+          assert_equal read_deprecated(upload, /required_columns: is deprecated/, required_columns: ["zip"]), records
+          assert_equal %w[zip first_name notes], records.first.keys
+        end
+
+        it "keeps every column as it is written, with no fields, as cleanse_header: false alone did" do
+          schema  = {fieldsMatch: "subset", extraColumns: "keep", fields: []}
+          records = read(upload, schema: schema)
+
+          assert_equal [{"First Name" => "Jack", "Zip" => "12345", "Notes" => "hi"}], records
+          assert_equal read_deprecated(upload, /cleanse_header: is deprecated/, cleanse_header: false), records
+        end
+
+        it "keeps them by the keys that keyType forms" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", keyType: "cleansedSymbol", fields: [{name: "zip", type: "integer"}]}
+
+          assert_equal [{zip: 12_345, first_name: "Jack", notes: "hi"}], read(upload, schema: schema)
+        end
+
+        it "keeps them after the fields in the rows read, and their keys in the header row" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "zip", type: "integer"}]}
+          rows   = read(upload, :array, schema: schema)
+
+          assert_equal [["zip", "First Name", "Notes"], [12_345, "Jack", "hi"]], rows
+          assert_instance_of IOStreams::Row::HeaderRow, rows.first
+        end
+
+        it "keeps the keys of JSON records that the schema does not list, with their values as they are" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "id", type: "integer"}]}
+          json   = %({"id":"7","tags":["a"],"age":21}\n{"id":"8"}\n)
+
+          assert_equal [{"id" => 7, "tags" => ["a"], "age" => 21}, {"id" => 8}], read(json, file_name: "people.json", schema: schema)
+        end
+
+        it "raises for the rows of JSON, since each record can have keys that the header row does not name" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "id"}]}
+
+          error = assert_raises(ArgumentError) { read(%({"id":"7","age":21}\n), :array, file_name: "people.json", schema: schema) }
+          assert_match(/extraColumns "keep" cannot read the rows of a format whose records supply their own keys/, error.message)
+        end
+
+        it "raises for two columns kept with the same key, rather than lose one of them" do
+          schema = {fieldsMatch: "subset", extraColumns: "keep", keyType: "cleansed", fields: []}
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { read("Notes,notes\na,b\n", schema: schema) }
+          assert_equal 'The columns "Notes" and "notes" are both the key "notes" of the records read, so either could be meant', error.message
+        end
+
+        it "does not keep a column without a name" do
+          schema = {fieldsMatch: "subset", extraColumns: "keep", fields: []}
+
+          assert_equal [{"a" => "1", "c" => "3"}], read("a,,c\n1,2,3\n", schema: schema)
+        end
+
+        it "skips them with skip, as without extraColumns" do
+          schema = {fieldsMatch: "partial", extraColumns: "skip", fields: [{name: "zip"}]}
+
+          assert_equal [{"zip" => "12345"}], read(upload, schema: schema)
+        end
+
+        it "writes only the fields" do
+          schema = {fieldsMatch: "partial", extraColumns: "keep", fields: [{name: "id"}, {name: "name"}]}
+
+          assert_equal "id,name\n1,Jack\n", write([{"id" => 1, "name" => "Jack", "notes" => "hi"}], schema: schema)
+        end
+
+        it "is ignored by a fixed width file, which has only its fields" do
+          schema  = {fieldsMatch: "subset", extraColumns: "keep", fields: [{name: "id", width: 2}], width: 5}
+          records = []
+          IOStreams::Stream.new(StringIO.new("12abc\n")).format(:fixed).schema(schema).each(:hash) { |record| records << record }
+
+          assert_equal [{"id" => "12"}], records
+        end
+      end
+
       describe "fieldsMatch" do
         let(:fields) { [{name: "id", type: "integer"}, {name: "name"}] }
 

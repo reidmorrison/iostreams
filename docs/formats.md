@@ -492,6 +492,34 @@ header row of the rows written, and the values of each row after the last field 
 skip them, and the others raise `IOStreams::Errors::InvalidHeader`. A field that a record does not supply is written
 as empty, or as `null` in JSON.
 
+### Keeping the other columns
+
+`extraColumns: "keep"`, which IOStreams adds to the properties of a schema, keeps the columns that `subset` and
+`partial` would skip, after the fields, in the order of the columns, each by the key that
+[keyType](#keys-of-the-records-read) forms from its column, and with its value as it is. So a file can need some
+columns, and the code still read every other column that it has:
+
+~~~ruby
+path = IOStreams.path("upload.csv").schema(
+  fieldsMatch:  "subset",
+  extraColumns: "keep",
+  keyType:      "cleansed",
+  fields:       [{name: "zip_code", constraints: {required: true}, allowBlank: true}]
+)
+path.each(:hash) do |record|
+  p record
+end
+# "Zip Code,First Name,Notes\n12345,Jack,hi\n" => {"zip_code" => "12345", "first_name" => "Jack", "notes" => "hi"}
+~~~
+
+With `subset`, a schema can then have no fields, to read every column of every file, keyed as `keyType` forms them,
+or as the columns are written without it. The keys of each JSON record are kept the same way, so its rows, which have
+a header row of the keys of the fields, cannot be read with `each(:array)`, which raises `ArgumentError`. A fixed
+width file has only its fields, so it ignores `extraColumns`. Two columns kept with the same key, such as `Notes` and
+`notes` with `keyType: "cleansed"`, raise `IOStreams::Errors::InvalidHeader`, rather than lose one of them, and a
+column without a name is not kept. Writing writes only the fields, whichever it is. The default, `"skip"`, leaves them
+out, and any other `fieldsMatch` raises `ArgumentError` for `"keep"`, since it does not accept them.
+
 ### Required fields
 
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
@@ -548,7 +576,8 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
 
 ### Schema properties
 
-* `fields` The fields of the file, in the order of its columns. Required.
+* `fields` The fields of the file, in the order of its columns, which can be empty with `extraColumns: "keep"`.
+  Required.
 * `fieldsMatch` How the columns of the file must match the fields, see [fieldsMatch](#fieldsmatch). Default: `exact`
 * `header` `false` when the file has no header row, as in a Frictionless Table Dialect. The columns of the file are
   then the fields, in order: reading takes every line as a row, after the names of the fields as the header row that
@@ -559,6 +588,8 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
 * `keyType` How the keys of the records read are formed from the names of the fields: `string`, `cleansed`, `symbol`
   or `cleansedSymbol`, see [Keys of the records read](#keys-of-the-records-read). IOStreams adds this property.
   Default: the names as they are given.
+* `extraColumns` `keep` to keep the columns that the schema does not list, which `subset` and `partial` skip, see
+  [Keeping the other columns](#keeping-the-other-columns). IOStreams adds this property. Default: `skip`
 
 `$schema`, `title` and `description` describe the schema to people and have no effect.
 
