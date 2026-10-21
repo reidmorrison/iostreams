@@ -70,19 +70,20 @@ module IOStreams
     #     The relation to read as one query, or the batches of one to read in those batches.
     #
     # Raises ArgumentError for any other object, for a version of Active Record before 7.2, for a relation that loads
-    # the associations of models, with `includes`, `preload` or `eager_load`, since its rows are not models, and for the
-    # batches of a grouped relation, since each batch would aggregate only its own rows.
+    # the associations of models, with `includes`, `preload` or `eager_load`, since its rows are not models, and for
+    # batches whose rows Rails reads otherwise than the relation, see `IOStreams::Query::Batches.new`, such as those of
+    # a grouped relation, since each batch would aggregate only its own rows.
     def initialize(query)
       unless self.class.query?(query)
         raise(ArgumentError, "Not an Active Record relation: #{query.class.name}, see IOStreams.stream")
       end
 
       check_version
-      @batches  = query.is_a?(::ActiveRecord::Batches::BatchEnumerator) ? query : nil
-      @relation = @batches ? @batches.relation : query
+      batches   = query if query.is_a?(::ActiveRecord::Batches::BatchEnumerator)
+      @relation = batches ? batches.relation : query
       @model    = @relation.klass
       reject_associations
-      reject_grouped_batches
+      @batches = batches && Batches.new(batches)
       @columns = nil
     end
 
@@ -106,15 +107,16 @@ module IOStreams
     # on, see #with_source, and checked the names of its columns, so that a copy opens its target only once the query is
     # open, see `IOStreams::Stream#copy_from`, and a query that cannot be read leaves an existing target as it was. The
     # query is closed, and its connection checked back in, when the block finishes, or is left with `break` or an
-    # exception. The batches of a relation are each read as the block reads them, see `IOStreams::Query::Batches`, so
-    # that a second traversal of them starts again from the first batch.
+    # exception. The batches of a relation are each read as the block reads them, see `IOStreams::Query::Batches`,
+    # which Rails starts again for each traversal, so a second traversal of them yields no row once the first read every
+    # batch, and raises ArgumentError when it stopped before, see `IOStreams::Query::Batches::Reader`.
     #
     # Raises the exception of a failure of the database, tagged with the kind of failure that it means, such as
     # `IOStreams::Errors::Unavailable`, see #failure_kind, but not an exception that the block raises.
     #
     # Returns the result of the block.
     def open
-      return yield(rows { |&row| Batches.new(@batches).each(columns, &row) }) if @batches
+      return @batches.open(columns) { |reader| yield(rows { |&row| reader.each(&row) }) } if @batches
 
       yielding = false
       tag_failure(-> { yielding }) do
@@ -205,13 +207,19 @@ module IOStreams
     # Raises ArgumentError when none can, such as for MySQL with trilogy, whose queries return every row at once,
     # suggesting batches, so that a query is only run once for each batch when the caller asks for it.
     def source(connection)
+      source_for(connection) ||
+        raise(ArgumentError, "IOStreams cannot stream a query on #{connection.adapter_name}, so read it in batches, " \
+                             "such as with `IOStreams.stream(relation.in_batches(of: 10_000))`")
+    end
+
+    # Returns [Class|nil] the first of SOURCES that reads the database of the connection, see its `.reads?`, or nil
+    # when none does.
+    def source_for(connection)
       SOURCES.each do |name|
         source = Query.const_get(name)
         return source if source.reads?(connection)
       end
-
-      raise(ArgumentError, "IOStreams cannot stream a query on #{connection.adapter_name}, so read it in batches, such " \
-                           "as with `IOStreams.stream(relation.in_batches(of: 10_000))`")
+      nil
     end
 
     # Returns [IOStreams::Query::Columns] the columns that the query returns, from its result for no rows.
@@ -231,11 +239,7 @@ module IOStreams
     # casts it, on the database of the connection, which the source that reads it knows, see SOURCES, whether or not
     # the query is read in batches, or none when no source reads it, see `IOStreams::Query::Columns`.
     def requirable_types(connection)
-      SOURCES.each do |name|
-        source = Query.const_get(name)
-        return source.requirable_types if source.reads?(connection)
-      end
-      []
+      source_for(connection)&.requirable_types || []
     end
 
     # Returns [true|false] whether every column of the result is a column of the table of the model, so that one that
@@ -310,16 +314,6 @@ module IOStreams
 
       raise(ArgumentError, "#{names.join(', ')} cannot be read as rows, since they load the associations of models: " \
                            "join their tables with `joins` and select their columns instead")
-    end
-
-    # Raises ArgumentError for the batches of a relation that is grouped, with `group` or `having`, since Rails reads
-    # each batch as the query of only the rows whose primary keys it found for that batch, so each batch would aggregate
-    # only those rows, rather than every row of each group.
-    def reject_grouped_batches
-      return unless @batches && !(@relation.group_values.empty? && @relation.having_clause.empty?)
-
-      raise(ArgumentError, "A grouped query cannot be read in batches, since each batch would aggregate only its own " \
-                           "rows: read it as one query instead, such as with `IOStreams.stream(relation)`")
     end
   end
 end

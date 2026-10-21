@@ -27,9 +27,33 @@ module IOStreams
       # Parameters:
       #   batches: [ActiveRecord::Batches::BatchEnumerator]
       #     What `relation.in_batches(...)` returns without a block.
+      #
+      # Raises ArgumentError, before any batch is read, for batches whose rows Rails reads otherwise than the relation:
+      # those of a grouped relation, with `group` or `having`, since Rails reads each batch as the query of only the
+      # rows whose primary keys it found for that batch, so each batch would aggregate only those rows; those of a
+      # relation with an offset that is not loaded, since Rails applies the offset to each batch, which skips rows; and
+      # those of a relation that was loaded, whose records have no primary key, by which they are read, see
+      # #loaded_query.
       def initialize(batches)
-        @batches = batches
-        @model   = batches.relation.klass
+        @batches  = batches
+        @relation = batches.relation
+        @model    = @relation.klass
+        reject_grouped
+        reject_offset
+        reject_loaded_without_keys
+      end
+
+      # Returns [Integer] the number of rows of each batch, `of:`.
+      def batch_size
+        @batches.batch_size
+      end
+
+      # Yields [IOStreams::Query::Batches::Reader] the reader of the rows of the batches, whose `#each` yields the raw
+      # values of each row of each batch, see #each.
+      #
+      # Returns the result of the block.
+      def open(columns)
+        yield Reader.new(self, columns)
       end
 
       # Yields [Array] each row of each batch, its raw values as the driver of the database returns them, once the names
@@ -40,7 +64,6 @@ module IOStreams
       # and without the query cache, which would keep its rows, as Rails reads the queries that find where each batch
       # starts without it, so that the block runs its own queries with the query cache as the caller left it.
       #
-      # Raises ArgumentError for a relation that was loaded, whose records have no primary key, see #loaded_query.
       def each(columns, &)
         each_query do |query|
           result = @model.uncached do
@@ -85,27 +108,75 @@ module IOStreams
       # batches, so that the rows of a record that an earlier batch read are not read again, such as of one that the
       # joins of the relation return more than once. Returns nil when an earlier batch read every record of this one.
       #
-      # Raises ArgumentError when the records have no primary key, since the model has none, or the relation does not
-      # select it.
+      # The records have a primary key, which the relation selects, see #reject_loaded_without_keys.
       def loaded_query(batch, read_ids)
+        ids = batch.to_a.map(&:id_in_database).uniq
+        ids.reject! { |id| read_ids.include?(id) }
+        return if ids.empty?
+
+        read_ids.merge(ids)
+        batch.except(:limit, :offset).where(@model.primary_key => ids)
+      end
+
+      # Raises ArgumentError for the batches of a grouped relation, see #initialize.
+      def reject_grouped
+        return if @relation.group_values.empty? && @relation.having_clause.empty?
+
+        raise(ArgumentError, "A grouped query cannot be read in batches, since each batch would aggregate only its own " \
+                             "rows: read it as one query instead, such as with `IOStreams.stream(relation)`")
+      end
+
+      # Raises ArgumentError for the batches of a relation with an offset that is not loaded, see #initialize.
+      def reject_offset
+        return if @relation.offset_value.nil? || @relation.loaded?
+
+        raise(ArgumentError, "A query with an offset cannot be read in batches, since Rails applies the offset to each " \
+                             "batch, which skips rows: read it as one query instead, such as with " \
+                             "`IOStreams.stream(relation)`")
+      end
+
+      # Raises ArgumentError for the batches of a relation that was loaded, whose records have no primary key, by which
+      # they are read, see #loaded_query: since the model has none, or the relation does not select it.
+      def reject_loaded_without_keys
+        return unless @relation.loaded?
+
         key = @model.primary_key
         unless key
           raise(ArgumentError, "#{@model.name} has no primary key, by which the batches of a relation that was loaded " \
                                "are read: read the batches of a relation that is not loaded")
         end
+        return unless @relation.records.any? { |record| [record.id_in_database].flatten.include?(nil) }
 
-        ids = batch.to_a.map(&:id_in_database).uniq
-        if ids.flatten.include?(nil)
-          raise(ArgumentError, "The batches of a relation that was loaded are read by the primary keys of their " \
-                               "records, which the relation does not select: select #{Array(key).join(', ')}, or " \
-                               "read the batches of a relation that is not loaded")
+        raise(ArgumentError, "The batches of a relation that was loaded are read by the primary keys of their records, " \
+                             "which the relation does not select: select #{Array(key).join(', ')}, or read the batches " \
+                             "of a relation that is not loaded")
+      end
+
+      # The rows of one read of the batches, see Batches#open. Rails starts its batches again each time that they are
+      # read, so a second traversal of the rows does not continue where the first stopped, as the lines of a file do: it
+      # yields no row once the first read every batch, and raises ArgumentError when the first stopped before, such as
+      # with `break`, rather than read the rows again.
+      class Reader
+        def initialize(batches, columns)
+          @batches  = batches
+          @columns  = columns
+          @started  = false
+          @finished = false
         end
 
-        ids.reject! { |id| read_ids.include?(id) }
-        return if ids.empty?
+        # Yields [Array] each row of each batch, its raw values as the driver of the database returns them, see
+        # Batches#each.
+        def each(&)
+          return if @finished
+          if @started
+            raise(ArgumentError, "The rows of a query read in batches cannot be read again from where a traversal of them " \
+                                 "stopped, since Rails starts its batches again: read them in one traversal")
+          end
 
-        read_ids.merge(ids)
-        batch.except(:limit, :offset).where(key => ids)
+          @started = true
+          @batches.each(@columns, &)
+          @finished = true
+        end
       end
     end
   end

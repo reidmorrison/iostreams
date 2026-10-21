@@ -126,6 +126,57 @@ class BatchesTest < Minitest::Test
         end
       end
 
+      describe "batches whose rows Rails reads otherwise than the relation" do
+        it "raises for a relation with an offset that is not loaded, since Rails applies it to each batch" do
+          error = assert_raises(ArgumentError) { IOStreams.stream(db.order.offset(1).in_batches(of: 2)) }
+
+          assert_equal "A query with an offset cannot be read in batches, since Rails applies the offset to each batch, " \
+                       "which skips rows: read it as one query instead, such as with `IOStreams.stream(relation)`",
+                       error.message
+          assert_equal(%w[b c], each(IOStreams.stream(db.order.order(:id).offset(1))).map { |order| order["name"] })
+        end
+
+        it "raises when the stream is created, so that a copy keeps an existing target" do
+          Dir.mktmpdir do |dir|
+            path = File.join(dir, "orders.csv")
+            File.write(path, "previous\n")
+
+            assert_raises(ArgumentError) do
+              IOStreams.path(path).copy_from(db.order.select(:name).load.in_batches(of: 2), mode: :hash)
+            end
+            assert_equal "previous\n", File.read(path)
+          end
+        end
+      end
+
+      describe "a second traversal of the rows" do
+        it "yields no row once the first read every batch" do
+          IOStreams.stream(db.order.in_batches(of: 2)).reader(:hash) do |reader|
+            first  = reader.map { |order| order["name"] }
+            second = reader.map { |order| order["name"] }
+
+            assert_equal %w[a b c], first
+            assert_empty second
+          end
+        end
+
+        it "raises when the first stopped before the end, since Rails starts its batches again" do
+          IOStreams.stream(db.order.in_batches(of: 2)).reader(:hash) do |reader|
+            assert_equal "a", reader.first["name"]
+
+            error = assert_raises(ArgumentError) { reader.each { |_order| flunk "read a row again" } }
+            assert_equal "The rows of a query read in batches cannot be read again from where a traversal of them " \
+                         "stopped, since Rails starts its batches again: read them in one traversal", error.message
+          end
+        end
+
+        it "reads the batches again for a read of its own" do
+          stream = IOStreams.stream(db.order.in_batches(of: 2))
+
+          assert_equal each(stream), each(stream)
+        end
+      end
+
       describe "the order of the rows of a batch" do
         it "is the order that the database returns, for a model without a primary key, batched by a cursor:" do
           skip "cursor: needs Active Record 8.0" if ActiveRecord.version < Gem::Version.new("8.0")
