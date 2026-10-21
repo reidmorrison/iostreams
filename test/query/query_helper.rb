@@ -37,11 +37,17 @@ module QueryDatabase
 
   # Returns [Hash<String, Hash>] the configuration of each database that the tests can read: SQLite, unless its gem
   # cannot be loaded, as on JRuby. Each pool has one connection, so that a test can stub the connection that is read.
+  #
+  # The file of the SQLite database, and its WAL files, are removed once the tests have run, after every connection to
+  # them is closed, rather than at exit, which would run before the tests do, since Minitest runs them at exit too.
   def self.configs
     configs = {}
     if sqlite?
       file = File.join(Dir.tmpdir, "iostreams_query_#{Process.pid}.sqlite3")
-      at_exit { FileUtils.rm_f(file) }
+      Minitest.after_run do
+        ActiveRecord::Base.connection_handler.connection_pool_list(:all).each(&:disconnect!)
+        FileUtils.rm_f([file, "#{file}-wal", "#{file}-shm"])
+      end
       configs["SQLite"] = {adapter: "sqlite3", database: file, pool: 1}
     end
     configs
