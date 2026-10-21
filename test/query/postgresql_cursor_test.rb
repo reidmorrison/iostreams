@@ -479,6 +479,61 @@ class PostgresqlCursorTest < Minitest::Test
           assert_equal [{"total" => BigDecimal("115.75"), "orders" => 3, "latest" => Date.new(2026, 10, 1)}], each(stream)
         end
       end
+
+      describe "the types of PostgreSQL that Active Record decorates" do
+        # A model whose array of times is in the time zone of the application, which Active Record decorates, as it
+        # decorates an attribute that is normalized.
+        let(:model) do
+          unless QueryDatabase::PostgreSQL.const_defined?(:PgDecorated)
+            QueryDatabase::PostgreSQL.const_set(:PgDecorated, Class.new(db.record) do
+              self.table_name = "pg_decorated"
+              normalizes :labels, with: ->(labels) { labels.map(&:strip) }
+            end)
+          end
+          QueryDatabase::PostgreSQL::PgDecorated
+        end
+
+        before do
+          execute("DROP TABLE IF EXISTS pg_decorated")
+          execute("CREATE TABLE pg_decorated (id bigserial PRIMARY KEY, reminders timestamp[], labels text[])")
+          execute(<<~SQL)
+            INSERT INTO pg_decorated (reminders, labels)
+            VALUES ('{"2026-10-20 12:30:00","2026-10-21 08:00:00"}', '{"a ","b"}')
+          SQL
+          model.reset_column_information
+        end
+
+        after { execute("DROP TABLE IF EXISTS pg_decorated") }
+
+        it "reads an array of times in the time zone of the application, or one that is normalized, as an array" do
+          relation = model.select(:reminders, :labels)
+          record   = each(IOStreams.stream(relation)).first
+
+          assert_equal [{name: "reminders", type: "array"}, {name: "labels", type: "array"}],
+                       IOStreams.stream(relation).schema[:fields]
+          assert_equal relation.pluck(:reminders, :labels).first, record.values_at("reminders", "labels")
+          assert_equal [ActiveSupport::TimeWithZone], record["reminders"].map(&:class).uniq
+          assert_equal Time.utc(2026, 10, 20, 12, 30), record["reminders"].first
+          assert_equal ["a ", "b"], record["labels"]
+        end
+
+        it "copies an array of times in the time zone of the application, or one that is normalized, to CSV and JSON" do
+          relation = model.select(:reminders, :labels)
+          csv      = StringIO.new
+          json     = StringIO.new
+          IOStreams.stream(csv).format(:csv).copy_from(relation, mode: :hash)
+          IOStreams.stream(json).format(:json).copy_from(relation, mode: :hash)
+          schema   = IOStreams.stream(relation).schema
+          records  = [[csv, :csv], [json, :json]].map do |output, format|
+            each(IOStreams.stream(StringIO.new(output.string)).format(format).schema(schema)).first
+          end
+
+          records.each do |record|
+            assert_equal %w[2026-10-20T08:30:00-04:00 2026-10-21T04:00:00-04:00], record["reminders"]
+            assert_equal ["a ", "b"], record["labels"]
+          end
+        end
+      end
     end
   end
 
