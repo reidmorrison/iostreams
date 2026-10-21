@@ -136,6 +136,17 @@ class BatchesTest < Minitest::Test
           assert_equal(%w[b c], each(IOStreams.stream(db.order.order(:id).offset(1))).map { |order| order["name"] })
         end
 
+        it "raises for a distinct relation, since each batch would be distinct only within its own rows" do
+          add_acme_orders
+          error = assert_raises(ArgumentError) { IOStreams.stream(db.order.select(:customer_id).distinct.in_batches(of: 2)) }
+
+          assert_equal "A distinct query cannot be read in batches, since each batch would be distinct only within its " \
+                       "own rows: read it as one query instead, such as with `IOStreams.stream(relation)`", error.message
+          customers = each(IOStreams.stream(db.order.select(:customer_id).distinct)).map { |order| order["customer_id"] }
+
+          assert_equal db.order.distinct.pluck(:customer_id).sort_by(&:to_i), customers.sort_by(&:to_i)
+        end
+
         it "raises when the stream is created, so that a copy keeps an existing target" do
           Dir.mktmpdir do |dir|
             path = File.join(dir, "orders.csv")
@@ -186,15 +197,6 @@ class BatchesTest < Minitest::Test
           sql  = batch_sql { rows = each(IOStreams.stream(event.in_batches(of: 2, cursor: %i[code seq])), :array) }
 
           assert_equal [%w[code seq], ["a", 1], ["a", 2], ["b", 1]], [rows.first, *rows.drop(1).sort]
-          assert_equal 2, sql.size
-          sql.each { |text| refute_match(/ORDER BY/i, text) }
-        end
-
-        it "is the order that the database returns, for a distinct query, which it only sorts by the columns selected" do
-          rows = nil
-          sql  = batch_sql { rows = each(IOStreams.stream(db.order.select(:customer_id).distinct.in_batches(of: 2))) }
-
-          assert_equal db.order.distinct.pluck(:customer_id).sort_by(&:to_i), rows.map { |row| row["customer_id"] }.sort_by(&:to_i)
           assert_equal 2, sql.size
           sql.each { |text| refute_match(/ORDER BY/i, text) }
         end

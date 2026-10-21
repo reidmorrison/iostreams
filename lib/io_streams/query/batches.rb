@@ -21,8 +21,7 @@ module IOStreams
     # `order: :desc`, the batches are in that order, and the rows within each batch in the ascending order of the
     # primary key, since the batches do not say their cursor. The rows of each batch are read in the order that the
     # database returns them when the model has no primary key, such as a table that is batched by a `cursor:` of its
-    # unique columns, or when the query is distinct, which PostgreSQL and MySQL only sort by the columns that it
-    # selects, see #ordered.
+    # unique columns, see #ordered.
     class Batches
       # Parameters:
       #   batches: [ActiveRecord::Batches::BatchEnumerator]
@@ -31,14 +30,15 @@ module IOStreams
       # Raises ArgumentError, before any batch is read, for batches whose rows Rails reads otherwise than the relation:
       # those of a grouped relation, with `group` or `having`, since Rails reads each batch as the query of only the
       # rows whose primary keys it found for that batch, so each batch would aggregate only those rows; those of a
-      # relation with an offset that is not loaded, since Rails applies the offset to each batch, which skips rows; and
-      # those of a relation that was loaded, whose records have no primary key, by which they are read, see
-      # #loaded_query.
+      # distinct relation, since each batch would be distinct only within its own rows; those of a relation with an
+      # offset that is not loaded, since Rails applies the offset to each batch, which skips rows; and those of a
+      # relation that was loaded, whose records have no primary key, by which they are read, see #loaded_query.
       def initialize(batches)
         @batches  = batches
         @relation = batches.relation
         @model    = @relation.klass
         reject_grouped
+        reject_distinct
         reject_offset
         reject_loaded_without_keys
       end
@@ -89,12 +89,11 @@ module IOStreams
       end
 
       # Returns [ActiveRecord::Relation] the query of a batch in the order of the primary key of the model, since Rails
-      # yields each batch without an order, unless the model has no primary key, or the query is distinct, which
-      # PostgreSQL and MySQL only sort by the columns that it selects, when its rows are read in the order that the
-      # database returns them.
+      # yields each batch without an order, unless the model has no primary key, when its rows are read in the order
+      # that the database returns them.
       def ordered(query)
         keys = Array(@model.primary_key)
-        return query if keys.empty? || query.distinct_value
+        return query if keys.empty?
 
         query.reorder(*keys.map { |key| @model.arel_table[key] })
       end
@@ -124,6 +123,15 @@ module IOStreams
 
         raise(ArgumentError, "A grouped query cannot be read in batches, since each batch would aggregate only its own " \
                              "rows: read it as one query instead, such as with `IOStreams.stream(relation)`")
+      end
+
+      # Raises ArgumentError for the batches of a distinct relation, see #initialize.
+      def reject_distinct
+        return unless @relation.distinct_value
+
+        raise(ArgumentError, "A distinct query cannot be read in batches, since each batch would be distinct only " \
+                             "within its own rows: read it as one query instead, such as with " \
+                             "`IOStreams.stream(relation)`")
       end
 
       # Raises ArgumentError for the batches of a relation with an offset that is not loaded, see #initialize.

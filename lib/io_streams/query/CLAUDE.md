@@ -18,7 +18,8 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
 - `Query.new` raises `ArgumentError` for anything else, for Active Record before 7.2 (`MINIMUM_VERSION`), for
   `includes`/`preload`/`eager_load`, since the rows are not models, and, in `Query::Batches.new`, for batches whose rows
   Rails reads otherwise than the relation: those of a grouped relation (each batch would aggregate only its own rows),
-  of a relation with an offset that is not loaded (Rails applies the offset to each batch), and of a loaded relation
+  of a distinct relation (each batch would be distinct only within its own rows), of a relation with an offset that is
+  not loaded (Rails applies the offset to each batch), and of a loaded relation
   whose records have no primary key. So these raise when the stream is created, before any query runs.
 - `Query#columns` describes the result once, with a query of `LIMIT 0` on the connection of the caller, uncached:
   `Query::Columns` of the names of the columns, the type that casts each one (`Query::CastTypes`), and whether a
@@ -103,8 +104,7 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
   `skip_query_cache!`, so that the block keeps the query cache as the caller left it. A batch that Rails yields loaded,
   for a relation that was loaded, has no condition on its records, so it is read by their primary keys, each record
   once. Rails yields a batch without an order, and keeps its cursor private, so each batch is ordered by the primary
-  key, unless the model has none or the query is distinct, which PostgreSQL and MySQL sort only by the columns that it
-  selects. `#open` yields its `Batches::Reader`, which knows how far its traversal got.
+  key, unless the model has none. `#open` yields its `Batches::Reader`, which knows how far its traversal got.
 - `Query::Failure`: the kinds of failure of Active Record's exceptions, see Failures.
 - The sources, one for each database whose driver streams a query, listed in `Query::SOURCES`, each owning the
   workarounds of its database and the failures of its driver. Each answers `.reads?(connection)`, whether it reads
@@ -181,6 +181,7 @@ rows and slices fit together is in [lib/io_streams/CLAUDE.md](../CLAUDE.md).
 - Rails' batches: two queries for each batch (the ids, then the rows); the order of an ordered relation is ignored, and
   raises with `error_on_ignore: true`; a grouped query aggregates each batch on its own, which PostgreSQL and strict
   MySQL reject; `BatchEnumerator` answers `relation`, `batch_size`, `start` and `finish`, but not its cursor.
-- Measured on PostgreSQL 17, 1M orders sorted by an unindexed column: one streamed query read every row in 0.65 s,
-  while Rails 8.1's batches took 8.45 s with `of: 10_000, cursor:, use_ranges: true`, and about 60 s with the defaults,
-  which is why a relation is read as one query.
+- Measured on PostgreSQL 17, a copy of 1M orders sorted by an unindexed column to CSV: one streamed query took 12.9 s,
+  1.7 s of it in the database, reading 1M rows, while Rails 8.1's batches took 20.8 s (9.1 s in the database, 169M rows
+  read) with `of: 10_000, cursor:, use_ranges: true`, and 61.8 s (41.6 s, about 834M rows) with the defaults, which is
+  why a relation is read as one query.
