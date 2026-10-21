@@ -126,8 +126,8 @@ say how it reads its rows: supply the relation, or `relation.in_batches(...)`.
 
 ## Keeping the types of the columns
 
-The types of the columns of the query describe the rows that it reads, as a [schema](formats#schema) does for a file,
-so each value keeps its type, whatever the target. `#schema` returns it:
+The types of the columns of the query describe the rows that it reads, as a [schema](formats#schema) does for a file.
+`#schema` returns them, such as on PostgreSQL:
 
 ~~~ruby
 IOStreams.stream(Order.select(:id, :amount, :status, :created_at)).schema
@@ -138,49 +138,125 @@ IOStreams.stream(Order.select(:id, :amount, :status, :created_at)).schema
 ~~~
 
 A copy gives this schema to a target that has none, so that a Parquet file has a column of the type of each column of
-the query, and CSV writes each number with the decimals of its column, such as `12.50`, and each date and time in ISO
-8601. The type of each column is the type of the attribute of the model of the same name, otherwise the type that the
-database gives the result, as `pluck` chooses it:
+the query, and CSV and JSON write each number with the decimals of its column, such as `12.50`, and each date and time
+in ISO 8601. The type of each column is the one that `pluck` casts it by: the attribute of that name of the model, or of
+a model that the query joins, otherwise the type that the database gives the column of the result:
 
 | Active Record type | Schema field | Parquet column |
 |--------------------|--------------|----------------|
-| integer, bigint | `integer` | int64 |
-| decimal with a scale | `number`, with `decimals` of the scale | decimal |
-| decimal without a scale, such as a PostgreSQL `numeric`, or a sum | `number` | needs `decimals` |
+| integer, bigint, or a decimal of scale 0 of up to 18 digits, such as `decimal(10, 0)` | `integer` | int64 |
+| a decimal of scale 0 of more digits, such as `decimal(20, 0)`, or MySQL's `bigint unsigned`, as a `BigDecimal` | `number`, with `decimals: 0` | decimal |
+| decimal with a scale, such as `decimal(10, 2)` | `number`, with `decimals` of the scale | decimal |
+| decimal without a scale, such as a PostgreSQL `numeric`, or a sum that PostgreSQL computes | `number` | needs `decimals` |
 | float | `number`, with `floatNumber: true` | double |
 | string, text, uuid, an enum | `string` | string |
 | a PostgreSQL `inet` or `cidr` address, as the text that PostgreSQL returns, such as `10.0.0.0/8` | `string` | string |
 | boolean | `boolean` | boolean |
 | date | `date` | date32 |
 | datetime | `datetime` | timestamp in UTC |
-| a PostgreSQL array | `array` | the JSON text of the array |
-| json, time, binary, interval, a serialized attribute | `any` | needs a type |
+| a PostgreSQL array, such as `text[]`, with an array of addresses as their text | `array` | the JSON text of the array |
+| json, time, binary, interval, a serialized attribute, or a type of the application | `any` | needs a type |
 
-A column of the table of the model that is `NOT NULL` is required, so that its Parquet column is not nullable, when it
-is an integer, number, boolean, date or datetime, whose values cannot be empty, unless the query joins another table,
-computes a column, or groups by anything other than its columns, such as with `ROLLUP`, which can then be null. PostgreSQL gives a type
-to every column of a result, so a computed column, such as a sum, is typed too. MySQL and SQLite do not, so a computed
-column is `any`, unless the schema gives it a type.
+* An attribute that Active Record decorates, such as one that `encrypts` or `normalizes`, has the type of the
+  attribute within, so an encrypted string is a `string`. A serialized attribute, also one that is encrypted, and an
+  attribute of a type of the application, such as `attribute :price, MoneyType.new`, are `any`, since their values can
+  be objects of any class, which a format of text writes as it writes a
+  [value without a field](formats#values-without-a-field).
+* A column that the query computes, or names with `AS`, has the type that the database gives the column of its
+  result, unless it has the name of an attribute of the model. PostgreSQL gives a type to every column, without the
+  scale of a decimal, so that a sum is a `number` without decimals. SQLite gives a type only to a column of a table,
+  and MySQL to none, so a computed column is `any` there, and on MySQL so is every column named with `AS`. As for
+  `pluck`, a column named with `AS` is not cast by the attribute of its column, so an enum is then the number that the
+  table holds.
+* A column is required, so that its Parquet column is not nullable, when it is `NOT NULL`, the query selects only
+  columns of the table of the model, by their names, without joins, and groups by nothing else, and the database
+  always gives such a column a value of its type once Active Record casts it: on PostgreSQL an integer, number,
+  boolean, date, datetime or array, and on MySQL with `mysql2` an integer, number or boolean, since `mysql2` reads a
+  zero date, such as `0000-00-00`, which MySQL can hold in a `NOT NULL` column, as nil. On SQLite no column is required,
+  since its columns hold values of any type, such as empty text in an integer column, which Active Record casts to nil,
+  nor on a database that IOStreams cannot stream a query from, such as MySQL with `trilogy`. A string is never
+  required, since it can be empty, and a query that joins another table, computes any column, or groups by anything
+  else, such as with `ROLLUP`, requires none of its columns.
+
+### Columns that need a type
 
 A Parquet file needs the type of every column, so a column of `any`, or a number without decimals, raises
-`ArgumentError` before the file is written. Set the schema of the query to give it one, such as a JSON column as an
-`object`, or a sum with its decimals:
+`ArgumentError` before the file is written. The other formats write such a column, apart from binary data:
+
+* A JSON column is `any`, since its values can be objects, arrays, or any other JSON value. CSV writes each value as
+  its JSON text, and JSON as itself. For Parquet, give it the type `object` when each of its values is an object, or
+  `array` when each is an array, which Parquet holds as their JSON text. Otherwise, leave it out, or select its JSON
+  text as a column of another name, such as `details::text AS details_json` on PostgreSQL, which is a `string`. On
+  MySQL and SQLite, whose computed columns are `any`, give such a column the type `string` in the schema, see below.
+* A binary column is `any` too, and its bytes are not text: CSV writes them as they are, which is not valid UTF-8, so
+  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises. Leave it out, or select it as text,
+  such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or `TO_BASE64(image) AS image_base64` on MySQL.
+* A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
+
+To give a column a type, set the schema of the query. It replaces the schema of every column, so start from the one
+that `#schema` returns, and change the fields that need it:
 
 ~~~ruby
-report = Order.select(:id, :details, "SUM(amount) OVER (ORDER BY id) AS running_total")
-schema = {
-  fields: [
-    {name: "id", type: "integer"},
-    {name: "details", type: "object"},
-    {name: "running_total", type: "number", decimals: 2}
-  ]
-}
+report = Order.select(:id, :amount, "SUM(amount) OVER (ORDER BY id) AS running_total")
+stream = IOStreams.stream(report)
+fields = stream.schema[:fields].map do |field|
+  field[:name] == "running_total" ? field.merge(type: "number", decimals: 2) : field
+end
 
-IOStreams.path("orders.parquet").copy_from(IOStreams.stream(report).schema(schema), mode: :hash)
+IOStreams.path("orders.parquet").copy_from(stream.schema(fields: fields), mode: :hash)
 ~~~
 
+The rows are then read by that schema, so a value that is not of the type of its field raises
+`IOStreams::Errors::InvalidValue`, such as a JSON array for an `object`.
+
+A schema with `header: false` matches its fields to the columns of the query by their position, rather than their
+names, so its fields can give them other names. A copy gives that schema to a target without one, `header: false`
+included, so a CSV file is then written without a header row, unless the target has a schema of its own.
+
+### A schema of the target
+
 A target with a schema of its own writes by that schema instead, for example to write only some of the columns, or to
-name them otherwise, with `aliases`.
+give them other names with `aliases`. Its fields are then all that the target knows of the columns, so give each one
+its type, such as the decimals of a number, which Parquet needs, and `fieldsMatch: "subset"`, which skips the other
+columns of the query, since the default, `"exact"`, raises `IOStreams::Errors::InvalidHeader` for them:
+
+~~~ruby
+target = IOStreams.path("orders.csv").schema(
+  fieldsMatch: "subset",
+  fields:      [
+    {name: "order_id", aliases: ["id"], type: "integer"},
+    {name: "total", aliases: ["amount"], type: "number", decimals: 2}
+  ]
+)
+target.copy_from(Order.where(paid: true), mode: :hash)
+~~~
+
+This also names the columns of the file otherwise without losing the types of the attributes, which naming them with
+`AS` in the query would.
+
+### Dates and times
+
+A datetime is read as an `ActiveSupport::TimeWithZone` in the time zone of the application, which CSV and JSON write in
+ISO 8601 with its offset, such as `2026-10-01T05:30:15.123456-04:00`, and Parquet as a timestamp in UTC.
+
+A date or time that the query computes, such as `MAX(created_at) AS last_ordered_at`, is not an attribute of the model,
+so it is not in the time zone of the application: on PostgreSQL it is a `Time` in UTC, on MySQL a `Time` in UTC of the
+type `any`, and on SQLite the text that SQLite holds, such as `2026-10-03 11:00:00`, also of the type `any`. Name the
+column after an attribute of the model, such as `MAX(created_at) AS created_at`, or declare an attribute of its name in
+the model, such as `attribute :last_ordered_at, :datetime`, so that it is cast as a datetime in the time zone of the
+application.
+
+On PostgreSQL, Active Record casts a date or time of `'infinity'` or `'-infinity'` to `Float::INFINITY`, which a `date`
+or `datetime` field does not accept, so the read raises `IOStreams::Errors::InvalidValue` at the first of them. Select
+such a column as null when it is not finite, which keeps its type:
+
+~~~ruby
+plans = Plan.select(:id, :name, "CASE WHEN isfinite(valid_until) THEN valid_until END AS valid_until")
+
+IOStreams.path("plans.parquet").copy_from(plans, mode: :hash)
+~~~
+
+Or select it as its text, such as `valid_until::text AS valid_until_text`, which is `infinity` for an infinite one.
 
 ## Connections and transactions
 
