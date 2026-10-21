@@ -487,6 +487,18 @@ class QueryStreamTest < Minitest::Test
           assert_equal "delimiter: cannot be used to read a query, whose rows are already split", error.message
         end
 
+        it "raises for the options of lines before it runs a query, even while the database cannot be reached" do
+          names = statements do
+            db.order.stub(:with_connection, ->(**) { raise ActiveRecord::ConnectionNotEstablished, "connection refused" }) do
+              assert_raises(ArgumentError) { each(stream, :array, buffer_size: 10) }
+              assert_raises(ArgumentError) { each(stream, :hash, embedded_within: '"') }
+              assert_raises(ArgumentError) { stream.each(:slice, size: 2, delimiter: "|") { |_slice| nil } }
+            end
+          end
+
+          assert_empty names
+        end
+
         it "can be copied to a path or stream" do
           output = StringIO.new
           IOStreams.stream(orders.select(:name)).copy_to(IOStreams.stream(output).format(:csv), mode: :array)

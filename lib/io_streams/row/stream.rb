@@ -17,14 +17,17 @@ module IOStreams
       # `:slice`, which reads them in slices.
       #
       # Raises ArgumentError for the `:stream` and `:line` modes, since the source holds rows rather than bytes or lines:
-      # its rows are already split, and its header row is not a line.
-      def reader(mode = :stream, **, &)
+      # its rows are already split, and its header row is not a line. Raises ArgumentError for the options of lines,
+      # `delimiter:`, `embedded_within:` and `buffer_size:`, before the rows are opened, or the tabular that reads them is
+      # built, which describes the columns of a query, since the rows are already split.
+      def reader(mode = :stream, **args, &)
         if %i[stream line].include?(mode)
           message = "A #{source_name} is read in the :array, :hash or :slice mode, not #{mode.inspect}, since it holds " \
                     "rows rather than bytes or lines"
           message = "#{message}: #{rows_hint}" if rows_hint
           raise(ArgumentError, message)
         end
+        reject_lines!(**args)
 
         super
       end
@@ -105,20 +108,22 @@ module IOStreams
       end
 
       # Yields [#each] the rows, see #rows. A header row that was already parsed is read as it is, see
-      # `IOStreams::Tabular::Parser::Base`.
-      #
-      # Raises ArgumentError for the options of lines, `delimiter:`, `embedded_within:` and `buffer_size:`, since the
-      # rows are already split.
-      def open_rows_reader(_tabular, delimiter, embedded_within, buffer_size)
+      # `IOStreams::Tabular::Parser::Base`. The options of lines were rejected by #reader.
+      def open_rows_reader(_tabular, _delimiter, _embedded_within, _buffer_size)
+        yield rows
+      end
+
+      # Raises ArgumentError for the options of lines of a call that reads the rows, `delimiter:`, `embedded_within:` and
+      # `buffer_size:`, since the rows are already split. The other options are checked by the reader of the mode, see
+      # `IOStreams::Stream#reader`.
+      def reject_lines!(delimiter: nil, embedded_within: :auto, buffer_size: nil, **)
         options = {delimiter: delimiter, embedded_within: (embedded_within unless embedded_within == :auto),
                    buffer_size: buffer_size}
         names   = options.compact.keys
-        unless names.empty?
-          raise(ArgumentError, "#{names.map { |name| "#{name}:" }.join(', ')} cannot be used to read a #{source_name}, " \
-                               "whose rows are already split")
-        end
+        return if names.empty?
 
-        yield rows
+        raise(ArgumentError, "#{names.map { |name| "#{name}:" }.join(', ')} cannot be used to read a #{source_name}, " \
+                             "whose rows are already split")
       end
 
       # Raises ArgumentError for what only applies to the bytes of a file, which the source does not have.
