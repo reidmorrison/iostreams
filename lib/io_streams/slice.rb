@@ -25,8 +25,11 @@ module IOStreams
   # To store a slice, or send it to another process, #to_h returns what it holds as a Hash, which `IOStreams.slice`
   # turns back into a slice.
   class Slice < ::Array
+    autoload :Collector, "io_streams/slice/collector"
     autoload :Reader, "io_streams/slice/reader"
     autoload :Stream, "io_streams/slice/stream"
+    autoload :Target, "io_streams/slice/target"
+    autoload :TargetStream, "io_streams/slice/target_stream"
 
     # The keys of the Hash of a slice, see #to_h.
     KEYS = %w[rows header format blank_rows].freeze

@@ -952,6 +952,65 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
   cannot convert text to, such as UTF-7, see [Character encoding](#character-encoding), or a gem that a stream needs
   and that is not installed.
 
+### A store of slices
+
+To hand the rows that your code writes to other threads, processes or jobs in [slices](#slices), as `each(:slice)`
+reads them from a file, write them to a store of slices. Include `IOStreams::Slice::Target` in the class of the store,
+and implement `#write(slice)`, which receives each `IOStreams::Slice`:
+
+~~~ruby
+class SliceStore
+  include IOStreams::Slice::Target
+
+  def initialize(queue)
+    @queue = queue
+  end
+
+  def write(slice)
+    @queue << slice.to_h
+  end
+end
+~~~
+
+`IOStreams.stream(store)` returns a stream that writes lines, rows or records to the store in slices of up to `size`
+rows, 100 unless the call supplies another `size:`. The rows are written in the format of the stream, CSV unless
+another is set with `#format`, and by its schema, as they would be written to a file, then the header row is matched
+to the schema, and each slice carries it:
+
+~~~ruby
+store = SliceStore.new(queue)
+
+IOStreams.stream(store).schema("people.json").writer(:hash, size: 100) do |io|
+  io << {"name" => "Jack", "age" => 21}
+  io << {"name" => "Jill", "age" => 22}
+end
+~~~
+
+In the `:line` mode each line is a row of the file, after its header row, without a newline after it:
+
+~~~ruby
+IOStreams.stream(store).writer(:line) do |io|
+  io << "name,age"
+  io << "Jack,21"
+end
+~~~
+
+A copy to the store writes the lines, rows or records of a file, or of an Active Record query, in slices:
+
+~~~ruby
+IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :line, size: 100)
+~~~
+
+* A header row that does not match the schema raises `IOStreams::Errors::InvalidHeader` before any slice is written to
+  the store.
+* `validate: true` also parses each row before the slice that holds it is written, and raises for a value that is not
+  valid, such as `IOStreams::Errors::InvalidValue`, after the slices before it.
+* The last slice is written to the store when the block returns, or leaves early, such as with `break`, and not when it
+  raises, so that the rows of a failed write are not handed on. The slices before it have already been written.
+* A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, `#encoding`,
+  `#raw`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. It is only written, so
+  `#each`, `#reader` and `#read` raise `ArgumentError` too.
+
 ## Lines
 
 Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line

@@ -57,6 +57,7 @@ module IOStreams
     autoload :HeaderRow, "io_streams/row/header_row"
     autoload :Reader, "io_streams/row/reader"
     autoload :Stream, "io_streams/row/stream"
+    autoload :WithoutBytes, "io_streams/row/without_bytes"
     autoload :Writer, "io_streams/row/writer"
   end
 end

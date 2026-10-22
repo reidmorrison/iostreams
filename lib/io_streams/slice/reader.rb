@@ -22,14 +22,9 @@ module IOStreams
 
       # Raises ArgumentError for options that cannot read slices, see #initialize, so that a call raises before the file
       # is opened, see `IOStreams::Stream#each`: a `size` that is not a positive Integer, or a `validate` that is not true
-      # or false.
+      # or false, see `IOStreams::Slice::Collector.check`.
       def self.check(size:, validate: false)
-        unless size.is_a?(Integer) && size.positive?
-          raise(ArgumentError, "Invalid size #{size.inspect}: supply the number of rows of each slice")
-        end
-        return if [true, false].include?(validate)
-
-        raise(ArgumentError, "Invalid validate #{validate.inspect}: supply true or false")
+        Collector.check(size: size, validate: validate)
       end
 
       # Parameters
@@ -67,26 +62,15 @@ module IOStreams
         @tabular.header_row
       end
 
-      # Yields each slice of the rows of the file, see `IOStreams::Slice`, after reading its header row, when it has one.
+      # Yields each slice of the rows of the file, see `IOStreams::Slice`, after reading its header row, when it has one,
+      # see `IOStreams::Slice::Collector`.
       #
       # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
-      def each
-        count = 0
-        slice = nil
-        @rows.each do |row|
-          @tabular.read_line(row) do |line|
-            @tabular.record_parse(line) if @validate
-            slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
-            slice << line
-            count += 1
-            next if slice.size < @size
-
-            yield slice
-            slice = nil
-          end
-        end
-        yield slice if slice
-        count
+      def each(&)
+        collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, &)
+        @rows.each { |row| collector << row }
+        collector.finish
+        collector.count
       end
 
       # Returns [String] the class, the format of the rows and the size of the slices, rather than every instance

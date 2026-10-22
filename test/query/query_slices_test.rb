@@ -39,6 +39,25 @@ class QuerySlicesTest < Minitest::Test
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
 
+      it "copies the records to a store of slices as lines of CSV, by the schema of the query" do
+        store = Class.new do
+          include IOStreams::Slice::Target
+
+          attr_reader :slices
+
+          def write(slice)
+            (@slices ||= []) << slice
+          end
+        end.new
+        IOStreams.stream(store).copy_from(relation, mode: :hash, size: 2)
+
+        assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
+        assert_equal [["2026-10-01,1.5", ","], ["1969-12-31,"]], store.slices.map(&:to_a)
+        # As in a file of CSV, a row of nulls is a line of only commas, which is read as a blank row.
+        assert_equal([expected.first, nil, expected.last],
+                     store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
+      end
+
       it "holds blank_rows: false in the Hash of each slice" do
         hashes = []
         IOStreams.stream(relation).each(:slice, size: 5) { |slice| hashes << slice.to_h }
