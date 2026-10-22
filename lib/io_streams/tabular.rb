@@ -111,6 +111,13 @@ module IOStreams
       @mapping            = build_mapping(schema, blank_rows)
     end
 
+    # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
+    # those of a slice that a writer of slices writes in the format of this one, see `IOStreams::Slice::Writer`, and
+    # reads a row whose every value is blank as the slice says, see `IOStreams::Slice#blank_rows?`.
+    def for_format(format, blank_rows: true)
+      self.class.new(format: format, schema: @schema, blank_rows: blank_rows)
+    end
+
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the keys of the first record,
     # see `IOStreams::Tabular::Header`. With a schema, the header row as it was read, see #read_header.
     def header

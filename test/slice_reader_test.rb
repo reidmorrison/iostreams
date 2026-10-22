@@ -237,10 +237,6 @@ class SliceReaderTest < Minitest::Test
         assert_equal [%w[Jack,21 Jill,22]], slices(stream("name,age|Jack,21|Jill,22"), size: 5, delimiter: "|")
       end
 
-      it "cannot be written" do
-        assert_raises(ArgumentError) { stream(+"").writer(:slice) { |_writer| nil } }
-      end
-
       it "are read options, which a writer rejects" do
         error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).writer(:line, size: 2) { |_writer| nil } }
         assert_match(/:size only applies when reading/, error.message)

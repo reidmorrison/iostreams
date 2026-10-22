@@ -738,7 +738,7 @@ reads or writes:
 | `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
 | `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
-| `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | |
+| `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | `writer(:slice) { \|io\| io << slice }` |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
 lines, see [Tabular formats](formats). The extensions of the file name also say how the file is compressed or
@@ -909,7 +909,8 @@ The stream of a slice is like any other, apart from what needs the bytes of a fi
 * The `:stream` and `:line` modes, `#read`, `#stream`, `#option`, `#encoding`, `#raw`, and the options of lines, such as
   `delimiter:`, raise `ArgumentError`, since the rows of a slice are already split and decoded. Iterate the slice for
   its rows as they are in the file.
-* A slice is only read, so `#writer`, `#write` and `#copy_from` raise `ArgumentError`. Copy its records to a file with
+* A slice is only read, so `#writer`, `#write` and `#copy_from` raise `ArgumentError`. Write the slices of a file to
+  another file with [`writer(:slice)`](#writing-slices-to-a-file), or copy the records of one slice with
   `copy_to(path, mode: :hash)`.
 
 ## Writing
@@ -951,6 +952,29 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
   stream cannot write with, such as a compression level that is out of range, an encoding that Ruby does not know, or
   cannot convert text to, such as UTF-7, see [Character encoding](#character-encoding), or a gem that a stream needs
   and that is not installed.
+
+### Writing slices to a file
+
+`writer(:slice)` writes [slices](#slices) to a file, such as those that `each(:slice)` read from another file, or that a
+[store of slices](#a-store-of-slices) holds, after their header row, which it writes once:
+
+~~~ruby
+IOStreams.path("people.csv.gz").schema("people.json").writer(:slice) do |io|
+  slices.each do |slice|
+    io << slice
+  end
+end
+~~~
+
+* A slice whose rows are in the format of the file is written as it is, line for line, without parsing its rows, as
+  `each(:slice)` read them, once its header row is matched to the schema, which raises
+  `IOStreams::Errors::InvalidHeader` when they do not match. `validate: true` also parses each row before it is
+  written, and raises for a value that is not valid, such as `IOStreams::Errors::InvalidValue`.
+* A slice in another format, such as one of CSV written to JSON, or of the rows of an Active Record query, is read by
+  its header row and format, by the schema of the file, and each of its rows is written as `writer(:array)` writes it,
+  apart from a blank row, which a copy skips too.
+* Every slice is of the same file as the first: one with another header row or format raises `ArgumentError`.
+* As for any writer, the file is kept when the block returns, or leaves early, and not when it raises.
 
 ### A store of slices
 

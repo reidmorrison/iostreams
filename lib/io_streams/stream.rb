@@ -29,7 +29,7 @@ module IOStreams
     def self.read_option_names
       @read_option_names ||= begin
         readers = [IOStreams::Line::Reader, IOStreams::Row::Reader, IOStreams::Record::Reader, IOStreams::Slice::Reader]
-        writers = [IOStreams::Line::Writer, IOStreams::Row::Writer, IOStreams::Record::Writer]
+        writers = [IOStreams::Line::Writer, IOStreams::Row::Writer, IOStreams::Record::Writer, IOStreams::Slice::Writer]
         (readers.flat_map(&:option_names) - writers.flat_map(&:option_names)).uniq.freeze
       end
     end
@@ -358,6 +358,8 @@ module IOStreams
         row_writer(**args, &block)
       when :hash
         record_writer(**args, &block)
+      when :slice
+        slice_writer(**args, &block)
       else
         raise(ArgumentError, "Invalid mode: #{mode.inspect}")
       end
@@ -1056,6 +1058,19 @@ module IOStreams
       tabular = self.tabular
       open_rows_writer(tabular, delimiter) do |io|
         block.call(IOStreams::Record::Writer.new(io, tabular: tabular))
+      end
+    end
+
+    # Writes the slices of a file, see `IOStreams::Slice::Writer`, in the format of this stream and by its schema. The
+    # delimiter is the default of the line writer unless it is supplied, see #open_rows_writer.
+    def slice_writer(delimiter: nil, validate: false, **args, &block)
+      reject_read_options!(args, "not when writing")
+      reject_unknown_options!(:slice, IOStreams::Slice::Writer, args)
+      IOStreams::Slice::Writer.check(validate: validate)
+
+      tabular = self.tabular
+      open_rows_writer(tabular, delimiter) do |io|
+        block.call(IOStreams::Slice::Writer.new(io, tabular: tabular, validate: validate))
       end
     end
 

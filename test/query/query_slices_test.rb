@@ -63,6 +63,16 @@ class QuerySlicesTest < Minitest::Test
         assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
 
+      it "writes its slices to a file, by the schema of the query, keeping a row whose every value is null" do
+        output = StringIO.new
+        IOStreams.stream(output).format(:json).schema(schema).writer(:slice) do |io|
+          stored_slices.each { |slice| io << slice }
+        end
+
+        assert_equal %({"shipped_on":"2026-10-01","weight":1.5}\n{"shipped_on":null,"weight":null}\n) +
+                     %({"shipped_on":"1969-12-31","weight":null}\n), output.string
+      end
+
       it "holds blank_rows: false in the Hash of each slice" do
         hashes = []
         IOStreams.stream(relation).each(:slice, size: 5) { |slice| hashes << slice.to_h }

@@ -30,6 +30,7 @@ module IOStreams
     autoload :Stream, "io_streams/slice/stream"
     autoload :Target, "io_streams/slice/target"
     autoload :TargetStream, "io_streams/slice/target_stream"
+    autoload :Writer, "io_streams/slice/writer"
 
     # The keys of the Hash of a slice, see #to_h.
     KEYS = %w[rows header format blank_rows].freeze
