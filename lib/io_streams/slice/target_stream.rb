@@ -52,7 +52,8 @@ module IOStreams
       #           takes them. A line that holds a line ending is split into rows as reading the file back would split
       #           it, so that a line ending within a quoted value of CSV stays within its row, see
       #           `IOStreams::Line::Reader`, and a quoted value that is not closed raises
-      #           `IOStreams::Errors::MalformedDataError` once the block returns.
+      #           `IOStreams::Errors::MalformedDataError`, with the number of the line that it starts on, once the text
+      #           written after it exceeds the most that a line reader reads into one line, or when the block returns.
       #   :array  each row, see `IOStreams::Row::Writer`.
       #   :hash   each record, see `IOStreams::Record::Writer`.
       #
@@ -163,17 +164,25 @@ module IOStreams
         # A line ending, after which the text that follows is another line, unless it is within a quoted value.
         LINE_ENDING = /[\r\n]/
 
+        # The most bytes of text kept while a quoted value is open, as a line reader reads them, see #<<.
+        MAX_PENDING_BYTES = IOStreams::Line::Reader.max_embedded_bytes
+
         def initialize(collector, quote_character)
           @collector       = collector
           @quote_character = quote_character
           @pending         = nil
           @quotes          = 0
           @delimiter       = nil
+          @lines           = 0
         end
 
         # Adds the rows of the supplied line, see `IOStreams::Slice::Collector#<<`. A nil line is a blank line. A line
         # that holds a line ending, or that leaves a quoted value open, is kept until the text written holds whole rows,
         # which a line reader then splits, see #split.
+        #
+        # Raises `IOStreams::Errors::MalformedDataError`, with the number of the line on which the quoted value opened,
+        # once the text kept while it is open exceeds the most that a line reader reads into one line, see
+        # `IOStreams::Line::Reader.max_embedded_bytes`, as reading the file would, rather than keep it all in memory.
         #
         # Returns self, so that calls can be chained.
         #
@@ -189,11 +198,12 @@ module IOStreams
           if @pending.nil? && quotes.even? && !text.match?(LINE_ENDING)
             # A line of a single row, the line ending of the file being that of the line writer.
             @delimiter ||= "\n"
+            @lines      += 1
             @collector << text
           else
             (@pending ||= +"") << text << "\n"
             @quotes += quotes
-            split if @quotes.even?
+            split if @quotes.even? || @pending.bytesize > MAX_PENDING_BYTES
           end
           self
         end
@@ -215,6 +225,9 @@ module IOStreams
         # Adds each row of the text kept, which a line reader splits as it would read it from a file, see
         # `IOStreams::Line::Reader`, at the line ending of the file, which the first line ending written decides. The
         # reader detects it again for a file whose line ending is "\r\n", since a "\n" alone also ends a line of one.
+        #
+        # Raises `IOStreams::Errors::MalformedDataError` when a quoted value in the text is not closed, numbered by the
+        # lines of the file, which are the lines added before the text and those of the text.
         def split
           delimiter = @delimiter unless @delimiter == "\r\n"
           io        = StringIO.new(@pending)
@@ -222,7 +235,12 @@ module IOStreams
           @delimiter ||= reader.delimiter
           @pending     = nil
           @quotes      = 0
-          reader.each { |row| @collector << row }
+          begin
+            reader.each { |row| @collector << row }
+          rescue IOStreams::Errors::MalformedDataError => e
+            raise(e.after(@lines))
+          end
+          @lines += reader.line_number
         end
       end
       private_constant :Lines

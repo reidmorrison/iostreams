@@ -13,12 +13,23 @@ module IOStreams
       # The size of the blocks read from the input stream, when no `buffer_size` is supplied.
       DEFAULT_BUFFER_SIZE = 65_536
 
+      # Prevent denial of service when a quoted value is not closed before this number * `buffer_size` bytes, see
+      # .max_embedded_bytes.
+      MAX_EMBEDDED_BLOCKS = 10
+
       LINEFEED_REGEXP = /\r\n|\n|\r/
 
       # Returns [Array<Symbol>] the options that the reader accepts, see #initialize, which are the options of each call
       # that reads lines, see `IOStreams::Stream#reader`, which raises for any other.
       def self.option_names
         %i[delimiter buffer_size embedded_within]
+      end
+
+      # Returns [Integer] the most bytes that a line whose quoted value holds line endings can reach before #readline
+      # raises `IOStreams::Errors::MalformedDataError`, rather than keep reading the lines after it into memory:
+      # MAX_EMBEDDED_BLOCKS blocks of the supplied size, 640KB by default.
+      def self.max_embedded_bytes(buffer_size = DEFAULT_BUFFER_SIZE)
+        buffer_size * MAX_EMBEDDED_BLOCKS
       end
 
       # Read a line at a time from a stream
@@ -130,7 +141,7 @@ module IOStreams
           # in a multi-byte string such as UTF-8 each time it is called.
           embedded_count      = line.count(@embedded_within)
           while embedded_count.odd?
-            if eof? || line.bytesize > @buffer_size * 10
+            if eof? || line.bytesize > self.class.max_embedded_bytes(@buffer_size)
               raise(Errors::MalformedDataError.new(
                       "Unbalanced delimited field, delimiter: #{@embedded_within}",
                       initial_line_number

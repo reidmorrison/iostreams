@@ -231,6 +231,35 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal [%w[Jack]], small.slices.collect(&:to_a)
       end
 
+      it "raises with the line of the file on which a quoted value that is not closed starts" do
+        error = assert_raises(IOStreams::Errors::MalformedDataError) do
+          stream.writer(:line) do |io|
+            io << "name,note" << "Jack,\"line 1\nline 2\"" << "a\nb" << "Jill,\"open" << "more"
+          end
+        end
+
+        assert_equal 6, error.line_number
+        assert_equal "Unbalanced delimited field, delimiter: \" on line 6.", error.message
+      end
+
+      it "raises once the text kept after a quoted value that is not closed exceeds that of a line reader" do
+        line    = "x" * 1_000
+        limit   = IOStreams::Line::Reader.max_embedded_bytes
+        written = 0
+        error   = assert_raises(IOStreams::Errors::MalformedDataError) do
+          stream.writer(:line) do |io|
+            io << "name" << "Jack" << "\"Jill"
+            loop do
+              io << line
+              written += 1
+            end
+          end
+        end
+
+        assert_equal 3, error.line_number
+        assert_equal limit / (line.bytesize + 1), written
+      end
+
       it "raises for a line that is not a String" do
         error = assert_raises(ArgumentError) { stream.writer(:line) { |io| io << {"name" => "Jack"} } }
 

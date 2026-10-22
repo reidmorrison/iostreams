@@ -352,7 +352,9 @@ does not have:
 
 * In the `:line` mode, each line written is a row of the file, after its header row, without a newline after it. A
   line that holds newlines is split into rows the way reading the file back would split it, so a newline inside a
-  quoted CSV value stays in its row.
+  quoted CSV value stays in its row. A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError`
+  with the number of the line that it starts on, as reading the file would, once the text written after it reaches
+  640KB, or when the block returns, rather than keeping the lines written after it in memory.
 * A copy in the `:line` mode keeps the lines as they are, so the slices are in the format of the source. Setting
   another format on the store's stream raises `ArgumentError`; copy in the `:array` or `:hash` mode to convert the
   rows instead.
