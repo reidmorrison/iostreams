@@ -1062,15 +1062,19 @@ module IOStreams
     end
 
     # Writes the slices of a file, see `IOStreams::Slice::Writer`, in the format of this stream and by its schema. The
-    # delimiter is the default of the line writer unless it is supplied, see #open_rows_writer.
+    # delimiter is the default of the line writer unless it is supplied, see #open_rows_writer. Once the block returns,
+    # or leaves early, but not when it raises, the writer finishes the file, see `IOStreams::Slice::Writer#finish`.
     def slice_writer(delimiter: nil, validate: false, **args, &block)
       reject_read_options!(args, "not when writing")
       reject_unknown_options!(:slice, IOStreams::Slice::Writer, args)
       IOStreams::Slice::Writer.check(validate: validate)
+      supplied = {delimiter: delimiter, validate: (validate unless validate == false), **args}
+      return block.call(io_stream) if open_writer_supplied?(IOStreams::Slice::Writer, supplied)
 
       tabular = self.tabular
       open_rows_writer(tabular, delimiter) do |io|
-        block.call(IOStreams::Slice::Writer.new(io, tabular: tabular, validate: validate))
+        writer = IOStreams::Slice::Writer.new(io, tabular: tabular, validate: validate)
+        Utils.finish_or_abort(finish: -> { writer.finish }) { block.call(writer) }
       end
     end
 

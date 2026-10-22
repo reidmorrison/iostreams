@@ -973,7 +973,15 @@ end
 * A slice in another format, such as one of CSV written to JSON, or of the rows of an Active Record query, is read by
   its header row and format, by the schema of the file, and each of its rows is written as `writer(:array)` writes it,
   apart from a blank row, which a copy skips too.
-* Every slice is of the same file as the first: one with another header row or format raises `ArgumentError`.
+* Whether a slice's rows start with a header row comes from the slice (`slice.header`), not from the schema of the file
+  written. So slices of a file without a header row can be written to a file with one, which gets the field names of
+  the schema as its header row, and the other way round. A slice of CSV without a header row needs a schema to name
+  its columns, and raises `ArgumentError` without one.
+* Every slice is of the same file as the first: one with another header row or format raises `ArgumentError`. The rows
+  of JSON slices are written in the columns of the first record of the first slice, and a key that it lacked raises
+  `IOStreams::Errors::InvalidHeader`.
+* When no slice is written, the file holds just the header row of the schema, as `writer(:array)` writes it, or nothing
+  without a schema, since only a slice carries the header row of its file.
 * As for any writer, the file is kept when the block returns, or leaves early, and not when it raises.
 
 ### A store of slices

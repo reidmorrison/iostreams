@@ -112,10 +112,19 @@ module IOStreams
     end
 
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
-    # those of a slice that a writer of slices writes in the format of this one, see `IOStreams::Slice::Writer`, and
-    # reads a row whose every value is blank as the slice says, see `IOStreams::Slice#blank_rows?`.
-    def for_format(format, blank_rows: true)
-      self.class.new(format: format, schema: @schema, blank_rows: blank_rows)
+    # those of a slice that a writer of slices writes in the format of this one, see `IOStreams::Slice::Writer`: whether
+    # they start with a header row, and whether a row whose every value is blank is a blank row, are as the slice says,
+    # see `IOStreams::Slice#header` and `IOStreams::Slice#blank_rows?`, whatever the schema says of the file.
+    #
+    # Raises ArgumentError for rows of a format with a header row, such as CSV, that do not start with one, without a
+    # schema, which would name their columns.
+    def for_format(format, header:, blank_rows: true)
+      schema  = @schema&.with_header(header)
+      tabular = self.class.new(format: format, schema: schema, blank_rows: blank_rows)
+      return tabular if header || !tabular.requires_header?
+
+      raise(ArgumentError, "Rows of the #{format.inspect} format without a header row are read by a schema, which " \
+                           "names their columns: set the schema of the file")
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the keys of the first record,

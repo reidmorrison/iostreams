@@ -75,6 +75,73 @@ class SliceWriterTest < Minitest::Test
       end
     end
 
+    describe "a slice without a header row" do
+      let(:headerless) { schema.merge("header" => false) }
+
+      it "is written line for line to a file without one, keeping its first row" do
+        assert_equal "Jack,21\nJill,22\n", write(slices("Jack,21\nJill,22\n", schema: headerless), schema: headerless)
+      end
+
+      it "is written after the header row of the schema to a file with one" do
+        assert_equal "first_name,age\nJack,21\n", write(slices("Jack,21\n", schema: headerless), schema: schema)
+      end
+
+      it "raises without a schema, which would name its columns, before anything is written" do
+        error = assert_raises(ArgumentError) { write(slices("Jack,21\n", schema: headerless)) }
+
+        assert_match(/without a header row are read by a schema/, error.message)
+      end
+    end
+
+    describe "a slice with a header row" do
+      it "is written without it to a file whose schema has none" do
+        list = slices("first_name,age\nJack,21\n", schema: schema)
+
+        assert_equal "Jack|21\n", write(list, format: :psv, schema: schema.merge("header" => false))
+        assert_equal "Jack,21\n", write(list, schema: schema.merge("header" => false))
+      end
+    end
+
+    describe "slices of JSON records" do
+      it "write the values of every slice in the columns of the first record" do
+        list = slices(%({"a":1,"b":2}\n{"b":3,"a":4}\n), format: :json)
+
+        assert_equal "a,b\n1,2\n4,3\n", write(list)
+      end
+
+      it "raise InvalidHeader for a key that the first record lacked" do
+        list = slices(%({"a":1}\n{"a":3,"b":5}\n), format: :json)
+
+        assert_raises(IOStreams::Errors::InvalidHeader) { write(list) }
+      end
+    end
+
+    describe "no slices" do
+      it "write the header row of the schema" do
+        assert_equal "first_name,age\n", write([], schema: schema)
+      end
+
+      it "write nothing without a schema, since no slice names the columns" do
+        assert_equal "", write([])
+      end
+    end
+
+    it "writes the header row once when the same slice is written again" do
+      slice = slices("a,b\n1,2\n").first
+
+      assert_equal %({"a":"1","b":"2"}\n{"a":"1","b":"2"}\n), write([slice, slice], format: :json)
+      assert_equal "a,b\n1,2\n1,2\n", write([slice, slice])
+    end
+
+    it "yields the writer of slices supplied to IOStreams.stream, which writes with its own settings" do
+      output = StringIO.new
+      IOStreams.stream(output).format(:csv).writer(:slice) do |io|
+        IOStreams.stream(io).writer(:slice) { |inner| inner << slices("a\n1\n").first }
+      end
+
+      assert_equal "a\n1\n", output.string
+    end
+
     describe "validate:" do
       let(:list) { slices("first_name,age\nJack,21\nJill,abc\n") }
 
