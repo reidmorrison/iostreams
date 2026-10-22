@@ -5,7 +5,8 @@ module IOStreams
     # The stream of a slice, see `IOStreams::Slice`, which `IOStreams.stream(slice)` returns, so that the rows of a slice
     # are read as the rows of a file are, by the settings of the stream, such as #schema:
     #
-    #   IOStreams.stream(slice).schema("people.json").each(:hash) { |person| p person }
+    #   schema = JSON.parse(IOStreams.path("people.json").read) # Once, rather than once for each slice
+    #   IOStreams.stream(slice).schema(schema).each(:hash) { |person| p person }
     #
     # Its rows start with the header row that the slice carries, which the tabular reads, see
     # `IOStreams::Tabular#read_header`, so that each row is read by the columns of the file that it came from, in the

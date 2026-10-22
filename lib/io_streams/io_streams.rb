@@ -92,7 +92,8 @@ module IOStreams
   # A slice of the rows of a file, see `IOStreams::Stream#each(:slice)` and `IOStreams.slice`, returns the stream of its
   # rows, which reads them as the rows of the file, by its header row and format, in the `:array` and `:hash` modes,
   # see `IOStreams::Slice::Stream`:
-  #   IOStreams.stream(slice).schema("people.json").each(:hash) { |person| p person }
+  #   schema = JSON.parse(IOStreams.path("people.json").read) # Once, rather than once for each slice
+  #   IOStreams.stream(slice).schema(schema).each(:hash) { |person| p person }
   #
   # An Active Record relation returns the stream of the rows of its query, which reads them as one query, typed by its
   # columns, and `relation.in_batches(...)` reads them in those batches, see `IOStreams::Query::Stream`:
