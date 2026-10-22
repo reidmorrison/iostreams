@@ -145,8 +145,9 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a
     schema replaces, see [Upgrading](upgrading#format_options-is-replaced-by-schema). It is kept so that code that
     rescues it still works.
-* `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed. Its `#line_number`
-  is the line that the value starts on.
+* `IOStreams::Errors::MalformedDataError`, a `RuntimeError`: a quoted value is not closed, by the end of the data
+  or within 10 blocks of lines, 640KB by default, see [Lines](streams#lines). Its `#line_number` is the line that the
+  value starts on.
 * `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`: the data is not valid in the
   encoding that it is read or written in, such as UTF-8. Its `#byte_offset` is the offset of the first invalid byte
   within the data after any decompression or decryption, and its `#line_number` is the line that it is on, when it

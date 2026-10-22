@@ -226,6 +226,9 @@ Other notes:
 * Lines are read 64KB at a time, which `buffer_size:` changes, such as `each(:hash, buffer_size: 1_048_576)`.
 * A line without a delimiter within 100 blocks, 6.4MB by default, raises `IOStreams::Errors::DelimiterNotFound`, rather
   than reading the whole of a file that has no line endings into memory.
+* A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError`, with the number of the line that it
+  starts on, once the line that holds it reaches 10 blocks, 640KB by default, or at the end of the file, rather than
+  reading the rest of the file into one line.
 
 ## Text and binary data
 

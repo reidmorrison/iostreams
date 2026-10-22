@@ -53,8 +53,15 @@ module IOStreams
       attr_reader :line_number
 
       def initialize(message, line_number)
+        @reason      = message
         @line_number = line_number
         super("#{message} on line #{line_number}.")
+      end
+
+      # Returns [MalformedDataError] the same error, on the line that it is on once the supplied number of lines are
+      # before it, for data that was read after those lines.
+      def after(lines)
+        self.class.new(@reason, line_number + lines)
       end
     end
 

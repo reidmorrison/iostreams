@@ -135,6 +135,11 @@ class LineReaderTest < Minitest::Test
           assert_includes exc.message, "Unbalanced delimited field, delimiter:"
         end
 
+        it "limits an unbalanced line to 10 blocks of its buffer size" do
+          assert_equal 655_360, IOStreams::Line::Reader.max_embedded_bytes
+          assert_equal 510, IOStreams::Line::Reader.max_embedded_bytes(51)
+        end
+
         it "raises error for unclosed quote before eof" do
           exc = assert_raises(IOStreams::Errors::MalformedDataError) do
             IOStreams::Line::Reader.file(unclosed_quote_large_file, embedded_within: '"', buffer_size: 20) do |io|
