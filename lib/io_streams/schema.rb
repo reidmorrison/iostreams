@@ -207,6 +207,17 @@ module IOStreams
       @header
     end
 
+    # Returns [IOStreams::Schema] this schema, or a copy of it whose `header` is the supplied one, for rows that start
+    # with a header row, or not, whatever the file that the schema describes, such as the rows of a slice, which says
+    # whether it has one, see `IOStreams::Slice#header`.
+    def with_header(header)
+      return self if header == @header
+
+      copy = dup
+      copy.header = header
+      copy.freeze
+    end
+
     # Returns [String|nil] how the keys of the records read are formed from the names of the fields, see `keyType`
     # above, or nil when they are the names as they are given.
     def key_type
@@ -398,6 +409,11 @@ module IOStreams
     def keep_extra?
       @keep_extra
     end
+
+    protected
+
+    # Sets whether the file has a header row, see #with_header, on a copy, before it is frozen.
+    attr_writer :header
 
     private
 

@@ -471,14 +471,15 @@ class StreamOptionsTest < Minitest::Test
           IOStreams::Record::Reader => :record_reader,
           IOStreams::Row::Writer    => :row_writer,
           IOStreams::Record::Writer => :record_writer,
-          IOStreams::Slice::Reader  => :slice_reader
+          IOStreams::Slice::Reader  => :slice_reader,
+          IOStreams::Slice::Writer  => :slice_writer
         }.each_pair do |klass, method|
           assert_equal keywords(IOStreams::Stream.instance_method(method)).sort, klass.option_names.sort, klass.name
         end
       end
 
-      it "gives the options that only apply when reading" do
-        assert_equal %i[buffer_size embedded_within size skip_blanks validate], IOStreams::Stream.read_option_names.sort
+      it "gives the options that only apply when reading, apart from validate:, which writing slices takes too" do
+        assert_equal %i[buffer_size embedded_within size skip_blanks], IOStreams::Stream.read_option_names.sort
       end
     end
 

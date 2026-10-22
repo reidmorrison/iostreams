@@ -8,12 +8,15 @@ module IOStreams
     # #text_format.
     #
     # Its rows are already split and decoded, so it raises ArgumentError for what only applies to bytes: the `:stream`
-    # and `:line` modes, the streams and options of #stream and #option, an encoding, #raw, and the options of lines,
-    # such as `delimiter:`. Its rows are only read, so #writer, #write and #copy_from raise too.
+    # and `:line` modes, the streams and options of #stream and #option, an encoding, #raw, see
+    # `IOStreams::Row::WithoutBytes`, and the options of lines, such as `delimiter:`. Its rows are only read, so
+    # #writer, #write and #copy_from raise too.
     #
     # Each subclass names its source, see #source_name, and supplies its rows, see #rows, or opens them, when they must
     # be opened to be read, see #open_rows.
     class Stream < IOStreams::Stream
+      include WithoutBytes
+
       # Yields the reader of the rows in the supplied mode, see `IOStreams::Stream#reader`: `:array`, `:hash`, or
       # `:slice`, which reads them in slices.
       #
@@ -43,26 +46,6 @@ module IOStreams
         raise(ArgumentError, read_only)
       end
 
-      # Returns [nil] without arguments, since no encoding is set, see `IOStreams::Stream#encoding`.
-      #
-      # Raises ArgumentError when an encoding, or another option of the encode stream, is supplied, since the rows are
-      # text that was already decoded.
-      def encoding(encoding = nil, **options)
-        return super if encoding.nil? && options.empty?
-
-        reject_bytes!("An encoding")
-      end
-
-      # Raises ArgumentError, since the source holds rows rather than the data of a file as it is stored.
-      def raw
-        reject_bytes!("#raw")
-      end
-
-      # Raises ArgumentError, since the source has no streams.
-      def remove_from_pipeline(_stream_name)
-        reject_bytes!("#remove_from_pipeline")
-      end
-
       # Sets the tabular format of the rows, when the source does not decide it, see #text_format, such as a slice turned
       # back from a Hash without a format, see `IOStreams.slice`, see `IOStreams::Stream#format=`.
       #
@@ -78,11 +61,6 @@ module IOStreams
       end
 
       private
-
-      # Returns [String] what the source is, such as "slice", which the messages of the exceptions name.
-      def source_name
-        raise(NotImplementedError, "#{self.class.name} must implement #source_name")
-      end
 
       # Returns [#each] the rows that the readers of rows and records read, starting with their header row, which they
       # read as the header row of a file, see `IOStreams::Tabular#read_header`, see #open_rows.
@@ -111,12 +89,6 @@ module IOStreams
           "`copy_to(path, mode: :hash)`"
       end
 
-      # Raises ArgumentError for the streams and options of #stream, #option and #option_or_stream, including the
-      # options of the rows of a format whose rows are not lines, such as Parquet, since the rows were already read.
-      def merge_options(_stream, _options)
-        reject_bytes!("The streams and options of #stream and #option")
-      end
-
       # Yields [#each] the rows, see #open_rows, which the tabular reads. A header row that was already parsed is read as
       # it is, see `IOStreams::Tabular::Parser::Base`. The options of lines were rejected by #reader.
       def open_rows_reader(tabular, _delimiter, _buffer_size, &)
@@ -132,11 +104,6 @@ module IOStreams
 
         raise(ArgumentError, "#{names.map { |name| "#{name}:" }.join(', ')} cannot be used to read a #{source_name}, " \
                              "whose rows are already split")
-      end
-
-      # Raises ArgumentError for what only applies to the bytes of a file, which the source does not have.
-      def reject_bytes!(what)
-        raise(ArgumentError, "#{what} cannot be used with a #{source_name}, which holds rows rather than bytes")
       end
     end
   end

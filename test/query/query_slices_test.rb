@@ -39,6 +39,40 @@ class QuerySlicesTest < Minitest::Test
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
 
+      it "copies the records to a store of slices as lines of CSV, by the schema of the query" do
+        store = Class.new do
+          include IOStreams::Slice::Target
+
+          attr_reader :slices
+
+          def slice_size
+            2
+          end
+
+          def write_slice(slice)
+            (@slices ||= []) << slice
+          end
+        end.new
+        IOStreams.stream(store).copy_from(relation, mode: :hash)
+
+        assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
+        assert_equal [["2026-10-01,1.5", ","], ["1969-12-31,"]], store.slices.map(&:to_a)
+        # A row of nulls is a line of only commas, which each slice holds is a record, as each(:slice) of the query does.
+        assert_equal [false, false], store.slices.map(&:blank_rows?)
+        assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
+        assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
+      end
+
+      it "writes its slices to a file, by the schema of the query, keeping a row whose every value is null" do
+        output = StringIO.new
+        IOStreams.stream(output).format(:json).schema(schema).writer(:slice) do |io|
+          stored_slices.each { |slice| io << slice }
+        end
+
+        assert_equal %({"shipped_on":"2026-10-01","weight":1.5}\n{"shipped_on":null,"weight":null}\n) +
+                     %({"shipped_on":"1969-12-31","weight":null}\n), output.string
+      end
+
       it "holds blank_rows: false in the Hash of each slice" do
         hashes = []
         IOStreams.stream(relation).each(:slice, size: 5) { |slice| hashes << slice.to_h }

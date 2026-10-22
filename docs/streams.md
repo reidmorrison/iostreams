@@ -22,7 +22,7 @@ reads or writes:
 | `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
 | `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
-| `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | |
+| `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | `writer(:slice) { \|io\| io << slice }` |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
 lines, see [Tabular formats](formats). The extensions of the file name also say how the file is compressed or
@@ -193,7 +193,8 @@ The stream of a slice is like any other, apart from what needs the bytes of a fi
 * The `:stream` and `:line` modes, `#read`, `#stream`, `#option`, `#encoding`, `#raw`, and the options of lines, such as
   `delimiter:`, raise `ArgumentError`, since the rows of a slice are already split and decoded. Iterate the slice for
   its rows as they are in the file.
-* A slice is only read, so `#writer`, `#write` and `#copy_from` raise `ArgumentError`. Copy its records to a file with
+* A slice is only read, so `#writer`, `#write` and `#copy_from` raise `ArgumentError`. Write the slices of a file to
+  another file with [`writer(:slice)`](#writing-slices-to-a-file), or copy the records of one slice with
   `copy_to(path, mode: :hash)`.
 
 ## Writing
@@ -235,6 +236,116 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
   stream cannot write with, such as a compression level that is out of range, an encoding that Ruby does not know, or
   cannot convert text to, such as UTF-7, see [Character encoding](#character-encoding), or a gem that a stream needs
   and that is not installed.
+
+### Writing slices to a file
+
+`writer(:slice)` writes [slices](#slices) to a file, such as those that `each(:slice)` read from another file, or that a
+[store of slices](#a-store-of-slices) holds, after their header row, which it writes once:
+
+~~~ruby
+IOStreams.path("people.csv.gz").schema("people.json").writer(:slice) do |io|
+  slices.each do |slice|
+    io << slice
+  end
+end
+~~~
+
+* A slice whose rows are in the format of the file is written as it is, line for line, without parsing its rows, as
+  `each(:slice)` read them, once its header row is matched to the schema, which raises
+  `IOStreams::Errors::InvalidHeader` when they do not match. `validate: true` also parses each row before it is
+  written, and raises for a value that is not valid, such as `IOStreams::Errors::InvalidValue`.
+* A slice in another format, such as one of CSV written to JSON, or of the rows of an Active Record query, is read by
+  its header row and format, by the schema of the file, and each of its rows is written as `writer(:array)` writes it,
+  apart from a blank row, which a copy skips too.
+* Whether a slice's rows start with a header row comes from the slice (`slice.header`), not from the schema of the file
+  written. So slices of a file without a header row can be written to a file with one, which gets the field names of
+  the schema as its header row, and the other way round. A slice of CSV without a header row needs a schema to name
+  its columns, and raises `ArgumentError` without one.
+* Every slice is of the same file as the first: one with another header row or format raises `ArgumentError`. The rows
+  of JSON slices are written in the columns of the first record of the first slice, and a key that it lacked raises
+  `IOStreams::Errors::InvalidHeader`.
+* When no slice is written, the file holds just the header row of the schema, as `writer(:array)` writes it, or nothing
+  without a schema, since only a slice carries the header row of its file.
+* As for any writer, the file is kept when the block returns, or leaves early, and not when it raises.
+
+### A store of slices
+
+To hand the rows that your code writes to other threads, processes or jobs in [slices](#slices), as `each(:slice)`
+reads them from a file, write them to a store of slices. Include `IOStreams::Slice::Target` in the class of the store,
+and implement `#write_slice(slice)`, which receives each `IOStreams::Slice`. Each slice holds up to 100 rows, unless the store
+says otherwise with `#slice_size`:
+
+~~~ruby
+class SliceStore
+  include IOStreams::Slice::Target
+
+  def initialize(queue)
+    @queue = queue
+  end
+
+  def slice_size
+    1_000
+  end
+
+  def write_slice(slice)
+    @queue << slice.to_h
+  end
+end
+~~~
+
+`IOStreams.stream(store)` returns a stream that writes lines, rows or records to the store in slices of up to
+`slice_size` rows. The rows are written in the format of the stream, CSV unless
+another is set with `#format`, and by its schema, as they would be written to a file, then the header row is matched
+to the schema, and each slice carries it:
+
+~~~ruby
+store = SliceStore.new(queue)
+
+IOStreams.stream(store).schema("people.json").writer(:hash) do |io|
+  io << {"name" => "Jack", "age" => 21}
+  io << {"name" => "Jill", "age" => 22}
+end
+~~~
+
+In the `:line` mode each line is a row of the file, after its header row, without a newline after it:
+
+~~~ruby
+IOStreams.stream(store).writer(:line) do |io|
+  io << "name,age"
+  io << "Jack,21"
+end
+~~~
+
+A line that holds newlines is split into rows the way reading the file back would split it. A newline inside a quoted
+CSV value stays in its row, and a quoted value that is never closed raises `IOStreams::Errors::MalformedDataError`.
+
+A copy to the store writes the lines, rows or records of a file, or of an Active Record query, in slices:
+
+~~~ruby
+IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :line)
+~~~
+
+* In the `:line` mode the lines are copied as they are, so the slices are in the format of the source, such as JSON.
+  Setting a different format on the store's stream raises `ArgumentError`; copy in the `:array` or `:hash` mode to
+  convert the rows instead.
+* The rows of a query are records, so each slice of a copied query says so (`slice.blank_rows?` is false), and a row
+  whose values are all null is read back as a record rather than a blank row.
+* A header row that does not match the schema raises `IOStreams::Errors::InvalidHeader` before any slice is written to
+  the store.
+* To act on the header row before the first slice, such as to keep the columns of the file, implement
+  `#write_header(header)` in the store too. It is called once, with the header row as it was read, as soon as it has
+  been read and matched to the schema, also when the file has no rows after it, and not for a file without a header
+  row, such as JSON or fixed width.
+* `validate: true` also parses each row before the slice that holds it is written, and raises for a value that is not
+  valid, such as `IOStreams::Errors::InvalidValue`, after the slices before it.
+* The last slice is written to the store when the block returns, or leaves early, such as with `break`, and not when it
+  raises, so that the rows of a failed write are not handed on. The slices before it have already been written.
+* A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, `#encoding`,
+  `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Set the format
+  with `#format`, and compress or encrypt the slices where the store keeps them. It is only written, so `#each`,
+  `#reader` and `#read` raise `ArgumentError` too.
+* The methods of `IOStreams::Slice::Target` call those of a class that the store inherits from, when it has methods of
+  the same names.
 
 ## Lines
 
@@ -585,4 +696,6 @@ A line, row or record writer that is already open, such as the one that `writer(
 that calls `IOStreams.stream(io).writer(:hash)` itself, or `IOStreams.stream(io).copy_from(source, mode: :hash)`, which
 then writes into it. Since the open writer writes with its own settings, options, streams or an encoding supplied to
 that call raise `ArgumentError`, and a copy into a row or record writer does not give it the schema of the rows of an
-Active Record query.
+Active Record query. A row, record or slice writer is only written in its own mode, such as `:hash` for the one that
+`writer(:hash)` yields, so any other mode raises `ArgumentError`. A line writer takes text, as an IO does, so it is
+written in any mode.
