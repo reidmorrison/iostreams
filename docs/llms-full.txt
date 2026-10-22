@@ -1008,6 +1008,10 @@ IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :
 
 * A header row that does not match the schema raises `IOStreams::Errors::InvalidHeader` before any slice is written to
   the store.
+* To act on the header row before the first slice, such as to keep the columns of the file, implement
+  `#write_header(header)` in the store too. It is called once, with the header row as it was read, as soon as it has
+  been read and matched to the schema, also when the file has no rows after it, and not for a file without a header
+  row, such as JSON or fixed width.
 * `validate: true` also parses each row before the slice that holds it is written, and raises for a value that is not
   valid, such as `IOStreams::Errors::InvalidValue`, after the slices before it.
 * The last slice is written to the store when the block returns, or leaves early, such as with `break`, and not when it

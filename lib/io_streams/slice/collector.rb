@@ -24,13 +24,14 @@ module IOStreams
       end
 
       # Yields a collector of the rows that the block writes, and writes each of its slices to the supplied target, see
-      # `IOStreams::Slice::Target`. The last slice, of the rows written since the one before it, is written once the
-      # block finishes, or leaves early, such as with `break`, but not when it raises, or its thread is killed, so that
-      # the rows of a failed write are not handed on, see `IOStreams::Utils.finish_or_abort`.
+      # `IOStreams::Slice::Target`, after its header row, see `IOStreams::Slice::Target#write_header`. The last slice, of
+      # the rows written since the one before it, is written once the block finishes, or leaves early, such as with
+      # `break`, but not when it raises, or its thread is killed, so that the rows of a failed write are not handed on,
+      # see `IOStreams::Utils.finish_or_abort`.
       #
       # Returns the result of the block.
       def self.write(target, **)
-        collector = new(**) { |slice| target.write(slice) }
+        collector = new(on_header: ->(header) { target.write_header(header) }, **) { |slice| target.write(slice) }
         Utils.finish_or_abort(finish: -> { collector.finish }) { yield collector }
       end
 
@@ -52,14 +53,21 @@ module IOStreams
       #     slice still holds the row as it is in the file.
       #     Default: false
       #
+      #   on_header: [Proc]
+      #     Called once with the header row of the file, as it was read, see #header, as soon as it has been read, and
+      #     matched to the fields of the schema, before the first slice, also when the file has no rows after it. Not
+      #     called for a file without a header row.
+      #     Default: nil
+      #
       # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
-      def initialize(tabular:, size:, validate: false, &on_slice)
+      def initialize(tabular:, size:, validate: false, on_header: nil, &on_slice)
         self.class.check(size: size, validate: validate)
 
         @tabular  = tabular
         @size     = size
         @validate = validate
-        @on_slice = on_slice
+        @on_slice  = on_slice
+        @on_header = on_header
         @slice    = nil
         @count    = 0
       end
@@ -76,6 +84,7 @@ module IOStreams
           @count += 1
           flush if @slice.size >= @size
         end
+        header_read if @on_header
         self
       end
 
@@ -100,6 +109,16 @@ module IOStreams
       end
 
       private
+
+      # Calls `on_header` with the header row, once it has been read, see #initialize.
+      def header_read
+        header = self.header
+        return if header.nil?
+
+        on_header  = @on_header
+        @on_header = nil
+        on_header.call(header)
+      end
 
       def flush
         return unless @slice

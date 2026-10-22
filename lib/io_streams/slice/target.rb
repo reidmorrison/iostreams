@@ -18,6 +18,10 @@ module IOStreams
     #       1_000
     #     end
     #
+    #     def write_header(header)
+    #       @columns = header
+    #     end
+    #
     #     def write(slice)
     #       @queue << slice.to_h
     #     end
@@ -35,6 +39,16 @@ module IOStreams
       # Default: 100
       def slice_size
         100
+      end
+
+      # Called once each time that rows are written to the store, with the header row of their file, as it was read, the
+      # frozen Array that every slice carries, see `IOStreams::Slice#header`, as soon as it has been read, and matched to
+      # the fields of the schema, before the first slice is written, also when the file has no rows after it. Not called
+      # for a file without a header row, such as JSON, fixed width, or one whose schema has `"header": false`, whose
+      # slices have none, nor when the header row does not match the schema, which raises
+      # `IOStreams::Errors::InvalidHeader`. Does nothing unless the class overrides it.
+      def write_header(_header)
+        nil
       end
 
       # Stores the supplied slice. The class that includes this module implements it.

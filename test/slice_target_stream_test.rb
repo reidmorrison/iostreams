@@ -8,10 +8,11 @@ class SliceTargetStreamTest < Minitest::Test
   class Store
     include IOStreams::Slice::Target
 
-    attr_reader :slices
+    attr_reader :slices, :events
 
     def initialize(slice_size: nil)
       @slices     = []
+      @events     = []
       @slice_size = slice_size
     end
 
@@ -19,8 +20,13 @@ class SliceTargetStreamTest < Minitest::Test
       @slice_size || super
     end
 
+    def write_header(header)
+      @events << [:header, header]
+    end
+
     def write(slice)
       @slices << slice
+      @events << [:slice, slice.to_a]
     end
   end
 
@@ -61,6 +67,10 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "holds slices of 100 rows unless the class says otherwise" do
         assert_equal 100, Class.new { include IOStreams::Slice::Target }.new.slice_size
+      end
+
+      it "does nothing with the header row unless the class says otherwise" do
+        assert_nil Class.new { include IOStreams::Slice::Target }.new.write_header(%w[name])
       end
 
       it "raises until the class implements #write" do
@@ -142,6 +152,54 @@ class SliceTargetStreamTest < Minitest::Test
 
         assert_equal "Write each line as a String, not a Hash, or write rows or records in the :array or :hash mode",
                      error.message
+      end
+    end
+
+    describe "#write_header" do
+      it "is called once with the header row as it was read, before the first slice" do
+        small = Store.new(slice_size: 1)
+        IOStreams.stream(small).writer(:line) { |io| io << "Name,AGE" << "Jack,21" << "Jill,22" }
+
+        assert_equal [[:header, %w[Name AGE]], [:slice, %w[Jack,21]], [:slice, %w[Jill,22]]], small.events
+        assert_same small.slices.first.header, small.events.first.last
+      end
+
+      it "is called as soon as the header row is read, before any row is written" do
+        events = nil
+        stream.writer(:line) do |io|
+          io << "name"
+          events = store.events.dup
+        end
+
+        assert_equal [[:header, %w[name]]], events
+      end
+
+      it "is called for a file with a header row and no rows" do
+        stream.writer(:line) { |io| io << "name,age" }
+
+        assert_equal [[:header, %w[name age]]], store.events
+      end
+
+      it "is called with the header row of records, and of a copy" do
+        stream.schema(schema).writer(:hash) { |io| io << {"name" => "Jack", "age" => 21} }
+        IOStreams.stream(StringIO.new("AGE,Name\n21,Jack\n")).format(:csv).copy_to(store, mode: :line)
+
+        assert_equal [[:header, %w[name age]], [:slice, %w[Jack,21]], [:header, %w[AGE Name]], [:slice, %w[21,Jack]]],
+                     store.events
+      end
+
+      it "is not called for a header row that does not match the schema" do
+        assert_raises(IOStreams::Errors::InvalidHeader) do
+          stream.schema(schema).writer(:line) { |io| io << "height" }
+        end
+
+        assert_empty store.events
+      end
+
+      it "is not called for a file without a header row" do
+        stream.format(:json).writer(:hash) { |io| io << {"name" => "Jack"} }
+
+        assert_equal [[:slice, ['{"name":"Jack"}']]], store.events
       end
     end
 
