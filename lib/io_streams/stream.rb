@@ -8,6 +8,11 @@ module IOStreams
     # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
     COPY_MODES = %i[line array hash].freeze
 
+    # The modes whose writers take only what is written in their mode, rows, records or slices, rather than text, so
+    # that a writer of one of them that is supplied to `IOStreams.stream` is only written in its own mode, see
+    # #reject_writer_of_other_mode!. A writer of lines takes text, as an IO does, so it is written in any mode.
+    OWN_MODE_WRITERS = %i[array hash slice].freeze
+
     # How to set each of the settings of rows and records that describe the file on the path instead, with an example,
     # rather than supply it to each call of a reader or writer, which raises, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`.
     # A file name supplied to a call only chose the format, when the path had none, and not the streams, as #file_name
@@ -348,6 +353,7 @@ module IOStreams
     # Returns a Writer for writing to a file / stream
     def writer(mode = :stream, **args, &block)
       require_block!(:writer, block)
+      reject_writer_of_other_mode!(mode)
       case mode
       when :stream
         reject_stream_mode_options!(args)
@@ -422,6 +428,7 @@ module IOStreams
                              "#{COPY_MODES.map(&:inspect).join(', ')}, or copies the data, as bytes, without a mode")
       end
 
+      reject_writer_of_other_mode!(convert && mode ? mode : :stream)
       if convert
         stream = to_stream(source)
         if mode
@@ -764,7 +771,19 @@ module IOStreams
       when :line then IOStreams::Line::Writer
       when :array then IOStreams::Row::Writer
       when :hash then IOStreams::Record::Writer
+      when :slice then IOStreams::Slice::Writer
       end
+    end
+
+    # Raises ArgumentError, before the block is called, when the IO of this stream is a writer of rows, records or
+    # slices that is already open, such as the one that `writer(:array)` yields, supplied to `IOStreams.stream`, and the
+    # supplied mode is not its own, see OWN_MODE_WRITERS, since it takes only what is written in its own mode.
+    def reject_writer_of_other_mode!(mode)
+      own = OWN_MODE_WRITERS.find { |writer_mode| io_stream.is_a?(mode_writer(writer_mode)) }
+      return if own.nil? || own == mode
+
+      raise(ArgumentError, "The #{io_stream.class.name} supplied to IOStreams.stream is already open, and only " \
+                           "writes in the #{own.inspect} mode, not #{mode.inspect}")
     end
 
     # Raises ArgumentError for an option that only applies when reading, see .read_option_names, since writing would

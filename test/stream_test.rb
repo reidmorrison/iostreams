@@ -747,6 +747,35 @@ class StreamTest < Minitest::Test
           assert_raises(ArgumentError) { IOStreams.stream(records).format(:json).writer(:hash) { |_| flunk } }
         end
       end
+
+      it "raises for a writer of rows, records or slices in another mode, before the block is called" do
+        slice = IOStreams::Slice.new(%w[1], header: %w[a], format: :csv)
+        {array: ["a"], hash: {"a" => 1}, slice: slice}.each do |own, row|
+          io = StringIO.new
+          IOStreams.stream(io).format(:csv).writer(own) do |open_writer|
+            (%i[stream line array hash slice] - [own]).each do |mode|
+              error = assert_raises(ArgumentError) { IOStreams.stream(open_writer).writer(mode) { |_| flunk } }
+
+              assert_equal "The #{open_writer.class.name} supplied to IOStreams.stream is already open, and only " \
+                           "writes in the #{own.inspect} mode, not #{mode.inspect}", error.message
+            end
+            assert_raises(ArgumentError) { IOStreams.stream(open_writer).write("a\n1\n") }
+            IOStreams.stream(open_writer).writer(own) { |inner| inner << row }
+          end
+
+          refute_empty io.string
+        end
+      end
+
+      it "raises for a copy into a writer of records in another mode, before the source is opened" do
+        source = Minitest::Mock.new
+        IOStreams.stream(StringIO.new).writer(:hash) do |records|
+          assert_raises(ArgumentError) { IOStreams.stream(records).copy_from(source, mode: :array) }
+          assert_raises(ArgumentError) { IOStreams.stream(records).copy_from(source) }
+          assert_raises(ArgumentError) { IOStreams.stream(records).copy_from(source, convert: false) }
+        end
+        source.verify
+      end
     end
 
     describe "#writer(:line)" do

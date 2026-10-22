@@ -696,4 +696,6 @@ A line, row or record writer that is already open, such as the one that `writer(
 that calls `IOStreams.stream(io).writer(:hash)` itself, or `IOStreams.stream(io).copy_from(source, mode: :hash)`, which
 then writes into it. Since the open writer writes with its own settings, options, streams or an encoding supplied to
 that call raise `ArgumentError`, and a copy into a row or record writer does not give it the schema of the rows of an
-Active Record query.
+Active Record query. A row, record or slice writer is only written in its own mode, such as `:hash` for the one that
+`writer(:hash)` yields, so any other mode raises `ArgumentError`. A line writer takes text, as an IO does, so it is
+written in any mode.
