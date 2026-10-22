@@ -106,96 +106,27 @@ end
 
 ### Slices
 
-`each(:slice)` yields the rows of the file a slice at a time, as they are in the file, so that they can be parsed
-elsewhere, such as by other threads, processes or jobs, which share the work of a large file. Each slice is an Array of
-up to `size` rows, the lines of a CSV file for example, without its header row, and describes them: `#header` is the
-header row of the file as it was read, and `#format` the tabular format of the rows, such as `:csv`, so that whoever
-parses them does not need to know how the file was read:
+`each(:slice)` yields the rows of the file a slice at a time, as they are in the file, without parsing them, so that
+other threads, processes or jobs can parse them in parallel. Each slice is an Array of up to `size` rows that carries
+the header row of its file and the format of its rows, and the header row is matched to the schema before the first
+slice is yielded:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
+IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 500) do |slice|
   queue << slice
 end
-queue.close
 ~~~
 
-`IOStreams.stream(slice)` reads the rows of a slice as the rows of its file, by its header row and in its format, with
-the same settings, such as the schema, in the `:array` and `:hash` modes. Read a schema file once, and set its Hash on
-the stream of each slice, since a path set on the stream of each slice would read the file again for every slice:
+Where a slice is processed, `IOStreams.stream(slice)` reads its rows as the rows of its file:
 
 ~~~ruby
-# Elsewhere, such as in another thread:
-schema = JSON.parse(IOStreams.path("people.json").read)
-
-while (slice = queue.pop)
-  IOStreams.stream(slice).schema(schema).each(:hash) do |person|
-    p person
-  end
-end
-~~~
-
-The file is checked against its schema before the first slice is yielded, so that a file that does not match raises
-`IOStreams::Errors::InvalidHeader` before any of its rows are handed on, see [Schema](formats#schema): its header row is
-matched to the fields, or for a format of records that supply their own keys, such as JSON or Parquet, the keys of its
-first record. The keys of the other records are matched where they are parsed.
-
-`validate: true` also parses each row before the slice that holds it is yielded, and raises for a value that is not
-valid, such as `IOStreams::Errors::InvalidValue`. The slices before that row have already been yielded. Each slice still
-holds the rows as they are in the file.
-
-* Blank lines before the header row are skipped. A blank row after it is a row of its slice, as it is in the file, such
-  as an empty String, as `each(:line)` yields every line. Read the slice with
-  `IOStreams.stream(slice).each(:hash, skip_blanks: true)` to skip it there, see [Blank rows](#blank-rows).
-* A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no header
-  row, `nil`.
-* A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
-* The header row of every slice is the same frozen Array, so change a copy of it.
-* A `size` that is not a positive Integer, or a `validate` that is not true or false, raises `ArgumentError` before the
-  file is opened.
-* `#reader(:slice, size: 100)` yields the reader, whose `#header` is the header row once it has been read, also for a
-  file without any rows.
-
-To store a slice, or send it to another process, `#to_h` returns what it holds as a Hash of Strings and Arrays, which
-JSON and BSON keep as they are, and `IOStreams.slice` turns that Hash back into a slice, so that whoever stores it does
-not need to know what a slice holds:
-
-~~~ruby
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 100) do |slice|
-  store << slice.to_h
-end
-
-slice = IOStreams.slice(store.pop)
-slice.to_h  # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
-~~~
-
-A slice of the rows of an Active Record query, each of which is a record whatever its values, also holds
-`"blank_rows" => false`, so that a row whose every value is null or empty is read as a record where the slice is
-parsed, rather than as a [blank row](#blank-rows). Its rows hold the values that the query read, such as times and
-decimals, rather than text, see [Slices of a query](queries#slices-of-a-query).
-
-`IOStreams.slice` also takes the keys, and the format, as Symbols, and raises `ArgumentError` for a Hash that does not
-describe a slice, such as one with a key that a slice does not have. Read the slice it returns with
-`IOStreams.stream(slice)`, and the schema read once, as above:
-
-~~~ruby
-slice = IOStreams.slice(store.pop)
 IOStreams.stream(slice).schema(schema).each(:hash) do |person|
   p person
 end
 ~~~
 
-The stream of a slice is like any other, apart from what needs the bytes of a file, which a slice does not have:
-
-* Its rows start with the header row that the slice carries, so `each(:array)` yields it first, as for a file, and the
-  header row is matched to the schema, raising `IOStreams::Errors::InvalidHeader` when they do not match.
-* `#format` is the format of the slice. Setting another format raises `ArgumentError`. A slice without a format, such as
-  one turned back from a Hash without one, is read as CSV unless its format is set.
-* The `:stream` and `:line` modes, `#read`, `#stream`, `#option`, `#encoding`, `#raw`, and the options of lines, such as
-  `delimiter:`, raise `ArgumentError`, since the rows of a slice are already split and decoded. Iterate the slice for
-  its rows as they are in the file.
-* A slice is only read, so `#writer`, `#write` and `#copy_from` raise `ArgumentError`. Write the slices of a file to
-  another file with [`writer(:slice)`](#writing-slices-to-a-file), or copy the records of one slice with
-  `copy_to(path, mode: :hash)`.
+See [Processing in slices](slices) for handing slices to threads or background jobs, sending them as plain data with
+`slice.to_h` and `IOStreams.slice`, validating a file before the work starts, and writing the results back to one file.
 
 ## Writing
 
@@ -239,8 +170,9 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
 
 ### Writing slices to a file
 
-`writer(:slice)` writes [slices](#slices) to a file, such as those that `each(:slice)` read from another file, or that a
-[store of slices](#a-store-of-slices) holds, after their header row, which it writes once:
+`writer(:slice)` writes slices to a file, after their header row, which it writes once. A slice in the format of the
+file is written line for line without parsing its rows, and a slice in another format is read by its header row and
+written in the format of the file:
 
 ~~~ruby
 IOStreams.path("people.csv.gz").schema("people.json").writer(:slice) do |io|
@@ -250,102 +182,19 @@ IOStreams.path("people.csv.gz").schema("people.json").writer(:slice) do |io|
 end
 ~~~
 
-* A slice whose rows are in the format of the file is written as it is, line for line, without parsing its rows, as
-  `each(:slice)` read them, once its header row is matched to the schema, which raises
-  `IOStreams::Errors::InvalidHeader` when they do not match. `validate: true` also parses each row before it is
-  written, and raises for a value that is not valid, such as `IOStreams::Errors::InvalidValue`.
-* A slice in another format, such as one of CSV written to JSON, or of the rows of an Active Record query, is read by
-  its header row and format, by the schema of the file, and each of its rows is written as `writer(:array)` writes it,
-  apart from a blank row, which a copy skips too.
-* Whether a slice's rows start with a header row comes from the slice (`slice.header`), not from the schema of the file
-  written. So slices of a file without a header row can be written to a file with one, which gets the field names of
-  the schema as its header row, and the other way round. A slice of CSV without a header row needs a schema to name
-  its columns, and raises `ArgumentError` without one.
-* Every slice is of the same file as the first: one with another header row or format raises `ArgumentError`. The rows
-  of JSON slices are written in the columns of the first record of the first slice, and a key that it lacked raises
-  `IOStreams::Errors::InvalidHeader`.
-* When no slice is written, the file holds just the header row of the schema, as `writer(:array)` writes it, or nothing
-  without a schema, since only a slice carries the header row of its file.
-* As for any writer, the file is kept when the block returns, or leaves early, and not when it raises.
+See [Writing the results](slices#writing-the-results).
 
 ### A store of slices
 
-To hand the rows that your code writes to other threads, processes or jobs in [slices](#slices), as `each(:slice)`
-reads them from a file, write them to a store of slices. Include `IOStreams::Slice::Target` in the class of the store,
-and implement `#write_slice(slice)`, which receives each `IOStreams::Slice`. Each slice holds up to 100 rows, unless the store
-says otherwise with `#slice_size`:
-
-~~~ruby
-class SliceStore
-  include IOStreams::Slice::Target
-
-  def initialize(queue)
-    @queue = queue
-  end
-
-  def slice_size
-    1_000
-  end
-
-  def write_slice(slice)
-    @queue << slice.to_h
-  end
-end
-~~~
-
-`IOStreams.stream(store)` returns a stream that writes lines, rows or records to the store in slices of up to
-`slice_size` rows. The rows are written in the format of the stream, CSV unless
-another is set with `#format`, and by its schema, as they would be written to a file, then the header row is matched
-to the schema, and each slice carries it:
-
-~~~ruby
-store = SliceStore.new(queue)
-
-IOStreams.stream(store).schema("people.json").writer(:hash) do |io|
-  io << {"name" => "Jack", "age" => 21}
-  io << {"name" => "Jill", "age" => 22}
-end
-~~~
-
-In the `:line` mode each line is a row of the file, after its header row, without a newline after it:
-
-~~~ruby
-IOStreams.stream(store).writer(:line) do |io|
-  io << "name,age"
-  io << "Jack,21"
-end
-~~~
-
-A line that holds newlines is split into rows the way reading the file back would split it. A newline inside a quoted
-CSV value stays in its row, and a quoted value that is never closed raises `IOStreams::Errors::MalformedDataError`.
-
-A copy to the store writes the lines, rows or records of a file, or of an Active Record query, in slices:
+To write the lines, rows or records that your code writes, or copies from a file or a query, in slices, write them to
+a store of your own: include `IOStreams::Slice::Target` in its class and implement `#write_slice(slice)`.
+`IOStreams.stream(store)` then writes to it in slices, as `each(:slice)` reads them from a file:
 
 ~~~ruby
 IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :line)
 ~~~
 
-* In the `:line` mode the lines are copied as they are, so the slices are in the format of the source, such as JSON.
-  Setting a different format on the store's stream raises `ArgumentError`; copy in the `:array` or `:hash` mode to
-  convert the rows instead.
-* The rows of a query are records, so each slice of a copied query says so (`slice.blank_rows?` is false), and a row
-  whose values are all null is read back as a record rather than a blank row.
-* A header row that does not match the schema raises `IOStreams::Errors::InvalidHeader` before any slice is written to
-  the store.
-* To act on the header row before the first slice, such as to keep the columns of the file, implement
-  `#write_header(header)` in the store too. It is called once, with the header row as it was read, as soon as it has
-  been read and matched to the schema, also when the file has no rows after it, and not for a file without a header
-  row, such as JSON or fixed width.
-* `validate: true` also parses each row before the slice that holds it is written, and raises for a value that is not
-  valid, such as `IOStreams::Errors::InvalidValue`, after the slices before it.
-* The last slice is written to the store when the block returns, or leaves early, such as with `break`, and not when it
-  raises, so that the rows of a failed write are not handed on. The slices before it have already been written.
-* A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, `#encoding`,
-  `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Set the format
-  with `#format`, and compress or encrypt the slices where the store keeps them. It is only written, so `#each`,
-  `#reader` and `#read` raise `ArgumentError` too.
-* The methods of `IOStreams::Slice::Target` call those of a class that the store inherits from, when it has methods of
-  the same names.
+See [A store of slices](slices#a-store-of-slices).
 
 ## Lines
 
