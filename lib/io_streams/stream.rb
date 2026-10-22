@@ -423,11 +423,8 @@ module IOStreams
       if convert
         stream = to_stream(source)
         if mode
-          reject_read_options!(args, "but a copy uses its options to write the target")
-          reject_unknown_options!(mode, mode_writer(mode), args)
-          stream.reader(mode) do |rows|
-            with_copy_schema(stream, mode).writer(mode, **args) { |output| rows.copy_to(output) }
-          end
+          options = copy_options(mode, args)
+          stream.reader(mode) { |rows| copy_rows(stream, rows, mode, options) }
         else
           reject_copy_options!("when copying without a `mode:`", **args)
           stream.reader do |src|
@@ -654,6 +651,14 @@ module IOStreams
       rows_schema
     end
 
+    # Returns [true|false] whether a row of the rows that this stream reads whose every value is blank is a blank row,
+    # as in a file, rather than a record, as each row of a query is, see `IOStreams::Tabular#blank_rows?`, which a copy
+    # of its rows to a store of slices gives each slice, see `IOStreams::Slice::TargetStream`. Protected, see
+    # #copy_schema.
+    def copy_blank_rows?
+      tabular.blank_rows?
+    end
+
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
     # changing the streams or options of this one.
     def without_streams
@@ -675,6 +680,25 @@ module IOStreams
     # columns, see `IOStreams::Query::Stream#rows_schema`.
     def rows_schema
       nil
+    end
+
+    # Returns [Hash] the options of the writer of the supplied mode that a copy writes the rows of its source with, see
+    # #copy_from and #copy_rows: those supplied.
+    #
+    # Raises ArgumentError for an option that only applies when reading, or that the writer of the mode does not take,
+    # before the source is opened.
+    def copy_options(mode, args)
+      reject_read_options!(args, "but a copy uses its options to write the target")
+      reject_unknown_options!(mode, mode_writer(mode), args)
+      args
+    end
+
+    # Writes the supplied rows of the source, which it reads in the supplied mode, to this stream, with the options of
+    # #copy_options, see #copy_from.
+    #
+    # Returns the number of rows copied.
+    def copy_rows(source, rows, mode, options)
+      with_copy_schema(source, mode).writer(mode, **options) { |output| rows.copy_to(output) }
     end
 
     # Returns [IOStreams::Stream] this stream, unless it has no schema, and a copy of the rows of the supplied source

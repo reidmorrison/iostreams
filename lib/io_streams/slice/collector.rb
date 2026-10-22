@@ -13,25 +13,34 @@ module IOStreams
     # says, see `IOStreams::Tabular#blank_rows?`.
     class Collector
       # Raises ArgumentError for options that cannot collect slices, see #initialize, so that a call raises before
-      # anything is opened: a `size` that is not a positive Integer, or a `validate` that is not true or false.
+      # anything is opened: a `size` that is not a positive Integer, or a `validate` that is not true or false, see
+      # .check_validate.
       def self.check(size:, validate: false)
         unless size.is_a?(Integer) && size.positive?
           raise(ArgumentError, "Invalid size #{size.inspect}: supply the number of rows of each slice")
         end
+
+        check_validate(validate)
+      end
+
+      # Raises ArgumentError for a `validate` that is not true or false, which says whether to parse each row, see
+      # #initialize, for a call that decides the size of its slices some other way, such as from its store, see
+      # `IOStreams::Slice::TargetStream`.
+      def self.check_validate(validate)
         return if [true, false].include?(validate)
 
         raise(ArgumentError, "Invalid validate #{validate.inspect}: supply true or false")
       end
 
       # Yields a collector of the rows that the block writes, and writes each of its slices to the supplied target, see
-      # `IOStreams::Slice::Target`, after its header row, see `IOStreams::Slice::Target#write_header`. The last slice, of
-      # the rows written since the one before it, is written once the block finishes, or leaves early, such as with
-      # `break`, but not when it raises, or its thread is killed, so that the rows of a failed write are not handed on,
-      # see `IOStreams::Utils.finish_or_abort`.
+      # `IOStreams::Slice::Target#write_slice`, after its header row, see `IOStreams::Slice::Target#write_header`. The
+      # last slice, of the rows written since the one before it, is written once the block finishes, or leaves early,
+      # such as with `break`, but not when it raises, or its thread is killed, so that the rows of a failed write are
+      # not handed on, see `IOStreams::Utils.finish_or_abort`.
       #
       # Returns the result of the block.
       def self.write(target, **)
-        collector = new(on_header: ->(header) { target.write_header(header) }, **) { |slice| target.write(slice) }
+        collector = new(on_header: ->(header) { target.write_header(header) }, **) { |slice| target.write_slice(slice) }
         Utils.finish_or_abort(finish: -> { collector.finish }) { yield collector }
       end
 
@@ -56,20 +65,20 @@ module IOStreams
       #   on_header: [Proc]
       #     Called once with the header row of the file, as it was read, see #header, as soon as it has been read, and
       #     matched to the fields of the schema, before the first slice, also when the file has no rows after it. Not
-      #     called for a file without a header row.
+      #     called for a file without a header row, see `IOStreams::Tabular#requires_header?`.
       #     Default: nil
       #
       # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
+      #
+      # The caller checks the options before anything is opened, see .check.
       def initialize(tabular:, size:, validate: false, on_header: nil, &on_slice)
-        self.class.check(size: size, validate: validate)
-
-        @tabular  = tabular
-        @size     = size
-        @validate = validate
+        @tabular   = tabular
+        @size      = size
+        @validate  = validate
         @on_slice  = on_slice
-        @on_header = on_header
-        @slice    = nil
-        @count    = 0
+        @on_header = on_header if tabular.requires_header?
+        @slice     = nil
+        @count     = 0
       end
 
       # Adds the supplied row of the file, as the format holds it: a line of text, or for a format whose rows are not

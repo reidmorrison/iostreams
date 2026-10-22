@@ -49,7 +49,7 @@ class QuerySlicesTest < Minitest::Test
             2
           end
 
-          def write(slice)
+          def write_slice(slice)
             (@slices ||= []) << slice
           end
         end.new
@@ -57,9 +57,10 @@ class QuerySlicesTest < Minitest::Test
 
         assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
         assert_equal [["2026-10-01,1.5", ","], ["1969-12-31,"]], store.slices.map(&:to_a)
-        # As in a file of CSV, a row of nulls is a line of only commas, which is read as a blank row.
-        assert_equal([expected.first, nil, expected.last],
-                     store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
+        # A row of nulls is a line of only commas, which each slice holds is a record, as each(:slice) of the query does.
+        assert_equal [false, false], store.slices.map(&:blank_rows?)
+        assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
+        assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
 
       it "holds blank_rows: false in the Hash of each slice" do

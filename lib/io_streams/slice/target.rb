@@ -3,7 +3,7 @@
 module IOStreams
   class Slice
     # Include in a class that stores slices, see `IOStreams::Slice`, such as in a database or a queue, and implement
-    # #write(slice), so that `IOStreams.stream` returns a stream that writes slices to it, see
+    # #write_slice(slice), so that `IOStreams.stream` returns a stream that writes slices to it, see
     # `IOStreams::Slice::TargetStream`. The lines, rows or records written to the stream, or copied to it from a file or
     # a query, are written to the store in slices, as `IOStreams::Stream#each(:slice)` reads them from a file:
     #
@@ -22,7 +22,7 @@ module IOStreams
     #       @columns = header
     #     end
     #
-    #     def write(slice)
+    #     def write_slice(slice)
     #       @queue << slice.to_h
     #     end
     #   end
@@ -32,13 +32,15 @@ module IOStreams
     #   end
     #
     # Including it is how the store says that it takes slices, rather than the text that `IOStreams.stream` writes to
-    # an IO, whose #write it also calls.
+    # an IO. The methods are named for slices, so that they do not clash with those of a class that the store inherits
+    # from, such as the #write and #<< of a queue, and a method of that class of the same name is called rather than the
+    # default here.
     module Target
       # Returns [Integer] the number of rows of each slice that is written to the store, apart from the last, which
       # holds the rows that are left. Override it for slices of another size.
       # Default: 100
       def slice_size
-        100
+        defined?(super) ? super : 100
       end
 
       # Called once each time that rows are written to the store, with the header row of their file, as it was read, the
@@ -47,21 +49,15 @@ module IOStreams
       # for a file without a header row, such as JSON, fixed width, or one whose schema has `"header": false`, whose
       # slices have none, nor when the header row does not match the schema, which raises
       # `IOStreams::Errors::InvalidHeader`. Does nothing unless the class overrides it.
-      def write_header(_header)
-        nil
+      def write_header(header)
+        super if defined?(super)
       end
 
       # Stores the supplied slice. The class that includes this module implements it.
-      def write(_slice)
-        raise(NotImplementedError, "#{self.class.name} must implement #write(slice), which stores the slice")
-      end
+      def write_slice(slice)
+        return super if defined?(super)
 
-      # Stores the supplied slice, see #write.
-      #
-      # Returns self, so that calls can be chained.
-      def <<(slice)
-        write(slice)
-        self
+        raise(NotImplementedError, "#{self.class.name} must implement #write_slice(slice), which stores the slice")
       end
     end
   end
