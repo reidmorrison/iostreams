@@ -45,11 +45,15 @@ class QuerySlicesTest < Minitest::Test
 
           attr_reader :slices
 
+          def slice_size
+            2
+          end
+
           def write(slice)
             (@slices ||= []) << slice
           end
         end.new
-        IOStreams.stream(store).copy_from(relation, mode: :hash, size: 2)
+        IOStreams.stream(store).copy_from(relation, mode: :hash)
 
         assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
         assert_equal [["2026-10-01,1.5", ","], ["1969-12-31,"]], store.slices.map(&:to_a)

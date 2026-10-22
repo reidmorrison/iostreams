@@ -96,8 +96,9 @@ module IOStreams
   #   IOStreams.stream(slice).schema(schema).each(:hash) { |person| p person }
   #
   # A store of slices, whose class includes `IOStreams::Slice::Target`, returns a stream that writes the lines, rows or
-  # records written to it, or copied to it, to the store in slices, see `IOStreams::Slice::TargetStream`:
-  #   IOStreams.stream(store).schema(schema).copy_from("people.csv", mode: :line, size: 100)
+  # records written to it, or copied to it, to the store in slices of its `#slice_size`, see
+  # `IOStreams::Slice::TargetStream`:
+  #   IOStreams.stream(store).schema(schema).copy_from("people.csv", mode: :line)
   #
   # An Active Record relation returns the stream of the rows of its query, which reads them as one query, typed by its
   # columns, and `relation.in_batches(...)` reads them in those batches, see `IOStreams::Query::Stream`:

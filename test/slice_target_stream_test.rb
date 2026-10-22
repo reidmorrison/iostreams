@@ -10,8 +10,13 @@ class SliceTargetStreamTest < Minitest::Test
 
     attr_reader :slices
 
-    def initialize
-      @slices = []
+    def initialize(slice_size: nil)
+      @slices     = []
+      @slice_size = slice_size
+    end
+
+    def slice_size
+      @slice_size || super
     end
 
     def write(slice)
@@ -25,8 +30,8 @@ class SliceTargetStreamTest < Minitest::Test
     let(:stream) { IOStreams.stream(store) }
 
     # Returns [Array] the header row, format and rows of each slice in the store.
-    def written
-      store.slices.collect { |slice| [slice.header, slice.format, slice.to_a] }
+    def written(target = store)
+      target.slices.collect { |slice| [slice.header, slice.format, slice.to_a] }
     end
 
     describe "IOStreams.stream" do
@@ -54,6 +59,10 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal [slice], store.slices
       end
 
+      it "holds slices of 100 rows unless the class says otherwise" do
+        assert_equal 100, Class.new { include IOStreams::Slice::Target }.new.slice_size
+      end
+
       it "raises until the class implements #write" do
         target = Class.new { include IOStreams::Slice::Target }.new
 
@@ -62,15 +71,16 @@ class SliceTargetStreamTest < Minitest::Test
     end
 
     describe "#writer(:line)" do
-      it "writes the lines in slices of the size, each carrying the header row as it was written" do
-        stream.writer(:line, size: 2) do |io|
+      it "writes the lines in slices of the slice size of the store, each carrying the header row as it was written" do
+        small = Store.new(slice_size: 2)
+        IOStreams.stream(small).writer(:line) do |io|
           io << "Name,AGE" << "Jack,21" << "Jill,22"
           io << "Bob,23"
         end
 
         header = %w[Name AGE]
 
-        assert_equal [[header, :csv, %w[Jack,21 Jill,22]], [header, :csv, %w[Bob,23]]], written
+        assert_equal [[header, :csv, %w[Jack,21 Jill,22]], [header, :csv, %w[Bob,23]]], written(small)
       end
 
       it "writes slices of 100 rows by default" do
@@ -83,10 +93,11 @@ class SliceTargetStreamTest < Minitest::Test
       end
 
       it "gives every slice the same frozen header row" do
-        stream.writer(:line, size: 1) { |io| io << "name" << "Jack" << "Jill" }
+        small = Store.new(slice_size: 1)
+        IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "Jill" }
 
-        assert_same store.slices.first.header, store.slices.last.header
-        assert_predicate store.slices.first.header, :frozen?
+        assert_same small.slices.first.header, small.slices.last.header
+        assert_predicate small.slices.first.header, :frozen?
       end
 
       it "matches the header row to the schema before the first slice" do
@@ -171,11 +182,12 @@ class SliceTargetStreamTest < Minitest::Test
       end
 
       it "writes slices that the stream of a slice reads back" do
-        stream.schema(schema).writer(:hash, size: 1) do |io|
+        small = Store.new(slice_size: 1)
+        IOStreams.stream(small).schema(schema).writer(:hash) do |io|
           io << {"name" => "Jack", "age" => 21}
           io << {"name" => "Jill", "age" => 22}
         end
-        records = store.slices.flat_map do |slice|
+        records = small.slices.flat_map do |slice|
           list = []
           IOStreams.stream(slice).schema(schema).each(:hash) { |record| list << record }
           list
@@ -196,26 +208,28 @@ class SliceTargetStreamTest < Minitest::Test
       end
 
       it "is not written when the block raises" do
+        small = Store.new(slice_size: 2)
         assert_raises(RuntimeError) do
-          stream.writer(:line, size: 2) do |io|
+          IOStreams.stream(small).writer(:line) do |io|
             io << "name" << "Jack" << "Jill" << "Bob"
             raise "failed"
           end
         end
 
-        assert_equal [%w[Jack Jill]], store.slices.collect(&:to_a)
+        assert_equal [%w[Jack Jill]], small.slices.collect(&:to_a)
       end
     end
 
     describe "validate:" do
       it "parses each row, and raises for a value that is not valid, after the slices before it" do
+        small = Store.new(slice_size: 1)
         assert_raises(IOStreams::Errors::InvalidValue) do
-          stream.schema(schema).writer(:line, size: 1, validate: true) do |io|
+          IOStreams.stream(small).schema(schema).writer(:line, validate: true) do |io|
             io << "name,age" << "Jack,21" << "Jill,abc"
           end
         end
 
-        assert_equal [%w[Jack,21]], store.slices.collect(&:to_a)
+        assert_equal [%w[Jack,21]], small.slices.collect(&:to_a)
       end
 
       it "does not parse the rows by default" do
@@ -231,10 +245,11 @@ class SliceTargetStreamTest < Minitest::Test
           path = IOStreams.path(dir, "people.csv.gz")
           path.write("name,age\nJack,21\n\"Jill\nSmith\",22\n")
 
-          assert_equal 3, stream.schema(schema).copy_from(path, mode: :line, size: 1)
-        end
+          small = Store.new(slice_size: 1)
 
-        assert_equal [%w[Jack,21], ["\"Jill\nSmith\",22"]], store.slices.collect(&:to_a)
+          assert_equal 3, IOStreams.stream(small).schema(schema).copy_from(path, mode: :line)
+          assert_equal [%w[Jack,21], ["\"Jill\nSmith\",22"]], small.slices.collect(&:to_a)
+        end
       end
 
       it "copies the records of a file, rendered by the schema of the stream" do
@@ -266,11 +281,25 @@ class SliceTargetStreamTest < Minitest::Test
       it "lists the options of the mode" do
         error = assert_raises(ArgumentError) { stream.writer(:hash, delimiter: "|") { nil } }
 
-        assert_equal "Unknown option :delimiter for the :hash mode. Valid options: :size, :validate.", error.message
+        assert_equal "Unknown option :delimiter for the :hash mode. Valid options: :validate.", error.message
       end
 
-      it "raises for a size that is not a positive Integer, or a validate that is not true or false" do
-        assert_raises(ArgumentError) { stream.writer(:line, size: 0) { nil } }
+      it "raises for size:, since the store decides the size of its slices" do
+        error = assert_raises(ArgumentError) { stream.writer(:line, size: 2) { nil } }
+
+        assert_equal "Unknown option :size for the :line mode. Valid options: :validate.", error.message
+      end
+
+      it "raises for a slice size of the store that is not a positive Integer, before the block is called" do
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(Store.new(slice_size: 0)).writer(:line) { flunk("called the block") }
+        end
+
+        assert_equal "Invalid slice_size 0 of SliceTargetStreamTest::Store: return the number of rows of each slice",
+                     error.message
+      end
+
+      it "raises for a validate that is not true or false" do
         assert_raises(ArgumentError) { stream.writer(:line, validate: "yes") { nil } }
       end
 

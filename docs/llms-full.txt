@@ -956,7 +956,8 @@ and writing a path on S3 uploads it, see [Paths](path). The block decides what i
 
 To hand the rows that your code writes to other threads, processes or jobs in [slices](#slices), as `each(:slice)`
 reads them from a file, write them to a store of slices. Include `IOStreams::Slice::Target` in the class of the store,
-and implement `#write(slice)`, which receives each `IOStreams::Slice`:
+and implement `#write(slice)`, which receives each `IOStreams::Slice`. Each slice holds up to 100 rows, unless the store
+says otherwise with `#slice_size`:
 
 ~~~ruby
 class SliceStore
@@ -966,21 +967,25 @@ class SliceStore
     @queue = queue
   end
 
+  def slice_size
+    1_000
+  end
+
   def write(slice)
     @queue << slice.to_h
   end
 end
 ~~~
 
-`IOStreams.stream(store)` returns a stream that writes lines, rows or records to the store in slices of up to `size`
-rows, 100 unless the call supplies another `size:`. The rows are written in the format of the stream, CSV unless
+`IOStreams.stream(store)` returns a stream that writes lines, rows or records to the store in slices of up to
+`slice_size` rows. The rows are written in the format of the stream, CSV unless
 another is set with `#format`, and by its schema, as they would be written to a file, then the header row is matched
 to the schema, and each slice carries it:
 
 ~~~ruby
 store = SliceStore.new(queue)
 
-IOStreams.stream(store).schema("people.json").writer(:hash, size: 100) do |io|
+IOStreams.stream(store).schema("people.json").writer(:hash) do |io|
   io << {"name" => "Jack", "age" => 21}
   io << {"name" => "Jill", "age" => 22}
 end
@@ -998,7 +1003,7 @@ end
 A copy to the store writes the lines, rows or records of a file, or of an Active Record query, in slices:
 
 ~~~ruby
-IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :line, size: 100)
+IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :line)
 ~~~
 
 * A header row that does not match the schema raises `IOStreams::Errors::InvalidHeader` before any slice is written to

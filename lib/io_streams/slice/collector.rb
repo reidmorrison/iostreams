@@ -12,12 +12,6 @@ module IOStreams
     # `IOStreams::Slice#header`, with the format of the rows and whether their blank rows are records, which the tabular
     # says, see `IOStreams::Tabular#blank_rows?`.
     class Collector
-      # Returns [Array<Symbol>] the options of each call that writes rows into slices, see
-      # `IOStreams::Slice::TargetStream#writer`, which raises for any other.
-      def self.option_names
-        %i[size validate]
-      end
-
       # Raises ArgumentError for options that cannot collect slices, see #initialize, so that a call raises before
       # anything is opened: a `size` that is not a positive Integer, or a `validate` that is not true or false.
       def self.check(size:, validate: false)

@@ -4,9 +4,10 @@ module IOStreams
   class Slice
     # The stream of a store of slices, see `IOStreams::Slice::Target`, which `IOStreams.stream(target)` returns, so that
     # the lines, rows or records written to it, or copied to it from a file or a query, are written to the store in
-    # slices of up to `size` rows, as `IOStreams::Stream#each(:slice)` reads them from a file:
+    # slices of up to the number of rows that the store holds in each one, see `IOStreams::Slice::Target#slice_size`, as
+    # `IOStreams::Stream#each(:slice)` reads them from a file:
     #
-    #   IOStreams.stream(store).format(:csv).schema(schema).writer(:line, size: 100) do |io|
+    #   IOStreams.stream(store).format(:csv).schema(schema).writer(:line) do |io|
     #     io << "name,age"
     #     io << "Jack,21"
     #   end
@@ -25,11 +26,14 @@ module IOStreams
     class TargetStream < IOStreams::Stream
       include IOStreams::Row::WithoutBytes
 
-      # The number of rows of each slice, unless a call supplies `size:`.
-      DEFAULT_SIZE = 100
-
       # The modes that write rows into slices, see #writer.
       MODES = %i[line array hash].freeze
+
+      # Returns [Array<Symbol>] the options of each call that writes rows into slices, see #writer, which raises for any
+      # other. The store decides the number of rows of each slice, see `IOStreams::Slice::Target#slice_size`.
+      def self.option_names
+        %i[validate]
+      end
 
       # Parameters
       #   target: [IOStreams::Slice::Target]
@@ -48,11 +52,10 @@ module IOStreams
       #   :array  each row, see `IOStreams::Row::Writer`.
       #   :hash   each record, see `IOStreams::Record::Writer`.
       #
-      # Parameters
-      #   size: [Integer]
-      #     The number of rows of each slice, apart from the last, which holds the rows that are left.
-      #     Default: 100
+      # Each slice holds the number of rows that the store says, see `IOStreams::Slice::Target#slice_size`, apart from
+      # the last, which holds the rows that are left.
       #
+      # Parameters
       #   validate: [true|false]
       #     Whether to parse each row before it is added to its slice, so that a row that the format or the schema
       #     cannot read raises before the slice that holds it is written, see `IOStreams::Slice::Collector`.
@@ -60,7 +63,8 @@ module IOStreams
       #
       # Returns the result of the block.
       #
-      # Raises ArgumentError for any other mode, or option, before the block is called.
+      # Raises ArgumentError for any other mode, or option, or a slice size of the store that is not a positive Integer,
+      # before the block is called.
       def writer(mode = :stream, **args, &block)
         require_block!(:writer, block)
         options = slice_options(mode, args)
@@ -77,7 +81,7 @@ module IOStreams
 
       # Copies the lines, rows or records of the supplied source, such as a path, a stream or an Active Record query,
       # see `IOStreams::Stream#copy_from`, to the store in slices, see #writer, which takes the options of the copy, such
-      # as `size:`.
+      # as `validate:`.
       #
       # Raises ArgumentError without a `mode:`, or with `convert: false`, since the store holds slices of rows rather
       # than bytes, before the source is opened.
@@ -146,18 +150,25 @@ module IOStreams
         "#{MODES[0..-2].map(&:inspect).join(', ')} or #{MODES.last.inspect}"
       end
 
-      # Returns [Hash] the options of the collector of the slices, see #writer, with their defaults.
+      # Returns [Hash] the options of the collector of the slices, see #writer: the slice size of the store, see
+      # `IOStreams::Slice::Target#slice_size`, and those of the call, with their defaults.
       #
-      # Raises ArgumentError for a mode other than those of MODES, or an option that the collector does not take, or a
-      # value that it cannot collect with, see `IOStreams::Slice::Collector.check`.
+      # Raises ArgumentError for a mode other than those of MODES, or an option that the call does not take, see
+      # .option_names, or a value that the collector cannot collect with, see `IOStreams::Slice::Collector.check`.
       def slice_options(mode, args)
         unless MODES.include?(mode)
           raise(ArgumentError, "A #{source_name} is written in the #{modes} mode, not " \
                                "#{mode.inspect}, since it holds slices of rows rather than bytes")
         end
 
-        reject_unknown_options!(mode, Collector, args)
-        options = {size: DEFAULT_SIZE, validate: false}.merge(args)
+        reject_unknown_options!(mode, self.class, args)
+        size = io_stream.slice_size
+        unless size.is_a?(Integer) && size.positive?
+          raise(ArgumentError, "Invalid slice_size #{size.inspect} of #{io_stream.class.name}: return the number of " \
+                               "rows of each slice")
+        end
+
+        options = {size: size, validate: false}.merge(args)
         Collector.check(**options)
         options
       end

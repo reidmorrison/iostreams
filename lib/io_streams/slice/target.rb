@@ -14,18 +14,29 @@ module IOStreams
     #       @queue = queue
     #     end
     #
+    #     def slice_size
+    #       1_000
+    #     end
+    #
     #     def write(slice)
     #       @queue << slice.to_h
     #     end
     #   end
     #
-    #   IOStreams.stream(SliceStore.new(queue)).schema(schema).writer(:hash, size: 100) do |io|
+    #   IOStreams.stream(SliceStore.new(queue)).schema(schema).writer(:hash) do |io|
     #     io << {"name" => "Jack", "age" => 21}
     #   end
     #
     # Including it is how the store says that it takes slices, rather than the text that `IOStreams.stream` writes to
     # an IO, whose #write it also calls.
     module Target
+      # Returns [Integer] the number of rows of each slice that is written to the store, apart from the last, which
+      # holds the rows that are left. Override it for slices of another size.
+      # Default: 100
+      def slice_size
+        100
+      end
+
       # Stores the supplied slice. The class that includes this module implements it.
       def write(_slice)
         raise(NotImplementedError, "#{self.class.name} must implement #write(slice), which stores the slice")
