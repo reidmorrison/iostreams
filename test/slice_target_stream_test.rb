@@ -146,6 +146,14 @@ class SliceTargetStreamTest < Minitest::Test
         assert_predicate small.slices.first.header, :frozen?
       end
 
+      it "writes each slice frozen, the last one too, as each(:slice) yields it" do
+        small = Store.new(slice_size: 2)
+        IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "Jill" << "Bob" }
+
+        assert_equal [2, 1], small.slices.map(&:size)
+        assert(small.slices.all?(&:frozen?))
+      end
+
       it "matches the header row to the schema before the first slice" do
         error = assert_raises(IOStreams::Errors::InvalidHeader) do
           stream.schema(schema).writer(:line) { |io| io << "name,height" << "Jack,180" }

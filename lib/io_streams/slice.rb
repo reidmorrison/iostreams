@@ -16,6 +16,11 @@ module IOStreams
   # format whose rows are not lines, such as Parquet, the rows that its reader returns. The methods of an Array that
   # return a new Array, such as `map`, return an Array rather than a slice.
   #
+  # A slice that IOStreams hands on, which `each(:slice)` yields, a store of slices receives, see
+  # `IOStreams::Slice::Target`, or `IOStreams.slice` returns, is frozen, so that its rows stay those of its file, as its
+  # header row and format describe them. `slice.dup` returns a copy that can be changed, with the same header row and
+  # format.
+  #
   # A row whose every value is blank is a blank row, as in a file, unless each row of the slice is a record, such as a
   # slice of the rows of an Active Record query, see #blank_rows?.
   #
@@ -37,7 +42,8 @@ module IOStreams
 
     # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which #to_h returned, see `IOStreams.slice`.
     # Its keys can be Strings or Symbols, and its format a String or a Symbol, as storing it may have changed them. The
-    # header row is a frozen copy, since every slice of a file shares it.
+    # slice is frozen, as one that `IOStreams::Stream#each(:slice)` yields, and its header row is a frozen copy, since
+    # every slice of a file shares it.
     #
     # Raises ArgumentError when it does not describe a slice: when it is not a Hash, has no rows, or a key that a slice
     # does not have, or when its rows are not an Array, its header row is not an Array of Strings, its format is not a
@@ -53,7 +59,7 @@ module IOStreams
       end
 
       new(rows_of(values["rows"]), header: header_of(values["header"]), format: format_of(values["format"]),
-          blank_rows: blank_rows_of(values["blank_rows"]))
+          blank_rows: blank_rows_of(values["blank_rows"])).freeze
     end
 
     # Returns [Array] the rows of the Hash of a slice, see .from_h.

@@ -68,7 +68,7 @@ module IOStreams
       #     called for a file without a header row, see `IOStreams::Tabular#requires_header?`.
       #     Default: nil
       #
-      # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
+      # Yields [IOStreams::Slice] each slice, frozen, once it holds `size` rows, and the last one when #finish is called.
       #
       # The caller checks the options before anything is opened, see .check.
       def initialize(tabular:, size:, validate: false, on_header: nil, &on_slice)
@@ -129,10 +129,11 @@ module IOStreams
         on_header.call(header)
       end
 
+      # Hands on the slice of the rows added since the last one, frozen, see `IOStreams::Slice`.
       def flush
         return unless @slice
 
-        slice  = @slice
+        slice  = @slice.freeze
         @slice = nil
         @on_slice.call(slice)
       end

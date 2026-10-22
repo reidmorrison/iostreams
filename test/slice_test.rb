@@ -63,6 +63,13 @@ class SliceTest < Minitest::Test
         assert_equal :psv, copy.format
       end
 
+      it "returns the slice frozen, as each(:slice) yields it, while its Hash can still be changed" do
+        copy = IOStreams.slice(slice.to_h)
+
+        assert_predicate copy, :frozen?
+        refute_predicate copy.to_h["rows"], :frozen?
+      end
+
       it "gives the slice a frozen copy of the header row, as the slices of a file share it" do
         header = [+"Name", +"AGE"]
         copy   = IOStreams.slice("rows" => [], "header" => header, "format" => "csv")

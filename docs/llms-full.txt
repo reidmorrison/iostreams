@@ -4542,7 +4542,7 @@ slice.to_h
 * The rows of a file are Strings, and the header row is an Array of Strings, so JSON keeps the Hash as it is. That
   suits a job queue whose arguments must be JSON, such as Sidekiq's.
 * `IOStreams.slice` takes the keys, and the format, as Strings or Symbols, since a queue may change them, and raises
-  `ArgumentError` for a Hash that does not describe a slice.
+  `ArgumentError` for a Hash that does not describe a slice. It returns the slice frozen, as `each(:slice)` yields it.
 * The header row travels with every slice, so each job reads its rows by the columns of their own file, even when the
   files that feed the same job have their columns in different orders.
 
@@ -4761,6 +4761,9 @@ end
 * A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no
   header row, `nil`.
 * A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
+* Each slice is frozen, so that its rows stay those of its file, as its header row and format describe them. To change
+  the rows, change a copy: `slice.dup` returns one, with the same header row and format. The methods of an Array that
+  return a new Array, such as `map`, return an Array rather than a slice.
 * The header row of every slice of a file is the same frozen Array, so change a copy of it.
 * `#reader(:slice, size: 500)` yields the reader, whose `#header` is the header row once it has been read, also for a
   file without any rows.
@@ -4791,6 +4794,7 @@ does not have:
   `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Compress or
   encrypt the slices where the store keeps them. It is only written, so `#each`, `#reader` and `#read` raise
   `ArgumentError` too.
+* `#write_slice` receives each slice frozen, as `each(:slice)` yields it.
 * A store whose class inherits methods named `slice_size`, `write_header` or `write_slice` keeps them:
   `IOStreams::Slice::Target` calls them rather than its defaults.
 

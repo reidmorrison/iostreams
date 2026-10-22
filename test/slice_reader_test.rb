@@ -48,6 +48,28 @@ class SliceReaderTest < Minitest::Test
         assert(list.first.header.all?(&:frozen?))
       end
 
+      it "yields each slice frozen, the last one too, so that its rows stay those of the file" do
+        list = slices(stream(csv), size: 2)
+
+        assert_equal [2, 1], list.map(&:size)
+        assert(list.all?(&:frozen?))
+        assert_raises(FrozenError) { list.first.shift }
+      end
+
+      it "yields slices whose copy can be changed, with the same header row, format and blank rows" do
+        tabular = IOStreams::Tabular.new(format: :array, blank_rows: false)
+        slice   = IOStreams::Slice::Reader.new([%w[name age], [nil, nil]], tabular: tabular, size: 2).first
+        copy    = slice.dup
+        copy << %w[Jack 21]
+
+        assert_instance_of IOStreams::Slice, copy
+        assert_equal [[nil, nil], %w[Jack 21]], copy
+        assert_equal [[nil, nil]], slice
+        assert_same slice.header, copy.header
+        assert_equal :array, copy.format
+        refute_predicate copy, :blank_rows?
+      end
+
       it "gives each slice the format of its rows" do
         assert_equal %i[csv csv], slices(stream(csv), size: 2).map(&:format)
         assert_equal [:psv], slices(stream("name|age\nJack|21\n").format(:psv), size: 2).map(&:format)
@@ -251,6 +273,13 @@ class SliceReaderTest < Minitest::Test
       assert_equal %w[a b], slice
       assert_equal %w[name], slice.header
       assert_equal :csv, slice.format
+    end
+
+    it "is not frozen when created, so that its rows can be added" do
+      slice = IOStreams::Slice.new(%w[a], header: %w[name].freeze, format: :csv)
+      slice << "b"
+
+      assert_equal %w[a b], slice
     end
 
     it "has no header row nor format by default, and its blank rows are blank rows, as in a file" do
