@@ -7,11 +7,6 @@ module IOStreams
 
       attr_reader :delimiter, :buffer_size, :line_number
 
-      # Returns [Integer] the number of the line that the last line read starts on, counting from 1, which is before
-      # #line_number, the line that it ends on, when it holds the line endings within a quoted value, see
-      # `embedded_within`. Returns nil until a line is read.
-      attr_reader :start_line_number
-
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` bytes are read.
       MAX_BLOCKS_MULTIPLIER = 100
 
@@ -121,6 +116,23 @@ module IOStreams
           line = readline
           unless line.nil?
             yield(line)
+            line_count += 1
+          end
+        end
+        line_count
+      end
+
+      # Iterates over every line, as #each does, passing each one to the supplied block with the number of the line that
+      # it starts on, counting from 1, as a text editor numbers it. It is before #line_number, the line that it ends on,
+      # when the line holds the line endings within a quoted value, see `embedded_within`.
+      #
+      # Returns [Integer] the number of lines read from the file/stream.
+      def each_with_line_number
+        line_count = 0
+        until eof?
+          line = readline
+          unless line.nil?
+            yield(line, @start_line_number)
             line_count += 1
           end
         end

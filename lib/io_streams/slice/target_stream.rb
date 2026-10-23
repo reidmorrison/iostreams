@@ -375,7 +375,7 @@ module IOStreams
           text      = Text.new(pending, invalid)
           reader    = IOStreams::Line::Reader.new(text, delimiter: delimiter, embedded_within: @quote_character)
           @delimiter ||= reader.delimiter
-          reader.each { |row| @collector.add(row, @lines + reader.start_line_number) }
+          reader.each_with_line_number { |row, line_number| @collector.add(row, @lines + line_number) }
           @lines += reader.line_number
           @bytes += pending.bytesize
         rescue IOStreams::Errors::MalformedDataError => e

@@ -86,8 +86,11 @@ module IOStreams
       # lines, such as Parquet, the row that its reader returns. The header row is read instead, see
       # `IOStreams::Tabular#read_line`. A nil line is a blank line, as a writer of lines writes it.
       #
-      # Parameters
-      #   line_number: [Integer]
+      # Parameters, both positional
+      #   row: [String|Array|Hash|nil]
+      #     The row to add.
+      #
+      #   line_number: [Integer|nil]
       #     The number of the line of the file that the row starts on, when the rows are lines of a file, which the
       #     slice of its first row holds, see `IOStreams::Slice#line_number`.
       #     Default: nil, the number of the row, counting from 1, without the header row.
@@ -106,12 +109,8 @@ module IOStreams
         self
       end
 
-      # Adds the supplied row, without the line of the file that it starts on, see #add.
-      def <<(row)
-        add(row)
-      end
-
-      alias write <<
+      alias << add
+      alias write add
 
       # Returns [Array<String>] the header row of the file, as it was read, once it has been read, which every slice
       # carries, see `IOStreams::Slice#header`.

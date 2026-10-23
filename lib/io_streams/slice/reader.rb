@@ -28,11 +28,12 @@ module IOStreams
       end
 
       # Parameters
-      #   rows: [#each]
-      #     Yields each row of the file, as the format holds it: a line of text, or for a format whose rows are not
-      #     lines, such as Parquet, the row that its reader returns, see `IOStreams::Tabular#read_rows`. A line reader,
-      #     see `IOStreams::Line::Reader`, also gives the line that each row starts on, which the slice of the first
-      #     row holds, see `IOStreams::Slice#line_number`.
+      #   rows: [#each_with_line_number]
+      #     Yields each row of the file, as the format holds it, with the line of the file that it starts on, which the
+      #     slice of the first row holds, see `IOStreams::Slice#line_number`: a line of text, see
+      #     `IOStreams::Line::Reader#each_with_line_number`, or for rows that are not lines, such as those of Parquet, the
+      #     row that its reader returns, see `IOStreams::Tabular#read_rows`, with the line that its source knows, see
+      #     `IOStreams::Slice::Rows`.
       #
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
@@ -48,7 +49,9 @@ module IOStreams
       #     Default: false
       def initialize(rows, tabular:, size:, validate: false)
         self.class.check(size: size, validate: validate)
-        raise(ArgumentError, "Rows must be a IOStreams::Line::Reader or implement #each") unless rows.respond_to?(:each)
+        unless rows.respond_to?(:each_with_line_number)
+          raise(ArgumentError, "Rows must implement #each_with_line_number, such as IOStreams::Line::Reader")
+        end
 
         @rows     = rows
         @tabular  = tabular
@@ -70,11 +73,7 @@ module IOStreams
       # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
       def each(&)
         collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, &)
-        if @rows.is_a?(IOStreams::Line::Reader)
-          @rows.each { |row| collector.add(row, @rows.start_line_number) }
-        else
-          @rows.each { |row| collector << row }
-        end
+        @rows.each_with_line_number { |row, line_number| collector.add(row, line_number) }
         collector.finish
         collector.count
       end

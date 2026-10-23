@@ -53,6 +53,15 @@ module IOStreams
         super(blank_rows: io_stream.blank_rows?, **)
       end
 
+      # Yields [IOStreams::Slice::Rows] the rows of the slice, after its header row, when it carries one, with the line of
+      # the file that each one starts on, which a slice reader reads, see `IOStreams::Row::Stream#open_slice_rows`, so
+      # that the slices that it reads from this slice number their rows from the line of its first row, see
+      # `IOStreams::Slice#line_number`, rather than from 1.
+      def open_slice_rows(_tabular, _delimiter, _buffer_size)
+        slice = io_stream
+        yield IOStreams::Slice::Rows.new(slice, header: slice.header, line_number: slice.line_number)
+      end
+
       # Returns [#each] the rows of the slice, after its header row, when it carries one, which the readers of rows and
       # records read as the header row of a file, see `IOStreams::Tabular#read_header`.
       def rows

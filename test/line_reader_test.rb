@@ -151,16 +151,14 @@ class LineReaderTest < Minitest::Test
       end
     end
 
-    describe "#start_line_number" do
-      it "is the line that the last line read starts on, before #line_number for a quoted value with line breaks" do
+    describe "#each_with_line_number" do
+      it "yields each line with the line that it starts on, before #line_number for a quoted value with line breaks" do
         reader = IOStreams::Line::Reader.new(StringIO.new(%(a\n"b\nc"\n\nd\n)), embedded_within: '"')
-        lines  = reader.map { |line| [line, reader.start_line_number, reader.line_number] }
+        lines  = []
+        count  = reader.each_with_line_number { |line, line_number| lines << [line, line_number, reader.line_number] }
 
         assert_equal [["a", 1, 1], [%("b\nc"), 2, 3], ["", 4, 4], ["d", 5, 5]], lines
-      end
-
-      it "is nil until a line is read" do
-        assert_nil IOStreams::Line::Reader.new(StringIO.new("a\n")).start_line_number
+        assert_equal 4, count
       end
     end
 

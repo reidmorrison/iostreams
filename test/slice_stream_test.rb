@@ -160,6 +160,32 @@ class SliceStreamTest < Minitest::Test
         assert_equal %i[csv csv], list.map(&:format)
       end
 
+      it "numbers the slices that it reads again from the line of the slice, rather than from 1" do
+        second = slices("Name,AGE\nJack,21\nJill,22\nBob,23\nAnn,24\nSam,25\n", size: 4).last
+        list   = []
+        IOStreams.stream(second).each(:slice, size: 1) { |part| list << part }
+
+        assert_equal 6, second.line_number
+        assert_equal [["Sam,25"]], list
+        assert_equal [6], list.map(&:line_number)
+      end
+
+      it "numbers each row after the first as the next line" do
+        first = slices("\nName,AGE\nJack,21\nJill,22\nBob,23\n", size: 5).first
+        list  = []
+        IOStreams.stream(first).each(:slice, size: 2) { |part| list << part }
+
+        assert_equal [3, 5], list.map(&:line_number)
+      end
+
+      it "numbers the slices of a slice without a line by row, counting from 1" do
+        unnumbered = IOStreams::Slice.new(%w[Jack,21 Jill,22 Bob,23], header: %w[Name AGE], format: :csv)
+        list       = []
+        IOStreams.stream(unnumbered).each(:slice, size: 2) { |part| list << part }
+
+        assert_equal [1, 3], list.map(&:line_number)
+      end
+
       it "copies the records of the slice to a stream" do
         output = StringIO.new
         IOStreams.stream(slice).schema(schema).copy_to(IOStreams.stream(output).format(:json), mode: :hash)

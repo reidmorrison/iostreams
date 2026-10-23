@@ -219,6 +219,18 @@ IOStreams.path("example.csv").each(:line, embedded_within: nil) do |line|
 end
 ~~~
 
+The reader that `reader(:line)` yields also passes each line to `each_with_line_number` with the number of the line of
+the file that it starts on, as a text editor numbers it, so that a line that holds a quoted line break is named by its
+first line:
+
+~~~ruby
+IOStreams.path("example.csv").reader(:line) do |io|
+  io.each_with_line_number do |line, line_number|
+    puts "#{line_number}: #{line}"
+  end
+end
+~~~
+
 Other notes:
 
 * A blank line is yielded as an empty String by `each(:line)`, and as `nil` by `each(:array)` and `each(:hash)`, see

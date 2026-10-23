@@ -171,6 +171,8 @@ def perform(hash)
     done += 1
   end
 rescue StandardError => e
+  raise unless slice&.line_number
+
   raise(e.exception("Line #{slice.line_number + done} of the file: #{e.message}"))
 end
 ~~~
@@ -182,7 +184,14 @@ end
 * Rows that are not lines of a file have no line, so their slices hold the number of the first row, counting from 1,
   without the header row: the rows of a Parquet file, of a query, and rows or records written to a store of slices with
   `writer(:array)` or `writer(:hash)`, or copied to it in those modes.
-* A slice built with `IOStreams::Slice.new`, or turned back from a Hash without one, has none, `nil`.
+* The slices of an Excel spreadsheet, `.xlsx`, hold the line of the CSV text that its rows are read as, which is not
+  always its row in Excel: a cell that holds line breaks takes a line for each, and empty rows of the sheet are left
+  out.
+* The slices read from a slice, such as with `IOStreams.stream(slice).each(:slice, size: 10)`, number their rows from
+  its line, each row after its first as the next line.
+* A slice built with `IOStreams::Slice.new`, or turned back from a Hash without one, such as one stored before
+  IOStreams held lines, has none, `nil`, so the example above raises the error as it is, as it does when `hash` does
+  not describe a slice, which leaves `slice` nil.
 
 ### Retry a slice
 

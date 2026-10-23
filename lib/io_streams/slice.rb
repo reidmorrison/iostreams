@@ -30,6 +30,7 @@ module IOStreams
   class Slice < ::Array
     autoload :Collector, "io_streams/slice/collector"
     autoload :Reader, "io_streams/slice/reader"
+    autoload :Rows, "io_streams/slice/rows"
     autoload :Stream, "io_streams/slice/stream"
     autoload :Target, "io_streams/slice/target"
     autoload :TargetStream, "io_streams/slice/target_stream"
@@ -128,6 +129,9 @@ module IOStreams
     # For rows that are not lines of a file, such as those of a Parquet file, an Active Record query, or rows and
     # records written to a store of slices, see `IOStreams::Slice::TargetStream`, it is the number of the first row,
     # counting from 1, without the header row, so the next slice of 100 rows after one at 1 starts at 101.
+    #
+    # For an Excel spreadsheet, `.xlsx`, it is the line of the CSV text that its rows are read as, which is not always
+    # its row in Excel. The slices read from a slice, see `IOStreams::Slice::Stream`, number their rows from its line.
     #
     # Returns nil for a slice built without one, see #initialize.
     attr_reader :line_number
