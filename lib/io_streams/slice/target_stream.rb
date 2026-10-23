@@ -21,9 +21,9 @@ module IOStreams
     # as with `break`, but not when it raises.
     #
     # A store holds slices rather than bytes, so the `:stream` mode, the streams and options of #stream and #option, an
-    # encoding and #raw raise ArgumentError, see `IOStreams::Row::WithoutBytes`, as do a file name, since a store has
-    # none, and a format whose rows are not lines, such as Parquet. It is only written, so #reader, #each and #read
-    # raise ArgumentError too.
+    # encoding other than `replace:`, see #encoding, and #raw raise ArgumentError, see `IOStreams::Row::WithoutBytes`,
+    # as do a file name, since a store has none, and a format whose rows are not lines, such as Parquet. It is only
+    # written, so #reader, #each and #read raise ArgumentError too.
     class TargetStream < IOStreams::Stream
       include IOStreams::Row::WithoutBytes
 
@@ -95,6 +95,28 @@ module IOStreams
         super(source, mode: mode, **args)
       end
 
+      # Sets the text that replaces each character of a line written in the `:line` mode that is not valid, see #writer,
+      # rather than raise `IOStreams::Errors::InvalidEncoding`, as `replace:` does for the lines read from a file, see
+      # `IOStreams::Stream#encoding`:
+      #
+      #   IOStreams.stream(store).format(:csv).encoding(replace: "").writer(:line) { |io| io << line }
+      #
+      # Without arguments, returns nil, since the rows of a slice are always UTF-8 text.
+      #
+      # Raises ArgumentError for an encoding, or any other option, since the store holds the rows of slices as UTF-8
+      # text, rather than bytes.
+      def encoding(encoding = nil, **options)
+        return super if encoding.nil? && options.empty?
+        unless encoding.nil? && options.keys == [:replace]
+          raise(ArgumentError, "Only `replace:` can be set with #encoding on a #{source_name}, since it holds the rows " \
+                               "of slices as UTF-8 text rather than bytes")
+        end
+
+        raise_if_frozen!
+        builder.encoding(**options)
+        self
+      end
+
       # Raises ArgumentError, rather than ignore a file name, whose streams, such as `.gz` or `.pgp`, a store of slices
       # does not apply, since it holds rows rather than bytes: set the format of the rows with #format instead, and
       # compress or encrypt the slices where they are stored. A store has no file name, so `#file_name` without an
@@ -159,7 +181,7 @@ module IOStreams
 
       # Takes the lines written in the `:line` mode, see #writer, and adds the rows that they hold to the collector of the
       # slices, as a line reader would read them from the file that a line writer writes, see `IOStreams::Line::Writer`,
-      # which writes a line ending after each one.
+      # which writes a line ending after each one, in UTF-8, see #<<.
       class Lines
         # A line ending, after which the text that follows is another line, unless it is within a quoted value.
         LINE_ENDING = /[\r\n]/
@@ -167,18 +189,28 @@ module IOStreams
         # The most bytes of text kept while a quoted value is open, as a line reader reads them, see #<<.
         MAX_PENDING_BYTES = IOStreams::Line::Reader.max_embedded_bytes
 
-        def initialize(collector, quote_character)
+        # Parameters
+        #   replace: [String|nil]
+        #     Replaces each character that is not valid, see #<<, rather than raise.
+        def initialize(collector, quote_character, replace: nil)
           @collector       = collector
           @quote_character = quote_character
+          @replace         = replace
           @pending         = nil
           @quotes          = 0
           @delimiter       = nil
           @lines           = 0
+          @bytes           = 0
         end
 
         # Adds the rows of the supplied line, see `IOStreams::Slice::Collector#<<`. A nil line is a blank line. A line
         # that holds a line ending, or that leaves a quoted value open, is kept until the text written holds whole rows,
         # which a line reader then splits, see #split.
+        #
+        # The rows are UTF-8 text, as reading a file gives them: a line in another encoding is converted to UTF-8, and
+        # the bytes of a binary line are read as UTF-8, see `IOStreams::Encode::Converter`. A character that is not
+        # valid raises `IOStreams::Errors::InvalidEncoding`, with its byte offset and the number of its line within the
+        # lines written, each followed by a line ending, as reading the file would, unless `replace` replaces it.
         #
         # Raises `IOStreams::Errors::MalformedDataError`, with the number of the line on which the quoted value opened,
         # once the text kept while it is open exceeds the most that a line reader reads into one line, see
@@ -193,15 +225,19 @@ module IOStreams
                                  "the :array or :hash mode")
           end
 
-          text    = line.nil? ? "" : line
-          quotes  = @quote_character ? text.count(@quote_character) : 0
+          text = line.nil? ? "" : line
+          text = utf8(text) unless text.encoding == ::Encoding::UTF_8 && text.valid_encoding?
+          return self if text.nil?
+
+          quotes = @quote_character ? text.count(@quote_character) : 0
           if @pending.nil? && quotes.even? && !text.match?(LINE_ENDING)
             # A line of a single row, the line ending of the file being that of the line writer.
             @delimiter ||= "\n"
             @lines      += 1
+            @bytes      += text.bytesize + 1
             @collector << text
           else
-            (@pending ||= +"") << text << "\n"
+            keep(text)
             @quotes += quotes
             split if @quotes.even? || @pending.bytesize > MAX_PENDING_BYTES
           end
@@ -222,25 +258,70 @@ module IOStreams
 
         private
 
+        # Returns [String] the supplied text that is not valid UTF-8 text, as UTF-8, see #<<, or nil once it has added
+        # the rows of the text kept with it, which raises for a character that is not valid.
+        def utf8(text)
+          if [::Encoding::UTF_8, ::Encoding::BINARY].include?(text.encoding)
+            utf8 = text.dup.force_encoding(::Encoding::UTF_8)
+            return utf8 if utf8.valid_encoding?
+            return convert(utf8) if @replace
+
+            # Read as a file is read, so that the encode stream finds the character, and the line reader its line.
+            keep(utf8)
+            split
+            return
+          end
+
+          convert(text)
+        end
+
+        # Returns [String] the supplied text converted to UTF-8, or with each character that is not valid replaced, see
+        # `IOStreams::Encode::Converter`.
+        #
+        # Raises `IOStreams::Errors::InvalidEncoding` for a character that is not valid in the encoding of the text,
+        # without `replace`, on the line that it is on within the lines written.
+        def convert(text)
+          IOStreams::Encode::Converter.new(encoding: ::Encoding::UTF_8, replace: @replace).convert(text, final: true)
+        rescue IOStreams::Errors::InvalidEncoding => e
+          before        = text.byteslice(0, e.byte_offset).encode(::Encoding::UTF_8)
+          e.line_number = before.scan(IOStreams::Line::Reader::LINEFEED_REGEXP).size + 1
+          raise(e.after(@lines + pending_lines, @bytes + (@pending&.bytesize || 0)))
+        end
+
+        # Keeps the supplied text, followed by a line ending, until it is split into rows, see #split.
+        def keep(text)
+          (@pending ||= +"") << text << "\n"
+        end
+
+        # Returns [Integer] the number of lines of the text kept, see #keep.
+        def pending_lines
+          @pending ? @pending.scan(IOStreams::Line::Reader::LINEFEED_REGEXP).size : 0
+        end
+
         # Adds each row of the text kept, which a line reader splits as it would read it from a file, see
         # `IOStreams::Line::Reader`, at the line ending of the file, which the first line ending written decides. The
         # reader detects it again for a file whose line ending is "\r\n", since a "\n" alone also ends a line of one.
+        # The text is read through the encode stream, as a file is, see `IOStreams::Encode::Reader`.
         #
-        # Raises `IOStreams::Errors::MalformedDataError` when a quoted value in the text is not closed, numbered by the
-        # lines of the file, which are the lines added before the text and those of the text.
+        # Raises `IOStreams::Errors::MalformedDataError` when a quoted value in the text is not closed, or
+        # `IOStreams::Errors::InvalidEncoding` for a character that is not valid, numbered by the lines of the file,
+        # which are the lines added before the text and those of the text.
         def split
+          pending   = @pending
           delimiter = @delimiter unless @delimiter == "\r\n"
-          io        = StringIO.new(@pending)
-          reader    = IOStreams::Line::Reader.new(io, delimiter: delimiter, embedded_within: @quote_character)
-          @delimiter ||= reader.delimiter
-          @pending     = nil
-          @quotes      = 0
-          begin
+          @pending  = nil
+          @quotes   = 0
+          IOStreams::Encode::Reader.stream(StringIO.new(pending.b)) do |text|
+            reader       = IOStreams::Line::Reader.new(text, delimiter: delimiter, embedded_within: @quote_character)
+            @delimiter ||= reader.delimiter
             reader.each { |row| @collector << row }
-          rescue IOStreams::Errors::MalformedDataError => e
-            raise(e.after(@lines))
+            @lines += reader.line_number
           end
-          @lines += reader.line_number
+          @bytes += pending.bytesize
+        rescue IOStreams::Errors::MalformedDataError => e
+          raise(e.after(@lines))
+        rescue IOStreams::Errors::InvalidEncoding => e
+          raise(e.after(@lines, @bytes))
         end
       end
       private_constant :Lines
@@ -248,7 +329,7 @@ module IOStreams
       # Yields the writer of the lines in the `:line` mode to the block, see Lines, and adds the rows of the text that it
       # still keeps once the block returns, or leaves early, but not when it raises.
       def write_lines(collector, quote_character, &block)
-        lines = Lines.new(collector, quote_character)
+        lines = Lines.new(collector, quote_character, replace: builder.setting(:encode)&.[](:replace))
         Utils.finish_or_abort(finish: -> { lines.finish }) { block.call(lines) }
       end
 

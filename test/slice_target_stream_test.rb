@@ -260,6 +260,99 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal limit / (line.bytesize + 1), written
       end
 
+      describe "text that is not valid UTF-8" do
+        let(:lines) { ["", "name,note", "Jack,\"line 1", "line 2\"", "", "Jill,ok", "Bob,\xFFx".dup.force_encoding("UTF-8")] }
+
+        # Returns [IOStreams::Errors::InvalidEncoding] the error that reading the lines from a file raises.
+        def read_error(lines)
+          Dir.mktmpdir do |dir|
+            file_name = File.join(dir, "people.csv")
+            File.binwrite(file_name, "#{lines.collect(&:b).join("\n")}\n")
+            assert_raises(IOStreams::Errors::InvalidEncoding) { IOStreams.path(file_name).each(:slice, size: 10) { nil } }
+          end
+        end
+
+        it "raises InvalidEncoding at the byte offset and on the line that reading the file names" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.writer(:line) { |io| lines.each { |line| io << line } }
+          end
+
+          assert_equal 7, error.line_number
+          assert_equal 45, error.byte_offset
+          assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 45 on line 7", error.message
+          assert_equal read_error(lines).message, error.message
+          assert_equal "\xFF".b, error.error_char
+          assert_equal Encoding::BINARY, error.source_encoding
+          assert_equal Encoding::UTF_8, error.destination_encoding
+          assert_kind_of Encoding::UndefinedConversionError, error
+        end
+
+        it "raises the same when the lines are written as one" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) { stream.writer(:line) { |io| io << lines.join("\n") } }
+
+          assert_equal read_error(lines).message, error.message
+        end
+
+        it "raises on the line of the character within a quoted value that is still open" do
+          open_quote = ["name,note", "Jack,\"line 1", "line \xFF2\"".dup.force_encoding("UTF-8")]
+          error      = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.writer(:line) { |io| open_quote.each { |line| io << line } }
+          end
+
+          assert_equal 3, error.line_number
+          assert_equal read_error(open_quote).message, error.message
+        end
+
+        it "does not write the slice that the line would be in" do
+          small = Store.new(slice_size: 1)
+          assert_raises(IOStreams::Errors::InvalidEncoding) do
+            IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "\xFF".b }
+          end
+
+          assert_equal [%w[Jack]], small.slices.collect(&:to_a)
+        end
+
+        it "reads the bytes of a binary line as UTF-8" do
+          stream.writer(:line) { |io| io << "name".b << "Jöe".b }
+
+          assert_equal [[%w[name], :csv, %w[Jöe]]], written
+          assert_equal Encoding::UTF_8, store.slices.first.first.encoding
+        end
+
+        it "raises for a binary line that is not valid UTF-8" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) { stream.writer(:line) { |io| io << "name" << "\xFF".b } }
+
+          assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 5 on line 2", error.message
+        end
+
+        it "converts a line in another encoding to UTF-8" do
+          stream.writer(:line) do |io|
+            io << "name,note" << "J\xF6e,1".dup.force_encoding("ISO-8859-1") << "\"Jill\",2".encode("UTF-16LE")
+          end
+
+          assert_equal [[%w[name note], :csv, ["Jöe,1", "\"Jill\",2"]]], written
+          assert(store.slices.first.all? { |row| row.encoding == Encoding::UTF_8 })
+        end
+
+        it "raises on the line of a character that is not valid in the encoding of a line" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.writer(:line) { |io| io << "name,note" << "x\ny,\x81".dup.force_encoding("Shift_JIS") }
+          end
+
+          assert_equal "\"\\x81\" is not valid Shift_JIS at byte offset 14 on line 3", error.message
+        end
+
+        it "replaces each character that is not valid with replace:" do
+          stream.encoding(replace: "?").writer(:line) do |io|
+            lines.each { |line| io << line }
+            io << "\xFF,y".b << "a\xFF\nb,c".dup.force_encoding("UTF-8")
+          end
+
+          assert_equal [[%w[name note], :csv, ["Jack,\"line 1\nline 2\"", "", "Jill,ok", "Bob,?x", "?,y", "a?", "b,c"]]],
+                       written
+        end
+      end
+
       it "raises for a line that is not a String" do
         error = assert_raises(ArgumentError) { stream.writer(:line) { |io| io << {"name" => "Jack"} } }
 
@@ -518,6 +611,16 @@ class SliceTargetStreamTest < Minitest::Test
         assert_raises(ArgumentError) { stream.option(:gz, level: 1) }
         assert_raises(ArgumentError) { stream.encoding("ISO-8859-1") }
         assert_raises(ArgumentError) { stream.raw }
+      end
+
+      it "raises for an encoding, or an option of it other than replace:, since the rows are UTF-8 text" do
+        message = "Only `replace:` can be set with #encoding on a slice target, since it holds the rows of slices as " \
+                  "UTF-8 text rather than bytes"
+
+        assert_equal message, assert_raises(ArgumentError) { stream.encoding("UTF-8") }.message
+        assert_equal message, assert_raises(ArgumentError) { stream.encoding(replace: "", cleaner: :printable) }.message
+        assert_raises(ArgumentError) { stream.encoding(replace: 1) }
+        assert_nil stream.encoding(replace: "").encoding
       end
 
       it "raises for a format whose rows are not lines" do

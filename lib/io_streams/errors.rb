@@ -102,6 +102,7 @@ module IOStreams
         @error_char           = error_char
         @source_encoding      = source_encoding
         @destination_encoding = destination_encoding
+        @reason               = message
         super(message)
       end
 
@@ -118,6 +119,15 @@ module IOStreams
       # Sets the number of the line that the invalid data is on, unless it is already set.
       def line_number=(line_number)
         @line_number ||= line_number
+      end
+
+      # Returns [InvalidEncoding] the same error, at the byte offset and on the line that it is at once the supplied
+      # number of lines and bytes are before it, for data that was read after them.
+      def after(lines, bytes)
+        self.class.new(
+          @reason, byte_offset: byte_offset + bytes, line_number: line_number && (line_number + lines),
+          error_char: error_char, source_encoding: source_encoding, destination_encoding: destination_encoding
+        )
       end
 
       def to_s

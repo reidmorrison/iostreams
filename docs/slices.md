@@ -355,11 +355,22 @@ does not have:
   quoted CSV value stays in its row. A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError`
   with the number of the line that it starts on, as reading the file would, once the text written after it reaches
   640KB, or when the block returns, rather than keeping the lines written after it in memory.
+* The rows of a slice are UTF-8 text, as reading a file gives them. A line in another encoding, such as ISO-8859-1, is
+  converted to UTF-8, and the bytes of a binary line are read as UTF-8. A character that is not valid raises
+  `IOStreams::Errors::InvalidEncoding`, with the byte offset and line that reading the file would name, counting the
+  header row and blank lines, for example `"\xFF" is not valid UTF-8 at byte offset 43 on line 7`. To replace each
+  one instead, set `replace:` on the store's stream, the only option of `#encoding` that a store takes:
+
+  ```ruby
+  IOStreams.stream(store).format(:csv).encoding(replace: "").writer(:line) do |io|
+    io << line
+  end
+  ```
 * A copy in the `:line` mode keeps the lines as they are, so the slices are in the format of the source. Setting
   another format on the store's stream raises `ArgumentError`; copy in the `:array` or `:hash` mode to convert the
   rows instead.
-* A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, `#encoding`,
-  `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Compress or
+* A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, an encoding
+  set with `#encoding`, `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Compress or
   encrypt the slices where the store keeps them. It is only written, so `#each`, `#reader` and `#read` raise
   `ArgumentError` too.
 * A store whose class inherits methods named `slice_size`, `write_header` or `write_slice` keeps them:
