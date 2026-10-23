@@ -7,6 +7,11 @@ module IOStreams
 
       attr_reader :delimiter, :buffer_size, :line_number
 
+      # Returns [Integer] the number of the line that the last line read starts on, counting from 1, which is before
+      # #line_number, the line that it ends on, when it holds the line endings within a quoted value, see
+      # `embedded_within`. Returns nil until a line is read.
+      attr_reader :start_line_number
+
       # Prevent denial of service when a delimiter is not found before this number * `buffer_size` bytes are read.
       MAX_BLOCKS_MULTIPLIER = 100
 
@@ -81,6 +86,7 @@ module IOStreams
         @use_read_cache_buffer = !@input_stream.method(:read).arity.between?(0, 1)
 
         @line_number       = 0
+        @start_line_number = nil
         @eof               = false
         @read_cache_buffer = nil
         @buffer            = nil
@@ -133,18 +139,18 @@ module IOStreams
       # Accounts for lines that contain the `delimiter` when the `delimeter` is within the `embedded_within` delimiter.
       # For Example, CSV files can contain newlines embedded within double quotes.
       def readline
-        line = _readline
+        line               = _readline
+        @start_line_number = @line_number if line
         if line && @embedded_within
-          initial_line_number = @line_number
           # Count the delimiters incrementally, since recounting the whole line each time is quadratic.
           # For the same reason limit the size of the line in bytes, since `#length` counts the characters
           # in a multi-byte string such as UTF-8 each time it is called.
-          embedded_count      = line.count(@embedded_within)
+          embedded_count = line.count(@embedded_within)
           while embedded_count.odd?
             if eof? || line.bytesize > self.class.max_embedded_bytes(@buffer_size)
               raise(Errors::MalformedDataError.new(
                       "Unbalanced delimited field, delimiter: #{@embedded_within}",
-                      initial_line_number
+                      @start_line_number
                     ))
             end
             line << @ending
@@ -153,7 +159,7 @@ module IOStreams
             if next_line.nil?
               raise(Errors::MalformedDataError.new(
                       "Unbalanced delimited field, delimiter: #{@embedded_within}",
-                      initial_line_number
+                      @start_line_number
                     ))
             end
             line << next_line

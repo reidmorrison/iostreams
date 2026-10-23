@@ -184,7 +184,7 @@ module IOStreams
 
       # Takes the lines written in the `:line` mode, see #writer, and adds the rows that they hold to the collector of the
       # slices, as a line reader would read them from the file that a line writer writes, see `IOStreams::Line::Writer`,
-      # which writes a line ending after each one, in UTF-8, see #<<.
+      # which writes a line ending after each one, in UTF-8, see #<<, with the line of the file that each row starts on.
       class Lines
         # A line ending, after which the text that follows is another line, unless it is within a quoted value.
         LINE_ENDING = /[\r\n]/
@@ -283,11 +283,12 @@ module IOStreams
         end
         private_constant :Text
 
-        # Adds the supplied text, a single row on a line of its own.
+        # Adds the supplied text, a single row on a line of its own, which starts on the line after those added before it,
+        # which the slice of its first row holds, see `IOStreams::Slice#line_number`.
         def add(text)
           @lines += 1
           @bytes += text.bytesize + NEWLINE.bytesize
-          @collector << text
+          @collector.add(text, @lines)
         end
 
         # Returns [String] the supplied text, which is not valid UTF-8 text, as UTF-8, see #<<.
@@ -374,7 +375,7 @@ module IOStreams
           text      = Text.new(pending, invalid)
           reader    = IOStreams::Line::Reader.new(text, delimiter: delimiter, embedded_within: @quote_character)
           @delimiter ||= reader.delimiter
-          reader.each { |row| @collector << row }
+          reader.each { |row| @collector.add(row, @lines + reader.start_line_number) }
           @lines += reader.line_number
           @bytes += pending.bytesize
         rescue IOStreams::Errors::MalformedDataError => e

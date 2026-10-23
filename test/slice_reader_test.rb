@@ -74,6 +74,20 @@ class SliceReaderTest < Minitest::Test
         assert_equal %w[Name AGE], list.first.header
       end
 
+      it "gives each slice the line of the file that its first row starts on" do
+        data = %(\nName,AGE\nJack,"line one\nline two"\n\nJill,22\nBob,23\nAnn,24\n)
+
+        assert_equal [3, 6, 8], slices(stream(data), size: 2).map(&:line_number)
+      end
+
+      it "gives each slice the number of its first row, counting from 1, for rows that are not lines" do
+        tabular = IOStreams::Tabular.new(format: :array)
+        rows    = [%w[name age], %w[Jack 21], %w[Jill 22], %w[Bob 23]]
+        list    = IOStreams::Slice::Reader.new(rows, tabular: tabular, size: 2).to_a
+
+        assert_equal [1, 3], list.map(&:line_number)
+      end
+
       it "keeps a quoted value with a line break within its row" do
         list = slices(stream(%(name,note\nJack,"line one\nline two"\n)), size: 5)
 

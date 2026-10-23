@@ -30,7 +30,9 @@ module IOStreams
       # Parameters
       #   rows: [#each]
       #     Yields each row of the file, as the format holds it: a line of text, or for a format whose rows are not
-      #     lines, such as Parquet, the row that its reader returns, see `IOStreams::Tabular#read_rows`.
+      #     lines, such as Parquet, the row that its reader returns, see `IOStreams::Tabular#read_rows`. A line reader,
+      #     see `IOStreams::Line::Reader`, also gives the line that each row starts on, which the slice of the first
+      #     row holds, see `IOStreams::Slice#line_number`.
       #
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
@@ -68,7 +70,11 @@ module IOStreams
       # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
       def each(&)
         collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, &)
-        @rows.each { |row| collector << row }
+        if @rows.is_a?(IOStreams::Line::Reader)
+          @rows.each { |row| collector.add(row, @rows.start_line_number) }
+        else
+          @rows.each { |row| collector << row }
+        end
         collector.finish
         collector.count
       end

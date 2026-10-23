@@ -260,6 +260,21 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal limit / (line.bytesize + 1), written
       end
 
+      it "gives each slice the line that its first row starts on, as reading the file gives it" do
+        small = Store.new(slice_size: 2)
+        lines = ["", "name,note", "Jack,\"line 1", "line 2\"", "", "Jill,ok", "Bob,x", "Ann,y"]
+        IOStreams.stream(small).writer(:line) { |io| lines.each { |line| io << line } }
+
+        assert_equal [3, 6, 8], small.slices.map(&:line_number)
+      end
+
+      it "numbers the lines of a line that holds line breaks" do
+        small = Store.new(slice_size: 1)
+        IOStreams.stream(small).writer(:line) { |io| io << "name\nJack" << "Jill\n\nBob" }
+
+        assert_equal [2, 3, 4, 5], small.slices.map(&:line_number)
+      end
+
       describe "text that is not valid UTF-8" do
         let(:lines) { ["", "name,note", "Jack,\"line 1", "line 2\"", "", "Jill,ok", "Bob,\xFFx".dup.force_encoding("UTF-8")] }
 
@@ -490,6 +505,18 @@ class SliceTargetStreamTest < Minitest::Test
 
         assert_equal [[%w[name age], :csv, %w[Jack,21]]], written
       end
+
+      it "gives each slice the number of its first row, after the header row, since the rows are not lines of a file" do
+        small = Store.new(slice_size: 2)
+        IOStreams.stream(small).writer(:array) do |io|
+          io << %w[name note]
+          io << ["Jack", "line 1\nline 2"]
+          io << %w[Jill ok]
+          io << %w[Bob x]
+        end
+
+        assert_equal [1, 3], small.slices.collect(&:line_number)
+      end
     end
 
     describe "#writer(:hash)" do
@@ -579,7 +606,16 @@ class SliceTargetStreamTest < Minitest::Test
 
           assert_equal 3, IOStreams.stream(small).schema(schema).copy_from(path, mode: :line)
           assert_equal [%w[Jack,21], ["\"Jill\nSmith\",22"]], small.slices.collect(&:to_a)
+          assert_equal [2, 3], small.slices.collect(&:line_number)
         end
+      end
+
+      it "gives the slices of rows copied in the :hash mode the number of their first row, as for a query" do
+        small  = Store.new(slice_size: 1)
+        source = IOStreams.stream(StringIO.new("name,note\nJack,\"line 1\nline 2\"\nJill,ok\n")).format(:csv)
+        IOStreams.stream(small).copy_from(source, mode: :hash)
+
+        assert_equal [1, 2], small.slices.collect(&:line_number)
       end
 
       it "copies the records of a file, rendered by the schema of the stream" do

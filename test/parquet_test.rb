@@ -67,6 +67,14 @@ class ParquetTest < Minitest::Test
       list
     end
 
+    it "gives each slice the number of its first record, counting from 1, since its rows are not lines" do
+      write(path.schema(schema), records * 3)
+      list = []
+      path.schema(schema).each(:slice, size: 4) { |slice| list << slice }
+
+      assert_equal [1, 5], list.map(&:line_number)
+    end
+
     # Runs the block with the local time zone of the process.
     def in_time_zone(zone)
       original  = ENV.fetch("TZ", nil)
