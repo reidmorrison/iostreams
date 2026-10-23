@@ -351,6 +351,80 @@ class SliceTargetStreamTest < Minitest::Test
           assert_equal [[%w[name note], :csv, ["Jack,\"line 1\nline 2\"", "", "Jill,ok", "Bob,?x", "?,y", "a?", "b,c"]]],
                        written
         end
+
+        it "raises InvalidEncoding on the line of a character that UTF-8 does not have" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.writer(:line) { |io| io << "name,age" << "Jack,21" << "a\x81b,3".dup.force_encoding("Windows-1252") }
+          end
+
+          assert_equal "\"\\x81\" in WINDOWS-1252 has no UTF-8 character at byte offset 18 on line 3", error.message
+          assert_equal "\x81".b, error.error_char
+          assert_equal Encoding::Windows_1252, error.source_encoding
+          assert_equal Encoding::UTF_8, error.destination_encoding
+        end
+
+        it "replaces a character that UTF-8 does not have with replace:" do
+          stream.encoding(replace: "?").writer(:line) do |io|
+            io << "name,age" << "a\x81b,3".dup.force_encoding("Windows-1252")
+          end
+
+          assert_equal [[%w[name age], :csv, ["a?b,3"]]], written
+        end
+
+        it "names the byte offset within the UTF-8 text of a line in another encoding, as the file holds it" do
+          shift_jis = "x\n\x82\xA0y,\xFF1".dup.force_encoding("Shift_JIS")
+          error     = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.writer(:line) { |io| io << "name,age" << shift_jis }
+          end
+          file = read_error(["name,age", "x", "\xE3\x81\x82y,\xFF1".b])
+
+          assert_equal [16, 3], [error.byte_offset, error.line_number]
+          assert_equal [file.byte_offset, file.line_number], [error.byte_offset, error.line_number]
+        end
+
+        it "numbers the line of a converted line as the line reader does, which a lone return does not end" do
+          line  = "\"a\rb\",\xFF"
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.writer(:line) { |io| io << "name,age" << line.dup.force_encoding("Windows-31J") }
+          end
+          file = read_error(["name,age", line.b])
+
+          assert_equal [15, 2], [error.byte_offset, error.line_number]
+          assert_equal [file.byte_offset, file.line_number], [error.byte_offset, error.line_number]
+        end
+
+        it "keeps a byte order mark at the start of a line that is kept for its line ending" do
+          bom = "\xEF\xBB\xBF"
+          stream.writer(:line) { |io| io << "name,age" << "#{bom}\"Ja\nck\",21" << "#{bom}Jill,22" }
+
+          assert_equal [[%w[name age], :csv, ["#{bom}\"Ja\nck\",21", "#{bom}Jill,22"]]], written
+        end
+
+        it "adds the rows split from text that is kept as UTF-8 text" do
+          stream.writer(:line) { |io| io << "name,age" << "\"J\xC3\xB6\nck\",21" << [1, 2].join(",") }
+
+          assert_equal [[%w[name age], :csv, ["\"Jö\nck\",21", "1,2"]]], written
+          assert(store.slices.first.all? { |row| row.encoding == Encoding::UTF_8 })
+        end
+
+        it "raises InvalidEncoding on the line of a character in a record written in the :hash mode" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.format(:csv).writer(:hash) do |io|
+              io << {"name" => "J\nack", "age" => 1} << {"name" => "J\xFFk", "age" => 2}
+            end
+          end
+          file = read_error(["name,age", "\"J", "ack\",1", "J\xFFk,2".b])
+
+          assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 20 on line 4", error.message
+          assert_equal file.message, error.message
+        end
+
+        it "replaces each character that is not valid in a row or record with replace:" do
+          stream.format(:csv).encoding(replace: "?").writer(:hash) { |io| io << {"name" => "J\xFFk", "age" => 1} }
+          stream.format(:csv).encoding(replace: "?").writer(:array) { |io| io << %w[name age] << ["B\xFFb", 2] }
+
+          assert_equal [[%w[name age], :csv, ["J?k,1"]], [%w[name age], :csv, ["B?b,2"]]], written
+        end
       end
 
       it "raises for a line that is not a String" do
