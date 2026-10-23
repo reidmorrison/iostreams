@@ -152,7 +152,7 @@ IOStreams raises these classes itself:
   encoding that it is read or written in, such as UTF-8. Its `#byte_offset` is the offset of the first invalid byte
   within the data after any decompression or decryption, and its `#line_number` is the line that it is on, when it
   is read a line at a time, such as with `each(:line)` or `each(:hash)`, where the lines before it are read first.
-  Lines, rows and records written to a store of slices raise it at the byte offset and on the line that reading
+  Lines written to a store of slices with `writer(:line)` raise it at the byte offset and on the line that reading
   them from a file would, also for a character that UTF-8 does not have, see [Slices](slices#writing-to-a-store-of-slices).
   For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. As an `Encoding::UndefinedConversionError`,
   its `#error_char` is the invalid bytes, and its `#source_encoding` and `#destination_encoding` the encodings that

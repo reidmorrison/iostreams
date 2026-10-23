@@ -407,23 +407,15 @@ class SliceTargetStreamTest < Minitest::Test
           assert(store.slices.first.all? { |row| row.encoding == Encoding::UTF_8 })
         end
 
-        it "raises InvalidEncoding on the line of a character in a record written in the :hash mode" do
-          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
-            stream.format(:csv).writer(:hash) do |io|
-              io << {"name" => "J\nack", "age" => 1} << {"name" => "J\xFFk", "age" => 2}
-            end
-          end
-          file = read_error(["name,age", "\"J", "ack\",1", "J\xFFk,2".b])
+        it "raises ArgumentError for replace: in the :array or :hash mode, which it does not apply to yet" do
+          replacing = stream.format(:csv).encoding(replace: "?")
+          message   = "`replace:`, set with #encoding, applies only to the lines written to a slice target in the " \
+                      ":line mode, not to the :hash mode"
 
-          assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 20 on line 4", error.message
-          assert_equal file.message, error.message
-        end
-
-        it "replaces each character that is not valid in a row or record with replace:" do
-          stream.format(:csv).encoding(replace: "?").writer(:hash) { |io| io << {"name" => "J\xFFk", "age" => 1} }
-          stream.format(:csv).encoding(replace: "?").writer(:array) { |io| io << %w[name age] << ["B\xFFb", 2] }
-
-          assert_equal [[%w[name age], :csv, ["J?k,1"]], [%w[name age], :csv, ["B?b,2"]]], written
+          assert_equal message, assert_raises(ArgumentError) { replacing.writer(:hash) { flunk } }.message
+          assert_raises(ArgumentError) { replacing.writer(:array) { flunk } }
+          assert_raises(ArgumentError) { replacing.copy_from(IOStreams.stream(StringIO.new("a\n1\n")), mode: :hash) }
+          assert_empty store.slices
         end
       end
 

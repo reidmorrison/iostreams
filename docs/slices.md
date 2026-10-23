@@ -356,10 +356,12 @@ does not have:
   with the number of the line that it starts on, as reading the file would, once the text written after it reaches
   640KB, or when the block returns, rather than keeping the lines written after it in memory.
 * The rows of a slice are UTF-8 text, as reading a file gives them. A line in another encoding, such as ISO-8859-1, is
-  converted to UTF-8, and the bytes of a binary line are read as UTF-8. A character that is not valid, or that UTF-8
-  does not have, in a line, row or record raises `IOStreams::Errors::InvalidEncoding`, with the byte offset and line
-  that reading the UTF-8 file would name, counting the header row and blank lines, for example `"\xFF" is not valid UTF-8 at byte offset 43 on line 7`. To replace each
-  one instead, set `replace:` on the store's stream, the only option of `#encoding` that a store takes:
+  converted to UTF-8, and the bytes of a binary line are read as UTF-8. A character in a line that is not valid, or
+  that UTF-8 does not have, raises `IOStreams::Errors::InvalidEncoding`, with the byte offset and line that reading
+  the UTF-8 file would name, counting the header row and blank lines, for example
+  `"\xFF" is not valid UTF-8 at byte offset 43 on line 7`. To replace each one instead, set `replace:` on the store's
+  stream, the only option of `#encoding` that a store takes. For now it applies only to the `:line` mode, so the
+  `:array` and `:hash` modes, whose rows and records are usually built by code, raise `ArgumentError` when it is set:
 
   ```ruby
   IOStreams.stream(store).format(:csv).encoding(replace: "").writer(:line) do |io|
