@@ -208,7 +208,12 @@ class UtilsTest < Minitest::Test
         skip("File changes names that are not valid UTF-8 on this Ruby") unless IOStreams::Utils::PathName::FILE_KEEPS_NAMES
 
         names.each do |name|
-          assert_same_name ::File.dirname(name), IOStreams::Utils::PathName.dirname_of(name), name.inspect
+          # Ruby 3.2's File.dirname returns the "." of a name without a directory in US-ASCII, and later versions in the
+          # encoding of the name, as the port does.
+          dirname = ::File.dirname(name)
+          dirname = dirname.dup.force_encoding(name.encoding) if dirname == "." && dirname.encoding == Encoding::US_ASCII
+
+          assert_same_name dirname, IOStreams::Utils::PathName.dirname_of(name), name.inspect
           assert_same_name ::File.extname(name), IOStreams::Utils::PathName.extname_of(name), name.inspect
         end
         short = names.select { |name| name.bytesize <= 2 }
