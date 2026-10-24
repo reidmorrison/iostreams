@@ -189,7 +189,7 @@ module IOStreams
       end
 
       def to_s
-        ::File.join("s3://", bucket_name, path)
+        Utils::PathName.join("s3://", bucket_name, path)
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -234,7 +234,7 @@ module IOStreams
         warn_unconverted_copy_options(args[:mode], args.except(:mode))
         authorize!
         target.authorize!
-        source_name = ::File.join(bucket_name, path)
+        source_name = Utils::PathName.join(bucket_name, path)
         client.copy_object(options.merge(bucket: target.bucket_name, key: target.path, copy_source: source_name))
         target
       end
@@ -251,7 +251,7 @@ module IOStreams
         warn_unconverted_copy_options(args[:mode], args.except(:mode))
         authorize!
         source.authorize!
-        source_name = ::File.join(source.bucket_name, source.path)
+        source_name = Utils::PathName.join(source.bucket_name, source.path)
         client.copy_object(options.merge(bucket: bucket_name, key: path, copy_source: source_name))
       end
 
@@ -345,7 +345,7 @@ module IOStreams
         each_object(prefix) do |name, object|
           next if !directories && object.key.end_with?("/")
 
-          file_name = ::File.join("s3://", name, object.key)
+          file_name = Utils::PathName.join("s3://", name, object.key)
           next unless matcher.match?(file_name)
 
           child = child_path(name, object.key)

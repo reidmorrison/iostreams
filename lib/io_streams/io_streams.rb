@@ -48,7 +48,7 @@ module IOStreams
     return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
 
     elements = elements.collect(&:to_s)
-    path     = ::File.join(*elements)
+    path     = Utils::PathName.join(*elements)
     klass    = path_class(path)
     args.empty? ? klass.new(path) : klass.new(path, **args)
   end

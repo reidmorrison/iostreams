@@ -101,7 +101,7 @@ module IOStreams
         flags |= ::File::FNM_DOTMATCH if hidden
 
         # Dir.each_child("testdir") {|x| puts "Got #{x}" }
-        full_pattern = ::File.join(path, pattern)
+        full_pattern = Utils::PathName.join(path, pattern)
 
         results = Dir.glob(full_pattern, flags)
 
@@ -111,7 +111,7 @@ module IOStreams
         if results.empty? && !case_sensitive && pattern.match?(/[A-Z]/)
           # Try converting the pattern to lowercase and re-matching
           lowercase_pattern = pattern.downcase
-          lowercase_full_pattern = ::File.join(path, lowercase_pattern)
+          lowercase_full_pattern = Utils::PathName.join(path, lowercase_pattern)
           results = Dir.glob(lowercase_full_pattern, flags)
         end
 
@@ -141,7 +141,7 @@ module IOStreams
 
       def mkpath
         authorize!
-        dir = ::File.dirname(path)
+        dir = Utils::PathName.dirname(path)
         FileUtils.mkdir_p(dir)
         self
       end
@@ -193,13 +193,13 @@ module IOStreams
       # is appended to the real path of the part that does exist. It cannot contain `.` or `..`, since
       # what they refer to depends on directories that have not been created yet.
       def allowed_location
-        existing = ::File.absolute_path?(path) ? path : ::File.join(Dir.pwd, path)
+        existing = ::File.absolute_path?(path) ? path : Utils::PathName.join(Dir.pwd, path)
         missing  = []
         until present?(existing)
-          parent = ::File.dirname(existing)
+          parent = Utils::PathName.dirname(existing)
           break if parent == existing
 
-          missing.unshift(::File.basename(existing))
+          missing.unshift(Utils::PathName.basename(existing))
           existing = parent
         end
 
@@ -207,7 +207,7 @@ module IOStreams
           raise(Errors::AccessDenied, "Access denied to #{path}: '.' and '..' are not allowed after a missing directory")
         end
 
-        ::File.join(::File.realpath(existing), *missing)
+        Utils::PathName.join(::File.realpath(existing), *missing)
       rescue SystemCallError => e
         raise(Errors::AccessDenied, "Access denied to #{path}: #{e.message}")
       end
