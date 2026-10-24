@@ -434,6 +434,148 @@ class SliceTargetStreamTest < Minitest::Test
         end
       end
 
+      describe "cleaner:" do
+        # Yields the name of a file that holds the lines, each followed by a line ending, as a line writer writes them.
+        def with_file(lines)
+          Dir.mktmpdir do |dir|
+            file_name = File.join(dir, "people.csv")
+            File.binwrite(file_name, "#{lines.collect(&:b).join("\n")}\n")
+            yield(file_name)
+          end
+        end
+
+        # Returns [Array] the header row, format, rows and line number of each slice that reading the lines from a file
+        # with the supplied options of #encoding gives.
+        def read_slices(lines, **encoding)
+          with_file(lines) do |file_name|
+            slices = []
+            IOStreams.path(file_name).encoding(**encoding).each(:slice, size: 100) do |slice|
+              slices << [slice.header, slice.format, slice.to_a, slice.line_number]
+            end
+            slices
+          end
+        end
+
+        # Returns [IOStreams::Errors::InvalidEncoding] the error that reading the lines from a file raises with the
+        # supplied options of #encoding.
+        def read_error(lines, **encoding)
+          with_file(lines) do |file_name|
+            assert_raises(IOStreams::Errors::InvalidEncoding) do
+              IOStreams.path(file_name).encoding(**encoding).each(:slice, size: 100) { nil }
+            end
+          end
+        end
+
+        it "cleans each row with a built-in rule, leaving the line written as it is" do
+          line = +"Jack,a\tb"
+          stream.format(:csv).encoding(cleaner: :printable, replace: "").writer(:line) do |io|
+            io << "name,note"
+            io << line
+          end
+
+          assert_equal [[%w[name note], :csv, ["Jack,ab"]]], written
+          assert_equal "Jack,a\tb", line
+        end
+
+        it "gives the rows that reading the file with the cleaner gives, header row and blank rows included" do
+          lines = ["na\x01me,note", "Jack,a\tb", "", "\x00", "Jill,\"c\x01\nd\"", "Bob,e\x7Ff"]
+          stream.encoding(cleaner: :printable).writer(:line) { |io| lines.each { |line| io << line } }
+
+          stored = store.slices.collect { |slice| [slice.header, slice.format, slice.to_a, slice.line_number] }
+
+          assert_equal [[%w[name note], :csv, ["Jack,ab", "", "", "Jill,\"c\nd\"", "Bob,ef"], 2]], stored
+          assert_equal read_slices(lines, cleaner: :printable), stored
+        end
+
+        it "keeps the line endings within a quoted value" do
+          stream.encoding(cleaner: :printable).writer(:line) do |io|
+            io << "name,note" << "Jack,\"a\x01\nb\"" << "Jill,\"c\r\nd\x7F\""
+          end
+
+          assert_equal [[%w[name note], :csv, ["Jack,\"a\nb\"", "Jill,\"c\r\nd\""]]], written
+        end
+
+        it "cleans each row with a Proc, such as with spaces for fixed width" do
+          fixed  = {"fields" => [{"name" => "name", "width" => 10}, {"name" => "zip", "type" => "integer", "width" => 5}]}
+          spaces = ->(data, _replace) { data.gsub(/[^[:print:]\r\n]/, " ") }
+          stream.format(:fixed).schema(fixed).encoding(cleaner: spaces).writer(:line, validate: true) do |io|
+            io << "Ja\x01ck     12345"
+          end
+
+          assert_equal [["Ja ck     12345"]], store.slices.collect(&:to_a)
+        end
+
+        it "calls a Proc with replace:" do
+          supplied = []
+          cleaner  = lambda do |data, replace|
+            supplied << replace
+            data.upcase
+          end
+          stream.encoding(cleaner: cleaner, replace: "?").writer(:line) { |io| io << "name" << "jack" }
+
+          assert_equal [[%w[NAME], :csv, ["JACK"]]], written
+          assert_equal ["?", "?"], supplied
+        end
+
+        it "replaces the characters that are not printable with replace: for :replace_non_printable" do
+          stream.encoding(cleaner: :replace_non_printable, replace: "?").writer(:line) do |io|
+            io << "name,note" << "Jack,a\tb" << "Jill,\xFFc".b
+          end
+
+          assert_equal [[%w[name note], :csv, ["Jack,a?b", "Jill,?c"]]], written
+        end
+
+        it "raises InvalidEncoding at the byte offset of the text as written, as reading the file with the cleaner does" do
+          lines = ["name,note", "Jack,a\x00\x00b", "Bob,\xFFx".b]
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.encoding(cleaner: :printable).writer(:line) { |io| lines.each { |line| io << line } }
+          end
+
+          assert_equal "\"\\xFF\" is not valid UTF-8 at byte offset 24 on line 3", error.message
+          assert_equal read_error(lines, cleaner: :printable).message, error.message
+        end
+
+        it "raises at the byte offset of the text as written within a quoted value that is still open" do
+          lines = ["name,note", "Jack,\"a\x00", "b\xFF\"".b]
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            stream.encoding(cleaner: :printable).writer(:line) { |io| lines.each { |line| io << line } }
+          end
+
+          assert_equal [20, 3], [error.byte_offset, error.line_number]
+          assert_equal read_error(lines, cleaner: :printable).message, error.message
+        end
+
+        it "cleans the lines copied in the :line mode" do
+          source = IOStreams.stream(StringIO.new("name,note\nJack,a\tb\n")).format(:csv)
+          stream.encoding(cleaner: :printable).copy_from(source, mode: :line)
+
+          assert_equal [[%w[name note], :csv, ["Jack,ab"]]], written
+        end
+
+        it "raises ArgumentError in the :array or :hash mode, which it does not apply to yet" do
+          cleaning = IOStreams.stream(store).encoding(cleaner: :printable)
+          message  = "`cleaner:`, set with #encoding, applies only to the lines written to a slice target in the " \
+                     ":line mode, not to the :hash mode"
+
+          assert_equal message, assert_raises(ArgumentError) { cleaning.writer(:hash) { flunk } }.message
+          assert_raises(ArgumentError) { cleaning.writer(:array) { flunk } }
+          assert_raises(ArgumentError) { cleaning.copy_from(IOStreams.stream(StringIO.new("a\n1\n")), mode: :array) }
+
+          both    = IOStreams.stream(store).encoding(cleaner: :printable, replace: "")
+          message = "`replace:` and `cleaner:`, set with #encoding, apply only to the lines written to a slice target " \
+                    "in the :line mode, not to the :array mode"
+
+          assert_equal message, assert_raises(ArgumentError) { both.writer(:array) { flunk } }.message
+          assert_empty store.slices
+        end
+
+        it "raises ArgumentError when it is set to a cleaner that is neither a built-in rule nor a Proc" do
+          assert_raises(ArgumentError) { stream.encoding(cleaner: :unknown) }
+          assert_raises(ArgumentError) { stream.encoding(cleaner: "printable") }
+          assert_nil stream.setting(:encode)
+        end
+      end
+
       it "raises for a line that is not a String" do
         error = assert_raises(ArgumentError) { stream.writer(:line) { |io| io << {"name" => "Jack"} } }
 
@@ -715,14 +857,17 @@ class SliceTargetStreamTest < Minitest::Test
         assert_raises(ArgumentError) { stream.raw }
       end
 
-      it "raises for an encoding, or an option of it other than replace:, since the rows are UTF-8 text" do
-        message = "Only `replace:` can be set with #encoding on a slice target, since it holds the rows of slices as " \
-                  "UTF-8 text rather than bytes"
+      it "raises for an encoding, or an option of it other than replace: and cleaner:, since the rows are UTF-8 text" do
+        message = "Only `replace:` and `cleaner:` can be set with #encoding on a slice target, since it holds the rows " \
+                  "of slices as UTF-8 text rather than bytes"
 
         assert_equal message, assert_raises(ArgumentError) { stream.encoding("UTF-8") }.message
-        assert_equal message, assert_raises(ArgumentError) { stream.encoding(replace: "", cleaner: :printable) }.message
+        assert_equal message, assert_raises(ArgumentError) { stream.encoding("Windows-1252", cleaner: :printable) }.message
+        assert_equal message, assert_raises(ArgumentError) { stream.encoding(encoding: "UTF-8", replace: "") }.message
         assert_raises(ArgumentError) { stream.encoding(replace: 1) }
-        assert_nil stream.encoding(replace: "").encoding
+        assert_nil stream.setting(:encode)
+        assert_nil stream.encoding(replace: "", cleaner: :printable).encoding
+        assert_equal({replace: "", cleaner: :printable}, stream.setting(:encode))
       end
 
       it "raises for a format whose rows are not lines" do

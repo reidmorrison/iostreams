@@ -23,14 +23,17 @@ module IOStreams
     # as with `break`, but not when it raises.
     #
     # A store holds slices rather than bytes, so the `:stream` mode, the streams and options of #stream and #option, an
-    # encoding other than `replace:`, see #encoding, and #raw raise ArgumentError, see `IOStreams::Row::WithoutBytes`,
-    # as do a file name, since a store has none, and a format whose rows are not lines, such as Parquet. It is only
-    # written, so #reader, #each and #read raise ArgumentError too.
+    # encoding, or an option of #encoding other than `replace:` and `cleaner:`, and #raw raise ArgumentError, see
+    # `IOStreams::Row::WithoutBytes`, as do a file name, since a store has none, and a format whose rows are not lines,
+    # such as Parquet. It is only written, so #reader, #each and #read raise ArgumentError too.
     class TargetStream < IOStreams::Stream
       include IOStreams::Row::WithoutBytes
 
       # The modes that write rows into slices, see #writer.
       MODES = %i[line array hash].freeze
+
+      # The options of #encoding that a store takes, which apply to the lines written in the `:line` mode.
+      ENCODING_OPTIONS = %i[replace cleaner].freeze
 
       # Returns [Array<Symbol>] the options of each call that writes rows into slices, see #writer, which raises for any
       # other. The store decides the number of rows of each slice, see `IOStreams::Slice::Target#slice_size`.
@@ -71,7 +74,7 @@ module IOStreams
       # Returns the result of the block.
       #
       # Raises ArgumentError for any other mode, or option, or a slice size of the store that is not a positive Integer,
-      # or in the `:array` or `:hash` mode once `replace:` is set, see #encoding, before the block is called.
+      # or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the block is called.
       def writer(mode = :stream, **args, &block)
         require_block!(:writer, block)
         write_slices(mode, slice_options(mode, args), &block)
@@ -85,7 +88,7 @@ module IOStreams
       #
       # Raises ArgumentError without a `mode:`, or with `convert: false`, since the store holds slices of rows rather
       # than bytes, or in the `:line` mode when the format of the stream is not that of the source, or in the `:array`
-      # or `:hash` mode once `replace:` is set, see #encoding, before the source is opened.
+      # or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the source is opened.
       def copy_from(source, convert: true, mode: nil, **args)
         unless convert && MODES.include?(mode)
           raise(ArgumentError, "A #{source_name} is copied to in the #{modes} mode, " \
@@ -97,22 +100,31 @@ module IOStreams
         super(source, mode: mode, **args)
       end
 
-      # Sets the text that replaces each character that is not valid, or that UTF-8 does not have, in a line written in
-      # the `:line` mode, see #writer, rather than raise `IOStreams::Errors::InvalidEncoding`, as `replace:` does for the
-      # lines read from a file, see `IOStreams::Stream#encoding`:
+      # Sets how the lines written in the `:line` mode, see #writer, are cleaned, as these options do for the lines
+      # read from a file, see `IOStreams::Stream#encoding`:
+      #   replace: [String]
+      #     The text that replaces each character that is not valid, or that UTF-8 does not have, rather than raise
+      #     `IOStreams::Errors::InvalidEncoding`.
+      #   cleaner: [Symbol|Proc]
+      #     Cleans each row before it is added to its slice: `:printable` removes the characters that are not printable,
+      #     apart from line endings, `:replace_non_printable` replaces them with `replace:`, and a Proc is called with
+      #     the text of each row and the `replace:` value, and returns the cleaned text, see `IOStreams::Encode::Cleaner`.
       #
-      #   IOStreams.stream(store).format(:csv).encoding(replace: "").writer(:line) { |io| io << line }
+      #   IOStreams.stream(store).format(:csv).encoding(cleaner: :printable, replace: "").writer(:line) do |io|
+      #     io << line
+      #   end
       #
       # Without arguments, returns nil, since the rows of a slice are always UTF-8 text.
       #
       # Raises ArgumentError for an encoding, or any other option, since the store holds the rows of slices as UTF-8
-      # text, rather than bytes. It only applies to the `:line` mode for now, so the `:array` and `:hash` modes raise
-      # ArgumentError once it is set, see #writer, rather than ignore it.
+      # text, rather than bytes, and for a cleaner that is neither the name of a built-in rule nor a Proc. They only
+      # apply to the `:line` mode for now, so the `:array` and `:hash` modes raise ArgumentError once one is set, see
+      # #writer, rather than ignore it.
       def encoding(encoding = nil, **options)
         return super if encoding.nil? && options.empty?
-        unless encoding.nil? && options.keys == [:replace]
-          raise(ArgumentError, "Only `replace:` can be set with #encoding on a #{source_name}, since it holds the rows " \
-                               "of slices as UTF-8 text rather than bytes")
+        unless encoding.nil? && (options.keys - ENCODING_OPTIONS).empty?
+          raise(ArgumentError, "Only `replace:` and `cleaner:` can be set with #encoding on a #{source_name}, since it " \
+                               "holds the rows of slices as UTF-8 text rather than bytes")
         end
 
         raise_if_frozen!
@@ -198,10 +210,14 @@ module IOStreams
         # Parameters
         #   replace: [String|nil]
         #     Replaces each character that is not valid, see #<<, rather than raise.
-        def initialize(collector, quote_character, replace: nil)
+        #
+        #   cleaner: [IOStreams::Encode::Cleaner|nil]
+        #     Cleans each row before it is added, see #add_row.
+        def initialize(collector, quote_character, replace: nil, cleaner: nil)
           @collector       = collector
           @quote_character = quote_character
           @replace         = replace
+          @cleaner         = cleaner
           @encode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
           @pending         = nil
           @quotes          = 0
@@ -219,7 +235,7 @@ module IOStreams
         # the bytes of a binary line are read as UTF-8. A character that is not valid, or that UTF-8 does not have,
         # raises `IOStreams::Errors::InvalidEncoding`, with its byte offset and the number of its line within the
         # UTF-8 text of the lines written, each followed by a line ending, as reading the file would, unless `replace`
-        # replaces it.
+        # replaces it. The cleaner, when there is one, then cleans each row, see #add_row.
         #
         # Raises `IOStreams::Errors::MalformedDataError`, with the number of the line on which the quoted value opened,
         # once the text kept while it is open exceeds the most that a line reader reads into one line, see
@@ -288,7 +304,15 @@ module IOStreams
         def add(text)
           @lines += 1
           @bytes += text.bytesize + NEWLINE.bytesize
-          @collector.add(text, @lines)
+          add_row(text, @lines)
+        end
+
+        # Adds the supplied row, which starts on the supplied line, to the collector, after the cleaner, when there is
+        # one, cleans it. Reading a file cleans its text before it is split into rows, whereas the rows written are
+        # cleaned after they are split. The built-in rules keep line endings and quotes, so the rows are the same, and
+        # the byte offset of a character that is not valid still counts the bytes as written, as reading the file does.
+        def add_row(row, line_number)
+          @collector.add(@cleaner ? @cleaner.call(row) : row, line_number)
         end
 
         # Returns [String] the supplied text, which is not valid UTF-8 text, as UTF-8, see #<<.
@@ -375,7 +399,7 @@ module IOStreams
           text      = Text.new(pending, invalid)
           reader    = IOStreams::Line::Reader.new(text, delimiter: delimiter, embedded_within: @quote_character)
           @delimiter ||= reader.delimiter
-          reader.each_with_line_number { |row, line_number| @collector.add(row, @lines + line_number) }
+          reader.each_with_line_number { |row, line_number| add_row(row, @lines + line_number) }
           @lines += reader.line_number
           @bytes += pending.bytesize
         rescue IOStreams::Errors::MalformedDataError => e
@@ -389,13 +413,25 @@ module IOStreams
       # Yields the writer of the lines in the `:line` mode to the block, see Lines, and adds the rows of the text that it
       # still keeps once the block returns, or leaves early, but not when it raises.
       def write_lines(collector, quote_character, &block)
-        lines = Lines.new(collector, quote_character, replace: replace)
+        lines = Lines.new(collector, quote_character, replace: replace, cleaner: cleaner)
         Utils.finish_or_abort(finish: -> { lines.finish }) { block.call(lines) }
       end
 
       # Returns [String|nil] the text that replaces each character that is not valid in a line, see #encoding.
       def replace
-        builder.setting(:encode)&.[](:replace)
+        encoding_option(:replace)
+      end
+
+      # Returns [IOStreams::Encode::Cleaner|nil] that cleans each row of the lines written, see #encoding, which it calls
+      # with `replace`, as the encode stream does when it reads a file.
+      def cleaner
+        rule = encoding_option(:cleaner)
+        IOStreams::Encode::Cleaner.new(rule, replace: replace) unless rule.nil?
+      end
+
+      # Returns the value of the supplied option of #encoding, see ENCODING_OPTIONS, or nil when it is not set.
+      def encoding_option(name)
+        builder.setting(:encode)&.[](name)
       end
 
       # Returns [Hash] the options of the copy, see #copy_from, those of the collector, see #slice_options.
@@ -433,13 +469,23 @@ module IOStreams
         end
 
         reject_unknown_options!(mode, self.class, args)
-        unless mode == :line || replace.nil?
-          raise(ArgumentError, "`replace:`, set with #encoding, applies only to the lines written to a #{source_name} " \
-                               "in the :line mode, not to the #{mode.inspect} mode")
-        end
+        reject_encoding_options!(mode)
         validate = args.fetch(:validate, false)
         Collector.check_validate(validate)
         {size: slice_size, validate: validate}
+      end
+
+      # Raises ArgumentError in the `:array` and `:hash` modes when an option of #encoding is set, since they only apply
+      # to the lines written in the `:line` mode for now, rather than ignore it.
+      def reject_encoding_options!(mode)
+        return if mode == :line
+
+        names = ENCODING_OPTIONS.reject { |name| encoding_option(name).nil? }
+        return if names.empty?
+
+        raise(ArgumentError, "#{names.map { |name| "`#{name}:`" }.join(' and ')}, set with #encoding, " \
+                             "#{names.size == 1 ? 'applies' : 'apply'} only to the lines written to a #{source_name} " \
+                             "in the :line mode, not to the #{mode.inspect} mode")
       end
 
       # Returns [Integer] the number of rows of each slice, which the store decides, see
