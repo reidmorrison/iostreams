@@ -279,6 +279,21 @@ class EncodeWriterTest < Minitest::Test
         end
       end
 
+      %w[UTF-8 ASCII-8BIT].each do |encoding|
+        it "calls a Proc with a copy of the supplied string, so that it does not change it, when writing #{encoding}" do
+          in_place = ->(data, _replace) { data.delete!("\x07") || data }
+          data     = "abc\x07def".dup.force_encoding(encoding)
+          io       = StringIO.new(+"")
+          IOStreams::Encode::Writer.stream(io, encoding: encoding, cleaner: in_place) do |encoded|
+            encoded << data
+            encoded << "gh\x07i".dup.force_encoding(encoding).freeze
+          end
+
+          assert_equal "abcdefghi", io.string
+          assert_equal "abc\x07def", data
+        end
+      end
+
       it "replaces non-printable characters with the replace value" do
         io = StringIO.new(+"")
         IOStreams::Encode::Writer.stream(io, encoding: "UTF-8", cleaner: :replace_non_printable, replace: "X") do |encoded|

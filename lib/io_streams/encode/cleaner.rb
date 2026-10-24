@@ -7,12 +7,15 @@ module IOStreams
       # Characters that are not printable, other than line endings.
       NOT_PRINTABLE = /[^[:print:]\r\n]/
 
-      # The built-in rules, by name. Each returns a new string, since the writer can be supplied the caller's string.
+      # The built-in rules, by name. Each leaves the data supplied to it as it is, since the writer can be supplied the
+      # caller's string, and returns it when it has nothing to cleanse, rather than a copy of it.
       RULES = {
         # Strips all non printable characters
-        printable:             ->(data, _) { data.gsub(NOT_PRINTABLE, "") },
+        printable:             ->(data, _) { data.match?(NOT_PRINTABLE) ? data.gsub(NOT_PRINTABLE, "") : data },
         # Replaces non printable characters with the value specified in the `replace` option.
-        replace_non_printable: ->(data, replace) { data.gsub(NOT_PRINTABLE, replace || "") }
+        replace_non_printable: lambda do |data, replace|
+          data.match?(NOT_PRINTABLE) ? data.gsub(NOT_PRINTABLE, replace || "") : data
+        end
       }.freeze
 
       # Parameters
@@ -25,13 +28,20 @@ module IOStreams
       #
       # Raises [ArgumentError] for an unknown rule name, or a rule that is neither a Symbol nor a Proc.
       def initialize(rule, replace:)
-        @rule    = resolve(rule)
-        @replace = replace
+        @built_in = rule.is_a?(Symbol)
+        @rule     = resolve(rule)
+        @replace  = replace
       end
 
       # Returns [String] the cleansed data.
-      def call(data)
-        @rule.call(data, @replace)
+      #
+      # Parameters
+      #   shared: [true|false]
+      #     Whether the data belongs to the caller, such as a line that it wrote, so that it must not be changed: a Proc,
+      #     which could change it, is then called with a copy of it, whereas a built-in rule never changes it.
+      #     Default: false
+      def call(data, shared: false)
+        @rule.call(shared && !@built_in ? data.dup : data, @replace)
       end
 
       private

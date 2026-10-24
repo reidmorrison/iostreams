@@ -26,10 +26,37 @@ class EncodeCleanerTest < Minitest::Test
       assert_equal "yyz", cleaner.call("xxz")
     end
 
-    it "returns a new string" do
-      data = +"abc"
+    it "leaves the data supplied to a built-in rule as it is" do
+      data = +"abc\x07def"
 
-      refute_same data, IOStreams::Encode::Cleaner.new(:printable, replace: nil).call(data)
+      assert_equal "abcdef", IOStreams::Encode::Cleaner.new(:printable, replace: nil).call(data)
+      assert_equal "abcXdef", IOStreams::Encode::Cleaner.new(:replace_non_printable, replace: "X").call(data)
+      assert_equal "abc\x07def", data
+    end
+
+    it "returns the data itself when a built-in rule has nothing to cleanse, rather than a copy" do
+      data = "abc\r\n"
+
+      assert_same data, IOStreams::Encode::Cleaner.new(:printable, replace: nil).call(data)
+      assert_same data, IOStreams::Encode::Cleaner.new(:replace_non_printable, replace: "X").call(data)
+    end
+
+    it "calls a Proc with a copy of shared data, so that it does not change the caller's string" do
+      cleaner = IOStreams::Encode::Cleaner.new(->(data, _) { data.delete!("x") || data }, replace: nil)
+      data    = +"axb"
+
+      assert_equal "ab", cleaner.call(data, shared: true)
+      assert_equal "axb", data
+      assert_equal "ab", cleaner.call("axb", shared: true)
+    end
+
+    it "calls a Proc with the data itself when it is not shared" do
+      supplied = nil
+      cleaner  = IOStreams::Encode::Cleaner.new(->(data, _) { supplied = data }, replace: nil)
+      data     = +"abc"
+      cleaner.call(data)
+
+      assert_same data, supplied
     end
 
     it "raises for an unknown rule" do
