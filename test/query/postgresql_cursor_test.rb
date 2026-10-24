@@ -3,13 +3,22 @@
 require_relative "query_helper"
 require "timeout"
 
-# Reads a query on PostgreSQL with a cursor, see `IOStreams::Query::PostgresqlCursor`, when POSTGRES_URL is set.
+# Reads a query on PostgreSQL with a cursor, see `IOStreams::Query::PostgresqlCursor`, when POSTGRES_URL is set, or on
+# JRuby with the PostgreSQL adapter of AR-JDBC, see `IOStreams::Query::PostgresqlJdbc`, apart from what differs with its
+# driver, PgJDBC: what it raises, and some of the values that it returns.
 class PostgresqlCursorTest < Minitest::Test
   if (database = QueryDatabase.find("PostgreSQL"))
-    describe IOStreams::Query::PostgresqlCursor do
+    describe(QueryDatabase.jdbc? ? IOStreams::Query::PostgresqlJdbc : IOStreams::Query::PostgresqlCursor) do
       include QueryTestMethods
 
       let(:db) { database }
+      let(:jdbc) { QueryDatabase.jdbc? }
+
+      # Returns [Class] the supplied exception that Active Record raises for a connection that could not be made, or on
+      # JRuby the one that AR-JDBC raises for it, as for every error of its driver.
+      def connection_error(error_class = ActiveRecord::ConnectionNotEstablished)
+        jdbc ? ActiveRecord::JDBCError : error_class
+      end
       let(:orders) { db.order.order(:id) }
 
       before { db.load }
@@ -56,8 +65,11 @@ class PostgresqlCursorTest < Minitest::Test
         db.pool.unpin_connection!
       end
 
-      it "reads a connection to PostgreSQL" do
-        assert(db.record.with_connection { |connection| IOStreams::Query::PostgresqlCursor.reads?(connection) })
+      it "reads a connection to PostgreSQL, or on JRuby one of the PostgreSQL adapter of AR-JDBC" do
+        db.record.with_connection do |connection|
+          assert_equal !jdbc, IOStreams::Query::PostgresqlCursor.reads?(connection)
+          assert_equal jdbc, IOStreams::Query::PostgresqlJdbc.reads?(connection)
+        end
       end
 
       # Returns [Array<Integer>] the number of rows that each fetch of a cursor asks for within the block.
@@ -231,6 +243,7 @@ class PostgresqlCursorTest < Minitest::Test
       end
 
       it "ends a read that is interrupted while it fetches, at once, rather than once the fetch finishes" do
+        skip "PgJDBC blocks in Java while it fetches, which a Timeout interrupts once the fetch returns" if jdbc
         stream = IOStreams.stream(slow_last_row(db.order, 4))
         stream.schema
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -317,8 +330,9 @@ class PostgresqlCursorTest < Minitest::Test
           error = assert_raises(ActiveRecord::QueryCanceled) { each(stream) }
 
           assert_kind_of IOStreams::Errors::Unavailable, error
-          assert_match(/\A#{db.order.name} query: PG::QueryCanceled: ERROR:  canceling statement due to statement timeout/,
-                       error.message)
+          driver = jdbc ? "ActiveRecord::JDBCError: org.postgresql.util.PSQLException: ERROR: " : "PG::QueryCanceled: ERROR:  "
+
+          assert_match(/\A#{db.order.name} query: #{driver}canceling statement due to statement timeout/, error.message)
           assert_equal 3, db.order.count
         end
       end
@@ -367,22 +381,23 @@ class PostgresqlCursorTest < Minitest::Test
 
       it "tags a server that refuses the connection as Unavailable" do
         orders = orders_at("Refused") { |url| url.port = 1 }
-        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::Unavailable, error
-        assert_match(/Connection refused/, error.cause.message)
+        # As libpq says it, "Connection refused", or PgJDBC, "Connection to localhost:1 refused".
+        assert_match(/Connection (?:to \S+ )?refused/, error.cause.message)
       end
 
       it "tags a password that the server rejects as PermissionDenied" do
         orders = orders_at("Rejected") { |url| url.password = "wrong" }
-        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::PermissionDenied, error
       end
 
       it "does not tag a host that does not resolve" do
         orders = orders_at("Unknown") { |url| url.host = "iostreams-no-such-host.invalid" }
-        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
         refute_kind_of IOStreams::Errors::StorageError, error
       end
@@ -393,6 +408,7 @@ class PostgresqlCursorTest < Minitest::Test
       # or password that the server rejects.
 
       it "does not tag a host that does not resolve, which Active Record names as credentials when it includes the user" do
+        skip "AR-JDBC does not name a connection that could not be made by the message of its driver" if jdbc
         orders = orders_at("UnknownOfUser") do |url|
           # Setting the host clears the user.
           url.host = "iostreams-db.invalid"
@@ -405,6 +421,7 @@ class PostgresqlCursorTest < Minitest::Test
       end
 
       it "does not tag a host that does not resolve, which Active Record does not name for the database postgres" do
+        skip "AR-JDBC does not name a connection that could not be made by the message of its driver" if jdbc
         orders = orders_at("UnknownOfPostgres") do |url|
           url.host = "iostreams-no-such-host.invalid"
           url.path = "/postgres"
@@ -418,6 +435,7 @@ class PostgresqlCursorTest < Minitest::Test
       it "does not tag a database that does not exist on the last address that it tried, after one that refused it" do
         url = URI(QueryDatabase::PostgresqlSchema.url)
         skip "POSTGRES_URL names no host" if url.host.to_s.empty?
+        skip "AR-JDBC does not connect to a list of hosts, as libpq does" if jdbc
 
         orders = orders_on(
           "Retried",
@@ -444,9 +462,10 @@ class PostgresqlCursorTest < Minitest::Test
             url.password = QueryDatabase::PostgresqlSchema::PASSWORD
             url.path     = "/#{database}"
           end
-          error = assert_raises(error_class) { each(IOStreams.stream(orders.all)) }
+          error = assert_raises(jdbc ? ActiveRecord::StatementInvalid : error_class) { each(IOStreams.stream(orders.all)) }
 
-          assert_instance_of error_class, error
+          assert_instance_of error_class, error unless jdbc
+
           assert_kind_of IOStreams::Errors::PermissionDenied, error, database
           assert_match(/role "#{name}" is not permitted to log in/, error.cause.message)
         end
@@ -554,8 +573,9 @@ class PostgresqlCursorTest < Minitest::Test
             {name: "whole", type: "integer"},
             {name: "network", type: "string"},
             {name: "address", type: "string"},
-            # A timetz, which Active Record does not know, so that PostgreSQL returns its text.
-            {name: "closes", type: "string"}
+            # A timetz, which Active Record does not know, so that PostgreSQL returns its text, which AR-JDBC casts to a
+            # Time, and whose results have no types, see #unknown_type.
+            {name: "closes", type: jdbc ? "any" : "string"}
           ]
 
           assert_equal expected, IOStreams.stream(model.all).schema[:fields]
@@ -581,7 +601,8 @@ class PostgresqlCursorTest < Minitest::Test
           assert_equal({months: 1, days: 1, hours: 2}, record["wait"].parts)
           # 09:15 UTC, which Active Record reads in the time zone of the app.
           assert_equal Time.new(2000, 1, 1, 4, 15, 0, "-05:00"), record["opens"]
-          assert_equal "17:00:00+02", record["closes"]
+          # AR-JDBC casts a timetz to a Time of UTC, without its offset, as pluck returns it on JRuby.
+          assert_equal (jdbc ? Time.utc(2000, 1, 1, 17) : "17:00:00+02"), record["closes"]
         end
 
         it "keeps the values that pg casts of columns that Active Record casts as they are, but whose types it knows" do
@@ -610,7 +631,11 @@ class PostgresqlCursorTest < Minitest::Test
           csv      = StringIO.new
           IOStreams.stream(csv).format(:csv).copy_from(relation, mode: :hash)
 
-          assert_equal "opens,wait,closes\n04:15:00,P1M1DT2H,17:00:00+02\n", csv.string
+          closes = jdbc ? "2000-01-01T17:00:00Z" : "17:00:00+02"
+
+          assert_equal "opens,wait,closes\n04:15:00,P1M1DT2H,#{closes}\n", csv.string
+          skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "types.parquet")
             path.copy_from(relation, mode: :hash)
@@ -626,14 +651,31 @@ class PostgresqlCursorTest < Minitest::Test
           execute("ALTER TABLE pg_types ALTER COLUMN opens SET NOT NULL, ALTER COLUMN wait SET NOT NULL")
           model.reset_column_information
 
+          # An interval is not required on JRuby, since AR-JDBC returns a zero one as text that Active Record casts to nil.
+          wait = jdbc ? {name: "wait", type: "duration"} : {name: "wait", type: "duration", constraints: {required: true}}
+
           assert_equal(
-            [{name: "opens", type: "time", constraints: {required: true}}, {name: "wait", type: "duration", constraints: {required: true}}],
+            [{name: "opens", type: "time", constraints: {required: true}}, wait],
             IOStreams.stream(model.select(:opens, :wait)).schema[:fields]
           )
         end
 
+        it "reads an interval that is zero or infinite as nil on JRuby, as pluck does, since AR-JDBC returns both as P" do
+          skip "Only JRuby reads PostgreSQL with AR-JDBC" unless jdbc
+
+          intervals = ["0 seconds"]
+          intervals << "infinity" if db.record.with_connection(&:database_version) >= 170_000
+          intervals.each do |interval|
+            execute("UPDATE pg_types SET wait = '#{interval}'")
+
+            assert_nil model.pluck(:wait).first, interval
+            assert_equal [{"id" => model.first.id, "wait" => nil}], each(IOStreams.stream(model.select(:id, :wait))), interval
+          end
+        end
+
         it "raises for an infinite interval, which Active Record reads as nil, whether or not it can be null" do
           skip "An interval is infinite only from PostgreSQL 17" if db.record.with_connection(&:database_version) < 170_000
+          skip "AR-JDBC returns an infinite interval as it returns a zero one, see above" if jdbc
 
           %w[infinity -infinity].each do |infinite|
             execute("UPDATE pg_types SET wait = '#{infinite}'")
@@ -657,6 +699,7 @@ class PostgresqlCursorTest < Minitest::Test
         end
 
         it "raises for a time of 24:00:00, which PostgreSQL holds, rather than read it as the start of the next day" do
+          skip "AR-JDBC raises for it itself, see below" if jdbc
           execute("UPDATE pg_types SET opens = '24:00:00'")
 
           error = assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.select(:id, :opens))) }
@@ -665,12 +708,25 @@ class PostgresqlCursorTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.select(:id, :opens).in_batches)) }
         end
 
+        # With an exception of Joda-Time, which it casts a time with, as pluck does on JRuby.
+        it "raises on JRuby for a time of 24:00:00, as AR-JDBC does" do
+          skip "Only JRuby reads PostgreSQL with AR-JDBC" unless jdbc
+          execute("UPDATE pg_types SET opens = '24:00:00'")
+
+          [model.select(:id, :opens), model.select(:id, :opens).in_batches].each do |relation|
+            error = assert_raises(StandardError, Java::JavaLang::RuntimeException) { each(IOStreams.stream(relation)) }
+            assert_match(/Value 24 for hourOfDay must be in the range/, error.message)
+          end
+        end
+
         it "types computed columns by the types of the result" do
           relation = db.order.select("SUM(amount) AS total, COUNT(*) AS orders, MAX(shipped_on) AS latest")
           stream   = IOStreams.stream(relation)
 
-          assert_equal [{name: "total", type: "number"}, {name: "orders", type: "integer"}, {name: "latest", type: "date"}],
-                       stream.schema[:fields]
+          # The results of AR-JDBC have no types, so the computed columns are of any type, whose values its driver casts.
+          types = jdbc ? %w[any any any] : %w[number integer date]
+
+          assert_equal(%w[total orders latest].zip(types).map { |name, type| {name: name, type: type} }, stream.schema[:fields])
           assert_equal [{"total" => BigDecimal("115.75"), "orders" => 3, "latest" => Date.new(2026, 10, 1)}], each(stream)
         end
       end
@@ -894,6 +950,52 @@ class PostgresqlCursorTest < Minitest::Test
 
     it "returns nil for any other failure of a connection, such as one that the pg gem closed, which Active Record names" do
       assert_connection_kind(nil, ["connection is closed"])
+    end
+  end
+
+  describe "IOStreams::Query::PostgresqlJdbc.failure_kind" do
+    # Once a connection of the tests has loaded PgJDBC.
+    before { skip "Only JRuby reads PostgreSQL with AR-JDBC" unless QueryDatabase.jdbc? && QueryDatabase.find("PostgreSQL") }
+
+    # Returns [Module|nil] the kind of failure of an exception of PgJDBC that the server raised with the supplied
+    # SQLSTATE, wrapped in an `ActiveRecord::JDBCError`, as AR-JDBC raises it.
+    def server_kind(state)
+      message   = Java::OrgPostgresqlUtil::ServerErrorMessage.new("SFATAL\u0000C#{state}\u0000Mfailed\u0000")
+      exception = Java::OrgPostgresqlUtil::PSQLException.new(message)
+      IOStreams::Query::PostgresqlJdbc.failure_kind(ActiveRecord::JDBCError.new(nil, exception))
+    end
+
+    # Returns [Module|nil] the kind of failure of an exception of PgJDBC of its own for a connection, with the supplied
+    # cause.
+    def connection_kind(state, cause = nil)
+      exception = Java::OrgPostgresqlUtil::PSQLException.new("The connection attempt failed.", state, cause)
+      IOStreams::Query::PostgresqlJdbc.failure_kind(exception)
+    end
+
+    it "returns the kind of failure of the SQLSTATE of the server" do
+      assert_equal IOStreams::Errors::PermissionDenied, server_kind("42501")
+      assert_equal IOStreams::Errors::PermissionDenied, server_kind("28P01")
+      assert_equal IOStreams::Errors::Unavailable, server_kind("57P01")
+      assert_equal IOStreams::Errors::Unavailable, server_kind("53300")
+      assert_equal IOStreams::Query::Failure::NONE, server_kind("3D000")
+      assert_nil server_kind("42P01")
+    end
+
+    it "returns Unavailable for a connection that could not be made, or was lost, but not for a host that does not resolve" do
+      states = Java::OrgPostgresqlUtil::PSQLState
+
+      assert_equal IOStreams::Errors::Unavailable, connection_kind(states::CONNECTION_UNABLE_TO_CONNECT)
+      assert_equal IOStreams::Errors::Unavailable, connection_kind(states::CONNECTION_FAILURE)
+      assert_equal IOStreams::Query::Failure::NONE,
+                   connection_kind(states::CONNECTION_UNABLE_TO_CONNECT, Java::JavaNet::UnknownHostException.new("db"))
+      assert_equal IOStreams::Errors::Unavailable,
+                   connection_kind(states::CONNECTION_UNABLE_TO_CONNECT,
+                                   Java::JavaNet::UnknownHostException.new("db: Temporary failure in name resolution"))
+    end
+
+    it "returns nil for an exception that PgJDBC did not raise" do
+      assert_nil IOStreams::Query::PostgresqlJdbc.failure_kind(RuntimeError.new("other"))
+      assert_nil IOStreams::Query::PostgresqlJdbc.failure_kind(Java::JavaSql::SQLException.new("other", "08006"))
     end
   end
 end

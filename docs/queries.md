@@ -33,8 +33,8 @@ Every format holds the values of these columns, while a column of JSON or binary
 
 The query runs once, and its rows are read from the database in small parts while they are written, so the memory
 that an export takes does not grow with the number of its rows. Active Record 7.2 or later is needed. PostgreSQL,
-MySQL with the `mysql2` gem, and SQLite stream the rows of a query, and any database can read them in batches, see
-[Each database](#each-database).
+MySQL with the `mysql2` gem, and SQLite stream the rows of a query, also on JRuby with the adapters of AR-JDBC, and any
+database can read them in batches, see [Each database](#each-database).
 
 ## Exporting a query
 
@@ -344,7 +344,8 @@ so it is not in the time zone of the application: on PostgreSQL it is a `Time` i
 type `any`, and on SQLite the text that SQLite holds, such as `2026-10-03 11:00:00`, also of the type `any`. Name the
 column after an attribute of the model, such as `MAX(created_at) AS created_at`, or declare an attribute of its name in
 the model, such as `attribute :last_ordered_at, :datetime`, so that it is cast as a datetime in the time zone of the
-application.
+application. On JRuby, the results of AR-JDBC have no types, so a column that the query computes is of the type `any` on
+PostgreSQL too, whose value its driver casts, see [JRuby](#jruby).
 
 On PostgreSQL, Active Record casts a date or time of `'infinity'` or `'-infinity'` to `Float::INFINITY`, which a `date`
 or `datetime` field does not accept, so the read raises `IOStreams::Errors::InvalidValue` at the first of them. Select
@@ -394,6 +395,13 @@ which PostgreSQL 17 holds, raises `IOStreams::Errors::InvalidValue`, since Activ
 export an empty value. Select it as null when it is not finite, such as with
 `CASE WHEN isfinite(wait) THEN wait END AS wait`, or as text, such as `wait::text AS wait_text`. A `timetz`, which
 Active Record does not know, is read as the text that PostgreSQL returns, such as `17:00:00+02`, as a `string`.
+
+On JRuby, the drivers of AR-JDBC read a time of day themselves, as `pluck` does there. Connector/J raises for a MySQL
+`TIME` outside a day, apart from a negative one of less than an hour, such as `-00:00:01`, which it reads without its
+sign, as `00:00:01`, which IOStreams cannot tell apart from a time of day, and PgJDBC raises for PostgreSQL's
+`24:00:00`. AR-JDBC returns a PostgreSQL `interval` that is zero, infinite, or has a fraction of a second as text that
+Active Record reads as nil, so an interval column is never required there, and a `timetz` as a `Time` in UTC, without
+its offset, of the type `any`. Select such columns as text, as above, to export them as stored.
 
 ## Connections and transactions
 
@@ -452,10 +460,12 @@ whose snapshots each last for one batch. On MySQL, an export on a replica holds 
 
 | Database | How a query is read |
 |----------|---------------------|
-| PostgreSQL, also through PostGIS | A cursor, which fetches 100 rows, then as many as hold about 8 MB of their values, at most 10,000 at a time |
+| PostgreSQL, also through PostGIS, with `pg`, or with AR-JDBC on JRuby | A cursor, which fetches 100 rows, then as many as hold about 8 MB of their values, at most 10,000 at a time |
 | MySQL, with `mysql2` | The `stream: true` mode of `mysql2`, which reads one row at a time |
+| MySQL, with AR-JDBC on JRuby | A streamed result of Connector/J, which reads one row at a time |
 | SQLite, with `sqlite3` | A statement of the `sqlite3` gem, which steps through the rows |
-| MySQL with `trilogy`, or with AR-JDBC on JRuby, SQLite without `sqlite3`, as on JRuby, and any other database | Raises `ArgumentError`: read it in batches |
+| SQLite, with AR-JDBC on JRuby | A statement of sqlite-jdbc, which steps through the rows |
+| MySQL with `trilogy`, and any other database | Raises `ArgumentError`: read it in batches |
 
 A query that cannot be streamed raises, before a copy opens its target, rather than read the query in batches without
 being asked, so that a query only runs once for each batch when that is the choice. Its message says how:
@@ -496,7 +506,8 @@ A cursor never runs its query in parallel, so a query that PostgreSQL runs with 
 aggregate of a large table, can take longer to export than it takes in `psql`.
 
 When the block raises, or the export is interrupted, such as by `Timeout`, Active Record rolls back the transaction of
-the cursor, which cancels a fetch that is still running. A failure to close the cursor, after the block finishes or
+the cursor, which cancels a fetch that is still running. On JRuby, PgJDBC waits for a fetch in Java, which a `Timeout`
+interrupts only once the fetch returns. A failure to close the cursor, after the block finishes or
 leaves with `break`, is raised, so that the export does not return as if it had ended where the block left it.
 
 ### MySQL
@@ -522,8 +533,16 @@ stream a prepared statement, and with `prepared_statements: true`, `mysql2` 0.5.
 without rows, such as the one that describes the columns of a query.
 
 `trilogy` reads every row of a query at once, so a query on a connection of `trilogy` raises `ArgumentError`: read it
-in batches, whose failures are tagged as they are for `mysql2`, see [Errors](#errors). So does the MySQL adapter of
-AR-JDBC on JRuby, which cannot load `mysql2`.
+in batches, whose failures are tagged as they are for `mysql2`, see [Errors](#errors).
+
+On JRuby, the MySQL adapter of AR-JDBC reads a query with Connector/J, which streams the rows of a statement whose fetch
+size is `Integer.MIN_VALUE`, which IOStreams sets on the connection of the read, one of its own, while the statement
+starts. Connector/J also sets `net_write_timeout` while it streams, to its `netTimeoutForStreamingResults` of 600
+seconds, and afterwards to the value that the session had when it connected, rather than the one that `variables` set,
+so IOStreams turns that off while it reads, and raises the limits of the session itself, as above. Leaving the block
+early aborts the connection, since Connector/J would read the rest of the rows to close it. The adapter prepares
+statements by default, which Connector/J streams too. IOStreams streams only with Connector/J, so a connection of the
+adapter with MariaDB Connector/J raises `ArgumentError`: read it in batches.
 
 ### SQLite
 
@@ -538,7 +557,32 @@ There, a block that changes the rows that the query reads, such as by updating t
 can read them again, without end: change them once the export ends, or read the query in batches of its primary key. In
 the other journal modes, a read also keeps the writes of other connections waiting until it ends.
 
-JRuby cannot load the `sqlite3` gem, so a query on SQLite raises there: read it in batches.
+On JRuby, the SQLite adapter of AR-JDBC steps through the rows with sqlite-jdbc, on a connection of its own in WAL
+mode, as above.
+
+### JRuby
+
+JRuby cannot load `pg`, `mysql2` or `sqlite3`, which are C extensions, so it reads a query with the adapters of
+[AR-JDBC](https://github.com/jruby/activerecord-jdbc-adapter), `activerecord-jdbcpostgresql-adapter`,
+`activerecord-jdbcmysql-adapter` and `activerecord-jdbcsqlite3-adapter`, whose drivers are jars. IOStreams is tested
+with their pre-release 80.0.pre1, for Active Record 8.0. AR-JDBC yields the rows of MySQL and SQLite to a block as its
+driver reads them, which IOStreams hands over a batch at a time: the first row as the statement starts, then batches
+twice the size of the one before, up to 1,000 rows, so that the first rows of a slow query are read as soon as they
+arrive.
+
+AR-JDBC reads some values differently, as `pluck` does on JRuby:
+
+* Its results have no types, so a column that the query computes on PostgreSQL is of the type `any`, see
+  [Dates and times](#dates-and-times).
+* It reads some times of day and intervals otherwise, see [Times of day](#times-of-day).
+* Connector/J reads a MySQL `YEAR` as a date, which the integer type of Active Record raises for, so set
+  `yearIsDateType: false` in the `properties` of the configuration of the database, which reads it as an integer.
+* Its drivers raise `ActiveRecord::JDBCError` for every failure, also for a connection that could not be made, see
+  [What a query raises](errors#what-a-query-raises).
+
+AR-JDBC applies no query transformers, such as the tags of `ActiveRecord::QueryLogs`, to the statements that it runs,
+including the cursor of PostgreSQL, while IOStreams applies them to the query that it runs with the driver on MySQL and
+SQLite, as Active Record does.
 
 ## Errors
 

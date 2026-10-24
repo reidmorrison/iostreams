@@ -130,6 +130,16 @@ module IOStreams
                                                 "#{@names.inspect} to #{names.inspect}")
       end
 
+      # Raises `IOStreams::Errors::InvalidHeader` unless the supplied number of values of each row of a result of the
+      # query is the number of these columns, for a source whose driver yields the values of each row without the names
+      # of the columns, such as AR-JDBC, which #check checks otherwise.
+      def check_width(width)
+        return if width == @names.size
+
+        raise(IOStreams::Errors::InvalidHeader, "The columns of the query changed after it was described, from " \
+                                                "#{@names.size} columns to #{width}")
+      end
+
       # Returns [Hash] the descriptor of the schema whose fields are these columns, in order, see `IOStreams::Schema`,
       # each of the type of the values that its Active Record type casts, see #field. It is frozen.
       def schema

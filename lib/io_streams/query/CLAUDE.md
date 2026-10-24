@@ -37,8 +37,9 @@ changes, and docs/errors.md when what it raises does.
   (`supports_concurrent_connections?`, false for an in-memory SQLite database, which is a database of its own on each
   connection) or the source says that its database cannot be read on one (`.own_connection?`). The source is the
   first of `SOURCES` whose `.reads?` takes the connection, otherwise `ArgumentError` suggesting `in_batches` (`Query::IN_BATCHES`). It runs a
-  `Query::Statement` and checks the names of the columns of its result (`Columns#check`), since rows are cast by
-  position, before it yields its reader. Batches are read by `Query::Batches#open`, on the connection of the caller,
+  `Query::Statement` and checks the names of the columns of its result (`Columns#check`), or their number where AR-JDBC
+  yields the values of a row without them (`Columns#check_width`), since rows are cast by position, before it yields its
+  reader. Batches are read by `Query::Batches#open`, on the connection of the caller,
   each batch loaded whole.
 - The rows that `#open` yields cast each row (`Columns#cast`), tag the failures of the database but not those of the
   block, return from `#each` the number of rows read, and continue a second traversal where the first stopped, as the
@@ -72,7 +73,7 @@ changes, and docs/errors.md when what it raises does.
 - `Query::Stream`: the stream of the rows of a query, see above.
 - `Query::Columns`: the names of the columns, the Active Record type that casts each one, and whether each is never
   null. `#cast` casts the raw values of a row, `#check` raises `IOStreams::Errors::InvalidHeader` when a result's names
-  differ from those described, and `#schema` describes each column as a field, by the type within the decorators of
+  differ from those described, `#check_width` when its number of values does, for the sources of AR-JDBC, and `#schema` describes each column as a field, by the type within the decorators of
   Active Model and Active Record (`#undecorated`: the `cast_type` of an encrypted attribute, the `__getobj__` of a
   `Delegator` such as `TimeZoneConverter` or `NormalizedValueType`, but not a serialized attribute, an enum, or a type
   that holds others, such as an array). The `type` that a type answers is trusted only when its class is in the
@@ -87,8 +88,8 @@ changes, and docs/errors.md when what it raises does.
   `array` field. The fields of the types that a type names are in `FIELD_TYPES`: a `time` is a time field, and a
   PostgreSQL `interval`, which Active Record casts to an `ActiveSupport::Duration`, a duration. A type that Active
   Record does not know, which it casts with `ActiveModel::Type::Value` itself, is of the field that the source of the
-  database says (`.unknown_type`, asked by `Query#describe`): "string" on PostgreSQL, which returns the text of such a
-  value, such as a `timetz`, otherwise "any". `#cast` raises `IOStreams::Errors::InvalidValue` for the raw value of a
+  database says (`.unknown_type`, asked by `Query#describe`): "string" on PostgreSQL with pg, which returns the text of such a
+  value, such as a `timetz`, otherwise "any", as with AR-JDBC, whose results have no column types. `#cast` raises `IOStreams::Errors::InvalidValue` for the raw value of a
   time column outside a day (`#check_clock`, `CLOCK`): text with a sign or an hour of 24 or more, such as PostgreSQL's
   `24:00:00` or a MySQL `TIME` of `25:30:00`, or a Time that a driver cast that is not on 2000-01-01, since Active
   Record reads them as nil or as the next day, and for the raw text of an infinite interval of a duration column
@@ -116,7 +117,8 @@ changes, and docs/errors.md when what it raises does.
 - `Query::Statement`: the SQL and binds that Active Record runs for the relation on the connection of the read, so that
   the source reads the rows that Active Record reads: `connection.to_sql(arel)`, with placeholders when the connection
   prepares statements, and the binds that `connection.visitor` collects with Arel's collectors, used only when that SQL
-  has their placeholders, cast with `connection.type_cast`. `#instrument` is the one place that knows the payload of
+  has their placeholders, reported cast with `connection.type_cast`, or on AR-JDBC as their values for the database, as
+  AR-JDBC reports its own, since its driver sets each one as a parameter of its type (`#driver_value`). `#instrument` is the one place that knows the payload of
   `sql.active_record`: a source that runs a statement with its driver, rather than through Active Record, runs it within
   it, so that the log, the runtime of a request and the subscribers of the application, such as APM, see it as one of
   Active Record's, and it applies `ActiveRecord.query_transformers`, such as the tags of `ActiveRecord::QueryLogs`. The
@@ -135,7 +137,8 @@ changes, and docs/errors.md when what it raises does.
   verifying and reconnecting the connection until it is next checked out, and `.reads?` is asked of the connection of
   the caller too, for every describe; `.own_connection?(connection)`; `.failure_kind(exception)`, a kind,
   `Query::Failure::NONE`, or nil, see Failures; `.requirable_types`; `.unknown_type`; and `.new(connection).open(statement, columns) {
-  |reader| }`, which runs the statement, checks the names of its columns, and steps to its first row before it yields,
+  |reader| }`, which runs the statement, checks the names of its columns, or their number, and steps to its first row before it
+  yields,
   and closes the statement in an `ensure`, and whose reader's `#each` yields the raw values of each row, from the row
   after the last one that it yielded.
 - `Query::PostgresqlCursor`: reads PostgreSQL (`ADAPTERS`, the adapters named PostgreSQL and PostGIS, rather than every
@@ -210,6 +213,50 @@ changes, and docs/errors.md when what it raises does.
   `Unavailable` for `BusyException`/`LockedException`, `PermissionDenied` for `PermissionException`/
   `AuthorizationException`; `.requirable_types`: none, since a column of SQLite holds a value of any type, such as empty
   text in an integer column, or text that is not a date in a date column, which Active Record casts to nil.
+- `Query::Jdbc`: what IOStreams knows of AR-JDBC, the adapters of JRuby, which the sources that read with it share:
+  `.adapter?(connection)` (an `ArJdbc::Abstract::Core`, without asking the raw connection), `.sql_exception(exception,
+  driver)` (the `java.sql.SQLException` that an `ActiveRecord::JDBCError` wraps, when the driver of the supplied start
+  of its class names raised it, by the class of the exception or the first frame of its stack trace, since Connector/J
+  raises plain `java.sql.SQLException`s), `.unknown_host_kind` (a `java.net.UnknownHostException` among the causes:
+  `Unavailable` for `TEMPORARY_RESOLUTION_FAILURE`, otherwise `NONE`) and `.io_failure?` (a `java.io.IOException`
+  among the causes). `Statement` asks `.adapter?` too.
+- `Query::JdbcRows`: the rows of a statement that the raw connection of AR-JDBC runs with `execute_query_raw(sql[,
+  binds]) { |*values| }`, which yields each row to a block, rather than return a result to step through. The statement
+  runs in a Fiber that hands over its rows in batches, the first row as it starts, then twice the size of the batch
+  before, up to `BATCH_SIZE` (1,000; 0.52 s for 300,000 rows of SQLite, against 2.45 s a row at a time), so that
+  `#start` raises before the block runs for a statement that cannot start, a block that leaves early does not wait for
+  1,000 rows of a slow query, `#each` continues a second traversal, `#close` ends a statement that was left early by
+  resuming the Fiber with `STOP`, a `throw` through the Java frames of AR-JDBC, which close the statement in their
+  `finally`, and `#width` is the number of values of the first row. The Fiber runs only the driver, never Active
+  Record, so it leases no connection. AR-JDBC's `withConnection` runs a statement again after a recoverable failure,
+  but Connector/J raises a connection lost while the rows are read as a plain `SQLException` ("Error retrieving record",
+  caused by an `EOFException`), which it does not, so no row is yielded twice (probed with `KILL CONNECTION`).
+- `Query::PostgresqlJdbc < PostgresqlCursor`: the cursor through the PostgreSQL adapter of AR-JDBC, which runs through
+  the API of Active Record as with pg, owning what differs with PgJDBC: `.reads?` (`ADAPTERS` and `Jdbc.adapter?`, which
+  `PostgresqlCursor.reads?` excludes), `.failure_kind` by SQLSTATE (`STATE_KINDS`, after `Jdbc.unknown_host_kind`, since
+  PgJDBC raises an unknown host as `08001`), `.requirable_types` without duration, since AR-JDBC returns an interval
+  that is zero, infinite or has a fraction of a second as ISO 8601 that `OID::Interval` casts to nil ("P",
+  "PT1.0E-6S"), and `.unknown_type` "any". AR-JDBC raises for `24:00:00` itself (Joda-Time's
+  `IllegalFieldValueException`), reads a `timetz` as a `Time` in UTC without its offset, and applies no query
+  transformers to the DECLARE; a `Timeout` interrupts a fetch only once it returns, since PgJDBC blocks in Java.
+- `Query::MysqlJdbc < Mysql2Stream`: MySQL through the MySQL adapter of AR-JDBC, named "Mysql2" too, sharing the
+  limits of `Mysql2Stream`, its whole read of a shared connection with a transaction open, `.requirable_types` and
+  `.own_connection?`. `#stream` holds Connector/J's `netTimeoutForStreamingResults` at 0 for the whole read
+  (`#without_driver_timeout`, through `com.mysql.cj.jdbc.JdbcConnection#getPropertySet`, `ArgumentError` for another
+  driver, such as MariaDB Connector/J), since Connector/J otherwise sets `net_write_timeout` to 600 seconds while it
+  streams, and afterwards to the value that it saw when it connected, dropping the one that `variables` set; it then
+  raises the limits, and sets AR-JDBC's private `fetchSize` field of the raw connection, found by reflection up its
+  class chain (`ArgumentError` when it is missing), to `Integer.MIN_VALUE` while the statement starts
+  (`#with_stream_fetch_size`), since AR-JDBC gives every statement of a connection the `jdbc_fetch_size` of its
+  configuration. It passes `Statement#binds` to `execute_query_raw`, which prepares them, the default of the adapter,
+  and Connector/J's client-side prepared statements stream. `#discard`, for a block left early, aborts the Java
+  connection (`abort(ForkJoinPool.commonPool)`, 0.016 s, while closing a streamed result of 2M rows reads the rest of it
+  in 0.26 s), then closes the rows, rescuing the failure of the aborted statement, and `disconnect!`s. `.failure_kind`:
+  `Jdbc.unknown_host_kind`, then `MysqlFailure.kind` with the error code (that of the server, 0 for Connector/J's own),
+  then `Unavailable` for SQLSTATE `08S01` or an `IOException` among the causes.
+- `Query::SqliteJdbc < SqliteStatement`: SQLite through the SQLite adapter of AR-JDBC, with sqlite-jdbc, sharing
+  `.requirable_types` and `.unknown_type`; `.own_connection?` asks `PRAGMA journal_mode` on the raw connection, and
+  `.failure_kind` the primary result code (`RESULT_KINDS`).
 
 ## Failures
 
@@ -273,7 +320,21 @@ changes, and docs/errors.md when what it raises does.
   allows, with json < 3, see the Gemfile. To run it locally without touching the worktree's Gemfile.lock, copy the
   Gemfile to tmp/ with `gemspec path: ".."` and run `ACTIVERECORD_VERSION=7.2.3 BUNDLE_GEMFILE=tmp/Gemfile.ar72 bundle
   exec rake query_test`. `cursor:` needs Active Record 8.0, so its tests skip on 7.2.
-- JRuby cannot load the sqlite3 gem, a C extension, so the SQLite tests skip there.
+- On JRuby the three databases are read with the adapters of AR-JDBC (`platforms :jruby` in the Gemfile, 80.0.pre1,
+  so Active Record 8.0 and json < 3 there; `QueryDatabase.driver?` takes the C extension or the adapter, and
+  `QueryDatabase.jdbc?` says which). The tests of PostgreSQL and MySQL run on both drivers, with expectations of their
+  own where the driver differs, such as `ActiveRecord::JDBCError` for a connection that could not be made; the tests
+  of the sqlite3 gem skip on JRuby, sqlite_jdbc_test.rb tests `SqliteJdbc`, and jdbc_rows_test.rb tests `JdbcRows` with
+  a stand-in raw connection on any Ruby. The workarounds of the tests for AR-JDBC: the MySQL pools take
+  `MysqlDatabase::JDBC_CONFIG` (`allowPublicKeyRetrieval` and `useSSL` for `caching_sha2_password` without TLS,
+  `yearIsDateType: false`, and `statement_limit: 0`, since AR-JDBC keeps the prepared statements of a connection that
+  the server ended, which raise "No operations allowed after statement closed" once), `ActiveRecord::Base` is connected
+  to PostgreSQL, since AR-JDBC's array encoder asks it for a connection, and test_helper.rb sets the default time zone
+  of the JVM to UTC with `ENV["TZ"]`, since AR-JDBC converts dates in it, and would write them a day early. Minitest's
+  `stub` of a class method that a source inherits, such as `SqliteJdbc.requirable_types`, leaves the stub in place once
+  it restores it, so stub only the sources that define the method (`sources_defining` in query_stream_test.rb). Run
+  them locally with a copy of the Gemfile, `sed 's|^gemspec$|gemspec path: ".."|' Gemfile > tmp/Gemfile.jruby`, and
+  `BUNDLE_GEMFILE=tmp/Gemfile.jruby` under JRuby with Java 21.
 - A test of what the read sees in a transaction that is open pins the connection of the pool (`pool.pin_connection!`),
   as transactional tests do, since the read checks out a connection of its own; a test of a setting of the read's own
   connection, such as `statement_timeout`, uses a pool whose `variables:` set it (`orders_with` in

@@ -54,8 +54,8 @@ jobs:
           # The earliest Ruby with the earliest Active Record that IOStreams reads queries with, see the Gemfile.
           - ruby: 3.3
             activerecord: "7.2.3"
-    # The databases that the query tests read, see test/query/query_helper.rb. JRuby cannot load their drivers, so its
-    # query tests skip them.
+    # The databases that the query tests read, see test/query/query_helper.rb, which JRuby reads with the adapters of
+    # AR-JDBC, whose drivers are jars, since it cannot load the C extensions of their drivers, see the Gemfile.
     services:
       postgres:
         image: postgres:17

@@ -331,10 +331,18 @@ class ColumnTypesTest < Minitest::Test
 
         it "raises for a time outside a day, rather than read it as nil, or as the start of the next day" do
           models::Shift.with_connection { |connection| connection.execute("INSERT INTO shifts (starts_at) VALUES ('24:00:00')") }
-
-          error = assert_raises(IOStreams::Errors::InvalidValue) { records(shifts.select(:starts_at)) }
-          assert_match(/\AColumn "starts_at": .*24:00:00.* is not a time of day, from 00:00:00 to 23:59:59/, error.message)
-          assert_raises(IOStreams::Errors::InvalidValue) { records(shifts.select(:starts_at).in_batches(of: 2)) }
+          if QueryDatabase.jdbc? && database.name != "SQLite"
+            # The drivers of AR-JDBC raise for it themselves, as pluck does on JRuby: Connector/J that it is not a TIME,
+            # and PgJDBC, through Joda-Time, that it is not an hour of a day.
+            [shifts.select(:starts_at), shifts.select(:starts_at).in_batches(of: 2)].each do |query|
+              error = assert_raises(StandardError, Java::JavaLang::RuntimeException) { records(query) }
+              assert_match(/is an invalid TIME value|Value 24 for hourOfDay must be in the range/, error.message)
+            end
+          else
+            error = assert_raises(IOStreams::Errors::InvalidValue) { records(shifts.select(:starts_at)) }
+            assert_match(/\AColumn "starts_at": .*24:00:00.* is not a time of day, from 00:00:00 to 23:59:59/, error.message)
+            assert_raises(IOStreams::Errors::InvalidValue) { records(shifts.select(:starts_at).in_batches(of: 2)) }
+          end
         end
       end
 

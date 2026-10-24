@@ -25,9 +25,14 @@ module IOStreams
     autoload :CastTypes,        "io_streams/query/cast_types"
     autoload :Columns,          "io_streams/query/columns"
     autoload :Failure,          "io_streams/query/failure"
+    autoload :Jdbc,             "io_streams/query/jdbc"
+    autoload :JdbcRows,         "io_streams/query/jdbc_rows"
     autoload :Mysql2Stream,     "io_streams/query/mysql2_stream"
     autoload :MysqlFailure,     "io_streams/query/mysql_failure"
+    autoload :MysqlJdbc,        "io_streams/query/mysql_jdbc"
     autoload :PostgresqlCursor, "io_streams/query/postgresql_cursor"
+    autoload :PostgresqlJdbc,   "io_streams/query/postgresql_jdbc"
+    autoload :SqliteJdbc,       "io_streams/query/sqlite_jdbc"
     autoload :SqliteStatement,  "io_streams/query/sqlite_statement"
     autoload :Statement,        "io_streams/query/statement"
     autoload :Stream,           "io_streams/query/stream"
@@ -41,7 +46,7 @@ module IOStreams
     #   `IOStreams::Query::Statement`, is open on the connection, and the names of its columns are checked, see
     #   `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw values of each row, from the row after
     #   the last one that it yielded, until the block ends, and closes the statement when it does.
-    SOURCES = %i[PostgresqlCursor Mysql2Stream SqliteStatement].freeze
+    SOURCES = %i[PostgresqlCursor PostgresqlJdbc Mysql2Stream MysqlJdbc SqliteStatement SqliteJdbc].freeze
 
     # What knows the failures of each driver of a database, which #driver_failure_kind asks: each of the SOURCES, for
     # the driver that it reads with, and TrilogyFailure for trilogy, which no source reads with, since its queries

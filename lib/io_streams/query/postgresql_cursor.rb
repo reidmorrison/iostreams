@@ -108,9 +108,10 @@ module IOStreams
         Failure::NONE            => Regexp.union(/could not translate host name /, /database ".*" does not exist/)
       }.freeze
 
-      # Returns [true|false] whether the connection is to PostgreSQL, through an adapter of ADAPTERS.
+      # Returns [true|false] whether the connection is to PostgreSQL, through an adapter of ADAPTERS, with any driver but
+      # the PostgreSQL adapter of AR-JDBC on JRuby, whose values and failures `IOStreams::Query::PostgresqlJdbc` knows.
       def self.reads?(connection)
-        ADAPTERS.include?(connection.adapter_name)
+        ADAPTERS.include?(connection.adapter_name) && !Jdbc.adapter?(connection)
       end
 
       # Returns [true] whether the database of the connection can be read on a connection of its own, see
