@@ -299,6 +299,14 @@ module IOStreams
       stream_format(stream).text_format if stream
     end
 
+    # Returns [true|false] whether the lines of the text that the application reads are the lines of the file, so that
+    # their numbers name its lines, such as those of a CSV file, also once it is decompressed or decrypted. False when
+    # the stream closest to the application decides the format of the text, see #text_format, since it turns its data
+    # into text of its own, such as the CSV text of a spreadsheet, whose lines are not its rows.
+    def lines_of_file?
+      text_format.nil?
+    end
+
     # Returns [true|false] whether a stream in the pipeline compresses the data.
     # Each stream's format answers for itself, see `IOStreams.register_extension`.
     def compressed?

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "tmpdir"
 
 class SliceReaderTest < Minitest::Test
   describe IOStreams::Slice::Reader do
@@ -97,6 +98,21 @@ class SliceReaderTest < Minitest::Test
         assert_equal [nil, nil], list.map(&:line_number)
         assert_equal [1, 3], list.map(&:record_number)
         assert_equal([[nil, 3]], list.last.each.map { |_row, line, record| [line, record] })
+      end
+
+      it "gives the rows of a spreadsheet no line, since the lines of the CSV text that it is read as are not its rows" do
+        list = slices(IOStreams.path(File.join(__dir__, "files", "multiline_cell.xlsx")), size: 5)
+
+        assert_equal [[%(data 1,data 2,"more\ndata"), nil, 1]], list.first.each.to_a
+      end
+
+      it "gives the rows of a compressed file their lines, which are those of the file" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.csv.gz")
+          path.write(%(Name,NOTE\nJack,"line one\nline two"\nJill,22\n))
+
+          assert_equal([[2, 1], [4, 2]], slices(path, size: 5).first.each.map { |_row, line, record| [line, record] })
+        end
       end
 
       it "raises for rows that do not give the line that each one starts on, nor their numbers" do

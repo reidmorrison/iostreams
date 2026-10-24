@@ -827,6 +827,13 @@ class SliceTargetStreamTest < Minitest::Test
         end
       end
 
+      it "gives the lines copied from a spreadsheet no line, since they are not its rows, and their record numbers" do
+        small = Store.new(slice_size: 5)
+        IOStreams.stream(small).copy_from(File.join(__dir__, "files", "multiline_cell.xlsx"), mode: :line)
+
+        assert_equal [[%(data 1,data 2,"more\ndata"), nil, 1]], small.slices.first.each.to_a
+      end
+
       it "gives the rows copied in the :hash mode their record numbers and no line, as for a query" do
         small  = Store.new(slice_size: 1)
         source = IOStreams.stream(StringIO.new("name,note\nJack,\"line 1\nline 2\"\nJill,ok\n")).format(:csv)

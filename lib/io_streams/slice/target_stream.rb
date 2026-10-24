@@ -158,16 +158,18 @@ module IOStreams
       protected
 
       # Yields the writer of the supplied mode, see #writer, with the options of the collector, see #slice_options, whose
-      # slices hold whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`.
-      # Protected, so that a copy writes with the stream that has the schema of its source, see #copy_rows.
+      # slices hold whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`, and in
+      # the `:line` mode, the line that each row starts on, unless the lines are not those of a file, such as those that
+      # a copy reads from a spreadsheet, see `IOStreams::Stream#copy_lines_of_file?`. Protected, so that a copy writes
+      # with the stream that has the schema of its source, see #copy_rows.
       #
       # Returns the result of the block.
-      def write_slices(mode, options, blank_rows: true, &block)
+      def write_slices(mode, options, blank_rows: true, lines_of_file: true, &block)
         tabular = rows_tabular(blank_rows)
 
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
           case mode
-          when :line then write_lines(collector, tabular.quote_character, &block)
+          when :line then write_lines(collector, tabular.quote_character, lines_of_file, &block)
           when :array then block.call(IOStreams::Row::Writer.new(collector, tabular: self.tabular))
           when :hash then block.call(IOStreams::Record::Writer.new(collector, tabular: self.tabular))
           end
@@ -216,11 +218,17 @@ module IOStreams
         #
         #   cleaner: [IOStreams::Encode::Cleaner|nil]
         #     Cleans each line before it is split into rows, see #clean.
-        def initialize(collector, quote_character, replace: nil, cleaner: nil)
+        #
+        #   lines_of_file: [true|false]
+        #     Whether the lines written are the lines of a file, so that each row holds the line that it starts on, see
+        #     `IOStreams::Slice#line_number_at`, rather than none, such as the lines of the CSV text of a spreadsheet. The
+        #     lines are counted either way, to number the line of a failure, see #<<.
+        def initialize(collector, quote_character, replace: nil, cleaner: nil, lines_of_file: true)
           @collector       = collector
           @quote_character = quote_character
           @replace         = replace
           @cleaner         = cleaner
+          @lines_of_file   = lines_of_file
           @encode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
           @pending         = nil
           # The bytes of the text kept as written, before it was cleaned, see #keep.
@@ -316,7 +324,7 @@ module IOStreams
         def add(text, bytes)
           @lines += 1
           @bytes += bytes + NEWLINE.bytesize
-          @collector.add(text, @lines)
+          @collector.add(text, (@lines if @lines_of_file))
         end
 
         # Returns [String] the supplied UTF-8 text of a line, cleaned by the cleaner, when there is one, which is
@@ -423,7 +431,7 @@ module IOStreams
           text           = Text.new(pending, invalid)
           reader         = IOStreams::Line::Reader.new(text, delimiter: delimiter, embedded_within: @quote_character)
           @delimiter ||= reader.delimiter
-          reader.each_with_line_number { |row, line_number| @collector.add(row, @lines + line_number) }
+          reader.each_with_line_number { |row, line_number| @collector.add(row, (@lines + line_number if @lines_of_file)) }
           @lines += reader.line_number
           @bytes += pending_bytes
         rescue IOStreams::Errors::MalformedDataError => e
@@ -436,10 +444,10 @@ module IOStreams
 
       # Yields the writer of the lines in the `:line` mode to the block, see Lines, and adds the rows of the text that it
       # still keeps once the block returns, or leaves early, but not when it raises.
-      def write_lines(collector, quote_character, &block)
+      def write_lines(collector, quote_character, lines_of_file, &block)
         replace = encoding_option(:replace)
         cleaner = IOStreams::Encode.cleaner(cleaner: encoding_option(:cleaner), replace: replace)
-        lines   = Lines.new(collector, quote_character, replace: replace, cleaner: cleaner)
+        lines   = Lines.new(collector, quote_character, replace: replace, cleaner: cleaner, lines_of_file: lines_of_file)
         Utils.finish_or_abort(finish: -> { lines.finish }) { block.call(lines) }
       end
 
@@ -459,7 +467,11 @@ module IOStreams
       def copy_rows(source, rows, mode, options)
         target = with_copy_schema(source, mode)
         target = target.with_lines_format(source) if mode == :line
-        target.write_slices(mode, options, blank_rows: source.copy_blank_rows?) { |output| rows.copy_to(output) }
+        blank_rows    = source.copy_blank_rows?
+        lines_of_file = source.copy_lines_of_file?
+        target.write_slices(mode, options, blank_rows: blank_rows, lines_of_file: lines_of_file) do |output|
+          rows.copy_to(output)
+        end
       end
 
       def source_name

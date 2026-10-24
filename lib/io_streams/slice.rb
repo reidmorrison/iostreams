@@ -240,7 +240,8 @@ module IOStreams
     # file whose header row is on line 1.
     # Returns nil for a row that is not a line of a file, such as a row of Parquet, of an Active Record query, or a row
     # or record written to a store of slices in the `:array` or `:hash` mode, see `IOStreams::Slice::TargetStream`, or a
-    # row added without one, see #add.
+    # row added without one, see #add. A row of a spreadsheet, `.xlsx`, has none either, since its rows are read as CSV
+    # text whose lines are not the rows of the sheet, see `IOStreams::Builder#lines_of_file?`.
     #
     # The index counts from 0, or from the end when it is negative, as for #[].
     #
