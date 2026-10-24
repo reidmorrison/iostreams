@@ -373,6 +373,204 @@ class SliceTest < Minitest::Test
       end
     end
 
+    describe "changing the rows" do
+      # Rows on lines 2, 3 and 4, 5, and 6, so that the third row is a jump, as after a quoted value with a line break.
+      let(:numbered) do
+        built = IOStreams::Slice.new(header: %w[name].freeze, format: :csv)
+        built.add("a", line_number: 2, record_number: 1)
+        built.add(%("b\nc"), line_number: 3, record_number: 2)
+        built.add("d", line_number: 5, record_number: 3)
+        built.add("e", line_number: 6, record_number: 4)
+      end
+
+      describe "#[]=" do
+        it "replaces the row at the index, which keeps its numbers" do
+          numbered[1] = "B"
+          numbered[-1] = "E"
+
+          assert_equal [["a", 2, 1], ["B", 3, 2], ["d", 5, 3], ["E", 6, 4]], numbered.each.to_a
+        end
+
+        it "raises IndexError when the slice has no row at the index, rather than add one" do
+          error = assert_raises(IndexError) { numbered[4] = "f" }
+          assert_equal "index 4 outside of the rows of the slice: -4...4", error.message
+          assert_raises(IndexError) { numbered[-5] = "f" }
+          assert_equal 4, numbered.size
+        end
+
+        it "raises for an index that is not an Integer, and once the slice is frozen" do
+          assert_raises(ArgumentError) { numbered[0..1] = "f" }
+          assert_raises(FrozenError) { numbered.freeze[0] = "f" }
+        end
+      end
+
+      describe "#delete_at" do
+        it "removes the row at the index, and the rows after it keep their numbers" do
+          assert_equal %("b\nc"), numbered.delete_at(1)
+          assert_equal [["a", 2, 1], ["d", 5, 3], ["e", 6, 4]], numbered.each.to_a
+          assert_equal [[1, 5, 3]], numbered.to_h["jumps"]
+        end
+
+        it "gives the numbers of the first row to the row after it, when it removes the first row" do
+          numbered.delete_at(0)
+
+          assert_equal 3, numbered.line_number
+          assert_equal 2, numbered.record_number
+          assert_equal [[%("b\nc"), 3, 2], ["d", 5, 3], ["e", 6, 4]], numbered.each.to_a
+        end
+
+        it "removes the jump of the row that it removes" do
+          numbered.delete_at(-2)
+
+          assert_equal [["a", 2, 1], [%("b\nc"), 3, 2], ["e", 6, 4]], numbered.each.to_a
+          assert_equal [[2, 6, 4]], numbered.to_h["jumps"]
+        end
+
+        it "numbers a row added after the last one is removed from the row before it" do
+          numbered.delete_at(-1)
+          numbered.add("f", line_number: 6, record_number: 4)
+
+          assert_nil(numbered.to_h["jumps"]&.find { |jump| jump.first == 3 })
+          assert_equal ["f", 6, 4], numbered.each.to_a.last
+        end
+
+        it "returns nil when the slice has no row at the index, as an Array does" do
+          assert_nil numbered.delete_at(4)
+          assert_nil numbered.delete_at(-5)
+          assert_equal 4, numbered.size
+        end
+
+        it "raises for an index that is not an Integer, and once the slice is frozen" do
+          assert_raises(ArgumentError) { numbered.delete_at("0") }
+          assert_raises(FrozenError) { numbered.freeze.delete_at(0) }
+          assert_equal 4, numbered.size
+        end
+      end
+
+      describe "#delete_if" do
+        it "removes each row for which the block returns true, yielding it with its numbers" do
+          yielded = []
+          result  = numbered.delete_if do |row, line_number, record_number|
+            yielded << [row, line_number, record_number]
+            record_number.even?
+          end
+
+          assert_same numbered, result
+          assert_equal [["a", 2, 1], [%("b\nc"), 3, 2], ["d", 5, 3], ["e", 6, 4]], yielded
+          assert_equal [["a", 2, 1], ["d", 5, 3]], numbered.each.to_a
+        end
+
+        it "leaves the slice as it was when the block raises" do
+          assert_raises(RuntimeError) do
+            numbered.delete_if { |row, *| row == "d" ? raise("failed") : true }
+          end
+          assert_equal 4, numbered.size
+        end
+
+        it "returns an Enumerator without a block" do
+          assert_equal 4, numbered.delete_if.size
+          assert_equal [["d", 5, 3], ["e", 6, 4]], numbered.delete_if.with_index { |_numbers, index| index < 2 }.each.to_a
+        end
+
+        it "yields the three values to a lambda" do
+          numbered.delete_if(&->(_row, line_number, _record_number) { line_number > 4 })
+
+          assert_equal [["a", 2, 1], [%("b\nc"), 3, 2]], numbered.each.to_a
+        end
+
+        it "raises once the slice is frozen" do
+          assert_raises(FrozenError) { numbered.freeze.delete_if { true } }
+        end
+      end
+
+      describe "#drop" do
+        it "returns a new slice of the rows after the first ones, which keep their numbers" do
+          rest = numbered.drop(2)
+
+          assert_instance_of IOStreams::Slice, rest
+          assert_equal [["d", 5, 3], ["e", 6, 4]], rest.each.to_a
+          assert_equal %w[name], rest.header
+          assert_equal :csv, rest.format
+          assert_equal 4, numbered.size
+        end
+
+        it "keeps whether the blank rows are records" do
+          records = IOStreams::Slice.new([[nil], %w[a]], format: :array, blank_rows: false, record_number: 1)
+
+          refute_predicate records.drop(1), :blank_rows?
+          assert_equal [[%w[a], nil, 2]], records.drop(1).each.to_a
+        end
+
+        it "returns every row for 0, and none for more than the slice has" do
+          assert_equal numbered, numbered.drop(0)
+          assert_empty numbered.drop(5)
+        end
+
+        it "leaves a frozen slice as it is, and returns a slice that can be changed" do
+          rest = numbered.freeze.drop(3)
+          rest << "f"
+
+          assert_equal [["e", 6, 4], ["f", nil, nil]], rest.each.to_a
+        end
+
+        it "raises for a count that is not an Integer of 0 or more" do
+          error = assert_raises(ArgumentError) { numbered.drop(-1) }
+          assert_equal "The number of rows to drop from a slice must be an Integer of 0 or more: -1", error.message
+          assert_raises(ArgumentError) { numbered.drop("1") }
+        end
+      end
+
+      it "keeps the numbers of every row through any changes, and once stored as JSON" do
+        random = Random.new(42)
+        200.times do
+          slice    = IOStreams::Slice.new(header: %w[name].freeze, format: :csv)
+          expected = []
+          line     = random.rand(1..3)
+          random.rand(0..8).times do |index|
+            slice.add("r#{index}", line_number: line, record_number: index + 1)
+            expected << ["r#{index}", line, index + 1]
+            line += random.rand(4).zero? ? random.rand(2..4) : 1
+          end
+
+          15.times do |step|
+            case random.rand(6)
+            when 0
+              line_number   = random.rand(3).zero? ? nil : random.rand(1..40)
+              record_number = random.rand(3).zero? ? nil : random.rand(1..40)
+              slice.add("n#{step}", line_number: line_number, record_number: record_number)
+              expected << ["n#{step}", line_number, record_number]
+            when 1
+              slice << "p#{step}"
+              expected << ["p#{step}", nil, nil]
+            when 2
+              next if expected.empty?
+
+              index        = random.rand(-expected.size...expected.size)
+              slice[index] = "u#{step}"
+              expected[index] = ["u#{step}", *expected[index][1..]]
+            when 3
+              index = random.rand((-expected.size - 1)..expected.size)
+
+              assert_equal [expected.delete_at(index)&.first], [slice.delete_at(index)]
+            when 4
+              keep = random.rand(2..4)
+              slice.delete_if { |_row, _line_number, record_number| record_number.to_i % keep == 1 }
+              expected.delete_if { |_row, _line_number, record_number| record_number.to_i % keep == 1 }
+            else
+              count    = random.rand(0..3)
+              slice    = slice.drop(count)
+              expected = expected.drop(count)
+            end
+
+            assert_equal expected, slice.each.to_a
+            assert_equal(expected.map { |numbers| numbers[1] }, (0...slice.size).map { |index| slice.line_number_at(index) })
+            assert_equal(expected.map { |numbers| numbers[2] }, (0...slice.size).map { |index| slice.record_number_at(index) })
+            assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+          end
+        end
+      end
+    end
+
     describe "#==" do
       it "is true for slices of the same rows, numbers, header row and format" do
         assert_equal slice, IOStreams::Slice.new(["Jack,21", %("Ji\nll",22)], header: %w[Name AGE], format: :csv)

@@ -393,6 +393,12 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
 * `slice.size`, `slice.empty?` and `slice[index]` read the rows as an Array does.
 * `slice.add(row, line_number: 12, record_number: 10)` adds a row after the others, with its numbers, and
   `slice << row` adds one without them, such as a row that is not from a file.
+* `slice[index] = row` replaces a row, such as to correct one that could not be processed, and it keeps the numbers of
+  the row that it replaces.
+* `slice.delete_at(index)` and `slice.delete_if { |row, line_number, record_number| ... }` remove rows, and the rows
+  that are left keep their numbers.
+* `slice.drop(count)` returns a new slice of the rows after the first `count`, with their numbers, such as the rows
+  still to be processed once the first ones were, and leaves the slice as it is.
 * Slices are equal when they hold the same rows, with the same numbers, header row and format.
 * `slice.to_json` writes the Hash that `slice.to_h` returns, which `IOStreams.slice(JSON.parse(json))` turns back into
   the slice.

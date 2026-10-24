@@ -21,7 +21,8 @@ module IOStreams
   #   #record_number_at, so that a blank row counts too.
   #
   # A slice is responsible for its rows and their numbers, so it is not an Array: its rows are added to it, see #add,
-  # and read from it, see #each and #rows, through its own methods, which keep the numbers of each row.
+  # changed, see #[]= and #delete_at, and read from it, see #each and #rows, through its own methods, which keep the
+  # numbers of each row.
   #
   # A row whose every value is blank is a blank row, as in a file, unless each row of the slice is a record, such as a
   # slice of the rows of an Active Record query, see #blank_rows?.
@@ -309,6 +310,81 @@ module IOStreams
       add(row)
     end
 
+    # Replaces the row at the supplied index, which keeps its numbers, see #each, such as to correct a row that could not
+    # be processed, before it is processed again. The index counts from 0, or from the end when it is negative, as for
+    # #[].
+    #
+    #   slice[3] = "Jack,21"
+    #
+    # Raises IndexError when the slice has no row at the index, ArgumentError for an index that is not an Integer, and
+    # FrozenError once the slice is frozen.
+    def []=(index, row)
+      position = position_of(index)
+      raise(IndexError, outside(index)) unless position
+
+      check_frozen
+      @rows[position] = row
+    end
+
+    # Removes the row at the supplied index. The rows after it keep their numbers, see #each. The index counts from 0,
+    # or from the end when it is negative, as for #[].
+    #
+    # Returns the row removed.
+    # Returns nil when the slice has no row at the index, as an Array does.
+    #
+    # Raises ArgumentError for an index that is not an Integer, and FrozenError once the slice is frozen.
+    def delete_at(index)
+      position = position_of(index)
+      return unless position
+
+      check_frozen
+      numbered = numbered_rows
+      removed  = numbered.delete_at(position)
+      renumber(numbered)
+      removed.first
+    end
+
+    # Removes each row for which the block returns true, which it yields with its numbers, as #each does. The rows that
+    # are left keep their numbers.
+    #
+    #   slice.delete_if { |row, line_number, record_number| row.empty? }
+    #
+    # When the block raises, the slice is left as it was.
+    #
+    # Returns self.
+    # Returns an Enumerator of the rows and their numbers without a block.
+    #
+    # Raises FrozenError once the slice is frozen.
+    def delete_if
+      return enum_for(:delete_if) { size } unless block_given?
+
+      check_frozen
+      numbered = numbered_rows
+      # Each row is yielded with its numbers as three values, as #each yields them, also to a lambda.
+      numbered.delete_if { |numbers| yield(*numbers) }
+      renumber(numbered)
+      self
+    end
+
+    # Returns [IOStreams::Slice] a new slice of the rows after the first `count`, which keep their numbers, see #each,
+    # with the header row and format of this slice, such as the rows that are still to be processed once the first
+    # `count` were. This slice is left as it is, also when it is frozen.
+    #
+    #   slice.drop(40).each { |row, line_number, record_number| process(row) }
+    #
+    # Raises ArgumentError for a count that is not an Integer of zero or more.
+    def drop(count)
+      unless count.is_a?(::Integer) && !count.negative?
+        raise(ArgumentError, "The number of rows to drop from a slice must be an Integer of 0 or more: #{count.inspect}")
+      end
+
+      rest = self.class.new(header: header, format: format, blank_rows: blank_rows?)
+      numbered_rows.drop(count).each do |row, line_number, record_number|
+        rest.add(row, line_number: line_number, record_number: record_number)
+      end
+      rest
+    end
+
     # Returns [Hash] what this slice holds, to store it or send it elsewhere, such as in the document of a job, which
     # `IOStreams.slice` turns back into a slice: its rows, the header row of its file, the format of its rows, and the
     # numbers of its rows, by String keys, with Strings, Integers, Arrays and nil, as JSON and BSON hold them, so that it
@@ -440,11 +516,8 @@ module IOStreams
     # Returns [Array(Integer, Integer)] the line number and record number of the row at the supplied index, see
     # #line_number_at and #record_number_at.
     def numbers_at(index)
-      position = check_index(index)
-      position += @rows.size if position.negative?
-      unless position >= 0 && position < @rows.size
-        raise(IndexError, "index #{index} outside of the rows of the slice: #{-@rows.size}...#{@rows.size}")
-      end
+      position = position_of(index)
+      raise(IndexError, outside(index)) unless position
 
       line_number   = @line_number
       record_number = @record_number
@@ -455,6 +528,57 @@ module IOStreams
       end
       offset = position - from
       [line_number && (line_number + offset), record_number && (record_number + offset)]
+    end
+
+    # Returns [Integer] the position of the row at the supplied index, counting from 0, or from the end when the index is
+    # negative, as for #[].
+    # Returns nil when the slice has no row at the index.
+    #
+    # Raises ArgumentError for an index that is not an Integer.
+    def position_of(index)
+      position = check_index(index)
+      position += @rows.size if position.negative?
+      position if position >= 0 && position < @rows.size
+    end
+
+    # Returns [String] the message of the IndexError for the supplied index, outside of the rows.
+    def outside(index)
+      "index #{index} outside of the rows of the slice: #{-@rows.size}...#{@rows.size}"
+    end
+
+    # Returns [Array<Array>] each row with its numbers, `[row, line_number, record_number]`, see #each, in an Array of
+    # their own, to change them, see #renumber.
+    def numbered_rows
+      numbered = []
+      each { |row, line_number, record_number| numbered << [row, line_number, record_number] }
+      numbered
+    end
+
+    # Holds the supplied rows with their numbers, `[row, line_number, record_number]`, see #numbered_rows, as the rows of
+    # the slice, keeping the numbers of the first row, and a jump for each row whose numbers do not follow those of the
+    # row before it, see #to_h.
+    def renumber(numbered)
+      jumps         = nil
+      line_number   = nil
+      record_number = nil
+      numbered.each_with_index do |(_row, line, record), index|
+        unless index.zero? || (line == (line_number && (line_number + 1)) && record == (record_number && (record_number + 1)))
+          (jumps ||= []) << [index, line, record]
+        end
+        line_number   = line
+        record_number = record
+      end
+      first          = numbered.first
+      @rows          = numbered.map(&:first)
+      @line_number   = first && first[1]
+      @record_number = first && first[2]
+      @jumps         = jumps
+      follow_last_row
+    end
+
+    # Raises FrozenError once the slice is frozen, before it is changed.
+    def check_frozen
+      raise(FrozenError.new("can't modify frozen #{self.class.name}: #{inspect}", receiver: self)) if frozen?
     end
 
     # Returns [Integer] the supplied index of a row.
