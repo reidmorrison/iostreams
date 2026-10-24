@@ -95,7 +95,7 @@ module IOStreams
         open_rows(tabular, &)
       end
 
-      # Yields [#each_with_line_number] the rows, see #open_rows, which a slice reader reads, see
+      # Yields [#add_to] the rows, see #open_rows, which a slice reader reads, see
       # `IOStreams::Stream#open_slice_rows`. They are not the lines of a file, so they start on no line, see
       # `IOStreams::Slice::Rows`, and the slices number each one as the next record, unless the source knows their
       # numbers, such as a slice, see `IOStreams::Slice::Stream#open_slice_rows`.

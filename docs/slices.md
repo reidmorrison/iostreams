@@ -388,12 +388,14 @@ end
 A slice holds its rows, and is responsible for them and their numbers, so it is not an Array:
 
 * `slice.each { |row, line_number, record_number| }` yields each row as it is in the file, with its numbers, see
-  [Find a row in the file](#find-a-row-in-the-file). A block that takes one value receives the row alone.
+  [Find a row in the file](#find-a-row-in-the-file). A block, lambda or method that takes one argument receives the
+  row alone, such as `slice.each(&method(:process))`.
 * `slice.rows` returns the rows in an Array of their own, to read them with the methods of an Array, such as `map`.
   Changing that Array does not change the slice.
 * `slice.size`, `slice.empty?` and `slice[index]` read the rows as an Array does.
 * `slice.add(row, line_number: 12, record_number: 10)` adds a row after the others, with its numbers, and
-  `slice << row` adds one without them, such as a row that is not from a file.
+  `slice << row` adds one without them, such as a row that is not from a file. A line number or record number is a
+  positive Integer, and belongs to a row, so an empty slice has none: give the first row its numbers as it is added.
 * `slice[index] = row` replaces a row, such as to correct one that could not be processed, and it keeps the numbers of
   the row that it replaces.
 * `slice.delete_at(index)` and `slice.delete_if { |row, line_number, record_number| ... }` remove rows, and the rows

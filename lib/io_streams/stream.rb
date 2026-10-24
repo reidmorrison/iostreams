@@ -927,16 +927,16 @@ module IOStreams
       end
     end
 
-    # Yields [#each_with_line_number] the rows of the format of the tabular, see #open_rows_reader, with the line of the
-    # file that each one starts on, which a slice reader reads, see `IOStreams::Slice::Reader`: the lines that its line
-    # reader reads, see `IOStreams::Line::Reader#each_with_line_number`, or rows that start on no line, see
-    # `IOStreams::Slice::Rows`: the rows of a format whose rows are not lines, such as Parquet, and the lines of text
-    # that a stream turns the data into, such as the CSV text of a spreadsheet, which are not the lines of the file,
-    # see `IOStreams::Builder#lines_of_file?`. The slices number each row as the next record, see
-    # `IOStreams::Slice#record_number_at`.
+    # Yields [#add_to] the rows of the format of the tabular, see #open_rows_reader, which a slice reader reads, see
+    # `IOStreams::Slice::Reader`: the lines that its line reader reads, with the line of the file that each one starts
+    # on, see `IOStreams::Slice::LineRows`, or rows that start on no line, see `IOStreams::Slice::Rows`: the rows of a
+    # format whose rows are not lines, such as Parquet, and the lines of text that a stream turns the data into, such as
+    # the CSV text of a spreadsheet, which are not the lines of the file, see `IOStreams::Builder#lines_of_file?`. The
+    # slices number each row as the next record, see `IOStreams::Slice#record_number_at`.
     def open_slice_rows(tabular, delimiter, buffer_size)
       open_rows_reader(tabular, delimiter, buffer_size) do |rows|
-        yield(tabular.lines? && builder.lines_of_file? ? rows : IOStreams::Slice::Rows.new(rows))
+        lines_of_file = tabular.lines? && builder.lines_of_file?
+        yield(lines_of_file ? IOStreams::Slice::LineRows.new(rows) : IOStreams::Slice::Rows.new(rows))
       end
     end
 

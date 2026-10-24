@@ -145,8 +145,15 @@ class SliceTest < Minitest::Test
         numbered = IOStreams::Slice.new(%w[a], format: :csv, line_number: 7)
 
         assert_equal 7, IOStreams.slice(JSON.parse(JSON.generate(numbered.to_h))).line_number
-        assert_equal 7, IOStreams.slice(rows: [], line_number: 7).line_number
+        assert_equal 7, IOStreams.slice(rows: %w[a], line_number: 7).line_number
         assert_nil IOStreams.slice("rows" => %w[a]).line_number
+      end
+
+      it "raises for a line number or record number without rows, since they are those of the first row" do
+        error = assert_raises(ArgumentError) { IOStreams.slice(rows: [], line_number: 7) }
+        assert_equal "A slice without rows has no line_number or record_number, since they are those of its first row: " \
+                     "supply them when it is added, with #add(row, line_number:, record_number:)", error.message
+        assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "record_number" => 1) }
       end
 
       it "turns back the lines and record numbers of the slices that a file was read in" do
@@ -239,6 +246,21 @@ class SliceTest < Minitest::Test
         assert_equal 3, count
       end
 
+      it "yields the row alone to a lambda or a method that takes one argument" do
+        rows = []
+        numbered.each(&rows.method(:<<))
+        numbered.each(&->(row) { rows << row.upcase })
+
+        assert_equal ["a", %("b\nc"), "d", "A", %("B\nC"), "D"], rows
+      end
+
+      it "yields each row with its numbers to a lambda that takes them" do
+        yielded = []
+        numbered.each(&->(row, line_number, record_number) { yielded << [row, line_number, record_number] })
+
+        assert_equal [["a", 2, 1], [%("b\nc"), 3, 2], ["d", 5, 3]], yielded
+      end
+
       it "numbers each row after the first as the next line and record, from those that the slice is built with" do
         built = IOStreams::Slice.new(%w[a b], line_number: 4, record_number: 3)
 
@@ -298,12 +320,17 @@ class SliceTest < Minitest::Test
         assert_nil built.to_h["jumps"]
       end
 
-      it "gives the first row added to an empty slice the numbers of the slice" do
-        built = IOStreams::Slice.new(line_number: 9)
+      it "gives the first row added to an empty slice the numbers that it is added with" do
+        built = IOStreams::Slice.new(header: %w[name], format: :csv)
         built.add("a", line_number: 4, record_number: 2)
 
         assert_equal 4, built.line_number
         assert_equal 2, built.record_number
+      end
+
+      it "raises for numbers of an empty slice, rather than lose them when its first row is added" do
+        assert_raises(ArgumentError) { IOStreams::Slice.new(header: %w[name], format: :csv, line_number: 2) }
+        assert_raises(ArgumentError) { IOStreams::Slice.new([], record_number: 1) }
       end
 
       it "adds a row without numbers, such as a row that is not from a file" do
@@ -323,9 +350,21 @@ class SliceTest < Minitest::Test
         assert_raises(ArgumentError) { IOStreams::Slice.new.add("a", record_number: -1) }
         assert_equal %w[a], built.rows
 
-        empty = IOStreams::Slice.new(line_number: 9)
+        empty = IOStreams::Slice.new
         assert_raises(ArgumentError) { empty.add("a", line_number: 4, record_number: "1") }
-        assert_equal 9, empty.line_number
+        assert_nil empty.line_number
+        assert_empty empty
+      end
+
+      it "raises for a Float or Rational number of the row after the last, rather than take it as the next number" do
+        built = IOStreams::Slice.new(%w[a], line_number: 2, record_number: 1)
+
+        error = assert_raises(ArgumentError) { built.add("b", line_number: 3.0, record_number: 2) }
+        assert_equal "The line_number of a row of a slice must be a positive Integer, or nil: 3.0", error.message
+        error = assert_raises(ArgumentError) { built.add("b", line_number: 3, record_number: Rational(2)) }
+        assert_equal "The record_number of a row of a slice must be a positive Integer, or nil: (2/1)", error.message
+        assert_equal [["a", 2, 1]], built.each.to_a
+        assert_equal [["a", 2, 1], ["b", 3, 2]], built.add("b", line_number: 3, record_number: 2).each.to_a
       end
 
       it "raises once the slice is frozen" do
@@ -335,6 +374,16 @@ class SliceTest < Minitest::Test
         assert_raises(FrozenError) { frozen.add("b", line_number: 9) }
         assert_raises(FrozenError) { frozen << "b" }
         assert_equal %w[a], frozen.rows
+      end
+
+      it "raises for a frozen clone, which it leaves as it was, rather than hold a jump for a row that it did not add" do
+        frozen = IOStreams::Slice.new(%w[a b], line_number: 2, record_number: 1).add("c", line_number: 9, record_number: 3)
+        copy   = frozen.freeze.clone
+
+        assert_predicate copy, :frozen?
+        assert_raises(FrozenError) { copy.add("d", line_number: 50, record_number: 4) }
+        assert_equal frozen.to_h, copy.to_h
+        assert_equal copy, IOStreams.slice(copy.to_h)
       end
     end
 
@@ -478,6 +527,13 @@ class SliceTest < Minitest::Test
           assert_equal [["a", 2, 1], [%("b\nc"), 3, 2]], numbered.each.to_a
         end
 
+        it "yields the row alone to a lambda or a method that takes one argument" do
+          numbered.delete_if(&->(row) { row == "a" })
+          numbered.delete_if(&%w[e].method(:include?))
+
+          assert_equal [[%("b\nc"), 3, 2], ["d", 5, 3]], numbered.each.to_a
+        end
+
         it "raises once the slice is frozen" do
           assert_raises(FrozenError) { numbered.freeze.delete_if { true } }
         end
@@ -584,6 +640,20 @@ class SliceTest < Minitest::Test
         refute_equal slice, IOStreams::Slice.new(slice.rows, header: %w[Name AGE], format: :psv)
         refute_equal slice, slice.rows
       end
+
+      it "is eql?, as a Hash key, only for rows that are eql?, as an Array is, which have the same hash" do
+        integers = IOStreams::Slice.new([[1, "a"]], line_number: 2, record_number: 1)
+        floats   = IOStreams::Slice.new([[1.0, "a"]], line_number: 2, record_number: 1)
+        same     = IOStreams::Slice.new([[1, "a"]], line_number: 2, record_number: 1)
+
+        assert_equal integers, floats
+        refute integers.eql?(floats)
+        assert integers.eql?(same)
+        assert_equal integers.hash, same.hash
+        assert_nil({integers => true}[floats])
+        assert({integers => true}[same])
+        assert_equal [integers, floats], [integers, floats, same].uniq
+      end
     end
 
     describe "a copy" do
@@ -613,8 +683,15 @@ class SliceTest < Minitest::Test
         numbered = IOStreams::Slice.new(%w[a b], header: %w[name], format: :csv, line_number: 2, record_number: 1)
 
         assert_equal numbered.to_h, numbered.as_json
+        assert_equal numbered.to_h, numbered.as_json({})
         assert_equal numbered, IOStreams.slice(JSON.parse(numbered.to_json))
         assert_equal numbered, IOStreams.slice(JSON.parse(JSON.generate(numbered)))
+      end
+
+      it "raises for the options of as_json without ActiveSupport, which is what applies them, rather than ignore them" do
+        error = assert_raises(ArgumentError) { slice.as_json(only: "rows") }
+        assert_equal 'The options of Slice#as_json are applied by ActiveSupport, which is not loaded: {only: "rows"}',
+                     error.message
       end
     end
 

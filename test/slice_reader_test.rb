@@ -119,7 +119,7 @@ class SliceReaderTest < Minitest::Test
         error = assert_raises(ArgumentError) do
           IOStreams::Slice::Reader.new([%w[name age]], tabular: IOStreams::Tabular.new(format: :array), size: 2)
         end
-        assert_equal "Rows must implement #each_with_line_number, such as IOStreams::Line::Reader, or #each_with_numbers",
+        assert_equal "Rows must implement #add_to(collector), such as IOStreams::Slice::Rows",
                      error.message
       end
 

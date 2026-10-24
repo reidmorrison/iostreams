@@ -86,6 +86,16 @@ class QuerySlicesTest < Minitest::Test
         refute hashes.first["blank_rows"]
       end
 
+      it "is written as JSON by ActiveSupport, which applies the options of as_json to it as to a Hash" do
+        slices = []
+        IOStreams.stream(relation).each(:slice, size: 5) { |slice| slices << slice }
+        slice = slices.first
+
+        assert_equal slice.to_h.as_json, slice.as_json
+        assert_equal({"rows" => slice.to_h["rows"].as_json}, slice.as_json(only: "rows"))
+        assert_equal %w[rows format blank_rows record_number], slice.as_json(except: "header").keys
+      end
+
       it "copies a row whose every value is null from the slice that holds it" do
         output = StringIO.new
         IOStreams.stream(output).format(:json).copy_from(IOStreams.stream(stored_slices.first).schema(schema), mode: :hash)

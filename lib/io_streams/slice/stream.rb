@@ -53,9 +53,10 @@ module IOStreams
         super(blank_rows: io_stream.blank_rows?, **)
       end
 
-      # Yields [Numbered] the rows of the slice, after its header row, when it carries one, with the line number and
-      # record number of each one, which a slice reader reads, see `IOStreams::Row::Stream#open_slice_rows`, so that the
-      # slices that it reads from this slice keep the numbers of their rows, see `IOStreams::Slice#each`.
+      # Yields [Numbered] the rows of the slice, after its header row, when it carries one, which add themselves to the
+      # collector of a slice reader with the line number and record number of each one, see
+      # `IOStreams::Row::Stream#open_slice_rows`, so that the slices that it reads from this slice keep the numbers of
+      # their rows, see `IOStreams::Slice#each`.
       def open_slice_rows(_tabular, _delimiter, _buffer_size)
         yield Numbered.new(io_stream)
       end
@@ -79,11 +80,12 @@ module IOStreams
           @slice = slice
         end
 
-        # Yields the header row, which has no numbers, and then each row with its line number and record number.
-        def each_with_numbers(&)
+        # Adds the header row, which has no numbers, and then each row with its line number and record number, to the
+        # supplied collector, see `IOStreams::Slice::Collector#add_numbered`.
+        def add_to(collector)
           header = @slice.header
-          yield(header, nil, nil) if header
-          @slice.each(&)
+          collector.add_numbered(header, nil, nil) if header
+          @slice.each { |row, line_number, record_number| collector.add_numbered(row, line_number, record_number) }
         end
       end
       private_constant :Numbered

@@ -29,14 +29,16 @@ module IOStreams
       end
 
       # Parameters
-      #   rows: [#each_with_line_number|#each_with_numbers]
-      #     Yields each row of the file, as the format holds it, after its header row, when it has one:
-      #     - `#each_with_line_number` yields each row with the line of the file that it starts on, see
-      #       `IOStreams::Slice#line_number_at`: the lines of a file, see `IOStreams::Line::Reader#each_with_line_number`,
-      #       or rows that are not lines, such as those of Parquet, which start on no line, see `IOStreams::Slice::Rows`.
-      #       Each row is numbered as the next record, see `IOStreams::Slice#record_number_at`.
-      #     - `#each_with_numbers` yields each row with its line number and record number, such as the rows of a slice,
-      #       see `IOStreams::Slice::Stream`, so that they keep them.
+      #   rows: [#add_to]
+      #     Adds each row of the file, as the format holds it, after its header row, when it has one, to the collector
+      #     of the slices, see `IOStreams::Slice::Collector`, with the numbers that the rows know:
+      #     - the lines of a file, with the line of the file that each one starts on, see `IOStreams::Slice::LineRows`.
+      #     - rows that are not lines of a file, such as those of Parquet, which start on no line, see
+      #       `IOStreams::Slice::Rows`.
+      #     - the rows of a slice, with their line numbers and record numbers, see `IOStreams::Slice::Stream`, so that
+      #       they keep them.
+      #     The collector numbers each row as the next record, see `IOStreams::Slice#record_number_at`, unless the rows
+      #     bring their own.
       #
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
@@ -52,9 +54,8 @@ module IOStreams
       #     Default: false
       def initialize(rows, tabular:, size:, validate: false)
         self.class.check(size: size, validate: validate)
-        unless rows.respond_to?(:each_with_line_number) || rows.respond_to?(:each_with_numbers)
-          raise(ArgumentError, "Rows must implement #each_with_line_number, such as IOStreams::Line::Reader, or " \
-                               "#each_with_numbers")
+        unless rows.respond_to?(:add_to)
+          raise(ArgumentError, "Rows must implement #add_to(collector), such as IOStreams::Slice::Rows")
         end
 
         @rows     = rows
@@ -76,13 +77,8 @@ module IOStreams
       #
       # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
       def each(&)
-        numbered  = @rows.respond_to?(:each_with_numbers)
-        collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, numbered: numbered, &)
-        if numbered
-          @rows.each_with_numbers { |row, line_number, record_number| collector.add(row, line_number, record_number) }
-        else
-          @rows.each_with_line_number { |row, line_number| collector.add(row, line_number) }
-        end
+        collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, &)
+        @rows.add_to(collector)
         collector.finish
         collector.count
       end

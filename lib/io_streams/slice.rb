@@ -34,6 +34,7 @@ module IOStreams
   # turns back into a slice.
   class Slice
     autoload :Collector, "io_streams/slice/collector"
+    autoload :LineRows, "io_streams/slice/line_rows"
     autoload :Reader, "io_streams/slice/reader"
     autoload :Rows, "io_streams/slice/rows"
     autoload :Stream, "io_streams/slice/stream"
@@ -51,7 +52,8 @@ module IOStreams
     # Raises ArgumentError when it does not describe a slice: when it is not a Hash, has no rows, or a key that a slice
     # does not have, or when its rows are not an Array, its header row is not an Array of Strings, its format is not a
     # tabular format, see `IOStreams.tabular_formats`, its `blank_rows` is not true or false, its `line_number` or
-    # `record_number` is not a positive Integer, or its `jumps` are not those of its rows, see #to_h.
+    # `record_number` is not a positive Integer, or is supplied without rows, or its `jumps` are not those of its rows,
+    # see #to_h.
     def self.from_h(hash)
       raise(ArgumentError, "A slice must be the Hash that #to_h returns, not #{hash.class.name}") unless hash.is_a?(::Hash)
 
@@ -122,12 +124,12 @@ module IOStreams
 
     # Returns [Integer] the line number of the first row, see #line_number_at, such as 2 for the first slice of a CSV
     # file whose header row is on line 1.
-    # Returns nil when the first row has none, or the slice has no rows and was built without one, see #initialize.
+    # Returns nil when the first row has none, or the slice has no rows.
     attr_reader :line_number
 
     # Returns [Integer] the record number of the first row, see #record_number_at, such as 101 for the second slice of
     # 100 rows of a file.
-    # Returns nil when the first row has none, or the slice has no rows and was built without one, see #initialize.
+    # Returns nil when the first row has none, or the slice has no rows.
     attr_reader :record_number
 
     # Parameters
@@ -156,8 +158,11 @@ module IOStreams
     #     The record number of the first row, see #record_number_at. Each row after it is numbered as the next record.
     #     Default: nil, the rows have no record numbers.
     #
-    # Raises ArgumentError when the rows are not an Array, or for a line number or record number that is not a positive
-    # Integer, nor nil.
+    # A slice without rows has no numbers, since they are those of its first row: supply them when the row is added,
+    # see #add.
+    #
+    # Raises ArgumentError when the rows are not an Array, for a line number or record number that is not a positive
+    # Integer, nor nil, or for one without rows, rather than ignore it.
     def initialize(rows = [], header: nil, format: nil, blank_rows: true, line_number: nil, record_number: nil)
       raise(ArgumentError, "The rows of a slice must be an Array, not #{rows.class.name}") unless rows.is_a?(::Array)
 
@@ -168,6 +173,7 @@ module IOStreams
       @line_number   = checked_number("line_number", line_number)
       @record_number = checked_number("record_number", record_number)
       @jumps         = nil
+      check_numbers_of_rows
       follow_last_row
     end
 
@@ -187,10 +193,18 @@ module IOStreams
     #     puts "Record #{record_number}, on line #{line_number}: #{row}"
     #   end
     #
+    # A block, lambda or method that takes one argument receives the row alone, such as `slice.each(&method(:process))`,
+    # see #row_alone?.
+    #
     # Returns self.
     # Returns an Enumerator of them without a block.
-    def each
-      return enum_for(:each) { size } unless block_given?
+    def each(&block)
+      return enum_for(:each) { size } unless block
+
+      if row_alone?(block)
+        @rows.each(&block)
+        return self
+      end
 
       line_number   = @line_number
       record_number = @record_number
@@ -286,14 +300,17 @@ module IOStreams
     #
     # Returns self, so that calls can be chained.
     #
-    # Raises ArgumentError for a line number or record number that is not a positive Integer, nor nil.
+    # Raises ArgumentError for a line number or record number that is not a positive Integer, nor nil, and FrozenError
+    # once the slice is frozen.
     def add(row, line_number: nil, record_number: nil)
       if @rows.empty?
         first          = [checked_number("line_number", line_number), checked_number("record_number", record_number)]
         @line_number   = first[0]
         @record_number = first[1]
-      elsif line_number != @next_line_number || record_number != @next_record_number
-        # A row that does not follow the row before it, whose numbers are checked here, since those that follow it are.
+      elsif !(@next_line_number.eql?(line_number) && @next_record_number.eql?(record_number))
+        # A row that does not follow the row before it, whose numbers are checked here. Those of a row that follows it
+        # are the Integers that the row before it gives the next row, or nil, since `eql?` is false for a Float or a
+        # Rational of the same value.
         jump = [@rows.size, checked_number("line_number", line_number), checked_number("record_number", record_number)]
         (@jumps ||= []) << jump
       end
@@ -356,13 +373,14 @@ module IOStreams
     # Returns an Enumerator of the rows and their numbers without a block.
     #
     # Raises FrozenError once the slice is frozen.
-    def delete_if
-      return enum_for(:delete_if) { size } unless block_given?
+    def delete_if(&block)
+      return enum_for(:delete_if) { size } unless block
 
       check_frozen
       numbered = numbered_rows
-      # Each row is yielded with its numbers as three values, as #each yields them, also to a lambda.
-      numbered.delete_if { |numbers| yield(*numbers) }
+      alone    = row_alone?(block)
+      # Each row is yielded with its numbers as three values, as #each yields them, also to a lambda that takes them.
+      numbered.delete_if { |numbers| alone ? block.call(numbers.first) : block.call(*numbers) }
       renumber(numbered)
       self
     end
@@ -413,9 +431,17 @@ module IOStreams
       hash
     end
 
-    # Returns [Hash] what the slice holds, see #to_h, which ActiveSupport writes as JSON.
-    def as_json(*)
-      to_h
+    # Returns [Hash] what the slice holds, see #to_h, which ActiveSupport writes as JSON, applying the supplied options,
+    # such as `only:` and `except:`, as it does to a Hash.
+    #
+    # Raises ArgumentError for options without ActiveSupport, which is what applies them, rather than ignore them.
+    def as_json(options = nil)
+      hash = to_h
+      return hash.as_json(options) if hash.respond_to?(:as_json)
+      return hash if options.nil? || options == {}
+
+      raise(ArgumentError, "The options of Slice#as_json are applied by ActiveSupport, which is not loaded: " \
+                           "#{options.inspect}")
     end
 
     # Returns [String] what the slice holds as JSON, see #to_h, which `IOStreams.slice(JSON.parse(json))` turns back
@@ -426,14 +452,18 @@ module IOStreams
 
     # Slices are equal when they hold the same rows, with the same numbers, of the same header row and format, see #to_h.
     def ==(other)
-      other.is_a?(Slice) && other.to_h == to_h
+      other.is_a?(Slice) && other.contents == contents
     end
 
-    # Slices are equal hash keys when they are equal, see #==.
-    alias eql? ==
+    # Slices are the same hash key when what they hold is `eql?`, see #==, so that, as for an Array, rows that are only
+    # equal by `==`, such as 1 and 1.0, are not.
+    def eql?(other)
+      other.is_a?(Slice) && other.contents.eql?(contents)
+    end
 
+    # Returns [Integer] the hash of what the slice holds, which slices that are `eql?` share, see #eql?.
     def hash
-      to_h.hash
+      contents.hash
     end
 
     # Freezes the slice, its rows and their numbers, so that a row cannot be added, see #add.
@@ -449,6 +479,14 @@ module IOStreams
         "record_number=#{record_number.inspect} rows=#{@rows.inspect}>"
     end
 
+    protected
+
+    # Returns [Array] what the slice holds, as #to_h holds it, without copying its rows, which equal slices hold the same
+    # of, see #==.
+    def contents
+      [@rows, header, format&.to_s, blank_rows?, line_number, record_number, @jumps]
+    end
+
     private
 
     # A copy holds rows and numbers of its own, so that adding a row to it does not change the slice that it copies.
@@ -456,6 +494,17 @@ module IOStreams
       super
       @rows  = @rows.dup
       @jumps = @jumps&.dup
+    end
+
+    # A frozen copy, such as the `#clone` of a frozen slice, also holds frozen rows and numbers, as #freeze does, since
+    # Ruby freezes the copy without calling #freeze, so that a change, such as #add, raises FrozenError before it changes
+    # anything.
+    def initialize_clone(other, freeze: nil)
+      super
+      return unless freeze || (freeze.nil? && other.frozen?)
+
+      @rows.freeze
+      @jumps&.freeze
     end
 
     # Holds the supplied jumps, see #to_h, of the rows whose numbers do not follow those of the row before them, as
@@ -556,25 +605,28 @@ module IOStreams
     end
 
     # Holds the supplied rows with their numbers, `[row, line_number, record_number]`, see #numbered_rows, as the rows of
-    # the slice, keeping the numbers of the first row, and a jump for each row whose numbers do not follow those of the
-    # row before it, see #to_h.
+    # the slice, adding each one as #add does, so that its jumps are those of the rows, see #to_h.
     def renumber(numbered)
-      jumps         = nil
-      line_number   = nil
-      record_number = nil
-      numbered.each_with_index do |(_row, line, record), index|
-        unless index.zero? || (line == (line_number && (line_number + 1)) && record == (record_number && (record_number + 1)))
-          (jumps ||= []) << [index, line, record]
-        end
-        line_number   = line
-        record_number = record
-      end
-      first          = numbered.first
-      @rows          = numbered.map(&:first)
-      @line_number   = first && first[1]
-      @record_number = first && first[2]
-      @jumps         = jumps
-      follow_last_row
+      @rows          = []
+      @jumps         = nil
+      @line_number   = nil
+      @record_number = nil
+      numbered.each { |row, line_number, record_number| add(row, line_number: line_number, record_number: record_number) }
+    end
+
+    # Returns [true|false] whether to yield the supplied block the row alone, rather than with its numbers, see #each:
+    # when it takes one argument, such as `{ |row| }`, or a lambda or a method of one, which Ruby would otherwise raise
+    # for, since it takes exactly the values yielded to it.
+    def row_alone?(block)
+      block.arity == 1
+    end
+
+    # Raises ArgumentError for numbers of the first row of a slice without rows, see #initialize.
+    def check_numbers_of_rows
+      return unless @rows.empty? && !(@line_number.nil? && @record_number.nil?)
+
+      raise(ArgumentError, "A slice without rows has no line_number or record_number, since they are those of its " \
+                           "first row: supply them when it is added, with #add(row, line_number:, record_number:)")
     end
 
     # Raises FrozenError once the slice is frozen, before it is changed.

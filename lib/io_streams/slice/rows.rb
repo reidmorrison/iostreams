@@ -2,30 +2,25 @@
 
 module IOStreams
   class Slice
-    # The rows that a slice reader reads, see `IOStreams::Slice::Reader`, when they are not lines that a line reader
-    # reads from a file, see `IOStreams::Line::Reader#each_with_line_number`, so that they start on no line: the records
-    # of a format such as Parquet, or the rows of an Active Record query. The slices number each of them as the next
-    # record, see `IOStreams::Slice#record_number_at`.
+    # The rows that a slice reader reads, see `IOStreams::Slice::Reader`, when they are not lines of a file, see
+    # `IOStreams::Slice::LineRows`, so that they start on no line: the records of a format such as Parquet, the rows of
+    # an Active Record query, or the lines of text that a stream turns the data of a file into, such as the CSV text of a
+    # spreadsheet, see `IOStreams::Builder#lines_of_file?`. The collector numbers each of them as the next record, see
+    # `IOStreams::Slice#record_number_at`.
     class Rows
       # Parameters
       #   rows: [#each]
-      #     Yields each row, after the header row when one is supplied.
-      #
-      #   header: [Array<String>]
-      #     The header row, yielded before the rows.
-      #     Default: nil, no header row is yielded before the rows, though they can start with one, such as those of a
-      #     query.
-      def initialize(rows, header: nil)
-        @rows   = rows
-        @header = header
+      #     Yields each row, such as those of a query, which can start with a header row.
+      def initialize(rows)
+        @rows = rows
       end
 
-      # Yields each row with the line of the file that it starts on: nil, since the rows are not lines.
+      # Adds each row to the supplied collector, see `IOStreams::Slice::Collector#add`, without a line, since the rows
+      # are not lines of a file.
       #
       # Returns the result of the `#each` of the rows.
-      def each_with_line_number
-        yield(@header, nil) if @header
-        @rows.each { |row| yield(row, nil) }
+      def add_to(collector)
+        @rows.each { |row| collector.add(row) }
       end
     end
   end
