@@ -54,7 +54,8 @@ end
 # Since PGP libraries use UTC for Dates
 ENV["TZ"] = "UTC"
 # And the time zone of the JVM on JRuby, which TZ does not change once it runs, so that AR-JDBC, which converts dates
-# in it, writes the dates of the query tests on the day that Ruby holds, rather than the day before.
+# in it, writes the dates of the query tests on the day that Ruby holds, rather than the day before, see
+# https://github.com/jruby/jruby/issues/9883 and https://github.com/jruby/activerecord-jdbc-adapter/issues/1235.
 Java::JavaUtil::TimeZone.setDefault(Java::JavaUtil::TimeZone.getTimeZone("UTC")) if RUBY_ENGINE == "jruby"
 
 # Test cipher. Note: aes-128-cbc requires a 16 byte key.

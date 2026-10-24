@@ -164,7 +164,7 @@ module QueryDatabase
     config = MysqlDatabase.create(config) if name == "MySQL"
     namespace::Record.establish_connection(config)
     # The PostgreSQL adapter of AR-JDBC casts an array with a connection of ActiveRecord::Base, whatever the model,
-    # which `pluck` raises for when ActiveRecord::Base has none.
+    # which `pluck` raises for when ActiveRecord::Base has none, see https://github.com/jruby/activerecord-jdbc-adapter/issues/1229.
     ActiveRecord::Base.establish_connection(config) if jdbc? && name == "PostgreSQL"
     namespace::Record.with_connection do |connection|
       PostgresqlSchema.create(connection) if connection.adapter_name == "PostgreSQL"
@@ -332,9 +332,10 @@ module QueryDatabase
     # The configuration of the MySQL adapter of AR-JDBC on JRuby:
     #   properties: those of Connector/J, its driver, that connect a user of `caching_sha2_password`, the default of
     #   MySQL 8, without TLS, and that read a YEAR as an integer, as mysql2 does, rather than as a date, which the
-    #   integer type of Active Record raises for, as `pluck` does.
+    #   integer type of Active Record raises for, as `pluck` does, see https://github.com/jruby/activerecord-jdbc-adapter/issues/1234.
     #   statement_limit: 0, which keeps no prepared statement, since AR-JDBC keeps those of a connection that the server
-    #   ended, such as one that the tests kill, which raise "No operations allowed after statement closed" once.
+    #   ended, such as one that the tests kill, which raise "No operations allowed after statement closed" once, see
+    #   https://github.com/jruby/activerecord-jdbc-adapter/issues/1228.
     JDBC_CONFIG = {
       properties:      {"allowPublicKeyRetrieval" => "true", "useSSL" => "false", "yearIsDateType" => "false"}.freeze,
       statement_limit: 0

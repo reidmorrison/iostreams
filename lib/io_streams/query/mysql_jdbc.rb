@@ -17,9 +17,9 @@ module IOStreams
     #
     # Connector/J sets the `net_write_timeout` of the session itself while it streams a result, to its
     # `netTimeoutForStreamingResults`, 600 seconds by default, and afterwards to the value that the session had when it
-    # connected, rather than the one that the `variables` of the configuration of the connection set, so the read turns
-    # that off while it streams, see #without_driver_timeout, and raises the limits of the session itself, as
-    # `IOStreams::Query::Mysql2Stream` does.
+    # connected, rather than the one that the `variables` of the configuration of the connection set, see
+    # https://github.com/jruby/activerecord-jdbc-adapter/issues/1236, so the read turns that off while it streams, see
+    # #without_driver_timeout, and raises the limits of the session itself, as `IOStreams::Query::Mysql2Stream` does.
     class MysqlJdbc < Mysql2Stream
       # The fetch size of a statement that makes Connector/J stream its rows, `Integer.MIN_VALUE` of Java, see
       # https://dev.mysql.com/doc/connector-j/en/connector-j-reference-implementation-notes.html.

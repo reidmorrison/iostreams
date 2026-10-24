@@ -396,12 +396,20 @@ export an empty value. Select it as null when it is not finite, such as with
 `CASE WHEN isfinite(wait) THEN wait END AS wait`, or as text, such as `wait::text AS wait_text`. A `timetz`, which
 Active Record does not know, is read as the text that PostgreSQL returns, such as `17:00:00+02`, as a `string`.
 
-On JRuby, the drivers of AR-JDBC read a time of day themselves, as `pluck` does there. Connector/J raises for a MySQL
-`TIME` outside a day, apart from a negative one of less than an hour, such as `-00:00:01`, which it reads without its
-sign, as `00:00:01`, which IOStreams cannot tell apart from a time of day, and PgJDBC raises for PostgreSQL's
-`24:00:00`. AR-JDBC returns a PostgreSQL `interval` that is zero, infinite, or has a fraction of a second as text that
-Active Record reads as nil, so an interval column is never required there, and a `timetz` as a `Time` in UTC, without
-its offset, of the type `any`. Select such columns as text, as above, to export them as stored.
+On JRuby, the drivers of AR-JDBC read a time of day themselves, as `pluck` does there:
+
+* Connector/J raises for a MySQL `TIME` outside a day, apart from a negative one of less than an hour, such as
+  `-00:00:01`, which it reads without its sign, as `00:00:01`, which IOStreams cannot tell apart from a time of day,
+  see [AR-JDBC #1233](https://github.com/jruby/activerecord-jdbc-adapter/issues/1233).
+* AR-JDBC raises for PostgreSQL's `24:00:00`, with an exception of Joda-Time that is not a `StandardError`, see
+  [AR-JDBC #1232](https://github.com/jruby/activerecord-jdbc-adapter/issues/1232).
+* AR-JDBC returns a PostgreSQL `interval` that is zero, infinite, or has less than a millisecond of seconds as text that
+  Active Record reads as nil, so an interval column is never required there, see
+  [AR-JDBC #1230](https://github.com/jruby/activerecord-jdbc-adapter/issues/1230).
+* AR-JDBC returns a `timetz` as a `Time` in UTC, without its offset, of the type `any`, see
+  [AR-JDBC #1231](https://github.com/jruby/activerecord-jdbc-adapter/issues/1231).
+
+Select such columns as text, as above, to export them as stored.
 
 ## Connections and transactions
 
@@ -576,13 +584,14 @@ AR-JDBC reads some values differently, as `pluck` does on JRuby:
   [Dates and times](#dates-and-times).
 * It reads some times of day and intervals otherwise, see [Times of day](#times-of-day).
 * Connector/J reads a MySQL `YEAR` as a date, which the integer type of Active Record raises for, so set
-  `yearIsDateType: false` in the `properties` of the configuration of the database, which reads it as an integer.
+  `yearIsDateType: false` in the `properties` of the configuration of the database, which reads it as an integer, see
+  [AR-JDBC #1234](https://github.com/jruby/activerecord-jdbc-adapter/issues/1234).
 * Its drivers raise `ActiveRecord::JDBCError` for every failure, also for a connection that could not be made, see
   [What a query raises](errors#what-a-query-raises).
 
 AR-JDBC applies no query transformers, such as the tags of `ActiveRecord::QueryLogs`, to the statements that it runs,
-including the cursor of PostgreSQL, while IOStreams applies them to the query that it runs with the driver on MySQL and
-SQLite, as Active Record does.
+including the cursor of PostgreSQL, see [AR-JDBC #1227](https://github.com/jruby/activerecord-jdbc-adapter/issues/1227), while IOStreams applies them to the query
+that it runs with the driver on MySQL and SQLite, as Active Record does.
 
 ## Errors
 

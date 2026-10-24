@@ -235,7 +235,7 @@ changes, and docs/errors.md when what it raises does.
   the API of Active Record as with pg, owning what differs with PgJDBC: `.reads?` (`ADAPTERS` and `Jdbc.adapter?`, which
   `PostgresqlCursor.reads?` excludes), `.failure_kind` by SQLSTATE (`STATE_KINDS`, after `Jdbc.unknown_host_kind`, since
   PgJDBC raises an unknown host as `08001`), `.requirable_types` without duration, since AR-JDBC returns an interval
-  that is zero, infinite or has a fraction of a second as ISO 8601 that `OID::Interval` casts to nil ("P",
+  that is zero, infinite or has less than a millisecond of seconds as ISO 8601 that `OID::Interval` casts to nil ("P",
   "PT1.0E-6S"), and `.unknown_type` "any". AR-JDBC raises for `24:00:00` itself (Joda-Time's
   `IllegalFieldValueException`), reads a `timetz` as a `Time` in UTC without its offset, and applies no query
   transformers to the DECLARE; a `Timeout` interrupts a fetch only once it returns, since PgJDBC blocks in Java.

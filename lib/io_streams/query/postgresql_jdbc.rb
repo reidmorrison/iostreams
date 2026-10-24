@@ -48,14 +48,14 @@ module IOStreams
       # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record
       # casts it, see `IOStreams::Query::Columns`: those of `IOStreams::Query::PostgresqlCursor.requirable_types`, but
       # not an interval, which AR-JDBC returns as text that Active Record casts to nil, when it is zero, or infinite, or
-      # has a fraction of a second.
+      # has less than a millisecond of seconds, see https://github.com/jruby/activerecord-jdbc-adapter/issues/1230.
       def self.requirable_types
         REQUIRABLE_TYPES
       end
 
       # Returns [String] the type of field of a column of a type that Active Record does not know, see
       # `IOStreams::Query::Columns`: "any", since AR-JDBC returns the value that it casts, such as a Time for a `timetz`,
-      # rather than its text.
+      # rather than its text, see https://github.com/jruby/activerecord-jdbc-adapter/issues/1231.
       def self.unknown_type
         "any"
       end
