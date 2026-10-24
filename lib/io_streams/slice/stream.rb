@@ -53,13 +53,12 @@ module IOStreams
         super(blank_rows: io_stream.blank_rows?, **)
       end
 
-      # Yields [IOStreams::Slice::Rows] the rows of the slice, after its header row, when it carries one, with the line of
-      # the file that each one starts on, which a slice reader reads, see `IOStreams::Row::Stream#open_slice_rows`, so
-      # that the slices that it reads from this slice number their rows from the line of its first row, see
-      # `IOStreams::Slice#line_number`, rather than from 1.
+      # Yields [RowsWithLines] the rows of the slice, after its header row, when it carries one, with the line of the file
+      # that each one starts on, which a slice reader reads, see `IOStreams::Row::Stream#open_slice_rows`, so that the
+      # slices that it reads from this slice keep the lines of their rows, see `IOStreams::Slice#line_number_at`. The
+      # slice reader numbers their records as it builds the slices, see `IOStreams::Slice::Collector#add`.
       def open_slice_rows(_tabular, _delimiter, _buffer_size)
-        slice = io_stream
-        yield IOStreams::Slice::Rows.new(slice, header: slice.header, line_number: slice.line_number)
+        yield RowsWithLines.new(io_stream)
       end
 
       # Returns [#each] the rows of the slice, after its header row, when it carries one, which the readers of rows and
@@ -68,10 +67,27 @@ module IOStreams
         slice = io_stream
         Enumerator.new do |rows|
           rows << slice.header if slice.header
-          slice.each { |row| rows << row }
+          slice.each { |row, _line_number, _record_number| rows << row }
           slice.size + (slice.header ? 1 : 0)
         end
       end
+
+      # The rows of a slice, after its header row, when it carries one, with the line of the file that each one starts
+      # on, see `IOStreams::Slice#each`, which a slice reader reads, see `IOStreams::Slice::Reader`, so that the slices
+      # that it reads from them keep their lines.
+      class RowsWithLines
+        def initialize(slice)
+          @slice = slice
+        end
+
+        # Yields the header row, which starts on no line, nil, and then each row with its line number.
+        def each
+          header = @slice.header
+          yield(header, nil) if header
+          @slice.each { |row, line_number, _record_number| yield(row, line_number) }
+        end
+      end
+      private_constant :RowsWithLines
     end
   end
 end

@@ -205,7 +205,7 @@ class BlankRowsTest < Minitest::Test
       end
 
       it "hold every row as it is in the file, blank or not, as each(:line) yields every line" do
-        assert_equal [["Jack,21", ","], ["", "Jill,22"], ["Bob,23"]], slices(stream(data), size: 2)
+        assert_equal [["Jack,21", ","], ["", "Jill,22"], ["Bob,23"]], slices(stream(data), size: 2).map(&:rows)
       end
 
       it "are read with each(:hash) or each(:array), which skip their blank rows with skip_blanks: true" do

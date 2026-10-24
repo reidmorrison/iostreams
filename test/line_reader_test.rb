@@ -160,6 +160,12 @@ class LineReaderTest < Minitest::Test
         assert_equal [["a", 1, 1], [%("b\nc"), 2, 3], ["", 4, 4], ["d", 5, 5]], lines
         assert_equal 4, count
       end
+
+      it "returns an Enumerator of the lines and their numbers without a block" do
+        reader = IOStreams::Line::Reader.new(StringIO.new(%(a\n"b\nc"\nd\n)), embedded_within: '"')
+
+        assert_equal [["a", 1], [%("b\nc"), 2], ["d", 4]], reader.each_with_line_number.to_a
+      end
     end
 
     describe "invalid encoding" do
@@ -233,6 +239,12 @@ class LineReaderTest < Minitest::Test
     end
 
     describe "#each" do
+      it "returns an Enumerator of the lines without a block" do
+        reader = IOStreams::Line::Reader.new(StringIO.new("a\nb\n"))
+
+        assert_equal [["a", 0], ["b", 1]], reader.each.with_index.to_a
+      end
+
       it "each_line file" do
         lines = []
         count = IOStreams::Line::Reader.file(file_name) do |io|

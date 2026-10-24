@@ -35,7 +35,8 @@ class QuerySlicesTest < Minitest::Test
         slices = stored_slices
 
         assert_equal [false, false], slices.map(&:blank_rows?)
-        assert_equal [1, 3], slices.map(&:line_number)
+        assert_equal [1, 3], slices.map(&:record_number)
+        assert_equal [nil, nil], slices.map(&:line_number)
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
@@ -57,9 +58,10 @@ class QuerySlicesTest < Minitest::Test
         IOStreams.stream(store).copy_from(relation, mode: :hash)
 
         assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
-        assert_equal [["2026-10-01,1.5", ","], ["1969-12-31,"]], store.slices.map(&:to_a)
-        # The rows of a query are not lines of a file, so each slice holds the number of its first row.
-        assert_equal [1, 3], store.slices.map(&:line_number)
+        assert_equal [["2026-10-01,1.5", ","], ["1969-12-31,"]], store.slices.map(&:rows)
+        # The rows of a query are not lines of a file, so each row holds its record number, and no line.
+        assert_equal [1, 3], store.slices.map(&:record_number)
+        assert_equal [nil, nil], store.slices.map(&:line_number)
         # A row of nulls is a line of only commas, which each slice holds is a record, as each(:slice) of the query does.
         assert_equal [false, false], store.slices.map(&:blank_rows?)
         assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
@@ -80,8 +82,18 @@ class QuerySlicesTest < Minitest::Test
         hashes = []
         IOStreams.stream(relation).each(:slice, size: 5) { |slice| hashes << slice.to_h }
 
-        assert_equal [%w[rows header format blank_rows line_number]], hashes.map(&:keys)
+        assert_equal [%w[rows header format blank_rows record_number]], hashes.map(&:keys)
         refute hashes.first["blank_rows"]
+      end
+
+      it "is written as JSON by ActiveSupport, which applies the options of as_json to it as to a Hash" do
+        slices = []
+        IOStreams.stream(relation).each(:slice, size: 5) { |slice| slices << slice }
+        slice = slices.first
+
+        assert_equal slice.to_h.as_json, slice.as_json
+        assert_equal({"rows" => slice.to_h["rows"].as_json}, slice.as_json(only: "rows"))
+        assert_equal %w[rows format blank_rows record_number], slice.as_json(except: "header").keys
       end
 
       it "copies a row whose every value is null from the slice that holds it" do

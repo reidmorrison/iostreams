@@ -67,12 +67,14 @@ class ParquetTest < Minitest::Test
       list
     end
 
-    it "gives each slice the number of its first record, counting from 1, since its rows are not lines" do
+    it "gives each row its record number, counting from 1, and no line, since its rows are not lines" do
       write(path.schema(schema), records * 3)
       list = []
       path.schema(schema).each(:slice, size: 4) { |slice| list << slice }
 
-      assert_equal [1, 5], list.map(&:line_number)
+      assert_equal [1, 5], list.map(&:record_number)
+      assert_equal [nil, nil], list.map(&:line_number)
+      assert_equal [[nil, 5], [nil, 6]], list.last.each.map { |_row, line, record| [line, record] }.first(2)
     end
 
     # Runs the block with the local time zone of the process.

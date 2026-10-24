@@ -108,9 +108,12 @@ module IOStreams
 
       # Iterate over every line in the file/stream passing each line to supplied block in turn.
       # Returns [Integer] the number of lines read from the file/stream.
+      # Returns an Enumerator of the lines without a block, such as `io.each.with_index`.
       # Note:
       # * The line delimiter is _not_ returned.
       def each
+        return enum_for(:each) unless block_given?
+
         line_count = 0
         until eof?
           line = readline
@@ -127,7 +130,10 @@ module IOStreams
       # when the line holds the line endings within a quoted value, see `embedded_within`.
       #
       # Returns [Integer] the number of lines read from the file/stream.
+      # Returns an Enumerator of the lines and their numbers without a block.
       def each_with_line_number
+        return enum_for(:each_with_line_number) unless block_given?
+
         line_count = 0
         until eof?
           line = readline

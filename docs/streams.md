@@ -60,6 +60,18 @@ end
 
 `#reader` and `#writer` return the result of the block.
 
+In the `:line`, `:array`, `:hash` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
+`#each` returns an Enumerator without a block, so methods such as `io.first(10)` and `io.each.with_index` read it.
+Use them within the block, since the file is closed once the block returns:
+
+~~~ruby
+IOStreams.path("example.csv").reader(:hash) do |io|
+  io.each.with_index do |record, index|
+    puts "#{index}: #{record}"
+  end
+end
+~~~
+
 `#read` returns the whole file, which is only suitable for a small one, since all of it is held in memory:
 
 ~~~ruby
@@ -107,9 +119,9 @@ end
 ### Slices
 
 `each(:slice)` yields the rows of the file a slice at a time, as they are in the file, without parsing them, so that
-other threads, processes or jobs can parse them in parallel. Each slice is an Array of up to `size` rows that carries
-the header row of its file and the format of its rows, and the header row is matched to the schema before the first
-slice is yielded:
+other threads, processes or jobs can parse them in parallel. Each slice, an `IOStreams::Slice`, holds up to `size`
+rows, with the line and record number of each one, and carries the header row of its file and the format of its rows,
+and the header row is matched to the schema before the first slice is yielded:
 
 ~~~ruby
 IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 500) do |slice|
@@ -230,6 +242,10 @@ IOStreams.path("example.csv").reader(:line) do |io|
   end
 end
 ~~~
+
+For an Excel spreadsheet, `.xlsx`, the lines are those of the CSV text that its rows are read as, so their numbers are
+not the rows of the sheet, since a cell that holds line breaks takes a line for each. That is why the slices of a
+spreadsheet hold no line numbers, see [Find a row in the file](slices#find-a-row-in-the-file).
 
 Other notes:
 

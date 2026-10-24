@@ -118,7 +118,7 @@ module IOStreams
       # Writes each row of the slice as it is, see `IOStreams::Tabular#read_line`, which matches the keys of the first
       # record of a format of keyed records, such as JSON, to the fields of the schema.
       def write_as_is(slice)
-        slice.each do |row|
+        slice.each do |row, _line_number, _record_number|
           @reader.read_line(row) do |line|
             @reader.record_parse(line) if @validate
             @output << line
@@ -131,7 +131,7 @@ module IOStreams
       # records, such as JSON without a schema, are read by the keys of the first record of the first slice, which
       # raises `IOStreams::Errors::InvalidHeader` for a key that it lacked.
       def write_rows(slice)
-        slice.each do |row|
+        slice.each do |row, _line_number, _record_number|
           @reader.read_row(row) { |parsed| @rows << parsed unless parsed.nil? }
         end
       end

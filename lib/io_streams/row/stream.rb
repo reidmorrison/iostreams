@@ -95,10 +95,10 @@ module IOStreams
         open_rows(tabular, &)
       end
 
-      # Yields [#each_with_line_number] the rows, see #open_rows, which a slice reader reads, see
-      # `IOStreams::Stream#open_slice_rows`. They are not the lines of a file, so they start on no line, and the slices
-      # number them by row, see `IOStreams::Slice::Rows`, unless the source knows their lines, such as a slice, see
-      # `IOStreams::Slice::Stream#open_slice_rows`.
+      # Yields [#each] the rows, see #open_rows, which a slice reader reads, see
+      # `IOStreams::Stream#open_slice_rows`. They are not the lines of a file, so they start on no line, see
+      # `IOStreams::Slice::Rows`, and the slices number each one as the next record, unless the source knows their
+      # numbers, such as a slice, see `IOStreams::Slice::Stream#open_slice_rows`.
       def open_slice_rows(tabular, _delimiter, _buffer_size)
         open_rows(tabular) { |rows| yield IOStreams::Slice::Rows.new(rows) }
       end
