@@ -689,8 +689,10 @@ class SliceTest < Minitest::Test
       end
 
       it "raises for the options of as_json without ActiveSupport, which is what applies them, rather than ignore them" do
-        error = assert_raises(ArgumentError) { slice.as_json(only: "rows") }
-        assert_equal 'The options of Slice#as_json are applied by ActiveSupport, which is not loaded: {only: "rows"}',
+        options = {only: "rows"}
+        error   = assert_raises(ArgumentError) { slice.as_json(options) }
+        # Ruby 3.4 inspects the options as {only: "rows"}, and Ruby 3.3 as {:only=>"rows"}.
+        assert_equal "The options of Slice#as_json are applied by ActiveSupport, which is not loaded: #{options.inspect}",
                      error.message
       end
     end
