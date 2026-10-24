@@ -505,6 +505,64 @@ class SliceTargetStreamTest < Minitest::Test
           assert_equal [["Ja ck     12345"]], store.slices.collect(&:to_a)
         end
 
+        it "calls a Proc with a copy of each line written, so that it does not change the caller's line" do
+          line    = +"Jack,a\x01b"
+          cleaner = ->(data, _replace) { data.delete!("\x01") || data }
+          stream.encoding(cleaner: cleaner).writer(:line) do |io|
+            io << "name,note"
+            io << line
+            io << "Jill,c\x01d"
+          end
+
+          assert_equal [[%w[name note], :csv, ["Jack,ab", "Jill,cd"]]], written
+          assert_equal "Jack,a\x01b", line
+        end
+
+        it "calls a Proc with each line written, before it is split into rows" do
+          supplied = []
+          cleaner  = lambda do |data, _replace|
+            supplied << data
+            data
+          end
+          stream.encoding(cleaner: cleaner).writer(:line) { |io| io << "name,note" << "Jack,a\nJill,\"b" << "c\"" }
+
+          assert_equal ["name,note", "Jack,a\nJill,\"b", "c\""], supplied
+          assert_equal [[%w[name note], :csv, ["Jack,a", "Jill,\"b\nc\""]]], written
+        end
+
+        it "raises ArgumentError when a Proc does not return a String, rather than store a blank row" do
+          returns_nil = ->(data, _replace) { data.gsub!("\x01", "") }
+          error       = assert_raises(ArgumentError) do
+            stream.encoding(cleaner: returns_nil).writer(:line) { |io| io << "name,note" }
+          end
+
+          assert_equal "The cleaner set with #encoding returned nil rather than the cleaned text of the line as a String",
+                       error.message
+
+          returns_array = ->(data, _replace) { data.split(",") }
+          error         = assert_raises(ArgumentError) do
+            IOStreams.stream(store).encoding(cleaner: returns_array).writer(:line) { |io| io << "name,note" }
+          end
+
+          assert_match(/returned a Array rather than/, error.message)
+          assert_empty store.slices
+        end
+
+        it "splits the rows by the quotes and line endings that the cleaner leaves, as reading the file does" do
+          lines    = ["name,note", "Jack,a\x01b", "Jill,c", "Bob,d\x01e"]
+          expected = {"\"" => ["Jack,a\"b\nJill,c\nBob,d\"e"], "\n" => ["Jack,a", "b", "Jill,c", "Bob,d", "e"]}
+          expected.each_pair do |replace, rows|
+            target = Store.new
+            IOStreams.stream(target).encoding(cleaner: :replace_non_printable, replace: replace).writer(:line) do |io|
+              lines.each { |line| io << line }
+            end
+            stored = target.slices.collect { |slice| [slice.header, slice.format, slice.to_a, slice.line_number] }
+
+            assert_equal [[%w[name note], :csv, rows, 2]], stored, replace.inspect
+            assert_equal read_slices(lines, cleaner: :replace_non_printable, replace: replace), stored, replace.inspect
+          end
+        end
+
         it "calls a Proc with replace:" do
           supplied = []
           cleaner  = lambda do |data, replace|

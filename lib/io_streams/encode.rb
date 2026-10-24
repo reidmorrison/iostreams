@@ -92,8 +92,18 @@ module IOStreams
       external, internal = external_and_internal(encoding)
       external           = Encoding.find(external) if external.is_a?(String)
       check_convertible(encoding, external, internal) if external
-      Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+      self.cleaner(cleaner: cleaner, replace: replace)
       nil
+    end
+
+    # Returns [IOStreams::Encode::Cleaner|nil] that cleanses the text with the supplied `cleaner` option, the name of a
+    # built-in rule or a Proc, which it calls with the `replace` option, or nil without a cleaner. The encode reader
+    # and writer, and the lines written to a store of slices, see `IOStreams::Slice::TargetStream#encoding`, clean
+    # their text with it.
+    #
+    # Raises ArgumentError for a cleaner that is neither the name of a built-in rule nor a Proc.
+    def self.cleaner(cleaner:, replace:)
+      Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
     end
 
     # Raises ArgumentError for an encoding whose text the encode stream converts, but that Ruby has no converter for,

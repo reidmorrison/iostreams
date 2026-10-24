@@ -408,11 +408,14 @@ does not have:
     io << line
   end
   ```
-* To clean each row before it is stored, set `cleaner:` on the store's stream, as for a path, see
+* To clean each line before it is stored, set `cleaner:` on the store's stream, as for a path, see
   [Character encoding](streams#character-encoding): `:printable` removes the characters that are not printable,
-  apart from line endings, `:replace_non_printable` replaces them with `replace:`, and a Proc is called with the text
-  of each row and the `replace:` value, and returns the cleaned text. The header row is cleaned too, before it is
-  matched to the schema:
+  apart from line endings, `:replace_non_printable` replaces them with `replace:`, and a Proc is called with a copy of
+  each line written and the `replace:` value, and returns the cleaned text as a String, or raises `ArgumentError`. A
+  line is cleaned before it is split into rows, as reading a file cleans its text first, and the header row is cleaned
+  too, before it is matched to the schema. Reading a file calls a Proc with each block of text that it reads, rather
+  than each line, so a Proc gives the rows that reading the file gives when it cleans each character on its own, as
+  the built-in rules do:
 
   ```ruby
   IOStreams.stream(store).format(:csv).encoding(cleaner: :printable, replace: "").writer(:line) do |io|

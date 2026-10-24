@@ -106,9 +106,12 @@ module IOStreams
       #     The text that replaces each character that is not valid, or that UTF-8 does not have, rather than raise
       #     `IOStreams::Errors::InvalidEncoding`.
       #   cleaner: [Symbol|Proc]
-      #     Cleans each row before it is added to its slice: `:printable` removes the characters that are not printable,
-      #     apart from line endings, `:replace_non_printable` replaces them with `replace:`, and a Proc is called with
-      #     the text of each row and the `replace:` value, and returns the cleaned text, see `IOStreams::Encode::Cleaner`.
+      #     Cleans each line written before it is split into rows, as reading a file cleans its text before it is split
+      #     into lines: `:printable` removes the characters that are not printable, apart from line endings,
+      #     `:replace_non_printable` replaces them with `replace:`, and a Proc is called with a copy of each line, and
+      #     the `replace:` value, and returns the cleaned text as a String, see `IOStreams::Encode::Cleaner`. Reading a
+      #     file calls a Proc with each block of text read rather than each line, so a Proc that cleans each character
+      #     on its own, as the built-in rules do, gives the rows that reading the file gives.
       #
       #   IOStreams.stream(store).format(:csv).encoding(cleaner: :printable, replace: "").writer(:line) do |io|
       #     io << line
@@ -117,9 +120,9 @@ module IOStreams
       # Without arguments, returns nil, since the rows of a slice are always UTF-8 text.
       #
       # Raises ArgumentError for an encoding, or any other option, since the store holds the rows of slices as UTF-8
-      # text, rather than bytes, and for a cleaner that is neither the name of a built-in rule nor a Proc. They only
-      # apply to the `:line` mode for now, so the `:array` and `:hash` modes raise ArgumentError once one is set, see
-      # #writer, rather than ignore it.
+      # text, rather than bytes, and for a cleaner that is neither the name of a built-in rule nor a Proc, or, once a
+      # line is written, a Proc that does not return a String. They only apply to the `:line` mode for now, so the
+      # `:array` and `:hash` modes raise ArgumentError once one is set, see #writer, rather than ignore it.
       def encoding(encoding = nil, **options)
         return super if encoding.nil? && options.empty?
         unless encoding.nil? && (options.keys - ENCODING_OPTIONS).empty?
@@ -212,7 +215,7 @@ module IOStreams
         #     Replaces each character that is not valid, see #<<, rather than raise.
         #
         #   cleaner: [IOStreams::Encode::Cleaner|nil]
-        #     Cleans each row before it is added, see #add_row.
+        #     Cleans each line before it is split into rows, see #clean.
         def initialize(collector, quote_character, replace: nil, cleaner: nil)
           @collector       = collector
           @quote_character = quote_character
@@ -220,6 +223,8 @@ module IOStreams
           @cleaner         = cleaner
           @encode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
           @pending         = nil
+          # The bytes of the text kept as written, before it was cleaned, see #keep.
+          @pending_bytes   = 0
           @quotes          = 0
           # The line ending of the file, which the first line ending written decides, see #split.
           @delimiter       = nil
@@ -235,7 +240,10 @@ module IOStreams
         # the bytes of a binary line are read as UTF-8. A character that is not valid, or that UTF-8 does not have,
         # raises `IOStreams::Errors::InvalidEncoding`, with its byte offset and the number of its line within the
         # UTF-8 text of the lines written, each followed by a line ending, as reading the file would, unless `replace`
-        # replaces it. The cleaner, when there is one, then cleans each row, see #add_row.
+        # replaces it. The cleaner, when there is one, then cleans the line, before it is split into rows, see #clean,
+        # as reading a file cleans its text before it is split into lines, so that the quotes and line endings that it
+        # leaves split the rows, whereas the byte offset of a character that is not valid counts the bytes as written,
+        # since reading the file checks the text before it cleans it.
         #
         # Raises `IOStreams::Errors::MalformedDataError`, with the number of the line on which the quoted value opened,
         # once the text kept while it is open exceeds the most that a line reader reads into one line, see
@@ -243,23 +251,26 @@ module IOStreams
         #
         # Returns self, so that calls can be chained.
         #
-        # Raises ArgumentError for a line that is not a String, such as a Hash, which the `:hash` mode writes instead.
+        # Raises ArgumentError for a line that is not a String, such as a Hash, which the `:hash` mode writes instead, or
+        # when the cleaner does not return a String.
         def <<(line)
           unless line.nil? || line.is_a?(::String)
             raise(ArgumentError, "Write each line as a String, not a #{line.class.name}, or write rows or records in " \
                                  "the :array or :hash mode")
           end
 
-          text = line.nil? ? "" : line
-          text = utf8(text) unless text.encoding == ::Encoding::UTF_8 && text.valid_encoding?
+          text  = line.nil? ? +"" : line
+          text  = utf8(text) unless text.encoding == ::Encoding::UTF_8 && text.valid_encoding?
+          bytes = text.bytesize
+          text  = clean(text, shared: text.equal?(line))
 
           quotes = @quote_character ? text.count(@quote_character) : 0
           if @pending.nil? && quotes.even? && !text.match?(LINE_ENDING)
             # A line of a single row, the line ending of the file being that of the line writer.
             @delimiter ||= NEWLINE
-            add(text)
+            add(text, bytes)
           else
-            keep(text)
+            keep(text, bytes)
             @quotes += quotes
             split if @quotes.even? || @pending.bytesize > MAX_PENDING_BYTES
           end
@@ -300,19 +311,28 @@ module IOStreams
         private_constant :Text
 
         # Adds the supplied text, a single row on a line of its own, which starts on the line after those added before it,
-        # which the slice of its first row holds, see `IOStreams::Slice#line_number`.
-        def add(text)
+        # which the slice of its first row holds, see `IOStreams::Slice#line_number`, and was the supplied number of
+        # bytes as written, before it was cleaned.
+        def add(text, bytes)
           @lines += 1
-          @bytes += text.bytesize + NEWLINE.bytesize
-          add_row(text, @lines)
+          @bytes += bytes + NEWLINE.bytesize
+          @collector.add(text, @lines)
         end
 
-        # Adds the supplied row, which starts on the supplied line, to the collector, after the cleaner, when there is
-        # one, cleans it. Reading a file cleans its text before it is split into rows, whereas the rows written are
-        # cleaned after they are split. The built-in rules keep line endings and quotes, so the rows are the same, and
-        # the byte offset of a character that is not valid still counts the bytes as written, as reading the file does.
-        def add_row(row, line_number)
-          @collector.add(@cleaner ? @cleaner.call(row) : row, line_number)
+        # Returns [String] the supplied UTF-8 text of a line, cleaned by the cleaner, when there is one, which is
+        # called with a copy of the text when it is the caller's line, rather than change it, see
+        # `IOStreams::Encode::Cleaner#call`.
+        #
+        # Raises ArgumentError when the cleaner returns anything other than a String, such as the nil that `gsub!`
+        # returns when it changes nothing, which would otherwise be stored as a blank row.
+        def clean(text, shared:)
+          return text unless @cleaner
+
+          cleaned = @cleaner.call(text, shared: shared)
+          return cleaned if cleaned.is_a?(::String)
+
+          raise(ArgumentError, "The cleaner set with #encoding returned #{cleaned.nil? ? 'nil' : "a #{cleaned.class.name}"} " \
+                               "rather than the cleaned text of the line as a String")
         end
 
         # Returns [String] the supplied text, which is not valid UTF-8 text, as UTF-8, see #<<.
@@ -374,14 +394,16 @@ module IOStreams
         # Adds the rows of the text kept and of the supplied valid text before a character that is not valid, and
         # then raises the supplied error for the character, on the line that a line reader finds it on, see #split.
         def invalid(before, error)
-          offset = @pending ? @pending.bytesize : 0
-          (@pending ||= +"") << before
+          offset = @pending_bytes
+          (@pending ||= +"") << clean(before, shared: false)
           split(error.after(0, offset))
         end
 
-        # Keeps the supplied text, followed by a line ending, until it is split into rows, see #split.
-        def keep(text)
+        # Keeps the supplied text, followed by a line ending, until it is split into rows, see #split, which was the
+        # supplied number of bytes as written, before it was cleaned.
+        def keep(text, bytes)
           (@pending ||= +"") << text << NEWLINE
+          @pending_bytes += bytes + NEWLINE.bytesize
         end
 
         # Adds each row of the text kept, which a line reader splits as it would read it from a file, see
@@ -392,16 +414,18 @@ module IOStreams
         # `IOStreams::Errors::InvalidEncoding` for a character that is not valid after the text, numbered by the lines
         # of the file, which are the lines added before the text and those of the text, see #invalid.
         def split(invalid = nil)
-          pending   = @pending
-          delimiter = @delimiter unless @delimiter == "\r\n"
-          @pending  = nil
-          @quotes   = 0
-          text      = Text.new(pending, invalid)
-          reader    = IOStreams::Line::Reader.new(text, delimiter: delimiter, embedded_within: @quote_character)
+          pending        = @pending
+          pending_bytes  = @pending_bytes
+          delimiter      = @delimiter unless @delimiter == "\r\n"
+          @pending       = nil
+          @pending_bytes = 0
+          @quotes        = 0
+          text           = Text.new(pending, invalid)
+          reader         = IOStreams::Line::Reader.new(text, delimiter: delimiter, embedded_within: @quote_character)
           @delimiter ||= reader.delimiter
-          reader.each_with_line_number { |row, line_number| add_row(row, @lines + line_number) }
+          reader.each_with_line_number { |row, line_number| @collector.add(row, @lines + line_number) }
           @lines += reader.line_number
-          @bytes += pending.bytesize
+          @bytes += pending_bytes
         rescue IOStreams::Errors::MalformedDataError => e
           raise(e.after(@lines))
         rescue IOStreams::Errors::InvalidEncoding => e
@@ -413,25 +437,15 @@ module IOStreams
       # Yields the writer of the lines in the `:line` mode to the block, see Lines, and adds the rows of the text that it
       # still keeps once the block returns, or leaves early, but not when it raises.
       def write_lines(collector, quote_character, &block)
-        lines = Lines.new(collector, quote_character, replace: replace, cleaner: cleaner)
+        replace = encoding_option(:replace)
+        cleaner = IOStreams::Encode.cleaner(cleaner: encoding_option(:cleaner), replace: replace)
+        lines   = Lines.new(collector, quote_character, replace: replace, cleaner: cleaner)
         Utils.finish_or_abort(finish: -> { lines.finish }) { block.call(lines) }
-      end
-
-      # Returns [String|nil] the text that replaces each character that is not valid in a line, see #encoding.
-      def replace
-        encoding_option(:replace)
-      end
-
-      # Returns [IOStreams::Encode::Cleaner|nil] that cleans each row of the lines written, see #encoding, which it calls
-      # with `replace`, as the encode stream does when it reads a file.
-      def cleaner
-        rule = encoding_option(:cleaner)
-        IOStreams::Encode::Cleaner.new(rule, replace: replace) unless rule.nil?
       end
 
       # Returns the value of the supplied option of #encoding, see ENCODING_OPTIONS, or nil when it is not set.
       def encoding_option(name)
-        builder.setting(:encode)&.[](name)
+        setting(:encode)&.[](name)
       end
 
       # Returns [Hash] the options of the copy, see #copy_from, those of the collector, see #slice_options.

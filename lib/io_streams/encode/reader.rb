@@ -85,7 +85,7 @@ module IOStreams
         @internal           = nil if @internal == external
         @replace            = replace
         @transcode_options  = replace.nil? ? {} : {invalid: :replace, undef: :replace, replace: replace}
-        @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+        @cleaner            = Encode.cleaner(cleaner: cleaner, replace: replace)
         # The encodings of the byte orders of "UTF-16" or "UTF-32", while the byte order mark at the start of the data,
         # which tells which one it is in, is still to be read, see #read_byte_order.
         @byte_orders        = Encode.byte_order_encodings(external)

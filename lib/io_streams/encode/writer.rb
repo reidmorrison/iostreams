@@ -63,7 +63,7 @@ module IOStreams
 
         external, _internal = Encode.external_and_internal(encoding)
         @replace            = replace
-        @cleaner            = Cleaner.new(cleaner, replace: replace) unless cleaner.nil?
+        @cleaner            = Encode.cleaner(cleaner: cleaner, replace: replace)
         # The encodings of the byte orders of "UTF-16" or "UTF-32", while the first data, which decides the byte order
         # that the text is written in, is still to be written, see #start_text.
         @byte_orders        = Encode.byte_order_encodings(external)
