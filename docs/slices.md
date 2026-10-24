@@ -101,11 +101,12 @@ class ImportPeopleJob < ApplicationJob
 end
 ~~~
 
-`slice.to_h` holds the rows as they are in the file, the header row and the format:
+`slice.to_h` holds the rows as they are in the file, the header row, the format, and the line of the file that the
+first row is on:
 
 ~~~ruby
 slice.to_h
-# => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
+# => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv", "line_number" => 2}
 ~~~
 
 * The rows of a file are Strings, and the header row is an Array of Strings, so JSON keeps the Hash as it is. That
@@ -154,6 +155,43 @@ that is not valid, or a file that is cut short, the slices before the failure ha
 must process all of a file or none of it, store the slices first, and start the work only once the whole file has been
 read. A [store of slices](#a-store-of-slices) does this well: write each slice to a table or collection under the id of
 the upload, then enqueue the jobs once the copy returns, or delete the slices of that id when it raises.
+
+### Find a row in the file
+
+When a row fails, support staff need to find it in the file. `slice.line_number` is the line of the file that the
+slice's first row is on, as a text editor numbers it: the header row and blank lines count, so the first slice of a
+CSV file whose header row is on line 1 starts on line 2. Name the line in what the worker reports:
+
+~~~ruby
+def perform(hash)
+  slice = IOStreams.slice(hash)
+  done  = 0
+  IOStreams.stream(slice).schema(schema).each(:hash) do |person|
+    Person.upsert(person) if person
+    done += 1
+  end
+rescue StandardError => e
+  raise unless slice&.line_number
+
+  raise(e.exception("Line #{slice.line_number + done} of the file: #{e.message}"))
+end
+~~~
+
+* A row that cannot be parsed raises before it is yielded, so `done` counts the rows before it, and a blank row is
+  yielded as `nil`, so it counts too.
+* Only the first row's line is held. Adding the row's position gives the line of every row, unless a row before it
+  in the slice holds a quoted value that spans lines, which puts the rows after it a line or more further down.
+* Rows that are not lines of a file have no line, so their slices hold the number of the first row, counting from 1,
+  without the header row: the rows of a Parquet file, of a query, and rows or records written to a store of slices with
+  `writer(:array)` or `writer(:hash)`, or copied to it in those modes.
+* The slices of an Excel spreadsheet, `.xlsx`, hold the line of the CSV text that its rows are read as, which is not
+  always its row in Excel: a cell that holds line breaks takes a line for each, and empty rows of the sheet are left
+  out.
+* The slices read from a slice, such as with `IOStreams.stream(slice).each(:slice, size: 10)`, number their rows from
+  its line, each row after its first as the next line.
+* A slice built with `IOStreams::Slice.new`, or turned back from a Hash without one, such as one stored before
+  IOStreams held lines, has none, `nil`, so the example above raises the error as it is, as it does when `hash` does
+  not describe a slice, which leaves `slice` nil.
 
 ### Retry a slice
 
@@ -329,7 +367,8 @@ end
   [Blank rows](streams#blank-rows).
 * A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no
   header row, `nil`.
-* A format whose rows are not lines, such as Parquet, gives slices of the records that it reads.
+* A format whose rows are not lines, such as Parquet, gives slices of the records that it reads, numbered by their
+  first record rather than a line, see [Find a row in the file](#find-a-row-in-the-file).
 * The header row of every slice of a file is the same frozen Array, so change a copy of it.
 * `#reader(:slice, size: 500)` yields the reader, whose `#header` is the header row once it has been read, also for a
   file without any rows.
@@ -355,11 +394,26 @@ does not have:
   quoted CSV value stays in its row. A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError`
   with the number of the line that it starts on, as reading the file would, once the text written after it reaches
   640KB, or when the block returns, rather than keeping the lines written after it in memory.
+* In the `:line` mode, each slice holds the line that its first row starts on, see
+  [Find a row in the file](#find-a-row-in-the-file), counting every line written, as reading the file would.
+* The rows of a slice are UTF-8 text, as reading a file gives them. A line in another encoding, such as ISO-8859-1, is
+  converted to UTF-8, and the bytes of a binary line are read as UTF-8. A character in a line that is not valid, or
+  that UTF-8 does not have, raises `IOStreams::Errors::InvalidEncoding`, with the byte offset and line that reading
+  the UTF-8 file would name, counting the header row and blank lines, for example
+  `"\xFF" is not valid UTF-8 at byte offset 43 on line 7`. To replace each one instead, set `replace:` on the store's
+  stream, the only option of `#encoding` that a store takes. For now it applies only to the `:line` mode, so the
+  `:array` and `:hash` modes, whose rows and records are usually built by code, raise `ArgumentError` when it is set:
+
+  ```ruby
+  IOStreams.stream(store).format(:csv).encoding(replace: "").writer(:line) do |io|
+    io << line
+  end
+  ```
 * A copy in the `:line` mode keeps the lines as they are, so the slices are in the format of the source. Setting
   another format on the store's stream raises `ArgumentError`; copy in the `:array` or `:hash` mode to convert the
   rows instead.
-* A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, `#encoding`,
-  `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Compress or
+* A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, an encoding
+  set with `#encoding`, `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Compress or
   encrypt the slices where the store keeps them. It is only written, so `#each`, `#reader` and `#read` raise
   `ArgumentError` too.
 * A store whose class inherits methods named `slice_size`, `write_header` or `write_slice` keeps them:

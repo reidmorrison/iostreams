@@ -10,7 +10,8 @@ module IOStreams
     # header row is matched to the fields of the schema, and raises `IOStreams::Errors::InvalidHeader` when they do not
     # match, before the first slice is handed on. It is not a row of any slice: each slice carries it instead, see
     # `IOStreams::Slice#header`, with the format of the rows and whether their blank rows are records, which the tabular
-    # says, see `IOStreams::Tabular#blank_rows?`.
+    # says, see `IOStreams::Tabular#blank_rows?`, and the line that its first row starts on, see
+    # `IOStreams::Slice#line_number`, which whoever adds the rows supplies when they are lines of a file, see #add.
     class Collector
       # Raises ArgumentError for options that cannot collect slices, see #initialize, so that a call raises before
       # anything is opened: a `size` that is not a positive Integer, or a `validate` that is not true or false, see
@@ -85,11 +86,22 @@ module IOStreams
       # lines, such as Parquet, the row that its reader returns. The header row is read instead, see
       # `IOStreams::Tabular#read_line`. A nil line is a blank line, as a writer of lines writes it.
       #
+      # Parameters, both positional
+      #   row: [String|Array|Hash|nil]
+      #     The row to add.
+      #
+      #   line_number: [Integer|nil]
+      #     The number of the line of the file that the row starts on, when the rows are lines of a file, which the
+      #     slice of its first row holds, see `IOStreams::Slice#line_number`.
+      #     Default: nil, the number of the row, counting from 1, without the header row.
+      #
       # Returns self, so that calls can be chained.
-      def <<(row)
+      def add(row, line_number = nil)
         @tabular.read_line(row.nil? ? "" : row) do |line|
           @tabular.record_parse(line) if @validate
-          (@slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)) << line
+          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
+                               line_number: line_number || (@count + 1))
+          @slice << line
           @count += 1
           flush if @slice.size >= @size
         end
@@ -97,7 +109,8 @@ module IOStreams
         self
       end
 
-      alias write <<
+      alias << add
+      alias write add
 
       # Returns [Array<String>] the header row of the file, as it was read, once it has been read, which every slice
       # carries, see `IOStreams::Slice#header`.

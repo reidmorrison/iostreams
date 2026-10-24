@@ -81,6 +81,7 @@ module IOStreams
         @use_read_cache_buffer = !@input_stream.method(:read).arity.between?(0, 1)
 
         @line_number       = 0
+        @start_line_number = nil
         @eof               = false
         @read_cache_buffer = nil
         @buffer            = nil
@@ -121,6 +122,23 @@ module IOStreams
         line_count
       end
 
+      # Iterates over every line, as #each does, passing each one to the supplied block with the number of the line that
+      # it starts on, counting from 1, as a text editor numbers it. It is before #line_number, the line that it ends on,
+      # when the line holds the line endings within a quoted value, see `embedded_within`.
+      #
+      # Returns [Integer] the number of lines read from the file/stream.
+      def each_with_line_number
+        line_count = 0
+        until eof?
+          line = readline
+          unless line.nil?
+            yield(line, @start_line_number)
+            line_count += 1
+          end
+        end
+        line_count
+      end
+
       # Writes each line to the writer, see `IOStreams::Line::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,
       # including a blank line, which is a line of its own.
       #
@@ -133,18 +151,18 @@ module IOStreams
       # Accounts for lines that contain the `delimiter` when the `delimeter` is within the `embedded_within` delimiter.
       # For Example, CSV files can contain newlines embedded within double quotes.
       def readline
-        line = _readline
+        line               = _readline
+        @start_line_number = @line_number if line
         if line && @embedded_within
-          initial_line_number = @line_number
           # Count the delimiters incrementally, since recounting the whole line each time is quadratic.
           # For the same reason limit the size of the line in bytes, since `#length` counts the characters
           # in a multi-byte string such as UTF-8 each time it is called.
-          embedded_count      = line.count(@embedded_within)
+          embedded_count = line.count(@embedded_within)
           while embedded_count.odd?
             if eof? || line.bytesize > self.class.max_embedded_bytes(@buffer_size)
               raise(Errors::MalformedDataError.new(
                       "Unbalanced delimited field, delimiter: #{@embedded_within}",
-                      initial_line_number
+                      @start_line_number
                     ))
             end
             line << @ending
@@ -153,7 +171,7 @@ module IOStreams
             if next_line.nil?
               raise(Errors::MalformedDataError.new(
                       "Unbalanced delimited field, delimiter: #{@embedded_within}",
-                      initial_line_number
+                      @start_line_number
                     ))
             end
             line << next_line

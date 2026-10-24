@@ -35,6 +35,12 @@ class SliceTest < Minitest::Test
 
         assert_equal({"rows" => [[nil, nil]], "header" => %w[name age], "format" => "array", "blank_rows" => false}, records.to_h)
       end
+
+      it "holds the line that the first row starts on, when the slice has one" do
+        numbered = IOStreams::Slice.new(%w[a], format: :csv, line_number: 7)
+
+        assert_equal({"rows" => %w[a], "header" => nil, "format" => "csv", "line_number" => 7}, numbered.to_h)
+      end
     end
 
     describe "IOStreams.slice" do
@@ -113,7 +119,28 @@ class SliceTest < Minitest::Test
 
       it "raises for a key that a slice does not have" do
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line" => 1) }
-        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows"', error.message
+        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows", "line_number"',
+                     error.message
+      end
+
+      it "turns back the line that the first row starts on, once stored as JSON, or nil for a Hash without one" do
+        numbered = IOStreams::Slice.new(%w[a], format: :csv, line_number: 7)
+
+        assert_equal 7, IOStreams.slice(JSON.parse(JSON.generate(numbered.to_h))).line_number
+        assert_equal 7, IOStreams.slice(rows: [], line_number: 7).line_number
+        assert_nil IOStreams.slice("rows" => %w[a]).line_number
+      end
+
+      it "turns back the lines of the slices that a file was read in" do
+        stored = slices("Name,AGE\nJack,21\nJill,22\nBob,23\n").map { |slice| JSON.generate(slice.to_h) }
+
+        assert_equal([2, 4], stored.map { |json| IOStreams.slice(JSON.parse(json)).line_number })
+      end
+
+      it "raises for a line_number that is not a positive Integer" do
+        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line_number" => "2") }
+        assert_equal 'The line_number of a slice must be a positive Integer: "2"', error.message
+        assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line_number" => 0) }
       end
 
       it "raises for a blank_rows that is not true or false" do

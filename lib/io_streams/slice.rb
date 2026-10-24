@@ -19,6 +19,9 @@ module IOStreams
   # A row whose every value is blank is a blank row, as in a file, unless each row of the slice is a record, such as a
   # slice of the rows of an Active Record query, see #blank_rows?.
   #
+  # It also holds the number of the line of the file that its first row starts on, see #line_number, so that support
+  # staff can find its rows in the file.
+  #
   # A slice does not name the file, nor its streams, such as `.gz` or `.enc`: they were applied when the file was read,
   # so its rows are text in its format.
   #
@@ -27,13 +30,14 @@ module IOStreams
   class Slice < ::Array
     autoload :Collector, "io_streams/slice/collector"
     autoload :Reader, "io_streams/slice/reader"
+    autoload :Rows, "io_streams/slice/rows"
     autoload :Stream, "io_streams/slice/stream"
     autoload :Target, "io_streams/slice/target"
     autoload :TargetStream, "io_streams/slice/target_stream"
     autoload :Writer, "io_streams/slice/writer"
 
     # The keys of the Hash of a slice, see #to_h.
-    KEYS = %w[rows header format blank_rows].freeze
+    KEYS = %w[rows header format blank_rows line_number].freeze
 
     # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which #to_h returned, see `IOStreams.slice`.
     # Its keys can be Strings or Symbols, and its format a String or a Symbol, as storing it may have changed them. The
@@ -41,7 +45,8 @@ module IOStreams
     #
     # Raises ArgumentError when it does not describe a slice: when it is not a Hash, has no rows, or a key that a slice
     # does not have, or when its rows are not an Array, its header row is not an Array of Strings, its format is not a
-    # tabular format, see `IOStreams.tabular_formats`, or its `blank_rows` is not true or false.
+    # tabular format, see `IOStreams.tabular_formats`, its `blank_rows` is not true or false, or its `line_number` is
+    # not a positive Integer.
     def self.from_h(hash)
       raise(ArgumentError, "A slice must be the Hash that #to_h returns, not #{hash.class.name}") unless hash.is_a?(::Hash)
 
@@ -53,7 +58,7 @@ module IOStreams
       end
 
       new(rows_of(values["rows"]), header: header_of(values["header"]), format: format_of(values["format"]),
-          blank_rows: blank_rows_of(values["blank_rows"]))
+          blank_rows: blank_rows_of(values["blank_rows"]), line_number: line_number_of(values["line_number"]))
     end
 
     # Returns [Array] the rows of the Hash of a slice, see .from_h.
@@ -99,6 +104,15 @@ module IOStreams
     end
     private_class_method :blank_rows_of
 
+    # Returns [Integer] the line number of the Hash of a slice, see .from_h and #line_number, or nil for a slice without
+    # one, such as one that an earlier version stored.
+    def self.line_number_of(line_number)
+      return line_number if line_number.nil? || (line_number.is_a?(::Integer) && line_number.positive?)
+
+      raise(ArgumentError, "The line_number of a slice must be a positive Integer: #{line_number.inspect}")
+    end
+    private_class_method :line_number_of
+
     # Returns [Array<String>] the header row of the file, as it was read, before it was cleansed or matched to the
     # fields of a schema, which every slice of the file shares, so it is frozen, as are its columns.
     # Returns nil when the file has no header row, such as fixed width, JSON, or a schema whose `header` is false.
@@ -107,11 +121,27 @@ module IOStreams
     # Returns [Symbol] the tabular format of the rows, such as `:csv`, see `IOStreams.tabular_formats`.
     attr_reader :format
 
-    def initialize(rows = [], header: nil, format: nil, blank_rows: true)
+    # Returns [Integer] the number of the line of the file that the first row of this slice starts on, counting from 1,
+    # as a text editor numbers it, so the header row and blank lines count, and a quoted value that holds line breaks
+    # counts each of its lines. For instance 2 for the first slice of a CSV file whose header row is on line 1. Only
+    # the first row has one: the position of a row within the slice is that of whoever processes it.
+    #
+    # For rows that are not lines of a file, such as those of a Parquet file, an Active Record query, or rows and
+    # records written to a store of slices, see `IOStreams::Slice::TargetStream`, it is the number of the first row,
+    # counting from 1, without the header row, so the next slice of 100 rows after one at 1 starts at 101.
+    #
+    # For an Excel spreadsheet, `.xlsx`, it is the line of the CSV text that its rows are read as, which is not always
+    # its row in Excel. The slices read from a slice, see `IOStreams::Slice::Stream`, number their rows from its line.
+    #
+    # Returns nil for a slice built without one, see #initialize.
+    attr_reader :line_number
+
+    def initialize(rows = [], header: nil, format: nil, blank_rows: true, line_number: nil)
       super(rows)
-      @header     = header
-      @format     = format
-      @blank_rows = blank_rows
+      @header      = header
+      @format      = format
+      @blank_rows  = blank_rows
+      @line_number = line_number
     end
 
     # Returns [true|false] whether a row whose every value is blank, such as a line of CSV of only commas, is a blank
@@ -124,19 +154,21 @@ module IOStreams
     end
 
     # Returns [Hash] what this slice holds, to store it or send it elsewhere, such as in the document of a job, which
-    # `IOStreams.slice` turns back into a slice: its rows, the header row of its file, and the format of its rows, by
-    # String keys, with Strings, Arrays and nil, as JSON and BSON hold them, so that it is the same once stored. When
-    # each of its rows is a record, see #blank_rows?, it also holds `"blank_rows" => false`, which is otherwise left
-    # out, so that the Hash of a slice of a file holds only those three. The rows of a format whose rows are not lines,
-    # such as Parquet, are the records that its reader returned, whose values are only kept as they are by a store that
-    # keeps their types.
+    # `IOStreams.slice` turns back into a slice: its rows, the header row of its file, the format of its rows, and the
+    # line of its first row, see #line_number, when it has one, by String keys, with Strings, Integers, Arrays and nil,
+    # as JSON and BSON hold them, so that it is the same once stored. When each of its rows is a record, see
+    # #blank_rows?, it also holds `"blank_rows" => false`, which is otherwise left out. The rows of a format whose rows
+    # are not lines, such as Parquet, are the records that its reader returned, whose values are only kept as they are
+    # by a store that keeps their types.
     #
     # Example:
     #   slice.to_h
-    #   # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv"}
+    #   # => {"rows" => ["Jack,21", "Jill,22"], "header" => ["Name", "AGE"], "format" => "csv",
+    #   #     "line_number" => 2}
     def to_h
       hash = {"rows" => to_a, "header" => header, "format" => format&.to_s}
-      hash["blank_rows"] = false unless blank_rows?
+      hash["blank_rows"]  = false unless blank_rows?
+      hash["line_number"] = line_number if line_number
       hash
     end
   end

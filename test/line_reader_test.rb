@@ -151,6 +151,17 @@ class LineReaderTest < Minitest::Test
       end
     end
 
+    describe "#each_with_line_number" do
+      it "yields each line with the line that it starts on, before #line_number for a quoted value with line breaks" do
+        reader = IOStreams::Line::Reader.new(StringIO.new(%(a\n"b\nc"\n\nd\n)), embedded_within: '"')
+        lines  = []
+        count  = reader.each_with_line_number { |line, line_number| lines << [line, line_number, reader.line_number] }
+
+        assert_equal [["a", 1, 1], [%("b\nc"), 2, 3], ["", 4, 4], ["d", 5, 5]], lines
+        assert_equal 4, count
+      end
+    end
+
     describe "invalid encoding" do
       def read_lines(data, **args)
         lines = []

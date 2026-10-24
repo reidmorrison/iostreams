@@ -57,7 +57,7 @@ class SliceReaderTest < Minitest::Test
         assert_equal [true, true], slices(stream(csv), size: 2).map(&:blank_rows?)
 
         tabular = IOStreams::Tabular.new(format: :array, blank_rows: false)
-        list    = IOStreams::Slice::Reader.new([%w[name age], [nil, nil]], tabular: tabular, size: 2).to_a
+        list    = IOStreams::Slice::Reader.new(IOStreams::Slice::Rows.new([%w[name age], [nil, nil]]), tabular: tabular, size: 2).to_a
 
         assert_equal [[[nil, nil]]], list
         refute_predicate list.first, :blank_rows?
@@ -72,6 +72,27 @@ class SliceReaderTest < Minitest::Test
 
         assert_equal [["Jack,21", "", "Bob,23"]], list
         assert_equal %w[Name AGE], list.first.header
+      end
+
+      it "gives each slice the line of the file that its first row starts on" do
+        data = %(\nName,AGE\nJack,"line one\nline two"\n\nJill,22\nBob,23\nAnn,24\n)
+
+        assert_equal [3, 6, 8], slices(stream(data), size: 2).map(&:line_number)
+      end
+
+      it "gives each slice the number of its first row, counting from 1, for rows that are not lines" do
+        tabular = IOStreams::Tabular.new(format: :array)
+        rows    = [%w[name age], %w[Jack 21], %w[Jill 22], %w[Bob 23]]
+        list    = IOStreams::Slice::Reader.new(IOStreams::Slice::Rows.new(rows), tabular: tabular, size: 2).to_a
+
+        assert_equal [1, 3], list.map(&:line_number)
+      end
+
+      it "raises for rows that do not give the line that each one starts on" do
+        error = assert_raises(ArgumentError) do
+          IOStreams::Slice::Reader.new([%w[name age]], tabular: IOStreams::Tabular.new(format: :array), size: 2)
+        end
+        assert_equal "Rows must implement #each_with_line_number, such as IOStreams::Line::Reader", error.message
       end
 
       it "keeps a quoted value with a line break within its row" do
