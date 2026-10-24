@@ -469,6 +469,11 @@ module IOStreams
       builder.file_name = file_name
     end
 
+    # Marks an argument that was not supplied, such as that of #format, whose `:none` is a format, see
+    # `IOStreams::Tabular::Parser::None`.
+    NOT_SUPPLIED = Object.new.freeze
+    private_constant :NOT_SUPPLIED
+
     # Set/get the tabular format.
     #
     # Returns [Symbol] the format that was set, otherwise the format of the text that the stream closest to the
@@ -477,8 +482,8 @@ module IOStreams
     #
     # Reading or writing rows, records or lines raises ArgumentError when the format that was set is not the format of
     # the text of that stream, such as `:json` for a spreadsheet, rather than read or write them in the wrong format.
-    def format(format = :none)
-      if format == :none
+    def format(format = NOT_SUPPLIED)
+      if format.equal?(NOT_SUPPLIED)
         tabular_settings.format(file_name) { text_format }
       else
         self.format = format

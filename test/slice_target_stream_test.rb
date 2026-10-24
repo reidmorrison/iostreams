@@ -858,7 +858,7 @@ class SliceTargetStreamTest < Minitest::Test
         stream.copy_from(psv, mode: :line)
 
         assert_equal [[nil, :json, ['{"name":"Jack"}']], [%w[name age], :psv, %w[Jack|21]]], written
-        assert_nil stream.format
+        assert_equal :none, stream.format
       end
 
       it "raises when the stream has a format other than that of the lines of the source, before it is read" do
@@ -953,13 +953,6 @@ class SliceTargetStreamTest < Minitest::Test
         assert_nil stream.encoding(replace: "", cleaner: :printable).encoding
         assert_equal({replace: "", cleaner: :printable}, stream.setting(:encode))
       end
-
-      it "raises for the :line mode in a format whose rows are not lines" do
-        error = assert_raises(ArgumentError) { stream.format(:parquet).writer(:line) { nil } }
-
-        assert_equal "The :parquet format has no lines, so write its rows or records to a slice target in the :array " \
-                     "or :hash mode", error.message
-      end
     end
 
     describe "#file_name" do
@@ -975,7 +968,7 @@ class SliceTargetStreamTest < Minitest::Test
       end
     end
 
-    describe "without a format" do
+    describe "the :none format, the default" do
       let(:store) { Store.new(slice_size: 2) }
       let(:stream) { IOStreams.stream(store) }
 
@@ -984,12 +977,24 @@ class SliceTargetStreamTest < Minitest::Test
         store.slices.collect { |slice| slice.each.to_a }
       end
 
+      it "is the format of a store that is not given one" do
+        assert_equal :none, stream.format
+        assert_includes IOStreams.tabular_formats, :none
+      end
+
+      it "is not a format that the rows of a file are read in" do
+        error = assert_raises(IOStreams::Errors::TypeMismatch) do
+          IOStreams.stream(StringIO.new("name\nJack\n")).format(:none).each(:array) { nil }
+        end
+        assert_match(/The :none format holds rows as they are/, error.message)
+      end
+
       it "holds each object written in the :line mode as one row, as it is, without a header row or line numbers" do
         stream.writer(:line) do |io|
           io << "two\nlines" << [1, 99] << 42 << nil << {"a" => 1}
         end
 
-        assert_equal([[nil, nil], [nil, nil], [nil, nil]], store.slices.collect { |slice| [slice.header, slice.format] })
+        assert_equal([[nil, :none], [nil, :none], [nil, :none]], store.slices.collect { |slice| [slice.header, slice.format] })
         assert_equal [[["two\nlines", nil, 1], [[1, 99], nil, 2]], [[42, nil, 3], [nil, nil, 4]], [[{"a" => 1}, nil, 5]]],
                      numbered
       end
@@ -1008,13 +1013,13 @@ class SliceTargetStreamTest < Minitest::Test
       it "holds each row of the :array mode as it is, the first row too" do
         stream.writer(:array) { |io| io << %w[name age] << ["Jack", 21] }
 
-        assert_equal [[nil, nil, [%w[name age], ["Jack", 21]]]], written
+        assert_equal [[nil, :none, [%w[name age], ["Jack", 21]]]], written
       end
 
       it "holds each record of the :hash mode as it is" do
         stream.writer(:hash) { |io| io << {"name" => "Jack"} << {"age" => 21} }
 
-        assert_equal [[nil, nil, [{"name" => "Jack"}, {"age" => 21}]]], written
+        assert_equal [[nil, :none, [{"name" => "Jack"}, {"age" => 21}]]], written
       end
 
       it "raises for a row that is not an Array in the :array mode, or a record that is not a Hash in the :hash mode" do
@@ -1033,24 +1038,48 @@ class SliceTargetStreamTest < Minitest::Test
         end
       end
 
+      it "copies the lines of a file in a format as they are, with their lines, once :none is set" do
+        source = IOStreams.stream(StringIO.new("name,age\nJack,21\n")).format(:csv)
+        stream.format(:none).copy_from(source, mode: :line)
+
+        assert_equal [[["name,age", 1, 1], ["Jack,21", 2, 2]]], numbered
+        assert_equal [:none], store.slices.collect(&:format)
+      end
+
       it "copies the rows of a file as they are, its header row being the header row of the slices" do
         source = IOStreams.stream(StringIO.new("name,age\nJack,21\n")).format(:csv)
         stream.copy_from(source, mode: :array)
 
-        assert_equal [[%w[name age], nil, [%w[Jack 21]]]], written
+        assert_equal [[%w[name age], :none, [%w[Jack 21]]]], written
         assert_equal [[:header, %w[name age]], [:slice, [%w[Jack 21]]]], store.events
+      end
+
+      it "holds the typed records of a Parquet file as they are, as those of a query" do
+        skip("Parquet is not supported on JRuby") if defined?(JRUBY_VERSION)
+
+        Dir.mktmpdir do |dir|
+          schema = {"fields" => [{"name" => "name", "type" => "string"}, {"name" => "age", "type" => "integer"}]}
+          path   = IOStreams.path(dir, "people.parquet").schema(schema)
+          path.writer(:hash) do |io|
+            io << {"name" => "Jack", "age" => 21}
+            io << {"name" => "Jill", "age" => 22}
+          end
+          stream.copy_from(IOStreams.path(dir, "people.parquet"), mode: :hash)
+
+          assert_equal [[nil, :none, [{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}]]], written
+        end
       end
 
       it "turns into a Hash and back" do
         stream.writer(:line) { |io| io << [1, 99] << "Jack" }
         slice = store.slices.first
 
-        assert_equal({"rows" => [[1, 99], "Jack"], "header" => nil, "format" => nil, "record_number" => 1}, slice.to_h)
+        assert_equal({"rows" => [[1, 99], "Jack"], "header" => nil, "format" => "none", "record_number" => 1}, slice.to_h)
         assert_equal slice, IOStreams.slice(slice.to_h)
       end
 
       it "raises for a schema, validate: true, or an option of #encoding, before the block is called or the source opened" do
-        message = "A slice target without a format holds each object written as it is, so %s cannot be set: set its " \
+        message = "A slice target in the :none format holds each object written as it is, so %s cannot be set: set its " \
                   "format with #format, such as `format(:csv)`"
 
         error = assert_raises(ArgumentError) do
@@ -1071,49 +1100,35 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal format(message, "`validate: true`"), error.message
       end
 
-      it "takes the format of the lines of the source of a copy, with which they can be validated" do
+      it "takes the format of the lines of the source of a copy, unless :none is set, with which they can be validated" do
         source = IOStreams.stream(StringIO.new("name,age\nJack,21\n")).format(:csv)
         stream.schema(schema).copy_from(source, mode: :line, validate: true)
 
         assert_equal [[%w[name age], :csv, %w[Jack,21]]], written
       end
 
-      it "holds slices that the stream of a slice does not read as CSV, unless a format is set" do
-        stream.writer(:line) { |io| io << "name,age" << "Jack,21" }
-        slice = store.slices.first
+      it "holds slices whose rows the stream of a slice reads as they are, unless a format is set" do
+        stream.writer(:line) { |io| io << "name,age" << "Jack,21" << nil }
+        rows = store.slices.flat_map do |slice|
+          list = []
+          IOStreams.stream(slice).each(:array) { |row| list << row }
+          list
+        end
 
-        error = assert_raises(ArgumentError) { IOStreams.stream(slice).each(:array) { nil } }
-        assert_match(/A slice without a format holds its rows as they are/, error.message)
-        rows = []
-        IOStreams.stream(slice).format(:csv).each(:hash) { |row| rows << row }
+        assert_equal ["name,age", "Jack,21", nil], rows
+        records = []
+        IOStreams.stream(store.slices.first).format(:csv).each(:hash) { |record| records << record }
 
-        assert_equal [{"name" => "Jack", "age" => "21"}], rows
+        assert_equal [{"name" => "Jack", "age" => "21"}], records
       end
     end
 
-    describe "in a format whose rows are not lines" do
-      let(:schema) { {"fields" => [{"name" => "name", "type" => "string"}, {"name" => "age", "type" => "integer"}]} }
+    describe "a format whose rows are not lines" do
+      it "raises, since its rows are held as they are in the :none format" do
+        error = assert_raises(ArgumentError) { IOStreams.stream(Store.new).format(:parquet).writer(:hash) { nil } }
 
-      it "holds the rows of a Parquet file as each(:slice) reads them" do
-        skip("Parquet is not supported on JRuby") if defined?(JRUBY_VERSION)
-
-        Dir.mktmpdir do |dir|
-          path = IOStreams.path(dir, "people.parquet")
-          path.schema(schema).writer(:hash) do |io|
-            io << {"name" => "Jack", "age" => 21}
-            io << {"name" => "Jill", "age" => 22}
-            io << {"name" => "Joe", "age" => 23}
-          end
-          read = []
-          IOStreams.path(dir, "people.parquet").each(:slice, size: 2) { |slice| read << slice }
-          small = Store.new(slice_size: 2)
-          IOStreams.stream(small).format(:parquet).schema(schema).copy_from(path, mode: :hash, validate: true)
-
-          assert_equal read, small.slices
-          assert_equal [[{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}], [{"name" => "Joe", "age" => 23}]],
-                       small.slices.collect(&:rows)
-          assert_equal %i[parquet parquet], small.slices.collect(&:format)
-        end
+        assert_equal "The :parquet format has no lines, so its rows cannot be written to a slice target: hold them as " \
+                     "they are in the :none format, the default", error.message
       end
     end
 

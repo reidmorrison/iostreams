@@ -43,6 +43,7 @@ module IOStreams
       autoload :Fixed, "io_streams/tabular/parser/fixed"
       autoload :Hash, "io_streams/tabular/parser/hash"
       autoload :Json, "io_streams/tabular/parser/json"
+      autoload :None, "io_streams/tabular/parser/none"
       autoload :Parquet, "io_streams/tabular/parser/parquet"
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
@@ -501,6 +502,7 @@ module IOStreams
     register_format(:fixed, IOStreams::Tabular::Parser::Fixed)
     register_format(:hash, IOStreams::Tabular::Parser::Hash)
     register_format(:json, IOStreams::Tabular::Parser::Json)
+    register_format(:none, IOStreams::Tabular::Parser::None)
     register_format(:parquet, IOStreams::Tabular::Parser::Parquet)
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 

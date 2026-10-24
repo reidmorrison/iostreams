@@ -68,11 +68,14 @@ held in configuration before it is used. The list grows as formats are added, so
 
 ~~~ruby
 IOStreams.tabular_formats
-# => [:array, :csv, :fixed, :hash, :json, :parquet, :psv]
+# => [:array, :csv, :fixed, :hash, :json, :none, :parquet, :psv]
 
 IOStreams.tabular_formats.include?(:json)
 # => true
 ~~~
+
+`:none` is the format of a store of slices that holds its rows as they are, see
+[A store of slices](slices#a-store-of-slices), rather than a format that a file is read in.
 
 ## Records and rows without a schema
 

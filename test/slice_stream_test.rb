@@ -257,9 +257,43 @@ class SliceStreamTest < Minitest::Test
         slice = IOStreams::Slice.new(%w[Jack|21], header: %w[name age])
 
         assert_equal [{"name" => "Jack", "age" => 21}], each(IOStreams.stream(slice).format(:psv).schema(schema))
-        error = assert_raises(ArgumentError) { each(IOStreams.stream(slice)) }
-        assert_equal "A slice without a format holds its rows as they are: iterate the slice for its rows as they are, " \
-                     "or set the format of its rows with #format", error.message
+        assert_equal %w[Jack|21], each(IOStreams.stream(slice))
+      end
+    end
+
+    describe "the :none format" do
+      let(:slice) do
+        rows = IOStreams::Slice.new(header: %w[first last], format: :none)
+        rows.add([1, 99], line_number: 2, record_number: 1)
+        rows.add(nil, line_number: 3, record_number: 2)
+        rows.add("two\nlines", line_number: 4, record_number: 3)
+      end
+
+      it "reads each row as it is in the :array and :hash modes, after its header row" do
+        assert_equal [[1, 99], nil, "two\nlines"], each(IOStreams.stream(slice), :array)
+        assert_equal [[1, 99], nil, "two\nlines"], each(IOStreams.stream(slice), :hash)
+        assert_equal [[1, 99], "two\nlines"], each(IOStreams.stream(slice), :array, skip_blanks: true)
+      end
+
+      it "reads slices of the rows as they are, with the header row and the line of each row" do
+        slices = each(IOStreams.stream(slice), :slice, size: 2)
+
+        assert_equal([[[[1, 99], 2, 1], [nil, 3, 2]], [["two\nlines", 4, 3]]], slices.map { |s| s.each.to_a })
+        assert_equal [%w[first last], %w[first last]], slices.map(&:header)
+        assert_equal %i[none none], slices.map(&:format)
+      end
+
+      it "copies the rows as they are to a file, after the header row" do
+        ranges = IOStreams::Slice.new([[1, 99], nil, [100, 199]], header: %w[first last], format: :none)
+        output = StringIO.new
+        IOStreams.stream(output).format(:json).copy_from(IOStreams.stream(ranges), mode: :array)
+
+        assert_equal %({"first":1,"last":99}\n{"first":100,"last":199}\n), output.string
+      end
+
+      it "raises for validate: true, or an option that a mode does not take" do
+        assert_raises(ArgumentError) { each(IOStreams.stream(slice), :slice, size: 2, validate: true) }
+        assert_raises(ArgumentError) { each(IOStreams.stream(slice), :array, size: 2) }
       end
     end
 

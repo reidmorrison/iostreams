@@ -56,6 +56,14 @@ module IOStreams
         %i[validate]
       end
 
+      # Returns [Symbol] the format of the rows written, see `IOStreams::Stream#format`, which is `:none` unless one is
+      # set, so that each object written is held as it is, see above.
+      def format(format = NOT_SUPPLIED)
+        return super unless format.equal?(NOT_SUPPLIED)
+
+        super() || :none
+      end
+
       # Parameters
       #   target: [IOStreams::Slice::Target]
       #     The store that each slice is written to.
@@ -98,7 +106,7 @@ module IOStreams
         require_block!(:writer, block)
         options = slice_options(mode, args)
         check_rows_as_they_are(format, options)
-        write_slices(mode, options, lines_of_file: !format.nil?, &block)
+        write_slices(mode, options, lines_of_file: format != :none, &block)
       end
 
       # Copies the lines, rows or records of the supplied source, such as a path, a stream or an Active Record query,
@@ -192,13 +200,13 @@ module IOStreams
       #
       # Returns the result of the block.
       def write_slices(mode, options, blank_rows: true, lines_of_file: true, &block)
-        if format.nil?
+        if format == :none
           return Collector.write(io_stream, tabular: nil, blank_rows: blank_rows, **options) do |collector|
             block.call(RowsAsTheyAre.new(collector, mode, lines_of_file: mode == :line && lines_of_file))
           end
         end
 
-        tabular = rows_tabular(mode, blank_rows)
+        tabular = rows_tabular(blank_rows)
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
           case mode
           when :line then write_lines(collector, tabular.quote_character, lines_of_file, &block)
@@ -209,16 +217,17 @@ module IOStreams
       end
 
       # Returns [IOStreams::Stream] this stream, or a copy of it in the format of the lines of the supplied source of a
-      # copy, when this stream has no format, see #copy_rows, so that the slices of its lines carry their format.
-      # Protected, see #write_slices.
+      # copy, when no format was set on this stream, see #copy_rows, so that the slices of its lines carry their format.
+      # When `:none` was set, the lines are held as they are, whatever the format of the source. Protected, see
+      # #write_slices.
       #
-      # Raises ArgumentError when this stream has a format that is not that of the source, since the lines are not
+      # Raises ArgumentError when this stream has another format that is not that of the source, since the lines are not
       # converted.
       def with_lines_format(source)
         lines_format = source.format
-        return self if lines_format.nil? || format == lines_format
+        return self if lines_format.nil? || format == lines_format || (format == :none && format_set?)
 
-        unless format.nil?
+        if format_set?
           raise(ArgumentError, "The lines copied to a #{source_name} are in the #{lines_format.inspect} format of " \
                                "their source, not #{format.inspect}: copy rows or records in the :array or :hash " \
                                "mode to convert them")
@@ -612,24 +621,28 @@ module IOStreams
       end
 
       # Returns [IOStreams::Tabular] that reads the lines written into slices, see `IOStreams::Slice::Collector`, with
-      # whether a row whose every value is blank is a blank row, see #write_slices. In a format whose rows are not lines,
-      # such as Parquet, the rows and records that the row and record writers render are the rows of the slices, as
-      # `IOStreams::Stream#each(:slice)` reads them.
+      # whether a row whose every value is blank is a blank row, see #write_slices.
       #
-      # Raises ArgumentError in the `:line` mode for a format whose rows are not lines.
-      def rows_tabular(mode, blank_rows)
+      # Raises ArgumentError for a format whose rows are not lines, such as Parquet, whose rows are held as they are in
+      # the `:none` format instead, as those of a query are.
+      def rows_tabular(blank_rows)
         tabular = self.tabular(blank_rows: blank_rows)
-        return tabular if mode != :line || tabular.lines?
+        return tabular if tabular.lines?
 
-        raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so write its rows or records to a " \
-                             "#{source_name} in the :array or :hash mode")
+        raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so its rows cannot be written to a " \
+                             "#{source_name}: hold them as they are in the :none format, the default")
       end
 
-      # Raises ArgumentError when the supplied format of the rows is nil, see #writer, for a schema, `validate: true` in
-      # the supplied options, or an option of #encoding, since the rows are then held as they are, rather than parsed or
-      # cleaned.
+      # Returns [true|false] whether a format was set on this stream, see #format, rather than the default, `:none`.
+      def format_set?
+        !Stream.instance_method(:format).bind_call(self).nil?
+      end
+
+      # Raises ArgumentError when the supplied format of the rows is `:none`, see #writer, for a schema, `validate: true`
+      # in the supplied options, or an option of #encoding, since the rows are then held as they are, rather than parsed
+      # or cleaned.
       def check_rows_as_they_are(rows_format, options)
-        return unless rows_format.nil?
+        return unless rows_format == :none
 
         set = []
         set << "a schema" unless schema.nil?
@@ -637,7 +650,7 @@ module IOStreams
         set.concat(ENCODING_OPTIONS.reject { |name| encoding_option(name).nil? }.map { |name| "`#{name}:`" })
         return if set.empty?
 
-        raise(ArgumentError, "A #{source_name} without a format holds each object written as it is, so " \
+        raise(ArgumentError, "A #{source_name} in the :none format holds each object written as it is, so " \
                              "#{set.join(' and ')} cannot be set: set its format with #format, such as `format(:csv)`")
       end
     end

@@ -13,6 +13,13 @@ module IOStreams
     # format that the slice carries, see #format, and a row whose every value is blank is a blank row unless the slice
     # says that each of its rows is a record, see #tabular.
     #
+    # A slice in the `:none` format, or without a format, holds its rows as they are, such as the slices of a store of
+    # slices that is not given a format, see `IOStreams::Slice::TargetStream`, so its rows are read as they are, in the
+    # `:array` and `:hash` modes, and in the `:slice` mode, in slices of their own, unless a format is set with #format,
+    # in which the rows are read as the lines of that format:
+    #
+    #   IOStreams.stream(slice).each(:array) { |row| p row }
+    #
     # A slice holds rows, already split and decoded, rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
       # Parameters
@@ -27,7 +34,40 @@ module IOStreams
       # Returns [String] the class, the number of rows and their format, rather than every instance variable, such as
       # the rows of the slice.
       def inspect
-        "#<#{self.class.name} rows=#{io_stream.size} format=#{format.inspect}>"
+        "#<#{self.class.name} rows=#{io_stream.size} format=#{(format || :none).inspect}>"
+      end
+
+      # Yields the reader of the supplied mode, see `IOStreams::Stream#reader`. The rows of a slice in the `:none` format,
+      # or without a format, unless one is set, are read as they are, see above: in the `:array` and `:hash` modes, each
+      # row, whatever it is, apart from its header row, and nil when `skip_blanks:` is false, and in the `:slice` mode,
+      # slices of `size:` rows of their own, with the header row of the slice, and the line of each row, whose records
+      # are numbered from 1 again, as for the slices read from any slice.
+      #
+      # Raises ArgumentError for an option that the mode does not take, and for `validate: true` in the `:slice` mode,
+      # since the rows are not parsed.
+      def reader(mode = :stream, **args, &block)
+        return super if %i[stream line].include?(mode) || !rows_as_they_are?
+
+        require_block!(:reader, block)
+        reject_lines!(**args)
+        case mode
+        when :array, :hash
+          reject_unknown_options!(mode, mode == :array ? IOStreams::Row::Reader : IOStreams::Record::Reader, args)
+          skip_blanks = args.fetch(:skip_blanks, false)
+          IOStreams::Utils.check_boolean(:skip_blanks, skip_blanks)
+          block.call(RowsAsTheyAre.new(io_stream, skip_blanks))
+        when :slice
+          reject_unknown_options!(mode, IOStreams::Slice::Reader, args)
+          Collector.check(size: args[:size], validate: args.fetch(:validate, false))
+          if args[:validate]
+            raise(ArgumentError,
+                  "The rows of a slice in the :none format are not parsed, so validate: is false")
+          end
+
+          block.call(SlicesAsTheyAre.new(io_stream, args[:size]))
+        else
+          super
+        end
       end
 
       private
@@ -42,23 +82,21 @@ module IOStreams
 
       # Returns [Symbol|nil] the format that the slice carries, which its rows are in, see
       # `IOStreams::Stream#text_format`, so that #format returns it, and reading raises for another format that is set.
+      # Returns nil for a slice in the `:none` format, so that a format can be set to read its rows in, see #reader.
       def text_format
-        io_stream.format
+        io_stream.format unless io_stream.format == :none
+      end
+
+      # Returns [true|false] whether the rows of the slice are read as they are, see #reader: when it is in the `:none`
+      # format, or has none, and no other format is set.
+      def rows_as_they_are?
+        [nil, :none].include?(format)
       end
 
       # Returns [IOStreams::Tabular] that reads the rows of the slice, see `IOStreams::Stream#tabular`, reading a row
       # whose every value is blank as the slice says, see `IOStreams::Slice#blank_rows?`, so that a row of a query whose
       # every value is null is a record wherever its slice is read, as it is where the query is read.
-      #
-      # Raises ArgumentError for a slice without a format, such as one written to a store of slices without a format,
-      # see `IOStreams::Slice::TargetStream`, whose rows are held as they are, rather than read as CSV, unless a format
-      # is set with #format.
       def tabular(**)
-        if format.nil?
-          raise(ArgumentError, "A slice without a format holds its rows as they are: #{rows_hint}, or set the format " \
-                               "of its rows with #format")
-        end
-
         super(blank_rows: io_stream.blank_rows?, **)
       end
 
@@ -97,6 +135,55 @@ module IOStreams
         end
       end
       private_constant :RowsWithLines
+
+      # Reads the rows of a slice as they are, see #reader, apart from its header row.
+      class RowsAsTheyAre
+        include Enumerable
+
+        def initialize(slice, skip_blanks)
+          @slice       = slice
+          @skip_blanks = skip_blanks
+        end
+
+        # Yields each row, leaving out nil when `skip_blanks` is true.
+        # Returns an Enumerator of them without a block.
+        def each
+          return enum_for(:each) unless block_given?
+
+          @slice.each { |row| yield(row) unless @skip_blanks && row.nil? }
+        end
+
+        # Writes each row to the supplied writer of a copy, see `IOStreams::Stream#copy_from`, leaving out nil, as a copy
+        # does, and the header row first, when the slice holds one.
+        def copy_to(writer)
+          writer.write_header(@slice.header) if @slice.header && writer.respond_to?(:write_header)
+          @slice.each { |row| writer << row unless row.nil? }
+        end
+      end
+      private_constant :RowsAsTheyAre
+
+      # Reads the rows of a slice as they are, see #reader, in slices of their own of up to the supplied number of rows,
+      # with the header row of the slice, and the line of each row, whose records are numbered from 1 again.
+      class SlicesAsTheyAre
+        include Enumerable
+
+        def initialize(slice, size)
+          @slice = slice
+          @size  = size
+        end
+
+        # Yields each slice.
+        # Returns an Enumerator of them without a block.
+        def each(&block)
+          return enum_for(:each) unless block
+
+          collector = Collector.new(tabular: nil, size: @size, blank_rows: @slice.blank_rows?, &block)
+          collector.write_header(@slice.header) if @slice.header
+          @slice.each { |row, line_number, _record_number| collector.add(row, line_number) }
+          collector.finish
+        end
+      end
+      private_constant :SlicesAsTheyAre
     end
   end
 end

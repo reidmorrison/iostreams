@@ -55,7 +55,7 @@ module IOStreams
       # Parameters
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
-      #     nil for rows without a format, which are collected as they are, see #add, without a header row, unless one
+      #     nil for rows in the `:none` format, which are collected as they are, see #add, without a header row, unless one
       #     is written, see #write_header.
       #
       #   size: [Integer]
@@ -164,7 +164,7 @@ module IOStreams
       # Returns [String] the class, the format of the rows and the size of the slices, rather than every instance
       # variable, such as the tabular and the slice that it collects.
       def inspect
-        "#<#{self.class.name} format=#{@tabular&.format.inspect} size=#{@size}>"
+        "#<#{self.class.name} format=#{(@tabular ? @tabular.format : :none).inspect} size=#{@size}>"
       end
 
       private
@@ -172,7 +172,7 @@ module IOStreams
       # Adds the supplied row to the slice being collected, numbered as the next record, and hands the slice on once it
       # holds `size` rows.
       def add_row(row, line_number)
-        @slice ||= Slice.new(header: header, format: @tabular&.format, blank_rows: @blank_rows)
+        @slice ||= Slice.new(header: header, format: @tabular ? @tabular.format : :none, blank_rows: @blank_rows)
         @count += 1
         @slice.add(row, line_number: line_number, record_number: @count)
         flush if @slice.size >= @size

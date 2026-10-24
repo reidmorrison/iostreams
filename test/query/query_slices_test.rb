@@ -85,7 +85,7 @@ class QuerySlicesTest < Minitest::Test
         IOStreams.stream(store).copy_from(relation, mode: :array)
 
         assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
-        assert_equal [nil, nil], store.slices.map(&:format)
+        assert_equal %i[none none], store.slices.map(&:format)
         assert_equal(expected.map(&:values), store.slices.flat_map(&:rows))
         assert_equal [1, 3], store.slices.map(&:record_number)
         assert_equal [false, false], store.slices.map(&:blank_rows?)

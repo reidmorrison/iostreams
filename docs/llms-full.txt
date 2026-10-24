@@ -2493,11 +2493,14 @@ held in configuration before it is used. The list grows as formats are added, so
 
 ~~~ruby
 IOStreams.tabular_formats
-# => [:array, :csv, :fixed, :hash, :json, :parquet, :psv]
+# => [:array, :csv, :fixed, :hash, :json, :none, :parquet, :psv]
 
 IOStreams.tabular_formats.include?(:json)
 # => true
 ~~~
+
+`:none` is the format of a store of slices that holds its rows as they are, see
+[A store of slices](slices#a-store-of-slices), rather than a format that a file is read in.
 
 ## Records and rows without a schema
 
@@ -4717,9 +4720,10 @@ end
 * **What arrives at the store.** The records are written as lines of the format, such as CSV, so the slices hold text
   that any job queue or database stores as it is. The header row is matched to the schema before the first slice is
   written, and each slice carries it, exactly as `each(:slice)` gives them.
-* **Without a format.** Each object written is one row, as it is, without a header row: a line that holds a line
-  break, an Array, a number, or nil. The `:array` mode takes Arrays, and the `:hash` mode Hashes. Use it for rows that
-  are not text, such as the range of ids that each job processes:
+* **The `:none` format, the default.** A store that is not given a format is in the `:none` format: each object
+  written is one row, as it is, without a header row: a line that holds a line break, an Array, a number, or nil. The
+  `:array` mode takes Arrays, whose header row, such as the names of the columns of a query, is that of the slices,
+  and the `:hash` mode Hashes. Use it for rows that are not text, such as the range of ids that each job processes:
 
   ~~~ruby
   IOStreams.stream(store).writer(:line) do |io|
@@ -4728,12 +4732,14 @@ end
   end
   ~~~
 
-  A copy of a file without a format holds each of its lines, with its line number. The rows are not parsed, so a
-  schema, `validate: true`, `replace:` and `cleaner:` raise `ArgumentError`, and so does reading such a slice with
-  `IOStreams.stream(slice)` unless its format is set: iterate the slice for its rows instead.
-* **Parquet.** A store in a format whose rows are not lines, such as `format(:parquet)`, holds the rows and records
-  written or copied in the `:array` and `:hash` modes, as `each(:slice)` reads them from a Parquet file, such as
-  `IOStreams.stream(store).format(:parquet).copy_from("people.parquet", mode: :hash)`.
+  A copy of a file in the `:line` mode takes the format of the file, such as CSV, unless `format(:none)` is set, which
+  holds each of its lines as it is, with its line number. The rows are not parsed, so a schema, `validate: true`,
+  `replace:` and `cleaner:` raise `ArgumentError`. `IOStreams.stream(slice)` reads the rows of such a slice as they
+  are, unless a format is set to read them in.
+* **Parquet, and queries.** The rows of a Parquet file, like those of a query, are values of their types, rather than
+  lines of text, so a store holds them as they are in the `:none` format, such as
+  `IOStreams.stream(store).copy_from("people.parquet", mode: :hash)`, or renders them as lines of a format that is
+  set, such as CSV.
 * **When the last slice is written.** The last slice is written when the block returns, or leaves early, such as with
   `break`, but not when it raises. So a failed write never hands on a part of its last slice. The slices before it
   were already written, so remove them by the id of the upload, as above.
@@ -4901,8 +4907,9 @@ does not have:
 
 * Its rows start with the header row that the slice carries, so `each(:array)` yields it first, as for a file, and the
   header row is matched to the schema, raising `IOStreams::Errors::InvalidHeader` when they do not match.
-* `#format` is the format of the slice. A slice without a format, such as one that a store without a format holds,
-  raises `ArgumentError` unless its format is set, since it holds its rows as they are: iterate the slice for them.
+* `#format` is the format of the slice. A slice in the `:none` format, or without one, holds its rows as they are,
+  so `each(:array)` and `each(:hash)` yield each row as it is, and `each(:slice)` slices of them, unless a format is
+  set to read them in, such as `format(:csv)`.
 * The `:stream` and `:line` modes, `#read`, `#stream`, `#option`, `#encoding` and `#raw` raise `ArgumentError`, since
   the rows of a slice are already split and decoded. Read them from the slice itself, with `slice.each` or
   `slice.rows`, for its rows as they are in the file.
