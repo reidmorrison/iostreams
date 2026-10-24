@@ -716,15 +716,17 @@ module IOStreams
 
     # Copies the data that the supplied source reads to the supplied target, as `IO.copy_stream` does, keeping the
     # encoding of the text that the source reads, so that a target that converts text converts it, see
-    # COPY_STREAM_KEEPS_ENCODING.
+    # COPY_STREAM_KEEPS_ENCODING. It reads without a buffer, as JRuby's `IO.copy_stream` does, since not every source
+    # takes one, such as JRuby's `Zlib::GzipReader`, see https://github.com/jruby/jruby/issues/9884.
     #
     # Returns [Integer] the number of bytes copied, which the target says that it wrote, as for `IO.copy_stream`.
     def copy_data(source, target)
       return IO.copy_stream(source, target) if COPY_STREAM_KEEPS_ENCODING
 
       copied = 0
-      buffer = String.new(capacity: COPY_SIZE)
-      copied += target.write(buffer) while source.read(COPY_SIZE, buffer)
+      while (data = source.read(COPY_SIZE))
+        copied += target.write(data)
+      end
       copied
     end
 
