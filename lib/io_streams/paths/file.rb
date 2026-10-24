@@ -163,7 +163,7 @@ module IOStreams
         candidates = Dir.glob(candidate_pattern(matcher.depth), glob_flags, base: directory)
         # A name that is not valid UTF-8, such as one written in Latin-1, is listed too, see `IOStreams::Utils.matchable`.
         results    = candidates.filter_map do |name|
-          next if %w[. ..].include?(::File.basename(name)) || !matcher.match?(name)
+          next if %w[. ..].include?(Utils::PathName.basename(name)) || !matcher.match?(name)
 
           full_name = directory ? Utils::PathName.join(directory, name) : name
           # A child of the current directory called `~` is not the home directory.
@@ -347,7 +347,7 @@ module IOStreams
           parent = Utils::PathName.dirname(existing)
           break if parent == existing
 
-          missing.unshift(::File.basename(existing))
+          missing.unshift(Utils::PathName.basename(existing))
           existing = parent
         end
 

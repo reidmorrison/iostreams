@@ -173,7 +173,7 @@ module IOStreams
     # Returns [Array<String>] the extensions of the file name, in lower case, for example `["csv", "gz"]` for `"Data.CSV.gz"`.
     # The name of the file before the first `.` is not an extension, so a file named `gz` has no extensions.
     def self.file_name_extensions(file_name)
-      parts = matchable(::File.basename(file_name.to_s)).sub(/\A\.+/, "").split(".")
+      parts = matchable(PathName.basename(file_name.to_s)).sub(/\A\.+/, "").split(".")
       parts.shift
       parts.map(&:downcase)
     end
@@ -198,15 +198,22 @@ module IOStreams
       DOT = ".".ord
       private_constant :DOT
 
-      # Whether `::File.join`, `::File.dirname` and `::File.extname` keep the bytes of a name that is not valid UTF-8, as
-      # CRuby does, rather than changing them, as JRuby does, see https://github.com/jruby/jruby/issues/9880, such as
-      # the name of a file in Latin-1 that SFTP lists as bytes, so that the path no longer names the file. Found by what
-      # they do, so that IOStreams uses them again once JRuby keeps the bytes.
+      # The first of the characters that replace the bytes above 127 of a name, see .keeping_bytes: U+0100 onwards, which
+      # are valid UTF-8, and above every byte.
+      BYTE_CHARACTERS = 0x100
+      private_constant :BYTE_CHARACTERS
+
+      # Whether `::File.join`, `::File.dirname`, `::File.extname` and `::File.basename` keep the bytes of a name that is
+      # not valid UTF-8, as CRuby does, rather than changing them, as JRuby does, see
+      # https://github.com/jruby/jruby/issues/9880, such as the name of a file in Latin-1 that SFTP lists as bytes, or
+      # that IOStreams labels as UTF-8, so that the path no longer names the file. Found by what they do, so that
+      # IOStreams uses them again once JRuby keeps the bytes.
       FILE_KEEPS_NAMES =
         begin
-          name = "a\xE9".b
+          name  = "a\xE9".b
+          label = name.dup.force_encoding(Encoding::UTF_8)
           ::File.join(name, name).b == "a\xE9/a\xE9".b && ::File.dirname("#{name}/x").b == name &&
-            ::File.extname("x.".b + name).b == ".a\xE9".b
+            ::File.extname("x.".b + name).b == ".a\xE9".b && ::File.basename("x/#{label}").b == name
         end
 
       # Returns [String] the supplied names joined into a path, as `::File.join` joins Strings: with one `/` between
@@ -224,6 +231,26 @@ module IOStreams
       # Returns [String] the extension of the last name of the supplied path, as `::File.extname` returns it, see .join.
       def self.extname(path)
         FILE_KEEPS_NAMES ? ::File.extname(path) : extname_of(path)
+      end
+
+      # Returns [String] the last name of the supplied path, as `::File.basename` returns it, without the supplied
+      # suffix when it ends with it, see .join.
+      def self.basename(path, suffix = nil)
+        return basename_of(path, suffix) unless FILE_KEEPS_NAMES
+
+        suffix.nil? ? ::File.basename(path) : ::File.basename(path, suffix)
+      end
+
+      # Returns [String] the bytes of the name that the block returns for the supplied names, which it yields as they
+      # are where `::File` keeps the bytes of a name that is not valid UTF-8, see FILE_KEEPS_NAMES, otherwise as valid
+      # UTF-8, each byte above 127 replaced with a character of its own, which the bytes of the name that it returns
+      # are found from again. So that `Pathname`, which joins and splits names with `::File`, such as for `#cleanpath`,
+      # keeps the bytes, since a path is split and joined only at `/` and `.`, which the replacement keeps.
+      def self.keeping_bytes(*names)
+        return yield(*names).b if FILE_KEEPS_NAMES
+
+        valid = names.map { |name| name.b.unpack("C*").map { |byte| byte < 0x80 ? byte : BYTE_CHARACTERS + byte }.pack("U*") }
+        yield(*valid).unpack("U*").map { |code| code < BYTE_CHARACTERS ? code : code - BYTE_CHARACTERS }.pack("C*")
       end
 
       # Returns [String] the supplied Strings joined into a path, as CRuby's `File.join` joins them on POSIX, by their
@@ -285,6 +312,90 @@ module IOStreams
 
         path.byteslice(dot, position - dot)
       end
+
+      # Returns [String] the last name of the supplied path, as CRuby's `File.basename` returns it on POSIX, by its
+      # bytes: the name after its last separators, without the separators at its end, `/` for a path of only
+      # separators, in the encoding of the path. The supplied suffix is removed when the name ends with it, `.*` removes
+      # the extension of the name, see .extname, and a character followed by `*` removes the name from the last of that
+      # character, unless that would leave nothing. A suffix without an encoding in common with the path is not
+      # removed.
+      #
+      # Raises ArgumentError, as CRuby does, when the first character of the suffix, or for a character followed by
+      # `*`, a character of the name, is not valid in the encoding that they have in common.
+      #
+      # Used where `::File.basename` changes names, see .basename, and public, so that its tests compare it with CRuby's.
+      def self.basename_of(path, suffix = nil)
+        return path.dup if path.empty?
+
+        start = leading_separators(path)
+        return path.byteslice(start - 1, 1) if start == path.bytesize
+
+        separator = last_separator(path, start)
+        if separator
+          start = separator
+          start += 1 while path.getbyte(start) == SEPARATOR
+        end
+        length   = trailing_separators(path) - start
+        encoding = suffix && Encoding.compatible?(path, suffix)
+        kept     = encoding ? without_suffix(path, start, length, suffix.dup.force_encoding(encoding)) : 0
+        path.byteslice(start, kept.positive? ? kept : length)
+      end
+
+      # Returns [Integer] the number of bytes of the name of the supplied length, from the supplied position of the
+      # supplied path, that are kept once the supplied suffix is removed, see .basename_of, or 0 when the suffix is not
+      # removed, as CRuby's `rmext` does.
+      def self.without_suffix(path, start, length, suffix)
+        return 0 if suffix.empty?
+
+        first = valid_character(suffix[0])
+        if suffix.bytesize == first.bytesize + 1 && suffix.getbyte(first.bytesize) == "*".ord
+          return stem_length(path, start, length) if first == "."
+
+          name  = valid_character(path.byteslice(start, length).force_encoding(suffix.encoding))
+          index = name.rindex(first)
+          return index ? name[0, index].bytesize : length
+        end
+        return length if length < suffix.bytesize
+
+        from = start + length - suffix.bytesize
+        return 0 unless character_start?(path, from, suffix.encoding)
+
+        path.byteslice(from, suffix.bytesize).b == suffix.b ? length - suffix.bytesize : 0
+      end
+
+      # Returns [String] the supplied text.
+      #
+      # Raises ArgumentError when it is not valid in its encoding, as CRuby does when it reads its characters.
+      def self.valid_character(text)
+        return text if text.valid_encoding?
+
+        raise(ArgumentError, "invalid byte sequence in #{text.encoding}")
+      end
+      private_class_method :valid_character
+      private_class_method :without_suffix
+
+      # Returns [Integer] the number of bytes of the name of the supplied length, from the supplied position of the
+      # supplied path, before its extension, see .extname_of: before its last `.`, unless only dots start the name.
+      def self.stem_length(path, start, length)
+        position = start
+        position += 1 while position - start < length && path.getbyte(position) == DOT
+        dot = nil
+        while position - start < length
+          dot = position if path.getbyte(position) == DOT
+          position += 1
+        end
+        dot ? dot - start : length
+      end
+      private_class_method :stem_length
+
+      # Returns [true|false] whether a character of the supplied path, read in the supplied encoding, starts at the
+      # supplied position: always for a single byte encoding, and for UTF-8 unless its byte continues a character.
+      def self.character_start?(path, position, encoding)
+        return true unless encoding == Encoding::UTF_8
+
+        !(0x80..0xBF).cover?(path.getbyte(position))
+      end
+      private_class_method :character_start?
 
       # Returns [Integer] the number of bytes of the supplied path before the separators at its end.
       def self.trailing_separators(path)

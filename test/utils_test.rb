@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "pathname"
 require "logger"
 
 class UtilsTest < Minitest::Test
@@ -230,7 +231,7 @@ class UtilsTest < Minitest::Test
         assert_equal [expected.b, expected.encoding], [actual.b, actual.encoding], message
       end
 
-      it "joins, and finds the directory and extension of, names as CRuby's File does" do
+      it "joins, and finds the directory, extension and last name of, names as CRuby's File does" do
         skip("File changes names that are not valid UTF-8 on this Ruby") unless IOStreams::Utils::PathName::FILE_KEEPS_NAMES
 
         names.each do |name|
@@ -247,6 +248,15 @@ class UtilsTest < Minitest::Test
         end
 
         assert_same_name ::File.join, IOStreams::Utils::PathName.join_names([])
+        suffixes = [nil, "", ".*", ".", "a", ".a", "a*", "*", "é", "é*", "\xE9".b]
+        names.product(suffixes).each do |name, suffix|
+          expected = suffix.nil? ? ::File.basename(name) : ::File.basename(name, suffix)
+
+          assert_same_name expected, IOStreams::Utils::PathName.basename_of(name, suffix), [name, suffix].inspect
+        rescue ArgumentError
+          assert_raises(ArgumentError) { IOStreams::Utils::PathName.basename_of(name, suffix) }
+        end
+
         assert_same_name ::File.join("a/", "/b", "c"), IOStreams::Utils::PathName.join_names(["a/", "/b", "c"])
       end
 
@@ -256,7 +266,26 @@ class UtilsTest < Minitest::Test
           assert_same_name "/in/#{name}", IOStreams::Utils::PathName.join("/in/", name)
           assert_same_name "/in/#{name}", IOStreams::Utils::PathName.dirname("/in/#{name}/x.csv")
           assert_same_name ".c#{name}", IOStreams::Utils::PathName.extname("x.c#{name}")
+          assert_same_name "#{name}.csv", IOStreams::Utils::PathName.basename("/in/#{name}.csv")
+          assert_same_name name, IOStreams::Utils::PathName.basename("/in/#{name}.csv", ".*")
         end
+      end
+
+      it "keeps the bytes of the names that a block of Pathname joins and splits" do
+        names = latin_names.map { |name| "/data/./in/../in/#{name}" }
+
+        names.each do |name|
+          cleaned = IOStreams::Utils::PathName.keeping_bytes(name) do |valid|
+            Pathname.new(IOStreams::Utils.matchable(valid)).cleanpath.to_s
+          end
+
+          assert_equal "/data/in/caf\xE9".b, cleaned
+        end
+        relative = IOStreams::Utils::PathName.keeping_bytes("/data/in/#{latin}", "/data".b) do |name, from|
+          Pathname.new(name).relative_path_from(Pathname.new(from)).to_s
+        end
+
+        assert_equal "in/caf\xE9".b, relative
       end
 
       it "keeps the bytes of a name that is not valid UTF-8 in a path" do

@@ -560,7 +560,7 @@ module IOStreams
       file_name = builder.file_name
       return unless file_name
 
-      suffix.nil? ? ::File.basename(file_name) : ::File.basename(file_name, suffix)
+      Utils::PathName.basename(file_name, suffix)
     end
 
     # Returns [String] the directory for this file.

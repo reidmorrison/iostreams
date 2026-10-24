@@ -24,7 +24,7 @@ module IOStreams
       def self.file_name_options(file_name, **options)
         return options if options[:entry_file_name]
 
-        match = ::File.basename(file_name.to_s).match(/\A(.+)\.zip(?:\.[^.]+)*\z/i)
+        match = Utils::PathName.basename(file_name.to_s).match(/\A(.+)\.zip(?:\.[^.]+)*\z/i)
         match ? options.merge(entry_file_name: match[1]) : options
       end
 
