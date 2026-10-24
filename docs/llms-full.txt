@@ -4847,15 +4847,35 @@ does not have:
   that UTF-8 does not have, raises `IOStreams::Errors::InvalidEncoding`, with the byte offset and line that reading
   the UTF-8 file would name, counting the header row and blank lines, for example
   `"\xFF" is not valid UTF-8 at byte offset 43 on line 7`. To replace each one instead, set `replace:` on the store's
-  stream, the only option of `#encoding` that a store takes. For now it applies only to the `:line` mode, so the
-  `:array` and `:hash` modes, whose rows and records are usually built by code, raise `ArgumentError` when it is set:
+  stream:
 
   ```ruby
   IOStreams.stream(store).format(:csv).encoding(replace: "").writer(:line) do |io|
     io << line
   end
   ```
-* A copy in the `:line` mode keeps the lines as they are, so the slices are in the format of the source. Setting
+* To clean each row before it is stored, set `cleaner:` on the store's stream, as for a path, see
+  [Character encoding](streams#character-encoding): `:printable` removes the characters that are not printable,
+  apart from line endings, `:replace_non_printable` replaces them with `replace:`, and a Proc is called with the text
+  of each row and the `replace:` value, and returns the cleaned text. The header row is cleaned too, before it is
+  matched to the schema:
+
+  ```ruby
+  IOStreams.stream(store).format(:csv).encoding(cleaner: :printable, replace: "").writer(:line) do |io|
+    io << "name,note"
+    io << "Jack,a\tb"  # stored as the row "Jack,ab"
+  end
+
+  # Spaces keep the columns of a fixed width file in place.
+  spaces = ->(text, _replace) { text.gsub(/[^[:print:]\r\n]/, " ") }
+  IOStreams.stream(store).format(:fixed).schema(schema).encoding(cleaner: spaces).writer(:line) do |io|
+    io << "Ja\x01ck     12345"  # stored as the row "Ja ck     12345"
+  end
+  ```
+* `replace:` and `cleaner:` are the only options of `#encoding` that a store takes. For now they apply only to the
+  `:line` mode, so the `:array` and `:hash` modes, whose rows and records are usually built by code, raise
+  `ArgumentError` when either one is set.
+* A copy in the `:line` mode keeps the lines in their format, so the slices are in the format of the source. Setting
   another format on the store's stream raises `ArgumentError`; copy in the `:array` or `:hash` mode to convert the
   rows instead.
 * A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, an encoding
