@@ -34,7 +34,7 @@ gem "ed25519"
 # net-ssh 8 depends on the openssl gem, which brings jruby-openssl 0.19 to JRuby. Whenever a cipher is the first thing
 # that uses OpenSSL in a process, 0.19 lists aes-256-ctr, so net-ssh uses its AES-CTR, whose keystream does not continue
 # after #final, and each SFTP connection fails as it authenticates. 0.16, which JRuby includes, never lists it, so
-# net-ssh uses its own CTR over AES-ECB instead.
+# net-ssh uses its own CTR over AES-ECB instead. See https://github.com/jruby/jruby-openssl/issues/392
 gem "jruby-openssl", "< 0.19", platform: :jruby
 gem "nokogiri"
 gem "parquet", platform: :ruby # A Rust extension, which JRuby cannot load.
