@@ -62,6 +62,7 @@ Each still works as before, and reports a deprecation warning, see Added.
 
 - **`#inspect` shows the full name of a path**, see `#display_name`, such as `#<IOStreams::Paths::S3:s3://bucket/a.csv pipeline={}>`, without any user name, password or query of an SFTP or HTTP url. Previously it showed only `#path`, such as `a.csv`, so paths in different buckets or on different hosts looked the same. The warning logged when `#each_child` skips a child outside the allowed paths also no longer includes the password of an SFTP or HTTP url.
 - **A copy of a path or stream has its own streams, options and encoding.** Changing a copy made with `dup`, such as with `#option`, `#encoding` or `#raw`, no longer changes the path that it was copied from, and `#copy_from` and `#copy_to` with `convert: false`, and `#move_to`, no longer change the streams of the source or the target. In v2.1, once the settings of a path had been read, such as with `#pipeline`, a copy with `convert: false` left it reading and writing the data as it is stored. A copy with `convert: false` from a source with options set with `#option` now copies it, where v2.1 raised `ArgumentError`.
+- **`copy_from` without a `mode:` copies a source with an encoding**, such as `target.copy_from(IOStreams.path("data.csv").encoding("UTF-8"))`, rather than raising `ArgumentError`, since the reader of the encoding now reads into the buffer that `IO.copy_stream` supplies, as `IO#read` does.
 
 ## [2.1.0] - 2026-10-04
 

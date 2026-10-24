@@ -60,7 +60,11 @@ module IOStreams
 
       # Returns [String] data returned from the input stream.
       # Returns [nil] if end of file and no further data was read.
-      def read(size = nil)
+      #
+      # As IO#read does, the data is read into the supplied buffer, which is returned, and which is empty once the end
+      # of the file was reached, so that `IO.copy_stream`, which supplies one, can read it, such as for a copy without a
+      # mode from a stream with an encoding.
+      def read(size = nil, outbuf = nil)
         block =
           if @read_cache_buffer
             begin
@@ -75,11 +79,14 @@ module IOStreams
           end
 
         # EOF reached?
-        return unless block
+        unless block
+          outbuf&.clear
+          return
+        end
 
         block = block.encode(@encoding, **@encoding_options) unless block.encoding == @encoding
         block = @cleaner.call(block, @replace) if @cleaner
-        block
+        outbuf ? outbuf.replace(block) : block
       end
 
       def self.extract_cleaner(cleaner)

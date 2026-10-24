@@ -1595,6 +1595,19 @@ class StreamTest < Minitest::Test
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
       end
 
+      # Not compressed, since JRuby's Zlib::GzipReader#read takes no buffer.
+      it "copies a source with an encoding, whose reader IO.copy_stream reads into its buffer" do
+        source = IOStreams.join("copy_test", "source.txt")
+        source.write("José, Zürich\n")
+
+        copied = target_path.copy_from(source.encoding("UTF-8"))
+
+        assert_equal "José, Zürich\n".b, IOStreams.join("copy_test", "target.csv").encoding("BINARY").read
+        assert_equal "José, Zürich\n".bytesize, copied
+      ensure
+        source&.delete
+      end
+
       it "copies a file name without conversions" do
         source_path.write("Hello World")
         target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"), convert: false)
