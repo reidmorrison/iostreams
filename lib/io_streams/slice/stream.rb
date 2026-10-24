@@ -53,12 +53,12 @@ module IOStreams
         super(blank_rows: io_stream.blank_rows?, **)
       end
 
-      # Yields [Numbered] the rows of the slice, after its header row, when it carries one, which add themselves to the
-      # collector of a slice reader with the line number and record number of each one, see
-      # `IOStreams::Row::Stream#open_slice_rows`, so that the slices that it reads from this slice keep the numbers of
-      # their rows, see `IOStreams::Slice#each`.
+      # Yields [RowsWithLines] the rows of the slice, after its header row, when it carries one, with the line of the file
+      # that each one starts on, which a slice reader reads, see `IOStreams::Row::Stream#open_slice_rows`, so that the
+      # slices that it reads from this slice keep the lines of their rows, see `IOStreams::Slice#line_number_at`. The
+      # slice reader numbers their records as it builds the slices, see `IOStreams::Slice::Collector#add`.
       def open_slice_rows(_tabular, _delimiter, _buffer_size)
-        yield Numbered.new(io_stream)
+        yield RowsWithLines.new(io_stream)
       end
 
       # Returns [#each] the rows of the slice, after its header row, when it carries one, which the readers of rows and
@@ -72,23 +72,22 @@ module IOStreams
         end
       end
 
-      # The rows of a slice, after its header row, when it carries one, with the line number and record number of each
-      # one, see `IOStreams::Slice#each`, which a slice reader reads, see `IOStreams::Slice::Reader`, so that the slices
-      # that it reads from them keep their numbers.
-      class Numbered
+      # The rows of a slice, after its header row, when it carries one, with the line of the file that each one starts
+      # on, see `IOStreams::Slice#each`, which a slice reader reads, see `IOStreams::Slice::Reader`, so that the slices
+      # that it reads from them keep their lines.
+      class RowsWithLines
         def initialize(slice)
           @slice = slice
         end
 
-        # Adds the header row, which has no numbers, and then each row with its line number and record number, to the
-        # supplied collector, see `IOStreams::Slice::Collector#add_numbered`.
-        def add_to(collector)
+        # Yields the header row, which starts on no line, nil, and then each row with its line number.
+        def each
           header = @slice.header
-          collector.add_numbered(header, nil, nil) if header
-          @slice.each { |row, line_number, record_number| collector.add_numbered(row, line_number, record_number) }
+          yield(header, nil) if header
+          @slice.each { |row, line_number, _record_number| yield(row, line_number) }
         end
       end
-      private_constant :Numbered
+      private_constant :RowsWithLines
     end
   end
 end

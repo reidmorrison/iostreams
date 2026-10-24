@@ -29,16 +29,15 @@ module IOStreams
       end
 
       # Parameters
-      #   rows: [#add_to]
-      #     Adds each row of the file, as the format holds it, after its header row, when it has one, to the collector
-      #     of the slices, see `IOStreams::Slice::Collector`, with the numbers that the rows know:
-      #     - the lines of a file, with the line of the file that each one starts on, see `IOStreams::Slice::LineRows`.
+      #   rows: [#each]
+      #     Yields each row of the file, as the format holds it, starting with its header row, when it has one, with the
+      #     line of the file that it starts on, when the rows know it, otherwise nil:
+      #     - the lines of a file, see `IOStreams::Slice::LineRows`.
+      #     - the rows of a slice, see `IOStreams::Slice::Stream`, so that they keep their lines.
       #     - rows that are not lines of a file, such as those of Parquet, which start on no line, see
       #       `IOStreams::Slice::Rows`.
-      #     - the rows of a slice, with their line numbers and record numbers, see `IOStreams::Slice::Stream`, so that
-      #       they keep them.
-      #     The collector numbers each row as the next record, see `IOStreams::Slice#record_number_at`, unless the rows
-      #     bring their own.
+      #     The collector numbers each row as the next record, as it builds the slices, see
+      #     `IOStreams::Slice::Collector#add`.
       #
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
@@ -54,8 +53,9 @@ module IOStreams
       #     Default: false
       def initialize(rows, tabular:, size:, validate: false)
         self.class.check(size: size, validate: validate)
-        unless rows.respond_to?(:add_to)
-          raise(ArgumentError, "Rows must implement #add_to(collector), such as IOStreams::Slice::Rows")
+        unless rows.respond_to?(:each)
+          raise(ArgumentError, "Rows must implement #each, yielding each row with its line number, such as " \
+                               "IOStreams::Slice::Rows")
         end
 
         @rows     = rows
@@ -78,7 +78,7 @@ module IOStreams
       # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
       def each(&)
         collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, &)
-        @rows.add_to(collector)
+        @rows.each { |row, line_number| collector.add(row, line_number) }
         collector.finish
         collector.count
       end

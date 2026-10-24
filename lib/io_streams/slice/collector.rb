@@ -13,9 +13,8 @@ module IOStreams
     # says, see `IOStreams::Tabular#blank_rows?`.
     #
     # Each slice also holds the numbers of each of its rows, see `IOStreams::Slice#each`: the line of the file that it
-    # starts on, which whoever adds the rows supplies when they are lines of a file, and its record number, which the
-    # collector counts, from 1, without the header row, see #add, or which the rows supply when they are numbered
-    # already, such as the rows of a slice that are collected into slices again, see #add_numbered.
+    # starts on, which whoever adds the rows supplies when it knows it, and its record number, which the collector
+    # counts, from 1, without the header row, as it builds the slices, see #add.
     class Collector
       # Raises ArgumentError for options that cannot collect slices, see #initialize, so that a call raises before
       # anything is opened: a `size` that is not a positive Integer, or a `validate` that is not true or false, see
@@ -87,49 +86,36 @@ module IOStreams
       end
 
       # Adds the supplied row of the file, as the format holds it: a line of text, or for a format whose rows are not
-      # lines, such as Parquet, the row that its reader returns, numbered as the next record, see
-      # `IOStreams::Slice#record_number_at`. The header row is read instead, see `IOStreams::Tabular#read_line`. A nil
-      # line is a blank line, as a writer of lines writes it.
+      # lines, such as Parquet, the row that its reader returns. The header row is read instead, see
+      # `IOStreams::Tabular#read_line`. A nil line is a blank line, as a writer of lines writes it.
       #
       # Parameters, all positional
       #   row: [String|Array|Hash|nil]
       #     The row to add.
       #
       #   line_number: [Integer|nil]
-      #     The number of the line of the file that the row starts on, when the rows are lines of a file, see
+      #     The number of the line of the file that the row starts on, when whoever adds the rows knows it, see
       #     `IOStreams::Slice#line_number_at`.
       #     Default: nil, a row that is not a line of a file.
       #
+      # The row is numbered as the next record, counting from 1 without the header row, see
+      # `IOStreams::Slice#record_number_at`.
+      #
       # Returns self, so that calls can be chained.
       def add(row, line_number = nil)
-        @tabular.read_line(row.nil? ? "" : row) { |line| collect(line, line_number, @count + 1) }
+        @tabular.read_line(row.nil? ? "" : row) do |line|
+          @tabular.record_parse(line) if @validate
+          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
+          @count += 1
+          @slice.add(line, line_number: line_number, record_number: @count)
+          flush if @slice.size >= @size
+        end
         header_read if @on_header
         self
       end
 
       alias << add
       alias write add
-
-      # Adds the supplied row with the numbers that it already has, such as a row of a slice that is collected into
-      # slices again, see `IOStreams::Slice::Stream`, rather than number it as the next record, see #add.
-      #
-      # Parameters, all positional
-      #   row: [String|Array|Hash|nil]
-      #     The row to add, see #add.
-      #
-      #   line_number: [Integer|nil]
-      #     The line of the file that the row starts on, see `IOStreams::Slice#line_number_at`, or nil for a row that is
-      #     not a line of a file.
-      #
-      #   record_number: [Integer|nil]
-      #     The record number of the row, see `IOStreams::Slice#record_number_at`, or nil for a row without one.
-      #
-      # Returns self, so that calls can be chained.
-      def add_numbered(row, line_number, record_number)
-        @tabular.read_line(row.nil? ? "" : row) { |line| collect(line, line_number, record_number) }
-        header_read if @on_header
-        self
-      end
 
       # Returns [Array<String>] the header row of the file, as it was read, once it has been read, which every slice
       # carries, see `IOStreams::Slice#header`.
@@ -150,16 +136,6 @@ module IOStreams
       end
 
       private
-
-      # Adds the supplied line, a row that the tabular read, see `IOStreams::Tabular#read_line`, with its numbers, to the
-      # slice, after parsing it when `validate` is true, and hands on the slice once it holds `size` rows.
-      def collect(line, line_number, record_number)
-        @tabular.record_parse(line) if @validate
-        @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
-        @count += 1
-        @slice.add(line, line_number: line_number, record_number: record_number)
-        flush if @slice.size >= @size
-      end
 
       # Calls `on_header` with the header row, once it has been read, see #initialize.
       def header_read

@@ -165,7 +165,7 @@ When a row fails, support staff need to find it in the file. A slice holds the n
   lines count, and so does each line of a quoted value that holds line breaks, so the first row of a CSV file whose
   header row is on line 1 is on line 2.
 * **Its record number**, the number of the row in the file, counting from 1, without the header row. A blank row counts
-  too.
+  too. IOStreams counts it as it reads the rows into slices.
 
 `slice.line_number_at(index)` and `slice.record_number_at(index)` return them for the row at an index of the slice.
 Name them in what the worker reports:
@@ -198,8 +198,8 @@ end
   `:line` mode. Its rows are read as CSV text, whose lines are not the rows of the sheet, since a cell that holds line
   breaks takes a line for each. Their record numbers count the rows that are read, and the empty rows of the sheet are
   left out, so a record number is not always the row in Excel either.
-* The slices read from a slice, such as with `IOStreams.stream(slice).each(:slice, size: 10)`, keep the numbers of its
-  rows.
+* The slices read from a slice, such as with `IOStreams.stream(slice).each(:slice, size: 10)`, keep the line numbers of
+  its rows, and number their records from 1 again, as they count the rows read into them.
 * A row added to a slice by your code without numbers, see [A slice](#a-slice), has none, `nil`, as do the rows of a
   Hash stored before IOStreams held them.
 

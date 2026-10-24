@@ -115,11 +115,11 @@ class SliceReaderTest < Minitest::Test
         end
       end
 
-      it "raises for rows that do not give the line that each one starts on, nor their numbers" do
+      it "raises for rows that do not yield each row with its line number" do
         error = assert_raises(ArgumentError) do
-          IOStreams::Slice::Reader.new([%w[name age]], tabular: IOStreams::Tabular.new(format: :array), size: 2)
+          IOStreams::Slice::Reader.new(Object.new, tabular: IOStreams::Tabular.new(format: :array), size: 2)
         end
-        assert_equal "Rows must implement #add_to(collector), such as IOStreams::Slice::Rows",
+        assert_equal "Rows must implement #each, yielding each row with its line number, such as IOStreams::Slice::Rows",
                      error.message
       end
 

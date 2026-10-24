@@ -927,7 +927,7 @@ module IOStreams
       end
     end
 
-    # Yields [#add_to] the rows of the format of the tabular, see #open_rows_reader, which a slice reader reads, see
+    # Yields [#each] the rows of the format of the tabular, see #open_rows_reader, which a slice reader reads, see
     # `IOStreams::Slice::Reader`: the lines that its line reader reads, with the line of the file that each one starts
     # on, see `IOStreams::Slice::LineRows`, or rows that start on no line, see `IOStreams::Slice::Rows`: the rows of a
     # format whose rows are not lines, such as Parquet, and the lines of text that a stream turns the data into, such as

@@ -268,7 +268,9 @@ module IOStreams
     # from 1, without the header row, nor the blank lines before it, so that a blank row after it counts. For instance
     # 101 for the first row of the second slice of 100 rows of a file. For the rows of a format whose rows are not
     # lines, such as Parquet, or of an Active Record query, it is the number of the row, as it is for the rows and
-    # records written to a store of slices, see `IOStreams::Slice::TargetStream`.
+    # records written to a store of slices, see `IOStreams::Slice::TargetStream`. IOStreams counts it as it reads the
+    # rows into slices, see `IOStreams::Slice::Collector`, so the slices read from a slice number its rows from 1 again,
+    # whereas they keep the line of each row, see `IOStreams::Slice::Stream`.
     # Returns nil for a row added without one, see #add.
     #
     # The index counts from 0, or from the end when it is negative, as for #[].
