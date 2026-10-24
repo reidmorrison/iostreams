@@ -3045,6 +3045,16 @@ class StreamTest < Minitest::Test
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
       end
 
+      it "converts the text that the source reads into the encoding of the target" do
+        source_path.write("José, Zürich\n")
+        target = IOStreams.join("copy_test", "target.csv").encoding("ISO-8859-1:UTF-8")
+
+        copied = target.copy_from(IOStreams.join("copy_test", "source.csv.gz").encoding("UTF-8"))
+
+        assert_equal "Jos\xE9, Z\xFCrich\n".b, IOStreams.join("copy_test", "target.csv").encoding("BINARY").read
+        assert_equal "Jos\xE9, Z\xFCrich\n".bytesize, copied
+      end
+
       it "raises for a mode that a copy does not convert with, before the target is opened" do
         source_path.write("Hello World")
         target_path.write("existing")
