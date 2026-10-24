@@ -253,11 +253,13 @@ class SliceStreamTest < Minitest::Test
         assert_equal "The rows of the slice are :csv, so its format cannot be :psv", error.message
       end
 
-      it "is set for a slice without one, which is otherwise read as CSV" do
+      it "is set for a slice without one, which otherwise holds its rows as they are, rather than read them as CSV" do
         slice = IOStreams::Slice.new(%w[Jack|21], header: %w[name age])
 
         assert_equal [{"name" => "Jack", "age" => 21}], each(IOStreams.stream(slice).format(:psv).schema(schema))
-        assert_equal [{"name" => "Jack|21", "age" => nil}], each(IOStreams.stream(slice))
+        error = assert_raises(ArgumentError) { each(IOStreams.stream(slice)) }
+        assert_equal "A slice without a format holds its rows as they are: iterate the slice for its rows as they are, " \
+                     "or set the format of its rows with #format", error.message
       end
     end
 

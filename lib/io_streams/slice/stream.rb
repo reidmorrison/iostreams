@@ -49,7 +49,16 @@ module IOStreams
       # Returns [IOStreams::Tabular] that reads the rows of the slice, see `IOStreams::Stream#tabular`, reading a row
       # whose every value is blank as the slice says, see `IOStreams::Slice#blank_rows?`, so that a row of a query whose
       # every value is null is a record wherever its slice is read, as it is where the query is read.
+      #
+      # Raises ArgumentError for a slice without a format, such as one written to a store of slices without a format,
+      # see `IOStreams::Slice::TargetStream`, whose rows are held as they are, rather than read as CSV, unless a format
+      # is set with #format.
       def tabular(**)
+        if format.nil?
+          raise(ArgumentError, "A slice without a format holds its rows as they are: #{rows_hint}, or set the format " \
+                               "of its rows with #format")
+        end
+
         super(blank_rows: io_stream.blank_rows?, **)
       end
 

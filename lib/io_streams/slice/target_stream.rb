@@ -22,10 +22,25 @@ module IOStreams
     # do not match, and each slice carries it. The last slice is written once the block finishes, or leaves early, such
     # as with `break`, but not when it raises.
     #
+    # In a format whose rows are not lines, such as Parquet, the rows and records written, or copied, are the rows of
+    # the slices, as `IOStreams::Stream#each(:slice)` reads them from a file in that format.
+    #
+    # Without a format, see #format, each object written is one row of a slice, as it is, such as a line of text that
+    # holds a line break, an Array or an Integer, without a header row, and in the `:array` mode, a header row written,
+    # such as the names of the columns of a query, is the header row of the slices. A copy in the `:line` mode takes
+    # the format of its source, see #copy_from, so that a file without a format gives its lines as they are, each with
+    # its line number. The rows are not parsed, so a schema, `validate: true`, and the options of #encoding raise
+    # ArgumentError without a format.
+    #
+    #   IOStreams.stream(store).writer(:line) do |io|
+    #     io << [1, 99]
+    #     io << [100, 199]
+    #   end
+    #
     # A store holds slices rather than bytes, so the `:stream` mode, the streams and options of #stream and #option, an
     # encoding, or an option of #encoding other than `replace:` and `cleaner:`, and #raw raise ArgumentError, see
-    # `IOStreams::Row::WithoutBytes`, as do a file name, since a store has none, and a format whose rows are not lines,
-    # such as Parquet. It is only written, so #reader, #each and #read raise ArgumentError too.
+    # `IOStreams::Row::WithoutBytes`, as do a file name, since a store has none, and the `:line` mode in a format whose
+    # rows are not lines, such as Parquet. It is only written, so #reader, #each and #read raise ArgumentError too.
     class TargetStream < IOStreams::Stream
       include IOStreams::Row::WithoutBytes
 
@@ -62,6 +77,9 @@ module IOStreams
       #   :array  each row, see `IOStreams::Row::Writer`.
       #   :hash   each record, see `IOStreams::Record::Writer`.
       #
+      # Without a format, each object written is one row, as it is, see above: any object in the `:line` mode, which has
+      # no line number, an Array in the `:array` mode, and a Hash in the `:hash` mode.
+      #
       # Each slice holds the number of rows that the store says, see `IOStreams::Slice::Target#slice_size`, apart from
       # the last, which holds the rows that are left.
       #
@@ -74,21 +92,26 @@ module IOStreams
       # Returns the result of the block.
       #
       # Raises ArgumentError for any other mode, or option, or a slice size of the store that is not a positive Integer,
-      # or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the block is called.
+      # or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, or without a format, for a
+      # schema, `validate: true`, or an option of #encoding, before the block is called.
       def writer(mode = :stream, **args, &block)
         require_block!(:writer, block)
-        write_slices(mode, slice_options(mode, args), &block)
+        options = slice_options(mode, args)
+        check_rows_as_they_are(format, options)
+        write_slices(mode, options, lines_of_file: !format.nil?, &block)
       end
 
       # Copies the lines, rows or records of the supplied source, such as a path, a stream or an Active Record query,
       # see `IOStreams::Stream#copy_from`, to the store in slices, see #writer, which takes the options of the copy, such
       # as `validate:`. Each slice holds whether the blank rows of the source are records, as those of a query are, see
       # `IOStreams::Slice#blank_rows?`. The lines of the `:line` mode are in the format of the source, which the slices
-      # carry, unless the stream has a format of its own.
+      # carry, unless the stream has a format of its own. Without a format, see #writer, each line, row or record copied
+      # is one row, as it is, and each line of a file without a format keeps its line number.
       #
       # Raises ArgumentError without a `mode:`, or with `convert: false`, since the store holds slices of rows rather
       # than bytes, or in the `:line` mode when the format of the stream is not that of the source, or in the `:array`
-      # or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the source is opened.
+      # or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, or without a format, for a schema,
+      # `validate: true`, or an option of #encoding, before the source is opened.
       def copy_from(source, convert: true, mode: nil, **args)
         unless convert && MODES.include?(mode)
           raise(ArgumentError, "A #{source_name} is copied to in the #{modes} mode, " \
@@ -96,7 +119,8 @@ module IOStreams
         end
 
         source = to_stream(source)
-        with_lines_format(source) if mode == :line
+        target = mode == :line ? with_lines_format(source) : self
+        check_rows_as_they_are(target.format, args)
         super(source, mode: mode, **args)
       end
 
@@ -163,10 +187,18 @@ module IOStreams
       # a copy reads from a spreadsheet, see `IOStreams::Stream#copy_lines_of_file?`. Protected, so that a copy writes
       # with the stream that has the schema of its source, see #copy_rows.
       #
+      # Without a format, each object written is one row, as it is, see RowsAsTheyAre, whose line number, in the `:line`
+      # mode of a copy of the lines of a file, is its place in the file.
+      #
       # Returns the result of the block.
       def write_slices(mode, options, blank_rows: true, lines_of_file: true, &block)
-        tabular = rows_tabular(blank_rows)
+        if format.nil?
+          return Collector.write(io_stream, tabular: nil, blank_rows: blank_rows, **options) do |collector|
+            block.call(RowsAsTheyAre.new(collector, mode, lines_of_file: mode == :line && lines_of_file))
+          end
+        end
 
+        tabular = rows_tabular(mode, blank_rows)
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
           case mode
           when :line then write_lines(collector, tabular.quote_character, lines_of_file, &block)
@@ -198,6 +230,59 @@ module IOStreams
       end
 
       private
+
+      # Takes each object written to a store without a format, see #writer, and adds it to the collector of the slices as
+      # one row, as it is: any object in the `:line` mode, an Array in the `:array` mode, whose header row, such as that
+      # of a query, see `IOStreams::Row::HeaderRow`, is the header row of the slices, and a Hash in the `:hash` mode.
+      class RowsAsTheyAre
+        # Parameters
+        #   collector: [IOStreams::Slice::Collector]
+        #     Collects the rows into slices, without a tabular.
+        #
+        #   mode: [Symbol]
+        #     The mode that the rows are written in, see `IOStreams::Slice::TargetStream::MODES`.
+        #
+        #   lines_of_file: [true|false]
+        #     Whether each object is a line of a file, which is numbered as the next line of it, such as the lines that a
+        #     copy reads from a file without a format, see `IOStreams::Slice::TargetStream#copy_from`.
+        def initialize(collector, mode, lines_of_file:)
+          @collector   = collector
+          @mode        = mode
+          @line_number = (0 if lines_of_file)
+        end
+
+        # Adds the supplied object as the next row.
+        #
+        # Returns self, so that calls can be chained.
+        #
+        # Raises ArgumentError for an object that is not an Array in the `:array` mode, nor a Hash in the `:hash` mode.
+        def <<(row)
+          case @mode
+          when :array
+            raise(ArgumentError, "Write each row as an Array, not #{row.class.name}") unless row.is_a?(Array)
+            return write_header(row) if row.is_a?(IOStreams::Row::HeaderRow)
+          when :hash
+            raise(ArgumentError, "Write each record as a Hash, not #{row.class.name}") unless row.is_a?(Hash)
+          end
+          @collector.add(row, (@line_number += 1 if @line_number))
+          self
+        end
+
+        # Holds the supplied header row as the header row of the slices, see `IOStreams::Slice::Collector#write_header`,
+        # such as the names of the columns of a query that a copy writes first, see `IOStreams::Row::Reader#copy_to`.
+        #
+        # Returns self.
+        def write_header(columns)
+          @collector.write_header(columns)
+          self
+        end
+
+        # Returns [String] the class and the mode, rather than every instance variable.
+        def inspect
+          "#<#{self.class.name} mode=#{@mode.inspect}>"
+        end
+      end
+      private_constant :RowsAsTheyAre
 
       # Takes the lines written in the `:line` mode, see #writer, and adds the rows that they hold to the collector of the
       # slices, as a line reader would read them from the file that a line writer writes, see `IOStreams::Line::Writer`,
@@ -527,15 +612,33 @@ module IOStreams
       end
 
       # Returns [IOStreams::Tabular] that reads the lines written into slices, see `IOStreams::Slice::Collector`, with
-      # whether a row whose every value is blank is a blank row, see #write_slices.
+      # whether a row whose every value is blank is a blank row, see #write_slices. In a format whose rows are not lines,
+      # such as Parquet, the rows and records that the row and record writers render are the rows of the slices, as
+      # `IOStreams::Stream#each(:slice)` reads them.
       #
-      # Raises ArgumentError for a format whose rows are not lines, such as Parquet.
-      def rows_tabular(blank_rows)
+      # Raises ArgumentError in the `:line` mode for a format whose rows are not lines.
+      def rows_tabular(mode, blank_rows)
         tabular = self.tabular(blank_rows: blank_rows)
-        return tabular if tabular.lines?
+        return tabular if mode != :line || tabular.lines?
 
-        raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so its rows cannot be written to a " \
-                             "#{source_name}")
+        raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so write its rows or records to a " \
+                             "#{source_name} in the :array or :hash mode")
+      end
+
+      # Raises ArgumentError when the supplied format of the rows is nil, see #writer, for a schema, `validate: true` in
+      # the supplied options, or an option of #encoding, since the rows are then held as they are, rather than parsed or
+      # cleaned.
+      def check_rows_as_they_are(rows_format, options)
+        return unless rows_format.nil?
+
+        set = []
+        set << "a schema" unless schema.nil?
+        set << "`validate: true`" if options[:validate]
+        set.concat(ENCODING_OPTIONS.reject { |name| encoding_option(name).nil? }.map { |name| "`#{name}:`" })
+        return if set.empty?
+
+        raise(ArgumentError, "A #{source_name} without a format holds each object written as it is, so " \
+                             "#{set.join(' and ')} cannot be set: set its format with #format, such as `format(:csv)`")
       end
     end
   end

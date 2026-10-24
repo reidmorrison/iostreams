@@ -33,7 +33,7 @@ class SliceTargetStreamTest < Minitest::Test
   describe IOStreams::Slice::TargetStream do
     let(:store) { Store.new }
     let(:schema) { {"fields" => [{"name" => "name"}, {"name" => "age", "type" => "integer"}]} }
-    let(:stream) { IOStreams.stream(store) }
+    let(:stream) { IOStreams.stream(store).format(:csv) }
 
     # Returns [Array] the header row, format and rows of each slice in the store.
     def written(target = store)
@@ -94,7 +94,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "calls the methods of a class that the store inherits from, rather than its defaults" do
         target = Class.new(base) { include IOStreams::Slice::Target }.new
-        IOStreams.stream(target).writer(:line) { |io| io << "name" << "Jack" }
+        IOStreams.stream(target).format(:csv).writer(:line) { |io| io << "name" << "Jack" }
 
         assert_equal 7, target.slice_size
         assert_equal %w[name], target.header
@@ -110,7 +110,7 @@ class SliceTargetStreamTest < Minitest::Test
           end
         end.new
         target << "plain"
-        IOStreams.stream(target).writer(:line) { |io| io << "name" << "Jack" }
+        IOStreams.stream(target).format(:csv).writer(:line) { |io| io << "name" << "Jack" }
 
         assert_equal ["plain", %w[Jack]], [target.pop, target.pop]
       end
@@ -119,7 +119,7 @@ class SliceTargetStreamTest < Minitest::Test
     describe "#writer(:line)" do
       it "writes the lines in slices of the slice size of the store, each carrying the header row as it was written" do
         small = Store.new(slice_size: 2)
-        IOStreams.stream(small).writer(:line) do |io|
+        IOStreams.stream(small).format(:csv).writer(:line) do |io|
           io << "Name,AGE" << "Jack,21" << "Jill,22"
           io << "Bob,23"
         end
@@ -140,7 +140,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "gives every slice the same frozen header row" do
         small = Store.new(slice_size: 1)
-        IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "Jill" }
+        IOStreams.stream(small).format(:csv).writer(:line) { |io| io << "name" << "Jack" << "Jill" }
 
         assert_same small.slices.first.header, small.slices.last.header
         assert_predicate small.slices.first.header, :frozen?
@@ -225,7 +225,7 @@ class SliceTargetStreamTest < Minitest::Test
       it "raises for a quoted value that is not closed, without writing the last slice" do
         small = Store.new(slice_size: 1)
         assert_raises(IOStreams::Errors::MalformedDataError) do
-          IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "\"Jill" }
+          IOStreams.stream(small).format(:csv).writer(:line) { |io| io << "name" << "Jack" << "\"Jill" }
         end
 
         assert_equal [%w[Jack]], small.slices.collect(&:rows)
@@ -263,7 +263,7 @@ class SliceTargetStreamTest < Minitest::Test
       it "gives each slice the line that its first row starts on, as reading the file gives it" do
         small = Store.new(slice_size: 2)
         lines = ["", "name,note", "Jack,\"line 1", "line 2\"", "", "Jill,ok", "Bob,x", "Ann,y"]
-        IOStreams.stream(small).writer(:line) { |io| lines.each { |line| io << line } }
+        IOStreams.stream(small).format(:csv).writer(:line) { |io| lines.each { |line| io << line } }
 
         assert_equal [3, 6, 8], small.slices.map(&:line_number)
         assert_equal [1, 3, 5], small.slices.map(&:record_number)
@@ -271,7 +271,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "numbers the lines of a line that holds line breaks" do
         small = Store.new(slice_size: 1)
-        IOStreams.stream(small).writer(:line) { |io| io << "name\nJack" << "Jill\n\nBob" }
+        IOStreams.stream(small).format(:csv).writer(:line) { |io| io << "name\nJack" << "Jill\n\nBob" }
 
         assert_equal [2, 3, 4, 5], small.slices.map(&:line_number)
         assert_equal [1, 2, 3, 4], small.slices.map(&:record_number)
@@ -279,7 +279,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "gives each row the line that it starts on, after a row that holds a quoted line break" do
         large = Store.new(slice_size: 5)
-        IOStreams.stream(large).writer(:line) { |io| io << "name,note" << "Jack,\"line 1\nline 2\"" << "Jill,ok" }
+        IOStreams.stream(large).format(:csv).writer(:line) { |io| io << "name,note" << "Jack,\"line 1\nline 2\"" << "Jill,ok" }
 
         assert_equal [[%(Jack,"line 1\nline 2"), 2, 1], ["Jill,ok", 4, 2]], large.slices.first.each.to_a
       end
@@ -330,7 +330,7 @@ class SliceTargetStreamTest < Minitest::Test
         it "does not write the slice that the line would be in" do
           small = Store.new(slice_size: 1)
           assert_raises(IOStreams::Errors::InvalidEncoding) do
-            IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "\xFF".b }
+            IOStreams.stream(small).format(:csv).writer(:line) { |io| io << "name" << "Jack" << "\xFF".b }
           end
 
           assert_equal [%w[Jack]], small.slices.collect(&:rows)
@@ -552,7 +552,7 @@ class SliceTargetStreamTest < Minitest::Test
 
           returns_array = ->(data, _replace) { data.split(",") }
           error         = assert_raises(ArgumentError) do
-            IOStreams.stream(store).encoding(cleaner: returns_array).writer(:line) { |io| io << "name,note" }
+            IOStreams.stream(store).format(:csv).encoding(cleaner: returns_array).writer(:line) { |io| io << "name,note" }
           end
 
           assert_match(/returned a Array rather than/, error.message)
@@ -567,7 +567,7 @@ class SliceTargetStreamTest < Minitest::Test
           }
           expected.each_pair do |replace, rows|
             target = Store.new
-            IOStreams.stream(target).encoding(cleaner: :replace_non_printable, replace: replace).writer(:line) do |io|
+            IOStreams.stream(target).format(:csv).encoding(cleaner: :replace_non_printable, replace: replace).writer(:line) do |io|
               lines.each { |line| io << line }
             end
             stored = target.slices.collect { |slice| [slice.header, slice.format, slice.each.to_a] }
@@ -625,7 +625,7 @@ class SliceTargetStreamTest < Minitest::Test
         end
 
         it "raises ArgumentError in the :array or :hash mode, which it does not apply to yet" do
-          cleaning = IOStreams.stream(store).encoding(cleaner: :printable)
+          cleaning = IOStreams.stream(store).format(:csv).encoding(cleaner: :printable)
           message  = "`cleaner:`, set with #encoding, applies only to the lines written to a slice target in the " \
                      ":line mode, not to the :hash mode"
 
@@ -633,7 +633,7 @@ class SliceTargetStreamTest < Minitest::Test
           assert_raises(ArgumentError) { cleaning.writer(:array) { flunk } }
           assert_raises(ArgumentError) { cleaning.copy_from(IOStreams.stream(StringIO.new("a\n1\n")), mode: :array) }
 
-          both    = IOStreams.stream(store).encoding(cleaner: :printable, replace: "")
+          both    = IOStreams.stream(store).format(:csv).encoding(cleaner: :printable, replace: "")
           message = "`replace:` and `cleaner:`, set with #encoding, apply only to the lines written to a slice target " \
                     "in the :line mode, not to the :array mode"
 
@@ -659,7 +659,7 @@ class SliceTargetStreamTest < Minitest::Test
     describe "#write_header" do
       it "is called once with the header row as it was read, before the first slice" do
         small = Store.new(slice_size: 1)
-        IOStreams.stream(small).writer(:line) { |io| io << "Name,AGE" << "Jack,21" << "Jill,22" }
+        IOStreams.stream(small).format(:csv).writer(:line) { |io| io << "Name,AGE" << "Jack,21" << "Jill,22" }
 
         assert_equal [[:header, %w[Name AGE]], [:slice, %w[Jack,21]], [:slice, %w[Jill,22]]], small.events
         assert_same small.slices.first.header, small.events.first.last
@@ -722,7 +722,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "gives each row its record number, after the header row, and no line, since the rows are not lines of a file" do
         small = Store.new(slice_size: 2)
-        IOStreams.stream(small).writer(:array) do |io|
+        IOStreams.stream(small).format(:csv).writer(:array) do |io|
           io << %w[name note]
           io << ["Jack", "line 1\nline 2"]
           io << %w[Jill ok]
@@ -756,7 +756,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "writes slices that the stream of a slice reads back" do
         small = Store.new(slice_size: 1)
-        IOStreams.stream(small).schema(schema).writer(:hash) do |io|
+        IOStreams.stream(small).format(:csv).schema(schema).writer(:hash) do |io|
           io << {"name" => "Jack", "age" => 21}
           io << {"name" => "Jill", "age" => 22}
         end
@@ -783,7 +783,7 @@ class SliceTargetStreamTest < Minitest::Test
       it "is not written when the block raises" do
         small = Store.new(slice_size: 2)
         assert_raises(RuntimeError) do
-          IOStreams.stream(small).writer(:line) do |io|
+          IOStreams.stream(small).format(:csv).writer(:line) do |io|
             io << "name" << "Jack" << "Jill" << "Bob"
             raise "failed"
           end
@@ -797,7 +797,7 @@ class SliceTargetStreamTest < Minitest::Test
       it "parses each row, and raises for a value that is not valid, after the slices before it" do
         small = Store.new(slice_size: 1)
         assert_raises(IOStreams::Errors::InvalidValue) do
-          IOStreams.stream(small).schema(schema).writer(:line, validate: true) do |io|
+          IOStreams.stream(small).format(:csv).schema(schema).writer(:line, validate: true) do |io|
             io << "name,age" << "Jack,21" << "Jill,abc"
           end
         end
@@ -820,7 +820,7 @@ class SliceTargetStreamTest < Minitest::Test
 
           small = Store.new(slice_size: 1)
 
-          assert_equal 3, IOStreams.stream(small).schema(schema).copy_from(path, mode: :line)
+          assert_equal 3, IOStreams.stream(small).format(:csv).schema(schema).copy_from(path, mode: :line)
           assert_equal [%w[Jack,21], ["\"Jill\nSmith\",22"]], small.slices.collect(&:rows)
           assert_equal [2, 3], small.slices.collect(&:line_number)
           assert_equal [1, 2], small.slices.collect(&:record_number)
@@ -829,7 +829,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "gives the lines copied from a spreadsheet no line, since they are not its rows, and their record numbers" do
         small = Store.new(slice_size: 5)
-        IOStreams.stream(small).copy_from(File.join(__dir__, "files", "multiline_cell.xlsx"), mode: :line)
+        IOStreams.stream(small).format(:csv).copy_from(File.join(__dir__, "files", "multiline_cell.xlsx"), mode: :line)
 
         assert_equal [[%(data 1,data 2,"more\ndata"), nil, 1]], small.slices.first.each.to_a
       end
@@ -837,7 +837,7 @@ class SliceTargetStreamTest < Minitest::Test
       it "gives the rows copied in the :hash mode their record numbers and no line, as for a query" do
         small  = Store.new(slice_size: 1)
         source = IOStreams.stream(StringIO.new("name,note\nJack,\"line 1\nline 2\"\nJill,ok\n")).format(:csv)
-        IOStreams.stream(small).copy_from(source, mode: :hash)
+        IOStreams.stream(small).format(:csv).copy_from(source, mode: :hash)
 
         assert_equal [nil, nil], small.slices.collect(&:line_number)
         assert_equal [1, 2], small.slices.collect(&:record_number)
@@ -851,6 +851,7 @@ class SliceTargetStreamTest < Minitest::Test
       end
 
       it "copies the lines in the format of the source, which the slices carry" do
+        stream = IOStreams.stream(store)
         source = IOStreams.stream(StringIO.new("{\"name\":\"Jack\"}\n")).format(:json)
         stream.copy_from(source, mode: :line)
         psv = IOStreams.stream(StringIO.new("name|age\nJack|21\n")).format(:psv)
@@ -907,7 +908,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "raises for a slice size of the store that is not a positive Integer, before the block is called" do
         error = assert_raises(ArgumentError) do
-          IOStreams.stream(Store.new(slice_size: 0)).writer(:line) { flunk("called the block") }
+          IOStreams.stream(Store.new(slice_size: 0)).format(:csv).writer(:line) { flunk("called the block") }
         end
 
         assert_equal "Invalid slice_size 0 of SliceTargetStreamTest::Store: return the number of rows of each slice",
@@ -953,10 +954,11 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal({replace: "", cleaner: :printable}, stream.setting(:encode))
       end
 
-      it "raises for a format whose rows are not lines" do
-        error = assert_raises(ArgumentError) { stream.format(:parquet).writer(:hash) { nil } }
+      it "raises for the :line mode in a format whose rows are not lines" do
+        error = assert_raises(ArgumentError) { stream.format(:parquet).writer(:line) { nil } }
 
-        assert_equal "The :parquet format has no lines, so its rows cannot be written to a slice target", error.message
+        assert_equal "The :parquet format has no lines, so write its rows or records to a slice target in the :array " \
+                     "or :hash mode", error.message
       end
     end
 
@@ -970,6 +972,148 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "returns nil" do
         assert_nil stream.file_name
+      end
+    end
+
+    describe "without a format" do
+      let(:store) { Store.new(slice_size: 2) }
+      let(:stream) { IOStreams.stream(store) }
+
+      # Returns [Array] the row, line number and record number of each row of each slice in the store.
+      def numbered
+        store.slices.collect { |slice| slice.each.to_a }
+      end
+
+      it "holds each object written in the :line mode as one row, as it is, without a header row or line numbers" do
+        stream.writer(:line) do |io|
+          io << "two\nlines" << [1, 99] << 42 << nil << {"a" => 1}
+        end
+
+        assert_equal([[nil, nil], [nil, nil], [nil, nil]], store.slices.collect { |slice| [slice.header, slice.format] })
+        assert_equal [[["two\nlines", nil, 1], [[1, 99], nil, 2]], [[42, nil, 3], [nil, nil, 4]], [[{"a" => 1}, nil, 5]]],
+                     numbered
+      end
+
+      it "holds a range per slice, as a job that processes the ids of each range writes them" do
+        small = Store.new(slice_size: 1)
+        IOStreams.stream(small).writer(:line) do |io|
+          io << [1, 99]
+          io << [100, 199]
+        end
+
+        assert_equal [[[1, 99]], [[100, 199]]], small.slices.collect(&:rows)
+        assert_equal [1, 2], small.slices.collect(&:record_number)
+      end
+
+      it "holds each row of the :array mode as it is, the first row too" do
+        stream.writer(:array) { |io| io << %w[name age] << ["Jack", 21] }
+
+        assert_equal [[nil, nil, [%w[name age], ["Jack", 21]]]], written
+      end
+
+      it "holds each record of the :hash mode as it is" do
+        stream.writer(:hash) { |io| io << {"name" => "Jack"} << {"age" => 21} }
+
+        assert_equal [[nil, nil, [{"name" => "Jack"}, {"age" => 21}]]], written
+      end
+
+      it "raises for a row that is not an Array in the :array mode, or a record that is not a Hash in the :hash mode" do
+        assert_raises(ArgumentError) { stream.writer(:array) { |io| io << "Jack" } }
+        assert_raises(ArgumentError) { stream.writer(:hash) { |io| io << %w[Jack] } }
+      end
+
+      it "copies each line of a file without a format as one row, with its line" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "lines.txt")
+          path.write("first, line\n\n\"third\n")
+
+          assert_equal 3, stream.copy_from(path, mode: :line)
+          assert_equal [[["first, line", 1, 1], ["", 2, 2]], [["\"third", 3, 3]]], numbered
+          assert_equal [nil, nil], store.slices.collect(&:header)
+        end
+      end
+
+      it "copies the rows of a file as they are, its header row being the header row of the slices" do
+        source = IOStreams.stream(StringIO.new("name,age\nJack,21\n")).format(:csv)
+        stream.copy_from(source, mode: :array)
+
+        assert_equal [[%w[name age], nil, [%w[Jack 21]]]], written
+        assert_equal [[:header, %w[name age]], [:slice, [%w[Jack 21]]]], store.events
+      end
+
+      it "turns into a Hash and back" do
+        stream.writer(:line) { |io| io << [1, 99] << "Jack" }
+        slice = store.slices.first
+
+        assert_equal({"rows" => [[1, 99], "Jack"], "header" => nil, "format" => nil, "record_number" => 1}, slice.to_h)
+        assert_equal slice, IOStreams.slice(slice.to_h)
+      end
+
+      it "raises for a schema, validate: true, or an option of #encoding, before the block is called or the source opened" do
+        message = "A slice target without a format holds each object written as it is, so %s cannot be set: set its " \
+                  "format with #format, such as `format(:csv)`"
+
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(store).schema(schema).writer(:line) { flunk("called the block") }
+        end
+        assert_equal format(message, "a schema"), error.message
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(store).writer(:hash, validate: true) { flunk("called the block") }
+        end
+        assert_equal format(message, "`validate: true`"), error.message
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(store).encoding(replace: "").writer(:line) { flunk("called the block") }
+        end
+        assert_equal format(message, "`replace:`"), error.message
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(store).copy_from("missing.txt", mode: :line, validate: true)
+        end
+        assert_equal format(message, "`validate: true`"), error.message
+      end
+
+      it "takes the format of the lines of the source of a copy, with which they can be validated" do
+        source = IOStreams.stream(StringIO.new("name,age\nJack,21\n")).format(:csv)
+        stream.schema(schema).copy_from(source, mode: :line, validate: true)
+
+        assert_equal [[%w[name age], :csv, %w[Jack,21]]], written
+      end
+
+      it "holds slices that the stream of a slice does not read as CSV, unless a format is set" do
+        stream.writer(:line) { |io| io << "name,age" << "Jack,21" }
+        slice = store.slices.first
+
+        error = assert_raises(ArgumentError) { IOStreams.stream(slice).each(:array) { nil } }
+        assert_match(/A slice without a format holds its rows as they are/, error.message)
+        rows = []
+        IOStreams.stream(slice).format(:csv).each(:hash) { |row| rows << row }
+
+        assert_equal [{"name" => "Jack", "age" => "21"}], rows
+      end
+    end
+
+    describe "in a format whose rows are not lines" do
+      let(:schema) { {"fields" => [{"name" => "name", "type" => "string"}, {"name" => "age", "type" => "integer"}]} }
+
+      it "holds the rows of a Parquet file as each(:slice) reads them" do
+        skip("Parquet is not supported on JRuby") if defined?(JRUBY_VERSION)
+
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.parquet")
+          path.schema(schema).writer(:hash) do |io|
+            io << {"name" => "Jack", "age" => 21}
+            io << {"name" => "Jill", "age" => 22}
+            io << {"name" => "Joe", "age" => 23}
+          end
+          read = []
+          IOStreams.path(dir, "people.parquet").each(:slice, size: 2) { |slice| read << slice }
+          small = Store.new(slice_size: 2)
+          IOStreams.stream(small).format(:parquet).schema(schema).copy_from(path, mode: :hash, validate: true)
+
+          assert_equal read, small.slices
+          assert_equal [[{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}], [{"name" => "Joe", "age" => 23}]],
+                       small.slices.collect(&:rows)
+          assert_equal %i[parquet parquet], small.slices.collect(&:format)
+        end
       end
     end
 

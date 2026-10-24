@@ -55,7 +55,7 @@ class QuerySlicesTest < Minitest::Test
             (@slices ||= []) << slice
           end
         end.new
-        IOStreams.stream(store).copy_from(relation, mode: :hash)
+        IOStreams.stream(store).format(:csv).copy_from(relation, mode: :hash)
 
         assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
         assert_equal [["2026-10-01,1.5", ","], ["1969-12-31,"]], store.slices.map(&:rows)
@@ -66,6 +66,29 @@ class QuerySlicesTest < Minitest::Test
         assert_equal [false, false], store.slices.map(&:blank_rows?)
         assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
         assert_equal(expected, store.slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
+      end
+
+      it "copies the rows to a store of slices without a format as they are, after the names of the columns" do
+        store = Class.new do
+          include IOStreams::Slice::Target
+
+          attr_reader :slices
+
+          def slice_size
+            2
+          end
+
+          def write_slice(slice)
+            (@slices ||= []) << slice
+          end
+        end.new
+        IOStreams.stream(store).copy_from(relation, mode: :array)
+
+        assert_equal [%w[shipped_on weight], %w[shipped_on weight]], store.slices.map(&:header)
+        assert_equal [nil, nil], store.slices.map(&:format)
+        assert_equal(expected.map(&:values), store.slices.flat_map(&:rows))
+        assert_equal [1, 3], store.slices.map(&:record_number)
+        assert_equal [false, false], store.slices.map(&:blank_rows?)
       end
 
       it "writes its slices to a file, by the schema of the query, keeping a row whose every value is null" do

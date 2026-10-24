@@ -55,6 +55,8 @@ module IOStreams
       # Parameters
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
+      #     nil for rows without a format, which are collected as they are, see #add, without a header row, unless one
+      #     is written, see #write_header.
       #
       #   size: [Integer]
       #     The number of rows of each slice, apart from the last, which holds the rows that are left.
@@ -69,20 +71,31 @@ module IOStreams
       #   on_header: [Proc]
       #     Called once with the header row of the file, as it was read, see #header, as soon as it has been read, and
       #     matched to the fields of the schema, before the first slice, also when the file has no rows after it. Not
-      #     called for a file without a header row, see `IOStreams::Tabular#requires_header?`.
+      #     called for a file without a header row, see `IOStreams::Tabular#requires_header?`. For rows without a
+      #     format, called with the header row that is written, see #write_header.
       #     Default: nil
+      #
+      #   blank_rows: [true|false]
+      #     Whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`, of rows without
+      #     a format, which the tabular says otherwise, see `IOStreams::Tabular#blank_rows?`.
+      #     Default: true
       #
       # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
       #
-      # The caller checks the options before anything is opened, see .check.
-      def initialize(tabular:, size:, validate: false, on_header: nil, &on_slice)
-        @tabular   = tabular
-        @size      = size
-        @validate  = validate
-        @on_slice  = on_slice
-        @on_header = on_header if tabular.requires_header?
-        @slice     = nil
-        @count     = 0
+      # Raises ArgumentError for `validate` without a tabular, since rows without a format are not parsed. The caller
+      # checks the other options before anything is opened, see .check.
+      def initialize(tabular:, size:, validate: false, on_header: nil, blank_rows: true, &on_slice)
+        raise(ArgumentError, "Rows without a format cannot be validated: set a format") if validate && tabular.nil?
+
+        @tabular    = tabular
+        @size       = size
+        @validate   = validate
+        @on_slice   = on_slice
+        @on_header  = on_header if tabular.nil? || tabular.requires_header?
+        @blank_rows = tabular ? tabular.blank_rows? : blank_rows
+        @header     = nil
+        @slice      = nil
+        @count      = 0
       end
 
       # Adds the supplied row of the file, as the format holds it: a line of text, or for a format whose rows are not
@@ -101,14 +114,15 @@ module IOStreams
       # The row is numbered as the next record, counting from 1 without the header row, see
       # `IOStreams::Slice#record_number_at`.
       #
+      # Without a tabular, see #initialize, the row is added as it is, whatever it is, including nil.
+      #
       # Returns self, so that calls can be chained.
       def add(row, line_number = nil)
+        return add_row(row, line_number) if @tabular.nil?
+
         @tabular.read_line(row.nil? ? "" : row) do |line|
           @tabular.record_parse(line) if @validate
-          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
-          @count += 1
-          @slice.add(line, line_number: line_number, record_number: @count)
-          flush if @slice.size >= @size
+          add_row(line, line_number)
         end
         header_read if @on_header
         self
@@ -117,11 +131,29 @@ module IOStreams
       alias << add
       alias write add
 
-      # Returns [Array<String>] the header row of the file, as it was read, once it has been read, which every slice
-      # carries, see `IOStreams::Slice#header`.
+      # Holds the supplied header row of rows without a format, see #initialize, such as the names of the columns of a
+      # query, which every slice carries, see `IOStreams::Slice#header`, since they have no format to read one from.
+      # Calls `on_header` with it.
+      #
+      # Raises ArgumentError for rows in a format, whose tabular reads the header row instead, see #add, for a header row
+      # that is not an Array of Strings, and once a header row or a row has been added.
+      def write_header(columns)
+        raise(ArgumentError, "The tabular of the format reads the header row of its rows") if @tabular
+        raise(ArgumentError, "The header row must be written once, before the rows") if @header || @count.positive?
+        unless columns.is_a?(Array) && columns.all? { |column| column.nil? || column.is_a?(String) }
+          raise(ArgumentError, "The header row must be an Array of Strings: #{columns.inspect}")
+        end
+
+        @header = Utils.frozen_copy(columns.to_a)
+        header_read if @on_header
+        self
+      end
+
+      # Returns [Array<String>] the header row of the file, as it was read, once it has been read, or of rows without a
+      # format, as it was written, see #write_header, which every slice carries, see `IOStreams::Slice#header`.
       # Returns nil until then, or when the file has no header row.
       def header
-        @tabular.header_row
+        @tabular ? @tabular.header_row : @header
       end
 
       # Hands on the slice of the rows added since the last one, when there are any.
@@ -132,10 +164,20 @@ module IOStreams
       # Returns [String] the class, the format of the rows and the size of the slices, rather than every instance
       # variable, such as the tabular and the slice that it collects.
       def inspect
-        "#<#{self.class.name} format=#{@tabular.format.inspect} size=#{@size}>"
+        "#<#{self.class.name} format=#{@tabular&.format.inspect} size=#{@size}>"
       end
 
       private
+
+      # Adds the supplied row to the slice being collected, numbered as the next record, and hands the slice on once it
+      # holds `size` rows.
+      def add_row(row, line_number)
+        @slice ||= Slice.new(header: header, format: @tabular&.format, blank_rows: @blank_rows)
+        @count += 1
+        @slice.add(row, line_number: line_number, record_number: @count)
+        flush if @slice.size >= @size
+        self
+      end
 
       # Calls `on_header` with the header row, once it has been read, see #initialize.
       def header_read

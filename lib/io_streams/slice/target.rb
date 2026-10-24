@@ -27,7 +27,7 @@ module IOStreams
     #     end
     #   end
     #
-    #   IOStreams.stream(SliceStore.new(queue)).schema(schema).writer(:hash) do |io|
+    #   IOStreams.stream(SliceStore.new(queue)).format(:csv).schema(schema).writer(:hash) do |io|
     #     io << {"name" => "Jack", "age" => 21}
     #   end
     #
