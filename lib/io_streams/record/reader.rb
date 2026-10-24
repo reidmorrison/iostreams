@@ -51,7 +51,10 @@ module IOStreams
       # Yields each record, after the header row, which names their keys, see `IOStreams::Tabular#read_record_line`.
       #
       # A blank record is yielded as nil, unless `skip_blanks` is true, which skips it, see #initialize.
+      #
+      # Returns an Enumerator of the records without a block.
       def each(&block)
+        return enum_for(:each) unless block
         return @line_reader.each { |line| @tabular.read_record_line(line, &block) } unless @skip_blanks
 
         @line_reader.each { |line| @tabular.read_record_line(line) { |record| yield record unless record.nil? } }

@@ -776,6 +776,18 @@ end
 
 `#reader` and `#writer` return the result of the block.
 
+In the `:line`, `:array`, `:hash` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
+`#each` returns an Enumerator without a block, so methods such as `io.first(10)` and `io.each.with_index` read it.
+Use them within the block, since the file is closed once the block returns:
+
+~~~ruby
+IOStreams.path("example.csv").reader(:hash) do |io|
+  io.each.with_index do |record, index|
+    puts "#{index}: #{record}"
+  end
+end
+~~~
+
 `#read` returns the whole file, which is only suitable for a small one, since all of it is held in memory:
 
 ~~~ruby

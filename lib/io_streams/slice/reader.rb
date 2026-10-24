@@ -76,7 +76,10 @@ module IOStreams
       # see `IOStreams::Slice::Collector`.
       #
       # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
+      # Returns an Enumerator of the slices without a block.
       def each(&)
+        return enum_for(:each) unless block_given?
+
         collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, &)
         @rows.each { |row, line_number| collector.add(row, line_number) }
         collector.finish

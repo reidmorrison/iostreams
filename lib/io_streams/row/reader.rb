@@ -76,7 +76,10 @@ module IOStreams
       # fields, in the order of the fields, without the columns that the schema skips, see `IOStreams::Tabular#row_parse`.
       #
       # A blank row is yielded as nil, unless `skip_blanks` is true, which skips it, see #initialize.
+      #
+      # Returns an Enumerator of the rows without a block.
       def each(&block)
+        return enum_for(:each) unless block
         return @line_reader.each { |line| @tabular.read_row(line, &block) } unless @skip_blanks
 
         @line_reader.each { |line| @tabular.read_row(line) { |row| yield row unless row.nil? } }

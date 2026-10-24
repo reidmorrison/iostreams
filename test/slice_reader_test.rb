@@ -36,6 +36,12 @@ class SliceReaderTest < Minitest::Test
         assert(list.all?(IOStreams::Slice))
       end
 
+      it "returns an Enumerator of the slices without a block" do
+        list = stream(csv).reader(:slice, size: 2) { |reader| reader.each.with_index.map { |slice, index| [slice.rows, index] } }
+
+        assert_equal [[["Jack,21", "Jill,22"], 0], [["Bob,23"], 1]], list
+      end
+
       it "returns the number of rows read" do
         assert_equal 3, stream(csv).each(:slice, size: 2) { |_slice| nil }
       end

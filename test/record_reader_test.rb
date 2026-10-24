@@ -76,6 +76,15 @@ class RecordReaderTest < Minitest::Test
 
         assert_equal expected.collect { |record| record["state"] }, records
       end
+
+      it "returns an Enumerator of the records from #each without a block" do
+        csv     = "name,zip\nJack,12345\n\nJill,23456\n"
+        records = IOStreams.stream(StringIO.new(csv)).reader(:hash) { |io| io.each.with_index.to_a }
+        kept    = IOStreams.stream(StringIO.new(csv)).reader(:hash, skip_blanks: true) { |io| io.each.to_a }
+
+        assert_equal [[{"name" => "Jack", "zip" => "12345"}, 0], [nil, 1], [{"name" => "Jill", "zip" => "23456"}, 2]], records
+        assert_equal [{"name" => "Jack", "zip" => "12345"}, {"name" => "Jill", "zip" => "23456"}], kept
+      end
     end
 
     describe "#inspect" do

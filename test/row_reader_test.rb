@@ -173,6 +173,15 @@ class RowReaderTest < Minitest::Test
         assert_equal %w[name Jack Jill], IOStreams.stream(StringIO.new(csv)).reader(:array) { |io| io.collect(&:first) }
         assert_equal [%w[name zip], %w[Jack 12345]], IOStreams.stream(StringIO.new(csv)).reader(:array) { |io| io.first(2) }
       end
+
+      it "returns an Enumerator of the rows from #each without a block" do
+        csv  = "name,zip\nJack,12345\n\nJill,23456\n"
+        rows = IOStreams.stream(StringIO.new(csv)).reader(:array) { |io| io.each.with_index.to_a }
+        kept = IOStreams.stream(StringIO.new(csv)).reader(:array, skip_blanks: true) { |io| io.each.to_a }
+
+        assert_equal [[%w[name zip], 0], [%w[Jack 12345], 1], [nil, 2], [%w[Jill 23456], 3]], rows
+        assert_equal [%w[name zip], %w[Jack 12345], %w[Jill 23456]], kept
+      end
     end
 
     describe "#inspect" do
