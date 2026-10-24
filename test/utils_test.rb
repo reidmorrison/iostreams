@@ -207,6 +207,68 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe IOStreams::Utils::PathName do
+      # A name in Latin-1, which is not valid UTF-8, in each encoding that it can arrive in: as bytes, such as SFTP lists
+      # it, labelled UTF-8, as IOStreams' SFTP listing labels it, and as Latin-1.
+      let(:latin) { "caf\xE9".b }
+      let(:latin_names) do
+        [latin, latin.dup.force_encoding(Encoding::UTF_8), latin.dup.force_encoding(Encoding::ISO_8859_1)]
+      end
+
+      # Returns [Array<String>] every name of up to four of `a`, `/`, `.`, `é` and a byte that is not valid UTF-8, in
+      # UTF-8, as bytes, and in Latin-1, with an empty name.
+      def names
+        tokens = ["a", "/", ".", "\xC3\xA9", "\xE9"]
+        names  = [""] + (1..4).flat_map { |size| tokens.repeated_permutation(size).map(&:join) }
+        names.uniq.flat_map do |name|
+          [name.dup.force_encoding(Encoding::UTF_8), name.b, name.dup.force_encoding(Encoding::ISO_8859_1)]
+        end
+      end
+
+      # Asserts that the supplied Strings have the same bytes and encoding.
+      def assert_same_name(expected, actual, message = nil)
+        assert_equal [expected.b, expected.encoding], [actual.b, actual.encoding], message
+      end
+
+      it "joins, and finds the directory and extension of, names as CRuby's File does" do
+        skip("File changes names that are not valid UTF-8 on this Ruby") unless IOStreams::Utils::PathName::FILE_KEEPS_NAMES
+
+        names.each do |name|
+          assert_same_name ::File.dirname(name), IOStreams::Utils::PathName.dirname_of(name), name.inspect
+          assert_same_name ::File.extname(name), IOStreams::Utils::PathName.extname_of(name), name.inspect
+        end
+        short = names.select { |name| name.bytesize <= 2 }
+        short.product(short).each do |first, second|
+          expected = ::File.join(first, second)
+
+          assert_same_name expected, IOStreams::Utils::PathName.join_names([first, second]), [first, second].inspect
+        rescue Encoding::CompatibilityError
+          assert_raises(Encoding::CompatibilityError) { IOStreams::Utils::PathName.join_names([first, second]) }
+        end
+
+        assert_same_name ::File.join, IOStreams::Utils::PathName.join_names([])
+        assert_same_name ::File.join("a/", "/b", "c"), IOStreams::Utils::PathName.join_names(["a/", "/b", "c"])
+      end
+
+      it "keeps the bytes and encoding of a name that is not valid UTF-8" do
+        latin_names.each do |name|
+          assert_same_name "/in/#{name}", IOStreams::Utils::PathName.join("/in", name)
+          assert_same_name "/in/#{name}", IOStreams::Utils::PathName.join("/in/", name)
+          assert_same_name "/in/#{name}", IOStreams::Utils::PathName.dirname("/in/#{name}/x.csv")
+          assert_same_name ".c#{name}", IOStreams::Utils::PathName.extname("x.c#{name}")
+        end
+      end
+
+      it "keeps the bytes of a name that is not valid UTF-8 in a path" do
+        path = IOStreams.path("/in").join(latin)
+
+        assert_equal "/in/caf\xE9".b, path.path.b
+        assert_equal "/in/caf\xE9".b, IOStreams.path("/in", latin).path.b
+        assert_equal "/in/caf\xE9".b, IOStreams.path("/in/#{latin}/x.csv").directory.path.b
+        assert_equal "/in/caf\xE9.txt".b, IOStreams.path("/in/#{latin}.csv").sub_ext(".txt").path.b
+      end
+    end
+
     describe ".file_name_extensions" do
       it "returns the extensions of a name that is not valid UTF-8" do
         assert_equal %w[csv gz], IOStreams::Utils.file_name_extensions("caf\xE9.CSV.gz".dup.force_encoding(Encoding::UTF_8))

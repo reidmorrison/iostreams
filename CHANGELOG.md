@@ -309,6 +309,7 @@ These bug fixes change behavior that existing code may depend on:
 - Reading PGP data that ends within its first packet, such as a file that is still being uploaded, raises `IOStreams::Pgp::Failure`. Previously `gpg` exited successfully without any output, so the data was read as an empty file.
 - Writing to a local path removes the partial file for any exception, such as `Interrupt`, or the one that `Timeout` raises within its block. Previously only a `StandardError` removed it.
 - Writing a file larger than 5MB to S3 through a temp file, which an option that describes the whole object needs, see Added, uploads it with `Aws::S3::TransferManager#upload_file`, which `aws-sdk-s3` v1.197.0 added in place of `Aws::S3::Object#upload_file`. Previously it called `Aws::S3::Object#upload_file`, so the SDK printed a deprecation warning, and the upload would fail once the SDK's next major version removes that method. With a version of `aws-sdk-s3` before v1.197.0, `Aws::S3::Object#upload_file` is still used.
+- On JRuby, a path keeps the bytes of a name that is not valid UTF-8, such as that of a file named in Latin-1, which SFTP lists as bytes, as it does on MRI, so that the path still names the file: `#join`, `IOStreams.path` of several names, `#directory`, `#sub_ext`, and the paths that `#each_child` lists. JRuby's `File.join`, `File.dirname` and `File.extname` change such a name, see [jruby/jruby#9880](https://github.com/jruby/jruby/issues/9880), so IOStreams joins and splits the names of a path itself where they do.
 
 ## [2.2.0] - Unreleased
 

@@ -576,7 +576,7 @@ module IOStreams
     #   IOStreams.path(".profile").dirname        #=> "."
     def dirname
       file_name = builder.file_name
-      ::File.dirname(file_name) if file_name
+      Utils::PathName.dirname(file_name) if file_name
     end
 
     # Returns [String] the extension for this file including the last period.
@@ -596,7 +596,7 @@ module IOStreams
     #   IOStreams.path(".profile.sh").extname     #=> ".sh"
     def extname
       file_name = builder.file_name
-      ::File.extname(file_name) if file_name
+      Utils::PathName.extname(file_name) if file_name
     end
 
     # Returns [String] the extension for this file _without_ the last period.

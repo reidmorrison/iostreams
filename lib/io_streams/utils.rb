@@ -185,6 +185,144 @@ module IOStreams
       name.to_s.downcase.to_sym unless name.nil?
     end
 
+    # The names of a path, which `::File.join`, `::File.dirname` and `::File.extname` join and split, apart from where
+    # they change a name that is not valid UTF-8, as JRuby's do, see FILE_KEEPS_NAMES, where it joins and splits them by
+    # their bytes, as CRuby does.
+    module PathName
+      # The byte of the separator of the names in a path, `/`, which every encoding that a path can be in, those that are
+      # ASCII-compatible, holds as this byte, see .join.
+      SEPARATOR = "/".ord
+      private_constant :SEPARATOR
+
+      # The byte of the `.` that starts the extension of a name, see .extname.
+      DOT = ".".ord
+      private_constant :DOT
+
+      # Whether `::File.join`, `::File.dirname` and `::File.extname` keep the bytes of a name that is not valid UTF-8, as
+      # CRuby does, rather than changing them, as JRuby does, see https://github.com/jruby/jruby/issues/9880, such as
+      # the name of a file in Latin-1 that SFTP lists as bytes, so that the path no longer names the file. Found by what
+      # they do, so that IOStreams uses them again once JRuby keeps the bytes.
+      FILE_KEEPS_NAMES =
+        begin
+          name = "a\xE9".b
+          ::File.join(name, name).b == "a\xE9/a\xE9".b && ::File.dirname("#{name}/x").b == name &&
+            ::File.extname("x.".b + name).b == ".a\xE9".b
+        end
+
+      # Returns [String] the supplied names joined into a path, as `::File.join` joins Strings: with one `/` between
+      # each name and the next, whose separators decide which are kept, keeping the bytes and the encoding of each name,
+      # where `::File.join` does, see FILE_KEEPS_NAMES, otherwise by .join_names.
+      def self.join(*names)
+        FILE_KEEPS_NAMES ? ::File.join(*names) : join_names(names)
+      end
+
+      # Returns [String] the directory of the supplied path, as `::File.dirname` returns it, see .join.
+      def self.dirname(path)
+        FILE_KEEPS_NAMES ? ::File.dirname(path) : dirname_of(path)
+      end
+
+      # Returns [String] the extension of the last name of the supplied path, as `::File.extname` returns it, see .join.
+      def self.extname(path)
+        FILE_KEEPS_NAMES ? ::File.extname(path) : extname_of(path)
+      end
+
+      # Returns [String] the supplied Strings joined into a path, as CRuby's `File.join` joins them on POSIX, by their
+      # bytes: each name after the first is joined to the path so far with one `/`, unless the path ends with `/`, when
+      # it is added as it is, or the name starts with `/`, when the path loses its trailing `/` before it. The path starts
+      # in the encoding of the first name, and takes that of a name whose text needs it, as for `String#<<`, which raises
+      # `Encoding::CompatibilityError` for names that have no encoding in common.
+      #
+      # Used where `::File.join` changes names, see .join, and public, so that its tests compare it with CRuby's.
+      def self.join_names(names)
+        joined = String.new(encoding: names.first&.encoding || Encoding::BINARY)
+        names.each_with_index do |name, index|
+          if index.positive?
+            tail = trailing_separators(joined)
+            if name.getbyte(0) == SEPARATOR
+              joined = joined.byteslice(0, tail)
+            elsif tail == joined.bytesize
+              joined << "/"
+            end
+          end
+          joined << name
+        end
+        joined
+      end
+
+      # Returns [String] the directory of the supplied path, as CRuby's `File.dirname` returns it on POSIX, by its bytes:
+      # the path before the separators of its last name, `/` for a path of only separators, or `.` for a single name, in
+      # the encoding of the path.
+      #
+      # Used where `::File.dirname` changes names, see .dirname, and public, so that its tests compare it with CRuby's.
+      def self.dirname_of(path)
+        root   = leading_separators(path)
+        start  = root > 1 ? root - 1 : 0
+        finish = last_separator(path, root) || root
+        return String.new(".", encoding: path.encoding) if finish == start
+
+        path.byteslice(start, finish - start)
+      end
+
+      # Returns [String] the extension of the last name of the supplied path, as CRuby's `File.extname` returns it on
+      # POSIX, by its bytes: from its last `.`, unless only dots start the name, in the encoding of the path, or an
+      # empty String when it has none.
+      #
+      # Used where `::File.extname` changes names, see .extname, and public, so that its tests compare it with CRuby's.
+      def self.extname_of(path)
+        separator = last_separator(path, 0)
+        position  = separator ? separator + 1 : 0
+        position += 1 while position < path.bytesize && path.getbyte(position) == SEPARATOR
+        position += 1 while position < path.bytesize && path.getbyte(position) == DOT
+        dot = nil
+        while position < path.bytesize
+          byte = path.getbyte(position)
+          break if byte == SEPARATOR
+
+          dot = position if byte == DOT
+          position += 1
+        end
+        return "".b if dot.nil?
+
+        path.byteslice(dot, position - dot)
+      end
+
+      # Returns [Integer] the number of bytes of the supplied path before the separators at its end.
+      def self.trailing_separators(path)
+        tail = path.bytesize
+        tail -= 1 while tail.positive? && path.getbyte(tail - 1) == SEPARATOR
+        tail
+      end
+      private_class_method :trailing_separators
+
+      # Returns [Integer] the number of separators at the start of the supplied path.
+      def self.leading_separators(path)
+        count = 0
+        count += 1 while count < path.bytesize && path.getbyte(count) == SEPARATOR
+        count
+      end
+      private_class_method :leading_separators
+
+      # Returns [Integer] the position of the first of the last separators of the supplied path, from the supplied
+      # position on, that a name follows, or nil when it has none, as CRuby's `strrdirsep` finds it.
+      def self.last_separator(path, from)
+        last     = nil
+        position = from
+        while position < path.bytesize
+          if path.getbyte(position) == SEPARATOR
+            separator = position
+            position += 1 while position < path.bytesize && path.getbyte(position) == SEPARATOR
+            break if position >= path.bytesize
+
+            last = separator
+          else
+            position += 1
+          end
+        end
+        last
+      end
+      private_class_method :last_separator
+    end
+
     # Returns [String] the supplied string, or its bytes when it is not valid in its encoding, so that a Regexp,
     # `split` or `File.fnmatch?` can be applied to it, since Ruby raises ArgumentError for those otherwise.
     #

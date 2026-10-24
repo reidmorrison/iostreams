@@ -34,7 +34,8 @@ module IOStreams
             next unless matcher.match?(name)
 
             # A server lists a link with its own attributes.
-            attributes = (entry.symlink? && link_attributes(sftp, ::File.join(directory, name))) || entry.attributes
+            link       = entry.symlink? && link_attributes(sftp, IOStreams::Utils::PathName.join(directory, name))
+            attributes = link || entry.attributes
             next if !directories && !attributes.file?
 
             yield(name, attributes.attributes)
@@ -51,7 +52,7 @@ module IOStreams
           entries.sort_by(&:name).each do |entry|
             next if %w[. ..].include?(entry.name)
 
-            name = prefix ? ::File.join(prefix, utf8(entry.name)) : utf8(entry.name)
+            name = prefix ? IOStreams::Utils::PathName.join(prefix, utf8(entry.name)) : utf8(entry.name)
             yield(name, entry)
             next unless entry.directory? && (depth.nil? || depth.positive?)
 
@@ -62,7 +63,7 @@ module IOStreams
         # Returns [Array] the entries in the remote directory, or in the sub-directory `prefix` within it,
         # or nil when the sub-directory no longer exists, or cannot be read.
         def self.entries(sftp, directory, prefix)
-          sftp.dir.entries(prefix ? ::File.join(directory, prefix) : directory)
+          sftp.dir.entries(prefix ? IOStreams::Utils::PathName.join(directory, prefix) : directory)
         rescue Net::SFTP::StatusException => e
           raise if prefix.nil? || !(NOT_FOUND.include?(e.code) || e.code == PERMISSION_DENIED)
 
@@ -75,7 +76,7 @@ module IOStreams
           sftp.dir.entries(directory).each do |entry|
             next if %w[. ..].include?(entry.name)
 
-            name = ::File.join(directory, utf8(entry.name))
+            name = IOStreams::Utils::PathName.join(directory, utf8(entry.name))
             entry.directory? ? remove_tree(sftp, name) : sftp.remove!(name)
           end
           sftp.rmdir!(directory)

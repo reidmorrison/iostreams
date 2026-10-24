@@ -31,7 +31,7 @@ module IOStreams
 
       new_path = dup
       new_path.clear_configuration
-      new_path.path = joined_path(::File.join(*elements.collect(&:to_s)))
+      new_path.path = joined_path(Utils::PathName.join(*elements.collect(&:to_s)))
       new_path
     end
 
@@ -64,7 +64,7 @@ module IOStreams
     def sub_ext(extension)
       new_path = dup
       new_path.clear_configuration
-      new_path.path = path.delete_suffix(::File.extname(path)) + extension.to_s
+      new_path.path = path.delete_suffix(Utils::PathName.extname(path)) + extension.to_s
       new_path
     end
 
@@ -238,7 +238,7 @@ module IOStreams
     def directory
       new_path = dup
       new_path.clear_configuration
-      new_path.path = ::File.dirname(path)
+      new_path.path = Utils::PathName.dirname(path)
       new_path
     end
 
@@ -402,7 +402,7 @@ module IOStreams
     # Returns [String] the path of the supplied name joined to this path, see #join: the name itself when it is
     # already within this path.
     def joined_path(name)
-      contains?(name) ? name : ::File.join(path, name)
+      contains?(name) ? name : Utils::PathName.join(path, name)
     end
 
     # Returns [String] the name that identifies the file of this path, including its store, which #==, #eql?, #hash and

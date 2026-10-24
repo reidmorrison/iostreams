@@ -478,7 +478,7 @@ module IOStreams
       def child_path(name, directory = path)
         server     = Utils::URI.without_userinfo_or_query(url)
         child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
-        child.path = ::File.join(directory, name).freeze
+        child.path = Utils::PathName.join(directory, name).freeze
         child
       end
 
