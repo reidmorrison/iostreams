@@ -91,7 +91,8 @@ module IOStreams
 
         block = @converter.convert(data)
         @converter.raise_invalid
-        write_block(block)
+        # Binary data is not converted, so the block can be the caller's string.
+        write_block(block, shared: block.equal?(data))
       end
 
       # Returns [String] the first data of "UTF-16" or "UTF-32" text, once it decides the byte order that the text is
@@ -142,8 +143,11 @@ module IOStreams
       # The block that starts that text, with its byte order mark, is tagged with "UTF-16" or "UTF-32", as Ruby tags
       # such text, and the rest with the encoding of its byte order, so that an output stream that converts the text
       # written to it, such as `File.open(name, "w:UTF-16")`, reads the mark as one, rather than as a character.
-      def write_block(block)
-        block = @cleaner.call(block) if @cleaner
+      #
+      # The cleaner, when there is one, cleans the block first, with a copy of it for a Proc when it is the caller's
+      # string, `shared`, so that the Proc does not change it, see `IOStreams::Encode::Cleaner#call`.
+      def write_block(block, shared: false)
+        block = @cleaner.call(block, shared: shared) if @cleaner
         if @start_encoding && !block.empty?
           block            = (@byte_order_mark ? @byte_order_mark + block : block.dup).force_encoding(@start_encoding)
           @start_encoding  = nil
