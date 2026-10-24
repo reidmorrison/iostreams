@@ -311,8 +311,8 @@ module IOStreams
         private_constant :Text
 
         # Adds the supplied text, a single row on a line of its own, which starts on the line after those added before it,
-        # which the slice of its first row holds, see `IOStreams::Slice#line_number`, and was the supplied number of
-        # bytes as written, before it was cleaned.
+        # which its slice holds, see `IOStreams::Slice#line_number_at`, and was the supplied number of bytes as written,
+        # before it was cleaned.
         def add(text, bytes)
           @lines += 1
           @bytes += bytes + NEWLINE.bytesize

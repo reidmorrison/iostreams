@@ -112,7 +112,7 @@ class SliceStreamTest < Minitest::Test
         it "reads a row whose every value is blank as a record, with or without skip_blanks" do
           assert_equal expected, each(IOStreams.stream(records).schema(schema))
           assert_equal expected, each(IOStreams.stream(records).schema(schema), :hash, skip_blanks: true)
-          assert_equal [%w[name age], *records], each(IOStreams.stream(records), :array, skip_blanks: true)
+          assert_equal [%w[name age], *records.rows], each(IOStreams.stream(records), :array, skip_blanks: true)
         end
 
         it "reads it as a record once the slice is stored as JSON and turned back from its Hash" do
@@ -155,35 +155,49 @@ class SliceStreamTest < Minitest::Test
         list = []
         IOStreams.stream(slice).each(:slice, size: 1) { |part| list << part }
 
-        assert_equal [["21,Jack"], ["22,Jill"]], list
+        assert_equal [["21,Jack"], ["22,Jill"]], list.map(&:rows)
         assert_equal [%w[AGE Name], %w[AGE Name]], list.map(&:header)
         assert_equal %i[csv csv], list.map(&:format)
       end
 
-      it "numbers the slices that it reads again from the line of the slice, rather than from 1" do
+      it "gives the slices that it reads again the numbers of the rows of the slice, rather than from 1" do
         second = slices("Name,AGE\nJack,21\nJill,22\nBob,23\nAnn,24\nSam,25\n", size: 4).last
         list   = []
         IOStreams.stream(second).each(:slice, size: 1) { |part| list << part }
 
         assert_equal 6, second.line_number
-        assert_equal [["Sam,25"]], list
+        assert_equal [["Sam,25"]], list.map(&:rows)
         assert_equal [6], list.map(&:line_number)
+        assert_equal [5], list.map(&:record_number)
       end
 
-      it "numbers each row after the first as the next line" do
-        first = slices("\nName,AGE\nJack,21\nJill,22\nBob,23\n", size: 5).first
+      it "keeps the numbers of each row, after a row that holds a quoted line break" do
+        first = slices(%(\nName,AGE\nJack,21\n"Ji\nll",22\nBob,23\n), size: 5).first
         list  = []
         IOStreams.stream(first).each(:slice, size: 2) { |part| list << part }
 
-        assert_equal [3, 5], list.map(&:line_number)
+        assert_equal [3, 6], list.map(&:line_number)
+        assert_equal([[["Jack,21", 3, 1], [%("Ji\nll",22), 4, 2]], [["Bob,23", 6, 3]]], list.map { |part| part.each.to_a })
       end
 
-      it "numbers the slices of a slice without a line by row, counting from 1" do
+      it "keeps the numbers of the rows of a slice that were changed, and none for those without them" do
+        changed = IOStreams::Slice.new(header: %w[Name AGE], format: :csv)
+        changed.add("Jack,21", line_number: 2, record_number: 1)
+        changed.add("Bob,23", line_number: 4, record_number: 3)
+        changed << "Ann,24"
+        list = []
+        IOStreams.stream(changed).each(:slice, size: 2) { |part| list << part }
+
+        assert_equal([[["Jack,21", 2, 1], ["Bob,23", 4, 3]], [["Ann,24", nil, nil]]], list.map { |part| part.each.to_a })
+      end
+
+      it "gives the slices of a slice without numbers none" do
         unnumbered = IOStreams::Slice.new(%w[Jack,21 Jill,22 Bob,23], header: %w[Name AGE], format: :csv)
         list       = []
         IOStreams.stream(unnumbered).each(:slice, size: 2) { |part| list << part }
 
-        assert_equal [1, 3], list.map(&:line_number)
+        assert_equal [nil, nil], list.map(&:line_number)
+        assert_equal [nil, nil], list.map(&:record_number)
       end
 
       it "copies the records of the slice to a stream" do

@@ -923,8 +923,8 @@ module IOStreams
     # Yields [#each_with_line_number] the rows of the format of the tabular, see #open_rows_reader, with the line of the
     # file that each one starts on, which a slice reader reads, see `IOStreams::Slice::Reader`: the lines that its line
     # reader reads, see `IOStreams::Line::Reader#each_with_line_number`, or the rows of a format whose rows are not
-    # lines, such as Parquet, which start on no line, so that the slices number them by row, see
-    # `IOStreams::Slice::Rows`.
+    # lines, such as Parquet, which start on no line, see `IOStreams::Slice::Rows`. The slices number each row as the
+    # next record, see `IOStreams::Slice#record_number_at`.
     def open_slice_rows(tabular, delimiter, buffer_size)
       open_rows_reader(tabular, delimiter, buffer_size) do |rows|
         yield(tabular.lines? ? rows : IOStreams::Slice::Rows.new(rows))

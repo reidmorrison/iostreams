@@ -23,7 +23,7 @@ class SliceReaderTest < Minitest::Test
       slices.flat_map do |slice|
         tabular = IOStreams::Tabular.new(format: slice.format, schema: schema && IOStreams::Schema.new(schema))
         tabular.read_header(slice.header) if slice.header
-        slice.map { |row| tabular.record_parse(row) }
+        slice.rows.map { |row| tabular.record_parse(row) }
       end
     end
 
@@ -31,7 +31,7 @@ class SliceReaderTest < Minitest::Test
       it "yields the rows as they are in the file, in slices of the size, without the header row" do
         list = slices(stream(csv), size: 2)
 
-        assert_equal [["Jack,21", "Jill,22"], ["Bob,23"]], list
+        assert_equal [["Jack,21", "Jill,22"], ["Bob,23"]], list.map(&:rows)
         assert(list.all?(IOStreams::Slice))
       end
 
@@ -59,7 +59,7 @@ class SliceReaderTest < Minitest::Test
         tabular = IOStreams::Tabular.new(format: :array, blank_rows: false)
         list    = IOStreams::Slice::Reader.new(IOStreams::Slice::Rows.new([%w[name age], [nil, nil]]), tabular: tabular, size: 2).to_a
 
-        assert_equal [[[nil, nil]]], list
+        assert_equal [[[nil, nil]]], list.map(&:rows)
         refute_predicate list.first, :blank_rows?
       end
 
@@ -70,35 +70,47 @@ class SliceReaderTest < Minitest::Test
       it "skips the blank lines before the header row, and keeps those after it as rows" do
         list = slices(stream("\n  \nName,AGE\nJack,21\n\nBob,23\n"), size: 5)
 
-        assert_equal [["Jack,21", "", "Bob,23"]], list
+        assert_equal [["Jack,21", "", "Bob,23"]], list.map(&:rows)
         assert_equal %w[Name AGE], list.first.header
       end
 
-      it "gives each slice the line of the file that its first row starts on" do
+      it "gives each slice the line of the file that its first row starts on, and its record number" do
         data = %(\nName,AGE\nJack,"line one\nline two"\n\nJill,22\nBob,23\nAnn,24\n)
+        list = slices(stream(data), size: 2)
 
-        assert_equal [3, 6, 8], slices(stream(data), size: 2).map(&:line_number)
+        assert_equal [3, 6, 8], list.map(&:line_number)
+        assert_equal [1, 3, 5], list.map(&:record_number)
       end
 
-      it "gives each slice the number of its first row, counting from 1, for rows that are not lines" do
+      it "gives each row the line of the file that it starts on, and its record number, counting a blank row" do
+        data    = %(\nName,AGE\nJack,"line one\nline two"\n\nJill,22\nBob,"a\n\nb"\nAnn,24\n)
+        numbers = slices(stream(data), size: 3).map { |slice| slice.each.map { |_row, line, record| [line, record] } }
+
+        assert_equal [[[3, 1], [5, 2], [6, 3]], [[7, 4], [10, 5]]], numbers
+      end
+
+      it "gives the rows that are not lines no line, and numbers each one as a record, counting from 1" do
         tabular = IOStreams::Tabular.new(format: :array)
         rows    = [%w[name age], %w[Jack 21], %w[Jill 22], %w[Bob 23]]
         list    = IOStreams::Slice::Reader.new(IOStreams::Slice::Rows.new(rows), tabular: tabular, size: 2).to_a
 
-        assert_equal [1, 3], list.map(&:line_number)
+        assert_equal [nil, nil], list.map(&:line_number)
+        assert_equal [1, 3], list.map(&:record_number)
+        assert_equal([[nil, 3]], list.last.each.map { |_row, line, record| [line, record] })
       end
 
-      it "raises for rows that do not give the line that each one starts on" do
+      it "raises for rows that do not give the line that each one starts on, nor their numbers" do
         error = assert_raises(ArgumentError) do
           IOStreams::Slice::Reader.new([%w[name age]], tabular: IOStreams::Tabular.new(format: :array), size: 2)
         end
-        assert_equal "Rows must implement #each_with_line_number, such as IOStreams::Line::Reader", error.message
+        assert_equal "Rows must implement #each_with_line_number, such as IOStreams::Line::Reader, or #each_with_numbers",
+                     error.message
       end
 
       it "keeps a quoted value with a line break within its row" do
         list = slices(stream(%(name,note\nJack,"line one\nline two"\n)), size: 5)
 
-        assert_equal [[%(Jack,"line one\nline two")]], list
+        assert_equal [[%(Jack,"line one\nline two")]], list.map(&:rows)
       end
 
       it "yields slices that a Tabular with the same schema parses on its own, elsewhere" do
@@ -120,7 +132,7 @@ class SliceReaderTest < Minitest::Test
       it "gives no header row to the slices of a file without one" do
         list = slices(stream("Jack,21\nJill,22\n").schema(schema.merge("header" => false)), size: 5)
 
-        assert_equal [["Jack,21", "Jill,22"]], list
+        assert_equal [["Jack,21", "Jill,22"]], list.map(&:rows)
         assert_nil list.first.header
         assert_equal [{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}],
                      parse(list, schema: schema.merge("header" => false))
@@ -129,7 +141,7 @@ class SliceReaderTest < Minitest::Test
       it "gives no header row to the slices of a format whose records supply their own keys" do
         list = slices(stream(%({"name":"Jack"}\n{"age":22}\n)).format(:json), size: 5)
 
-        assert_equal [[%({"name":"Jack"}), %({"age":22})]], list
+        assert_equal [[%({"name":"Jack"}), %({"age":22})]], list.map(&:rows)
         assert_nil list.first.header
         assert_equal :json, list.first.format
         assert_equal [{"name" => "Jack"}, {"age" => 22}], parse(list)
@@ -139,7 +151,7 @@ class SliceReaderTest < Minitest::Test
         fixed = {"fields" => [{"name" => "name", "width" => 4}, {"name" => "age", "type" => "integer", "width" => 2}]}
         list  = slices(stream("Jack21\nJill22\n").format(:fixed).schema(fixed), size: 5)
 
-        assert_equal [%w[Jack21 Jill22]], list
+        assert_equal [%w[Jack21 Jill22]], list.map(&:rows)
         assert_equal [{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}], parse(list, schema: fixed)
       end
     end
@@ -179,13 +191,13 @@ class SliceReaderTest < Minitest::Test
       it "are those of the first record that is not blank, without converting its values" do
         list = slices(stream(%(\n{"name":"Jack","age":"abc"}\n)).format(:json).schema(equal), size: 5)
 
-        assert_equal [["", %({"name":"Jack","age":"abc"})]], list
+        assert_equal [["", %({"name":"Jack","age":"abc"})]], list.map(&:rows)
       end
 
       it "are only those of the first record, since the keys of the others are matched where they are parsed" do
         list = slices(stream(%({"name":"Jack","age":21}\n{"x":1}\n)).format(:json).schema(equal), size: 5)
 
-        assert_equal [[%({"name":"Jack","age":21}), %({"x":1})]], list
+        assert_equal [[%({"name":"Jack","age":21}), %({"x":1})]], list.map(&:rows)
       end
     end
 
@@ -202,15 +214,15 @@ class SliceReaderTest < Minitest::Test
           stream(invalid).schema(schema).each(:slice, size: 1, validate: true) { |slice| list << slice }
         end
 
-        assert_equal [["Jack,21"]], list
+        assert_equal [["Jack,21"]], list.map(&:rows)
       end
 
       it "still yields the rows as they are in the file" do
-        assert_equal [["Jack,21"]], slices(stream("name,age\nJack,21\n").schema(schema), size: 1, validate: true)
+        assert_equal [["Jack,21"]], slices(stream("name,age\nJack,21\n").schema(schema), size: 1, validate: true).map(&:rows)
       end
 
       it "does not parse the rows by default" do
-        assert_equal [["Jack,21", "Jill,abc"]], slices(stream(invalid).schema(schema), size: 2)
+        assert_equal [["Jack,21", "Jill,abc"]], slices(stream(invalid).schema(schema), size: 2).map(&:rows)
       end
     end
 
@@ -255,7 +267,7 @@ class SliceReaderTest < Minitest::Test
       end
 
       it "takes the options of the lines" do
-        assert_equal [%w[Jack,21 Jill,22]], slices(stream("name,age|Jack,21|Jill,22"), size: 5, delimiter: "|")
+        assert_equal [%w[Jack,21 Jill,22]], slices(stream("name,age|Jack,21|Jill,22"), size: 5, delimiter: "|").map(&:rows)
       end
 
       it "are read options, which a writer rejects" do
@@ -266,10 +278,10 @@ class SliceReaderTest < Minitest::Test
   end
 
   describe IOStreams::Slice do
-    it "is an Array of the rows, with the header row and format" do
+    it "holds the rows, with the header row and format" do
       slice = IOStreams::Slice.new(%w[a b], header: %w[name].freeze, format: :csv)
 
-      assert_equal %w[a b], slice
+      assert_equal %w[a b], slice.rows
       assert_equal %w[name], slice.header
       assert_equal :csv, slice.format
     end

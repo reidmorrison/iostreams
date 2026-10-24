@@ -26,7 +26,7 @@ class SliceTargetStreamTest < Minitest::Test
 
     def write_slice(slice)
       @slices << slice
-      @events << [:slice, slice.to_a]
+      @events << [:slice, slice.rows]
     end
   end
 
@@ -37,7 +37,7 @@ class SliceTargetStreamTest < Minitest::Test
 
     # Returns [Array] the header row, format and rows of each slice in the store.
     def written(target = store)
-      target.slices.collect { |slice| [slice.header, slice.format, slice.to_a] }
+      target.slices.collect { |slice| [slice.header, slice.format, slice.rows] }
     end
 
     describe "IOStreams.stream" do
@@ -72,7 +72,7 @@ class SliceTargetStreamTest < Minitest::Test
           end
 
           def write_slice(slice)
-            (@stored ||= []) << slice.to_a
+            (@stored ||= []) << slice.rows
           end
         end
       end
@@ -106,7 +106,7 @@ class SliceTargetStreamTest < Minitest::Test
           include IOStreams::Slice::Target
 
           def write_slice(slice)
-            push(slice.to_a)
+            push(slice.rows)
           end
         end.new
         target << "plain"
@@ -228,7 +228,7 @@ class SliceTargetStreamTest < Minitest::Test
           IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "\"Jill" }
         end
 
-        assert_equal [%w[Jack]], small.slices.collect(&:to_a)
+        assert_equal [%w[Jack]], small.slices.collect(&:rows)
       end
 
       it "raises with the line of the file on which a quoted value that is not closed starts" do
@@ -266,6 +266,7 @@ class SliceTargetStreamTest < Minitest::Test
         IOStreams.stream(small).writer(:line) { |io| lines.each { |line| io << line } }
 
         assert_equal [3, 6, 8], small.slices.map(&:line_number)
+        assert_equal [1, 3, 5], small.slices.map(&:record_number)
       end
 
       it "numbers the lines of a line that holds line breaks" do
@@ -273,6 +274,14 @@ class SliceTargetStreamTest < Minitest::Test
         IOStreams.stream(small).writer(:line) { |io| io << "name\nJack" << "Jill\n\nBob" }
 
         assert_equal [2, 3, 4, 5], small.slices.map(&:line_number)
+        assert_equal [1, 2, 3, 4], small.slices.map(&:record_number)
+      end
+
+      it "gives each row the line that it starts on, after a row that holds a quoted line break" do
+        large = Store.new(slice_size: 5)
+        IOStreams.stream(large).writer(:line) { |io| io << "name,note" << "Jack,\"line 1\nline 2\"" << "Jill,ok" }
+
+        assert_equal [[%(Jack,"line 1\nline 2"), 2, 1], ["Jill,ok", 4, 2]], large.slices.first.each.to_a
       end
 
       describe "text that is not valid UTF-8" do
@@ -324,14 +333,14 @@ class SliceTargetStreamTest < Minitest::Test
             IOStreams.stream(small).writer(:line) { |io| io << "name" << "Jack" << "\xFF".b }
           end
 
-          assert_equal [%w[Jack]], small.slices.collect(&:to_a)
+          assert_equal [%w[Jack]], small.slices.collect(&:rows)
         end
 
         it "reads the bytes of a binary line as UTF-8" do
           stream.writer(:line) { |io| io << "name".b << "Jöe".b }
 
           assert_equal [[%w[name], :csv, %w[Jöe]]], written
-          assert_equal Encoding::UTF_8, store.slices.first.first.encoding
+          assert_equal Encoding::UTF_8, store.slices.first[0].encoding
         end
 
         it "raises for a binary line that is not valid UTF-8" do
@@ -346,7 +355,7 @@ class SliceTargetStreamTest < Minitest::Test
           end
 
           assert_equal [[%w[name note], :csv, ["Jöe,1", "\"Jill\",2"]]], written
-          assert(store.slices.first.all? { |row| row.encoding == Encoding::UTF_8 })
+          assert(store.slices.first.rows.all? { |row| row.encoding == Encoding::UTF_8 })
         end
 
         it "raises on the line of a character that is not valid in the encoding of a line" do
@@ -419,7 +428,7 @@ class SliceTargetStreamTest < Minitest::Test
           stream.writer(:line) { |io| io << "name,age" << "\"J\xC3\xB6\nck\",21" << [1, 2].join(",") }
 
           assert_equal [[%w[name age], :csv, ["\"Jö\nck\",21", "1,2"]]], written
-          assert(store.slices.first.all? { |row| row.encoding == Encoding::UTF_8 })
+          assert(store.slices.first.rows.all? { |row| row.encoding == Encoding::UTF_8 })
         end
 
         it "raises ArgumentError for replace: in the :array or :hash mode, which it does not apply to yet" do
@@ -444,13 +453,13 @@ class SliceTargetStreamTest < Minitest::Test
           end
         end
 
-        # Returns [Array] the header row, format, rows and line number of each slice that reading the lines from a file
+        # Returns [Array] the header row, format, and rows with their numbers, of each slice that reading the lines from a file
         # with the supplied options of #encoding gives.
         def read_slices(lines, **encoding)
           with_file(lines) do |file_name|
             slices = []
             IOStreams.path(file_name).encoding(**encoding).each(:slice, size: 100) do |slice|
-              slices << [slice.header, slice.format, slice.to_a, slice.line_number]
+              slices << [slice.header, slice.format, slice.each.to_a]
             end
             slices
           end
@@ -481,9 +490,11 @@ class SliceTargetStreamTest < Minitest::Test
           lines = ["na\x01me,note", "Jack,a\tb", "", "\x00", "Jill,\"c\x01\nd\"", "Bob,e\x7Ff"]
           stream.encoding(cleaner: :printable).writer(:line) { |io| lines.each { |line| io << line } }
 
-          stored = store.slices.collect { |slice| [slice.header, slice.format, slice.to_a, slice.line_number] }
+          stored = store.slices.collect { |slice| [slice.header, slice.format, slice.each.to_a] }
 
-          assert_equal [[%w[name note], :csv, ["Jack,ab", "", "", "Jill,\"c\nd\"", "Bob,ef"], 2]], stored
+          rows = [["Jack,ab", 2, 1], ["", 3, 2], ["", 4, 3], ["Jill,\"c\nd\"", 5, 4], ["Bob,ef", 7, 5]]
+
+          assert_equal [[%w[name note], :csv, rows]], stored
           assert_equal read_slices(lines, cleaner: :printable), stored
         end
 
@@ -502,7 +513,7 @@ class SliceTargetStreamTest < Minitest::Test
             io << "Ja\x01ck     12345"
           end
 
-          assert_equal [["Ja ck     12345"]], store.slices.collect(&:to_a)
+          assert_equal [["Ja ck     12345"]], store.slices.collect(&:rows)
         end
 
         it "calls a Proc with a copy of each line written, so that it does not change the caller's line" do
@@ -550,15 +561,18 @@ class SliceTargetStreamTest < Minitest::Test
 
         it "splits the rows by the quotes and line endings that the cleaner leaves, as reading the file does" do
           lines    = ["name,note", "Jack,a\x01b", "Jill,c", "Bob,d\x01e"]
-          expected = {"\"" => ["Jack,a\"b\nJill,c\nBob,d\"e"], "\n" => ["Jack,a", "b", "Jill,c", "Bob,d", "e"]}
+          expected = {
+            "\"" => [["Jack,a\"b\nJill,c\nBob,d\"e", 2, 1]],
+            "\n" => [["Jack,a", 2, 1], ["b", 3, 2], ["Jill,c", 4, 3], ["Bob,d", 5, 4], ["e", 6, 5]]
+          }
           expected.each_pair do |replace, rows|
             target = Store.new
             IOStreams.stream(target).encoding(cleaner: :replace_non_printable, replace: replace).writer(:line) do |io|
               lines.each { |line| io << line }
             end
-            stored = target.slices.collect { |slice| [slice.header, slice.format, slice.to_a, slice.line_number] }
+            stored = target.slices.collect { |slice| [slice.header, slice.format, slice.each.to_a] }
 
-            assert_equal [[%w[name note], :csv, rows, 2]], stored, replace.inspect
+            assert_equal [[%w[name note], :csv, rows]], stored, replace.inspect
             assert_equal read_slices(lines, cleaner: :replace_non_printable, replace: replace), stored, replace.inspect
           end
         end
@@ -706,7 +720,7 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal [[%w[name age], :csv, %w[Jack,21]]], written
       end
 
-      it "gives each slice the number of its first row, after the header row, since the rows are not lines of a file" do
+      it "gives each row its record number, after the header row, and no line, since the rows are not lines of a file" do
         small = Store.new(slice_size: 2)
         IOStreams.stream(small).writer(:array) do |io|
           io << %w[name note]
@@ -715,7 +729,9 @@ class SliceTargetStreamTest < Minitest::Test
           io << %w[Bob x]
         end
 
-        assert_equal [1, 3], small.slices.collect(&:line_number)
+        assert_equal [nil, nil], small.slices.collect(&:line_number)
+        assert_equal [1, 3], small.slices.collect(&:record_number)
+        assert_equal([[nil, 1], [nil, 2]], small.slices.first.each.map { |_row, line, record| [line, record] })
       end
     end
 
@@ -773,7 +789,7 @@ class SliceTargetStreamTest < Minitest::Test
           end
         end
 
-        assert_equal [%w[Jack Jill]], small.slices.collect(&:to_a)
+        assert_equal [%w[Jack Jill]], small.slices.collect(&:rows)
       end
     end
 
@@ -786,13 +802,13 @@ class SliceTargetStreamTest < Minitest::Test
           end
         end
 
-        assert_equal [%w[Jack,21]], small.slices.collect(&:to_a)
+        assert_equal [%w[Jack,21]], small.slices.collect(&:rows)
       end
 
       it "does not parse the rows by default" do
         stream.schema(schema).writer(:line) { |io| io << "name,age" << "Jill,abc" }
 
-        assert_equal [%w[Jill,abc]], store.slices.collect(&:to_a)
+        assert_equal [%w[Jill,abc]], store.slices.collect(&:rows)
       end
     end
 
@@ -805,17 +821,19 @@ class SliceTargetStreamTest < Minitest::Test
           small = Store.new(slice_size: 1)
 
           assert_equal 3, IOStreams.stream(small).schema(schema).copy_from(path, mode: :line)
-          assert_equal [%w[Jack,21], ["\"Jill\nSmith\",22"]], small.slices.collect(&:to_a)
+          assert_equal [%w[Jack,21], ["\"Jill\nSmith\",22"]], small.slices.collect(&:rows)
           assert_equal [2, 3], small.slices.collect(&:line_number)
+          assert_equal [1, 2], small.slices.collect(&:record_number)
         end
       end
 
-      it "gives the slices of rows copied in the :hash mode the number of their first row, as for a query" do
+      it "gives the rows copied in the :hash mode their record numbers and no line, as for a query" do
         small  = Store.new(slice_size: 1)
         source = IOStreams.stream(StringIO.new("name,note\nJack,\"line 1\nline 2\"\nJill,ok\n")).format(:csv)
         IOStreams.stream(small).copy_from(source, mode: :hash)
 
-        assert_equal [1, 2], small.slices.collect(&:line_number)
+        assert_equal [nil, nil], small.slices.collect(&:line_number)
+        assert_equal [1, 2], small.slices.collect(&:record_number)
       end
 
       it "copies the records of a file, rendered by the schema of the stream" do
