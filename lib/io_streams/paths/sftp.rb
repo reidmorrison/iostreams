@@ -218,7 +218,7 @@ module IOStreams
       def child_path(name)
         server     = port == 22 ? "sftp://#{hostname}" : "sftp://#{hostname}:#{port}"
         child      = self.class.new(server, username: username, password: password, ssh_options: ssh_options)
-        child.replace_path((path.empty? ? "/#{name}" : ::File.join(path, name)).freeze)
+        child.replace_path((path.empty? ? "/#{name}" : Utils::PathName.join(path, name)).freeze)
         child.url = "#{server}#{child.path}"
         child
       end

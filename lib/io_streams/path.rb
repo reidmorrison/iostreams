@@ -21,11 +21,11 @@ module IOStreams
       return self if elements.empty?
 
       elements = elements.collect(&:to_s)
-      relative = ::File.join(*elements)
+      relative = Utils::PathName.join(*elements)
 
       new_path = dup
       new_path.reset_builder
-      new_path.replace_path(contains?(relative) ? relative : ::File.join(path, relative))
+      new_path.replace_path(contains?(relative) ? relative : Utils::PathName.join(path, relative))
     end
 
     def relative?
@@ -129,7 +129,7 @@ module IOStreams
     def directory
       new_path = dup
       new_path.reset_builder
-      new_path.replace_path(::File.dirname(path))
+      new_path.replace_path(Utils::PathName.dirname(path))
     end
 
     # When path is a file, deletes this file.
