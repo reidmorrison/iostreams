@@ -249,7 +249,7 @@ IOStreams.path("people.csv").encoding("Windows-1252:UTF-8").each(:hash) do |reco
 end
 ~~~
 
-**Process a large file in background jobs**, a slice of 500 rows in each job, see [Background jobs](slices):
+**Process a large file in background jobs**, a slice of 500 rows in each job, see [Background jobs](background_jobs):
 
 ~~~ruby
 IOStreams.path("s3://my-bucket/people.csv.gz").each(:slice, size: 500) do |slice|
@@ -357,7 +357,7 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 * [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.
 * [Exporting queries](queries): exporting the rows of an Active Record query to any format and store.
-* [Background jobs](slices): processing a large file or query in background jobs, in parallel, or in one job that
+* [Background jobs](background_jobs): processing a large file or query in background jobs, in parallel, or in one job that
   resumes where it stopped.
 * [Errors](errors): rescuing a missing file the same way wherever it is stored.
 * [PGP](pgp): encrypting, decrypting, signing and verifying files, and managing keys.

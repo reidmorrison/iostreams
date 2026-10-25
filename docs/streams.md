@@ -149,7 +149,7 @@ end
   not those that were processed. `in_batches` reads each batch in the order of its primary key.
 * `each(:hash)` yields one record, or `nil` for a blank one, for each record, unless `skip_blanks: true`, so counting
   the records yielded from `resume_at` gives the number of each one. Each slice holds the line and record number of
-  each of its rows in the file, see [Find a row in the file](slices#find-a-row-in-the-file).
+  each of its rows in the file, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
 * A slice resumes at a record number that it holds, as `slice.each` gives them, such as
   `IOStreams.stream(slice).each(:hash, resume_at: 502)` for a slice of records 501 to 600, or at the record after its
   last, which reads no rows. A record between its first and last that it no longer holds, such as one removed with
@@ -182,7 +182,7 @@ IOStreams.stream(slice).schema(schema).each(:hash) do |person|
 end
 ~~~
 
-See [Background jobs](slices) for handing slices to background jobs or threads, resuming a job, sending them as plain data with
+See [Background jobs](background_jobs) for handing slices to background jobs or threads, resuming a job, sending them as plain data with
 `slice.to_h` and `IOStreams.slice`, validating a file before the work starts, and writing the results back to one file.
 
 ## Writing
@@ -239,7 +239,7 @@ IOStreams.path("people.csv.gz").schema("people.json").writer(:slice) do |io|
 end
 ~~~
 
-See [Writing the results](slices#writing-the-results).
+See [Writing the results](background_jobs#writing-the-results).
 
 ### A store of slices
 
@@ -251,7 +251,7 @@ a store of your own: include `IOStreams::Slice::Target` in its class and impleme
 IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :line)
 ~~~
 
-See [A store of slices](slices#a-store-of-slices).
+See [A store of slices](background_jobs#a-store-of-slices).
 
 ## Lines
 
@@ -295,7 +295,7 @@ end
 
 For an Excel spreadsheet, `.xlsx`, the lines are those of the CSV text that its rows are read as, so their numbers are
 not the rows of the sheet, since a cell that holds line breaks takes a line for each. That is why the slices of a
-spreadsheet hold no line numbers, see [Find a row in the file](slices#find-a-row-in-the-file).
+spreadsheet hold no line numbers, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
 
 Other notes:
 

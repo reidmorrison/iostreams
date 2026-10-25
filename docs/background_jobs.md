@@ -63,7 +63,7 @@ CSV file, and describes them, so that any worker can parse them on its own:
 | Write rows into slices | `IOStreams.stream(store)` | Writes the lines, rows or records that your code writes, or copies, to your store, in slices |
 | Send a slice elsewhere | `slice.to_h`, `IOStreams.slice(hash)` | Turns a slice into plain data and back |
 | Parse a slice | `IOStreams.stream(slice)` | Reads the rows of a slice as the rows of its file, by a schema |
-| Resume after a record | `each(:slice, size: 500, after: cursor)` | Reads the slices after the record of the cursor, see [One job that resumes](#one-job-that-resumes) |
+| Resume at a record | `each(:slice, size: 500, resume_at: cursor)` | Reads the slices from the record of the cursor on, see [One job that resumes](#one-job-that-resumes) |
 | Write slices to a file | `writer(:slice)` | Writes slices to one file, after their header row, without parsing them when it can |
 
 ## One job per slice {#background-jobs}
@@ -304,32 +304,33 @@ end
 ## One job that resumes
 
 A job that processes a whole file on its own, in order, can be stopped part way through, such as when its worker is
-restarted by a deploy. `after:` reads the file after the record of the number supplied, so the job keeps the number of
-the last record that it processed as its cursor, and supplies it when it starts again:
+restarted by a deploy. `resume_at:` reads the file from the record of the number supplied, so the job keeps the number
+of the next record to process as its cursor, and supplies it when it starts again:
 
 ~~~ruby
-IOStreams.path(url).each(:slice, size: 100, after: cursor) do |slice|
+IOStreams.path(url).each(:slice, size: 100, resume_at: cursor) do |slice|
   process(slice)
-  cursor = slice.record_number_at(-1)
+  cursor = slice.record_number_at(-1) + 1
 end
 ~~~
 
-* Records are numbered from 1, without the header row, as the slices number their rows, so the record number of the
-  last row of a slice, `slice.record_number_at(-1)`, is the cursor once it is processed.
-* `nil` and `0` read the whole file, so the cursor of a job that has not started yet, which is usually `nil`, can be
-  supplied as it is.
+* Records are numbered from 1, without the header row, as the slices number their rows, so once a slice is processed,
+  the job resumes at the record after its last row, `slice.record_number_at(-1) + 1`.
+* `nil` reads the whole file, so the cursor of a job that has not started yet, which is usually `nil`, can be supplied
+  as it is.
 * The file is read again up to the cursor, since a file cannot be read from the middle, such as when it is compressed,
   but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema.
-* `each(:hash, after: cursor)` works too, for a job that keeps a cursor for each record, see
-  [Starting after a record](streams#starting-after-a-record).
+* `each(:hash, resume_at: cursor)` works too, for a job that keeps a cursor for each record, see
+  [Resuming at a record](streams#resuming-at-a-record).
 
 The job queue decides when to save the cursor, and when to stop the job, so each one is written a little differently.
 
 ### Active Job continuations
 
 [Active Job continuations](https://guides.rubyonrails.org/active_job_basics.html), in Rails 8.1 and later, run a job in
-steps, and save the cursor of a step with `step.set!`. When its worker is stopping, the job stops at that point, and is
-enqueued again, to run from the cursor that it saved:
+steps, and save the cursor of a step with `step.set!`, or with `step.advance!`, which saves the value after the one that
+it is given. When its worker is stopping, the job stops at that point, and is enqueued again, to run from the cursor
+that it saved:
 
 ~~~ruby
 class ImportPeopleJob < ApplicationJob
@@ -337,20 +338,22 @@ class ImportPeopleJob < ApplicationJob
 
   def perform(url)
     step :import do |step|
-      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, after: step.cursor) do |slice|
+      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, resume_at: step.cursor) do |slice|
         Person.transaction do
           IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
             Person.upsert(person) if person
           end
         end
-        step.set!(slice.record_number_at(-1))
+        step.advance!(from: slice.record_number_at(-1))
       end
     end
   end
 end
 ~~~
 
-* `step.cursor` is `nil` the first time the job runs.
+* `step.cursor` is `nil` the first time the job runs, and `step.advance!(from:)` saves the number of the record after
+  the last row of the slice, where the job resumes, as the Rails guide does with `find_each(start: step.cursor)` and
+  the id of each record.
 * Save the cursor once the slice is committed, outside its transaction, since Rails raises
   `ActiveJob::Continuation::CheckpointError` for a cursor saved within one.
 * The queue adapter tells the job when its worker is stopping, which those of Solid Queue, Sidekiq and GoodJob do.
@@ -359,8 +362,8 @@ end
 
 [Sidekiq's iterable jobs](https://github.com/sidekiq/sidekiq/wiki/Iteration), in Sidekiq 7.3 and later, ask the job
 for an Enumerator of each item with its cursor, and call `each_iteration` with each item. Sidekiq saves the cursor of an
-item before it processes it, and starts again with that item, so the cursor of a slice is the number of the record
-before it:
+item before it processes it, and starts again with that item, so the cursor of a slice is the number of its first
+record:
 
 ~~~ruby
 class ImportPeopleJob
@@ -368,8 +371,8 @@ class ImportPeopleJob
 
   def build_enumerator(url, cursor:)
     Enumerator.new do |yielder|
-      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, after: cursor) do |slice|
-        yielder << [slice, slice.record_number - 1]
+      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, resume_at: cursor) do |slice|
+        yielder << [slice, slice.record_number]
       end
     end
   end
@@ -387,8 +390,8 @@ Sidekiq iterates the Enumerator with `each`, so the file is read as the job runs
 ### job-iteration
 
 Shopify's [job-iteration](https://github.com/Shopify/job-iteration) runs Active Job jobs that iterate in the same way,
-but saves the cursor of an item once it has processed it, and starts again after it, so the cursor of a slice is the
-number of its last record. It expects the Enumerator to be wrapped with `enumerator_builder.wrap`:
+but saves the cursor of an item once it has processed it, so the cursor of a slice is the number of the record after
+it, where the job resumes. It expects the Enumerator to be wrapped with `enumerator_builder.wrap`:
 
 ~~~ruby
 class ImportPeopleJob < ApplicationJob
@@ -396,8 +399,8 @@ class ImportPeopleJob < ApplicationJob
 
   def build_enumerator(url, cursor:)
     slices = Enumerator.new do |yielder|
-      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, after: cursor) do |slice|
-        yielder << [slice, slice.record_number_at(-1)]
+      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, resume_at: cursor) do |slice|
+        yielder << [slice, slice.record_number_at(-1) + 1]
       end
     end
     enumerator_builder.wrap(enumerator_builder, slices)
@@ -513,8 +516,8 @@ end
 
 A slice holds everything a job needs, so a job that fails can be retried with the same arguments. Make the processing
 of a row safe to repeat, such as with an upsert by a key of the record, since a retried job processes the rows again
-that it processed before it failed. The same applies to a job that resumes, which processes again the rows after its
-last saved cursor.
+that it processed before it failed. The same applies to a job that resumes, which processes again the rows that it
+processed after it last saved its cursor.
 
 ## A store of slices
 
@@ -645,8 +648,8 @@ workers.each(&:join)
   slices no header row, `nil`.
 * A format whose rows are not lines, such as Parquet, gives slices of the records that it reads, which have record
   numbers but no line numbers, see [Find a row in the file](#find-a-row-in-the-file).
-* `after:` starts the slices after the record of the number supplied, see [One job that resumes](#one-job-that-resumes)
-  and [Starting after a record](streams#starting-after-a-record).
+* `resume_at:` starts the slices at the record of the number supplied, see
+  [One job that resumes](#one-job-that-resumes) and [Resuming at a record](streams#resuming-at-a-record).
 * The header row of every slice of a file is the same frozen Array, so change a copy of it.
 * `#reader(:slice, size: 500)` yields the reader, whose `#header` is the header row once it has been read, also for a
   file without any rows.

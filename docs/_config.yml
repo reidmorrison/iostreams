@@ -54,7 +54,7 @@ nav:
       - { page: extensions.html, label: Compression and encryption }
       - { page: copy_files.html, label: Copying and moving }
       - { page: queries.html,    label: Exporting queries }
-      - { page: slices.html,     label: Background jobs }
+      - { page: background_jobs.html, label: Background jobs }
       - { page: errors.html,     label: Errors }
 
   - group: Guides
