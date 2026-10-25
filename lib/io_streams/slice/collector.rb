@@ -126,15 +126,16 @@ module IOStreams
       #
       # Returns self, so that calls can be chained.
       def add(row, line_number = nil, record_number = NEXT_RECORD)
-        @tabular.read_line(row.nil? ? "" : row) do |line|
+        line = row.nil? ? "" : row
+        return skip if record_number.equal?(NEXT_RECORD) && @record_number + 1 < @resume_at && !@tabular.header?
+
+        @tabular.read_line(line) do |text|
           number         = record_number.equal?(NEXT_RECORD) ? @record_number + 1 : record_number
           @record_number = number if number
           @count        += 1
-          next if number && number < @resume_at
-
-          @tabular.validate_line(line) if @validate
+          @tabular.validate_line(text) if @validate
           @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
-          @slice.add(line, line_number: line_number, record_number: number)
+          @slice.add(text, line_number: line_number, record_number: number)
           flush if @slice.size >= @size
         end
         header_read if @on_header
@@ -163,6 +164,16 @@ module IOStreams
       end
 
       private
+
+      # Counts a record before `resume_at`, see #initialize, which it skips without parsing it, nor checking its keys: a
+      # line is a record once the tabular no longer expects the header row, see `IOStreams::Tabular#header?`.
+      #
+      # Returns self.
+      def skip
+        @record_number += 1
+        @count         += 1
+        self
+      end
 
       # Calls `on_header` with the header row, once it has been read, see #initialize.
       def header_read

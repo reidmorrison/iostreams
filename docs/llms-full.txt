@@ -857,6 +857,9 @@ end
 * The file is still read up to that record, since it cannot be read from the middle, such as when it is compressed, but
   the rows before it are not parsed, so a value that is not valid in one of them does not raise.
 * The header row is still read, and matched to the [schema](formats#schema), and `each(:array)` yields it first.
+* A query is read again from its start, so give the relation an order, such as `order(:id)`, so that its rows come back
+  in the same order each time. Without one, a database may return them in another order, so that the rows skipped are
+  not those that were processed. `in_batches` reads each batch in the order of its primary key.
 * `each(:hash)` yields one record, or `nil` for a blank one, for each record, unless `skip_blanks: true`, so counting
   the records yielded from `resume_at` gives the number of each one. Each slice holds the line and record number of
   each of its rows in the file, see [Find a row in the file](slices#find-a-row-in-the-file).

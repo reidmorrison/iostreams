@@ -95,8 +95,8 @@ module IOStreams
 
       private
 
-      # Yields the records from `resume_at` on, see #initialize, without parsing the lines of the records before it: a
-      # line is a record unless it is the header row, while the tabular expects it, see `IOStreams::Tabular#header?`.
+      # Yields the records from `resume_at` on, see #initialize, without parsing the records before it: a line is a
+      # record once the tabular no longer expects the header row, see `IOStreams::Tabular#header?`.
       def each_resumed
         skip = @skip
         @line_reader.each do |line|

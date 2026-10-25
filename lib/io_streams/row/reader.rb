@@ -136,16 +136,16 @@ module IOStreams
       private
 
       # Yields the header row, and the rows of the records from `resume_at` on, see #initialize, without parsing the
-      # lines of the records before it: a line is a record unless it is the header row, while the tabular expects it, see
-      # `IOStreams::Tabular#header?`. The first record of a file whose rows start with a header row that is not a line
-      # of its own is parsed for it, see `IOStreams::Tabular#rows_header?`, such as the keys of the first record of JSON
-      # without a schema, so that the rows have the same columns as when every row is read.
-      def each_resumed
+      # records before it: a line is a record once the tabular no longer expects the header row, see
+      # `IOStreams::Tabular#header?`, and the tabular yields the header row that the rows of a file start with when it is
+      # not a line of its own from the first record skipped, see `IOStreams::Tabular#skip_record`, such as the keys of the
+      # first record of JSON without a schema, so that the rows have the columns that reading every row gives them.
+      def each_resumed(&block)
         skip = @skip
         @line_reader.each do |line|
           if skip.positive? && !@tabular.header?
             skip -= 1
-            @tabular.read_row(line) { |row| yield(row) if row.is_a?(HeaderRow) } if @tabular.rows_header?
+            @tabular.skip_record(line, &block)
           else
             @tabular.read_row(line) { |row| yield(row) unless @skip_blanks && row.nil? }
           end

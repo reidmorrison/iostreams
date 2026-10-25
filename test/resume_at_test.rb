@@ -51,6 +51,15 @@ class ResumeAtTest < Minitest::Test
         end
       end
 
+      it "does not check the keys of a first record that it skips, but those of the first that it reads" do
+        typed = {"fields" => [{"name" => "name"}, {"name" => "age", "type" => "integer"}]}
+        json  = %({"name":"Jack","extra":1}\n{"name":"Jill","age":22}\n)
+
+        assert_equal [[[%({"name":"Jill","age":22}), 2, 2]]],
+                     numbered(read(stream(json).format(:json).schema(typed), :slice, size: 5, resume_at: 2))
+        assert_raises(IOStreams::Errors::InvalidHeader) { read(stream(json).format(:json).schema(typed), :slice, size: 5) }
+      end
+
       it "yields no slices after the last record, and returns the number of rows read" do
         list  = []
         count = stream.each(:slice, size: 2, resume_at: 6) { |slice| list << slice }
@@ -94,6 +103,13 @@ class ResumeAtTest < Minitest::Test
         json = %({"name":"Jack","age":21}\n{"name":"Jill","note":"x"}\n{"name":"Bob","age":23}\n)
 
         assert_equal [%w[name age], ["Bob", 23]], read(stream(json).format(:json), :array, resume_at: 3)
+      end
+
+      it "does not parse the first record that it skips, whose keys or fields give the header row" do
+        typed  = {"fields" => [{"name" => "name"}, {"name" => "age", "type" => "integer"}]}
+        json   = %({"name":"Jack","age":"abc"}\n{"name":"Jill","age":22}\n)
+
+        assert_equal [%w[name age], ["Jill", 22]], read(stream(json).format(:json).schema(typed), :array, resume_at: 2)
       end
 
       it "yields the names of the fields of a file without a header row first" do

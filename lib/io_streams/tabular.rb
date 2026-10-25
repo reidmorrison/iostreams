@@ -393,6 +393,18 @@ module IOStreams
       yield @mapping.row_parse(line)
     end
 
+    # Yields [IOStreams::Row::HeaderRow] the header row that the rows of a file start with when it is not a line of its
+    # own, see #rows_header?, such as the keys of the first record of JSON without a schema, from the supplied line of a
+    # record that a reader of rows skips, see `resume_at:` of `IOStreams::Row::Reader`, without parsing the values of
+    # the record, so that the rows after it have the columns that reading every row gives them. Yields nothing for any
+    # other record. A line is a record once the header row is no longer expected, see #header?.
+    def skip_record(line)
+      return unless @mapping.rows_header?
+
+      columns = as_header_row(@mapping.read_rows_header(line))
+      yield columns if columns
+    end
+
     # Yields [Hash|nil] the record of the line of a file of records, see #read_record, or nil for a blank line, unless
     # the line is the header row, while it is expected, see #header?, which it reads instead, see #read_header, since it
     # names the keys of the records after it.
