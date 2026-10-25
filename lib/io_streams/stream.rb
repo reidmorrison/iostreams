@@ -24,6 +24,35 @@ module IOStreams
     COPY_MODES = %i[line array hash].freeze
     private_constant :COPY_MODES
 
+    # The number of bytes that a copy without a mode reads at a time, where it does not copy with `IO.copy_stream`, see
+    # #copy_data, as many as CRuby's `IO.copy_stream` reads.
+    COPY_SIZE = 16_384
+    private_constant :COPY_SIZE
+
+    # Whether `IO.copy_stream` writes the text that a source that is not an IO reads in the encoding that the source
+    # gives it, as CRuby's does, so that a target that converts text, such as with #encoding, converts it, rather than
+    # writing it as binary, as JRuby's does, see https://github.com/jruby/jruby/issues/9881, which such a target takes as
+    # text already in its own encoding. Found by what it does, so that #copy_from uses it again once JRuby keeps the
+    # encoding.
+    COPY_STREAM_KEEPS_ENCODING =
+      begin
+        text   = "\u00E9"
+        source = Object.new
+        source.define_singleton_method(:read) do |_length = nil, buffer = nil|
+          data = text
+          text = nil
+          buffer && data ? buffer.replace(data) : data
+        end
+        encoding = nil
+        target   = Object.new
+        target.define_singleton_method(:write) do |data|
+          encoding = data.encoding
+          data.bytesize
+        end
+        IO.copy_stream(source, target)
+        encoding == Encoding::UTF_8
+      end
+
     attr_reader :io_stream
 
     def initialize(io_stream)
@@ -318,7 +347,7 @@ module IOStreams
         else
           warn_ignored_options(args.keys, "when copying without a `mode:`")
           stream.reader do |src|
-            writer { |target| IO.copy_stream(src, target) }
+            writer { |target| copy_data(src, target) }
           end
         end
       else
@@ -538,6 +567,22 @@ module IOStreams
     end
 
     private
+
+    # Copies the data that the supplied source reads to the supplied target, as `IO.copy_stream` does, keeping the
+    # encoding of the text that the source reads, so that a target that converts text converts it, see
+    # COPY_STREAM_KEEPS_ENCODING. It reads without a buffer, as JRuby's `IO.copy_stream` does, since not every source
+    # takes one, such as JRuby's `Zlib::GzipReader`, see https://github.com/jruby/jruby/issues/9884.
+    #
+    # Returns [Integer] the number of bytes copied, which the target says that it wrote, as for `IO.copy_stream`.
+    def copy_data(source, target)
+      return IO.copy_stream(source, target) if COPY_STREAM_KEEPS_ENCODING
+
+      copied = 0
+      while (data = source.read(COPY_SIZE))
+        copied += target.write(data)
+      end
+      copied
+    end
 
     def builder
       @builder ||= IOStreams::Builder.new

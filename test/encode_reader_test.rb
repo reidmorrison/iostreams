@@ -94,6 +94,23 @@ class EncodeReaderTest < Minitest::Test
           assert_equal valid_data, result
         end
 
+        it "reads into the supplied buffer, which it returns, as IO#read does" do
+          input  = StringIO.new(valid_data.dup)
+          buffer = +"stale"
+          result = +""
+          IOStreams::Encode::Reader.stream(input, encoding: "UTF-8") do |io|
+            while io.read(7, buffer).equal?(buffer)
+              assert_equal Encoding::UTF_8, buffer.encoding
+              result << buffer
+            end
+
+            assert_nil io.read(7, buffer)
+          end
+
+          assert_equal valid_data, result
+          assert_empty buffer
+        end
+
         it "returns nil at end of file" do
           input = StringIO.new("")
 
