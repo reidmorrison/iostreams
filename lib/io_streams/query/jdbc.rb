@@ -52,7 +52,7 @@ module IOStreams
       #   otherwise `IOStreams::Query::Failure::NONE`, such as a mistyped host, as for a path, see
       #   `IOStreams::Errors::Unavailable.unknown_host?`.
       #   A failure of TLS that a retry does not change, see .lasting_tls_failure?: `IOStreams::Query::Failure::NONE`, as
-      #   for the TLS errors of mysql2 and libpq on MRI.
+      #   for those of libpq, see `IOStreams::Query::PostgresqlCursor::CONNECTION_KINDS`.
       #   Any other failure of input or output, a `java.io.IOException`, such as a connection that was refused, reset,
       #   timed out, or lost while the rows were read, which a driver can raise without a SQLSTATE that says so:
       #   `Unavailable`.

@@ -210,7 +210,7 @@ which is `ActiveRecord::QueryCanceled`. It is tagged by the `java.sql.SQLExcepti
 Whatever the database, an exception of a driver is first tagged by the exceptions of Java that caused it: a host that
 does not resolve, a `java.net.UnknownHostException`, is not tagged, apart from a temporary failure to resolve it, nor is
 a failure of TLS that a retry does not change, such as a certificate that the connection does not trust, or no protocol
-in common, as with `pg` and `mysql2`, while any other failure of input or output, a `java.io.IOException`, such as a
+in common, as with `pg`, while any other failure of input or output, a `java.io.IOException`, such as a
 connection that was refused, reset, or lost while the rows were read, also during TLS, is `Unavailable`. So is a
 connection that AR-JDBC could not make again as it retried a statement, which it raises with the exception of Java that
 caused it, rather than a `java.sql.SQLException`.
@@ -223,9 +223,10 @@ of the driver includes, rather than by what failed: for example, it names a host
 includes that of the user, as a user name or password that the database rejects. On PostgreSQL, the connection is tagged
 by the last address that it tried, such as the second address of `localhost`, so that a database that does not exist
 there is not `Unavailable` because the first address refused the connection. Its `#display_name` names the model of the
-query, such as `"Order query"`. A table, column or database that does not exist, a host that does not resolve, and a
-role or shard without a database are mistakes in the code or the configuration, so they raise their exception without a
-tag. As for a path, an exception that the block raises is never tagged.
+query, such as `"Order query"`. A table, column or database that does not exist, a host that does not resolve, a
+role or shard without a database, and on PostgreSQL a failure of TLS that a retry does not change, such as TLS that the
+server does not have, or a certificate that is not trusted, are mistakes in the code or the configuration, so they raise
+their exception without a tag. As for a path, an exception that the block raises is never tagged.
 
 ## What each stream raises
 

@@ -225,7 +225,7 @@ changes, and docs/errors.md when what it raises does.
   `java.net` exceptions) and `.cause_kind` (what the Java exceptions among the causes say, whatever the driver: a
   `java.net.UnknownHostException` is `Unavailable` for `TEMPORARY_RESOLUTION_FAILURE`, otherwise `NONE`; a
   `javax.net.ssl.SSLException` that no `IOException` outside TLS caused, such as a certificate that is not trusted, or
-  no protocol in common, is `NONE`, as `mysql2` and `pg` leave them untagged, since a retry does not change them; any
+  no protocol in common, is `NONE`, as `PostgresqlCursor::CONNECTION_KINDS` has libpq's, since a retry does not change them; any
   other `java.io.IOException`, such as a connection refused, reset or lost, also during TLS, is `Unavailable`; nil
   otherwise, so that the source tells it by its SQLSTATE or number). `Statement` asks `.adapter?` too.
 - `Query::JdbcRows`: the rows of a statement that the raw connection of AR-JDBC runs with `execute_query_raw(sql[,

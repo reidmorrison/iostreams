@@ -961,6 +961,26 @@ class PostgresqlCursorTest < Minitest::Test
       )
     end
 
+    # Which Active Record names a connection that could not be established, unless the message names the host as it was
+    # configured, such as "::1" for localhost, when it is a `DatabaseConnectionError` that is not tagged.
+    it "returns NONE for a failure of TLS that a retry does not change, but Unavailable for a connection that was reset" do
+      assert_connection_kind(
+        IOStreams::Query::Failure::NONE,
+        [
+          "connection to server at \"::1\", port 5432 failed: server does not support SSL, but SSL was required\n",
+          "connection to server at \"db\" (10.0.0.1), port 5432 failed: SSL error: certificate verify failed\n",
+          "connection to server at \"db\" (10.0.0.1), port 5432 failed: server certificate for \"other\" does not " \
+          "match host name \"db\"\n",
+          "connection to server at \"db\" (10.0.0.1), port 5432 failed: root certificate file " \
+          "\"/root/.postgresql/root.crt\" does not exist\n"
+        ]
+      )
+      assert_connection_kind(
+        IOStreams::Errors::Unavailable,
+        ["connection to server at \"db\" (10.0.0.1), port 5432 failed: SSL SYSCALL error: Connection reset by peer\n"]
+      )
+    end
+
     it "returns nil for any other failure of a connection, such as one that the pg gem closed, which Active Record names" do
       assert_connection_kind(nil, ["connection is closed"])
     end

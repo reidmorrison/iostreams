@@ -85,7 +85,8 @@ module IOStreams
       # the first kind whose pattern the attempt matches, see .connection_kind. `IOStreams::Query::Failure::NONE` is for
       # an attempt that failed for a reason that is neither, so that it is not tagged as Active Record names it: a
       # database that does not exist, and a host that does not resolve, such as a mistyped host, unless name resolution
-      # failed for the time being, as for a path, see `IOStreams::Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE`.
+      # failed for the time being, as for a path, see `IOStreams::Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE`, and a
+      # failure of TLS that a retry does not change, as for PgJDBC, see `IOStreams::Query::Jdbc.cause_kind`.
       CONNECTION_KINDS = {
         Errors::PermissionDenied => Regexp.union(
           # Credentials that the server does not accept, such as `password authentication failed for user "jack"`, or the
@@ -106,7 +107,13 @@ module IOStreams
           /could not translate host name ".*" to address: #{Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE}/,
           /SSL SYSCALL error/
         ),
-        Failure::NONE            => Regexp.union(/could not translate host name /, /database ".*" does not exist/)
+        # A failure of TLS that a retry does not change: TLS that the server does not have, a certificate that is not
+        # trusted, or not of the host, or a root certificate that the client does not have.
+        Failure::NONE            => Regexp.union(
+          /could not translate host name /, /database ".*" does not exist/,
+          /server does not support SSL, but SSL was required/, /certificate verify failed/,
+          /server certificate for ".*" does not match host name/, /root certificate file ".*" does not exist/
+        )
       }.freeze
 
       # Returns [true|false] whether the connection is to PostgreSQL, through an adapter of ADAPTERS, with any driver but
