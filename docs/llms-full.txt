@@ -898,7 +898,7 @@ IOStreams.stream(slice).schema(schema).each(:hash) do |person|
 end
 ~~~
 
-See [Processing in slices](slices) for handing slices to threads or background jobs, sending them as plain data with
+See [Background jobs](slices) for handing slices to background jobs or threads, resuming a job, sending them as plain data with
 `slice.to_h` and `IOStreams.slice`, validating a file before the work starts, and writing the results back to one file.
 
 ## Writing
@@ -2701,7 +2701,7 @@ end
 * `validate: true`, of `each(:slice)` or `writer(:slice)`, parses each line by the schema, or without one as a row,
   since nothing names the keys of its records.
 * `each(:slice)` reads the lines in slices, each with its line number, to hand them to background jobs, see
-  [Processing in slices](slices).
+  [Background jobs](slices).
 
 ## Excel spreadsheets
 
@@ -2826,7 +2826,7 @@ end
 A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
 so that setting it does not read the file, and the copies of a path read it once. Another stream that the file is set
 on reads it again, such as the stream of each slice of a file, so read the file once and set its Hash on each one
-instead, see [Processing in slices](slices). `#schema` returns the schema that was set.
+instead, see [Background jobs](slices). `#schema` returns the schema that was set.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
 `#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. It replaces the options of each call that
@@ -4160,7 +4160,7 @@ Every row of a query is a record, so a row whose every value is null or empty is
 ### Slices of a query
 
 `each(:slice)` yields the rows of a query in slices, as for a file, such as to hand them to other threads or jobs, see
-[Processing in slices](slices). A slice of a query holds the values of its rows as the query cast them, such as an
+[Background jobs](slices). A slice of a query holds the values of its rows as the query cast them, such as an
 `ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format. Each of its rows is a
 record, also where the slice is parsed, so a row of nulls is not read as a blank row. Read its rows with the schema of
 the query, so that each value is read as its type:
@@ -4653,96 +4653,101 @@ than rows: join their tables with `joins`, and select their columns, instead.
 
 ---
 
-# Processing in Slices
+# Background Jobs
 
-A large file is often too slow to process one row at a time in a single process. A slice lets you share the work: read
-the file once, cut it into slices of a few hundred rows, and hand each slice to a worker, such as a thread, a background
-job, or another process, which parses and processes its rows on its own.
+A large file, such as an upload of a million rows, takes too long to process in a web request, and often too long for
+one background job. IOStreams reads the file, wherever it is stored and however it is compressed or encrypted, and hands
+your jobs the work in pieces that a job queue can schedule:
 
-A slice is designed for that hand-off:
+* **Slices, for jobs that run in parallel.** Read the file once, cut it into slices of a few hundred rows, and enqueue a
+  job for each slice. The workers parse and process the slices at the same time, and a last job writes their results
+  to one file.
+* **A cursor, for a job that resumes.** One job processes the file in order and keeps the number of the last record
+  that it processed, so that when it is stopped, such as by a deploy, it carries on after that record rather than
+  starting the file again.
+
+IOStreams only reads the file, cuts the slices and counts the records, while the job queue runs the jobs, so the same
+code works with Active Job, whichever backend it uses, such as Solid Queue, Sidekiq or GoodJob, with Sidekiq's own
+jobs, and with any other job queue.
+
+## Choosing an approach
+
+| | One job per slice | One job that resumes |
+|-|-------------------|----------------------|
+| Speed | As fast as the workers that you run | One worker at a time |
+| Order of the rows | Any order, which the results are put back in | The order of the file |
+| When a worker stops | The queue retries the job of the slice | The job resumes after its cursor |
+| Suits | Large imports and exports | Work that must happen in order, or at a limited rate |
+
+Both read the file the same way, so a job can start as one, and change to the other as the files grow.
+
+## Slices
+
+A slice holds up to `size` rows of the file as they are in the file, before they are parsed, such as the lines of a
+CSV file, and describes them, so that any worker can parse them on its own:
 
 * **The reader does not parse.** Reading a file in slices only splits it into rows, so the one process that reads the
   file stays fast, and the workers, which run in parallel, do the parsing.
 * **A slice describes itself.** It carries the header row of its file and the format of its rows, such as CSV, so a
   worker reads its rows correctly without knowing how, or where, the file was read.
-* **A slice is plain data.** It turns into a Hash of Strings and Arrays, which JSON, a job queue or a database stores
-  as it is, and back into a slice where the worker runs.
+* **A slice is plain data.** It turns into a Hash of Strings, Arrays and Integers, which JSON, a job queue or a database
+  stores as it is, and back into a slice where the worker runs.
 * **A file is checked before any work starts.** Its header row is matched to the [schema](formats#schema) before the
-  first slice is handed on, so a file with the wrong columns raises before any worker sees it.
+  first slice is handed on, so a file with the wrong columns raises before any job is enqueued.
+* **Each row keeps its place in the file.** A slice holds the line and record number of each of its rows, so a job can
+  report the line of a row that fails, and a job that resumes knows where it stopped.
 
-This guide builds that flow step by step: a producer that cuts the input into slices, a store or queue that carries
-them, workers that parse them, and, if the work produces output, a final step that writes the results to one file.
-
-## The parts
+### The parts
 
 | Step | Method | What it does |
 |------|--------|--------------|
-| Read a file or query in slices | `each(:slice)` | Yields slices of the rows, as they are, after checking the header row |
+| Read a file or query in slices | `each(:slice, size: 500)` | Yields slices of the rows, as they are, after checking the header row |
 | Write rows into slices | `IOStreams.stream(store)` | Writes the lines, rows or records that your code writes, or copies, to your store, in slices |
 | Send a slice elsewhere | `slice.to_h`, `IOStreams.slice(hash)` | Turns a slice into plain data and back |
 | Parse a slice | `IOStreams.stream(slice)` | Reads the rows of a slice as the rows of its file, by a schema |
+| Resume after a record | `each(:slice, size: 500, after: cursor)` | Reads the slices after the record of the cursor, see [One job that resumes](#one-job-that-resumes) |
 | Write slices to a file | `writer(:slice)` | Writes slices to one file, after their header row, without parsing them when it can |
 
-## Threads
+## One job per slice {#background-jobs}
 
-The smallest version uses a queue and a few threads in one process. The producer reads the file in slices and puts
-each one on the queue. The workers take slices off the queue and read their records:
-
-~~~ruby
-schema = JSON.parse(IOStreams.path("people.json").read)
-queue  = Thread::Queue.new
-
-workers = 4.times.map do
-  Thread.new do
-    while (slice = queue.pop)
-      IOStreams.stream(slice).schema(schema).each(:hash) do |person|
-        Person.create!(person)
-      end
-    end
-  end
-end
-
-IOStreams.path("people.csv.gz").schema(schema).each(:slice, size: 500) do |slice|
-  queue << slice
-end
-queue.close
-workers.each(&:join)
-~~~
-
-* The schema is read once, and its Hash is given to the stream of each slice. A path to the schema file would work
-  too, but each slice would read the file again.
-* Each record is a Hash of its fields, with each value read as its type, such as an Integer or a Date, just as
-  `each(:hash)` reads the file itself.
-* `Thread::Queue#pop` returns nil once the queue is closed and empty, which ends each worker's loop.
-
-`each(:slice)` checks the header row of the file against the schema before it yields the first slice, so a file whose
-columns do not match raises `IOStreams::Errors::InvalidHeader` before any worker starts.
-
-## Background jobs
-
-To spread the work across processes or machines, such as with Active Job, Sidekiq, or any other job queue, enqueue one
-job per slice. A job's arguments must be plain data, so send the Hash that `#to_h` returns, and turn it back into a
-slice with `IOStreams.slice` in the job:
-
-~~~ruby
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 500) do |slice|
-  ImportPeopleJob.perform_later(slice.to_h)
-end
-~~~
+A job reads the file in slices, and enqueues a job for each one. Job arguments must be plain data, so it sends the Hash
+that `slice.to_h` returns, which the job of the slice turns back into a slice with `IOStreams.slice`:
 
 ~~~ruby
 class ImportPeopleJob < ApplicationJob
-  # Read once per process, rather than once per job.
-  SCHEMA = JSON.parse(IOStreams.path("people.json").read)
+  def perform(url)
+    IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 500) do |slice|
+      ImportPeopleSliceJob.perform_later(slice.to_h)
+    end
+  end
+end
 
+class ImportPeopleSliceJob < ApplicationJob
   def perform(rows)
     slice = IOStreams.slice(rows)
-    IOStreams.stream(slice).schema(SCHEMA).each(:hash) do |person|
-      Person.create!(person)
+    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+      Person.upsert(person) if person
     end
   end
 end
 ~~~
+
+where `People::SCHEMA` is the [schema](formats#schema) of the file, a Hash that each process reads once:
+
+~~~ruby
+module People
+  SCHEMA = JSON.parse(File.read(Rails.root.join("config/schemas/people.json"))).freeze
+end
+~~~
+
+* The url is configuration, so the same jobs read a local file in development and an S3 object, compressed or
+  encrypted, in production, see [Paths](path).
+* `each(:slice)` checks the header row of the file against the schema before it yields the first slice, so a file
+  whose columns do not match raises `IOStreams::Errors::InvalidHeader` before any job is enqueued.
+* Each record is a Hash of its fields, with each value read as its type, such as an Integer or a Date, as `each(:hash)`
+  reads the file itself. A blank row is read as `nil`, which is why the job skips it.
+* `ActiveJob.perform_all_later` enqueues many jobs at once, such as the jobs of 100 slices, for a backend that enqueues
+  them together.
 
 `slice.to_h` holds the rows as they are in the file, the header row, the format, and the numbers of the rows, see
 [Find a row in the file](#find-a-row-in-the-file):
@@ -4754,7 +4759,7 @@ slice.to_h
 ~~~
 
 * The rows of a file are Strings, and the header row is an Array of Strings, so JSON keeps the Hash as it is. That
-  suits a job queue whose arguments must be JSON, such as Sidekiq's.
+  suits every job queue, including Sidekiq's own jobs, whose arguments must be JSON.
 * `IOStreams.slice` takes the keys, and the format, as Strings or Symbols, since a queue may change them, and raises
   `ArgumentError` for a Hash that does not describe a slice.
 * The header row travels with every slice, so each job reads its rows by the columns of their own file, even when the
@@ -4769,36 +4774,336 @@ The size is a trade-off between overhead and memory:
 * **Smaller slices** spread the work more evenly across workers, and retry less, but add more jobs and more header rows
   to store.
 
-A few hundred to a few thousand rows is a good place to start. The size is the number of rows, so a file with wide rows
+A few hundred to a few thousand rows is a good place to start. The size is a number of rows, so a file with wide rows
 needs smaller slices to keep the arguments of each job small.
+
+### Where to keep the slices
+
+Sending each slice as the argument of its job is the simplest, but a job queue limits the size of a job: Solid Queue
+keeps each job in a `text` column, which holds 64 KB on MySQL, Amazon SQS holds 1 MB in a message, and Sidekiq advises
+small arguments. A slice of 500 rows of 200 bytes is about 100 KB, so for slices of that size, keep each one in a table
+of your own, and enqueue its id. A [store of slices](#a-store-of-slices) receives each slice as it is read:
+
+~~~ruby
+class ImportSlices
+  include IOStreams::Slice::Target
+
+  def initialize(import)
+    @import = import
+  end
+
+  def slice_size
+    500
+  end
+
+  # import_slices has a JSON column, rows.
+  def write_slice(slice)
+    @import.import_slices.create!(number: slice.record_number, rows: slice.to_h)
+  end
+end
+~~~
+
+~~~ruby
+import = Import.create!(url: url)
+IOStreams.stream(ImportSlices.new(import)).schema(People::SCHEMA).copy_from(url, mode: :line)
+
+import.import_slices.ids.each do |id|
+  ImportPeopleSliceJob.perform_later(id)
+end
+~~~
+
+The job of each slice then reads it from the table:
+
+~~~ruby
+class ImportPeopleSliceJob < ApplicationJob
+  def perform(id)
+    slice = IOStreams.slice(ImportSlice.find(id).rows)
+    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+      Person.upsert(person) if person
+    end
+  end
+end
+~~~
+
+* The jobs are enqueued once the whole file has been read, so a file that fails part way through, such as one that is
+  cut short, leaves slices to delete rather than half an import, see
+  [Hand on the slices only once the file is read](#hand-on-the-slices-only-once-the-file-is-read).
+* The number of a slice is the record number of its first row, which orders the slices of an import, and names them in
+  a report.
+* The table keeps the rows of a failed slice to look at, or to run again.
+
+A slice of text compresses well, so compress it where you keep it, such as in a binary column, with the streams of
+IOStreams, which can also encrypt it, see [Compression and encryption](extensions):
+
+~~~ruby
+# Compresses the 19 KB of JSON of a slice of 500 short rows to under 3 KB.
+def compressed(slice)
+  io = StringIO.new
+  IOStreams.stream(io).stream(:gz).write(slice.to_json)
+  io.string
+end
+
+def from_compressed(data)
+  json = IOStreams.stream(StringIO.new(data)).stream(:gz).read
+  IOStreams.slice(JSON.parse(json))
+end
+~~~
+
+### Knowing when every slice is done
+
+To act once every slice has been processed, such as to write the results, or to email whoever uploaded the file, use
+the batches of your job queue, which call a job of yours once every job of the batch has finished:
+
+~~~ruby
+SolidQueue::Batch.enqueue(on_success: ImportFinishedJob.new(import.id)) do
+  import.import_slices.ids.each do |id|
+    ImportPeopleSliceJob.perform_later(id)
+  end
+end
+~~~
+
+* [Solid Queue](https://github.com/rails/solid_queue#batch-jobs), above, and
+  [GoodJob](https://github.com/bensheldon/good_job#batches) batch Active Job jobs, and
+  [Sidekiq Pro](https://github.com/sidekiq/sidekiq/wiki/Batches) batches Sidekiq's own jobs. Active Job itself has no
+  batches, so the job queue decides how.
+* Without batches, let each job of a slice mark its slice as done, and let the job that finds no slice left start the
+  final step, within a transaction, so that two jobs that finish together do not both start it.
+
+### Writing the results
+
+When the jobs produce output, such as a status for each person imported, write it to one file at the end. Each job
+writes its results as a slice too, to a store that keeps them with the number of its input slice, since jobs finish in
+any order:
+
+~~~ruby
+class ResultSlices
+  include IOStreams::Slice::Target
+
+  def initialize(import_slice)
+    @import_slice = import_slice
+  end
+
+  def slice_size
+    1_000
+  end
+
+  # Keeps the results with the number of their input slice, which orders them.
+  def write_slice(slice)
+    ResultSlice.create!(import_id: @import_slice.import_id, number: @import_slice.number, rows: slice.to_h)
+  end
+end
+
+class ImportPeopleSliceJob < ApplicationJob
+  REPORT_SCHEMA = {
+    "fields" => [
+      {"name" => "name"},
+      {"name" => "status"}
+    ]
+  }.freeze
+
+  def perform(id)
+    import_slice = ImportSlice.find(id)
+    slice        = IOStreams.slice(import_slice.rows)
+    results      = IOStreams.stream(ResultSlices.new(import_slice)).schema(REPORT_SCHEMA)
+
+    results.writer(:hash) do |io|
+      IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+        io << {"name" => person["name"], "status" => import(person)} if person
+      end
+    end
+  end
+end
+~~~
+
+Once every job has finished, such as in the job that the batch calls, write the result slices to the output file, in
+the order of the input:
+
+~~~ruby
+class ImportFinishedJob < ApplicationJob
+  def perform(import_id)
+    import = Import.find(import_id)
+    report = IOStreams.path(import.report_url).schema(ImportPeopleSliceJob::REPORT_SCHEMA)
+    report.writer(:slice) do |io|
+      ResultSlice.where(import_id: import.id).order(:number, :id).each do |result|
+        io << IOStreams.slice(result.rows)
+      end
+    end
+  end
+end
+~~~
+
+* The header row is written once, before the rows of the first slice.
+* A slice in the format of the file is written as it is, line for line, without parsing its rows. A slice in another
+  format, such as CSV results written to a JSON file, is read by its header row and written in the format of the file.
+* Every slice must come from the same file, or the same kind of results: a slice with another header row or format
+  raises `ArgumentError`.
+* `validate: true` parses each row before it is written, to catch a value that is not valid before it reaches the file.
+* As for any writer, the file is kept when the block returns, and not when it raises.
+* A job whose input slice holds more rows than the `slice_size` of its store of results, 100 unless the store says
+  otherwise, writes more than one result slice, each with the number of its input slice, so they are still in the
+  order of the input.
+
+## One job that resumes
+
+A job that processes a whole file on its own, in order, can be stopped part way through, such as when its worker is
+restarted by a deploy. `after:` reads the file after the record of the number supplied, so the job keeps the number of
+the last record that it processed as its cursor, and supplies it when it starts again:
+
+~~~ruby
+IOStreams.path(url).each(:slice, size: 100, after: cursor) do |slice|
+  process(slice)
+  cursor = slice.record_number_at(-1)
+end
+~~~
+
+* Records are numbered from 1, without the header row, as the slices number their rows, so the record number of the
+  last row of a slice, `slice.record_number_at(-1)`, is the cursor once it is processed.
+* `nil` and `0` read the whole file, so the cursor of a job that has not started yet, which is usually `nil`, can be
+  supplied as it is.
+* The file is read again up to the cursor, since a file cannot be read from the middle, such as when it is compressed,
+  but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema.
+* `each(:hash, after: cursor)` works too, for a job that keeps a cursor for each record, see
+  [Starting after a record](streams#starting-after-a-record).
+
+The job queue decides when to save the cursor, and when to stop the job, so each one is written a little differently.
+
+### Active Job continuations
+
+[Active Job continuations](https://guides.rubyonrails.org/active_job_basics.html), in Rails 8.1 and later, run a job in
+steps, and save the cursor of a step with `step.set!`. When its worker is stopping, the job stops at that point, and is
+enqueued again, to run from the cursor that it saved:
+
+~~~ruby
+class ImportPeopleJob < ApplicationJob
+  include ActiveJob::Continuable
+
+  def perform(url)
+    step :import do |step|
+      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, after: step.cursor) do |slice|
+        Person.transaction do
+          IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+            Person.upsert(person) if person
+          end
+        end
+        step.set!(slice.record_number_at(-1))
+      end
+    end
+  end
+end
+~~~
+
+* `step.cursor` is `nil` the first time the job runs.
+* Save the cursor once the slice is committed, outside its transaction, since Rails raises
+  `ActiveJob::Continuation::CheckpointError` for a cursor saved within one.
+* The queue adapter tells the job when its worker is stopping, which those of Solid Queue, Sidekiq and GoodJob do.
+
+### Sidekiq iterable jobs
+
+[Sidekiq's iterable jobs](https://github.com/sidekiq/sidekiq/wiki/Iteration), in Sidekiq 7.3 and later, ask the job
+for an Enumerator of each item with its cursor, and call `each_iteration` with each item. Sidekiq saves the cursor of an
+item before it processes it, and starts again with that item, so the cursor of a slice is the number of the record
+before it:
+
+~~~ruby
+class ImportPeopleJob
+  include Sidekiq::IterableJob
+
+  def build_enumerator(url, cursor:)
+    Enumerator.new do |yielder|
+      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, after: cursor) do |slice|
+        yielder << [slice, slice.record_number - 1]
+      end
+    end
+  end
+
+  def each_iteration(slice, _url)
+    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+      Person.upsert(person) if person
+    end
+  end
+end
+~~~
+
+Sidekiq iterates the Enumerator with `each`, so the file is read as the job runs, and closed when the job stops.
+
+### job-iteration
+
+Shopify's [job-iteration](https://github.com/Shopify/job-iteration) runs Active Job jobs that iterate in the same way,
+but saves the cursor of an item once it has processed it, and starts again after it, so the cursor of a slice is the
+number of its last record. It expects the Enumerator to be wrapped with `enumerator_builder.wrap`:
+
+~~~ruby
+class ImportPeopleJob < ApplicationJob
+  include JobIteration::Iteration
+
+  def build_enumerator(url, cursor:)
+    slices = Enumerator.new do |yielder|
+      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, after: cursor) do |slice|
+        yielder << [slice, slice.record_number_at(-1)]
+      end
+    end
+    enumerator_builder.wrap(enumerator_builder, slices)
+  end
+
+  def each_iteration(slice, _url)
+    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+      Person.upsert(person) if person
+    end
+  end
+end
+~~~
+
+## A file of lines
+
+A file of email addresses, ids or urls, one on each line, has no header row, and its lines are not CSV, which would
+take its first line as the header row. Read it in the `:lines` format, whose rows are the lines as they are, see
+[Lines of text](formats#lines-of-text):
+
+~~~ruby
+IOStreams.path(url).format(:lines).each(:slice, size: 1_000) do |slice|
+  SendInvitationsJob.perform_later(slice.to_h)
+end
+~~~
+
+~~~ruby
+class SendInvitationsJob < ApplicationJob
+  def perform(rows)
+    IOStreams.slice(rows).each do |email, line_number|
+      Invitation.deliver(email, line: line_number) unless email.blank?
+    end
+  end
+end
+~~~
+
+`slice.each` yields each row as it is, with its line and record number, so a job of a file of lines needs no schema.
 
 ## Failures
 
-Decide what should happen when the file, or a worker, fails part way through.
+Decide what should happen when the file, or a job, fails part way through.
 
 ### Check the file before handing it on
 
 A file whose header row does not match the schema raises before the first slice. A value that is not valid, such as
-`abc` in an integer field, is normally found by the worker that parses its row, after the slices before it have been
+`abc` in an integer field, is normally found by the job that parses its row, after the slices before it have been
 handed on. To find such rows before any slice is handed on, parse each row while the file is read, with
 `validate: true`:
 
 ~~~ruby
-IOStreams.path("people.csv.gz").schema(schema).each(:slice, size: 500, validate: true) do |slice|
-  queue << slice
+IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 500, validate: true) do |slice|
+  ImportPeopleSliceJob.perform_later(slice.to_h)
 end
 ~~~
 
 The slices still hold the rows as they are in the file. Validating parses every row twice, once here and once in the
-worker, so it is worth it when starting work on a file that is only partly valid is worse than reading it slower.
+job, so it is worth it when starting work on a file that is only partly valid is worse than reading it slower.
 
 ### Hand on the slices only once the file is read
 
 `each(:slice)` yields each slice as soon as it is read, so when reading fails part way through, such as for a value
 that is not valid, or a file that is cut short, the slices before the failure have already been handed on. When a job
 must process all of a file or none of it, store the slices first, and start the work only once the whole file has been
-read. A [store of slices](#a-store-of-slices) does this well: write each slice to a table or collection under the id of
-the upload, then enqueue the jobs once the copy returns, or delete the slices of that id when it raises.
+read, as in [Where to keep the slices](#where-to-keep-the-slices): write each slice to a table under the id of the
+upload, then enqueue the jobs once the copy returns, or delete the slices of that id when it raises.
 
 ### Find a row in the file
 
@@ -4811,13 +5116,13 @@ When a row fails, support staff need to find it in the file. A slice holds the n
   too. IOStreams counts it as it reads the rows into slices.
 
 `slice.line_number_at(index)` and `slice.record_number_at(index)` return them for the row at an index of the slice.
-Name them in what the worker reports:
+Name them in what the job reports:
 
 ~~~ruby
-def perform(hash)
-  slice = IOStreams.slice(hash)
+def perform(rows)
+  slice = IOStreams.slice(rows)
   index = 0
-  IOStreams.stream(slice).schema(schema).each(:hash) do |person|
+  IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
     Person.upsert(person) if person
     index += 1
   end
@@ -4831,7 +5136,7 @@ end
 ~~~
 
 * A row that cannot be parsed raises before it is yielded, so `index` is the index of that row. A blank row is yielded
-  as `nil`, so it counts too, which is why this worker does not skip blank rows with `skip_blanks: true`.
+  as `nil`, so it counts too, which is why this job does not skip blank rows with `skip_blanks: true`.
 * `slice.each { |row, line_number, record_number| }` yields each row as it is in the file, with its numbers, such as
   to list the rows of a slice that failed. `slice.line_number` and `slice.record_number` are those of its first row.
 * Rows that are not lines of a file have no line number, `nil`, only their record number: the rows of a Parquet file,
@@ -4848,16 +5153,17 @@ end
 
 ### Retry a slice
 
-A slice holds everything a worker needs, so a job that fails can be retried with the same arguments. Make the
-processing of a row safe to repeat, such as with an upsert by a key of the record, since a retried job processes the
-rows again that it processed before it failed.
+A slice holds everything a job needs, so a job that fails can be retried with the same arguments. Make the processing
+of a row safe to repeat, such as with an upsert by a key of the record, since a retried job processes the rows again
+that it processed before it failed. The same applies to a job that resumes, which processes again the rows after its
+last saved cursor.
 
 ## A store of slices
 
 Sometimes the rows do not come from a file that you read with `each(:slice)`: your code writes them, such as rows it
-builds, or a query, or you want each slice to go straight into a durable store. Write them to a store of slices, an
-object of your own that receives each slice. Include `IOStreams::Slice::Target` in its class, and implement
-`#write_slice(slice)`:
+builds, or a query, or you want each slice to go straight into a durable store, as in
+[Where to keep the slices](#where-to-keep-the-slices). Write them to a store of slices, an object of your own that
+receives each slice. Include `IOStreams::Slice::Target` in its class, and implement `#write_slice(slice)`:
 
 ~~~ruby
 class PeopleSlices
@@ -4898,6 +5204,9 @@ end
 * **What arrives at the store.** The records are written as lines of the format, CSV unless another is set with
   `#format`, so the slices hold text that any job queue or database stores as it is. The header row is matched to the
   schema before the first slice is written, and each slice carries it, exactly as `each(:slice)` gives them.
+* **Lines that are not CSV.** A copy of the lines of a file keeps the format of the file, so read a file of lines in the
+  `:lines` format, see [A file of lines](#a-file-of-lines), to store its lines as they are:
+  `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:lines), mode: :line)`.
 * **When the last slice is written.** The last slice is written when the block returns, or leaves early, such as with
   `break`, but not when it raises. So a failed write never hands on a part of its last slice. The slices before it
   were already written, so remove them by the id of the upload, as above.
@@ -4921,7 +5230,7 @@ schema   = IOStreams.stream(relation).schema
 IOStreams.stream(store).copy_from(relation, mode: :hash)
 ~~~
 
-The workers read each slice with the schema of the query, so that each value is read back as its type:
+The jobs read each slice with the schema of the query, so that each value is read back as its type:
 
 ~~~ruby
 IOStreams.stream(slice).schema(schema).each(:hash) do |order|
@@ -4930,86 +5239,42 @@ end
 ~~~
 
 Rows whose values are all null are records of the query, rather than blank lines of a file, and each slice says so,
-so the workers read them as records.
+so the jobs read them as records.
 
 The query can also be read in slices directly, with `IOStreams.stream(relation).each(:slice, size: 500)`. Those slices
 hold the values themselves, such as a `BigDecimal` or a time, rather than text. Active Job can serialize such values,
 but a queue whose arguments must be JSON cannot, and JSON keeps a time only to the precision of its text. Copying the
 query to a store, as above, gives slices of text that every queue keeps as they are.
 
-## Writing the results
+## Threads
 
-When the workers produce output, such as a status for each person imported, write it to one file at the end. Number
-each slice as it is enqueued, so that the results can be written in the order of the input, since jobs finish in any
-order:
-
-~~~ruby
-number = 0
-IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 500) do |slice|
-  number += 1
-  ImportPeopleJob.perform_later(number, slice.to_h)
-end
-~~~
-
-Each job writes its results as a slice too, to a store that keeps them with the number of its input slice:
+Slices also share the work of one process between threads. The producer reads the file in slices and puts each one on
+a queue, and the workers take slices off the queue and read their records:
 
 ~~~ruby
-class ResultSlices
-  include IOStreams::Slice::Target
+schema = JSON.parse(IOStreams.path("people.json").read)
+queue  = Thread::Queue.new
 
-  def initialize(number)
-    @number = number
-  end
-
-  def write_slice(slice)
-    ResultSlice.create!(number: @number, rows: slice.to_h)
-  end
-end
-
-class ImportPeopleJob < ApplicationJob
-  SCHEMA = JSON.parse(IOStreams.path("people.json").read)
-
-  REPORT_SCHEMA = {
-    "fields" => [
-      {"name" => "name"},
-      {"name" => "status"}
-    ]
-  }.freeze
-
-  def perform(number, rows)
-    slice   = IOStreams.slice(rows)
-    results = IOStreams.stream(ResultSlices.new(number)).schema(REPORT_SCHEMA)
-
-    results.writer(:hash) do |io|
-      IOStreams.stream(slice).schema(SCHEMA).each(:hash) do |person|
-        io << {"name" => person["name"], "status" => import(person)}
+workers = 4.times.map do
+  Thread.new do
+    while (slice = queue.pop)
+      IOStreams.stream(slice).schema(schema).each(:hash) do |person|
+        Person.create!(person)
       end
     end
   end
 end
-~~~
 
-The store's `slice_size` is 100 unless it says otherwise, so a job whose input slice holds more rows writes more than
-one result slice, each with the same number, which is still in the order of the input.
-
-Once every job has finished, write the result slices to the output file, in the order of the input:
-
-~~~ruby
-report = IOStreams.path("s3://reports/people.csv.gz").schema(ImportPeopleJob::REPORT_SCHEMA)
-report.writer(:slice) do |io|
-  ResultSlice.order(:number, :id).each do |result|
-    io << IOStreams.slice(result.rows)
-  end
+IOStreams.path("people.csv.gz").schema(schema).each(:slice, size: 500) do |slice|
+  queue << slice
 end
+queue.close
+workers.each(&:join)
 ~~~
 
-* The header row is written once, before the rows of the first slice.
-* A slice in the format of the file is written as it is, line for line, without parsing its rows. A slice in another
-  format, such as CSV results written to a JSON file, is read by its header row and written in the format of the file.
-* Every slice must come from the same file, or the same kind of results: a slice with another header row or format
-  raises `ArgumentError`.
-* `validate: true` parses each row before it is written, to catch a value that is not valid before it reaches the file.
-* As for any writer, the file is kept when the block returns, and not when it raises.
+* The schema is read once, and its Hash is given to the stream of each slice. A path to the schema file would work
+  too, but each slice would read the file again.
+* `Thread::Queue#pop` returns nil once the queue is closed and empty, which ends each worker's loop.
 
 ## Details
 
@@ -5018,10 +5283,12 @@ end
 * Blank lines before the header row are skipped. A blank line after it is a row of its slice, as it is in the file.
   Read the slice with `IOStreams.stream(slice).each(:hash, skip_blanks: true)` to skip it there, see
   [Blank rows](streams#blank-rows).
-* A file without a header row, such as fixed width, JSON, or a schema with `"header": false`, gives its slices no
-  header row, `nil`.
+* A file without a header row, such as fixed width, JSON, a file of lines, or a schema with `"header": false`, gives its
+  slices no header row, `nil`.
 * A format whose rows are not lines, such as Parquet, gives slices of the records that it reads, which have record
   numbers but no line numbers, see [Find a row in the file](#find-a-row-in-the-file).
+* `after:` starts the slices after the record of the number supplied, see [One job that resumes](#one-job-that-resumes)
+  and [Starting after a record](streams#starting-after-a-record).
 * The header row of every slice of a file is the same frozen Array, so change a copy of it.
 * `#reader(:slice, size: 500)` yields the reader, whose `#header` is the header row once it has been read, also for a
   file without any rows.
@@ -5124,8 +5391,8 @@ does not have:
   rows instead.
 * A store holds slices of rows rather than bytes, so the `:stream` mode, `#write`, `#stream`, `#option`, an encoding
   set with `#encoding`, `#raw`, `#file_name`, and a format whose rows are not lines, such as Parquet, raise `ArgumentError`. Compress or
-  encrypt the slices where the store keeps them. It is only written, so `#each`, `#reader` and `#read` raise
-  `ArgumentError` too.
+  encrypt the slices where the store keeps them, see [Where to keep the slices](#where-to-keep-the-slices). It is only
+  written, so `#each`, `#reader` and `#read` raise `ArgumentError` too.
 * A store whose class inherits methods named `slice_size`, `write_header` or `write_slice` keeps them:
   `IOStreams::Slice::Target` calls them rather than its defaults.
 

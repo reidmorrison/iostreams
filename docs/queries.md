@@ -142,7 +142,7 @@ Every row of a query is a record, so a row whose every value is null or empty is
 ### Slices of a query
 
 `each(:slice)` yields the rows of a query in slices, as for a file, such as to hand them to other threads or jobs, see
-[Processing in slices](slices). A slice of a query holds the values of its rows as the query cast them, such as an
+[Background jobs](slices). A slice of a query holds the values of its rows as the query cast them, such as an
 `ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format. Each of its rows is a
 record, also where the slice is parsed, so a row of nulls is not read as a blank row. Read its rows with the schema of
 the query, so that each value is read as its type:

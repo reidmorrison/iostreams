@@ -182,7 +182,7 @@ IOStreams.stream(slice).schema(schema).each(:hash) do |person|
 end
 ~~~
 
-See [Processing in slices](slices) for handing slices to threads or background jobs, sending them as plain data with
+See [Background jobs](slices) for handing slices to background jobs or threads, resuming a job, sending them as plain data with
 `slice.to_h` and `IOStreams.slice`, validating a file before the work starts, and writing the results back to one file.
 
 ## Writing
