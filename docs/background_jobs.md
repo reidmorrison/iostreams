@@ -326,7 +326,9 @@ end
   back in the same order each time, and the rows skipped are those that were processed.
 * The job of one slice resumes the same way, with `IOStreams.stream(slice).each(:hash, resume_at: cursor)`, where the
   cursor is one of the record numbers that the slice holds, as `slice.each` gives them, or the one after its last. A
-  number that the slice does not hold raises `ArgumentError`, so that a cursor from another slice cannot skip its rows.
+  record before its first row or after the one after its last raises `ArgumentError`, so that a cursor from another
+  slice cannot skip its rows. A slice holds only the numbers of its rows, so once a job removes its first or last rows,
+  it resumes at a record that the slice still holds.
 
 The job queue decides when to save the cursor, and when to stop the job, so each one is written a little differently.
 
@@ -688,8 +690,9 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
   that are left keep their numbers.
 * `slice.drop(count)` returns a new slice of the rows after the first `count`, with their numbers, such as the rows
   still to be processed once the first ones were, and leaves the slice as it is. `slice.from_record(record_number)`
-  returns the rows from a record that the slice holds, or none from the record after its last, and raises
-  `ArgumentError` for any other.
+  returns the rows from a record that the slice holds, or from the row after a record between its first and last that
+  it no longer holds, or none from the record after its last, or of a slice without rows, and raises `ArgumentError`
+  for a record before its first row or after the one after its last.
 * Slices are equal when they hold the same rows, with the same numbers, header row and format.
 * `slice.to_json` writes the Hash that `slice.to_h` returns, which `IOStreams.slice(JSON.parse(json))` turns back into
   the slice.
