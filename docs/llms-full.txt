@@ -4975,6 +4975,9 @@ end
   but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema.
 * `each(:hash, resume_at: cursor)` works too, for a job that keeps a cursor for each record, see
   [Resuming at a record](streams#resuming-at-a-record).
+* The job of one slice resumes the same way, with `IOStreams.stream(slice).each(:hash, resume_at: cursor)`, where the
+  cursor is one of the record numbers that the slice holds, as `slice.each` gives them, or the one after its last. A
+  number that the slice does not hold raises `ArgumentError`, so that a cursor from another slice cannot skip its rows.
 
 The job queue decides when to save the cursor, and when to stop the job, so each one is written a little differently.
 
@@ -5172,6 +5175,15 @@ of a row safe to repeat, such as with an upsert by a key of the record, since a 
 that it processed before it failed. The same applies to a job that resumes, which processes again the rows that it
 processed after it last saved its cursor.
 
+To process again only the rows from the one that failed, such as once its data is corrected, resume the slice at the
+record number of that row, which the job reported, see [Find a row in the file](#find-a-row-in-the-file):
+
+~~~ruby
+IOStreams.stream(slice).schema(People::SCHEMA).each(:hash, resume_at: failed_record_number) do |person|
+  Person.upsert(person) if person
+end
+~~~
+
 ## A store of slices
 
 Sometimes the rows do not come from a file that you read with `each(:slice)`: your code writes them, such as rows it
@@ -5325,7 +5337,9 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
 * `slice.delete_at(index)` and `slice.delete_if { |row, line_number, record_number| ... }` remove rows, and the rows
   that are left keep their numbers.
 * `slice.drop(count)` returns a new slice of the rows after the first `count`, with their numbers, such as the rows
-  still to be processed once the first ones were, and leaves the slice as it is.
+  still to be processed once the first ones were, and leaves the slice as it is. `slice.from_record(record_number)`
+  returns the rows from a record that the slice holds, or none from the record after its last, and raises
+  `ArgumentError` for any other.
 * Slices are equal when they hold the same rows, with the same numbers, header row and format.
 * `slice.to_json` writes the Hash that `slice.to_h` returns, which `IOStreams.slice(JSON.parse(json))` turns back into
   the slice.
@@ -5348,6 +5362,8 @@ does not have:
   header row is matched to the schema, raising `IOStreams::Errors::InvalidHeader` when they do not match.
 * `#format` is the format of the slice. A slice without a format, such as one turned back from a Hash without one, is
   read as CSV unless its format is set.
+* `resume_at:` is one of the record numbers that the slice holds, see [One job that resumes](#one-job-that-resumes),
+  and the slices read from a slice keep the line and record number of each of its rows.
 * The `:stream` and `:line` modes, `#read`, `#stream`, `#option`, `#encoding` and `#raw` raise `ArgumentError`, since
   the rows of a slice are already split and decoded. Read them from the slice itself, with `slice.each` or
   `slice.rows`, for its rows as they are in the file.
