@@ -144,8 +144,10 @@ end
 * `each(:hash)` yields one record, or `nil` for a blank one, for each record, unless `skip_blanks: true`, so counting
   the records yielded from `resume_at` gives the number of each one. Each slice holds the line and record number of
   each of its rows in the file, see [Find a row in the file](slices#find-a-row-in-the-file).
-* The slices or records read from a slice, such as with `IOStreams.stream(slice).each(:hash, resume_at: 10)`, count
-  from 1 within the slice, as the slices read from it number their records.
+* A slice resumes at a record number that it holds, as `slice.each` gives them, such as
+  `IOStreams.stream(slice).each(:hash, resume_at: 502)` for a slice of records 501 to 600, or at the record after its
+  last, which reads no rows, and raises `ArgumentError` for any other, so that a cursor from another slice cannot skip
+  its rows. The slices read from it keep the line and record number of each row.
 * A copy reads every record, so `#copy_from` and `#writer` raise `ArgumentError` for `resume_at:`, which only applies
   when reading, and a `resume_at` that is neither `nil` nor a positive Integer raises `ArgumentError` before the file
   is opened.

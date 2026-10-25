@@ -13,9 +13,14 @@ module IOStreams
     # says, see `IOStreams::Tabular#blank_rows?`.
     #
     # Each slice also holds the numbers of each of its rows, see `IOStreams::Slice#each`: the line of the file that it
-    # starts on, which whoever adds the rows supplies when it knows it, and its record number, which the collector
-    # counts, from 1, without the header row, as it builds the slices, see #add.
+    # starts on, which whoever adds the rows supplies when it knows it, and its record number, which whoever adds the
+    # rows also supplies when it knows it, such as the rows of a slice, otherwise the collector counts it, from 1,
+    # without the header row, as it builds the slices, see #add.
     class Collector
+      # Marks a row whose record number is not known, see #add, which is numbered as the next record.
+      NEXT_RECORD = Object.new.freeze
+      private_constant :NEXT_RECORD
+
       # Raises ArgumentError for options that cannot collect slices, see #initialize, so that a call raises before
       # anything is opened: a `size` that is not a positive Integer, or a `validate` that is not true or false, see
       # .check_validate.
@@ -85,12 +90,15 @@ module IOStreams
         @tabular   = tabular
         @size      = size
         @validate  = validate
-        # The number of records before `resume_at`, which are counted, but not collected.
-        @skip      = resume_at ? resume_at - 1 : 0
+        # The record that the slices start at, the first unless `resume_at` says otherwise: the records before it are
+        # counted, but not collected.
+        @resume_at = resume_at || 1
         @on_slice  = on_slice
         @on_header = on_header if tabular.requires_header?
         @slice     = nil
         @count     = 0
+        # The record number of the last row added, see #add.
+        @record_number = 0
       end
 
       # Adds the supplied row of the file, as the format holds it: a line of text, or for a format whose rows are not
@@ -106,21 +114,27 @@ module IOStreams
       #     `IOStreams::Slice#line_number_at`.
       #     Default: nil, a row that is not a line of a file.
       #
-      # The row is numbered as the next record, counting from 1 without the header row, see
-      # `IOStreams::Slice#record_number_at`. A record before `resume_at` is only counted, see #initialize.
+      #   record_number: [Integer|nil]
+      #     The record number of the row, when whoever adds the rows knows the numbers of their rows, such as the rows of
+      #     a slice, so that the slices read from a slice keep them, see `IOStreams::Slice::Stream`: nil for a row that
+      #     has none, such as a row that was added to a slice without numbers, see `IOStreams::Slice#add`.
+      #     Default: the next record, counting from 1 without the header row, for rows whose numbers are not known, such
+      #     as the lines of a file.
+      #
+      # The row is numbered by its record number, see `IOStreams::Slice#record_number_at`. A record before `resume_at`
+      # is only counted, see #initialize.
       #
       # Returns self, so that calls can be chained.
-      def add(row, line_number = nil)
+      def add(row, line_number = nil, record_number = NEXT_RECORD)
         @tabular.read_line(row.nil? ? "" : row) do |line|
-          if @count < @skip
-            @count += 1
-            next
-          end
+          number         = record_number.equal?(NEXT_RECORD) ? @record_number + 1 : record_number
+          @record_number = number if number
+          @count        += 1
+          next if number && number < @resume_at
 
           @tabular.validate_line(line) if @validate
           @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
-          @count += 1
-          @slice.add(line, line_number: line_number, record_number: @count)
+          @slice.add(line, line_number: line_number, record_number: number)
           flush if @slice.size >= @size
         end
         header_read if @on_header

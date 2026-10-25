@@ -198,8 +198,8 @@ end
   `:line` mode. Its rows are read as CSV text, whose lines are not the rows of the sheet, since a cell that holds line
   breaks takes a line for each. Their record numbers count the rows that are read, and the empty rows of the sheet are
   left out, so a record number is not always the row in Excel either.
-* The slices read from a slice, such as with `IOStreams.stream(slice).each(:slice, size: 10)`, keep the line numbers of
-  its rows, and number their records from 1 again, as they count the rows read into them.
+* The slices read from a slice, such as with `IOStreams.stream(slice).each(:slice, size: 10)`, keep the line and record
+  numbers of its rows.
 * A row added to a slice by your code without numbers, see [A slice](#a-slice), has none, `nil`, as do the rows of a
   Hash stored before IOStreams held them.
 

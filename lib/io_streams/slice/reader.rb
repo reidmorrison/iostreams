@@ -32,13 +32,14 @@ module IOStreams
       # Parameters
       #   rows: [#each]
       #     Yields each row of the file, as the format holds it, starting with its header row, when it has one, with the
-      #     line of the file that it starts on, when the rows know it, otherwise nil:
+      #     line of the file that it starts on, when the rows know it, otherwise nil, and its record number, when the
+      #     rows know it:
       #     - the lines of a file, see `IOStreams::Slice::LineRows`.
-      #     - the rows of a slice, see `IOStreams::Slice::Stream`, so that they keep their lines.
+      #     - the rows of a slice, see `IOStreams::Slice::Stream`, so that they keep their lines and record numbers.
       #     - rows that are not lines of a file, such as those of Parquet, which start on no line, see
       #       `IOStreams::Slice::Rows`.
-      #     The collector numbers each row as the next record, as it builds the slices, see
-      #     `IOStreams::Slice::Collector#add`.
+      #     The collector numbers each row by the record number that the rows give it, otherwise as the next record, as
+      #     it builds the slices, see `IOStreams::Slice::Collector#add`.
       #
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
@@ -89,7 +90,8 @@ module IOStreams
         return enum_for(:each) unless block_given?
 
         collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, resume_at: @resume_at, &)
-        @rows.each { |row, line_number| collector.add(row, line_number) }
+        # The rows of a slice also give the record number of each row, which the collector keeps, see #initialize.
+        @rows.each { |row, line_number, *record_number| collector.add(row, line_number, *record_number) }
         collector.finish
         collector.count
       end

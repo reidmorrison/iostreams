@@ -103,15 +103,57 @@ class ResumeAtTest < Minitest::Test
       end
     end
 
-    describe "other sources" do
-      it "counts the rows of a slice from 1, as the slices read from it number them" do
-        slice = IOStreams::Slice.new(%w[Jack,21 Jill,22 Bob,23], header: %w[name age], format: :csv, line_number: 10,
-                                                                 record_number: 50)
-
-        assert_equal [{"name" => "Bob", "age" => "23"}], read(IOStreams.stream(slice), :hash, resume_at: 3)
-        assert_equal [[["Jill,22", 11, 2], ["Bob,23", 12, 3]]], numbered(read(IOStreams.stream(slice), :slice, size: 5, resume_at: 2))
+    describe "a slice" do
+      # The second slice of a file: its records 501 to 503, on lines 502 to 504.
+      let(:slice) do
+        IOStreams::Slice.new(%w[Ann,24 Bob,25 Cy,26], header: %w[name age], format: :csv, line_number: 502,
+                                                       record_number: 501)
       end
 
+      it "resumes at a record number that the slice holds, as it gives them, in every mode" do
+        assert_equal [{"name" => "Bob", "age" => "25"}, {"name" => "Cy", "age" => "26"}],
+                     read(IOStreams.stream(slice), :hash, resume_at: 502)
+        assert_equal [%w[name age], %w[Cy 26]], read(IOStreams.stream(slice), :array, resume_at: 503)
+        assert_equal [[["Bob,25", 503, 502], ["Cy,26", 504, 503]]],
+                     numbered(read(IOStreams.stream(slice), :slice, size: 5, resume_at: 502))
+      end
+
+      it "reads no rows from the record after its last, where a job that processed every row resumes" do
+        assert_empty read(IOStreams.stream(slice), :hash, resume_at: 504)
+        assert_equal [%w[name age]], read(IOStreams.stream(slice), :array, resume_at: 504)
+      end
+
+      it "raises for a record that it does not hold, such as the position of a row, before reading it" do
+        message = "The slice holds records 501 to 503, so it cannot start from record %d: supply one of them, or " \
+                  "504, after its last"
+
+        [2, 500, 505].each do |record|
+          error = assert_raises(ArgumentError) { read(IOStreams.stream(slice), :hash, resume_at: record) }
+
+          assert_equal format(message, record), error.message
+        end
+      end
+
+      it "resumes at the next row for a record that it no longer holds" do
+        slice.delete_at(1)
+
+        assert_equal [{"name" => "Cy", "age" => "26"}], read(IOStreams.stream(slice), :hash, resume_at: 502)
+      end
+
+      it "keeps the schema of the stream" do
+        typed = {"fields" => [{"name" => "name"}, {"name" => "age", "type" => "integer"}]}
+
+        assert_equal [{"name" => "Cy", "age" => 26}], read(IOStreams.stream(slice).schema(typed), :hash, resume_at: 503)
+      end
+
+      it "raises for a slice whose rows have no record numbers" do
+        unnumbered = IOStreams::Slice.new(%w[Ann,24], header: %w[name age], format: :csv)
+
+        assert_raises(ArgumentError) { read(IOStreams.stream(unnumbered), :hash, resume_at: 1) }
+      end
+    end
+
+    describe "other sources" do
       it "resumes at a record of a Parquet file" do
         skip("Parquet is not supported on JRuby") if defined?(JRUBY_VERSION)
 

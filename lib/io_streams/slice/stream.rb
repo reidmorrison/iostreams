@@ -13,8 +13,14 @@ module IOStreams
     # format that the slice carries, see #format, and a row whose every value is blank is a blank row unless the slice
     # says that each of its rows is a record, see #tabular.
     #
+    # The record numbers of the rows are those that the slice holds, see `IOStreams::Slice#record_number_at`: `resume_at:`
+    # names one of them, see #reader, and the slices read from it keep them, as they keep the line of each row.
+    #
     # A slice holds rows, already split and decoded, rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
+      # The modes whose readers resume at a record, see #reader.
+      RESUMABLE_MODES = %i[array hash slice].freeze
+
       # Parameters
       #   slice: [IOStreams::Slice]
       #     The rows of the slice, its header row, and the format of its rows.
@@ -30,7 +36,37 @@ module IOStreams
         "#<#{self.class.name} rows=#{io_stream.size} format=#{format.inspect}>"
       end
 
+      # Yields the reader of the supplied mode, see `IOStreams::Row::Stream#reader`. `resume_at:` in the `:array`, `:hash`
+      # and `:slice` modes is a record number that the slice holds, see `IOStreams::Slice#record_number_at`, such as
+      # the one that a job saw when it stopped, rather than a count of the rows of the slice, so the rows are read from
+      # that record on, see `IOStreams::Slice#from_record`, and the slices read from them keep their numbers.
+      #
+      # Raises ArgumentError for a `resume_at` that is neither nil nor a positive Integer, and for one that the slice
+      # does not hold, other than the record after its last, which reads no rows, before any row is read.
+      def reader(mode = :stream, **args, &)
+        resume_at = args[:resume_at]
+        return super if resume_at.nil? || !RESUMABLE_MODES.include?(mode)
+
+        IOStreams::Utils.check_record_number(:resume_at, resume_at)
+        from_record(resume_at).reader(mode, **args.except(:resume_at), &)
+      end
+
+      protected
+
+      # Holds the supplied slice as the rows that this stream reads, see #from_record.
+      def read_slice(slice)
+        @io_stream = slice
+      end
+
       private
+
+      # Returns [IOStreams::Slice::Stream] a copy of this stream, with its settings, such as its schema, that reads the
+      # rows of its slice from the record of the supplied number on, see `IOStreams::Slice#from_record`.
+      def from_record(record_number)
+        copy = dup
+        copy.read_slice(io_stream.from_record(record_number))
+        copy
+      end
 
       def source_name
         "slice"
@@ -53,12 +89,12 @@ module IOStreams
         super(blank_rows: io_stream.blank_rows?, **)
       end
 
-      # Yields [RowsWithLines] the rows of the slice, after its header row, when it carries one, with the line of the file
-      # that each one starts on, which a slice reader reads, see `IOStreams::Row::Stream#open_slice_rows`, so that the
-      # slices that it reads from this slice keep the lines of their rows, see `IOStreams::Slice#line_number_at`. The
-      # slice reader numbers their records as it builds the slices, see `IOStreams::Slice::Collector#add`.
+      # Yields [NumberedRows] the rows of the slice, after its header row, when it carries one, with the line of the file
+      # that each one starts on and its record number, which a slice reader reads, see
+      # `IOStreams::Row::Stream#open_slice_rows`, so that the slices that it reads from this slice keep the numbers of
+      # their rows, see `IOStreams::Slice#each`.
       def open_slice_rows(_tabular, _delimiter, _buffer_size)
-        yield RowsWithLines.new(io_stream)
+        yield NumberedRows.new(io_stream)
       end
 
       # Returns [#each] the rows of the slice, after its header row, when it carries one, which the readers of rows and
@@ -73,21 +109,22 @@ module IOStreams
       end
 
       # The rows of a slice, after its header row, when it carries one, with the line of the file that each one starts
-      # on, see `IOStreams::Slice#each`, which a slice reader reads, see `IOStreams::Slice::Reader`, so that the slices
-      # that it reads from them keep their lines.
-      class RowsWithLines
+      # on and its record number, see `IOStreams::Slice#each`, which a slice reader reads, see
+      # `IOStreams::Slice::Reader`, so that the slices that it reads from them keep their numbers.
+      class NumberedRows
         def initialize(slice)
           @slice = slice
         end
 
-        # Yields the header row, which starts on no line, nil, and then each row with its line number.
-        def each
+        # Yields the header row, which is neither on a line nor a record, nil, nil, and then each row with its line
+        # number and record number, see `IOStreams::Slice#each`.
+        def each(&)
           header = @slice.header
-          yield(header, nil) if header
-          @slice.each { |row, line_number, _record_number| yield(row, line_number) }
+          yield(header, nil, nil) if header
+          @slice.each(&)
         end
       end
-      private_constant :RowsWithLines
+      private_constant :NumberedRows
     end
   end
 end

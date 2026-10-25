@@ -576,6 +576,48 @@ class SliceTest < Minitest::Test
         end
       end
 
+      describe "#from_record" do
+        it "returns a new slice of the rows from the record on, which keep their numbers" do
+          rest = numbered.from_record(3)
+
+          assert_instance_of IOStreams::Slice, rest
+          assert_equal [["d", 5, 3], ["e", 6, 4]], rest.each.to_a
+          assert_equal %w[name], rest.header
+          assert_equal :csv, rest.format
+          assert_equal 4, numbered.size
+        end
+
+        it "returns every row from its first record, and none from the record after its last" do
+          assert_equal numbered, numbered.from_record(1)
+          assert_empty numbered.from_record(5)
+        end
+
+        it "starts with the row after a record that it no longer holds" do
+          numbered.delete_at(1)
+
+          assert_equal [["d", 5, 3], ["e", 6, 4]], numbered.from_record(2).each.to_a
+        end
+
+        it "leaves a frozen slice as it is" do
+          assert_equal [["e", 6, 4]], numbered.freeze.from_record(4).each.to_a
+        end
+
+        it "raises for a record that it does not hold, or one that is not an Integer" do
+          error = assert_raises(ArgumentError) { numbered.from_record(6) }
+          assert_equal "The slice holds records 1 to 4, so it cannot start from record 6: supply one of them, or 5, " \
+                       "after its last", error.message
+          assert_raises(ArgumentError) { numbered.from_record(0) }
+          assert_raises(ArgumentError) { numbered.from_record("3") }
+        end
+
+        it "raises for a slice without rows, or with a row without a record number" do
+          assert_raises(ArgumentError) { IOStreams::Slice.new(format: :csv).from_record(1) }
+          numbered << "f"
+          error = assert_raises(ArgumentError) { numbered.from_record(2) }
+          assert_equal "A row of the slice has no record number, so it cannot start from record 2", error.message
+        end
+      end
+
       it "keeps the numbers of every row through any changes, and once stored as JSON" do
         random = Random.new(42)
         200.times do
