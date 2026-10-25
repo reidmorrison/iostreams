@@ -206,6 +206,10 @@ end
 * `writer(:array)` writes the text of the one value of each row as a line, such as `2026-01-02` for a date, and replaces
   a line break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value
   raises `IOStreams::Errors::TypeMismatch`.
+* A copy of its rows in the `:array` mode, or slices of them written with `writer(:slice)`, to a format that takes its
+  columns from the first row written, such as CSV or JSON, needs a schema of the source or the target, which names the
+  column, rather than make the first line the header row: without one it raises `ArgumentError`, before the target is
+  opened.
 * `each(:slice)` reads the lines in slices, each with its line number, to hand them to background jobs, see
   [Processing in slices](slices).
 

@@ -83,13 +83,10 @@ module IOStreams
         nil
       end
 
-      # Raises ArgumentError for a format without a header row whose rows have no keys, such as `:lines`, since without
-      # a schema nothing names the keys of its records, see `IOStreams::Tabular#check_records`.
-      def check_records
-        return if @requires_header || @keyed
-
-        raise(ArgumentError, "The #{@format.inspect} format has no header row, and its rows have no keys, so the keys " \
-                             "of its records are named by a schema: set one, whose fields name them")
+      # Returns [true|false] whether nothing names the columns of the rows: for a format without a header row whose rows
+      # have no keys, such as `:lines`, since without a schema nothing else would, see `IOStreams::Tabular#unnamed_columns?`.
+      def unnamed_columns?
+        !@requires_header && !@keyed
       end
 
       # Returns [Array] the header row parsed from the line, which becomes the columns of the header, before it is

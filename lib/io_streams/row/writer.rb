@@ -83,6 +83,14 @@ module IOStreams
       # Returns [String] the class and the format of the rows, see `IOStreams::Tabular#format`, rather than every instance
       # variable, such as the tabular and the lines that it writes, so that irb, which displays what a writer block
       # returns, such as the writer that `io << row` returns, shows what the documentation describes.
+      # Returns [true|false] whether this writer takes the columns of the rows from the first row written, which it
+      # writes as the header row, see `IOStreams::Tabular#first_row_header?`, such as CSV or JSON without a schema, before
+      # any row is written, so that a copy of rows that nothing names can check it, see
+      # `IOStreams::Stream#check_unnamed_rows`.
+      def first_row_header?
+        @tabular.first_row_header?
+      end
+
       def inspect
         "#<#{self.class.name} format=#{@tabular.format.inspect}>"
       end

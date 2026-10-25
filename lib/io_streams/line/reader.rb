@@ -53,9 +53,9 @@ module IOStreams
       #     Default: nil
       #       Automatically detect line endings and break up by line
       #       Searches for the first "\r\n", "\n" or "\r", such as of a file written on an old Mac, and then uses
-      #       that as the delimiter for all subsequent records. When it is "\r\n", a "\n" also ends a line, and the
-      #       "\r" before it is removed, so that a file whose lines end in both ways, such as a Windows file to which
-      #       a program on Linux added lines, is read line by line.
+      #       that as the delimiter for all subsequent records. When it is "\r\n" or "\n", every line ends at a "\n",
+      #       and a "\r" before it is removed, so that a file whose lines end in both ways, such as a Windows file to
+      #       which a program on Linux added lines, is read line by line, whichever way its first line ends.
       #
       #   buffer_size: [Integer]
       #     Size of blocks to read from the input stream at a time.
@@ -91,8 +91,8 @@ module IOStreams
         read_block
         # Auto-detect windows, linux or old Mac line endings if not supplied: \r\n, \n or \r
         @delimiter ||= auto_detect_line_endings
-        # Lines whose detected ending is "\r\n" also end at a "\n" without a "\r", see #initialize.
-        @crlf = delimiter.nil? && @delimiter == "\r\n"
+        # Lines whose detected ending is "\r\n" or "\n" end at a "\n", and a "\r" before it is removed, see #initialize.
+        @crlf = delimiter.nil? && ["\r\n", "\n"].include?(@delimiter)
 
         return unless @buffer
 
@@ -102,8 +102,10 @@ module IOStreams
         # The delimiter as it is searched for within the buffer, see #buffer_encoding.
         @separator = (@crlf ? @newline : @delimiter).dup.force_encoding(@buffer.encoding)
         @return    = "\r".encode(@encoding).force_encoding(@buffer.encoding) if @crlf
+        # The ending of a line that ends with "\r\n", see #remove_return.
+        @crlf_ending = "\r\n".encode(@encoding) if @crlf
         # The ending of the last line read, which a line that continues a quoted value is joined with, see #readline.
-        @ending    = @delimiter
+        @ending = @delimiter
       end
 
       # Iterate over every line in the file/stream passing each line to supplied block in turn.
@@ -235,7 +237,7 @@ module IOStreams
           return data
         end
 
-        @ending = @delimiter
+        @ending = @crlf_ending
         data.byteslice(0, data.bytesize - @return.bytesize)
       end
 

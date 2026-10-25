@@ -320,11 +320,27 @@ module IOStreams
       @mapping.read_header(line)
     end
 
-    # Raises ArgumentError when nothing names the keys of the records of the file, so that a reader or writer of records
-    # raises before the file is opened, see `IOStreams::Record::Reader` and `IOStreams::Record::Writer`: for a format
-    # without a header row whose rows have no keys, such as `:lines`, without a schema, whose fields would name them.
+    # Raises ArgumentError when nothing names the keys of the records of the file, see #unnamed_columns?, so that a reader
+    # or writer of records raises before the file is opened, see `IOStreams::Record::Reader` and
+    # `IOStreams::Record::Writer`.
     def check_records
-      @mapping.check_records
+      return unless unnamed_columns?
+
+      raise(ArgumentError, "The #{format.inspect} format has no header row, and its rows have no keys, so the keys of " \
+                           "its records are named by a schema: set one, whose fields name them")
+    end
+
+    # Returns [true|false] whether nothing names the columns of the rows: a format without a header row whose rows have
+    # no keys, such as `:lines`, without a schema, whose fields would name them, so that its records cannot be keyed, see
+    # #check_records, and its rows cannot give a writer their columns, see `IOStreams::Stream#check_unnamed_rows`.
+    def unnamed_columns?
+      @mapping.unnamed_columns?
+    end
+
+    # Returns [true|false] whether a writer of rows takes the columns of the rows from the first row written, which it
+    # writes as the header row, see #render_row, since nothing else gives them, such as CSV or JSON without a schema.
+    def first_row_header?
+      @mapping.first_row_header?
     end
 
     # Returns [Hash<String,Object>] the line as a record, see #record_parse, which a reader of records reads after the

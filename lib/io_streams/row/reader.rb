@@ -54,6 +54,13 @@ module IOStreams
         @skip_blanks = skip_blanks
       end
 
+      # Returns [true|false] whether nothing names the columns of the rows, see `IOStreams::Tabular#unnamed_columns?`, such
+      # as the lines of the :lines format without a schema, so that a copy checks that its target can write them, see
+      # `IOStreams::Stream#check_unnamed_rows`. Asked before #each.
+      def unnamed_columns?
+        @tabular.unnamed_columns?
+      end
+
       # Returns [true|false] whether the first row that #each yields is a header row, which names the column of each
       # value of the rows after it, so that a copy can write it as a header row, see `IOStreams::Row::Writer#write_header`:
       # the header row of the file, the names of the fields of a schema of a file without one, such as fixed width, or

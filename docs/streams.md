@@ -211,9 +211,9 @@ See [A store of slices](slices#a-store-of-slices).
 ## Lines
 
 Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line
-ending is removed from each line. When it is `\r\n`, as in a file written on Windows, a `\n` alone also ends a line,
-so a file whose lines end in both ways, such as a Windows file to which a program on Linux added lines, is read line by
-line.
+ending is removed from each line. When it is `\r\n`, as in a file written on Windows, or `\n`, every line ends at a
+`\n`, and a `\r` before it is removed, so a file whose lines end in both ways, such as a Windows file to which a program
+on Linux added lines, is read line by line, whichever way its first line ends.
 
 `delimiter:` splits the file at the String supplied instead, such as `delimiter: "|"`, and then only at it, so
 `delimiter: "\r\n"` keeps a `\n` alone within its line. When writing, it is written after each line, `"\n"` by

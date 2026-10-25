@@ -689,6 +689,23 @@ module IOStreams
       rows_schema
     end
 
+    # Raises ArgumentError, before the target of a copy is opened, see #copy_rows, when the supplied rows have no header
+    # row and nothing names their columns, see `IOStreams::Row::Reader#unnamed_columns?`, such as the lines of the
+    # :lines format without a schema, and this stream would take the columns from the first row written, writing it as
+    # the header row, see `IOStreams::Tabular#first_row_header?`, such as CSV or JSON without a schema: a writer of rows
+    # that is already open, see #open_writer?, answers for itself. Protected, see #copy_schema.
+    def check_unnamed_rows(rows)
+      return unless rows.unnamed_columns?
+
+      supplied = open_writer?(:array)
+      return unless supplied ? io_stream.first_row_header? : tabular.first_row_header?
+
+      target = supplied ? "the writer supplied to IOStreams.stream" : "the #{tabular.format.inspect} format"
+      raise(ArgumentError, "The rows copied have no header row, and nothing names their columns, such as the lines of " \
+                           "the :lines format without a schema, so the first of them would be the header row of " \
+                           "#{target}: set a schema of the source or the target, whose fields name the columns")
+    end
+
     # Returns [true|false] whether a row of the rows that this stream reads whose every value is blank is a blank row,
     # as in a file, rather than a record, as each row of a query is, see `IOStreams::Tabular#blank_rows?`, which a copy
     # of its rows to a store of slices gives each slice, see `IOStreams::Slice::TargetStream`. Protected, see
@@ -759,7 +776,9 @@ module IOStreams
     #
     # Returns the number of rows copied.
     def copy_rows(source, rows, mode, options)
-      with_copy_schema(source, mode).writer(mode, **options) { |output| rows.copy_to(output) }
+      target = with_copy_schema(source, mode)
+      target.check_unnamed_rows(rows) if mode == :array
+      target.writer(mode, **options) { |output| rows.copy_to(output) }
     end
 
     # Returns [IOStreams::Stream] this stream, unless it has no schema, and a copy of the rows of the supplied source

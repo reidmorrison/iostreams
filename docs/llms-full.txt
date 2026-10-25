@@ -927,9 +927,9 @@ See [A store of slices](slices#a-store-of-slices).
 ## Lines
 
 Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line
-ending is removed from each line. When it is `\r\n`, as in a file written on Windows, a `\n` alone also ends a line,
-so a file whose lines end in both ways, such as a Windows file to which a program on Linux added lines, is read line by
-line.
+ending is removed from each line. When it is `\r\n`, as in a file written on Windows, or `\n`, every line ends at a
+`\n`, and a `\r` before it is removed, so a file whose lines end in both ways, such as a Windows file to which a program
+on Linux added lines, is read line by line, whichever way its first line ends.
 
 `delimiter:` splits the file at the String supplied instead, such as `delimiter: "|"`, and then only at it, so
 `delimiter: "\r\n"` keeps a `\n` alone within its line. When writing, it is written after each line, `"\n"` by
@@ -2642,6 +2642,10 @@ end
 * `writer(:array)` writes the text of the one value of each row as a line, such as `2026-01-02` for a date, and replaces
   a line break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value
   raises `IOStreams::Errors::TypeMismatch`.
+* A copy of its rows in the `:array` mode, or slices of them written with `writer(:slice)`, to a format that takes its
+  columns from the first row written, such as CSV or JSON, needs a schema of the source or the target, which names the
+  column, rather than make the first line the header row: without one it raises `ArgumentError`, before the target is
+  opened.
 * `each(:slice)` reads the lines in slices, each with its line number, to hand them to background jobs, see
   [Processing in slices](slices).
 
@@ -7372,6 +7376,15 @@ the rows, records or lines are read or written.
 
 Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
 `nil` for a spreadsheet.
+
+#### A `.lines` file is read in the `:lines` format
+
+The new `:lines` format reads each line of a file as a row of one value, see
+[Lines of text](formats#lines-of-text), and the name of each tabular format is also the extension that names it, so a
+file named `.lines`, such as `ids.lines`, is read in it. Previously such a file was read as CSV, the default for a file
+whose name has no format extension, so its first line was its header row.
+
+Fix: set `format(:csv)` on the path of a `.lines` file that holds CSV.
 
 #### Spreadsheet date and time cells are read as ISO 8601
 

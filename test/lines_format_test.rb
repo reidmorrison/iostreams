@@ -83,6 +83,11 @@ class LinesFormatTest < Minitest::Test
         assert_equal "Each line of the :lines format is one value, so its schema has one field, not 2", error.message
       end
 
+      it "reads each line without its line ending, also in a file whose lines end in both ways" do
+        assert_equal [["jack@example.com"], ["jill@example.com"], ["bob@example.com"]],
+                     read(lines("jack@example.com\njill@example.com\r\nbob@example.com\n"), :array)
+      end
+
       it "reads the lines of the :line mode as they are, without joining a quoted value" do
         assert_equal ["\"a", "b\""], read(lines("\"a\nb\"\n"), :line)
       end
@@ -183,6 +188,59 @@ class LinesFormatTest < Minitest::Test
         end
 
         assert_equal [[:lines, nil, [["a", 1, 1], ["b", 2, 2], [%("c), 3, 3], ["d", 4, 4]]]], described(store.slices)
+      end
+    end
+
+    describe "copying its rows" do
+      let(:unnamed_message) do
+        "The rows copied have no header row, and nothing names their columns, such as the lines of the :lines format " \
+          "without a schema, so the first of them would be the header row of the %s format: set a schema of the " \
+          "source or the target, whose fields name the columns"
+      end
+
+      it "raises, rather than make the first line the header row of a format that takes its columns from it" do
+        Dir.mktmpdir do |dir|
+          %w[csv json].each do |format|
+            target = IOStreams.path(dir, "emails.#{format}")
+            target.write("kept")
+            error = assert_raises(ArgumentError) { target.copy_from(lines, mode: :array) }
+
+            assert_equal format(unnamed_message, format.to_sym.inspect), error.message
+            assert_equal "kept", target.read, "The #{format} file is not opened"
+          end
+        end
+      end
+
+      it "raises for a store of slices in such a format, or a writer of rows supplied to IOStreams.stream" do
+        assert_raises(ArgumentError) { IOStreams.stream(Store.new(10)).copy_from(lines, mode: :array) }
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(StringIO.new).format(:csv).writer(:array) do |io|
+            IOStreams.stream(io).copy_from(lines, mode: :array)
+          end
+        end
+
+        assert_match(/would be the header row of the writer supplied to IOStreams.stream/, error.message)
+      end
+
+      it "raises for slices of its lines written to a file in such a format" do
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(StringIO.new).format(:csv).writer(:slice) do |io|
+            read(lines, :slice, size: 2).each { |slice| io << slice }
+          end
+        end
+
+        assert_match(/The rows of the slices have no header row, and nothing names their columns/, error.message)
+      end
+
+      it "copies the rows when a schema names their column, or to a format without a header row" do
+        named = IOStreams.stream(StringIO.new).format(:csv).schema(schema)
+
+        assert_equal 2, named.copy_from(lines("jack@x\njill@x\n"), mode: :array)
+
+        output = StringIO.new
+        IOStreams.stream(output).format(:lines).copy_from(lines("jack@x\njill@x\n"), mode: :array)
+
+        assert_equal "jack@x\njill@x\n", output.string
       end
     end
 

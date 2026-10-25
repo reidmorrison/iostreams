@@ -132,6 +132,11 @@ module IOStreams
         match_header(line)&.last
       end
 
+      # Returns [false] the fields of the schema name the columns of the rows, see `IOStreams::Tabular#unnamed_columns?`.
+      def unnamed_columns?
+        false
+      end
+
       # Matches the keys of the first record of a format of keyed records, such as JSON or Parquet, that is not blank to
       # the fields, as #record_parse would, without converting its values, so that a file whose records do not match the
       # schema raises before its rows are handed on without being parsed, see `IOStreams::Tabular#read_line`. The keys of
