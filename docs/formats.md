@@ -166,8 +166,8 @@ IOStreams.path("people.json").read
 ## Lines of text
 
 Some files are only lines of text, such as a list of email addresses, ids or urls, one on each line. Set the `:lines`
-format to read each line as a row of one value, the whole line as it is. Unlike CSV, the file has no header row, a quote
-or a comma is just a character of its line, and every line ending ends a row:
+format to read each line as a row of one value, the whole line as it is. Unlike CSV, the file has no header row, and a
+quote or a comma is just a character of its line, so each line is a row:
 
 ~~~ruby
 # emails.txt holds:
@@ -203,13 +203,20 @@ end
 * `each(:hash)` and `writer(:hash)` need the schema, which names the key of each record, so they raise `ArgumentError`
   without one, before the file is opened, and so does a schema of more than one field.
 * A blank line, or a line of only spaces, is a blank row, see [Blank rows](streams#blank-rows).
+* Its lines end as those of any file do, see [Lines](streams#lines): at a `\n`, without the `\r` before it, so a file
+  whose lines end in both ways is read line by line, while a `\r` alone within a line is a character of its value, apart
+  from a file whose first line ends with a `\r` alone, as an old Mac wrote it, whose lines end at a `\r`.
 * `writer(:array)` writes the text of the one value of each row as a line, such as `2026-01-02` for a date, and replaces
   a line break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value
   raises `IOStreams::Errors::TypeMismatch`.
 * A copy of its rows in the `:array` mode, or slices of them written with `writer(:slice)`, to a format that takes its
-  columns from the first row written, such as CSV or JSON, needs a schema of the source or the target, which names the
-  column, rather than make the first line the header row: without one it raises `ArgumentError`, before the target is
-  opened.
+  columns from the first row written, such as CSV or JSON, needs a schema, which names the column, rather than make the
+  first line the header row. Without one, a copy raises `ArgumentError` before the target is opened, so an existing
+  file is kept, while `writer(:slice)`, which only learns the format of the slices from the first one, raises it when
+  that slice is written, so, as for any error raised while writing, the file is removed, see
+  [Writing](streams#writing). Give the file written a schema, which `writer(:slice)` reads the slices by.
+* `validate: true`, of `each(:slice)` or `writer(:slice)`, parses each line by the schema, or without one as a row,
+  since nothing names the keys of its records.
 * `each(:slice)` reads the lines in slices, each with its line number, to hand them to background jobs, see
   [Processing in slices](slices).
 

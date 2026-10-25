@@ -226,6 +226,17 @@ String `"printable"`, raises `ArgumentError`. Previously it was ignored, so the 
 Fix: supply the name of a built-in rule as a Symbol, such as `cleaner: :printable`, for example with
 `.to_sym` when it comes from configuration.
 
+#### A carriage return before a line feed is removed from every line
+
+When the line ending of a file is detected, every line ends at a `\n`, and a `\r` before it is removed, whether the
+first line ends with `\r\n` or `\n`, so a file whose lines end in both `\r\n` and `\n`, such as a Windows file to which
+a program on Linux added lines, is read line by line, see [Lines](streams#lines). Previously a file whose first line
+ended with `\r\n` joined a line that ended with `\n` alone to the next one, so `each(:hash)` dropped a record, and a
+file whose first line ended with `\n` kept the `\r` of each line that ended with `\r\n`, in every mode: the lines that
+`each(:line)` read, and copied in the `:line` mode, held it, as did the last value of a PSV row.
+
+Fix: supply `delimiter: "\n"` to keep the `\r` before each `\n`, such as to copy the lines of a file as they are.
+
 ### Rows and records
 
 Reading and writing rows and records, with the `:array` and `:hash` modes.
@@ -1648,8 +1659,6 @@ for each one.
   `reports.json/data.txt` as JSON.
 - `IOStreams.each_child` with a pattern that has no directory, such as `IOStreams.each_child("*.csv")`, searches the
   current directory, where it searched the root directory `/`.
-- A file whose first line ends with `\r\n` also ends a line at a `\n` alone, whose `\r` is removed, so a file whose
-  lines end in both ways reads each line, where two lines were read as one, and `each(:hash)` dropped a record.
 - `#copy_from` and `#copy_to` with `convert: false` no longer change the streams of the source or the target, which
   were left without any streams, as with `stream(:none)`.
 - `#inspect` shows the full name of a path, such as `#<IOStreams::Paths::S3:s3://bucket/a.csv pipeline={}>`, where it

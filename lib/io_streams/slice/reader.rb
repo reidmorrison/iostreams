@@ -48,7 +48,7 @@ module IOStreams
       #   validate: [true|false]
       #     Whether to parse each row before it is added to its slice, so that a row that the format or the schema
       #     cannot read, such as a value that is not of the type of its field, raises before the slice that holds it
-      #     is yielded, see `IOStreams::Tabular#record_parse`. The slices before it have already been yielded. The slice
+      #     is yielded, see `IOStreams::Tabular#validate_line`. The slices before it have already been yielded. The slice
       #     still holds the row as it is in the file.
       #     Default: false
       def initialize(rows, tabular:, size:, validate: false)

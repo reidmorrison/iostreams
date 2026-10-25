@@ -88,6 +88,11 @@ class LinesFormatTest < Minitest::Test
                      read(lines("jack@example.com\njill@example.com\r\nbob@example.com\n"), :array)
       end
 
+      it "keeps a carriage return alone within a line of a file whose lines end at a line feed, as a character of it" do
+        assert_equal [["a"], ["b\rc"]], read(lines("a\nb\rc\n"), :array)
+        assert_equal [["a"], ["b"], ["c\nd"]], read(lines("a\rb\rc\nd\r"), :array)
+      end
+
       it "reads the lines of the :line mode as they are, without joining a quoted value" do
         assert_equal ["\"a", "b\""], read(lines("\"a\nb\"\n"), :line)
       end
@@ -129,6 +134,22 @@ class LinesFormatTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) do
           read(lines("12\nabc\n").schema(typed), :slice, size: 10, validate: true)
         end
+      end
+
+      it "parses each line as a row with validate: true without a schema, since its records have no keys" do
+        slices = read(lines("jack@x\njill@x\n"), :slice, size: 10, validate: true)
+
+        assert_equal [["jack@x", 1, 1], ["jill@x", 2, 2]], slices.first.each.to_a
+
+        output = StringIO.new
+        IOStreams.stream(output).format(:lines).writer(:slice, validate: true) { |io| slices.each { |slice| io << slice } }
+
+        assert_equal "jack@x\njill@x\n", output.string
+
+        store = Store.new(10)
+        IOStreams.stream(store).format(:lines).writer(:line, validate: true) { |io| io << "jack@x" << "jill@x" }
+
+        assert_equal [["jack@x", 1, 1], ["jill@x", 2, 2]], store.slices.first.each.to_a
       end
 
       it "turns into a Hash of plain data and back, whose rows the stream of a slice reads" do
@@ -193,9 +214,9 @@ class LinesFormatTest < Minitest::Test
 
     describe "copying its rows" do
       let(:unnamed_message) do
-        "The rows copied have no header row, and nothing names their columns, such as the lines of the :lines format " \
-          "without a schema, so the first of them would be the header row of the %s format: set a schema of the " \
-          "source or the target, whose fields name the columns"
+        "The rows written have no header row, and nothing names their columns, such as the lines of the :lines format " \
+          "without a schema, so the first of them would be the header row of the %s format: set a schema, whose fields " \
+          "name the columns"
       end
 
       it "raises, rather than make the first line the header row of a format that takes its columns from it" do
@@ -219,17 +240,22 @@ class LinesFormatTest < Minitest::Test
           end
         end
 
-        assert_match(/would be the header row of the writer supplied to IOStreams.stream/, error.message)
+        assert_equal format(unnamed_message, ":csv"), error.message
       end
 
-      it "raises for slices of its lines written to a file in such a format" do
-        error = assert_raises(ArgumentError) do
-          IOStreams.stream(StringIO.new).format(:csv).writer(:slice) do |io|
-            read(lines, :slice, size: 2).each { |slice| io << slice }
+      it "raises for slices of its lines written to a file in such a format, once the first slice is written" do
+        Dir.mktmpdir do |dir|
+          target = IOStreams.path(dir, "emails.json")
+          target.write("old")
+          error = assert_raises(ArgumentError) do
+            target.writer(:slice) do |io|
+              read(lines, :slice, size: 2).each { |slice| io << slice }
+            end
           end
-        end
 
-        assert_match(/The rows of the slices have no header row, and nothing names their columns/, error.message)
+          assert_equal format(unnamed_message, ":json"), error.message
+          refute_predicate target, :exist?, "As for any error raised while writing, the file is removed"
+        end
       end
 
       it "copies the rows when a schema names their column, or to a format without a header row" do

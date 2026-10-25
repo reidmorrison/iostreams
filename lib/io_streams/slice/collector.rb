@@ -62,7 +62,7 @@ module IOStreams
       #   validate: [true|false]
       #     Whether to parse each row before it is added to its slice, so that a row that the format or the schema
       #     cannot read, such as a value that is not of the type of its field, raises before the slice that holds it
-      #     is handed on, see `IOStreams::Tabular#record_parse`. The slices before it have already been handed on. The
+      #     is handed on, see `IOStreams::Tabular#validate_line`. The slices before it have already been handed on. The
       #     slice still holds the row as it is in the file.
       #     Default: false
       #
@@ -104,7 +104,7 @@ module IOStreams
       # Returns self, so that calls can be chained.
       def add(row, line_number = nil)
         @tabular.read_line(row.nil? ? "" : row) do |line|
-          @tabular.record_parse(line) if @validate
+          @tabular.validate_line(line) if @validate
           @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
           @count += 1
           @slice.add(line, line_number: line_number, record_number: @count)

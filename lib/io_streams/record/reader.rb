@@ -16,10 +16,12 @@ module IOStreams
         [*IOStreams::Row::Reader.line_option_names, :skip_blanks]
       end
 
-      # Raises ArgumentError for a `skip_blanks` that is not true or false, see #initialize, so that a call raises before
-      # the file is opened, see `IOStreams::Stream#each`.
-      def self.check(skip_blanks: false)
+      # Raises ArgumentError for a `skip_blanks` that is not true or false, see #initialize, or when nothing names the keys
+      # of the records that the tabular parses, see `IOStreams::Tabular#check_records`, so that a call raises before the
+      # file is opened, see `IOStreams::Stream#each`.
+      def self.check(tabular:, skip_blanks: false)
         IOStreams::Utils.check_boolean(:skip_blanks, skip_blanks)
+        tabular.check_records
       end
 
       # Create a reader to return the stream as Hash records.
@@ -38,14 +40,12 @@ module IOStreams
       #     yielded, after the header row, such as to report the line of a record that is not valid.
       #     Default: false
       #
-      # Raises ArgumentError when nothing names the keys of the records, see `IOStreams::Tabular#check_records`.
+      # Raises ArgumentError for options that cannot read records, see .check.
       def initialize(line_reader, tabular:, skip_blanks: false)
-        self.class.check(skip_blanks: skip_blanks)
+        self.class.check(tabular: tabular, skip_blanks: skip_blanks)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
-
-        tabular.check_records
 
         @tabular     = tabular
         @line_reader = line_reader

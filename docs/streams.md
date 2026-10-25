@@ -213,11 +213,13 @@ See [A store of slices](slices#a-store-of-slices).
 Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line
 ending is removed from each line. When it is `\r\n`, as in a file written on Windows, or `\n`, every line ends at a
 `\n`, and a `\r` before it is removed, so a file whose lines end in both ways, such as a Windows file to which a program
-on Linux added lines, is read line by line, whichever way its first line ends.
+on Linux added lines, is read line by line, whichever way its first line ends. A `\r` alone within a line of such a
+file is a character of the line. When the first line ends with a `\r` alone, as an old Mac wrote it, every line ends at
+a `\r` instead, and a `\n` is a character of its line.
 
 `delimiter:` splits the file at the String supplied instead, such as `delimiter: "|"`, and then only at it, so
-`delimiter: "\r\n"` keeps a `\n` alone within its line. When writing, it is written after each line, `"\n"` by
-default.
+`delimiter: "\r\n"` keeps a `\n` alone within its line, and `delimiter: "\n"` keeps the `\r` before a `\n`. When
+writing, it is written after each line, `"\n"` by default.
 
 A quoted value of a CSV file can contain a line break, which must not end the line. Lines are split where the format
 of the file expects, so `each(:array)` and `each(:hash)` keep a quoted line break within its row. So does `each(:line)`,

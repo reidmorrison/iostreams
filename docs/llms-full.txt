@@ -929,11 +929,13 @@ See [A store of slices](slices#a-store-of-slices).
 Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line
 ending is removed from each line. When it is `\r\n`, as in a file written on Windows, or `\n`, every line ends at a
 `\n`, and a `\r` before it is removed, so a file whose lines end in both ways, such as a Windows file to which a program
-on Linux added lines, is read line by line, whichever way its first line ends.
+on Linux added lines, is read line by line, whichever way its first line ends. A `\r` alone within a line of such a
+file is a character of the line. When the first line ends with a `\r` alone, as an old Mac wrote it, every line ends at
+a `\r` instead, and a `\n` is a character of its line.
 
 `delimiter:` splits the file at the String supplied instead, such as `delimiter: "|"`, and then only at it, so
-`delimiter: "\r\n"` keeps a `\n` alone within its line. When writing, it is written after each line, `"\n"` by
-default.
+`delimiter: "\r\n"` keeps a `\n` alone within its line, and `delimiter: "\n"` keeps the `\r` before a `\n`. When
+writing, it is written after each line, `"\n"` by default.
 
 A quoted value of a CSV file can contain a line break, which must not end the line. Lines are split where the format
 of the file expects, so `each(:array)` and `each(:hash)` keep a quoted line break within its row. So does `each(:line)`,
@@ -2602,8 +2604,8 @@ IOStreams.path("people.json").read
 ## Lines of text
 
 Some files are only lines of text, such as a list of email addresses, ids or urls, one on each line. Set the `:lines`
-format to read each line as a row of one value, the whole line as it is. Unlike CSV, the file has no header row, a quote
-or a comma is just a character of its line, and every line ending ends a row:
+format to read each line as a row of one value, the whole line as it is. Unlike CSV, the file has no header row, and a
+quote or a comma is just a character of its line, so each line is a row:
 
 ~~~ruby
 # emails.txt holds:
@@ -2639,13 +2641,20 @@ end
 * `each(:hash)` and `writer(:hash)` need the schema, which names the key of each record, so they raise `ArgumentError`
   without one, before the file is opened, and so does a schema of more than one field.
 * A blank line, or a line of only spaces, is a blank row, see [Blank rows](streams#blank-rows).
+* Its lines end as those of any file do, see [Lines](streams#lines): at a `\n`, without the `\r` before it, so a file
+  whose lines end in both ways is read line by line, while a `\r` alone within a line is a character of its value, apart
+  from a file whose first line ends with a `\r` alone, as an old Mac wrote it, whose lines end at a `\r`.
 * `writer(:array)` writes the text of the one value of each row as a line, such as `2026-01-02` for a date, and replaces
   a line break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value
   raises `IOStreams::Errors::TypeMismatch`.
 * A copy of its rows in the `:array` mode, or slices of them written with `writer(:slice)`, to a format that takes its
-  columns from the first row written, such as CSV or JSON, needs a schema of the source or the target, which names the
-  column, rather than make the first line the header row: without one it raises `ArgumentError`, before the target is
-  opened.
+  columns from the first row written, such as CSV or JSON, needs a schema, which names the column, rather than make the
+  first line the header row. Without one, a copy raises `ArgumentError` before the target is opened, so an existing
+  file is kept, while `writer(:slice)`, which only learns the format of the slices from the first one, raises it when
+  that slice is written, so, as for any error raised while writing, the file is removed, see
+  [Writing](streams#writing). Give the file written a schema, which `writer(:slice)` reads the slices by.
+* `validate: true`, of `each(:slice)` or `writer(:slice)`, parses each line by the schema, or without one as a row,
+  since nothing names the keys of its records.
 * `each(:slice)` reads the lines in slices, each with its line number, to hand them to background jobs, see
   [Processing in slices](slices).
 
@@ -7068,6 +7077,17 @@ String `"printable"`, raises `ArgumentError`. Previously it was ignored, so the 
 Fix: supply the name of a built-in rule as a Symbol, such as `cleaner: :printable`, for example with
 `.to_sym` when it comes from configuration.
 
+#### A carriage return before a line feed is removed from every line
+
+When the line ending of a file is detected, every line ends at a `\n`, and a `\r` before it is removed, whether the
+first line ends with `\r\n` or `\n`, so a file whose lines end in both `\r\n` and `\n`, such as a Windows file to which
+a program on Linux added lines, is read line by line, see [Lines](streams#lines). Previously a file whose first line
+ended with `\r\n` joined a line that ended with `\n` alone to the next one, so `each(:hash)` dropped a record, and a
+file whose first line ended with `\n` kept the `\r` of each line that ended with `\r\n`, in every mode: the lines that
+`each(:line)` read, and copied in the `:line` mode, held it, as did the last value of a PSV row.
+
+Fix: supply `delimiter: "\n"` to keep the `\r` before each `\n`, such as to copy the lines of a file as they are.
+
 ### Rows and records
 
 Reading and writing rows and records, with the `:array` and `:hash` modes.
@@ -8490,8 +8510,6 @@ for each one.
   `reports.json/data.txt` as JSON.
 - `IOStreams.each_child` with a pattern that has no directory, such as `IOStreams.each_child("*.csv")`, searches the
   current directory, where it searched the root directory `/`.
-- A file whose first line ends with `\r\n` also ends a line at a `\n` alone, whose `\r` is removed, so a file whose
-  lines end in both ways reads each line, where two lines were read as one, and `each(:hash)` dropped a record.
 - `#copy_from` and `#copy_to` with `convert: false` no longer change the streams of the source or the target, which
   were left without any streams, as with `stream(:none)`.
 - `#inspect` shows the full name of a path, such as `#<IOStreams::Paths::S3:s3://bucket/a.csv pipeline={}>`, where it

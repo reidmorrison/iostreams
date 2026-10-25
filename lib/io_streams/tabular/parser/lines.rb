@@ -5,7 +5,9 @@ module IOStreams
     module Parser
       # The `:lines` format: each line of the file is a row of one value, the whole line as it is, such as a file of
       # email addresses or ids, one on each line. It has no header row, no quoting and no separators, so a quote or a
-      # comma is just a character of the line, and every line ending ends a row.
+      # comma is just a character of the line. Each line ends where the line reader ends it, see
+      # `IOStreams::Line::Reader`: at a "\n", without the "\r" before it, or in a file whose first line ends with a "\r"
+      # alone, at a "\r", so a "\r" alone within a line of any other file is a character of its value.
       #
       # A schema has one field, which names the value of each line and gives its type, so that `each(:hash)` keys each
       # record by it.

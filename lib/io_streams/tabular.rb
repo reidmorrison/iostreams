@@ -261,6 +261,17 @@ module IOStreams
       @mapping.record_parse(line)
     end
 
+    # Parses the line, or a row already read, as a reader of its records would, see #record_parse, so that a value that
+    # is not valid raises, for `validate: true`, see `IOStreams::Slice::Collector` and `IOStreams::Slice::Writer`: as a
+    # row instead, see #row_parse, when nothing names the keys of its records, see #unnamed_columns?, such as the lines of
+    # the :lines format without a schema, which have no records, but are rows.
+    #
+    # Returns nil.
+    def validate_line(line)
+      unnamed_columns? ? @mapping.row_parse(line) : @mapping.record_parse(line)
+      nil
+    end
+
     # Returns [Array] the row/line as a parsed Array of values. With a schema, the values of its fields, in the order of
     # the fields, converted to their types, see `IOStreams::Schema::Columns`. For a format whose records supply their own
     # keys, such as JSON, the values of the record in the order of the columns of the rows: every field of a schema,
@@ -332,15 +343,22 @@ module IOStreams
 
     # Returns [true|false] whether nothing names the columns of the rows: a format without a header row whose rows have
     # no keys, such as `:lines`, without a schema, whose fields would name them, so that its records cannot be keyed, see
-    # #check_records, and its rows cannot give a writer their columns, see `IOStreams::Stream#check_unnamed_rows`.
+    # #check_records, and its rows cannot give a writer their columns, see #check_unnamed_rows.
     def unnamed_columns?
       @mapping.unnamed_columns?
     end
 
-    # Returns [true|false] whether a writer of rows takes the columns of the rows from the first row written, which it
-    # writes as the header row, see #render_row, since nothing else gives them, such as CSV or JSON without a schema.
-    def first_row_header?
-      @mapping.first_row_header?
+    # Raises ArgumentError when a writer of rows would take the columns of the rows from the first row written, writing
+    # it as the header row, see #render_row, such as CSV or JSON without a schema, for rows whose columns nothing names,
+    # see #unnamed_columns?, such as the lines of the :lines format without a schema, so that the first of them is not
+    # made the header row: before a copy opens its target, see `IOStreams::Stream#check_unnamed_rows`, and before
+    # `IOStreams::Slice::Writer` writes the rows of its first slice.
+    def check_unnamed_rows
+      return unless @mapping.first_row_header?
+
+      raise(ArgumentError, "The rows written have no header row, and nothing names their columns, such as the lines of " \
+                           "the :lines format without a schema, so the first of them would be the header row of the " \
+                           "#{format.inspect} format: set a schema, whose fields name the columns")
     end
 
     # Returns [Hash<String,Object>] the line as a record, see #record_parse, which a reader of records reads after the

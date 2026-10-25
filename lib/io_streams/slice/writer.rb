@@ -109,9 +109,10 @@ module IOStreams
         IOStreams::Tabular.new(format: @tabular.format).render_row(header) { |line| @output << line }
       end
 
-      # Writes the header row of the rows read, see #write_rows.
+      # Writes the header row of the rows read, see #write_rows, once it checks that the file can take their columns, see
+      # `IOStreams::Tabular#check_unnamed_rows`.
       def start_rows(header)
-        check_unnamed_rows
+        @tabular.check_unnamed_rows if @reader.unnamed_columns?
         @rows = IOStreams::Row::Writer.new(@output, tabular: @tabular)
         @reader.read_row(header) { |parsed| @rows << parsed } if header
       end
@@ -121,7 +122,7 @@ module IOStreams
       def write_as_is(slice)
         slice.each do |row, _line_number, _record_number|
           @reader.read_line(row) do |line|
-            @reader.record_parse(line) if @validate
+            @reader.validate_line(line) if @validate
             @output << line
           end
         end
@@ -135,19 +136,6 @@ module IOStreams
         slice.each do |row, _line_number, _record_number|
           @reader.read_row(row) { |parsed| @rows << parsed unless parsed.nil? }
         end
-      end
-
-      # Raises ArgumentError when the rows of the slices have no header row and nothing names their columns, see
-      # `IOStreams::Tabular#unnamed_columns?`, such as the lines of the :lines format without a schema, and the file would
-      # take its columns from the first row written, writing it as the header row, see
-      # `IOStreams::Tabular#first_row_header?`, such as CSV or JSON without a schema.
-      def check_unnamed_rows
-        return unless @reader.unnamed_columns? && @tabular.first_row_header?
-
-        raise(ArgumentError, "The rows of the slices have no header row, and nothing names their columns, such as the " \
-                             "lines of the :lines format without a schema, so the first of them would be the header row " \
-                             "of the #{@tabular.format.inspect} format: set the schema of the file, whose fields name the " \
-                             "columns")
       end
 
       def check_same_file(slice)

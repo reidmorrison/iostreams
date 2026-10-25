@@ -689,21 +689,15 @@ module IOStreams
       rows_schema
     end
 
-    # Raises ArgumentError, before the target of a copy is opened, see #copy_rows, when the supplied rows have no header
-    # row and nothing names their columns, see `IOStreams::Row::Reader#unnamed_columns?`, such as the lines of the
-    # :lines format without a schema, and this stream would take the columns from the first row written, writing it as
-    # the header row, see `IOStreams::Tabular#first_row_header?`, such as CSV or JSON without a schema: a writer of rows
-    # that is already open, see #open_writer?, answers for itself. Protected, see #copy_schema.
+    # Raises ArgumentError, before the target of a copy is opened, see #copy_target, when nothing names the columns of the
+    # supplied rows, see `IOStreams::Row::Reader#unnamed_columns?`, such as the lines of the :lines format without a
+    # schema, and this stream would take them from the first row written, such as CSV or JSON without a schema, see
+    # `IOStreams::Tabular#check_unnamed_rows`: a writer of rows that is already open, see #open_writer?, answers for
+    # itself. Protected, see #copy_schema.
     def check_unnamed_rows(rows)
       return unless rows.unnamed_columns?
 
-      supplied = open_writer?(:array)
-      return unless supplied ? io_stream.first_row_header? : tabular.first_row_header?
-
-      target = supplied ? "the writer supplied to IOStreams.stream" : "the #{tabular.format.inspect} format"
-      raise(ArgumentError, "The rows copied have no header row, and nothing names their columns, such as the lines of " \
-                           "the :lines format without a schema, so the first of them would be the header row of " \
-                           "#{target}: set a schema of the source or the target, whose fields name the columns")
+      open_writer?(:array) ? io_stream.check_unnamed_rows : tabular.check_unnamed_rows
     end
 
     # Returns [true|false] whether a row of the rows that this stream reads whose every value is blank is a blank row,
@@ -776,9 +770,16 @@ module IOStreams
     #
     # Returns the number of rows copied.
     def copy_rows(source, rows, mode, options)
+      copy_target(source, rows, mode).writer(mode, **options) { |output| rows.copy_to(output) }
+    end
+
+    # Returns [IOStreams::Stream] the stream that a copy writes the supplied rows of the source to, which it reads in the
+    # supplied mode, see #copy_rows: this stream, or a copy of it with the schema of the source, see #with_copy_schema,
+    # once it checks, before it is opened, that it can write rows whose columns nothing names, see #check_unnamed_rows.
+    def copy_target(source, rows, mode)
       target = with_copy_schema(source, mode)
       target.check_unnamed_rows(rows) if mode == :array
-      target.writer(mode, **options) { |output| rows.copy_to(output) }
+      target
     end
 
     # Returns [IOStreams::Stream] this stream, unless it has no schema, and a copy of the rows of the supplied source
@@ -970,9 +971,8 @@ module IOStreams
     # The lines are split where the format that parses them expects, see #row_reader.
     def record_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, **args)
       reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
-      IOStreams::Record::Reader.check(skip_blanks: skip_blanks)
       tabular = self.tabular
-      tabular.check_records
+      IOStreams::Record::Reader.check(tabular: tabular, skip_blanks: skip_blanks)
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks)
       end
@@ -1160,7 +1160,7 @@ module IOStreams
       return block.call(io_stream) if open_writer_supplied?(IOStreams::Record::Writer, {delimiter: delimiter, **args})
 
       tabular = self.tabular
-      tabular.check_records
+      IOStreams::Record::Writer.check(tabular: tabular)
       open_rows_writer(tabular, delimiter) do |io|
         block.call(IOStreams::Record::Writer.new(io, tabular: tabular))
       end
