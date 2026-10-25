@@ -395,6 +395,17 @@ class PostgresqlCursorTest < Minitest::Test
         assert_kind_of IOStreams::Errors::PermissionDenied, error
       end
 
+      it "does not tag a connection that requires TLS of a server without it, which a retry does not change" do
+        skip "The server supports TLS" if db.record.with_connection { |connection| connection.select_value("SHOW ssl") } == "on"
+
+        orders = orders_at("Plain") { |url| url.query = "sslmode=require" }
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
+
+        refute_kind_of IOStreams::Errors::StorageError, error
+        # As PgJDBC says it, or libpq, whose message Active Record names as one of the host.
+        assert_match(/does not support SSL/, jdbc ? error.message : error.cause.message)
+      end
+
       it "does not tag a host that does not resolve" do
         orders = orders_at("Unknown") { |url| url.host = "iostreams-no-such-host.invalid" }
         error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
@@ -847,6 +858,8 @@ class PostgresqlCursorTest < Minitest::Test
                    IOStreams::Query::PostgresqlCursor.failure_kind(PG::InsufficientPrivilege.new("denied"))
       assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::PostgresqlCursor.failure_kind(PG::AdminShutdown.new("shutdown"))
       assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::PostgresqlCursor.failure_kind(PG::UnableToSend.new("lost"))
+      assert_equal IOStreams::Errors::Unavailable,
+                   IOStreams::Query::PostgresqlCursor.failure_kind(PG::IdleInTransactionSessionTimeout.new("idle"))
       assert_nil IOStreams::Query::PostgresqlCursor.failure_kind(PG::UndefinedTable.new("no table"))
       assert_nil IOStreams::Query::PostgresqlCursor.failure_kind(RuntimeError.new("other"))
     end
@@ -977,20 +990,49 @@ class PostgresqlCursorTest < Minitest::Test
       assert_equal IOStreams::Errors::PermissionDenied, server_kind("28P01")
       assert_equal IOStreams::Errors::Unavailable, server_kind("57P01")
       assert_equal IOStreams::Errors::Unavailable, server_kind("53300")
+      assert_equal IOStreams::Errors::Unavailable, server_kind("25P03")
       assert_equal IOStreams::Query::Failure::NONE, server_kind("3D000")
       assert_nil server_kind("42P01")
     end
 
-    it "returns Unavailable for a connection that could not be made, or was lost, but not for a host that does not resolve" do
-      states = Java::OrgPostgresqlUtil::PSQLState
+    it "returns nil for a connection that its configuration does not let PgJDBC make, which a retry does not change" do
+      assert_nil connection_kind(Java::OrgPostgresqlUtil::PSQLState::CONNECTION_REJECTED)
+    end
 
-      assert_equal IOStreams::Errors::Unavailable, connection_kind(states::CONNECTION_UNABLE_TO_CONNECT)
-      assert_equal IOStreams::Errors::Unavailable, connection_kind(states::CONNECTION_FAILURE)
-      assert_equal IOStreams::Query::Failure::NONE,
-                   connection_kind(states::CONNECTION_UNABLE_TO_CONNECT, Java::JavaNet::UnknownHostException.new("db"))
-      assert_equal IOStreams::Errors::Unavailable,
-                   connection_kind(states::CONNECTION_UNABLE_TO_CONNECT,
-                                   Java::JavaNet::UnknownHostException.new("db: Temporary failure in name resolution"))
+    it "returns NONE for a failure of TLS that a retry does not change, but Unavailable for a connection that was reset" do
+      states    = Java::OrgPostgresqlUtil::PSQLState
+      untrusted = Java::JavaxNetSsl::SSLHandshakeException.new("PKIX path building failed")
+      untrusted.initCause(Java::JavaSecurityCert::CertificateException.new("unable to find valid certification path"))
+      reset = Java::JavaxNetSsl::SSLException.new("Connection reset")
+      reset.initCause(Java::JavaNet::SocketException.new("Connection reset"))
+
+      assert_equal IOStreams::Query::Failure::NONE, connection_kind(states::CONNECTION_FAILURE, untrusted)
+      assert_equal IOStreams::Errors::Unavailable, connection_kind(states::CONNECTION_FAILURE, reset)
+    end
+
+    # When AR-JDBC retries a statement on a connection that it cannot make again, it wraps the exception that caused the
+    # failure to connect, which it gives the `ActiveRecord::JDBCError` as the cause that Ruby records, while `#cause`
+    # returns the exception that was being rescued when AR-JDBC created it, if any.
+    it "returns Unavailable for a connection that AR-JDBC could not make again, whose exception is not a SQLException" do
+      require "jruby"
+      refused = begin
+        Java::OrgPostgresql::Driver.new.connect("jdbc:postgresql://127.0.0.1:1/iostreams_test", Java::JavaUtil::Properties.new)
+
+        flunk "Connected to port 1"
+      rescue Java::JavaSql::SQLException => e
+        e.cause
+      end
+      error = begin
+        raise(ArgumentError, "an exception that the application rescued")
+      rescue ArgumentError
+        Java::ArjdbcJdbc::RubyJdbcConnection.wrapException(JRuby.runtime.current_context,
+                                                           JRuby.reference(ActiveRecord::JDBCError), refused,
+                                                           refused.toString).getException
+      end
+
+      assert_kind_of Java::JavaNet::ConnectException, refused
+      assert_nil error.jdbc_exception
+      assert_equal IOStreams::Errors::Unavailable, IOStreams::Query::PostgresqlJdbc.failure_kind(error)
     end
 
     it "returns nil for an exception that PgJDBC did not raise" do

@@ -515,7 +515,7 @@ aggregate of a large table, can take longer to export than it takes in `psql`.
 
 When the block raises, or the export is interrupted, such as by `Timeout`, Active Record rolls back the transaction of
 the cursor, which cancels a fetch that is still running. On JRuby, PgJDBC waits for a fetch in Java, which a `Timeout`
-interrupts only once the fetch returns. A failure to close the cursor, after the block finishes or
+interrupts only once the fetch returns, see [JRuby](#jruby). A failure to close the cursor, after the block finishes or
 leaves with `break`, is raised, so that the export does not return as if it had ended where the block left it.
 
 ### MySQL
@@ -544,11 +544,15 @@ without rows, such as the one that describes the columns of a query.
 in batches, whose failures are tagged as they are for `mysql2`, see [Errors](#errors).
 
 On JRuby, the MySQL adapter of AR-JDBC reads a query with Connector/J, which streams the rows of a statement whose fetch
-size is `Integer.MIN_VALUE`, which IOStreams sets on the connection of the read, one of its own, while the statement
-starts. Connector/J also sets `net_write_timeout` while it streams, to its `netTimeoutForStreamingResults` of 600
-seconds, and afterwards to the value that the session had when it connected, rather than the one that `variables` set,
-so IOStreams turns that off while it reads, and raises the limits of the session itself, as above. Leaving the block
-early aborts the connection, since Connector/J would read the rest of the rows to close it. The adapter prepares
+size is `Integer.MIN_VALUE`, which IOStreams sets as the `defaultFetchSize` of the connection of the read, one of its
+own, while the statement starts. AR-JDBC gives every statement the `jdbc_fetch_size` of the configuration of the
+database instead, when it is set, so a connection whose configuration sets it raises `ArgumentError`: read it in
+batches. The statement runs in a transaction of its own, since AR-JDBC runs a statement again after a failure that
+Connector/J deems transient, such as a lock wait timeout or a deadlock, unless a transaction is open, which would read
+its rows again. Connector/J also sets `net_write_timeout` while it streams, to its `netTimeoutForStreamingResults` of
+600 seconds, and afterwards to the value that the session had when it connected, rather than the one that `variables`
+set, so IOStreams turns that off while it reads, and raises the limits of the session itself, as above. Leaving the
+block early aborts the connection, since Connector/J would read the rest of the rows to close it. The adapter prepares
 statements by default, which Connector/J streams too. IOStreams streams only with Connector/J, so a connection of the
 adapter with MariaDB Connector/J raises `ArgumentError`: read it in batches.
 
@@ -574,9 +578,16 @@ JRuby cannot load `pg`, `mysql2` or `sqlite3`, which are C extensions, so it rea
 [AR-JDBC](https://github.com/jruby/activerecord-jdbc-adapter), `activerecord-jdbcpostgresql-adapter`,
 `activerecord-jdbcmysql-adapter` and `activerecord-jdbcsqlite3-adapter`, whose drivers are jars. IOStreams is tested
 with their pre-release 80.0.pre1, for Active Record 8.0. AR-JDBC yields the rows of MySQL and SQLite to a block as its
-driver reads them, which IOStreams hands over a batch at a time: the first row as the statement starts, then batches
-twice the size of the one before, up to 1,000 rows, so that the first rows of a slow query are read as soon as they
-arrive.
+driver reads them, so IOStreams reads them on a thread of its own, which hands them over a batch at a time: the first
+row as the statement starts, then batches twice the size of the one before, up to 1,000 rows, so that the first rows of
+a slow query are read as soon as they arrive. It reads each batch only once the block has taken the rows of the one
+before, so that the driver never uses the connection while the block does, and the rows can be read on any thread, as
+on MRI.
+
+A `Timeout`, or another interrupt, of an export on JRuby is raised once the driver stops waiting for the database, such
+as for the first rows of a slow query, since the drivers wait in Java: PgJDBC once its fetch returns, Connector/J once
+the server sends its next packet, which the connection that IOStreams aborted then fails to read, and sqlite-jdbc once
+it steps to the next row.
 
 AR-JDBC reads some values differently, as `pluck` does on JRuby:
 

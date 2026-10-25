@@ -100,6 +100,14 @@ class SqliteJdbcTest < Minitest::Test
         refute(rows.any?(&:reading?))
       end
 
+      it "reads the rows on another thread than the one that opened the reader, as the other sources do" do
+        names = IOStreams.stream(orders).reader(:hash) do |reader|
+          Thread.new { reader.map { |order| order["name"] } }.value
+        end
+
+        assert_equal %w[a b c], names
+      end
+
       it "tags a database that another connection has locked as Unavailable" do
         stream = IOStreams.stream(orders)
         # The columns are described with Active Record, which raises its own exception, see QueryStreamTest.

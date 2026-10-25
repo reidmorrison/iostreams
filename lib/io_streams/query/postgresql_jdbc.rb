@@ -9,11 +9,14 @@ module IOStreams
     class PostgresqlJdbc < PostgresqlCursor
       # The kind of failure of each SQLSTATE of PgJDBC, which raises every failure with its SQLSTATE, those of the server,
       # and its own for a connection, see .failure_kind, as FAILURE_KINDS and CONNECTION_KINDS tell apart the failures of
-      # the pg gem.
+      # the pg gem. Not the `08004` of PgJDBC, connection_rejected, which it raises for a connection that its
+      # configuration does not let it make, such as one that requires TLS of a server without it, or an authentication
+      # that it does not support, which a retry does not change.
       STATE_KINDS = {
         "08001" => Errors::Unavailable,      # connection_unable_to_connect: refused, timed out, or unreachable
         "08003" => Errors::Unavailable,      # connection_does_not_exist: closed
         "08006" => Errors::Unavailable,      # connection_failure: lost, such as while the rows are read
+        "25P03" => Errors::Unavailable,      # idle_in_transaction_session_timeout: a session that the server ended
         "28000" => Errors::PermissionDenied, # invalid_authorization_specification: a role or host that may not connect
         "28P01" => Errors::PermissionDenied, # invalid_password
         "42501" => Errors::PermissionDenied, # insufficient_privilege: a table, column or database that it may not read
@@ -34,15 +37,18 @@ module IOStreams
         ADAPTERS.include?(connection.adapter_name) && Jdbc.adapter?(connection)
       end
 
-      # Returns [Module] the kind of failure that an exception of PgJDBC means, by its SQLSTATE, see STATE_KINDS, apart
-      # from a host that does not resolve, see `IOStreams::Query::Jdbc.unknown_host_kind`, which it raises with
-      # the SQLSTATE of a connection that could not be made. Returns nil when it is none of them, or another driver
-      # raised it.
+      # Returns [Module] the kind of failure that an exception of PgJDBC means: as the exceptions of Java that caused it
+      # say, see `IOStreams::Query::Jdbc.cause_kind`, such as a host that does not resolve, or a certificate that is not
+      # trusted, which it raises with the SQLSTATE of a connection that could not be made, otherwise by its SQLSTATE, see
+      # STATE_KINDS. Returns nil when it is none of them, or another driver raised it.
       def self.failure_kind(exception)
-        sql_exception = Jdbc.sql_exception(exception, "org.postgresql.")
-        return unless sql_exception
+        failure = Jdbc.driver_exception(exception, "org.postgresql.")
+        return unless failure
 
-        Jdbc.unknown_host_kind(sql_exception) || STATE_KINDS[sql_exception.sql_state]
+        kind = Jdbc.cause_kind(failure)
+        return kind if kind
+
+        STATE_KINDS[failure.sql_state] if failure.is_a?(::Java::JavaSql::SQLException)
       end
 
       # Returns [Array<String>] the types of field whose columns that are `NOT NULL` always have a value once Active Record

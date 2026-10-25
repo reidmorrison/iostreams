@@ -65,10 +65,11 @@ module IOStreams
       # The kind of failure of each exception of the pg gem that a statement can raise, which Active Record does not tag
       # itself, see `IOStreams::Query::Failure`.
       FAILURE_KINDS = {
-        InsufficientPrivilege: Errors::PermissionDenied,
-        AdminShutdown:         Errors::Unavailable,
-        CrashShutdown:         Errors::Unavailable,
-        UnableToSend:          Errors::Unavailable
+        InsufficientPrivilege:           Errors::PermissionDenied,
+        AdminShutdown:                   Errors::Unavailable,
+        CrashShutdown:                   Errors::Unavailable,
+        IdleInTransactionSessionTimeout: Errors::Unavailable,
+        UnableToSend:                    Errors::Unavailable
       }.freeze
 
       # The start of each attempt to connect that the message of `PG::ConnectionBad` reports, see .connection_kind.
