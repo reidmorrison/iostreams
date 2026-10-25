@@ -83,6 +83,12 @@ module IOStreams
         nil
       end
 
+      # Returns [true|false] whether nothing names the columns of the rows: for a format without a header row whose rows
+      # have no keys, such as `:lines`, since without a schema nothing else would, see `IOStreams::Tabular#unnamed_columns?`.
+      def unnamed_columns?
+        !@requires_header && !@keyed
+      end
+
       # Returns [Array] the header row parsed from the line, which becomes the columns of the header, before it is
       # cleansed, see `IOStreams::Tabular#parse_header`. For a format of keyed records, such as JSON, the keys of the
       # record of the line, or of a row of keys, which become the columns of the rows, see #parse_keys.

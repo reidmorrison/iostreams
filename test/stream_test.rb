@@ -2675,7 +2675,7 @@ class StreamTest < Minitest::Test
           end
 
           assert_equal "Unknown option :embedded_within for the #{mode.inspect} mode. Valid options: :delimiter, " \
-                       ":buffer_size, :skip_blanks.", error.message
+                       ":buffer_size, :skip_blanks, :resume_at.", error.message
         end
         assert_raises(ArgumentError) do
           IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:slice, size: 1, embedded_within: '"') { |slice| slice }

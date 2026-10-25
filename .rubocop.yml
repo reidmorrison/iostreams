@@ -71,6 +71,8 @@ Metrics/ClassLength:
     - "lib/io_streams/stream.rb"
     # Checks and converts each property and type of a Frictionless field, and the values of type any.
     - "lib/io_streams/schema/field.rb"
+    # Holds the rows of a slice and their numbers, and is responsible for every change to them, see CLAUDE.md.
+    - "lib/io_streams/slice.rb"
 
 # TODO: Soften Limits for phase 1 only
 Metrics/CyclomaticComplexity:

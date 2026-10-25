@@ -41,6 +41,14 @@ class QuerySlicesTest < Minitest::Test
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
 
+      it "resumes the slices and records of the query at a record, as a job that resumes them reads them" do
+        slices = []
+        IOStreams.stream(relation).each(:slice, size: 5, resume_at: 2) { |slice| slices << slice }
+
+        assert_equal([[2, 3]], slices.map { |slice| [slice.record_number, slice.record_number_at(-1)] })
+        assert_equal expected.drop(1), each(IOStreams.stream(relation), :hash, resume_at: 2)
+      end
+
       it "copies the records to a store of slices as lines of CSV, by the schema of the query" do
         store = Class.new do
           include IOStreams::Slice::Target

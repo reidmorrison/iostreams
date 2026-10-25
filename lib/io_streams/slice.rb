@@ -269,8 +269,8 @@ module IOStreams
     # 101 for the first row of the second slice of 100 rows of a file. For the rows of a format whose rows are not
     # lines, such as Parquet, or of an Active Record query, it is the number of the row, as it is for the rows and
     # records written to a store of slices, see `IOStreams::Slice::TargetStream`. IOStreams counts it as it reads the
-    # rows into slices, see `IOStreams::Slice::Collector`, so the slices read from a slice number its rows from 1 again,
-    # whereas they keep the line of each row, see `IOStreams::Slice::Stream`.
+    # rows into slices, see `IOStreams::Slice::Collector`, while the slices read from a slice keep the record number of
+    # each row, as they keep its line, see `IOStreams::Slice::Stream`.
     # Returns nil for a row added without one, see #add.
     #
     # The index counts from 0, or from the end when it is negative, as for #[].
@@ -404,6 +404,44 @@ module IOStreams
         rest.add(row, line_number: line_number, record_number: record_number)
       end
       rest
+    end
+
+    # Returns [IOStreams::Slice] a new slice of the rows from the record of the supplied number on, which keep their
+    # numbers, see #each, with the header row and format of this slice, such as the rows still to be processed by a job
+    # that stopped before that record, see `IOStreams::Stream#each`'s `resume_at:`. This slice is left as it is, also
+    # when it is frozen.
+    #
+    #   slice.from_record(502).each { |row, line_number, record_number| process(row) }
+    #
+    # It starts with the first row whose record number is the one supplied or later, so a record between its first and
+    # last that the slice no longer holds, such as one removed with #delete_at, starts with the row after it. The record
+    # after its last is the record after its rows, so it gives a slice without rows, such as for a job that stopped once
+    # it had processed the last row, as does a slice without rows, which has none to skip.
+    #
+    # Raises ArgumentError for a record number that is not a positive Integer, or one before its first record or after
+    # the record after its last, such as the position of a row within it, or the cursor of another slice, whose rows it
+    # would skip. A slice holds only the numbers of its rows, so once its first or last rows are removed, it starts from
+    # a record that it still holds. Also raises for a slice with a row without a record number, see #add, since it
+    # cannot tell which records that row comes between.
+    def from_record(record_number)
+      unless record_number.is_a?(::Integer) && record_number.positive?
+        raise(ArgumentError, "The record number to start a slice from must be a positive Integer: " \
+                             "#{record_number.inspect}")
+      end
+
+      numbers = numbered_rows.map(&:last)
+      return drop(0) if numbers.empty?
+      if numbers.include?(nil)
+        raise(ArgumentError, "A row of the slice has no record number, so it cannot start from record #{record_number}")
+      end
+
+      first, last = numbers.minmax
+      unless record_number.between?(first, last + 1)
+        raise(ArgumentError, "The slice holds records #{first} to #{last}, so it cannot start from record " \
+                             "#{record_number}: supply one of them, or #{last + 1}, after its last")
+      end
+
+      drop(numbers.index { |number| number >= record_number } || numbers.size)
     end
 
     # Returns [Hash] what this slice holds, to store it or send it elsewhere, such as in the document of a job, which

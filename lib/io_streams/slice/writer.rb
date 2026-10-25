@@ -109,8 +109,10 @@ module IOStreams
         IOStreams::Tabular.new(format: @tabular.format).render_row(header) { |line| @output << line }
       end
 
-      # Writes the header row of the rows read, see #write_rows.
+      # Writes the header row of the rows read, see #write_rows, once it checks that the file can take their columns, see
+      # `IOStreams::Tabular#check_unnamed_rows`.
       def start_rows(header)
+        @tabular.check_unnamed_rows if @reader.unnamed_columns?
         @rows = IOStreams::Row::Writer.new(@output, tabular: @tabular)
         @reader.read_row(header) { |parsed| @rows << parsed } if header
       end
@@ -120,7 +122,7 @@ module IOStreams
       def write_as_is(slice)
         slice.each do |row, _line_number, _record_number|
           @reader.read_line(row) do |line|
-            @reader.record_parse(line) if @validate
+            @reader.validate_line(line) if @validate
             @output << line
           end
         end

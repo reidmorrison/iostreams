@@ -28,7 +28,8 @@ module IOStreams
     # * Cleanses the columns of the header row, `#cleanse_header!`, without a schema, whose fields name the keys of the
     #   records read instead.
     # * Checks the keys of the first record of a file whose rows are handed on without being parsed, `#check_keys`, see
-    #   `IOStreams::Tabular#read_line`.
+    #   `IOStreams::Tabular#read_line`, and answers whether nothing names the columns of its rows, `#unnamed_columns?`,
+    #   see `IOStreams::Tabular#unnamed_columns?`.
     #
     # Each row is an Array, whatever the format: the values of the columns of the rows, in order, which a parser of
     # keyed records, such as JSON, gives by their keys. A row already read, an Array, is read as such, see
@@ -144,6 +145,10 @@ module IOStreams
       # schema matches them to its fields, see `IOStreams::Tabular::SchemaMapping#check_keys`.
       def check_keys(_line)
         nil
+      end
+
+      def unnamed_columns?
+        raise(NotImplementedError, "#{self.class.name} does not implement #unnamed_columns?")
       end
 
       private

@@ -16,28 +16,30 @@ module IOStreams
 
       # Returns [Array<Symbol>] the options of each call that reads slices, see `IOStreams::Stream#reader`, which raises
       # for any other: those of the lines that it reads, see `IOStreams::Row::Reader.line_option_names`, the number of
-      # rows of each slice, and whether to parse each row, see #initialize.
+      # rows of each slice, whether to parse each row, and the record that reading resumes at, see #initialize.
       def self.option_names
-        [*IOStreams::Row::Reader.line_option_names, :size, :validate]
+        [*IOStreams::Row::Reader.line_option_names, :size, :validate, :resume_at]
       end
 
       # Raises ArgumentError for options that cannot read slices, see #initialize, so that a call raises before the file
-      # is opened, see `IOStreams::Stream#each`: a `size` that is not a positive Integer, or a `validate` that is not true
-      # or false, see `IOStreams::Slice::Collector.check`.
-      def self.check(size:, validate: false)
-        Collector.check(size: size, validate: validate)
+      # is opened, see `IOStreams::Stream#each`: a `size` that is not a positive Integer, a `validate` that is not true or
+      # false, or a `resume_at` that is neither nil nor a positive Integer, which the collector of the slices checks, see
+      # `IOStreams::Slice::Collector.check`.
+      def self.check(size:, validate: false, resume_at: nil)
+        Collector.check(size: size, validate: validate, resume_at: resume_at)
       end
 
       # Parameters
       #   rows: [#each]
       #     Yields each row of the file, as the format holds it, starting with its header row, when it has one, with the
-      #     line of the file that it starts on, when the rows know it, otherwise nil:
+      #     line of the file that it starts on, when the rows know it, otherwise nil, and its record number, when the
+      #     rows know it:
       #     - the lines of a file, see `IOStreams::Slice::LineRows`.
-      #     - the rows of a slice, see `IOStreams::Slice::Stream`, so that they keep their lines.
+      #     - the rows of a slice, see `IOStreams::Slice::Stream`, so that they keep their lines and record numbers.
       #     - rows that are not lines of a file, such as those of Parquet, which start on no line, see
       #       `IOStreams::Slice::Rows`.
-      #     The collector numbers each row as the next record, as it builds the slices, see
-      #     `IOStreams::Slice::Collector#add`.
+      #     The collector numbers each row by the record number that the rows give it, otherwise as the next record, as
+      #     it builds the slices, see `IOStreams::Slice::Collector#add`.
       #
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
@@ -48,11 +50,16 @@ module IOStreams
       #   validate: [true|false]
       #     Whether to parse each row before it is added to its slice, so that a row that the format or the schema
       #     cannot read, such as a value that is not of the type of its field, raises before the slice that holds it
-      #     is yielded, see `IOStreams::Tabular#record_parse`. The slices before it have already been yielded. The slice
+      #     is yielded, see `IOStreams::Tabular#validate_line`. The slices before it have already been yielded. The slice
       #     still holds the row as it is in the file.
       #     Default: false
-      def initialize(rows, tabular:, size:, validate: false)
-        self.class.check(size: size, validate: validate)
+      #
+      #   resume_at: [Integer|nil]
+      #     The number of the record that reading resumes at, so that the first slice starts with it, such as to resume
+      #     the work of a job that processed the slices before it, see `IOStreams::Slice::Collector#initialize`.
+      #     Default: nil, every row
+      def initialize(rows, tabular:, size:, validate: false, resume_at: nil)
+        self.class.check(size: size, validate: validate, resume_at: resume_at)
         unless rows.respond_to?(:each)
           raise(ArgumentError, "Rows must implement #each, yielding each row with its line number, such as " \
                                "IOStreams::Slice::Rows")
@@ -62,6 +69,7 @@ module IOStreams
         @tabular  = tabular
         @size     = size
         @validate = validate
+        @resume_at = resume_at
       end
 
       # Returns [Array<String>] the header row of the file, as it was read, once it has been read, which every slice
@@ -75,13 +83,15 @@ module IOStreams
       # Yields each slice of the rows of the file, see `IOStreams::Slice`, after reading its header row, when it has one,
       # see `IOStreams::Slice::Collector`.
       #
-      # Returns [Integer] the number of rows read, in every slice: not the header row, nor the blank lines before it.
+      # Returns [Integer] the number of rows read, including those before `resume_at`, which are in no slice: not the
+      # header row, nor the blank lines before it.
       # Returns an Enumerator of the slices without a block.
       def each(&)
         return enum_for(:each) unless block_given?
 
-        collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, &)
-        @rows.each { |row, line_number| collector.add(row, line_number) }
+        collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, resume_at: @resume_at, &)
+        # The rows of a slice also give the record number of each row, which the collector keeps, see #initialize.
+        @rows.each { |row, line_number, *record_number| collector.add(row, line_number, *record_number) }
         collector.finish
         collector.count
       end

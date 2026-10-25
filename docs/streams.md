@@ -116,6 +116,51 @@ end
   where the rows of a slice are read, such as `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
 * A `skip_blanks` that is not true or false raises `ArgumentError` before the file is opened.
 
+### Resuming at a record
+
+`resume_at:` starts reading at the record of the number supplied, so that a job that stopped part way through a file,
+such as one that a deploy interrupted, carries on where it left off, rather than processing the file again from its
+start. Records are numbered as the slices of a file number their rows: from 1, without the header row, nor the blank
+lines before it, so that a blank row after it counts:
+
+~~~ruby
+IOStreams.path("people.csv.gz").each(:hash, resume_at: 1_001) do |person|
+  # Starts with the 1,001st person.
+  p person
+end
+
+IOStreams.path("people.csv.gz").each(:slice, size: 500, resume_at: 1_001) do |slice|
+  # 1001, then 1501, and so on.
+  p slice.record_number
+end
+~~~
+
+* The `:array`, `:hash` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
+  cursor of a job that has not started yet, which is usually `nil`, can be supplied as it is. A job that keeps the
+  number of the last record that it processed resumes at the record after it.
+* The file is still read up to that record, since it cannot be read from the middle, such as when it is compressed, but
+  the rows before it are not parsed, so a value that is not valid in one of them does not raise. The one exception is
+  the first record of JSON without a schema in the `:array` mode, whose keys are the columns of every row, so it is
+  read for them, and raises when it is not valid JSON, as reading every row would: give the file a schema, or read it
+  in the `:hash` or `:slice` mode.
+* The header row is still read, and matched to the [schema](formats#schema), and `each(:array)` yields it first.
+* A query is read again from its start, so give the relation an order, such as `order(:id)`, so that its rows come back
+  in the same order each time. Without one, a database may return them in another order, so that the rows skipped are
+  not those that were processed. `in_batches` reads each batch in the order of its primary key.
+* `each(:hash)` yields one record, or `nil` for a blank one, for each record, unless `skip_blanks: true`, so counting
+  the records yielded from `resume_at` gives the number of each one. Each slice holds the line and record number of
+  each of its rows in the file, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
+* A slice resumes at a record number that it holds, as `slice.each` gives them, such as
+  `IOStreams.stream(slice).each(:hash, resume_at: 502)` for a slice of records 501 to 600, or at the record after its
+  last, which reads no rows. A record between its first and last that it no longer holds, such as one removed with
+  `slice.delete_at`, resumes at the row after it, and a slice without rows reads none. A record before its first row,
+  such as the position of a row within it, or after the record after its last, raises `ArgumentError`, so that a cursor
+  of another slice cannot skip its rows, also once its first or last rows were removed, since a slice holds only the
+  numbers of its rows. The slices read from it keep the line and record number of each row.
+* A copy reads every record, so `#copy_from` and `#writer` raise `ArgumentError` for `resume_at:`, which only applies
+  when reading, and a `resume_at` that is neither `nil` nor a positive Integer raises `ArgumentError` before the file
+  is opened.
+
 ### Slices
 
 `each(:slice)` yields the rows of the file a slice at a time, as they are in the file, without parsing them, so that
@@ -137,7 +182,7 @@ IOStreams.stream(slice).schema(schema).each(:hash) do |person|
 end
 ~~~
 
-See [Processing in slices](slices) for handing slices to threads or background jobs, sending them as plain data with
+See [Background jobs](background_jobs) for handing slices to background jobs or threads, resuming a job, sending them as plain data with
 `slice.to_h` and `IOStreams.slice`, validating a file before the work starts, and writing the results back to one file.
 
 ## Writing
@@ -194,7 +239,7 @@ IOStreams.path("people.csv.gz").schema("people.json").writer(:slice) do |io|
 end
 ~~~
 
-See [Writing the results](slices#writing-the-results).
+See [Writing the results](background_jobs#writing-the-results).
 
 ### A store of slices
 
@@ -206,18 +251,20 @@ a store of your own: include `IOStreams::Slice::Target` in its class and impleme
 IOStreams.stream(store).schema("people.json").copy_from("people.csv.gz", mode: :line)
 ~~~
 
-See [A store of slices](slices#a-store-of-slices).
+See [A store of slices](background_jobs#a-store-of-slices).
 
 ## Lines
 
 Lines are split at the line ending of the file, which is the first `\r\n`, `\n` or `\r` that it holds, and the line
-ending is removed from each line. When it is `\r\n`, as in a file written on Windows, a `\n` alone also ends a line,
-so a file whose lines end in both ways, such as a Windows file to which a program on Linux added lines, is read line by
-line.
+ending is removed from each line. When it is `\r\n`, as in a file written on Windows, or `\n`, every line ends at a
+`\n`, and a `\r` before it is removed, so a file whose lines end in both ways, such as a Windows file to which a program
+on Linux added lines, is read line by line, whichever way its first line ends. A `\r` alone within a line of such a
+file is a character of the line. When the first line ends with a `\r` alone, as an old Mac wrote it, every line ends at
+a `\r` instead, and a `\n` is a character of its line.
 
 `delimiter:` splits the file at the String supplied instead, such as `delimiter: "|"`, and then only at it, so
-`delimiter: "\r\n"` keeps a `\n` alone within its line. When writing, it is written after each line, `"\n"` by
-default.
+`delimiter: "\r\n"` keeps a `\n` alone within its line, and `delimiter: "\n"` keeps the `\r` before a `\n`. When
+writing, it is written after each line, `"\n"` by default.
 
 A quoted value of a CSV file can contain a line break, which must not end the line. Lines are split where the format
 of the file expects, so `each(:array)` and `each(:hash)` keep a quoted line break within its row. So does `each(:line)`,
@@ -230,6 +277,9 @@ IOStreams.path("example.csv").each(:line, embedded_within: nil) do |line|
   puts line
 end
 ~~~
+
+To read each line as a row in the `:array`, `:hash` or `:slice` mode, without a header row or quoting, such as a file of
+email addresses, set the `:lines` format, see [Lines of text](formats#lines-of-text).
 
 The reader that `reader(:line)` yields also passes each line to `each_with_line_number` with the number of the line of
 the file that it starts on, as a text editor numbers it, so that a line that holds a quoted line break is named by its
@@ -245,7 +295,7 @@ end
 
 For an Excel spreadsheet, `.xlsx`, the lines are those of the CSV text that its rows are read as, so their numbers are
 not the rows of the sheet, since a cell that holds line breaks takes a line for each. That is why the slices of a
-spreadsheet hold no line numbers, see [Find a row in the file](slices#find-a-row-in-the-file).
+spreadsheet hold no line numbers, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
 
 Other notes:
 

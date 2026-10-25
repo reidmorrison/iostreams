@@ -17,6 +17,12 @@ module IOStreams
         IOStreams::Line::Writer.option_names
       end
 
+      # Raises ArgumentError when nothing names the keys of the records that the tabular renders, see
+      # `IOStreams::Tabular#check_records`, so that a call raises before the file is opened, see `IOStreams::Stream#writer`.
+      def self.check(tabular:)
+        tabular.check_records
+      end
+
       # Create a writer that takes individual records as hashes.
       #
       # Parameters
@@ -25,9 +31,12 @@ module IOStreams
       #
       #   tabular: [IOStreams::Tabular]
       #     Renders each record in its format, and holds the header.
+      #
+      # Raises ArgumentError when nothing names the keys of the records, see .check.
       def initialize(line_writer, tabular:)
         raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
+        self.class.check(tabular: tabular)
         @tabular     = tabular
         @line_writer = line_writer
 

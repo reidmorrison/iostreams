@@ -356,6 +356,50 @@ class LineReaderTest < Minitest::Test
         end
       end
 
+      describe "a file whose first line ends with \"\\n\"" do
+        # Returns [Array<String>] the lines read from the data, in blocks of the supplied size.
+        def lines_of(data, buffer_size: nil, **)
+          lines = []
+          IOStreams::Line::Reader.stream(StringIO.new(data), buffer_size: buffer_size, **) do |io|
+            io.each { |line| lines << line }
+          end
+          lines
+        end
+
+        it "removes the \"\\r\" of a later line that ends with \"\\r\\n\", and keeps \"\\n\" as its delimiter" do
+          data = "name,zip\nJack,12345\r\nJill,98101\nBob,10001\r\n"
+
+          IOStreams::Line::Reader.stream(StringIO.new(data)) { |io| assert_equal "\n", io.delimiter }
+          [nil, 1, 2, 3, 7].each do |buffer_size|
+            assert_equal ["name,zip", "Jack,12345", "Jill,98101", "Bob,10001"], lines_of(data, buffer_size: buffer_size)
+          end
+        end
+
+        it "keeps a \"\\r\" that does not end a line" do
+          assert_equal ["a,b", "c\rd", "e"], lines_of("a,b\nc\rd\r\ne")
+        end
+
+        it "keeps the line break within a quoted value as it is" do
+          data = "a,b\n\"one\r\ntwo\",1\r\n\"three\nfour\",2\n"
+
+          assert_equal ["a,b", "\"one\r\ntwo\",1", "\"three\nfour\",2"], lines_of(data, embedded_within: "\"")
+        end
+
+        it "keeps the \"\\r\" when \"\\n\" is the supplied delimiter" do
+          assert_equal %W[a b\r c], lines_of("a\nb\r\nc\n", delimiter: "\n")
+        end
+
+        it "reads every row of a fixed width file whose later lines end with \"\\r\\n\"" do
+          schema = {"fields" => [{"name" => "name", "width" => 4}, {"name" => "age", "width" => 2, "type" => "integer"}]}
+          records = []
+          IOStreams.stream(StringIO.new("Jack21\nJill22\r\n")).format(:fixed).schema(schema).each(:hash) do |record|
+            records << record
+          end
+
+          assert_equal [{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}], records
+        end
+      end
+
       ["\r\n", "\n", "\r"].each do |delimiter|
         it "autodetect delimiter: #{delimiter.inspect} of text in an encoding that is not ASCII compatible" do
           lines = []

@@ -80,6 +80,13 @@ module IOStreams
         self
       end
 
+      # Raises ArgumentError when this writer would take the columns of the rows from the first row written, for rows
+      # whose columns nothing names, see `IOStreams::Tabular#check_unnamed_rows`, so that a copy of such rows to a writer
+      # supplied to `IOStreams.stream` raises before it writes any row, see `IOStreams::Stream#check_unnamed_rows`.
+      def check_unnamed_rows
+        @tabular.check_unnamed_rows
+      end
+
       # Returns [String] the class and the format of the rows, see `IOStreams::Tabular#format`, rather than every instance
       # variable, such as the tabular and the lines that it writes, so that irb, which displays what a writer block
       # returns, such as the writer that `io << row` returns, shows what the documentation describes.

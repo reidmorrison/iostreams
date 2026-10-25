@@ -43,6 +43,7 @@ module IOStreams
       autoload :Fixed, "io_streams/tabular/parser/fixed"
       autoload :Hash, "io_streams/tabular/parser/hash"
       autoload :Json, "io_streams/tabular/parser/json"
+      autoload :Lines, "io_streams/tabular/parser/lines"
       autoload :Parquet, "io_streams/tabular/parser/parquet"
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
@@ -67,7 +68,7 @@ module IOStreams
     #
     # Parameters
     #   format: [Symbol]
-    #     A registered format, see .registered_formats: :csv, :hash, :array, :json, :psv, :fixed or :parquet
+    #     A registered format, see .registered_formats: :csv, :hash, :array, :json, :lines, :psv, :fixed or :parquet
     #
     #   file_name: [IOStreams::Path | String]
     #     When `:format` is not supplied the file name can be used to infer the required format.
@@ -260,6 +261,17 @@ module IOStreams
       @mapping.record_parse(line)
     end
 
+    # Parses the line, or a row already read, as a reader of its records would, see #record_parse, so that a value that
+    # is not valid raises, for `validate: true`, see `IOStreams::Slice::Collector` and `IOStreams::Slice::Writer`: as a
+    # row instead, see #row_parse, when nothing names the keys of its records, see #unnamed_columns?, such as the lines of
+    # the :lines format without a schema, which have no records, but are rows.
+    #
+    # Returns nil.
+    def validate_line(line)
+      unnamed_columns? ? @mapping.row_parse(line) : @mapping.record_parse(line)
+      nil
+    end
+
     # Returns [Array] the row/line as a parsed Array of values. With a schema, the values of its fields, in the order of
     # the fields, converted to their types, see `IOStreams::Schema::Columns`. For a format whose records supply their own
     # keys, such as JSON, the values of the record in the order of the columns of the rows: every field of a schema,
@@ -319,6 +331,36 @@ module IOStreams
       @mapping.read_header(line)
     end
 
+    # Raises ArgumentError when nothing names the keys of the records of the file, see #unnamed_columns?, so that a reader
+    # or writer of records raises before the file is opened, see `IOStreams::Record::Reader` and
+    # `IOStreams::Record::Writer`.
+    def check_records
+      return unless unnamed_columns?
+
+      raise(ArgumentError, "The #{format.inspect} format has no header row, and its rows have no keys, so the keys of " \
+                           "its records are named by a schema: set one, whose fields name them")
+    end
+
+    # Returns [true|false] whether nothing names the columns of the rows: a format without a header row whose rows have
+    # no keys, such as `:lines`, without a schema, whose fields would name them, so that its records cannot be keyed, see
+    # #check_records, and its rows cannot give a writer their columns, see #check_unnamed_rows.
+    def unnamed_columns?
+      @mapping.unnamed_columns?
+    end
+
+    # Raises ArgumentError when a writer of rows would take the columns of the rows from the first row written, writing
+    # it as the header row, see #render_row, such as CSV or JSON without a schema, for rows whose columns nothing names,
+    # see #unnamed_columns?, such as the lines of the :lines format without a schema, so that the first of them is not
+    # made the header row: before a copy opens its target, see `IOStreams::Stream#check_unnamed_rows`, and before
+    # `IOStreams::Slice::Writer` writes the rows of its first slice.
+    def check_unnamed_rows
+      return unless @mapping.first_row_header?
+
+      raise(ArgumentError, "The rows written have no header row, and nothing names their columns, such as the lines of " \
+                           "the :lines format without a schema, so the first of them would be the header row of the " \
+                           "#{format.inspect} format: set a schema, whose fields name the columns")
+    end
+
     # Returns [Hash<String,Object>] the line as a record, see #record_parse, which a reader of records reads after the
     # header row, see #read_record_line.
     # Returns nil if the line is blank.
@@ -349,6 +391,20 @@ module IOStreams
       columns = as_header_row(@mapping.read_rows_header(line))
       yield columns if columns
       yield @mapping.row_parse(line)
+    end
+
+    # Yields [IOStreams::Row::HeaderRow] the header row that the rows of a file start with when it is not a line of its
+    # own, see #rows_header?, such as the keys of the first record of JSON without a schema, from the supplied line of a
+    # record that a reader of rows skips, see `resume_at:` of `IOStreams::Row::Reader`, without parsing the values of
+    # the record, so that the rows after it have the columns that reading every row gives them. The line of the first
+    # record of JSON without a schema is still parsed for its keys, so one that is not valid JSON raises, as reading every
+    # row would. Yields nothing for any other record. A line is a record once the header row is no longer expected, see
+    # #header?.
+    def skip_record(line)
+      return unless @mapping.rows_header?
+
+      columns = as_header_row(@mapping.read_rows_header(line))
+      yield columns if columns
     end
 
     # Yields [Hash|nil] the record of the line of a file of records, see #read_record, or nil for a blank line, unless
@@ -501,6 +557,7 @@ module IOStreams
     register_format(:fixed, IOStreams::Tabular::Parser::Fixed)
     register_format(:hash, IOStreams::Tabular::Parser::Hash)
     register_format(:json, IOStreams::Tabular::Parser::Json)
+    register_format(:lines, IOStreams::Tabular::Parser::Lines)
     register_format(:parquet, IOStreams::Tabular::Parser::Parquet)
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 

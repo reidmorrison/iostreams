@@ -465,7 +465,7 @@ module IOStreams
       # stream has its own, see `IOStreams::Stream#with_copy_schema`, and in the `:line` mode the format of its lines,
       # see #with_lines_format, whose slices hold whether the blank rows of the source are records.
       def copy_rows(source, rows, mode, options)
-        target = with_copy_schema(source, mode)
+        target = copy_target(source, rows, mode)
         target = target.with_lines_format(source) if mode == :line
         blank_rows    = source.copy_blank_rows?
         lines_of_file = source.copy_lines_of_file?
