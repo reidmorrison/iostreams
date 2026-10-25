@@ -85,8 +85,13 @@ module IOStreams
       # Returns [IOStreams::Tabular] that reads the rows of the slice, see `IOStreams::Stream#tabular`, reading a row
       # whose every value is blank as the slice says, see `IOStreams::Slice#blank_rows?`, so that a row of a query whose
       # every value is null is a record wherever its slice is read, as it is where the query is read.
+      #
+      # The rows start with a header row only when the slice carries one, see `IOStreams::Slice#header`, whatever the
+      # format or the schema says of the file, so that the first row of a slice without one is never read as its header
+      # row. Without a schema, nothing then names the columns of such a slice of a format with a header row, such as CSV,
+      # so that its records cannot be read, see `IOStreams::Tabular#check_records`, while its rows can.
       def tabular(**)
-        super(blank_rows: io_stream.blank_rows?, **)
+        super(blank_rows: io_stream.blank_rows?, header_row: !io_stream.header.nil?, **)
       end
 
       # Yields [NumberedRows] the rows of the slice, after its header row, when it carries one, with the line of the file

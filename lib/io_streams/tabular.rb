@@ -61,8 +61,9 @@ module IOStreams
 
     # The options of #initialize that the stream of a source of rows that is not a file supplies, rather than the path
     # or a call: whether a row whose every value is blank is a blank row, which the rows of a database query are not, see
-    # `IOStreams::Query::Stream`, nor the rows of a slice of them, which carries it, see `IOStreams::Slice::Stream`.
-    SOURCE_OPTION_NAMES = %i[blank_rows].freeze
+    # `IOStreams::Query::Stream`, nor the rows of a slice of them, which carries it, see `IOStreams::Slice::Stream`, and
+    # whether the rows start with a header row, which a slice says, see `IOStreams::Slice#header`.
+    SOURCE_OPTION_NAMES = %i[blank_rows header_row].freeze
 
     # Parse a delimited data source.
     #
@@ -100,16 +101,24 @@ module IOStreams
     #     a database query, see `IOStreams::Query::Stream`, and of a slice that says so, see `IOStreams::Slice::Stream`.
     #     Not an option of a call that reads or writes rows.
     #     Default: true
+    #
+    #   header_row: [true|false|nil]
+    #     Whether the rows start with a header row, for a format that has one, such as CSV, whatever the schema says of
+    #     the file, see `IOStreams::Schema#with_header`: true or false for the rows of a slice, which says whether it
+    #     carries one, see `IOStreams::Slice::Stream`, so that none of its rows is read as the header row. Without a
+    #     schema, nothing then names the columns of rows that do not start with one, see #unnamed_columns?.
+    #     Not an option of a call that reads or writes rows.
+    #     Default: nil, as the schema says, otherwise as the format says, such as for a file.
     def initialize(format: nil, file_name: nil, schema: nil, default_format: :csv, row_format_options: nil,
-                   blank_rows: true)
+                   blank_rows: true, header_row: nil)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
 
-      @schema             = schema
+      @schema             = header_row.nil? ? schema : schema&.with_header(header_row)
       @row_format_options = row_format_options || {}
       @parser             = self.class.parser_class(@format).new(schema: @schema)
-      @mapping            = build_mapping(schema, blank_rows)
+      @mapping            = build_mapping(@schema, blank_rows, header_row)
     end
 
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
@@ -120,9 +129,8 @@ module IOStreams
     # Raises ArgumentError for rows of a format with a header row, such as CSV, that do not start with one, without a
     # schema, which would name their columns.
     def for_format(format, header:, blank_rows: true)
-      schema  = @schema&.with_header(header)
-      tabular = self.class.new(format: format, schema: schema, blank_rows: blank_rows)
-      return tabular if header || !tabular.requires_header?
+      tabular = self.class.new(format: format, schema: @schema, blank_rows: blank_rows, header_row: header)
+      return tabular unless tabular.unnamed_columns? && tabular.parser.requires_header?
 
       raise(ArgumentError, "Rows of the #{format.inspect} format without a header row are read by a schema, which " \
                            "names their columns: set the schema of the file")
@@ -337,8 +345,10 @@ module IOStreams
     def check_records
       return unless unnamed_columns?
 
-      raise(ArgumentError, "The #{format.inspect} format has no header row, and its rows have no keys, so the keys of " \
-                           "its records are named by a schema: set one, whose fields name them")
+      # The rows of a format with a header row, such as those of a slice of CSV, do not start with one, see #initialize.
+      no_header = parser.requires_header? ? "rows do not start with a header row" : "format has no header row"
+      raise(ArgumentError, "The #{format.inspect} #{no_header}, and its rows have no keys, so the keys of its records " \
+                           "are named by a schema: set one, whose fields name them")
     end
 
     # Returns [true|false] whether nothing names the columns of the rows: a format without a header row whose rows have
@@ -570,14 +580,15 @@ module IOStreams
     end
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the
-    # schema supplied, otherwise by the header row, which it cleanses. A row whose every value is blank is a blank row
-    # unless `blank_rows` is false.
-    def build_mapping(schema, blank_rows)
+    # schema supplied, otherwise by the header row, which it cleanses, unless `header_row` is false, see #initialize. A
+    # row whose every value is blank is a blank row unless `blank_rows` is false.
+    def build_mapping(schema, blank_rows, header_row)
       header = Header.new
       if schema
         SchemaMapping.new(schema, header: header, parser: parser, format: format, blank_rows: blank_rows)
       else
-        HeaderMapping.new(header: header, parser: parser, format: format, blank_rows: blank_rows)
+        HeaderMapping.new(header: header, parser: parser, format: format, blank_rows: blank_rows,
+                          header_row: header_row != false)
       end
     end
   end
