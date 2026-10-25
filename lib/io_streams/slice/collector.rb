@@ -48,8 +48,8 @@ module IOStreams
         Utils.finish_or_abort(finish: -> { collector.finish }) { yield collector }
       end
 
-      # Returns [Integer] the number of rows collected, in every slice: not the header row, nor the blank lines before
-      # it.
+      # Returns [Integer] the number of rows collected, in every slice, and those before `resume_at`, which are in none:
+      # not the header row, nor the blank lines before it.
       attr_reader :count
 
       # Parameters
@@ -66,6 +66,12 @@ module IOStreams
       #     slice still holds the row as it is in the file.
       #     Default: false
       #
+      #   resume_at: [Integer|nil]
+      #     The number of the record that the slices start at, such as to resume the work of a job that processed the
+      #     slices before it: the rows of the records before it are counted, so that the rows from it on keep their
+      #     record numbers, but are not parsed, nor added to a slice.
+      #     Default: nil, every row
+      #
       #   on_header: [Proc]
       #     Called once with the header row of the file, as it was read, see #header, as soon as it has been read, and
       #     matched to the fields of the schema, before the first slice, also when the file has no rows after it. Not
@@ -75,10 +81,12 @@ module IOStreams
       # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
       #
       # The caller checks the options before anything is opened, see .check.
-      def initialize(tabular:, size:, validate: false, on_header: nil, &on_slice)
+      def initialize(tabular:, size:, validate: false, resume_at: nil, on_header: nil, &on_slice)
         @tabular   = tabular
         @size      = size
         @validate  = validate
+        # The number of records before `resume_at`, which are counted, but not collected.
+        @skip      = resume_at ? resume_at - 1 : 0
         @on_slice  = on_slice
         @on_header = on_header if tabular.requires_header?
         @slice     = nil
@@ -99,11 +107,16 @@ module IOStreams
       #     Default: nil, a row that is not a line of a file.
       #
       # The row is numbered as the next record, counting from 1 without the header row, see
-      # `IOStreams::Slice#record_number_at`.
+      # `IOStreams::Slice#record_number_at`. A record before `resume_at` is only counted, see #initialize.
       #
       # Returns self, so that calls can be chained.
       def add(row, line_number = nil)
         @tabular.read_line(row.nil? ? "" : row) do |line|
+          if @count < @skip
+            @count += 1
+            next
+          end
+
           @tabular.validate_line(line) if @validate
           @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
           @count += 1

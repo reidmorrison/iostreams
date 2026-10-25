@@ -280,7 +280,7 @@ class SliceReaderTest < Minitest::Test
 
       it "lists the options of the mode" do
         error = assert_raises(ArgumentError) { slices(stream(csv), size: 2, unknown: 1) }
-        assert_match(/Valid options: :delimiter, :buffer_size, :size, :validate\.\z/, error.message)
+        assert_match(/Valid options: :delimiter, :buffer_size, :size, :validate, :resume_at\.\z/, error.message)
       end
 
       it "raises for a setting that describes the file, which is set on the path" do

@@ -161,6 +161,14 @@ module IOStreams
       raise(ArgumentError, "Invalid #{name} #{value.inspect}: supply true or false")
     end
 
+    # Raises ArgumentError for a value of the option of the supplied name that is neither nil nor a positive Integer,
+    # such as the number of the record that reading resumes at, see `IOStreams::Row::Reader`.
+    def self.check_record_number(name, value)
+      return if value.nil? || (value.is_a?(Integer) && value.positive?)
+
+      raise(ArgumentError, "Invalid #{name} #{value.inspect}: supply the number of a record, counting from 1, or nil")
+    end
+
     # Returns [Regexp] the pattern of blank text in the supplied encoding, see .blank_text?, created once for each one.
     def self.encoded_blank_text(encoding)
       @encoded_blank_texts_mutex.synchronize do

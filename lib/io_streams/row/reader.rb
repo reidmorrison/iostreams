@@ -8,10 +8,11 @@ module IOStreams
       include Enumerable
 
       # Returns [Array<Symbol>] the options of each call that reads rows, see `IOStreams::Stream#reader`, which raises
-      # for any other: those of the lines that it reads, see .line_option_names, and whether to skip the blank rows, see
-      # #initialize. The tabular that parses them takes the settings of the path instead, such as its schema.
+      # for any other: those of the lines that it reads, see .line_option_names, whether to skip the blank rows, and the
+      # record that reading resumes at, see #initialize. The tabular that parses them takes the settings of the path
+      # instead, such as its schema.
       def self.option_names
-        [*line_option_names, :skip_blanks]
+        [*line_option_names, :skip_blanks, :resume_at]
       end
 
       # Returns [Array<Symbol>] the options of the lines that rows are read from, which a call supplies: those of
@@ -22,10 +23,11 @@ module IOStreams
         IOStreams::Line::Reader.option_names - %i[embedded_within]
       end
 
-      # Raises ArgumentError for a `skip_blanks` that is not true or false, see #initialize, so that a call raises before
-      # the file is opened, see `IOStreams::Stream#each`.
-      def self.check(skip_blanks: false)
+      # Raises ArgumentError for a `skip_blanks` that is not true or false, or a `resume_at` that is neither nil nor a
+      # positive Integer, see #initialize, so that a call raises before the file is opened, see `IOStreams::Stream#each`.
+      def self.check(skip_blanks: false, resume_at: nil)
         IOStreams::Utils.check_boolean(:skip_blanks, skip_blanks)
+        IOStreams::Utils.check_record_number(:resume_at, resume_at)
       end
 
       # Create a reader that returns the stream rows as arrays.
@@ -43,8 +45,16 @@ module IOStreams
       #     `IOStreams::Tabular#blank?`. Keep the default to count the lines of the file from the rows yielded, such as to
       #     report the line of a row that is not valid.
       #     Default: false
-      def initialize(line_reader, tabular:, skip_blanks: false)
-        self.class.check(skip_blanks: skip_blanks)
+      #
+      #   resume_at: [Integer|nil]
+      #     The number of the record that reading resumes at, so that #each yields the rows from that record on, such as
+      #     to resume the work of a job that processed the records before it. Records are counted as the slices of the
+      #     file number them, see `IOStreams::Slice#record_number_at`: from 1, without the header row, nor the blank
+      #     lines before it, so that a blank row after it counts. The lines of the records before it are read, but not
+      #     parsed. #each still yields the header row first, see #header?.
+      #     Default: nil, every row
+      def initialize(line_reader, tabular:, skip_blanks: false, resume_at: nil)
+        self.class.check(skip_blanks: skip_blanks, resume_at: resume_at)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
@@ -52,6 +62,8 @@ module IOStreams
         @tabular     = tabular
         @line_reader = line_reader
         @skip_blanks = skip_blanks
+        # The number of records before `resume_at`, which #each reads without parsing.
+        @skip        = resume_at ? resume_at - 1 : 0
       end
 
       # Returns [true|false] whether nothing names the columns of the rows, see `IOStreams::Tabular#unnamed_columns?`, such
@@ -82,11 +94,13 @@ module IOStreams
       # With a schema, the header row is the names of the fields of its columns, and each row is the values of those
       # fields, in the order of the fields, without the columns that the schema skips, see `IOStreams::Tabular#row_parse`.
       #
-      # A blank row is yielded as nil, unless `skip_blanks` is true, which skips it, see #initialize.
+      # A blank row is yielded as nil, unless `skip_blanks` is true, which skips it, see #initialize. With `resume_at`,
+      # the rows start with that record, see #initialize.
       #
       # Returns an Enumerator of the rows without a block.
       def each(&block)
         return enum_for(:each) unless block
+        return each_resumed(&block) if @skip.positive?
         return @line_reader.each { |line| @tabular.read_row(line, &block) } unless @skip_blanks
 
         @line_reader.each { |line| @tabular.read_row(line) { |row| yield row unless row.nil? } }
@@ -117,6 +131,25 @@ module IOStreams
       # returns, shows what the documentation describes.
       def inspect
         "#<#{self.class.name} format=#{@tabular.format.inspect}>"
+      end
+
+      private
+
+      # Yields the header row, and the rows of the records from `resume_at` on, see #initialize, without parsing the
+      # lines of the records before it: a line is a record unless it is the header row, while the tabular expects it, see
+      # `IOStreams::Tabular#header?`. The first record of a file whose rows start with a header row that is not a line
+      # of its own is parsed for it, see `IOStreams::Tabular#rows_header?`, such as the keys of the first record of JSON
+      # without a schema, so that the rows have the same columns as when every row is read.
+      def each_resumed
+        skip = @skip
+        @line_reader.each do |line|
+          if skip.positive? && !@tabular.header?
+            skip -= 1
+            @tabular.read_row(line) { |row| yield(row) if row.is_a?(HeaderRow) } if @tabular.rows_header?
+          else
+            @tabular.read_row(line) { |row| yield(row) unless @skip_blanks && row.nil? }
+          end
+        end
       end
     end
   end

@@ -116,6 +116,40 @@ end
   where the rows of a slice are read, such as `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
 * A `skip_blanks` that is not true or false raises `ArgumentError` before the file is opened.
 
+### Resuming at a record
+
+`resume_at:` starts reading at the record of the number supplied, so that a job that stopped part way through a file,
+such as one that a deploy interrupted, carries on where it left off, rather than processing the file again from its
+start. Records are numbered as the slices of a file number their rows: from 1, without the header row, nor the blank
+lines before it, so that a blank row after it counts:
+
+~~~ruby
+IOStreams.path("people.csv.gz").each(:hash, resume_at: 1_001) do |person|
+  # Starts with the 1,001st person.
+  p person
+end
+
+IOStreams.path("people.csv.gz").each(:slice, size: 500, resume_at: 1_001) do |slice|
+  # 1001, then 1501, and so on.
+  p slice.record_number
+end
+~~~
+
+* The `:array`, `:hash` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
+  cursor of a job that has not started yet, which is usually `nil`, can be supplied as it is. A job that keeps the
+  number of the last record that it processed resumes at the record after it.
+* The file is still read up to that record, since it cannot be read from the middle, such as when it is compressed, but
+  the rows before it are not parsed, so a value that is not valid in one of them does not raise.
+* The header row is still read, and matched to the [schema](formats#schema), and `each(:array)` yields it first.
+* `each(:hash)` yields one record, or `nil` for a blank one, for each record, unless `skip_blanks: true`, so counting
+  the records yielded from `resume_at` gives the number of each one. Each slice holds the line and record number of
+  each of its rows in the file, see [Find a row in the file](slices#find-a-row-in-the-file).
+* The slices or records read from a slice, such as with `IOStreams.stream(slice).each(:hash, resume_at: 10)`, count
+  from 1 within the slice, as the slices read from it number their records.
+* A copy reads every record, so `#copy_from` and `#writer` raise `ArgumentError` for `resume_at:`, which only applies
+  when reading, and a `resume_at` that is neither `nil` nor a positive Integer raises `ArgumentError` before the file
+  is opened.
+
 ### Slices
 
 `each(:slice)` yields the rows of the file a slice at a time, as they are in the file, without parsing them, so that
