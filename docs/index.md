@@ -253,7 +253,7 @@ end
 
 ~~~ruby
 IOStreams.path("s3://my-bucket/people.csv.gz").each(:slice, size: 500) do |slice|
-  ImportPeopleJob.perform_later(slice.to_h)
+  ImportPeopleSliceJob.perform_later(slice.to_h)
 end
 ~~~
 

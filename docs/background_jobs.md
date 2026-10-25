@@ -322,6 +322,8 @@ end
   but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema.
 * `each(:hash, resume_at: cursor)` works too, for a job that keeps a cursor for each record, see
   [Resuming at a record](streams#resuming-at-a-record).
+* A query is read again from its start too, so give the relation an order, such as `order(:id)`, so that its rows come
+  back in the same order each time, and the rows skipped are those that were processed.
 * The job of one slice resumes the same way, with `IOStreams.stream(slice).each(:hash, resume_at: cursor)`, where the
   cursor is one of the record numbers that the slice holds, as `slice.each` gives them, or the one after its last. A
   number that the slice does not hold raises `ArgumentError`, so that a cursor from another slice cannot skip its rows.
@@ -632,7 +634,7 @@ workers = 4.times.map do
   Thread.new do
     while (slice = queue.pop)
       IOStreams.stream(slice).schema(schema).each(:hash) do |person|
-        Person.create!(person)
+        Person.create!(person) if person
       end
     end
   end
@@ -647,6 +649,7 @@ workers.each(&:join)
 
 * The schema is read once, and its Hash is given to the stream of each slice. A path to the schema file would work
   too, but each slice would read the file again.
+* A blank row is read as `nil`, which the worker skips.
 * `Thread::Queue#pop` returns nil once the queue is closed and empty, which ends each worker's loop.
 
 ## Details
