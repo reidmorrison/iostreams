@@ -2,9 +2,10 @@
 
 require_relative "query_helper"
 
-# Reads a query on SQLite with a statement of the sqlite3 gem, see `IOStreams::Query::SqliteStatement`.
+# Reads a query on SQLite with a statement of the sqlite3 gem, see `IOStreams::Query::SqliteStatement`, which JRuby
+# cannot load, see SqliteJdbcTest.
 class SqliteStatementTest < Minitest::Test
-  if (database = QueryDatabase.find("SQLite"))
+  if (database = QueryDatabase.find("SQLite")) && !QueryDatabase.jdbc?
     describe IOStreams::Query::SqliteStatement do
       include QueryTestMethods
 

@@ -191,6 +191,23 @@ can be retried on `Unavailable`, whether it reads a query or a file:
 | `PermissionDenied` | `ActiveRecord::DatabaseConnectionError` for a user name or password that the database rejects, when its driver does not say otherwise | `PG::InsufficientPrivilege`, for a table or column that the user may not read, or `PG::ConnectionBad` for credentials that the server does not accept, by any method of authentication, such as a password, a client certificate, peer, PAM or LDAP, a role that may not log in, or connect to the database, or a host that `pg_hba.conf` rejects | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for an access that MySQL denies, such as error 1045 for a password that it rejects, 1044 for a database that the user may not use, 1142 for a table that the user may not read, or 1370 for a function that the user may not run, or for an account that it does not let connect, such as 3118 for one that is locked, 1862 for one whose password has expired, or 1130 for a client host that no account allows | `SQLite3::PermissionException` or `SQLite3::AuthorizationException` |
 | `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `PG::ConnectionBad` for a server that refused the connection, could not be reached, timed out, is starting up or shutting down, or has no connection free, or a temporary failure to resolve its host, `PG::AdminShutdown` or `PG::CrashShutdown` for a server that ended the query, and `PG::UnableToSend` for a query that could not be sent, since the connection was lost | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for a connection that was refused or lost, a temporary failure to resolve its host, too many connections, a server that is shutting down, a lock wait timeout, a deadlock, or a query that `KILL QUERY` or `max_execution_time` interrupted, also while mysql2 streams the rows of the query, `Mysql2::Error::TimeoutError` or `Trilogy::TimeoutError` for the `read_timeout` of the driver, and `Trilogy::EOFError` for a connection that the server closed | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
 
+On JRuby, the adapters of AR-JDBC raise `ActiveRecord::JDBCError` for every failure of their driver, also for a
+connection that could not be made, rather than `ActiveRecord::ConnectionNotEstablished`, apart from a database that does
+not exist, or that the user may not use, which is `ActiveRecord::NoDatabaseError`, and a query that PostgreSQL cancels,
+which is `ActiveRecord::QueryCanceled`. It is tagged by the `java.sql.SQLException` of the driver that it wraps:
+
+* On PostgreSQL, by its SQLSTATE: `PermissionDenied` for a role or host that may not connect (`28000`), a password
+  that the server rejects (`28P01`), or a table that the role may not read (`42501`), and `Unavailable` for a
+  connection that could not be made, or was lost (`08001`, `08003` and `08006`), too many connections (`53300`), or a
+  server that shut down, crashed, or is starting up (`57P01` to `57P03`).
+* On MySQL, by the error number of the server, as for `mysql2`, and as `Unavailable` for a connection that Connector/J
+  could not make, or lost, which it raises without a number.
+* On SQLite, by the result code of SQLite: `SQLITE_BUSY` and `SQLITE_LOCKED` are `Unavailable`, and `SQLITE_PERM` and
+  `SQLITE_AUTH` are `PermissionDenied`.
+
+A host that does not resolve, a `java.net.UnknownHostException`, is not tagged, apart from a temporary failure to resolve
+it.
+
 The exception of a driver is tagged whether Active Record raised it, or an exception whose `#cause` it is. mysql2 raises
 an error that ends the rows of a query while it streams them with its message alone, so that the error of MySQL is told
 by its message, which the server says in English, unless its `lc_messages` says otherwise. A connection that could not

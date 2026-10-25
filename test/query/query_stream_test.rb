@@ -35,8 +35,17 @@ class QueryStreamTest < Minitest::Test
         end
       end
 
+      # Returns [Array<Class>] the sources that define the supplied method themselves, rather than inherit it, such as
+      # `IOStreams::Query::SqliteJdbc.requirable_types`, since Minitest would keep the stub of an inherited method once
+      # it restores it.
+      def sources_defining(name)
+        IOStreams::Query::SOURCES.map { |source| IOStreams::Query.const_get(source) }.select do |source|
+          source.method(name).owner == source.singleton_class
+        end
+      end
+
       # Yields while no source reads the connection, as for an adapter that cannot stream a query, such as trilogy.
-      def without_sources(sources = IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }, &)
+      def without_sources(sources = sources_defining(:reads?), &)
         return yield if sources.empty?
 
         sources.first.stub(:reads?, false) { without_sources(sources.drop(1), &) }
@@ -403,11 +412,20 @@ class QueryStreamTest < Minitest::Test
           read     = events("IOStreams Query") { assert_equal 1, each(IOStreams.stream(relation)).size }
 
           assert_equal 1, read.size
-          assert_match(%r{ /\* exported \*/\z}, read.first[:sql])
-          # A source that declares a cursor for the query, such as on PostgreSQL, runs its SQL within that statement.
-          assert_operator read.first[:sql], :end_with?, load.first[:sql]
+          if QueryDatabase.jdbc?
+            # AR-JDBC applies no query transformer to a statement that it runs, its own, or the cursor of PostgreSQL, while
+            # a source that runs the query with its driver applies them, as Active Record defines them.
+            expected = db.name == "PostgreSQL" ? load.first[:sql] : "#{load.first[:sql]} /* exported */"
+
+            assert_operator read.first[:sql], :end_with?, expected
+          else
+            assert_match(%r{ /\* exported \*/\z}, read.first[:sql])
+            # A source that declares a cursor for the query, such as on PostgreSQL, runs its SQL within that statement.
+            assert_operator read.first[:sql], :end_with?, load.first[:sql]
+          end
+
           assert_equal load.first[:binds], read.first[:binds]
-          assert_equal load.first[:type_casted_binds], read.first[:type_casted_binds]
+          assert_equal type_casted_binds(load.first), type_casted_binds(read.first)
           # Active Record names a statement that it prepares, which a DECLARE never is.
           assert_empty load.first.keys - read.first.keys - [:statement_name]
         ensure
@@ -456,7 +474,7 @@ class QueryStreamTest < Minitest::Test
       describe "#schema" do
         # Yields while every source says that a column that is never null always has a value once cast, when it is of
         # one of the types, see `IOStreams::Query::SqliteStatement.requirable_types`.
-        def with_requirable_types(types, sources = IOStreams::Query::SOURCES.map { |name| IOStreams::Query.const_get(name) }, &)
+        def with_requirable_types(types, sources = sources_defining(:requirable_types), &)
           return yield if sources.empty?
 
           sources.first.stub(:requirable_types, types) { with_requirable_types(types, sources.drop(1), &) }
@@ -785,8 +803,13 @@ class QueryStreamTest < Minitest::Test
           begin
             error = assert_raises(IOStreams::Errors::InvalidHeader) { each(stream) }
 
-            assert_match(/\AThe columns of the query changed after it was described, from \[.*"secret"\] to \[.*"secret", "extra"\]\z/,
-                         error.message)
+            if [IOStreams::Query::MysqlJdbc, IOStreams::Query::SqliteJdbc].include?(source)
+              # Whose driver yields the values of each row without the names of the columns.
+              assert_match(/\AThe columns of the query changed after it was described, from \d+ columns to \d+\z/, error.message)
+            else
+              assert_match(/\AThe columns of the query changed after it was described, from \[.*"secret"\] to \[.*"secret", "extra"\]\z/,
+                           error.message)
+            end
           ensure
             db.record.with_connection { |connection| connection.remove_column(:orders, :extra) }
             db.order.reset_column_information

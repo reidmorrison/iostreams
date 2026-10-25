@@ -15,8 +15,13 @@ gem "rake"
 # To read the rows of an Active Record query, see IOStreams::Query. CI also tests the earliest version that it supports,
 # with ACTIVERECORD_VERSION="7.2.3": the latest 7.2 that minitest 6 allows, which needs json 2, since it passes an
 # option to JSON that json 3 removed.
+# JRuby reads each database with an adapter of AR-JDBC, see below, whose adapters of PostgreSQL and MySQL have no release
+# for Active Record 8.1 yet, so it runs 8.0, whose Active Support also passes an option to JSON that json 3 removed.
 activerecord = ENV.fetch("ACTIVERECORD_VERSION", "")
-if activerecord.empty?
+if activerecord.empty? && RUBY_ENGINE == "jruby"
+  gem "activerecord", "~> 8.0.0"
+  gem "json", "< 3"
+elsif activerecord.empty?
   gem "activerecord", "~> 8.1.0"
 else
   gem "activerecord", activerecord
@@ -38,13 +43,22 @@ gem "ed25519"
 gem "jruby-openssl", "< 0.19", platform: :jruby
 gem "nokogiri"
 gem "parquet", platform: :ruby # A Rust extension, which JRuby cannot load.
-gem "pg", platform: :ruby # A C extension, which JRuby cannot load, so the PostgreSQL query tests skip on JRuby.
+gem "pg", platform: :ruby # A C extension, which JRuby cannot load, so JRuby reads PostgreSQL with AR-JDBC, see below.
 gem "rubyzip"
-gem "sqlite3", platform: :ruby # A C extension, which JRuby cannot load, so the query tests skip on JRuby.
+gem "sqlite3", platform: :ruby # A C extension, which JRuby cannot load, so JRuby reads SQLite with AR-JDBC, see below.
 gem "symmetric-encryption"
 gem "xlsxtream"
 gem "zip_kit"
 gem "zstd-ruby", platform: :ruby # A C extension, so JRuby uses the zstd-jni jar instead, see test/zstd_jni.rb.
+
+# The adapters of AR-JDBC, with which JRuby reads SQLite, PostgreSQL and MySQL, for the query tests, see
+# test/query/query_helper.rb, in place of the C extensions above. Pre-releases, which are all that AR-JDBC has released
+# for Active Record 8.0. The drivers of each database are jars, so MySQL needs no client library on JRuby.
+platforms :jruby do
+  gem "activerecord-jdbcmysql-adapter", "~> 80.0.pre1"
+  gem "activerecord-jdbcpostgresql-adapter", "~> 80.0.pre1"
+  gem "activerecord-jdbcsqlite3-adapter", "~> 80.0.pre1"
+end
 
 # To test reading an HTTP path under a Fiber scheduler. Its io-event dependency is a C extension.
 gem "async", platform: :ruby

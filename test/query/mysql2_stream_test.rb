@@ -2,13 +2,16 @@
 
 require_relative "query_helper"
 
-# Reads a query on MySQL with the mysql2 gem, see `IOStreams::Query::Mysql2Stream`, when MYSQL_URL is set.
+# Reads a query on MySQL with the mysql2 gem, see `IOStreams::Query::Mysql2Stream`, when MYSQL_URL is set, or on JRuby
+# with the MySQL adapter of AR-JDBC, see `IOStreams::Query::MysqlJdbc`, which reads it as `Mysql2Stream` does, apart from
+# what its driver, Connector/J, raises.
 class Mysql2StreamTest < Minitest::Test
   if (database = QueryDatabase.find("MySQL"))
-    describe IOStreams::Query::Mysql2Stream do
+    describe(QueryDatabase.jdbc? ? IOStreams::Query::MysqlJdbc : IOStreams::Query::Mysql2Stream) do
       include QueryTestMethods
 
       let(:db) { database }
+      let(:jdbc) { QueryDatabase.jdbc? }
       let(:orders) { db.order.order(:id) }
       # The orders on another pool, which watches the connection that reads a query, since that cannot run a query
       # while it streams a result.
@@ -81,6 +84,33 @@ class Mysql2StreamTest < Minitest::Test
         end
       end
 
+      # Returns [Class] the exception that the driver raises for an error that ends a streamed result.
+      def driver_error
+        jdbc ? ActiveRecord::JDBCError : Mysql2::Error
+      end
+
+      # Returns [Class] the exception that Active Record raises for a connection that could not be made, which AR-JDBC
+      # raises as it raises every error of its driver, `ActiveRecord::JDBCError`, apart from one whose message names the
+      # database, `ActiveRecord::NoDatabaseError`.
+      def connection_error
+        jdbc ? ActiveRecord::StatementInvalid : ActiveRecord::ConnectionNotEstablished
+      end
+
+      # Returns [Integer] the number of the error of MySQL that caused the supplied exception of Active Record, which on
+      # JRuby is, or was caused by, an `ActiveRecord::JDBCError`, or the `java.sql.SQLException` of Connector/J.
+      def error_number(error)
+        return error.cause.error_number unless jdbc
+
+        error = error.cause until error.respond_to?(:error_code)
+        error.error_code
+      end
+
+      # Asserts the number of the error of MySQL that the driver ended a streamed result with: none from mysql2, which
+      # raises it without its number, see `IOStreams::Query::MysqlFailure`, and the supplied one from Connector/J.
+      def assert_streamed_number(number, error)
+        jdbc ? assert_equal(number, error.error_code) : assert_nil(error.error_number)
+      end
+
       # Returns [String] the value of the supplied variable of the session of the supplied id, which another connection
       # reads, since the connection that reads a query cannot run a query while it streams a result.
       def variable(connection_id, name)
@@ -104,8 +134,11 @@ class Mysql2StreamTest < Minitest::Test
         orders.select(:id, Arel.sql("CONNECTION_ID() AS session"))
       end
 
-      it "reads a connection of mysql2" do
-        assert(db.record.with_connection { |connection| IOStreams::Query::Mysql2Stream.reads?(connection) })
+      it "reads a connection of mysql2, or on JRuby one of the MySQL adapter of AR-JDBC, whose name is the same" do
+        db.record.with_connection do |connection|
+          assert_equal !jdbc, IOStreams::Query::Mysql2Stream.reads?(connection)
+          assert_equal jdbc, IOStreams::Query::MysqlJdbc.reads?(connection)
+        end
       end
 
       it "raises net_write_timeout while the rows are read, and sets it back" do
@@ -297,10 +330,9 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal 3, db.order.count
       end
 
-      # mysql2 raises an error that ends a streamed result without its number, see `IOStreams::Query::MysqlFailure`.
       it "tags a query that KILL QUERY ends while its rows are read as Unavailable" do
         rows  = 0
-        error = assert_raises(Mysql2::Error) do
+        error = assert_raises(driver_error) do
           IOStreams.stream(slow_orders("iostreams kill query")).each(:hash) do |_order|
             kill("QUERY", "iostreams kill query") if rows.zero?
             rows += 1
@@ -308,18 +340,19 @@ class Mysql2StreamTest < Minitest::Test
         end
 
         assert_kind_of IOStreams::Errors::Unavailable, error
-        assert_nil error.error_number
-        assert_equal "#{db.order.name} query: Query execution was interrupted", error.message
+        assert_streamed_number 1317, error
+        # Which AR-JDBC names with the class of the exception of Connector/J.
+        assert_match(/\A#{db.order.name} query: (?:com\.mysql\.\S+: )?Query execution was interrupted\z/, error.message)
         assert_operator rows, :<, 103
       end
 
       it "tags a query that max_execution_time ends while its rows are read as Unavailable" do
         rows   = 0
         stream = IOStreams.stream(slow_orders("iostreams timeout").optimizer_hints("MAX_EXECUTION_TIME(300)"))
-        error  = assert_raises(Mysql2::Error) { stream.each(:hash) { |_order| rows += 1 } }
+        error  = assert_raises(driver_error) { stream.each(:hash) { |_order| rows += 1 } }
 
         assert_kind_of IOStreams::Errors::Unavailable, error
-        assert_nil error.error_number
+        assert_streamed_number 3024, error
         assert_equal "#{db.order.name} query: Query execution was interrupted, maximum statement execution time exceeded",
                      error.message
         assert_operator rows, :<, 103
@@ -327,7 +360,7 @@ class Mysql2StreamTest < Minitest::Test
 
       it "tags a connection that the server ends while the rows are read as Unavailable" do
         rows  = 0
-        error = assert_raises(Mysql2::Error) do
+        error = assert_raises(driver_error) do
           IOStreams.stream(slow_orders("iostreams kill connection")).each(:hash) do |_order|
             kill("CONNECTION", "iostreams kill connection") if rows.zero?
             rows += 1
@@ -335,9 +368,11 @@ class Mysql2StreamTest < Minitest::Test
         end
 
         assert_kind_of IOStreams::Errors::Unavailable, error
-        assert_nil error.error_number
-        # As the client library of Oracle, or that of MariaDB, says it.
-        assert_match(/\A#{db.order.name} query: Lost connection to (?:MySQL )?server during query\z/, error.message)
+        assert_streamed_number 0, error
+        # As the client library of Oracle, or that of MariaDB, says it, or Connector/J, for the socket that was closed.
+        lost = jdbc ? "Error retrieving record: .*EOFException" : "Lost connection to (?:MySQL )?server during query\\z"
+
+        assert_match(/\A#{db.order.name} query: #{lost}/m, error.message)
         assert_operator rows, :<, 103
       end
 
@@ -361,16 +396,21 @@ class Mysql2StreamTest < Minitest::Test
 
       it "tags a server that refuses the connection as Unavailable" do
         orders = db.orders_at("Refused", port: 1)
-        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::Unavailable, error
-        # CR_CONNECTION_ERROR or CR_CONN_HOST_ERROR, as the client library reports a refused connection.
-        assert_includes [2002, 2003], error.cause.error_number
+        if jdbc
+          # The communications link failure of Connector/J, which has no number.
+          assert_equal "08S01", error.sql_state
+        else
+          # CR_CONNECTION_ERROR or CR_CONN_HOST_ERROR, as the client library reports a refused connection.
+          assert_includes [2002, 2003], error.cause.error_number
+        end
       end
 
       it "tags a password that the server rejects as PermissionDenied" do
         orders = db.orders_at("Wrong", password: "wrong")
-        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::PermissionDenied, error
       end
@@ -378,20 +418,20 @@ class Mysql2StreamTest < Minitest::Test
       it "tags a user that may not use the database as PermissionDenied" do
         stranger = create_user("stranger")
         orders   = db.orders_at("Stranger", user: stranger, password: "stranger")
-        error    = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+        error    = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
         assert_kind_of IOStreams::Errors::PermissionDenied, error
-        assert_equal 1044, error.cause.error_number
+        assert_equal 1044, error_number(error)
       end
 
       it "tags an account that MySQL does not let connect as PermissionDenied, such as one that is locked" do
         refused_accounts.each do |role, options, password, number|
           user   = create_user(role, options)
           orders = db.orders_at("Refused#{role.capitalize}", user: user, password: password)
-          error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+          error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
           assert_kind_of IOStreams::Errors::PermissionDenied, error, role
-          assert_equal number, error.cause.error_number, role
+          assert_equal number, error_number(error), role
         end
       end
 
@@ -402,12 +442,12 @@ class Mysql2StreamTest < Minitest::Test
         end
 
         assert_kind_of IOStreams::Errors::PermissionDenied, error
-        assert_equal 1370, error.cause.error_number
+        assert_equal 1370, error_number(error)
       end
 
       it "does not tag a host that does not resolve" do
         orders = db.orders_at("Unknown", host: "iostreams-no-such-host.invalid")
-        error  = assert_raises(ActiveRecord::ConnectionNotEstablished) { each(IOStreams.stream(orders.all)) }
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
 
         refute_kind_of IOStreams::Errors::StorageError, error
       end
@@ -509,6 +549,7 @@ class Mysql2StreamTest < Minitest::Test
         end
 
         it "raises for a TIME outside a day, which mysql2 reads as nil, or the next day, or raises for" do
+          skip "Connector/J raises for a TIME outside a day itself, see below" if jdbc
           ["25:30:00", "-01:00:00", "838:59:59", "24:00:00", "-00:00:01"].each do |time|
             execute("UPDATE clocks SET starts_at = '#{time}' WHERE id = 2")
 
@@ -518,7 +559,27 @@ class Mysql2StreamTest < Minitest::Test
           end
         end
 
+        # As `pluck` does on JRuby, apart from a negative TIME of less than an hour, which Connector/J reads without its
+        # sign, as a time of day, which IOStreams cannot tell apart from one.
+        it "raises on JRuby for a TIME outside a day, as Connector/J does, apart from one of less than an hour before 0" do
+          skip "mysql2 reads a TIME outside a day, see above" unless jdbc
+          ["25:30:00", "-01:00:00", "838:59:59", "24:00:00"].each do |time|
+            execute("UPDATE clocks SET starts_at = '#{time}' WHERE id = 2")
+
+            error = assert_raises(ActiveRecord::JDBCError, time) { each(IOStreams.stream(model.order(:id))) }
+            assert_match(/is an invalid TIME value/, error.message, time)
+            assert_raises(ActiveRecord::StatementInvalid, time) { each(IOStreams.stream(model.in_batches(of: 1))) }
+          end
+          execute("UPDATE clocks SET starts_at = '-00:00:01' WHERE id = 2")
+          clocks = each(IOStreams.stream(model.order(:id).select(:starts_at))).map { |row| row["starts_at"].strftime("%T") }
+
+          # 00:00:01 UTC, as the clock of the app.
+          assert_equal(model.order(:id).pluck(:starts_at).map { |time| time.strftime("%T") }, clocks)
+          assert_equal "19:00:01", clocks.last
+        end
+
         it "raises for a TIME of 24:00:00 in batches, which mysql2 reads as a time of the next day" do
+          skip "Connector/J raises for a TIME outside a day itself, see above" if jdbc
           execute("UPDATE clocks SET starts_at = '24:00:00' WHERE id = 2")
 
           error = assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(model.in_batches(of: 1))) }

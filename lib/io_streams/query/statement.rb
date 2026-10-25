@@ -36,13 +36,14 @@ module IOStreams
       #     The query, such as `relation.arel`.
       def initialize(connection, arel)
         @connection  = connection
+        @jdbc        = Jdbc.adapter?(connection)
         @sql, @binds = compile(arel)
       end
 
       # Yields [String, Array] the SQL, see #sql, with the query transformers of Active Record applied, such as the tags of
       # `ActiveRecord::QueryLogs`, and the value of each of the binds, see #binds, as the driver of the database takes
-      # it, which the database adapter of Active Record casts it to, within an `sql.active_record` event of
-      # `ActiveSupport::Notifications`, as Active Record runs a statement of its own.
+      # it, see #driver_value, within an `sql.active_record` event of `ActiveSupport::Notifications`, as Active Record
+      # runs a statement of its own.
       #
       # The block runs the statement until its result starts, such as its first row, rather than reading every row,
       # since the time of the event is counted as time spent in the database, such as by the runtime of a request, and
@@ -53,13 +54,19 @@ module IOStreams
       # Returns the result of the block.
       def instrument
         sql    = ::ActiveRecord.query_transformers.inject(@sql) { |text, transformer| transformer.call(text, @connection) }
-        values = @binds.map do |bind|
-          @connection.type_cast(bind.is_a?(::ActiveModel::Attribute) ? bind.value_for_database : bind)
-        end
+        values = @binds.map { |bind| driver_value(bind) }
         ::ActiveSupport::Notifications.instrument("sql.active_record", payload(sql, values)) { yield(sql, values) }
       end
 
       private
+
+      # Returns the value of the supplied bind as the driver of the database takes it: its value for the database, which
+      # the database adapter of Active Record casts for the driver, apart from an adapter of AR-JDBC, see
+      # `IOStreams::Query::Jdbc`, which sets each one as a parameter of its type on the statement, and reports it so.
+      def driver_value(bind)
+        value = bind.is_a?(::ActiveModel::Attribute) ? bind.value_for_database : bind
+        @jdbc ? value : @connection.type_cast(value)
+      end
 
       # Returns [String, Array] the SQL of the query that Active Record runs on the connection, see #sql, and the binds
       # that it sends with it, see #binds: those that the visitor of the connection collects, with the placeholder of

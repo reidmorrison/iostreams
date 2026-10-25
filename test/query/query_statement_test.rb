@@ -6,6 +6,8 @@ require_relative "query_helper"
 class QueryStatementTest < Minitest::Test
   QueryDatabase.each do |database|
     describe "#{IOStreams::Query::Statement.name} on #{database.name}" do
+      include QueryTestMethods
+
       let(:db) { database }
       let(:relation) { db.order.where(name: "a").order(:id) }
 
@@ -29,12 +31,18 @@ class QueryStatementTest < Minitest::Test
         assert_equal "a", statement.binds.first.value
       end
 
+      # Such as a Rational, which Active Record casts as it is on most databases, and to text on MySQL.
       it "casts the value of each bind for the driver, as Active Record casts it" do
         skip_unless_prepared
-        statement = statement(db.order.where(name: "a").where("amount < ?", Rational(7, 2)))
-        expected  = db.record.with_connection { |connection| [connection.type_cast("a"), connection.type_cast(Rational(7, 2))] }
+        relation = db.order.where(name: "a").where("amount < ?", Rational(7, 2))
+        expected = nil
+        callback = lambda do |_name, _start, _finish, _id, payload|
+          expected = type_casted_binds(payload) if payload[:name] == "#{db.order.name} Load"
+        end
+        ActiveSupport::Notifications.subscribed(callback, "sql.active_record") { relation.to_a }
 
-        assert_equal(expected, statement.instrument { |_sql, binds| binds })
+        assert_equal 2, expected.size
+        assert_equal(expected, statement(relation).instrument { |_sql, binds| binds })
       end
 
       it "has the binds written into the SQL, as Active Record writes them, when the connection does not prepare them" do

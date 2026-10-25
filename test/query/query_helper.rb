@@ -65,9 +65,15 @@ module QueryDatabase
       constant = :"#{name}Record"
       namespace.send(:remove_const, constant) if namespace.const_defined?(constant, false)
       record = namespace.const_set(constant, Class.new(ActiveRecord::Base) { self.abstract_class = true })
-      record.establish_connection(url: url.to_s, pool: 2, connect_timeout: CONNECT_TIMEOUT, **options)
+      record.establish_connection(url: url.to_s, pool: 2, connect_timeout: CONNECT_TIMEOUT,
+                                  **config.slice(*MysqlDatabase::JDBC_CONFIG.keys), **options)
       Class.new(record) { self.table_name = "orders" }
     end
+  end
+
+  # Returns [true|false] whether the databases are read with the adapters of AR-JDBC, on JRuby, see .driver?.
+  def self.jdbc?
+    defined?(::ArJdbc) ? true : false
   end
 
   # Returns [Hash<String, Hash>] the configuration of each database that the tests can read: SQLite, unless its gem
@@ -81,7 +87,7 @@ module QueryDatabase
   # them is closed, rather than at exit, which would run before the tests do, since Minitest runs them at exit too.
   def self.configs
     configs = {}
-    if driver?("sqlite3")
+    if driver?("sqlite3", "activerecord-jdbcsqlite3-adapter")
       file = File.join(Dir.tmpdir, "iostreams_query_#{Process.pid}.sqlite3")
       Minitest.after_run do
         ActiveRecord::Base.connection_handler.connection_pool_list(:all).each(&:disconnect!)
@@ -89,19 +95,24 @@ module QueryDatabase
       end
       configs["SQLite"] = {adapter: "sqlite3", database: file, pool: 2}
     end
-    configs["PostgreSQL"] = PostgresqlSchema.config if PostgresqlSchema.url && driver?("pg")
-    configs["MySQL"]      = MysqlDatabase.config if MysqlDatabase.url && driver?("mysql2")
+    if PostgresqlSchema.url && driver?("pg", "activerecord-jdbcpostgresql-adapter")
+      configs["PostgreSQL"] = PostgresqlSchema.config
+    end
+    configs["MySQL"] = MysqlDatabase.config if MysqlDatabase.url && driver?("mysql2", "activerecord-jdbcmysql-adapter")
     configs
   end
 
-  # Returns [true|false] whether Active Record and the driver of the supplied name can be loaded.
-  def self.driver?(name)
+  # Returns [true|false] whether Active Record and the driver of one of the supplied names can be loaded: the C extension
+  # of the database, or on JRuby, which cannot load it, the adapter of AR-JDBC.
+  def self.driver?(*names)
     return false unless defined?(ActiveRecord)
 
-    require name
-    true
-  rescue LoadError
-    false
+    names.any? do |name|
+      require name
+      true
+    rescue LoadError
+      false
+    end
   end
 
   # Returns [Database|nil] the database of the supplied name, when the tests can read it.
@@ -152,6 +163,9 @@ module QueryDatabase
     namespace.const_set(:Record, Class.new(ActiveRecord::Base) { self.abstract_class = true })
     config = MysqlDatabase.create(config) if name == "MySQL"
     namespace::Record.establish_connection(config)
+    # The PostgreSQL adapter of AR-JDBC casts an array with a connection of ActiveRecord::Base, whatever the model,
+    # which `pluck` raises for when ActiveRecord::Base has none, see https://github.com/jruby/activerecord-jdbc-adapter/issues/1229.
+    ActiveRecord::Base.establish_connection(config) if jdbc? && name == "PostgreSQL"
     namespace::Record.with_connection do |connection|
       PostgresqlSchema.create(connection) if connection.adapter_name == "PostgreSQL"
       create_tables(connection)
@@ -315,11 +329,24 @@ module QueryDatabase
       ENV.fetch("MYSQL_URL", nil)
     end
 
+    # The configuration of the MySQL adapter of AR-JDBC on JRuby:
+    #   properties: those of Connector/J, its driver, that connect a user of `caching_sha2_password`, the default of
+    #   MySQL 8, without TLS, and that read a YEAR as an integer, as mysql2 does, rather than as a date, which the
+    #   integer type of Active Record raises for, as `pluck` does, see https://github.com/jruby/activerecord-jdbc-adapter/issues/1234.
+    #   statement_limit: 0, which keeps no prepared statement, since AR-JDBC keeps those of a connection that the server
+    #   ended, such as one that the tests kill, which raise "No operations allowed after statement closed" once, see
+    #   https://github.com/jruby/activerecord-jdbc-adapter/issues/1228.
+    JDBC_CONFIG = {
+      properties:      {"allowPublicKeyRetrieval" => "true", "useSSL" => "false", "yearIsDateType" => "false"}.freeze,
+      statement_limit: 0
+    }.freeze
+
     # Returns [Hash] the configuration of the pool of the database, whose connections give up on a server that cannot be
-    # reached within CONNECT_TIMEOUT seconds. Its url names the database of the url until the database of this process
-    # is created, see .create.
+    # reached within CONNECT_TIMEOUT seconds, with the JDBC_CONFIG on JRuby. Its url names the database of the url until
+    # the database of this process is created, see .create.
     def self.config
-      {url: url, pool: 2, connect_timeout: CONNECT_TIMEOUT}
+      config = {url: url, pool: 2, connect_timeout: CONNECT_TIMEOUT}
+      QueryDatabase.jdbc? ? config.merge(JDBC_CONFIG) : config
     end
 
     # Returns [String] the suffix of the names of this process, those of its database, see .create, and of the users
@@ -354,7 +381,8 @@ module QueryDatabase
       server      = url.dup
       server.path = ""
       record      = QueryDatabase.const_set(:MysqlServer, Class.new(ActiveRecord::Base) { self.abstract_class = true })
-      record.establish_connection(url: server.to_s, pool: 1, connect_timeout: CONNECT_TIMEOUT)
+      record.establish_connection(url: server.to_s, pool: 1, connect_timeout: CONNECT_TIMEOUT,
+                                  **config.slice(*JDBC_CONFIG.keys))
       record.with_connection { |connection| connection.create_database(database) }
       Minitest.after_run { drop(record, database) }
       url.path = "/#{database}"
@@ -378,6 +406,13 @@ module QueryTestMethods
     list = []
     stream.each(mode, **) { |row| list << row }
     list
+  end
+
+  # Returns [Array] the binds of the payload of an `sql.active_record` event, type cast for the driver, which AR-JDBC
+  # reports as a Proc that returns them, as Active Record allows.
+  def type_casted_binds(payload)
+    binds = payload[:type_casted_binds]
+    binds.respond_to?(:call) ? binds.call : binds
   end
 
   # Returns [Array<String>] the names of the SQL statements that Active Record runs within the block.
