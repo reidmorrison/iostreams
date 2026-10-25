@@ -214,46 +214,75 @@ changes, and docs/errors.md when what it raises does.
   `AuthorizationException`; `.requirable_types`: none, since a column of SQLite holds a value of any type, such as empty
   text in an integer column, or text that is not a date in a date column, which Active Record casts to nil.
 - `Query::Jdbc`: what IOStreams knows of AR-JDBC, the adapters of JRuby, which the sources that read with it share:
-  `.adapter?(connection)` (an `ArJdbc::Abstract::Core`, without asking the raw connection), `.sql_exception(exception,
-  driver)` (the `java.sql.SQLException` that an `ActiveRecord::JDBCError` wraps, when the driver of the supplied start
-  of its class names raised it, by the class of the exception or the first frame of its stack trace, since Connector/J
-  raises plain `java.sql.SQLException`s), `.unknown_host_kind` (a `java.net.UnknownHostException` among the causes:
-  `Unavailable` for `TEMPORARY_RESOLUTION_FAILURE`, otherwise `NONE`) and `.io_failure?` (a `java.io.IOException`
-  among the causes). `Statement` asks `.adapter?` too.
+  `.adapter?(connection)` (an `ArJdbc::Abstract::Core`, without asking the raw connection), `.driver_exception(exception,
+  driver)` (the Java exception of the driver of the supplied start of its class names: the exception itself, or the
+  `java.sql.SQLException` that an `ActiveRecord::JDBCError` wraps (`#jdbc_exception`), or else the cause that Ruby
+  records for it (`CAUSE`, `Exception#cause`), which AR-JDBC sets to the exception of a failure to connect again while it
+  retried a statement, such as a `java.net.ConnectException`, while `JDBCError#cause` returns the exception that was
+  being rescued when AR-JDBC created it; AR-JDBC raises an unchecked exception of the driver as it is, such as
+  `com.mysql.cj.exceptions.CJCommunicationsException`; the driver is told by the class of the exception or any frame of
+  its stack trace, since Connector/J raises plain `java.sql.SQLException`s and a socket that a driver opened raises
+  `java.net` exceptions) and `.cause_kind` (what the Java exceptions among the causes say, whatever the driver: a
+  `java.net.UnknownHostException` is `Unavailable` for `TEMPORARY_RESOLUTION_FAILURE`, otherwise `NONE`; a
+  `javax.net.ssl.SSLException` that no `IOException` outside TLS caused, such as a certificate that is not trusted, or
+  no protocol in common, is `NONE`, as `PostgresqlCursor::CONNECTION_KINDS` has libpq's, since a retry does not change them; any
+  other `java.io.IOException`, such as a connection refused, reset or lost, also during TLS, is `Unavailable`; nil
+  otherwise, so that the source tells it by its SQLSTATE or number). `Statement` asks `.adapter?` too.
 - `Query::JdbcRows`: the rows of a statement that the raw connection of AR-JDBC runs with `execute_query_raw(sql[,
   binds]) { |*values| }`, which yields each row to a block, rather than return a result to step through. The statement
-  runs in a Fiber that hands over its rows in batches, the first row as it starts, then twice the size of the batch
-  before, up to `BATCH_SIZE` (1,000; 0.52 s for 300,000 rows of SQLite, against 2.45 s a row at a time), so that
-  `#start` raises before the block runs for a statement that cannot start, a block that leaves early does not wait for
-  1,000 rows of a slow query, `#each` continues a second traversal, `#close` ends a statement that was left early by
-  resuming the Fiber with `STOP`, a `throw` through the Java frames of AR-JDBC, which close the statement in their
-  `finally`, and `#width` is the number of values of the first row. The Fiber runs only the driver, never Active
-  Record, so it leases no connection. AR-JDBC's `withConnection` runs a statement again after a recoverable failure,
-  but Connector/J raises a connection lost while the rows are read as a plain `SQLException` ("Error retrieving record",
-  caused by an `EOFException`), which it does not, so no row is yielded twice (probed with `KILL CONNECTION`).
+  runs on a thread of its own, which hands over its rows in batches, the first row as it starts, then twice the size of
+  the batch before, up to `BATCH_SIZE` (1,000; 0.52 s for 300,000 rows of SQLite, against 2.45 s a row at a time), in
+  step with the caller: it reads each batch only once the caller asks for it (`@wanted`, under `@lock` with
+  `@changed`), so that the driver never uses the connection while the block does, such as a connection of SQLite that
+  the read shares with the caller. A thread rather than a Fiber, since no interrupt reaches it: a `Timeout` that lands
+  in a Fiber of JRuby, a virtual thread, while the driver runs is raised through AR-JDBC's `finally close(statement)`,
+  which reads the rest of a streamed result of Connector/J, and one that lands while the Fiber waits in Java was
+  delivered late or never (probed on JRuby 10.0.7: a 0.5 s `Timeout` around a 5 s read, and a resume that never
+  returned), while a thread's caller waits in `ConditionVariable#wait`, which JRuby interrupts at once (0.51 s); and the
+  rows can be read on any thread. `#start(statement, columns)` runs the statement within `Statement#instrument`, takes
+  its first batch, so that it raises before the block runs for a statement that cannot start, and checks the width of
+  the first row (`Columns#check_width`); `#each` continues a second traversal; a failure of the statement is handed
+  over, raised, and raised again by each traversal after it; an interrupt of the caller while it waits leaves the
+  batch for the next traversal (`@handed`), so that none is lost or taken twice; `#close` ends a statement that was left
+  early, which the thread does at the next row, or at its hand-over, by throwing `STOP` through the Java frames of
+  AR-JDBC, which close the statement in their `finally`, and joins the thread. The thread runs only the driver, never
+  Active Record, so it leases no connection. AR-JDBC's `withConnection` runs a statement again after a
+  `SQLTransientException`, such as Connector/J's lock wait timeout (probed: a statement of autocommit that waited on a
+  lock was run again and read every row), or a `SQLRecoverableException` on a connection that is no longer valid, unless
+  autocommit is off, so `MysqlJdbc` runs its statement in a transaction.
 - `Query::PostgresqlJdbc < PostgresqlCursor`: the cursor through the PostgreSQL adapter of AR-JDBC, which runs through
   the API of Active Record as with pg, owning what differs with PgJDBC: `.reads?` (`ADAPTERS` and `Jdbc.adapter?`, which
-  `PostgresqlCursor.reads?` excludes), `.failure_kind` by SQLSTATE (`STATE_KINDS`, after `Jdbc.unknown_host_kind`, since
-  PgJDBC raises an unknown host as `08001`), `.requirable_types` without duration, since AR-JDBC returns an interval
-  that is zero, infinite or has less than a millisecond of seconds as ISO 8601 that `OID::Interval` casts to nil ("P",
+  `PostgresqlCursor.reads?` excludes), `.failure_kind` (`Jdbc.cause_kind`, since PgJDBC raises an unknown host as
+  `08001` and a failure of TLS as `08006`, then the SQLSTATE, `STATE_KINDS`, which leaves out `08004`, which PgJDBC
+  raises for a connection that its configuration does not let it make, such as TLS of a server without it, or an
+  authentication that it does not support, and has `25P03`, as `PostgresqlCursor::FAILURE_KINDS` has
+  `IdleInTransactionSessionTimeout`), `.requirable_types` without duration, since AR-JDBC returns an interval that is
+  zero, infinite or has less than a millisecond of seconds as ISO 8601 that `OID::Interval` casts to nil ("P",
   "PT1.0E-6S"), and `.unknown_type` "any". AR-JDBC raises for `24:00:00` itself (Joda-Time's
   `IllegalFieldValueException`), reads a `timetz` as a `Time` in UTC without its offset, and applies no query
   transformers to the DECLARE; a `Timeout` interrupts a fetch only once it returns, since PgJDBC blocks in Java.
 - `Query::MysqlJdbc < Mysql2Stream`: MySQL through the MySQL adapter of AR-JDBC, named "Mysql2" too, sharing the
   limits of `Mysql2Stream`, its whole read of a shared connection with a transaction open, `.requirable_types` and
-  `.own_connection?`. `#stream` holds Connector/J's `netTimeoutForStreamingResults` at 0 for the whole read
-  (`#without_driver_timeout`, through `com.mysql.cj.jdbc.JdbcConnection#getPropertySet`, `ArgumentError` for another
-  driver, such as MariaDB Connector/J), since Connector/J otherwise sets `net_write_timeout` to 600 seconds while it
-  streams, and afterwards to the value that it saw when it connected, dropping the one that `variables` set; it then
-  raises the limits, and sets AR-JDBC's private `fetchSize` field of the raw connection, found by reflection up its
-  class chain (`ArgumentError` when it is missing), to `Integer.MIN_VALUE` while the statement starts
-  (`#with_stream_fetch_size`), since AR-JDBC gives every statement of a connection the `jdbc_fetch_size` of its
-  configuration. It passes `Statement#binds` to `execute_query_raw`, which prepares them, the default of the adapter,
-  and Connector/J's client-side prepared statements stream. `#discard`, for a block left early, aborts the Java
-  connection (`abort(ForkJoinPool.commonPool)`, 0.016 s, while closing a streamed result of 2M rows reads the rest of it
-  in 0.26 s), then closes the rows, rescuing the failure of the aborted statement, and `disconnect!`s. `.failure_kind`:
-  `Jdbc.unknown_host_kind`, then `MysqlFailure.kind` with the error code (that of the server, 0 for Connector/J's own),
-  then `Unavailable` for SQLSTATE `08S01` or an `IOException` among the causes.
+  `.own_connection?`. `#stream` raises `ArgumentError`, before anything changes, for a configuration with AR-JDBC's
+  `jdbc_fetch_size` (`#check_fetch_size`, `pool.db_config.configuration_hash`), which AR-JDBC gives every statement
+  in place of Connector/J's default, and for another driver than Connector/J, such as MariaDB Connector/J (`#property`,
+  through `com.mysql.cj.jdbc.JdbcConnection#getPropertySet`). It holds Connector/J's `netTimeoutForStreamingResults` at
+  0 for the whole read (`#hold`), since Connector/J otherwise sets `net_write_timeout` to 600 seconds while it streams,
+  and afterwards to the value that it saw when it connected, dropping the one that `variables` set; it begins a
+  transaction on the raw connection (`raw.begin`), so that AR-JDBC never runs the statement again, raises the limits,
+  and holds Connector/J's `defaultFetchSize` at `Integer.MIN_VALUE` while the statement starts, which Connector/J gives
+  each statement that it creates (both properties are runtime-modifiable, and set only on the read's own connection),
+  rather than AR-JDBC's private `fetchSize` field, which only reflection reaches. It passes `Statement#binds` to
+  `execute_query_raw`, which prepares them, the default of the adapter, and Connector/J's client-side prepared
+  statements stream. Once every row is read, or the statement failed, `#set_back` commits the transaction, then sets
+  back the limits, ending the connection when the commit fails. `#discard`, for a block left early or an interrupt,
+  aborts the Java connection with an executor that runs the abort here and now (`abort { |task| task.run }`, 0.009 s),
+  since `abort` only hands it to the executor, and on `ForkJoinPool.commonPool` it waited for a free thread while closing
+  the statement read the rest of the result (5.4 s for 100 rows of 0.05 s with the pool busy); then closes the rows,
+  rescuing the failure of the aborted statement, and `disconnect!`s. Aborting does not stop a socket read that already
+  waits for the server, such as for the first row of a slow query (probed: it returned normally 3 s later), so closing
+  the rows waits for it. `.failure_kind`: `Jdbc.cause_kind`, then `MysqlFailure.kind` with the error code (that of the
+  server, 0 for Connector/J's own), then `Unavailable` for SQLSTATE `08S01`.
 - `Query::SqliteJdbc < SqliteStatement`: SQLite through the SQLite adapter of AR-JDBC, with sqlite-jdbc, sharing
   `.requirable_types` and `.unknown_type`; `.own_connection?` asks `PRAGMA journal_mode` on the raw connection, and
   `.failure_kind` the primary result code (`RESULT_KINDS`).
@@ -302,8 +331,9 @@ changes, and docs/errors.md when what it raises does.
   (`QueryDatabase::TEST_DATABASE`, shared with `PostgresqlSchema`), and drops it once the tests have run; the users
   that the tests create are named for the process (`MysqlDatabase.user`) and dropped after each test.
   `Database#orders_at(name, scheme:, host:, port:, user:, password:, **options)` builds a model of the orders table on
-  a pool of its own at a changed url when a test needs it, changing the host and port before the user and password,
-  whose userinfo their setters clear, and waits at most `CONNECT_TIMEOUT` seconds to connect. The MySQL drivers,
+  a pool of its own, of the configuration of the database merged with the supplied options, at a changed url when a
+  test needs it, changing the host and port before the user and password, whose userinfo their setters clear, so that
+  it never needs to know the configuration of a database, such as `MysqlDatabase::JDBC_CONFIG`. The MySQL drivers,
   mysql2 and trilogy, are in the optional `mysql` group of the Gemfile, since mysql2 needs the MySQL client library to
   build: `bundle config set --local with mysql` installs them. Without a Gemfile.lock, bundler still resolves the
   optional group, so a new worktree needs one, such as a copy of another worktree's.
@@ -325,7 +355,7 @@ changes, and docs/errors.md when what it raises does.
   `QueryDatabase.jdbc?` says which). The tests of PostgreSQL and MySQL run on both drivers, with expectations of their
   own where the driver differs, such as `ActiveRecord::JDBCError` for a connection that could not be made; the tests
   of the sqlite3 gem skip on JRuby, sqlite_jdbc_test.rb tests `SqliteJdbc`, and jdbc_rows_test.rb tests `JdbcRows` with
-  a stand-in raw connection on any Ruby. The workarounds of the tests for AR-JDBC: the MySQL pools take
+  a stand-in raw connection, statement and columns on any Ruby. The workarounds of the tests for AR-JDBC: the MySQL pools take
   `MysqlDatabase::JDBC_CONFIG` (`allowPublicKeyRetrieval` and `useSSL` for `caching_sha2_password` without TLS,
   `yearIsDateType: false`, and `statement_limit: 0`, since AR-JDBC keeps the prepared statements of a connection that
   the server ended, which raise "No operations allowed after statement closed" once), `ActiveRecord::Base` is connected

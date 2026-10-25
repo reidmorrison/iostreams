@@ -34,22 +34,23 @@ module IOStreams
       # Returns [Module] the kind of failure that an exception of sqlite-jdbc means, see RESULT_KINDS, or nil when it is
       # none of them, or another driver raised it.
       def self.failure_kind(exception)
-        sql_exception = Jdbc.sql_exception(exception, "org.sqlite.")
-        RESULT_KINDS[sql_exception.error_code & 0xFF] if sql_exception
+        failure = Jdbc.driver_exception(exception, "org.sqlite.")
+        return unless failure
+
+        RESULT_KINDS[failure.error_code & 0xFF] if failure.is_a?(::Java::JavaSql::SQLException)
       end
 
       # Yields [IOStreams::Query::SqliteJdbc] itself, whose #each yields the rows, once the statement of the query is
-      # open: run on the raw connection with the SQL and binds that Active Record runs for the query, see
-      # `IOStreams::Query::Statement`, its first rows read, and the number of their values checked against the columns
-      # that the query was described by, see `IOStreams::Query::Columns#check_width`, so that a statement that fails,
-      # or cannot start, raises before the block is called. The statement is closed when the block finishes, or is left
-      # with `break` or an exception.
+      # open: run on the raw connection with the SQL and binds that Active Record runs for the query, its first rows
+      # read, and the number of their values checked against the columns that the query was described by, see
+      # `IOStreams::Query::JdbcRows#start`, so that a statement that fails, or cannot start, raises before the block is
+      # called. The statement is closed when the block finishes, or is left with `break` or an exception, once the
+      # driver has read the batch of rows that it is reading.
       #
       # Returns the result of the block.
       def open(statement, columns)
         @rows = JdbcRows.new(@connection.raw_connection)
-        statement.instrument { |sql, _values| @rows.start(sql, statement.binds) }
-        columns.check_width(@rows.width) if @rows.width
+        @rows.start(statement, columns)
         yield self
       ensure
         @rows&.close

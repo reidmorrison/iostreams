@@ -45,12 +45,12 @@ module QueryDatabase
       QueryDatabase.load(self)
     end
 
-    # Returns [Class] a model of the orders table on a pool of its own, at the url of the database with the supplied
-    # parts changed, such as another port or user, and the rest of the supplied configuration, such as the `variables`
-    # of the session, so that a test can watch the connection that reads a query, read it as another user, with other
-    # settings, or with another driver, by its scheme. It waits at most CONNECT_TIMEOUT seconds to connect. Its abstract
-    # base class is named by the supplied name in the namespace of the database, as Active Record needs, replacing that
-    # of an earlier test.
+    # Returns [Class] a model of the orders table on a pool of its own, of the configuration of the database, see
+    # QueryDatabase.configs, at its url with the supplied parts changed, such as another port or user, and with the rest
+    # of the supplied configuration, such as the `variables` of the session, so that a test can watch the connection
+    # that reads a query, read it as another user, with other settings, or with another driver, by its scheme. Its
+    # abstract base class is named by the supplied name in the namespace of the database, as Active Record needs,
+    # replacing that of an earlier test.
     def orders_at(name, scheme: nil, host: nil, port: nil, user: nil, password: nil, **options)
       url      = URI(config.fetch(:url))
       userinfo = url.userinfo
@@ -65,8 +65,7 @@ module QueryDatabase
       constant = :"#{name}Record"
       namespace.send(:remove_const, constant) if namespace.const_defined?(constant, false)
       record = namespace.const_set(constant, Class.new(ActiveRecord::Base) { self.abstract_class = true })
-      record.establish_connection(url: url.to_s, pool: 2, connect_timeout: CONNECT_TIMEOUT,
-                                  **config.slice(*MysqlDatabase::JDBC_CONFIG.keys), **options)
+      record.establish_connection(config.merge(url: url.to_s, **options))
       Class.new(record) { self.table_name = "orders" }
     end
   end

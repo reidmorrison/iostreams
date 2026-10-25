@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "query_helper"
+require "timeout"
 
 # Reads a query on MySQL with the mysql2 gem, see `IOStreams::Query::Mysql2Stream`, when MYSQL_URL is set, or on JRuby
 # with the MySQL adapter of AR-JDBC, see `IOStreams::Query::MysqlJdbc`, which reads it as `Mysql2Stream` does, apart from
@@ -320,6 +321,111 @@ class Mysql2StreamTest < Minitest::Test
         refute session?(sessions.first)
         # The pool reconnects the connection when it is next checked out.
         assert_equal 103, each(IOStreams.stream(orders)).size
+      end
+
+      # Connector/J aborts a connection with an executor, which would wait for a thread of the common pool to be free,
+      # while closing the statement reads the rest of the result.
+      it "ends the session at once when the block leaves early, while every thread of the common pool of Java is busy" do
+        skip "Only Connector/J aborts a connection with an executor" unless jdbc
+
+        pool    = Java::JavaUtilConcurrent::ForkJoinPool.commonPool
+        release = Java::JavaUtilConcurrent::CountDownLatch.new(1)
+        busy    = Java::JavaUtilConcurrent::CountDownLatch.new(pool.getParallelism)
+        begin
+          pool.getParallelism.times do
+            pool.execute do
+              busy.countDown
+              release.await
+            end
+          end
+          busy.await
+          sessions = []
+          relation = slow_orders("iostreams busy pool").select(Arel.sql("CONNECTION_ID() AS session"))
+          started  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          IOStreams.stream(relation).each(:hash) do |order| # rubocop:disable Lint/UnreachableLoop -- leaves on its first row
+            sessions << order["session"]
+            break
+          end
+
+          assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2
+          refute session?(sessions.first)
+        ensure
+          release.countDown
+        end
+      end
+
+      it "ends the session at once when a Timeout interrupts the read, rather than read the rest of the result" do
+        sessions = []
+        relation = slow_orders("iostreams interrupted").select(Arel.sql("CONNECTION_ID() AS session"))
+        started  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        assert_raises(Timeout::Error) do
+          Timeout.timeout(0.5) { IOStreams.stream(relation).each(:hash) { |order| sessions << order["session"] } }
+        end
+
+        assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2
+        assert_operator sessions.size, :<, 103
+        refute session?(sessions.first)
+        assert_equal 103, each(IOStreams.stream(orders)).size
+      end
+
+      # AR-JDBC runs a statement again after a failure that Connector/J deems transient, such as a lock wait timeout,
+      # unless the connection has a transaction open, which would yield the rows before it again, and stream no longer.
+      it "raises a lock wait timeout while the rows are read, tagged, rather than read the rows again" do
+        skip "Only AR-JDBC runs a statement again after a failure" unless jdbc
+
+        holder  = monitor
+        locking = db.orders_at("Locking", variables: {innodb_lock_wait_timeout: 1})
+        ids     = db.order.order(:id).ids
+        held    = Thread::Queue.new
+        # Holds the lock of the second order for longer than the lock wait timeout, but less than two of them.
+        lock = Thread.new do
+          holder.transaction do
+            holder.lock.find(ids[1])
+            held << true
+            sleep(1.5)
+          end
+        end
+        held.pop
+        read  = []
+        error = assert_raises(driver_error) do
+          IOStreams.stream(locking.lock.order(:id).select(:id)).each(:hash) { |order| read << order["id"] }
+        end
+        lock.join
+
+        assert_kind_of IOStreams::Errors::Unavailable, error
+        assert_streamed_number 1205, error
+        assert_empty(ids.first(1) - read)
+        assert_equal read.uniq, read
+        refute_includes read, ids[1]
+      end
+
+      it "raises ArgumentError for a connection whose jdbc_fetch_size is set, before it changes anything, suggesting batches" do
+        skip "Only AR-JDBC has jdbc_fetch_size" unless jdbc
+
+        stream = IOStreams.stream(db.orders_at("Fetching", jdbc_fetch_size: 100).order(:id))
+        stream.schema
+        error = nil
+        names = statements { error = assert_raises(ArgumentError) { each(stream) } }
+
+        assert_match(/jdbc_fetch_size is set.*in_batches/, error.message)
+        assert_empty names
+      end
+
+      it "does not tag a certificate of the server that the connection does not trust, which a retry does not change" do
+        skip "mysql2 raises a failure of TLS as a connection that could not be made, see QueryStreamTest" unless jdbc
+
+        orders = db.orders_at("Untrusted", properties: {"sslMode" => "VERIFY_CA", "yearIsDateType" => "false"})
+        error  = assert_raises(connection_error) { each(IOStreams.stream(orders.all)) }
+
+        causes = []
+        cause  = error.jdbc_exception
+        while cause
+          causes << cause
+          cause = cause.cause
+        end
+
+        refute_kind_of IOStreams::Errors::StorageError, error
+        refute_empty causes.grep(Java::JavaxNetSsl::SSLHandshakeException), causes.join(" < ")
       end
 
       it "does not explain any other exception of the block" do
@@ -726,6 +832,83 @@ class Mysql2StreamTest < Minitest::Test
 
       assert_nil timeout.error_number
       assert_equal IOStreams::Errors::Unavailable, kind(timeout)
+    end
+  end
+
+  describe "IOStreams::Query::MysqlJdbc.failure_kind" do
+    # Once a connection of the tests has loaded Connector/J.
+    before { skip "Only JRuby reads MySQL with AR-JDBC" unless QueryDatabase.jdbc? && QueryDatabase.find("MySQL") }
+
+    def kind(exception)
+      IOStreams::Query::MysqlJdbc.failure_kind(exception)
+    end
+
+    # Returns [java.sql.SQLException] an exception of Connector/J of the supplied SQLSTATE and error number, as
+    # Connector/J creates it, with the supplied cause.
+    def sql_exception(message, state, number = 0, cause = nil)
+      Java::ComMysqlCjJdbcExceptions::SQLError.createSQLException(message, state, number, false, cause, nil)
+    end
+
+    # Returns [java.lang.Throwable] the supplied exception of Java, caused by the supplied one.
+    def caused(exception, cause)
+      exception.initCause(cause)
+      exception
+    end
+
+    # Returns [com.mysql.cj.exceptions.CJCommunicationsException] the exception of Connector/J for a connection that it
+    # could not make, which AR-JDBC raises as it is, when it cannot connect again as it retries a statement.
+    def refused
+      properties = Java::JavaUtil::Properties.new
+      properties.setProperty("connectTimeout", "2000")
+      Java::ComMysqlCjJdbc::Driver.new.connect("jdbc:mysql://127.0.0.1:1/iostreams_test", properties)
+
+      flunk "Connected to port 1"
+    rescue Java::JavaSql::SQLException => e
+      e.cause
+    end
+
+    it "returns what MySQL says of the error number of an exception of Connector/J, wrapped as AR-JDBC wraps it" do
+      denied = sql_exception("SELECT command denied to user 'jack'@'%' for table 'orders'", "42000", 1142)
+
+      assert_equal IOStreams::Errors::PermissionDenied, kind(ActiveRecord::JDBCError.new(nil, denied))
+      assert_equal IOStreams::Errors::Unavailable, kind(sql_exception("Deadlock found", "40001", 1213))
+      assert_nil kind(sql_exception("Table 'shop.order' doesn't exist", "42S02", 1146))
+    end
+
+    it "returns Unavailable for a connection that could not be made, or was lost, which has no number" do
+      assert_equal IOStreams::Errors::Unavailable, kind(sql_exception("Communications link failure", "08S01"))
+      lost = sql_exception("Error retrieving record", "S1000", 0, Java::JavaIo::EOFException.new("Can not read response"))
+
+      assert_equal IOStreams::Errors::Unavailable, kind(lost)
+    end
+
+    it "returns Unavailable for the exception of Connector/J that AR-JDBC raises as it is, when it cannot connect again" do
+      exception = refused
+
+      assert_kind_of Java::ComMysqlCjExceptions::CJCommunicationsException, exception
+      assert_equal IOStreams::Errors::Unavailable, kind(exception)
+    end
+
+    it "returns NONE for a failure of TLS that a retry does not change, but Unavailable for a connection that was reset" do
+      untrusted = caused(Java::JavaxNetSsl::SSLHandshakeException.new("PKIX path building failed"),
+                         Java::JavaSecurityCert::CertificateException.new("unable to find valid certification path"))
+      reset     = caused(Java::JavaxNetSsl::SSLException.new("Connection reset"),
+                         Java::JavaNet::SocketException.new("Connection reset"))
+      closed    = caused(Java::JavaxNetSsl::SSLHandshakeException.new("Remote host terminated the handshake"),
+                         Java::JavaIo::EOFException.new("SSL peer shut down incorrectly"))
+
+      assert_equal IOStreams::Query::Failure::NONE, kind(sql_exception("Communications link failure", "08S01", 0, untrusted))
+      assert_equal IOStreams::Query::Failure::NONE,
+                   kind(sql_exception("Communications link failure", "08S01", 0,
+                                      Java::JavaxNetSsl::SSLHandshakeException.new("No appropriate protocol")))
+      assert_equal IOStreams::Errors::Unavailable, kind(sql_exception("Communications link failure", "08S01", 0, reset))
+      assert_equal IOStreams::Errors::Unavailable, kind(sql_exception("Communications link failure", "08S01", 0, closed))
+    end
+
+    it "returns nil for an exception that Connector/J did not raise" do
+      assert_nil kind(RuntimeError.new("other"))
+      assert_nil kind(Java::JavaSql::SQLException.new("other", "08S01"))
+      assert_nil kind(Java::JavaNet::ConnectException.new("Connection refused"))
     end
   end
 end

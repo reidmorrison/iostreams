@@ -189,7 +189,7 @@ can be retried on `Unavailable`, whether it reads a query or a file:
 |-----------------|-------------------------------------|------------|-------|--------|
 | `NotFound` | Never | Never | Never | Never |
 | `PermissionDenied` | `ActiveRecord::DatabaseConnectionError` for a user name or password that the database rejects, when its driver does not say otherwise | `PG::InsufficientPrivilege`, for a table or column that the user may not read, or `PG::ConnectionBad` for credentials that the server does not accept, by any method of authentication, such as a password, a client certificate, peer, PAM or LDAP, a role that may not log in, or connect to the database, or a host that `pg_hba.conf` rejects | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for an access that MySQL denies, such as error 1045 for a password that it rejects, 1044 for a database that the user may not use, 1142 for a table that the user may not read, or 1370 for a function that the user may not run, or for an account that it does not let connect, such as 3118 for one that is locked, 1862 for one whose password has expired, or 1130 for a client host that no account allows | `SQLite3::PermissionException` or `SQLite3::AuthorizationException` |
-| `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `PG::ConnectionBad` for a server that refused the connection, could not be reached, timed out, is starting up or shutting down, or has no connection free, or a temporary failure to resolve its host, `PG::AdminShutdown` or `PG::CrashShutdown` for a server that ended the query, and `PG::UnableToSend` for a query that could not be sent, since the connection was lost | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for a connection that was refused or lost, a temporary failure to resolve its host, too many connections, a server that is shutting down, a lock wait timeout, a deadlock, or a query that `KILL QUERY` or `max_execution_time` interrupted, also while mysql2 streams the rows of the query, `Mysql2::Error::TimeoutError` or `Trilogy::TimeoutError` for the `read_timeout` of the driver, and `Trilogy::EOFError` for a connection that the server closed | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
+| `Unavailable` | `ActiveRecord::ConnectionNotEstablished`, such as `ConnectionTimeoutError` when no connection is free in the pool, when its driver does not say otherwise, `ActiveRecord::QueryAborted`, such as `QueryCanceled`, `StatementTimeout`, `AdapterTimeout` or `ConnectionFailed`, `ActiveRecord::LockWaitTimeout`, or `ActiveRecord::TransactionRollbackError`, such as `Deadlocked` | `PG::ConnectionBad` for a server that refused the connection, could not be reached, timed out, is starting up or shutting down, or has no connection free, or a temporary failure to resolve its host, `PG::AdminShutdown` or `PG::CrashShutdown` for a server that ended the query, `PG::IdleInTransactionSessionTimeout` for a session that it ended, and `PG::UnableToSend` for a query that could not be sent, since the connection was lost | `Mysql2::Error` of mysql2, or `Trilogy::Error` of trilogy, for a connection that was refused or lost, a temporary failure to resolve its host, too many connections, a server that is shutting down, a lock wait timeout, a deadlock, or a query that `KILL QUERY` or `max_execution_time` interrupted, also while mysql2 streams the rows of the query, `Mysql2::Error::TimeoutError` or `Trilogy::TimeoutError` for the `read_timeout` of the driver, and `Trilogy::EOFError` for a connection that the server closed | `SQLite3::BusyException` or `SQLite3::LockedException`, for a database that another connection has locked |
 
 On JRuby, the adapters of AR-JDBC raise `ActiveRecord::JDBCError` for every failure of their driver, also for a
 connection that could not be made, rather than `ActiveRecord::ConnectionNotEstablished`, apart from a database that does
@@ -198,15 +198,22 @@ which is `ActiveRecord::QueryCanceled`. It is tagged by the `java.sql.SQLExcepti
 
 * On PostgreSQL, by its SQLSTATE: `PermissionDenied` for a role or host that may not connect (`28000`), a password
   that the server rejects (`28P01`), or a table that the role may not read (`42501`), and `Unavailable` for a
-  connection that could not be made, or was lost (`08001`, `08003` and `08006`), too many connections (`53300`), or a
-  server that shut down, crashed, or is starting up (`57P01` to `57P03`).
+  connection that could not be made, or was lost (`08001`, `08003` and `08006`), a session that the server ended for
+  its `idle_in_transaction_session_timeout` (`25P03`), too many connections (`53300`), or a server that shut down,
+  crashed, or is starting up (`57P01` to `57P03`). PgJDBC raises a connection that its configuration does not let it
+  make, such as one that requires TLS of a server without it, as `08004`, which is not tagged, as with `pg`.
 * On MySQL, by the error number of the server, as for `mysql2`, and as `Unavailable` for a connection that Connector/J
   could not make, or lost, which it raises without a number.
 * On SQLite, by the result code of SQLite: `SQLITE_BUSY` and `SQLITE_LOCKED` are `Unavailable`, and `SQLITE_PERM` and
   `SQLITE_AUTH` are `PermissionDenied`.
 
-A host that does not resolve, a `java.net.UnknownHostException`, is not tagged, apart from a temporary failure to resolve
-it.
+Whatever the database, an exception of a driver is first tagged by the exceptions of Java that caused it: a host that
+does not resolve, a `java.net.UnknownHostException`, is not tagged, apart from a temporary failure to resolve it, nor is
+a failure of TLS that a retry does not change, such as a certificate that the connection does not trust, or no protocol
+in common, as with `pg`, while any other failure of input or output, a `java.io.IOException`, such as a
+connection that was refused, reset, or lost while the rows were read, also during TLS, is `Unavailable`. So is a
+connection that AR-JDBC could not make again as it retried a statement, which it raises with the exception of Java that
+caused it, rather than a `java.sql.SQLException`.
 
 The exception of a driver is tagged whether Active Record raised it, or an exception whose `#cause` it is. mysql2 raises
 an error that ends the rows of a query while it streams them with its message alone, so that the error of MySQL is told
@@ -216,9 +223,10 @@ of the driver includes, rather than by what failed: for example, it names a host
 includes that of the user, as a user name or password that the database rejects. On PostgreSQL, the connection is tagged
 by the last address that it tried, such as the second address of `localhost`, so that a database that does not exist
 there is not `Unavailable` because the first address refused the connection. Its `#display_name` names the model of the
-query, such as `"Order query"`. A table, column or database that does not exist, a host that does not resolve, and a
-role or shard without a database are mistakes in the code or the configuration, so they raise their exception without a
-tag. As for a path, an exception that the block raises is never tagged.
+query, such as `"Order query"`. A table, column or database that does not exist, a host that does not resolve, a
+role or shard without a database, and on PostgreSQL a failure of TLS that a retry does not change, such as TLS that the
+server does not have, or a certificate that is not trusted, are mistakes in the code or the configuration, so they raise
+their exception without a tag. As for a path, an exception that the block raises is never tagged.
 
 ## What each stream raises
 
