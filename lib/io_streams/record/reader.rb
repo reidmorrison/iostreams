@@ -37,11 +37,15 @@ module IOStreams
       #     null, see `IOStreams::Tabular#blank?`. Keep the default to count the lines of the file from the records
       #     yielded, after the header row, such as to report the line of a record that is not valid.
       #     Default: false
+      #
+      # Raises ArgumentError when nothing names the keys of the records, see `IOStreams::Tabular#check_records`.
       def initialize(line_reader, tabular:, skip_blanks: false)
         self.class.check(skip_blanks: skip_blanks)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
+
+        tabular.check_records
 
         @tabular     = tabular
         @line_reader = line_reader

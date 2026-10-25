@@ -2,8 +2,9 @@
 layout: default
 title: Tabular Formats
 description: >-
-  Reading and writing rows and records of CSV, PSV, JSON, fixed width, Excel and
-  Parquet files, how the format is chosen, and typed values with a schema.
+  Reading and writing rows and records of CSV, PSV, JSON, fixed width, Excel,
+  Parquet and plain text files, how the format is chosen, and typed values with a
+  schema.
 ---
 
 **Contents**
@@ -20,6 +21,7 @@ tabular format:
 | `:psv` | `.psv` | Pipe separated values, without quoting, see [CSV and PSV files](#csv-and-psv-files) |
 | `:json` | `.json` | A JSON object on its own line, also called JSON Lines, see [JSON files](#json-files) |
 | `:fixed` | `.fixed`, or `format(:fixed)` | Fields at fixed positions in the line, see [Fixed width files](#fixed-width-files) |
+| `:lines` | `.lines`, or `format(:lines)` | The whole line, as it is, such as an email address, see [Lines of text](#lines-of-text) |
 | `:parquet` | `.parquet` | A row of an Apache Parquet file, which has no lines, see [Parquet files](#parquet-files) |
 
 A spreadsheet, `.xlsx` or `.xlsm`, is read and written as CSV, one line for each row of its worksheet, see
@@ -68,7 +70,7 @@ held in configuration before it is used. The list grows as formats are added, so
 
 ~~~ruby
 IOStreams.tabular_formats
-# => [:array, :csv, :fixed, :hash, :json, :parquet, :psv]
+# => [:array, :csv, :fixed, :hash, :json, :lines, :parquet, :psv]
 
 IOStreams.tabular_formats.include?(:json)
 # => true
@@ -160,6 +162,52 @@ end
 IOStreams.path("people.json").read
 # => "{\"name\":\"Jack\",\"age\":21}\n"
 ~~~
+
+## Lines of text
+
+Some files are only lines of text, such as a list of email addresses, ids or urls, one on each line. Set the `:lines`
+format to read each line as a row of one value, the whole line as it is. Unlike CSV, the file has no header row, a quote
+or a comma is just a character of its line, and every line ending ends a row:
+
+~~~ruby
+# emails.txt holds:
+# jack@example.com
+# "jill"@example.com
+IOStreams.path("emails.txt").format(:lines).each(:array) do |row|
+  p row
+end
+# ["jack@example.com"]
+# ["\"jill\"@example.com"]
+~~~
+
+A file whose name has no format extension, such as `emails.txt`, is otherwise read as CSV, whose first line is its header
+row, so set the format with `format(:lines)`. A file named `.lines` is in it already.
+
+A [schema](#schema) of one field names the value of each line and gives its type, so that `each(:hash)` keys each
+record by it, and `each(:array)` starts with a header row of its name, as for fixed width:
+
+~~~ruby
+schema = {
+  "fields" => [
+    {"name" => "id", "type" => "integer"}
+  ]
+}
+
+IOStreams.path("ids.txt").format(:lines).schema(schema).each(:hash) do |record|
+  p record
+end
+# {"id" => 12}
+# {"id" => 345}
+~~~
+
+* `each(:hash)` and `writer(:hash)` need the schema, which names the key of each record, so they raise `ArgumentError`
+  without one, before the file is opened, and so does a schema of more than one field.
+* A blank line, or a line of only spaces, is a blank row, see [Blank rows](streams#blank-rows).
+* `writer(:array)` writes the text of the one value of each row as a line, such as `2026-01-02` for a date, and replaces
+  a line break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value
+  raises `IOStreams::Errors::TypeMismatch`.
+* `each(:slice)` reads the lines in slices, each with its line number, to hand them to background jobs, see
+  [Processing in slices](slices).
 
 ## Excel spreadsheets
 

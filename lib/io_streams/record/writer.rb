@@ -25,9 +25,12 @@ module IOStreams
       #
       #   tabular: [IOStreams::Tabular]
       #     Renders each record in its format, and holds the header.
+      #
+      # Raises ArgumentError when nothing names the keys of the records, see `IOStreams::Tabular#check_records`.
       def initialize(line_writer, tabular:)
         raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
+        tabular.check_records
         @tabular     = tabular
         @line_writer = line_writer
 

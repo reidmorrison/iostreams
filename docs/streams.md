@@ -231,6 +231,9 @@ IOStreams.path("example.csv").each(:line, embedded_within: nil) do |line|
 end
 ~~~
 
+To read each line as a row in the `:array`, `:hash` or `:slice` mode, without a header row or quoting, such as a file of
+email addresses, set the `:lines` format, see [Lines of text](formats#lines-of-text).
+
 The reader that `reader(:line)` yields also passes each line to `each_with_line_number` with the number of the line of
 the file that it starts on, as a text editor numbers it, so that a line that holds a quoted line break is named by its
 first line:

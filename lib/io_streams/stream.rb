@@ -953,6 +953,7 @@ module IOStreams
       reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
       IOStreams::Record::Reader.check(skip_blanks: skip_blanks)
       tabular = self.tabular
+      tabular.check_records
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks)
       end
@@ -1140,6 +1141,7 @@ module IOStreams
       return block.call(io_stream) if open_writer_supplied?(IOStreams::Record::Writer, {delimiter: delimiter, **args})
 
       tabular = self.tabular
+      tabular.check_records
       open_rows_writer(tabular, delimiter) do |io|
         block.call(IOStreams::Record::Writer.new(io, tabular: tabular))
       end

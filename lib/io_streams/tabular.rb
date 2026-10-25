@@ -43,6 +43,7 @@ module IOStreams
       autoload :Fixed, "io_streams/tabular/parser/fixed"
       autoload :Hash, "io_streams/tabular/parser/hash"
       autoload :Json, "io_streams/tabular/parser/json"
+      autoload :Lines, "io_streams/tabular/parser/lines"
       autoload :Parquet, "io_streams/tabular/parser/parquet"
       autoload :Psv, "io_streams/tabular/parser/psv"
     end
@@ -67,7 +68,7 @@ module IOStreams
     #
     # Parameters
     #   format: [Symbol]
-    #     A registered format, see .registered_formats: :csv, :hash, :array, :json, :psv, :fixed or :parquet
+    #     A registered format, see .registered_formats: :csv, :hash, :array, :json, :lines, :psv, :fixed or :parquet
     #
     #   file_name: [IOStreams::Path | String]
     #     When `:format` is not supplied the file name can be used to infer the required format.
@@ -319,6 +320,13 @@ module IOStreams
       @mapping.read_header(line)
     end
 
+    # Raises ArgumentError when nothing names the keys of the records of the file, so that a reader or writer of records
+    # raises before the file is opened, see `IOStreams::Record::Reader` and `IOStreams::Record::Writer`: for a format
+    # without a header row whose rows have no keys, such as `:lines`, without a schema, whose fields would name them.
+    def check_records
+      @mapping.check_records
+    end
+
     # Returns [Hash<String,Object>] the line as a record, see #record_parse, which a reader of records reads after the
     # header row, see #read_record_line.
     # Returns nil if the line is blank.
@@ -501,6 +509,7 @@ module IOStreams
     register_format(:fixed, IOStreams::Tabular::Parser::Fixed)
     register_format(:hash, IOStreams::Tabular::Parser::Hash)
     register_format(:json, IOStreams::Tabular::Parser::Json)
+    register_format(:lines, IOStreams::Tabular::Parser::Lines)
     register_format(:parquet, IOStreams::Tabular::Parser::Parquet)
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
 
