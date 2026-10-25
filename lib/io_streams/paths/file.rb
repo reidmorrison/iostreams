@@ -163,9 +163,9 @@ module IOStreams
         candidates = Dir.glob(candidate_pattern(matcher.depth), glob_flags, base: directory)
         # A name that is not valid UTF-8, such as one written in Latin-1, is listed too, see `IOStreams::Utils.matchable`.
         results    = candidates.filter_map do |name|
-          next if %w[. ..].include?(::File.basename(name)) || !matcher.match?(name)
+          next if %w[. ..].include?(Utils::PathName.basename(name)) || !matcher.match?(name)
 
-          full_name = directory ? ::File.join(directory, name) : name
+          full_name = directory ? Utils::PathName.join(directory, name) : name
           # A child of the current directory called `~` is not the home directory.
           Utils.matchable(full_name).match?(HOME_DIRECTORY) ? "./#{full_name}" : full_name
         end
@@ -197,7 +197,7 @@ module IOStreams
 
         target.mkpath
         # The target failed when its directory cannot be written to, otherwise this file did.
-        failed = ::File.writable?(::File.dirname(target.to_s)) ? self : target
+        failed = ::File.writable?(Utils::PathName.dirname(target.to_s)) ? self : target
         # In case the file is being moved across partitions
         tag_failure(failed) { FileUtils.move(path, target.to_s) }
         target
@@ -205,7 +205,7 @@ module IOStreams
 
       def mkpath
         authorize!
-        dir = ::File.dirname(path)
+        dir = Utils::PathName.dirname(path)
         tag_failure { FileUtils.mkdir_p(dir) }
         self
       end
@@ -313,7 +313,7 @@ module IOStreams
       def local_directory(directory)
         return (path unless path.empty?) if directory.empty?
 
-        path.empty? ? directory : ::File.join(path, directory)
+        path.empty? ? directory : Utils::PathName.join(path, directory)
       end
 
       # Returns [true|false] whether the directory exists, so that it can be listed: false when it does not exist, or
@@ -341,13 +341,13 @@ module IOStreams
       # is appended to the real path of the part that does exist. It cannot contain `.` or `..`, since
       # what they refer to depends on directories that have not been created yet.
       def allowed_location
-        existing = ::File.absolute_path?(path) ? path : ::File.join(Dir.pwd, path)
+        existing = ::File.absolute_path?(path) ? path : Utils::PathName.join(Dir.pwd, path)
         missing  = []
         until present?(existing)
-          parent = ::File.dirname(existing)
+          parent = Utils::PathName.dirname(existing)
           break if parent == existing
 
-          missing.unshift(::File.basename(existing))
+          missing.unshift(Utils::PathName.basename(existing))
           existing = parent
         end
 
@@ -355,7 +355,7 @@ module IOStreams
           raise(Errors::AccessDenied, "Access denied to #{path}: '.' and '..' are not allowed after a missing directory")
         end
 
-        ::File.join(::File.realpath(existing), *missing)
+        Utils::PathName.join(::File.realpath(existing), *missing)
       rescue SystemCallError => e
         raise(Errors::AccessDenied, "Access denied to #{path}: #{e.message}")
       end

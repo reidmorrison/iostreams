@@ -8,6 +8,35 @@ module IOStreams
     # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
     COPY_MODES = %i[line array hash].freeze
 
+    # The number of bytes that a copy without a mode reads at a time, where it does not copy with `IO.copy_stream`, see
+    # #copy_data, as many as CRuby's `IO.copy_stream` reads.
+    COPY_SIZE = 16_384
+    private_constant :COPY_SIZE
+
+    # Whether `IO.copy_stream` writes the text that a source that is not an IO reads in the encoding that the source
+    # gives it, as CRuby's does, so that a target that converts text, such as with #encoding, converts it, rather than
+    # writing it as binary, as JRuby's does, see https://github.com/jruby/jruby/issues/9881, which such a target takes as
+    # text already in its own encoding. Found by what it does, so that #copy_from uses it again once JRuby keeps the
+    # encoding.
+    COPY_STREAM_KEEPS_ENCODING =
+      begin
+        text   = "\u00E9"
+        source = Object.new
+        source.define_singleton_method(:read) do |_length = nil, buffer = nil|
+          data = text
+          text = nil
+          buffer && data ? buffer.replace(data) : data
+        end
+        encoding = nil
+        target   = Object.new
+        target.define_singleton_method(:write) do |data|
+          encoding = data.encoding
+          data.bytesize
+        end
+        IO.copy_stream(source, target)
+        encoding == Encoding::UTF_8
+      end
+
     # The modes whose writers take only what is written in their mode, rows, records or slices, rather than text, so
     # that a writer of one of them that is supplied to `IOStreams.stream` is only written in its own mode, see
     # #reject_writer_of_other_mode!. A writer of lines takes text, as an IO does, so it is written in any mode.
@@ -437,7 +466,7 @@ module IOStreams
         else
           reject_copy_options!("when copying without a `mode:`", **args)
           stream.reader do |src|
-            writer { |target| IO.copy_stream(src, target) }
+            writer { |target| copy_data(src, target) }
           end
         end
       else
@@ -560,7 +589,7 @@ module IOStreams
       file_name = builder.file_name
       return unless file_name
 
-      suffix.nil? ? ::File.basename(file_name) : ::File.basename(file_name, suffix)
+      Utils::PathName.basename(file_name, suffix)
     end
 
     # Returns [String] the directory for this file.
@@ -576,7 +605,7 @@ module IOStreams
     #   IOStreams.path(".profile").dirname        #=> "."
     def dirname
       file_name = builder.file_name
-      ::File.dirname(file_name) if file_name
+      Utils::PathName.dirname(file_name) if file_name
     end
 
     # Returns [String] the extension for this file including the last period.
@@ -596,7 +625,7 @@ module IOStreams
     #   IOStreams.path(".profile.sh").extname     #=> ".sh"
     def extname
       file_name = builder.file_name
-      ::File.extname(file_name) if file_name
+      Utils::PathName.extname(file_name) if file_name
     end
 
     # Returns [String] the extension for this file _without_ the last period.
@@ -684,6 +713,22 @@ module IOStreams
     end
 
     private
+
+    # Copies the data that the supplied source reads to the supplied target, as `IO.copy_stream` does, keeping the
+    # encoding of the text that the source reads, so that a target that converts text converts it, see
+    # COPY_STREAM_KEEPS_ENCODING. It reads without a buffer, as JRuby's `IO.copy_stream` does, since not every source
+    # takes one, such as JRuby's `Zlib::GzipReader`, see https://github.com/jruby/jruby/issues/9884.
+    #
+    # Returns [Integer] the number of bytes copied, which the target says that it wrote, as for `IO.copy_stream`.
+    def copy_data(source, target)
+      return IO.copy_stream(source, target) if COPY_STREAM_KEEPS_ENCODING
+
+      copied = 0
+      while (data = source.read(COPY_SIZE))
+        copied += target.write(data)
+      end
+      copied
+    end
 
     # Returns the IO that this stream reads and writes, or the other source of its rows, such as a slice, as it was
     # supplied to `IOStreams.stream`. Not public, since the caller already holds it, and the stream of an Active Record

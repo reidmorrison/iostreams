@@ -31,7 +31,7 @@ module IOStreams
 
       new_path = dup
       new_path.clear_configuration
-      new_path.path = joined_path(::File.join(*elements.collect(&:to_s)))
+      new_path.path = joined_path(Utils::PathName.join(*elements.collect(&:to_s)))
       new_path
     end
 
@@ -64,7 +64,7 @@ module IOStreams
     def sub_ext(extension)
       new_path = dup
       new_path.clear_configuration
-      new_path.path = path.delete_suffix(::File.extname(path)) + extension.to_s
+      new_path.path = path.delete_suffix(Utils::PathName.extname(path)) + extension.to_s
       new_path
     end
 
@@ -87,7 +87,8 @@ module IOStreams
       # The names are compared by their bytes when either is not valid in its encoding, see IOStreams::Utils.matchable.
       names = [path.empty? ? "." : path, base.path.empty? ? "." : base.path]
       names = names.map(&:b) unless names.all?(&:valid_encoding?)
-      Pathname.new(names.first).relative_path_from(Pathname.new(names.last)).to_s.force_encoding(path.encoding)
+      relative = Utils::PathName.keeping_bytes(*names) { |name, from| Pathname.new(name).relative_path_from(Pathname.new(from)).to_s }
+      relative.force_encoding(path.encoding)
     end
 
     def relative?
@@ -238,7 +239,7 @@ module IOStreams
     def directory
       new_path = dup
       new_path.clear_configuration
-      new_path.path = ::File.dirname(path)
+      new_path.path = Utils::PathName.dirname(path)
       new_path
     end
 
@@ -386,7 +387,8 @@ module IOStreams
     # keeping a trailing `/` when it names another file, see #trailing_slash_significant?. A path class whose names
     # differ in other ways, such as an SFTP name within the login directory, refines it.
     def clean_name(name)
-      clean = Pathname.new(Utils.matchable(name)).cleanpath.to_s.force_encoding(name.encoding)
+      clean = Utils::PathName.keeping_bytes(name) { |valid| Pathname.new(Utils.matchable(valid)).cleanpath.to_s }
+      clean.force_encoding(name.encoding)
       return clean unless trailing_slash_significant? && name.end_with?("/") && !clean.end_with?("/")
 
       "#{clean}/"
@@ -402,7 +404,7 @@ module IOStreams
     # Returns [String] the path of the supplied name joined to this path, see #join: the name itself when it is
     # already within this path.
     def joined_path(name)
-      contains?(name) ? name : ::File.join(path, name)
+      contains?(name) ? name : Utils::PathName.join(path, name)
     end
 
     # Returns [String] the name that identifies the file of this path, including its store, which #==, #eql?, #hash and

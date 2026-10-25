@@ -686,7 +686,7 @@ module IOStreams
       def key_within(key, name)
         return key if name.empty?
 
-        key.empty? ? name : ::File.join(key, name)
+        key.empty? ? name : Utils::PathName.join(key, name)
       end
 
       # Set the key directly rather than parsing it as part of a URL, since a key can contain

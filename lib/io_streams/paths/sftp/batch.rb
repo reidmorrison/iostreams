@@ -30,10 +30,10 @@ module IOStreams
         # For example `["/a", "/a/b"]` for `"/a/b/file.csv"`.
         def self.parent_directories(file_name)
           directories = []
-          directory   = ::File.dirname(file_name)
+          directory   = Utils::PathName.dirname(file_name)
           until ["/", "."].include?(directory)
             directories.unshift(directory)
-            directory = ::File.dirname(directory)
+            directory = Utils::PathName.dirname(directory)
           end
           directories
         end

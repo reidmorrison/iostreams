@@ -186,10 +186,11 @@ module Paths
         let(:latin1_name) { "caf\xE9.csv.gz".dup.force_encoding(Encoding::UTF_8) }
         let(:latin1_path) { IOStreams.path("/data/in", latin1_name) }
 
-        # JRuby converts file names to Java strings, which replace each byte that is not valid UTF-8 with U+FFFD,
-        # so it cannot hold such a name, for example in `File.join`.
+        # JRuby's file system calls, such as `File.binwrite` and `Dir.children`, convert a file name to a Java string,
+        # which replaces each byte that is not valid UTF-8, so a file of such a name cannot be written or listed there,
+        # although IOStreams keeps the bytes of the names of its paths, see `IOStreams::Utils::PathName`.
         def skip_on_jruby
-          skip "JRuby replaces each byte of a file name that is not valid UTF-8 with U+FFFD" if defined?(JRuby)
+          skip "JRuby's file system calls replace each byte of a file name that is not valid UTF-8" if defined?(JRuby)
         end
 
         # Creates a file with the supplied name in a temp directory, and yields the directory.
@@ -206,21 +207,15 @@ module Paths
         end
 
         it "creates the path from the name as it is" do
-          skip_on_jruby
-
           assert_instance_of IOStreams::Paths::File, latin1_path
           assert_equal "/data/in/#{latin1_name}".b, latin1_path.to_s.b
         end
 
         it "displays each byte that is not valid UTF-8 as \\xHH" do
-          skip_on_jruby
-
           assert_equal "/data/in/caf\\xE9.csv.gz", latin1_path.display_name
         end
 
         it "creates the path from a file url" do
-          skip_on_jruby
-
           url = "file:///data/in/#{latin1_name}".force_encoding(Encoding::UTF_8)
 
           assert_equal latin1_path.to_s.b, IOStreams.path(url).to_s.b
@@ -235,8 +230,6 @@ module Paths
         end
 
         it "joins, cleans and compares names" do
-          skip_on_jruby
-
           assert_equal "/data/in/archive/x_caf\\xE9.csv.gz", latin1_path.directory.join("archive", "x_#{latin1_path.basename}").display_name
           assert_equal latin1_path, IOStreams.path("/data/./in/../in", latin1_name).cleanpath
           assert_equal "in/#{latin1_name}".b, latin1_path.relative_path_from(IOStreams.path("/data")).b
@@ -244,7 +237,7 @@ module Paths
         end
 
         it "is within the home directory when it starts with ~" do
-          assert_equal ::File.join(Dir.home, latin1_name).b, IOStreams.path("~", latin1_name).to_s.b
+          assert_equal "#{Dir.home}/#{latin1_name}".b, IOStreams.path("~", latin1_name).to_s.b
         end
 
         it "lists, reads and moves the file" do
