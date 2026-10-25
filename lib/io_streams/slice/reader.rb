@@ -22,11 +22,11 @@ module IOStreams
       end
 
       # Raises ArgumentError for options that cannot read slices, see #initialize, so that a call raises before the file
-      # is opened, see `IOStreams::Stream#each`: a `size` that is not a positive Integer, or a `validate` that is not true
-      # or false, see `IOStreams::Slice::Collector.check`, or a `resume_at` that is neither nil nor a positive Integer.
+      # is opened, see `IOStreams::Stream#each`: a `size` that is not a positive Integer, a `validate` that is not true or
+      # false, or a `resume_at` that is neither nil nor a positive Integer, which the collector of the slices checks, see
+      # `IOStreams::Slice::Collector.check`.
       def self.check(size:, validate: false, resume_at: nil)
-        Collector.check(size: size, validate: validate)
-        IOStreams::Utils.check_record_number(:resume_at, resume_at)
+        Collector.check(size: size, validate: validate, resume_at: resume_at)
       end
 
       # Parameters

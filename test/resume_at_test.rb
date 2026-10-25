@@ -112,6 +112,14 @@ class ResumeAtTest < Minitest::Test
         assert_equal [%w[name age], ["Jill", 22]], read(stream(json).format(:json).schema(typed), :array, resume_at: 2)
       end
 
+      it "reads the first record of JSON without a schema for its keys, which raises when it is not JSON" do
+        json = %({bad\n{"id":2}\n)
+
+        assert_raises(JSON::ParserError) { read(stream(json).format(:json), :array, resume_at: 2) }
+        assert_equal [{"id" => 2}], read(stream(json).format(:json), :hash, resume_at: 2)
+        assert_equal [[[%({"id":2}), 2, 2]]], numbered(read(stream(json).format(:json), :slice, size: 5, resume_at: 2))
+      end
+
       it "yields the names of the fields of a file without a header row first" do
         fixed = {"fields" => [{"name" => "name", "width" => 5}, {"name" => "age", "width" => 3, "type" => "integer"}]}
 
@@ -162,6 +170,21 @@ class ResumeAtTest < Minitest::Test
         assert_equal [{"name" => "Cy", "age" => 26}], read(IOStreams.stream(slice).schema(typed), :hash, resume_at: 503)
       end
 
+      it "raises for a record before its first row once that row is removed, since it holds only its own numbers" do
+        slice.delete_at(0)
+
+        assert_raises(ArgumentError) { read(IOStreams.stream(slice), :hash, resume_at: 501) }
+        assert_equal [{"name" => "Bob", "age" => "25"}, {"name" => "Cy", "age" => "26"}],
+                     read(IOStreams.stream(slice), :hash, resume_at: 502)
+      end
+
+      it "reads no rows of a slice without rows, which has none to skip" do
+        empty = IOStreams::Slice.new(header: %w[name age], format: :csv)
+
+        assert_empty read(IOStreams.stream(empty), :hash, resume_at: 1)
+        assert_empty read(IOStreams.stream(empty), :hash, resume_at: 900)
+      end
+
       it "raises for a slice whose rows have no record numbers" do
         unnumbered = IOStreams::Slice.new(%w[Ann,24], header: %w[name age], format: :csv)
 
@@ -207,6 +230,14 @@ class ResumeAtTest < Minitest::Test
           assert_raises(ArgumentError) { read(missing, :array, resume_at: resume_at) }
           assert_raises(ArgumentError) { read(missing, :slice, size: 2, resume_at: resume_at) }
         end
+      end
+
+      it "is checked by the collector of the slices, which compares each record number with it" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        error   = assert_raises(ArgumentError) { IOStreams::Slice::Collector.new(tabular: tabular, size: 2, resume_at: "3") }
+
+        assert_equal "Invalid resume_at \"3\": supply the number of a record, counting from 1, or nil", error.message
+        assert_raises(ArgumentError) { IOStreams::Slice::Collector.check(size: 2, resume_at: 0) }
       end
 
       it "only applies when reading, so a writer, a copy and the :line mode raise for it" do

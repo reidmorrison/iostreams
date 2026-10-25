@@ -22,14 +22,21 @@ module IOStreams
       private_constant :NEXT_RECORD
 
       # Raises ArgumentError for options that cannot collect slices, see #initialize, so that a call raises before
-      # anything is opened: a `size` that is not a positive Integer, or a `validate` that is not true or false, see
-      # .check_validate.
-      def self.check(size:, validate: false)
+      # anything is opened: a `size` that is not a positive Integer, a `validate` that is not true or false, see
+      # .check_validate, or a `resume_at` that is neither nil nor a positive Integer, see .check_resume_at.
+      def self.check(size:, validate: false, resume_at: nil)
         unless size.is_a?(Integer) && size.positive?
           raise(ArgumentError, "Invalid size #{size.inspect}: supply the number of rows of each slice")
         end
 
         check_validate(validate)
+        check_resume_at(resume_at)
+      end
+
+      # Raises ArgumentError for a `resume_at` that is neither nil nor a positive Integer, the number of the record that
+      # the slices start at, see #initialize, which #add compares the number of each record with.
+      def self.check_resume_at(resume_at)
+        IOStreams::Utils.check_record_number(:resume_at, resume_at)
       end
 
       # Raises ArgumentError for a `validate` that is not true or false, which says whether to parse each row, see
@@ -85,8 +92,10 @@ module IOStreams
       #
       # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
       #
-      # The caller checks the options before anything is opened, see .check.
+      # The caller checks the options before anything is opened, see .check. `resume_at` is checked again, since #add
+      # compares each record number with it.
       def initialize(tabular:, size:, validate: false, resume_at: nil, on_header: nil, &on_slice)
+        self.class.check_resume_at(resume_at)
         @tabular   = tabular
         @size      = size
         @validate  = validate

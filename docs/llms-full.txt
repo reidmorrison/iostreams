@@ -855,7 +855,10 @@ end
   cursor of a job that has not started yet, which is usually `nil`, can be supplied as it is. A job that keeps the
   number of the last record that it processed resumes at the record after it.
 * The file is still read up to that record, since it cannot be read from the middle, such as when it is compressed, but
-  the rows before it are not parsed, so a value that is not valid in one of them does not raise.
+  the rows before it are not parsed, so a value that is not valid in one of them does not raise. The one exception is
+  the first record of JSON without a schema in the `:array` mode, whose keys are the columns of every row, so it is
+  read for them, and raises when it is not valid JSON, as reading every row would: give the file a schema, or read it
+  in the `:hash` or `:slice` mode.
 * The header row is still read, and matched to the [schema](formats#schema), and `each(:array)` yields it first.
 * A query is read again from its start, so give the relation an order, such as `order(:id)`, so that its rows come back
   in the same order each time. Without one, a database may return them in another order, so that the rows skipped are
@@ -865,8 +868,11 @@ end
   each of its rows in the file, see [Find a row in the file](slices#find-a-row-in-the-file).
 * A slice resumes at a record number that it holds, as `slice.each` gives them, such as
   `IOStreams.stream(slice).each(:hash, resume_at: 502)` for a slice of records 501 to 600, or at the record after its
-  last, which reads no rows, and raises `ArgumentError` for any other, so that a cursor from another slice cannot skip
-  its rows. The slices read from it keep the line and record number of each row.
+  last, which reads no rows. A record between its first and last that it no longer holds, such as one removed with
+  `slice.delete_at`, resumes at the row after it, and a slice without rows reads none. A record before its first row,
+  such as the position of a row within it, or after the record after its last, raises `ArgumentError`, so that a cursor
+  of another slice cannot skip its rows, also once its first or last rows were removed, since a slice holds only the
+  numbers of its rows. The slices read from it keep the line and record number of each row.
 * A copy reads every record, so `#copy_from` and `#writer` raise `ArgumentError` for `resume_at:`, which only applies
   when reading, and a `resume_at` that is neither `nil` nor a positive Integer raises `ArgumentError` before the file
   is opened.

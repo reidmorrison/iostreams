@@ -610,8 +610,26 @@ class SliceTest < Minitest::Test
           assert_raises(ArgumentError) { numbered.from_record("3") }
         end
 
-        it "raises for a slice without rows, or with a row without a record number" do
-          assert_raises(ArgumentError) { IOStreams::Slice.new(format: :csv).from_record(1) }
+        it "returns a slice without rows for a slice without rows, which has none to skip" do
+          empty = IOStreams::Slice.new(header: %w[name], format: :csv)
+          rest  = empty.from_record(7)
+
+          assert_empty rest
+          assert_equal %w[name], rest.header
+          refute_same empty, rest
+        end
+
+        it "raises for a record before its first or after the record after its last, also once those rows are removed" do
+          numbered.delete_at(0)
+          numbered.delete_at(-1)
+
+          assert_equal [["d", 5, 3]], numbered.from_record(3).each.to_a
+          assert_empty numbered.from_record(4)
+          assert_raises(ArgumentError) { numbered.from_record(1) }
+          assert_raises(ArgumentError) { numbered.from_record(5) }
+        end
+
+        it "raises for a slice with a row without a record number" do
           numbered << "f"
           error = assert_raises(ArgumentError) { numbered.from_record(2) }
           assert_equal "A row of the slice has no record number, so it cannot start from record 2", error.message
