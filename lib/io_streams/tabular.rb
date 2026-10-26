@@ -203,12 +203,13 @@ module IOStreams
       @typed
     end
 
-    # Returns [true|false] whether the rows that this format renders hold the values of the fields themselves, such as
-    # Integers, Dates and Durations, rather than text, such as those of the `:hash` and `:array` formats, see
-    # `IOStreams::Tabular::Parser::Base.value_form`, so that a store of the rows rendered knows that they are typed, see
-    # `IOStreams::Slice::TargetStream`.
-    def renders_values?
-      parser.class.value_form == :typed
+    # Returns [true|false] whether the rows and records that this tabular renders hold the values of the fields of its
+    # schema themselves, such as Integers, Dates and Durations, as the schema converted them: with a schema, in a format
+    # whose rows hold the values rather than text, such as `:hash` and `:array`, see `.renders_values?`, so that a store
+    # of the rows rendered knows that they are typed, see `IOStreams::Slice::TargetStream`. False without a schema,
+    # since the values are then those that were written, which nothing converted.
+    def renders_field_values?
+      !@schema.nil? && self.class.renders_values?(format)
     end
 
     # Returns [true|false] whether the keys of the records read are the names of the fields of a schema, rather than the
@@ -566,6 +567,13 @@ module IOStreams
     # or [nil] when the format has no such quoting, or when the format is nil.
     def self.quote_character(format)
       parser_class(format).quote_character unless format.nil?
+    end
+
+    # Returns [true|false] whether the rows that the registered format renders hold the values themselves, such as those
+    # of the `:hash` and `:array` formats, rather than text, see `IOStreams::Tabular::Parser::Base.value_form`. False
+    # when the format is nil, whose rows are text.
+    def self.renders_values?(format)
+      !format.nil? && parser_class(format).value_form == :typed
     end
 
     # Returns [true|false] whether the rows of the registered format are lines of text, see #lines?, which they are when

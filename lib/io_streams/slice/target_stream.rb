@@ -160,23 +160,24 @@ module IOStreams
       protected
 
       # Yields the writer of the supplied mode, see #writer, with the options of the collector, see #slice_options, whose
-      # slices hold whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`, whether
-      # the values of their rows are those of the fields, see `IOStreams::Slice#typed?`: those that the row and record
-      # writers render in a format whose rows hold the values themselves, such as `:hash`, see
-      # `IOStreams::Tabular#renders_values?`, and in
-      # the `:line` mode, the line that each row starts on, unless the lines are not those of a file, such as those that
-      # a copy reads from a spreadsheet, see `IOStreams::Stream#copy_lines_of_file?`. Protected, so that a copy writes
-      # with the stream that has the schema of its source, see #copy_rows.
+      # slices hold whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`, which the
+      # row and record writers also render as a record, rather than a blank line, when it is not, whether the values of
+      # their rows are those of the fields, see `IOStreams::Slice#typed?`, as the tabular of those writers says, see
+      # `IOStreams::Tabular#renders_field_values?`, and in the `:line` mode, the line that each row starts on, unless the
+      # lines are not those of a file, such as those that a copy reads from a spreadsheet, see
+      # `IOStreams::Stream#copy_lines_of_file?`. Protected, so that a copy writes with the stream that has the schema of
+      # its source, see #copy_rows.
       #
       # Returns the result of the block.
       def write_slices(mode, options, blank_rows: true, lines_of_file: true, &block)
-        tabular = rows_tabular(blank_rows, mode != :line)
+        rendering = tabular(blank_rows: blank_rows) unless mode == :line
+        tabular   = rows_tabular(blank_rows, rendering&.renders_field_values? || false)
 
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
           case mode
           when :line then write_lines(collector, tabular.quote_character, lines_of_file, &block)
-          when :array then block.call(IOStreams::Row::Writer.new(collector, tabular: self.tabular))
-          when :hash then block.call(IOStreams::Record::Writer.new(collector, tabular: self.tabular))
+          when :array then block.call(IOStreams::Row::Writer.new(collector, tabular: rendering))
+          when :hash then block.call(IOStreams::Record::Writer.new(collector, tabular: rendering))
           end
         end
       end
@@ -532,13 +533,12 @@ module IOStreams
       end
 
       # Returns [IOStreams::Tabular] that reads the lines written into slices, see `IOStreams::Slice::Collector`, with
-      # whether a row whose every value is blank is a blank row, and whether the rows are rendered by the row and record
-      # writers, see #write_slices, whose values are those of the fields when the format renders the values themselves.
+      # whether a row whose every value is blank is a blank row, and whether the values of the rows are those of the
+      # fields, see #write_slices.
       #
       # Raises ArgumentError for a format whose rows are not lines, such as Parquet.
-      def rows_tabular(blank_rows, rendered)
-        tabular = self.tabular(blank_rows: blank_rows)
-        tabular = self.tabular(blank_rows: blank_rows, typed: true) if rendered && tabular.renders_values?
+      def rows_tabular(blank_rows, typed)
+        tabular = self.tabular(blank_rows: blank_rows, typed: typed)
         return tabular if tabular.lines?
 
         raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so its rows cannot be written to a " \

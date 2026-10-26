@@ -198,9 +198,11 @@ module IOStreams
       # in the form of its field that the format writes, see `IOStreams::Schema::Field#render`, in the order of the
       # fields, see `IOStreams::Schema::Columns#render`.
       #
-      # Returns nil for a blank row, which is written as a blank line, see #render_blank.
+      # Returns nil for a row or record without values, `[]` or `{}`, which is written as a blank line, see #render_blank,
+      # unless blank rows are records, see `IOStreams::Tabular::Mapping#initialize`, when it is the record of the fields
+      # without their values, as a record of nils is, so that it is read back as a record.
       def render(row)
-        return @columns.render_blank if IOStreams::Utils.blank?(row)
+        return @columns.render_blank if @blank_rows && IOStreams::Utils.blank?(row)
 
         render_fields(row)
       end
@@ -237,7 +239,7 @@ module IOStreams
       def match_header(line)
         return unless @requires_header
 
-        columns = parse(line)
+        columns = parse_columns(line)
         return if columns.nil?
 
         names          = @columns.match(columns)

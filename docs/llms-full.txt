@@ -4775,12 +4775,13 @@ slice.to_h
   `ArgumentError` for a Hash that does not describe a slice.
 * The header row travels with every slice, so each job reads its rows by the columns of their own file, even when the
   files that feed the same job have their columns in different orders.
-* The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or
-  `:hash` format are its values themselves, such as Integers and Dates, so their slice holds `"typed" => true` and
-  `"blank_rows" => false`. `IOStreams.stream(slice)` then matches their keys to the schema and hands the job each value
-  in the type of its field, also when the queue changed its form: a duration that BSON keeps as its seconds is a
-  duration again, and a Date that BSON returns as a Time is a Date. To replace the rows of a slice with others in the same form, `slice.with_rows(rows)` returns a new
-  slice that keeps everything else that the slice says.
+* The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or `:hash`
+  mode are each a record, also when every value is blank, so their slice holds `"blank_rows" => false`. With a schema,
+  in the `:array` or `:hash` format, they are the values of its fields themselves, such as Integers and Dates, so
+  their slice also holds `"typed" => true`. `IOStreams.stream(slice)` then matches their keys to the schema and hands
+  the job each value in the type of its field, also when the queue changed its form: a duration that BSON keeps as its
+  seconds is a duration again, and a Date that BSON returns as a Time is a Date. To replace the rows of a slice with
+  others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
 
 ### Choosing the size of a slice
 

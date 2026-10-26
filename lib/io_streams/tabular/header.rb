@@ -84,8 +84,11 @@ module IOStreams
       #     Whether to cleanse and narrow the supplied hash to just those columns in this header.
       #     Only Applies to when the hash is already a Hash.
       #     Useful to turn off narrowing when the input data is already trusted.
+      #
+      # Returns nil for nil. A row or record without values, `[]` or `{}`, is a record too, since only a mapping whose
+      # blank rows are records hands one on, see `IOStreams::Tabular::Mapping#parse`.
       def to_hash(row, cleanse = true)
-        return if IOStreams::Utils.blank?(row)
+        return if row.nil?
 
         case row
         when Array

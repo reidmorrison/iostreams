@@ -158,12 +158,24 @@ module IOStreams
       # Returns nil when it is blank, the same way in every format, so that a file holds the same rows whichever format it
       # is in: a line that is blank, see `IOStreams::Utils.blank_text?`, or a row or record whose every value is blank,
       # see `IOStreams::Utils.blank_row?`, such as a line of CSV of only commas, a spreadsheet row of empty cells, or a
-      # JSON record of `null`, `{}`, or whose every value is null, unless blank rows are records, see #initialize.
+      # JSON record of `null`, `{}`, or whose every value is null, unless blank rows are records, see #initialize, when
+      # only a blank line is, since a row or record already read, even `[]` or `{}`, is one that was written.
       def parse(line)
-        return if IOStreams::Utils.blank?(line)
+        return if line.nil? || (line.is_a?(::String) && IOStreams::Utils.blank_text?(line))
 
         values = @parser.parse(line)
         values unless @blank_rows && IOStreams::Utils.blank_row?(values)
+      end
+
+      # Returns [Array] the columns of the header row of the line, see #parse, or nil when it is blank, also when blank
+      # rows are records, since a header row is not a record: a blank row before it is skipped, as in a file, rather
+      # than taken as the header row, such as a blank row that a program writes first to a store of slices, see
+      # `IOStreams::Slice::TargetStream#writer`.
+      def parse_columns(line)
+        return if IOStreams::Utils.blank?(line)
+
+        columns = @parser.parse(line)
+        columns unless IOStreams::Utils.blank_row?(columns)
       end
     end
   end
