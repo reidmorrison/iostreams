@@ -91,9 +91,10 @@ module IOStreams
       # row. Without a schema, nothing then names the columns of such a slice of a format with a header row, such as CSV,
       # so that its records cannot be read, see `IOStreams::Tabular#check_records`, while its rows can.
       #
-      # The values of rows that are already those of the fields, see `IOStreams::Slice#typed?`, such as those written to
-      # a store of slices in the `:hash` mode, are matched to the fields of the schema by their keys or header row, but
-      # not converted again, so that they are read as they were written, or as the store keeps them.
+      # The values of rows that are those of the fields, see `IOStreams::Slice#typed?`, such as those written to a store
+      # of slices in the `:hash` mode, are matched to the fields of the schema by their keys or header row, and restored
+      # to the types of the fields from the forms that the store returned them in, see
+      # `IOStreams::Schema::Field#restore`.
       def tabular(**)
         super(blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?, typed: io_stream.typed?, **)
       end

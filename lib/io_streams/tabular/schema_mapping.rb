@@ -23,9 +23,9 @@ module IOStreams
       #     Default: nil, as the schema says.
       #
       #   typed: [true|false]
-      #     Whether the values of the rows and records read are already those of the fields, such as those of a slice that
-      #     says so, see `IOStreams::Slice#typed?`, so that they are matched to the fields but not converted again, see
-      #     `IOStreams::Schema::Columns#initialize`.
+      #     Whether the values of the rows and records read are those of the fields, such as those of a slice that says so,
+      #     see `IOStreams::Slice#typed?`, so that they are restored to the types of the fields from the forms that a
+      #     store returned them in, see `IOStreams::Schema::Columns#initialize`.
       #     Default: false
       #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.

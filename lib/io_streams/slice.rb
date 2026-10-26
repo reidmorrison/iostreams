@@ -217,13 +217,13 @@ module IOStreams
       @blank_rows
     end
 
-    # Returns [true|false] whether the values of the rows are already those of the fields of a schema, as it rendered
-    # them, such as the Integers, Dates and Durations of the rows and records that a program, or a copy of an Active
-    # Record query, wrote to a store of slices in the `:array` or `:hash` mode, see `IOStreams::Slice::TargetStream`. The
-    # stream of the slice then matches their keys or header row to the fields of its schema, but does not convert their
-    # values again, see `IOStreams::Slice::Stream`, so that it reads them as they were written, or as a store keeps them.
-    # False for the rows of a file, and for rows that are not, such as a slice built of values, which the schema
-    # converts.
+    # Returns [true|false] whether the values of the rows are those of the fields of a schema, as it rendered them, such
+    # as the Integers, Dates and Durations of the rows and records that a program, or a copy of an Active Record query,
+    # wrote to a store of slices in the `:array` or `:hash` mode, see `IOStreams::Slice::TargetStream`. The stream of the
+    # slice then matches their keys or header row to the fields of its schema, and restores each value to the type of
+    # its field from the form that a store returned it in, such as the seconds that BSON keeps of a duration, see
+    # `IOStreams::Schema::Field#restore`, rather than read it as text. False for the rows of a file, and for rows that
+    # are not, such as a slice built of values, which the schema converts.
     def typed?
       @typed
     end

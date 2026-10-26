@@ -28,10 +28,10 @@ module IOStreams
       #     The fields of the columns.
       #
       #   typed: [true|false]
-      #     Whether the values of the rows and records read are already those of the fields, as a schema rendered them,
-      #     such as the rows of a slice that says so, see `IOStreams::Slice#typed?`, so that they are read as they are
-      #     rather than converted to the type of each field again, see #read_value. Their columns are still matched to
-      #     the fields.
+      #     Whether the values of the rows and records read are those of the fields, as a schema rendered them, such as
+      #     the rows of a slice that says so, see `IOStreams::Slice#typed?`, so that each one is restored to the type of
+      #     its field from the form that a store returned it in, see #read_value, rather than read as text. Their
+      #     columns are matched to the fields either way.
       #     Default: false
       def initialize(schema, typed: false)
         @schema       = schema
@@ -247,10 +247,11 @@ module IOStreams
 
       private
 
-      # Returns the value of the supplied field read from a row or record: converted to the type of the field, see
-      # `IOStreams::Schema::Field#cast`, unless the values read are already those of the fields, see #initialize.
+      # Returns the value of the supplied field read from a row or record, converted to the type of the field, see
+      # `IOStreams::Schema::Field#cast`, or, when the values read are those of the fields, see #initialize, restored to
+      # it from the form that a store returned it in, see `IOStreams::Schema::Field#restore`.
       def read_value(field, value)
-        @typed ? value : field.cast(value)
+        @typed ? field.restore(value) : field.cast(value)
       end
 
       # Returns [Array] the columns of a header row up to the last one with a name, without the columns without a name

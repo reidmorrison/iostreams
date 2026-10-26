@@ -111,10 +111,10 @@ module IOStreams
     #     Default: nil, as the schema says, otherwise as the format says, such as for a file.
     #
     #   typed: [true|false]
-    #     Whether the values of the rows read are already those of the fields of the schema, as a schema rendered them,
-    #     such as the rows of a slice that says so, see `IOStreams::Slice#typed?`, so that the schema matches their
-    #     columns or keys to its fields, but does not convert their values again. Without a schema, no value is
-    #     converted anyway.
+    #     Whether the values of the rows read are those of the fields of a schema, as it rendered them, such as the rows
+    #     of a slice that says so, see `IOStreams::Slice#typed?`, so that the schema restores each value to the type of
+    #     its field from the form that a store returned it in, see `IOStreams::Schema::Field#restore`, rather than read
+    #     it as text. Without a schema, no value is converted anyway.
     #     Not an option of a call that reads or writes rows.
     #     Default: false
     #
@@ -196,9 +196,9 @@ module IOStreams
       @mapping.blank_rows?
     end
 
-    # Returns [true|false] whether the values of the rows read are already those of the fields of the schema, see
-    # `typed:` of #initialize, so that a slice of the rows carries it, see `IOStreams::Slice#typed?`, and its rows are
-    # not converted again where the slice is read.
+    # Returns [true|false] whether the values of the rows read are those of the fields of a schema, see `typed:` of
+    # #initialize, so that a slice of the rows carries it, see `IOStreams::Slice#typed?`, and its values are restored to
+    # the types of their fields where the slice is read.
     def typed?
       @typed
     end
