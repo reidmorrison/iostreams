@@ -241,8 +241,9 @@ class SliceTest < Minitest::Test
         assert typed.to_h["typed"]
         refute slice.to_h.key?("typed")
         assert_predicate IOStreams.slice(typed.to_h), :typed?
-        assert_predicate IOStreams.slice(rows: [], typed: true), :typed?
+        assert_predicate IOStreams.slice(rows: [], format: "hash", typed: true), :typed?
         refute_predicate IOStreams.slice(rows: []), :typed?
+        refute_predicate IOStreams.slice(rows: [], typed: false), :typed?
       end
 
       it "makes slices that differ by it not equal" do
@@ -258,6 +259,36 @@ class SliceTest < Minitest::Test
         assert_equal 'The typed of a slice must be true or false: "true"', error.message
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "typed" => 1) }
         assert_equal "The typed of a slice must be true or false: 1", error.message
+      end
+
+      it "is only true for a format whose rows hold the values themselves, since the rows of any other are text" do
+        %i[hash array parquet].each do |format|
+          assert_predicate IOStreams::Slice.new([], format: format, typed: true), :typed?, format
+        end
+        [:csv, :json, :fixed, :lines, nil].each do |format|
+          error = assert_raises(ArgumentError, format.inspect) { IOStreams::Slice.new(["12,2026-01-02"], format: format, typed: true) }
+          assert_equal "A slice of the #{format.inspect} format cannot be typed, since its rows are text: only the rows of a " \
+                       "format whose rows hold the values themselves, such as :hash or :array, can be", error.message
+        end
+        assert_raises(ArgumentError) { IOStreams.slice("rows" => ["12"], "header" => ["amount"], "format" => "csv", "typed" => true) }
+      end
+    end
+
+    describe "#same_file?" do
+      let(:typed) { IOStreams::Slice.new([[1]], header: %w[amount], format: :array, typed: true) }
+
+      it "is true for a slice whose rows are read as those of this one, whatever its rows and numbers" do
+        assert typed.same_file?(IOStreams::Slice.new([[2], [3]], header: %w[amount], format: :array, typed: true,
+                                                                 record_number: 5))
+      end
+
+      it "is false for a slice of another header row, format, or whose blank rows or values are read otherwise" do
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[total], format: :array, typed: true))
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :hash, typed: true))
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :array))
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :array, typed: true,
+                                                            blank_rows: false))
+        refute typed.same_file?([[1]])
       end
     end
 

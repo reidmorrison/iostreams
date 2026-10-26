@@ -69,7 +69,8 @@ module IOStreams
 
       slice = new(rows_of(values["rows"]), header: header_of(values["header"]), format: format_of(values["format"]),
                                            blank_rows: blank_rows_of(values["blank_rows"]),
-                                           typed: typed_of(values["typed"]),
+                                           # Not held when false, see #to_h. Any other value raises, see #initialize.
+                                           typed: values["typed"].nil? ? false : values["typed"],
                                            line_number: values["line_number"], record_number: values["record_number"])
       slice.send(:jumps=, values["jumps"])
       slice
@@ -118,16 +119,6 @@ module IOStreams
     end
     private_class_method :blank_rows_of
 
-    # Returns [true|false] whether the values of the rows of the Hash of a slice are already those of the fields of a
-    # schema, see .from_h and #typed?: false when the Hash does not say, since #to_h only holds it when it is true.
-    def self.typed_of(typed)
-      return false if typed.nil?
-      return typed if [true, false].include?(typed)
-
-      raise(ArgumentError, "The typed of a slice must be true or false: #{typed.inspect}")
-    end
-    private_class_method :typed_of
-
     # Returns [Array<String>] the header row of the file, as it was read, before it was cleansed or matched to the
     # fields of a schema, which every slice of the file shares, so it is frozen, as are its columns.
     # Returns nil when the file has no header row, such as fixed width, JSON, or a schema whose `header` is false.
@@ -173,7 +164,9 @@ module IOStreams
     #     Default: true
     #
     #   typed: [true|false]
-    #     Whether the values of the rows are already those of the fields of a schema, see #typed?.
+    #     Whether the values of the rows are those of the fields of a schema, see #typed?, which only the rows of a
+    #     format whose rows hold the values themselves, such as `:hash` or `:array`, can be, see
+    #     `IOStreams::Tabular.renders_values?`, since the rows of any other format are text.
     #     Default: false
     #
     #   line_number: [Integer]
@@ -189,18 +182,17 @@ module IOStreams
     # see #add.
     #
     # Raises ArgumentError when the rows are not an Array, for a header row that is not an Array, or is blank, for a
-    # `typed` that is not true or false, for a line number or record number that is not a positive Integer, nor nil, or
-    # for one without rows, rather than ignore it.
+    # `typed` that is not true or false, or is true for a format whose rows are text, for a line number or record number
+    # that is not a positive Integer, nor nil, or for one without rows, rather than ignore it.
     def initialize(rows = [], header: nil, format: nil, blank_rows: true, typed: false, line_number: nil,
                    record_number: nil)
       raise(ArgumentError, "The rows of a slice must be an Array, not #{rows.class.name}") unless rows.is_a?(::Array)
-      raise(ArgumentError, "The typed of a slice must be true or false: #{typed.inspect}") unless [true, false].include?(typed)
 
       @rows          = rows.dup
       @header        = checked_header(header)
       @format        = format
       @blank_rows    = blank_rows
-      @typed         = typed
+      @typed         = checked_typed(typed, format)
       @line_number   = checked_number("line_number", line_number)
       @record_number = checked_number("record_number", record_number)
       @jumps         = nil
@@ -546,6 +538,14 @@ module IOStreams
       to_h.to_json(*)
     end
 
+    # Returns [true|false] whether the rows of the supplied slice are read as those of this one, as rows of the same
+    # file: of the same header row and format, and alike in whether their blank rows are records, see #blank_rows?, and
+    # whether their values are those of the fields of a schema, see #typed?, such as the slices that a writer of slices
+    # writes to one file, see `IOStreams::Slice::Writer`.
+    def same_file?(other)
+      other.is_a?(Slice) && other.description == description
+    end
+
     # Slices are equal when they hold the same rows, with the same numbers, of the same header row and format, see #to_h.
     def ==(other)
       other.is_a?(Slice) && other.contents == contents
@@ -581,6 +581,12 @@ module IOStreams
     # of, see #==.
     def contents
       [@rows, header, format&.to_s, blank_rows?, typed?, line_number, record_number, @jumps]
+    end
+
+    # Returns [Array] what describes how the rows of the slice are read, which the slices of the same file share, see
+    # #same_file?.
+    def description
+      [header, format&.to_s, blank_rows?, typed?]
     end
 
     private
@@ -643,6 +649,18 @@ module IOStreams
 
     # Returns [Array] the supplied header row, see #header, or nil for a slice without one, see #header?.
     #
+    # Returns [true|false] the supplied `typed` of a slice of the supplied format, see #typed?.
+    #
+    # Raises ArgumentError when it is not true or false, or is true for a format whose rows are text, such as CSV, since
+    # its schema would then not read them, see `IOStreams::Tabular.renders_values?`.
+    def checked_typed(typed, format)
+      raise(ArgumentError, "The typed of a slice must be true or false: #{typed.inspect}") unless [true, false].include?(typed)
+      return typed unless typed && !IOStreams::Tabular.renders_values?(format)
+
+      raise(ArgumentError, "A slice of the #{format.inspect} format cannot be typed, since its rows are text: only the " \
+                           "rows of a format whose rows hold the values themselves, such as :hash or :array, can be")
+    end
+
     # Raises ArgumentError for a header row that is not an Array, such as false, or that is blank, see
     # `IOStreams::Utils.blank_row?`, such as `[]`, which reading would skip as a blank row, and take the first row as the
     # header row instead.
