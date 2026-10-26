@@ -86,12 +86,12 @@ module IOStreams
       # whose every value is blank as the slice says, see `IOStreams::Slice#blank_rows?`, so that a row of a query whose
       # every value is null is a record wherever its slice is read, as it is where the query is read.
       #
-      # The rows start with a header row only when the slice carries one, see `IOStreams::Slice#header`, whatever the
+      # The rows start with a header row only when the slice carries one, see `IOStreams::Slice#header?`, whatever the
       # format or the schema says of the file, so that the first row of a slice without one is never read as its header
       # row. Without a schema, nothing then names the columns of such a slice of a format with a header row, such as CSV,
       # so that its records cannot be read, see `IOStreams::Tabular#check_records`, while its rows can.
       def tabular(**)
-        super(blank_rows: io_stream.blank_rows?, header_row: !io_stream.header.nil?, **)
+        super(blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?, **)
       end
 
       # Yields [NumberedRows] the rows of the slice, after its header row, when it carries one, with the line of the file
@@ -107,9 +107,9 @@ module IOStreams
       def rows
         slice = io_stream
         Enumerator.new do |rows|
-          rows << slice.header if slice.header
+          rows << slice.header if slice.header?
           slice.each { |row, _line_number, _record_number| rows << row }
-          slice.size + (slice.header ? 1 : 0)
+          slice.size + (slice.header? ? 1 : 0)
         end
       end
 
@@ -124,8 +124,7 @@ module IOStreams
         # Yields the header row, which is neither on a line nor a record, nil, nil, and then each row with its line
         # number and record number, see `IOStreams::Slice#each`.
         def each(&)
-          header = @slice.header
-          yield(header, nil, nil) if header
+          yield(@slice.header, nil, nil) if @slice.header?
           @slice.each(&)
         end
       end

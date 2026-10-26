@@ -207,17 +207,6 @@ module IOStreams
       @header
     end
 
-    # Returns [IOStreams::Schema] this schema, or a copy of it whose `header` is the supplied one, for rows that start
-    # with a header row, or not, whatever the file that the schema describes, such as the rows of a slice, which says
-    # whether it has one, see `IOStreams::Slice#header`.
-    def with_header(header)
-      return self if header == @header
-
-      copy = dup
-      copy.header = header
-      copy.freeze
-    end
-
     # Returns [String|nil] how the keys of the records read are formed from the names of the fields, see `keyType`
     # above, or nil when they are the names as they are given.
     def key_type
@@ -361,16 +350,20 @@ module IOStreams
     end
 
     # Raises ArgumentError unless the columns of a file can be the fields in order, as they are for a format with a
-    # header row, such as CSV, whose file has none, see `header` above: the schema needs fields, and `fieldsMatch`
-    # "exact", since a file without a header row has no names to match its columns by. A format without a header row,
-    # such as JSON, ignores `header`, so these rules only apply to a format with one, once it is known, see
+    # header row, such as CSV, whose rows have none, see `header` above, or that their source says have none, see
+    # `headerless:` of `IOStreams::Tabular#initialize`: the schema needs fields, and `fieldsMatch` "exact", since rows
+    # without a header row have no names to match their columns by. A format without a header row, such as JSON, ignores
+    # `header`, so these rules only apply to a format with one, once it is known, see
     # `IOStreams::Schema::Columns#match_fields`.
     def check_fields_in_order
-      raise(ArgumentError, "A schema with header: false needs fields, which are the columns of the file") if fields.empty?
+      if fields.empty?
+        raise(ArgumentError, "Rows without a header row, such as of a schema with header: false, are read by the " \
+                             "fields of the schema, in order, so it needs fields")
+      end
       return if fields_match == "exact"
 
-      raise(ArgumentError, "A schema with header: false has the fields in order, so fieldsMatch must be \"exact\": " \
-                           "#{fields_match.inspect}")
+      raise(ArgumentError, "Rows without a header row, such as of a schema with header: false, have the fields of the " \
+                           "schema in order, so its fieldsMatch must be \"exact\": #{fields_match.inspect}")
     end
 
     # Returns [Array] the columns of a file that its fields are read from, in the order of the columns, for a reader that
@@ -410,11 +403,6 @@ module IOStreams
       @keep_extra
     end
 
-    protected
-
-    # Sets whether the file has a header row, see #with_header, on a copy, before it is frozen.
-    attr_writer :header
-
     private
 
     # Returns [true|false] whether every field must be one of the columns.
@@ -441,7 +429,8 @@ module IOStreams
           "#{describe(unknown, noun)} #{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the schema"
         end
       if fields_in_order
-        return "#{text}, which a schema with header: false does not accept, since its columns are the fields in order"
+        return "#{text}, which rows without a header row, such as of a schema with header: false, do not accept, " \
+               "since their columns are the fields in order"
       end
 
       "#{text}, which fieldsMatch #{fields_match.inspect} does not accept; \"subset\" and \"partial\" skip them"

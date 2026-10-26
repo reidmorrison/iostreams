@@ -214,10 +214,35 @@ class SliceTest < Minitest::Test
         assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "header" => [1, 2]) }
       end
 
+      it "raises for a blank header row, which reading would skip, taking the first row as the header row instead" do
+        [[], [nil], ["", " "]].each do |blank|
+          error = assert_raises(ArgumentError) { IOStreams.slice("rows" => %w[Jack,21], "header" => blank, "format" => "csv") }
+          assert_equal "The header row of a slice must be an Array of its columns that is not blank, or nil for a slice " \
+                       "without one: #{blank.inspect}", error.message
+        end
+      end
+
       it "raises for a format that is not a tabular format" do
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "format" => "gz") }
         assert_match(/\AUnknown format of a slice: "gz"\. Valid formats: /, error.message)
         assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "format" => 1) }
+      end
+    end
+
+    describe "#header?" do
+      it "is true for a slice that carries the header row of its file" do
+        assert_predicate slice, :header?
+      end
+
+      it "is false for a slice without one" do
+        refute_predicate IOStreams::Slice.new(%w[Jack,21], format: :csv), :header?
+      end
+
+      it "raises for a header row that is not an Array, or is blank, rather than take the first row as the header row" do
+        [false, "Name,AGE", [], [nil, ""]].each do |header|
+          error = assert_raises(ArgumentError) { IOStreams::Slice.new(%w[Jack,21], header: header, format: :csv) }
+          assert_match(/\AThe header row of a slice must be an Array of its columns that is not blank/, error.message)
+        end
       end
     end
 

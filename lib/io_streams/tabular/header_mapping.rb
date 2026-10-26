@@ -8,16 +8,16 @@ module IOStreams
     # it reads as their header row, see #read_header.
     class HeaderMapping < Mapping
       # Parameters:
-      #   header_row: [true|false]
-      #     Whether the rows start with a header row, when the format has one, such as CSV: false for rows that do not,
-      #     such as those of a slice without one, see `IOStreams::Tabular#initialize`, whose columns nothing then names,
-      #     see #unnamed_columns?.
-      #     Default: true
+      #   headerless: [true|false|nil]
+      #     Whether the rows have no header row, when the format has one, such as CSV: true for rows that do not start
+      #     with one, such as those of a slice without one, see `IOStreams::Tabular#initialize`, whose columns nothing
+      #     then names, see #unnamed_columns?.
+      #     Default: nil, as the format says.
       #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
-      def initialize(header:, parser:, format:, blank_rows: true, header_row: true)
+      def initialize(header:, parser:, format:, blank_rows: true, headerless: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
-        @requires_header = header_row && parser.requires_header?
+        @requires_header = !headerless && parser.requires_header?
         @keyed           = parser.class.keyed?
         # The keys of the first record of a format of keyed records, which are the columns of its rows, see
         # #read_header, whose plans it keeps, see #row_plan.

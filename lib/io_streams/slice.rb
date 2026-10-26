@@ -50,10 +50,10 @@ module IOStreams
     # header row is a frozen copy, since every slice of a file shares it.
     #
     # Raises ArgumentError when it does not describe a slice: when it is not a Hash, has no rows, or a key that a slice
-    # does not have, or when its rows are not an Array, its header row is not an Array of Strings, its format is not a
-    # tabular format, see `IOStreams.tabular_formats`, its `blank_rows` is not true or false, its `line_number` or
-    # `record_number` is not a positive Integer, or is supplied without rows, or its `jumps` are not those of its rows,
-    # see #to_h.
+    # does not have, or when its rows are not an Array, its header row is not an Array of Strings, or is blank, see
+    # #header?, its format is not a tabular format, see `IOStreams.tabular_formats`, its `blank_rows` is not true or
+    # false, its `line_number` or `record_number` is not a positive Integer, or is supplied without rows, or its `jumps`
+    # are not those of its rows, see #to_h.
     def self.from_h(hash)
       raise(ArgumentError, "A slice must be the Hash that #to_h returns, not #{hash.class.name}") unless hash.is_a?(::Hash)
 
@@ -119,6 +119,14 @@ module IOStreams
     # Returns nil when the file has no header row, such as fixed width, JSON, or a schema whose `header` is false.
     attr_reader :header
 
+    # Returns [true|false] whether the slice carries the header row of its file, see #header, which its rows are read by,
+    # see `IOStreams::Slice::Stream`: false for the slices of a file without one, such as fixed width, JSON, or a schema
+    # whose `header` is false, and for rows that are not of a file, such as an `:array` of values, so that none of its
+    # rows is read as its header row, whatever the format or the schema that reads them says.
+    def header?
+      !@header.nil?
+    end
+
     # Returns [Symbol] the tabular format of the rows, such as `:csv`, see `IOStreams.tabular_formats`.
     attr_reader :format
 
@@ -138,7 +146,8 @@ module IOStreams
     #     Default: none
     #
     #   header: [Array<String>]
-    #     The header row of the file of the rows, see #header.
+    #     The header row of the file of the rows, see #header, which is not blank, since a blank row is never the header
+    #     row of a file, or nil for rows without one, see #header?.
     #     Default: nil
     #
     #   format: [Symbol]
@@ -161,13 +170,14 @@ module IOStreams
     # A slice without rows has no numbers, since they are those of its first row: supply them when the row is added,
     # see #add.
     #
-    # Raises ArgumentError when the rows are not an Array, for a line number or record number that is not a positive
-    # Integer, nor nil, or for one without rows, rather than ignore it.
+    # Raises ArgumentError when the rows are not an Array, for a header row that is not an Array, or is blank, for a
+    # line number or record number that is not a positive Integer, nor nil, or for one without rows, rather than ignore
+    # it.
     def initialize(rows = [], header: nil, format: nil, blank_rows: true, line_number: nil, record_number: nil)
       raise(ArgumentError, "The rows of a slice must be an Array, not #{rows.class.name}") unless rows.is_a?(::Array)
 
       @rows          = rows.dup
-      @header        = header
+      @header        = checked_header(header)
       @format        = format
       @blank_rows    = blank_rows
       @line_number   = checked_number("line_number", line_number)
@@ -583,6 +593,18 @@ module IOStreams
       end
 
       [index, checked_number("line_number", line_number), checked_number("record_number", record_number)]
+    end
+
+    # Returns [Array] the supplied header row, see #header, or nil for a slice without one, see #header?.
+    #
+    # Raises ArgumentError for a header row that is not an Array, such as false, or that is blank, see
+    # `IOStreams::Utils.blank_row?`, such as `[]`, which reading would skip as a blank row, and take the first row as the
+    # header row instead.
+    def checked_header(header)
+      return header if header.nil? || (header.is_a?(::Array) && !Utils.blank_row?(header))
+
+      raise(ArgumentError, "The header row of a slice must be an Array of its columns that is not blank, or nil for a " \
+                           "slice without one: #{header.inspect}")
     end
 
     # Returns [Integer] the supplied line number or record number of a row, or nil for a row without one.
