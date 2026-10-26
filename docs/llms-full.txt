@@ -4194,6 +4194,9 @@ Since `slice.to_h` holds the values themselves, a store of slices must keep them
 `to_json` of ActiveSupport writes it to the millisecond, while `JSON.generate` writes the text of `Time#to_s`, without
 its fraction of a second, which a `datetime` field does not read. BSON keeps a time to the millisecond. So the times of
 a stored slice are read back to the millisecond at best, rather than to the microsecond that a database can hold.
+A slice of a query holds `"typed" => true`, unless the stream has a schema of its own, so that a value that a store
+keeps in another form is read back as its type: a duration, which BSON keeps as its number of seconds, is a duration
+again.
 
 ## One query or batches
 

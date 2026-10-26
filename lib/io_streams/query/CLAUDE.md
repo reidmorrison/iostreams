@@ -55,7 +55,10 @@ changes, and docs/errors.md when what it raises does.
   (`#schema`, `Columns#schema`), which `#tabular` gives `Tabular::Settings#tabular` as `default_schema:`, with
   `blank_rows: false` (`Tabular::SOURCE_OPTION_NAMES`), since a row of nulls is a record rather than a blank line. The
   slices of a query carry that (`Slice#blank_rows?`, `"blank_rows" => false` in `Slice#to_h`), so a stored slice reads
-  such a row as a record too.
+  such a row as a record too. By the schema of the columns, its tabular also says that the values are those of the
+  fields (`typed: true`, asked of `tabular_settings.schema`, since `#schema` falls back to that of the columns), so its
+  slices are typed (`Slice#typed?`) and a stored duration that BSON keeps as its seconds is read as a duration
+  (`Field#restore`); with a schema that was set, which describes the values otherwise, they are cast as any other rows are (`Field#cast`).
 - A copy gives a target without a schema the schema of the columns (`Stream#copy_schema`, which asks the private
   `#rows_schema`, nil for a file, whose schema describes its text), once the source is open, unless the target is a
   row or record writer of the mode that is already open (`Stream#open_writer?`), which writes with its own settings.

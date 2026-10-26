@@ -616,6 +616,21 @@ class PostgresqlCursorTest < Minitest::Test
           assert_equal (jdbc ? Time.utc(2000, 1, 1, 17) : "17:00:00+02"), record["closes"]
         end
 
+        it "reads an interval of its slices as a duration, also once a store keeps its seconds, as BSON does" do
+          relation = model.select(:id, :wait)
+          slices   = []
+          IOStreams.stream(relation).each(:slice, size: 5) { |slice| slices << slice }
+          hash     = slices.first.to_h
+          # BSON keeps an ActiveSupport::Duration as its number of seconds.
+          stored   = IOStreams.slice(hash.merge("rows" => hash["rows"].map { |id, wait| [id, wait.to_i] }))
+          records  = []
+          IOStreams.stream(stored).schema(IOStreams.stream(relation).schema).each(:hash) { |record| records << record }
+
+          assert_predicate stored, :typed?
+          assert_instance_of ActiveSupport::Duration, records.first["wait"]
+          assert_equal({months: 1, days: 1, hours: 2}, records.first["wait"].parts)
+        end
+
         it "keeps the values that pg casts of columns that Active Record casts as they are, but whose types it knows" do
           unless QueryDatabase::PostgreSQL.const_defined?(:PgScored)
             QueryDatabase::PostgreSQL.const_set(:PgScored, Class.new(db.record) do
