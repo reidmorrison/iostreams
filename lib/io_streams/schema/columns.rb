@@ -23,8 +23,19 @@ module IOStreams
       # The columns kept of a file whose schema does not keep them, see #extra_columns.
       NO_EXTRA = [].freeze
 
-      def initialize(schema)
+      # Parameters
+      #   schema: [IOStreams::Schema]
+      #     The fields of the columns.
+      #
+      #   typed: [true|false]
+      #     Whether the values of the rows and records read are already those of the fields, as a schema rendered them,
+      #     such as the rows of a slice that says so, see `IOStreams::Slice#typed?`, so that they are read as they are
+      #     rather than converted to the type of each field again, see #read_value. Their columns are still matched to
+      #     the fields.
+      #     Default: false
+      def initialize(schema, typed: false)
         @schema       = schema
+        @typed        = typed
         @keep_extra   = schema.keep_extra?
         # The fields whose values the rows and records read have, those that are not skipped, see
         # `IOStreams::Schema::Field#skip?`, in order, and whether any is skipped.
@@ -144,7 +155,7 @@ module IOStreams
       def row(values)
         columns = matched
         check_extra(values, @width, "column")
-        row = columns.map { |field, index| field.cast(values[index]) }
+        row = columns.map { |field, index| read_value(field, values[index]) }
         @extra.each { |extra| row << values[extra.first] }
         row
       end
@@ -158,7 +169,7 @@ module IOStreams
         columns = matched
         check_extra(values, @width, "column")
         record = {}
-        columns.each { |field, index, key| record[key] = field.cast(values[index]) }
+        columns.each { |field, index, key| record[key] = read_value(field, values[index]) }
         @extra.each { |index, key| record[key] = values[index] }
         record
       end
@@ -171,7 +182,7 @@ module IOStreams
       # `IOStreams::Schema#check_columns`.
       def read_hash(hash)
         record = {}
-        read_plan(hash.keys).each { |field, key, name| record[name] = field ? field.cast(hash[key]) : hash[key] }
+        read_plan(hash.keys).each { |field, key, name| record[name] = field ? read_value(field, hash[key]) : hash[key] }
         record
       end
 
@@ -192,7 +203,7 @@ module IOStreams
 
         keys = hash.keys
         plan = keys.eql?(@row_keys) ? @row_plan : row_plan(keys)
-        plan.map { |field, key| key.nil? ? nil : field.cast(hash[key]) }
+        plan.map { |field, key| key.nil? ? nil : read_value(field, hash[key]) }
       end
 
       # Returns [Array|Hash] the value of each field of the schema, in order, in the form that the format writes it, see
@@ -235,6 +246,12 @@ module IOStreams
       end
 
       private
+
+      # Returns the value of the supplied field read from a row or record: converted to the type of the field, see
+      # `IOStreams::Schema::Field#cast`, unless the values read are already those of the fields, see #initialize.
+      def read_value(field, value)
+        @typed ? value : field.cast(value)
+      end
 
       # Returns [Array] the columns of a header row up to the last one with a name, without the columns without a name
       # after it, which are blank, see `IOStreams::Utils.blank_value?`, such as the empty column after a delimiter at the end

@@ -95,7 +95,8 @@ module IOStreams
       # once, before its rows.
       def start(slice)
         @first  = slice
-        @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?)
+        @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?,
+                                                    typed: slice.typed?)
         @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header? == @tabular.requires_header?
         @as_is ? start_as_is(slice) : start_rows(slice)
       end

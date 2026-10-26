@@ -22,14 +22,20 @@ module IOStreams
       #     of a slice, which says whether it carries one, see `IOStreams::Tabular#initialize`.
       #     Default: nil, as the schema says.
       #
+      #   typed: [true|false]
+      #     Whether the values of the rows and records read are already those of the fields, such as those of a slice that
+      #     says so, see `IOStreams::Slice#typed?`, so that they are matched to the fields but not converted again, see
+      #     `IOStreams::Schema::Columns#initialize`.
+      #     Default: false
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
       # describe them, see `IOStreams::Schema#check_fields_in_order`.
-      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil)
+      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
-        @columns         = schema.columns
+        @columns         = schema.columns(typed: typed)
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
         # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values

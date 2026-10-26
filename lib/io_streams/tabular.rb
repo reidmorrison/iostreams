@@ -63,7 +63,7 @@ module IOStreams
     # or a call: whether a row whose every value is blank is a blank row, which the rows of a database query are not, see
     # `IOStreams::Query::Stream`, nor the rows of a slice of them, which carries it, see `IOStreams::Slice::Stream`, and
     # whether the rows have no header row, which a slice says, see `IOStreams::Slice#header?`.
-    SOURCE_OPTION_NAMES = %i[blank_rows headerless].freeze
+    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed].freeze
 
     # Parse a delimited data source.
     #
@@ -110,30 +110,41 @@ module IOStreams
     #     Not an option of a call that reads or writes rows.
     #     Default: nil, as the schema says, otherwise as the format says, such as for a file.
     #
-    # Raises ArgumentError for a `headerless` that is not true, false or nil.
+    #   typed: [true|false]
+    #     Whether the values of the rows read are already those of the fields of the schema, as a schema rendered them,
+    #     such as the rows of a slice that says so, see `IOStreams::Slice#typed?`, so that the schema matches their
+    #     columns or keys to its fields, but does not convert their values again. Without a schema, no value is
+    #     converted anyway.
+    #     Not an option of a call that reads or writes rows.
+    #     Default: false
+    #
+    # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` that is not true or false.
     def initialize(format: nil, file_name: nil, schema: nil, default_format: :csv, row_format_options: nil,
-                   blank_rows: true, headerless: nil)
+                   blank_rows: true, headerless: nil, typed: false)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
       unless [nil, true, false].include?(headerless)
         raise(ArgumentError, "headerless must be true, false or nil: #{headerless.inspect}")
       end
+      raise(ArgumentError, "typed must be true or false: #{typed.inspect}") unless [true, false].include?(typed)
 
       @schema             = schema
+      @typed              = typed
       @row_format_options = row_format_options || {}
       @parser             = self.class.parser_class(@format).new(schema: @schema)
-      @mapping            = build_mapping(blank_rows, headerless)
+      @mapping            = build_mapping(blank_rows, headerless, typed)
     end
 
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
     # those of a slice that a writer of slices writes in the format of this one, see `IOStreams::Slice::Writer`: whether
-    # they have no header row, and whether a row whose every value is blank is a blank row, are as the slice says, see
-    # `IOStreams::Slice#header?` and `IOStreams::Slice#blank_rows?`, whatever the schema says of the file, see
+    # they have no header row, whether a row whose every value is blank is a blank row, and whether their values are
+    # already those of the fields, are as the slice says, see `IOStreams::Slice#header?`, `IOStreams::Slice#blank_rows?`
+    # and `IOStreams::Slice#typed?`, whatever the schema says of the file, see
     # `headerless:` of #initialize. Without a schema, nothing names the columns of rows that have no header row, see
     # #unnamed_columns?, so the writer checks that this tabular can write them, see #check_unnamed_rows.
-    def for_format(format, headerless:, blank_rows: true)
-      self.class.new(format: format, schema: @schema, blank_rows: blank_rows, headerless: headerless)
+    def for_format(format, headerless:, blank_rows: true, typed: false)
+      self.class.new(format: format, schema: @schema, blank_rows: blank_rows, headerless: headerless, typed: typed)
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the keys of the first record,
@@ -183,6 +194,21 @@ module IOStreams
     # same way where the slice is parsed.
     def blank_rows?
       @mapping.blank_rows?
+    end
+
+    # Returns [true|false] whether the values of the rows read are already those of the fields of the schema, see
+    # `typed:` of #initialize, so that a slice of the rows carries it, see `IOStreams::Slice#typed?`, and its rows are
+    # not converted again where the slice is read.
+    def typed?
+      @typed
+    end
+
+    # Returns [true|false] whether the rows that this format renders hold the values of the fields themselves, such as
+    # Integers, Dates and Durations, rather than text, such as those of the `:hash` and `:array` formats, see
+    # `IOStreams::Tabular::Parser::Base.value_form`, so that a store of the rows rendered knows that they are typed, see
+    # `IOStreams::Slice::TargetStream`.
+    def renders_values?
+      parser.class.value_form == :typed
     end
 
     # Returns [true|false] whether the keys of the records read are the names of the fields of a schema, rather than the
@@ -580,12 +606,13 @@ module IOStreams
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the
     # schema, otherwise by the header row, which it cleanses. A row whose every value is blank is a blank row unless
-    # `blank_rows` is false, and the rows have no header row as `headerless` says, see #initialize.
-    def build_mapping(blank_rows, headerless)
+    # `blank_rows` is false, the rows have no header row as `headerless` says, and the schema converts the values read
+    # unless `typed`, see #initialize.
+    def build_mapping(blank_rows, headerless, typed)
       header = Header.new
       if @schema
         SchemaMapping.new(@schema, header: header, parser: parser, format: format, blank_rows: blank_rows,
-                                   headerless: headerless)
+                                   headerless: headerless, typed: typed)
       else
         HeaderMapping.new(header: header, parser: parser, format: format, blank_rows: blank_rows, headerless: headerless)
       end

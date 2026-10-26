@@ -77,7 +77,9 @@ module IOStreams
       # or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the block is called.
       def writer(mode = :stream, **args, &block)
         require_block!(:writer, block)
-        write_slices(mode, slice_options(mode, args), &block)
+        # The rows and records that a program writes are each a record, whatever their values, as those of a query are,
+        # while the lines written in the :line mode are those of a file.
+        write_slices(mode, slice_options(mode, args), blank_rows: mode == :line, &block)
       end
 
       # Copies the lines, rows or records of the supplied source, such as a path, a stream or an Active Record query,
@@ -158,14 +160,17 @@ module IOStreams
       protected
 
       # Yields the writer of the supplied mode, see #writer, with the options of the collector, see #slice_options, whose
-      # slices hold whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`, and in
+      # slices hold whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`, whether
+      # the values of their rows are those of the fields, see `IOStreams::Slice#typed?`: those that the row and record
+      # writers render in a format whose rows hold the values themselves, such as `:hash`, see
+      # `IOStreams::Tabular#renders_values?`, and in
       # the `:line` mode, the line that each row starts on, unless the lines are not those of a file, such as those that
       # a copy reads from a spreadsheet, see `IOStreams::Stream#copy_lines_of_file?`. Protected, so that a copy writes
       # with the stream that has the schema of its source, see #copy_rows.
       #
       # Returns the result of the block.
       def write_slices(mode, options, blank_rows: true, lines_of_file: true, &block)
-        tabular = rows_tabular(blank_rows)
+        tabular = rows_tabular(blank_rows, mode != :line)
 
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
           case mode
@@ -527,11 +532,13 @@ module IOStreams
       end
 
       # Returns [IOStreams::Tabular] that reads the lines written into slices, see `IOStreams::Slice::Collector`, with
-      # whether a row whose every value is blank is a blank row, see #write_slices.
+      # whether a row whose every value is blank is a blank row, and whether the rows are rendered by the row and record
+      # writers, see #write_slices, whose values are those of the fields when the format renders the values themselves.
       #
       # Raises ArgumentError for a format whose rows are not lines, such as Parquet.
-      def rows_tabular(blank_rows)
+      def rows_tabular(blank_rows, rendered)
         tabular = self.tabular(blank_rows: blank_rows)
+        tabular = self.tabular(blank_rows: blank_rows, typed: true) if rendered && tabular.renders_values?
         return tabular if tabular.lines?
 
         raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so its rows cannot be written to a " \
