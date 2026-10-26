@@ -16,25 +16,31 @@ module IOStreams
       #   schema: [IOStreams::Schema]
       #     The fields of the rows and records.
       #
+      #   headerless: [true|false|nil]
+      #     Whether the rows have no header row, when the format has one, such as CSV, whatever the schema says, see
+      #     `IOStreams::Schema#header?`: true for rows that do not start with one, false for rows that do, such as those
+      #     of a slice, which says whether it carries one, see `IOStreams::Tabular#initialize`.
+      #     Default: nil, as the schema says.
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
-      # Raises ArgumentError when the schema describes a file without a header row, of a format with one, such as CSV,
-      # that it cannot describe, see `IOStreams::Schema#check_fields_in_order`.
-      def initialize(schema, header:, parser:, format:, blank_rows: true)
+      # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
+      # describe them, see `IOStreams::Schema#check_fields_in_order`.
+      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
         @columns         = schema.columns
-        @requires_header = parser.requires_header? && schema.header?
+        @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
         # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values
         # of the fields.
         @keyed           = parser.class.keyed?
         @form            = parser.class.value_form
         # The columns of the rows of a file without a header row are the fields, in order: of a format with one whose
-        # schema says that it has none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one, such
-        # as fixed width, or JSON, whose rows are the values of the fields of its records.
+        # rows have none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one, such as fixed width,
+        # or JSON, whose rows are the values of the fields of its records.
         if parser.requires_header?
-          @columns.match_fields unless schema.header?
+          @columns.match_fields unless @requires_header
         else
           @columns.match_in_order
         end
@@ -46,8 +52,8 @@ module IOStreams
         @keys_checked = false
       end
 
-      # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, unless the schema
-      # says that the file has none, see `IOStreams::Schema#header?`.
+      # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, and the rows have
+      # one, as `headerless:` says, see #initialize, otherwise as the schema says, see `IOStreams::Schema#header?`.
       def requires_header?
         @requires_header
       end

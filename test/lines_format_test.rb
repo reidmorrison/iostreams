@@ -68,8 +68,8 @@ class LinesFormatTest < Minitest::Test
       end
 
       it "raises for records without a schema, which would name their key, before the file is opened" do
-        message = "The :lines format has no header row, and its rows have no keys, so the keys of its records are " \
-                  "named by a schema: set one, whose fields name them"
+        message = "The :lines rows have no header row, and no keys, so the keys of their records are named by a " \
+                  "schema: set one, whose fields name them"
         missing = IOStreams.path("/missing/emails.txt").format(:lines)
 
         assert_equal(message, assert_raises(ArgumentError) { missing.each(:hash) { flunk } }.message)
@@ -214,9 +214,9 @@ class LinesFormatTest < Minitest::Test
 
     describe "copying its rows" do
       let(:unnamed_message) do
-        "The rows written have no header row, and nothing names their columns, such as the lines of the :lines format " \
-          "without a schema, so the first of them would be the header row of the %s format: set a schema, whose fields " \
-          "name the columns"
+        "The rows written have no header row, and no schema names their columns, as for the lines of the :lines " \
+          "format, or a slice without a header row, so the first of them would be the header row of the %s format: set " \
+          "a schema, whose fields name the columns"
       end
 
       it "raises, rather than make the first line the header row of a format that takes its columns from it" do

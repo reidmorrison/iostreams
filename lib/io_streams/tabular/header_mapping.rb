@@ -7,10 +7,17 @@ module IOStreams
     # records, such as JSON, do not need, but its rows do: the keys of its first record are the columns of its rows, which
     # it reads as their header row, see #read_header.
     class HeaderMapping < Mapping
-      # See `IOStreams::Tabular::Mapping#initialize`.
-      def initialize(header:, parser:, format:, blank_rows: true)
-        super
-        @requires_header = parser.requires_header?
+      # Parameters:
+      #   headerless: [true|false|nil]
+      #     Whether the rows have no header row, when the format has one, such as CSV: true for rows that do not start
+      #     with one, such as those of a slice without one, see `IOStreams::Tabular#initialize`, whose columns nothing
+      #     then names, see #unnamed_columns?.
+      #     Default: nil, as the format says.
+      #
+      #   See `IOStreams::Tabular::Mapping#initialize` for the others.
+      def initialize(header:, parser:, format:, blank_rows: true, headerless: nil)
+        super(header: header, parser: parser, format: format, blank_rows: blank_rows)
+        @requires_header = !headerless && parser.requires_header?
         @keyed           = parser.class.keyed?
         # The keys of the first record of a format of keyed records, which are the columns of its rows, see
         # #read_header, whose plans it keeps, see #row_plan.
@@ -18,7 +25,8 @@ module IOStreams
         clear_row_plans
       end
 
-      # Returns [true|false] whether the file has a header row: when its format has one, such as CSV.
+      # Returns [true|false] whether the file has a header row: when its format has one, such as CSV, unless the rows do
+      # not start with one, see #initialize.
       def requires_header?
         @requires_header
       end
@@ -83,8 +91,9 @@ module IOStreams
         nil
       end
 
-      # Returns [true|false] whether nothing names the columns of the rows: for a format without a header row whose rows
-      # have no keys, such as `:lines`, since without a schema nothing else would, see `IOStreams::Tabular#unnamed_columns?`.
+      # Returns [true|false] whether nothing names the columns of the rows: for rows without a header row that have no
+      # keys, such as those of `:lines`, or of a slice of CSV without a header row, see #initialize, since without a
+      # schema nothing else would, see `IOStreams::Tabular#unnamed_columns?`.
       def unnamed_columns?
         !@requires_header && !@keyed
       end

@@ -681,6 +681,10 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
 * `slice.rows` returns the rows in an Array of their own, to read them with the methods of an Array, such as `map`.
   Changing that Array does not change the slice.
 * `slice.size`, `slice.empty?` and `slice[index]` read the rows as an Array does.
+* `slice.header` is the header row of its file, as it was read, and `slice.header?` says whether the slice carries
+  one: a slice of a file without one, such as fixed width or JSON, has none. A header row is never blank, so
+  `IOStreams.slice` raises `ArgumentError` for one that is, such as `[]`, rather than read the first row as the header
+  row.
 * `slice.add(row, line_number: 12, record_number: 10)` adds a row after the others, with its numbers, and
   `slice << row` adds one without them, such as a row that is not from a file. A line number or record number is a
   positive Integer, and belongs to a row, so an empty slice has none: give the first row its numbers as it is added.
@@ -712,7 +716,13 @@ slice.to_h
 does not have:
 
 * Its rows start with the header row that the slice carries, so `each(:array)` yields it first, as for a file, and the
-  header row is matched to the schema, raising `IOStreams::Errors::InvalidHeader` when they do not match.
+  header row is matched to the schema, raising `IOStreams::Errors::InvalidHeader` when they do not match. The rows of
+  a slice that carries a header row are read by it even when the schema says `"header": false`.
+* The rows of a slice without a header row, such as a slice of a file without one, have none, whatever the schema
+  says, so its first row is a record. A schema reads them as its fields in order, as for a file whose schema has
+  `"header": false`, so its `fieldsMatch` must be `"exact"`. Without a schema, nothing names their columns:
+  `each(:array)` reads them, while `each(:hash)` raises `ArgumentError`, as does a copy of them in the `:array` mode to
+  a target that would take its columns from the first row, such as CSV without a schema.
 * `#format` is the format of the slice. A slice without a format, such as one turned back from a Hash without one, is
   read as CSV unless its format is set.
 * `resume_at:` is one of the record numbers that the slice holds, see [One job that resumes](#one-job-that-resumes),

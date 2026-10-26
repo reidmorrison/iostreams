@@ -2331,7 +2331,7 @@ class StreamTest < Minitest::Test
           assert_equal [{"id" => 42}], read(%({"id":"0042","notes":"x"}\n), file_name: "people.json", schema: partial)
           assert_equal %({"id":42,"pay":null,"joined":null,"active":null}\n), write([{"id" => 42, "notes" => "x"}], file_name: "people.json", schema: partial)
           error = assert_raises(ArgumentError) { read("0042\n", schema: partial) }
-          assert_match(/\AA schema with header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
+          assert_match(/\ARows without a header row, such as of a schema with header: false, have the fields of the schema in order, so its fieldsMatch must be "exact"/, error.message)
         end
 
         it "copies its rows into a file with a header row, whose columns are the fields, whatever fieldsMatch the target has" do

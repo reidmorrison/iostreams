@@ -87,9 +87,26 @@ class SliceWriterTest < Minitest::Test
       end
 
       it "raises without a schema, which would name its columns, before anything is written" do
-        error = assert_raises(ArgumentError) { write(slices("Jack,21\n", schema: headerless)) }
+        %i[csv json].each do |format|
+          output = StringIO.new
+          error  = assert_raises(ArgumentError) do
+            IOStreams.stream(output).format(format).writer(:slice) do |io|
+              slices("Jack,21\n", schema: headerless).each { |slice| io << slice }
+            end
+          end
 
-        assert_match(/without a header row are read by a schema/, error.message)
+          assert_equal "The rows written have no header row, and no schema names their columns, as for the lines of " \
+                       "the :lines format, or a slice without a header row, so the first of them would be the header " \
+                       "row of the #{format.inspect} format: set a schema, whose fields name the columns", error.message
+          assert_empty output.string
+        end
+      end
+
+      it "writes every row of an :array slice by the schema, the first one included" do
+        array = IOStreams::Slice.new([["Jack", 21], ["Jill", 22]], format: :array)
+
+        assert_equal "first_name,age\nJack,21\nJill,22\n", write([array], schema: schema)
+        assert_equal "Jack,21\nJill,22\n", write([array], schema: headerless)
       end
     end
 

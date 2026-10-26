@@ -579,8 +579,9 @@ class SchemaTest < Minitest::Test
         error = assert_raises(IOStreams::Errors::InvalidHeader) do
           IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_unknown([1], noun: "value", fields_in_order: true)
         end
-        assert_equal "The values of a row do not match the schema: 1 value after the last field, which a schema with " \
-                     "header: false does not accept, since its columns are the fields in order", error.message
+        assert_equal "The values of a row do not match the schema: 1 value after the last field, which rows without a " \
+                     "header row, such as of a schema with header: false, do not accept, since their columns are the " \
+                     "fields in order", error.message
       end
 
       it "suggests a fieldsMatch that skips them without a header row, for a format whose columns are not the fields in order" do
@@ -595,10 +596,12 @@ class SchemaTest < Minitest::Test
     describe "#check_fields_in_order" do
       it "raises for a fieldsMatch other than exact, or no fields, since the columns are the fields in order" do
         error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], header: false, fieldsMatch: "equal").check_fields_in_order }
-        assert_equal 'A schema with header: false has the fields in order, so fieldsMatch must be "exact": "equal"', error.message
+        assert_equal "Rows without a header row, such as of a schema with header: false, have the fields of the schema " \
+                     'in order, so its fieldsMatch must be "exact": "equal"', error.message
 
         error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], header: false).check_fields_in_order }
-        assert_equal "A schema with header: false needs fields, which are the columns of the file", error.message
+        assert_equal "Rows without a header row, such as of a schema with header: false, are read by the fields of the " \
+                     "schema, in order, so it needs fields", error.message
         assert_nil IOStreams::Schema.new(fields: [{name: "id"}], header: false).check_fields_in_order
       end
     end

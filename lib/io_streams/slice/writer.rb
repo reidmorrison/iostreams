@@ -12,7 +12,7 @@ module IOStreams
     #
     # Every slice is of the same file as the first one written: the same header row and format. The rows of every slice
     # are read by one reader, see `IOStreams::Tabular#for_format`, as the rows of one file, whether they start with a
-    # header row being as the slice says, see `IOStreams::Slice#header`, whatever the schema says of the file written.
+    # header row being as the slice says, see `IOStreams::Slice#header?`, whatever the schema says of the file written.
     # The header row of the file is written once, before the rows of the first slice, and each row after it, in the
     # order written:
     # - A slice whose rows are lines of the format of the file, and that has a header row when the file has one, is
@@ -95,26 +95,26 @@ module IOStreams
       # once, before its rows.
       def start(slice)
         @first  = slice
-        @reader = @tabular.for_format(slice.format, header: !slice.header.nil?, blank_rows: slice.blank_rows?)
-        @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header.nil? != @tabular.requires_header?
-        @as_is ? start_as_is(slice.header) : start_rows(slice.header)
+        @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?)
+        @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header? == @tabular.requires_header?
+        @as_is ? start_as_is(slice) : start_rows(slice)
       end
 
-      # Matches the header row to the fields of the schema, and writes it as it was read, without cleansing it, with a
-      # tabular of the format without a schema.
-      def start_as_is(header)
-        return unless header
+      # Matches the header row of the slice, when it carries one, to the fields of the schema, and writes it as it was
+      # read, without cleansing it, with a tabular of the format without a schema.
+      def start_as_is(slice)
+        return unless slice.header?
 
-        @reader.read_line(header) { nil }
-        IOStreams::Tabular.new(format: @tabular.format).render_row(header) { |line| @output << line }
+        @reader.read_line(slice.header) { nil }
+        IOStreams::Tabular.new(format: @tabular.format).render_row(slice.header) { |line| @output << line }
       end
 
       # Writes the header row of the rows read, see #write_rows, once it checks that the file can take their columns, see
       # `IOStreams::Tabular#check_unnamed_rows`.
-      def start_rows(header)
+      def start_rows(slice)
         @tabular.check_unnamed_rows if @reader.unnamed_columns?
         @rows = IOStreams::Row::Writer.new(@output, tabular: @tabular)
-        @reader.read_row(header) { |parsed| @rows << parsed } if header
+        @reader.read_row(slice.header) { |parsed| @rows << parsed } if slice.header?
       end
 
       # Writes each row of the slice as it is, see `IOStreams::Tabular#read_line`, which matches the keys of the first

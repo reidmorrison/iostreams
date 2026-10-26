@@ -137,6 +137,95 @@ class SliceStreamTest < Minitest::Test
         end
       end
 
+      describe "of a slice without a header row" do
+        let(:in_order) { schema.merge("fieldsMatch" => "exact") }
+        let(:headerless) { in_order.merge("header" => false) }
+        let(:csv_slice) { slices("Jack,21\nJill,22\n", schema: headerless).first }
+        let(:array_slice) { IOStreams::Slice.new([["Jack", 21], ["Jill", 22]], format: :array) }
+
+        it "has no header row" do
+          assert_nil csv_slice.header
+          assert_equal ["Jack,21", "Jill,22"], csv_slice.rows
+        end
+
+        it "reads every row as a record, by a schema that does not say that the file has no header row" do
+          assert_equal people, each(IOStreams.stream(csv_slice).schema(in_order))
+          assert_equal people, each(IOStreams.stream(array_slice).schema(in_order))
+        end
+
+        it "raises for a schema that does not read the fields in order, which rows without a header row hold" do
+          error = assert_raises(ArgumentError) { each(IOStreams.stream(array_slice).schema(schema)) }
+
+          assert_equal "Rows without a header row, such as of a schema with header: false, have the fields of the schema " \
+                       'in order, so its fieldsMatch must be "exact": "equal"', error.message
+        end
+
+        it "reads every row as a record by the schema of the file" do
+          assert_equal people, each(IOStreams.stream(csv_slice).schema(headerless))
+        end
+
+        it "reads every row in the :array mode without a schema" do
+          assert_equal [%w[Jack 21], %w[Jill 22]], each(IOStreams.stream(csv_slice), :array)
+          assert_equal [["Jack", 21], ["Jill", 22]], each(IOStreams.stream(array_slice), :array)
+        end
+
+        it "raises for its records without a schema, rather than reading its first row as the header row" do
+          [[csv_slice, :csv], [array_slice, :array]].each do |headerless_slice, format|
+            error = assert_raises(ArgumentError) { each(IOStreams.stream(headerless_slice)) }
+
+            assert_equal "The #{format.inspect} rows have no header row, and no keys, so the keys of their records are " \
+                         "named by a schema: set one, whose fields name them", error.message
+          end
+        end
+
+        it "reads every row in slices again, which have no header row either" do
+          list = []
+          IOStreams.stream(array_slice).each(:slice, size: 1) { |part| list << part }
+
+          assert_equal([[["Jack", 21]], [["Jill", 22]]], list.map(&:rows))
+          assert_equal [nil, nil], list.map(&:header)
+        end
+
+        it "reads every row in slices again by a schema, keeping their numbers" do
+          list = []
+          IOStreams.stream(csv_slice).schema(in_order).each(:slice, size: 1) { |part| list << part }
+
+          assert_equal [%w[Jack,21], %w[Jill,22]], list.map(&:rows)
+          assert_equal [nil, nil], list.map(&:header)
+          assert_equal [1, 2], list.map(&:line_number)
+          assert_equal [1, 2], list.map(&:record_number)
+        end
+
+        it "counts its first row as the first record, so it resumes at the records that it holds" do
+          assert_equal [["Jack,21", 1, 1], ["Jill,22", 2, 2]], csv_slice.each.to_a
+          assert_equal people.drop(1), each(IOStreams.stream(csv_slice).schema(in_order), :hash, resume_at: 2)
+          assert_equal [%w[name age], ["Jill", 22]], each(IOStreams.stream(csv_slice).schema(in_order), :array, resume_at: 2)
+        end
+
+        it "copies its rows by a schema, which names their columns" do
+          output = StringIO.new
+          IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(csv_slice).schema(in_order), mode: :array)
+
+          assert_equal "name,age\nJack,21\nJill,22\n", output.string
+        end
+
+        it "raises for a copy of its rows without a schema, rather than make its first row the header row of the target" do
+          output = StringIO.new
+          error  = assert_raises(ArgumentError) do
+            IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(csv_slice), mode: :array)
+          end
+
+          assert_equal "The rows written have no header row, and no schema names their columns, as for the lines of " \
+                       "the :lines format, or a slice without a header row, so the first of them would be the header " \
+                       "row of the :csv format: set a schema, whose fields name the columns", error.message
+          assert_empty output.string
+        end
+      end
+
+      it "reads the header row of a slice that carries one, by a schema that says that the file has none" do
+        assert_equal people, each(IOStreams.stream(slices("name,age\nJack,21\nJill,22\n").first).schema(schema.merge("header" => false)))
+      end
+
       it "raises InvalidHeader when the header row of the slice does not match the schema" do
         assert_raises(IOStreams::Errors::InvalidHeader) { each(IOStreams.stream(slice).schema(schema.merge("fieldsMatch" => "exact"))) }
       end

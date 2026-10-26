@@ -1023,6 +1023,44 @@ class TabularTest < Minitest::Test
           IOStreams::Tabular.new(file_name: "sample.unknown", default_format: nil)
         end
       end
+
+      it "raises for a headerless that is not true, false or nil" do
+        error = assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, headerless: "yes") }
+        assert_equal 'headerless must be true, false or nil: "yes"', error.message
+      end
+    end
+
+    describe "headerless:" do
+      let(:schema) { IOStreams::Schema.new(fields: [{name: "name"}, {name: "age", type: "integer"}]) }
+
+      it "reads every line as a row by the fields in order, whatever the schema says" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: schema, headerless: true)
+
+        refute_predicate tabular, :requires_header?
+        assert_equal({"name" => "Jack", "age" => 21}, tabular.record_parse("Jack,21"))
+      end
+
+      it "reads the header row of rows that start with one, by a schema that says that the file has none" do
+        no_header = IOStreams::Schema.new(header: false, fieldsMatch: "equal", fields: [{name: "name"}, {name: "age"}])
+        tabular   = IOStreams::Tabular.new(format: :csv, schema: no_header, headerless: false)
+
+        assert_predicate tabular, :requires_header?
+        assert_equal %w[age name], tabular.parse_header("age,name")
+        assert_equal({"name" => "Jack", "age" => "21"}, tabular.record_parse("21,Jack"))
+      end
+
+      it "leaves the columns unnamed without a schema, so that no row is read as the header row" do
+        tabular = IOStreams::Tabular.new(format: :csv, headerless: true)
+
+        refute_predicate tabular, :requires_header?
+        assert_predicate tabular, :unnamed_columns?
+        assert_equal %w[Jack 21], tabular.row_parse("Jack,21")
+      end
+
+      it "has no effect on a format without a header row" do
+        refute_predicate IOStreams::Tabular.new(format: :json, headerless: false), :requires_header?
+        refute_predicate IOStreams::Tabular.new(format: :json, headerless: false), :unnamed_columns?
+      end
     end
 
     describe "schema" do
@@ -1436,7 +1474,7 @@ class TabularTest < Minitest::Test
 
         %i[csv psv].each do |format|
           error = assert_raises(ArgumentError, format.inspect) { IOStreams::Tabular.new(format: format, schema: subset) }
-          assert_match(/\AA schema with header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
+          assert_match(/\ARows without a header row, such as of a schema with header: false, have the fields of the schema in order, so its fieldsMatch must be "exact"/, error.message)
         end
         assert_equal({"name" => "Jack"}, IOStreams::Tabular.new(format: :json, schema: subset).record_parse(%({"name":"Jack","age":21})))
         assert_raises(ArgumentError) { IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(header: false, fields: [])) }
@@ -1449,7 +1487,7 @@ class TabularTest < Minitest::Test
         assert_match(/the key "zip" is not a field of the schema, which fieldsMatch "exact" does not accept; "subset"/, error.message)
 
         error = assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams::Tabular.new(format: :csv, schema: schema).record_parse("Jack,21,1") }
-        assert_match(/1 value after the last column, which a schema with header: false does not accept/, error.message)
+        assert_match(/1 value after the last column, which rows without a header row, such as of a schema with header: false, do not accept/, error.message)
       end
     end
   end
