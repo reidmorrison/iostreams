@@ -2691,9 +2691,14 @@ end
 # ["Jack,\"two\nlines\""]
 ~~~
 
-So code that reads the text of each row, such as a background job that parses it later, reads a file of lines and a
-spreadsheet alike, whichever the path names. Rows that are not text raise `ArgumentError`, such as those of a query, or a
-slice of CSV, which are already split.
+So code that hands on the text of each row to parse it later, such as a background job, reads a file of lines or a
+spreadsheet without knowing which the path names. The text of a row of a spreadsheet is CSV, header row included, so a
+value that holds a comma, a quote or a line break is quoted within it, as above: code that needs the values of the
+cells of a spreadsheet parses that text as CSV, or reads the spreadsheet with a schema instead, see
+[Excel spreadsheets](#excel-spreadsheets). Only a spreadsheet, which has no lines, is split this way: a CSV file read as
+`:text` is read as the lines of its file, as any file is, so a quoted value that holds a line break is split across two
+rows, where its spreadsheet keeps it in one. Read a CSV file as CSV to keep it in its row. Rows that are not text raise
+`ArgumentError`, such as those of a query, or a slice of CSV, which are already split.
 
 A [schema](#schema) of one field names the value of each row and gives its type, so that `each(:hash)` keys each
 record by it, and `each(:array)` starts with a header row of its name, as for fixed width:
@@ -2720,8 +2725,16 @@ end
   value, apart from a file whose first line ends with a `\r` alone, as an old Mac wrote it, whose lines end at a `\r`.
 * `writer(:array)` writes the text of the one value of each row, such as `2026-01-02` for a date, and replaces a line
   break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value raises
-  `IOStreams::Errors::TypeMismatch`. Written to a spreadsheet, the text of each row is a row of CSV, whose values fill
-  the cells of its row.
+  `IOStreams::Errors::TypeMismatch`.
+* Written to a spreadsheet, the text of each row is a row of CSV, whose values fill the cells of its row, so a line
+  break within a quoted value is kept, as in the CSV text that reading the spreadsheet gives. Text that is not one row
+  of CSV raises `IOStreams::Errors::TypeMismatch`, rather than join the rows after it, such as `"jill"@example.com`,
+  whose quotes do not enclose the whole value, or a quote that is not closed. To write each line of a file of text into
+  a cell of its own, write it to the spreadsheet as CSV, without `:text`, with a schema of one field:
+  `IOStreams.path("emails.xlsx").schema(schema).copy_from(IOStreams.path("emails.txt").format(:text), mode: :array)`.
+* `writer(:slice)` writes the text of each row of its slices as `writer(:array)` does, so the CSV text of a row of a
+  spreadsheet that holds a line break is one line of a file of plain text, with a space for the line break, and stays
+  as it is in a spreadsheet.
 * A copy of its rows in the `:array` mode, or slices of them written with `writer(:slice)`, to a format that takes its
   columns from the first row written, such as CSV or JSON, needs a schema, which names the column, rather than make the
   first row the header row. Without one, a copy raises `ArgumentError` before the target is opened, so an existing
@@ -5117,8 +5130,11 @@ end
 ~~~
 
 `slice.each` yields each row as it is, with its line and record number, so a job of a file of lines needs no schema.
-The url can also name a spreadsheet, whose rows are then the CSV text of each row of the sheet, its header row too,
-without a line number, since they are not the lines of the file.
+
+A spreadsheet has no lines: read as `:text`, each row is the CSV text of a row of the sheet, without a line number, its
+header row too, and a value that holds a comma or a quote is quoted, see [Text](formats#text), so this job would send an
+invitation to the header row, and to quoted addresses. Read the email addresses of a spreadsheet as its records
+instead, by a schema that names their column, see [One job per slice](#background-jobs).
 
 ## Failures
 
@@ -5258,7 +5274,10 @@ end
   schema before the first slice is written, and each slice carries it, exactly as `each(:slice)` gives them.
 * **Lines that are not CSV.** A copy of the lines of a file keeps the format of the file, so read a file of lines in the
   `:text` format, see [A file of lines](#a-file-of-lines), to store its lines as they are:
-  `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:text), mode: :line)`.
+  `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:text), mode: :line)`. A copy stores each row as its
+  source read it, so the CSV text of a row of a spreadsheet read as `:text` stays one row when a cell holds a line
+  break, whereas the lines written with `writer(:line)` are split as reading a file of the store's format would split
+  them, see [Writing to a store of slices](#writing-to-a-store-of-slices).
 * **When the last slice is written.** The last slice is written when the block returns, or leaves early, such as with
   `break`, but not when it raises. So a failed write never hands on a part of its last slice. The slices before it
   were already written, so remove them by the id of the upload, as above.
@@ -5412,9 +5431,11 @@ does not have:
 
 * In the `:line` mode, each line written is a row of the file, after its header row, without a newline after it. A
   line that holds newlines is split into rows the way reading the file back would split it, so a newline inside a
-  quoted CSV value stays in its row. A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError`
-  with the number of the line that it starts on, as reading the file would, once the text written after it reaches
-  640KB, or when the block returns, rather than keeping the lines written after it in memory.
+  quoted CSV value stays in its row, while a line of the `:text` format, which has no quotes, is split at each newline.
+  A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError` with the number of the line that it
+  starts on, as reading the file would, once the text written after it reaches 640KB, or when the block returns, rather
+  than keeping the lines written after it in memory. A copy in the `:line` mode stores each row as its source read it
+  instead, such as the CSV text of a row of a spreadsheet read as `:text` whose cell holds a newline.
 * Each row holds its record number, and in the `:line` mode the line that it starts on, see
   [Find a row in the file](#find-a-row-in-the-file), counting every line written, as reading the file would. The rows
   and records written in the `:array` and `:hash` modes have no line, as for a query.
@@ -7772,7 +7793,8 @@ A spreadsheet is read as CSV, one line for each row of its worksheet, so its row
 as CSV, and `#format` returns `:csv` for a `.xlsx` or `.xlsm` path, where it returned `nil`. Previously the format was
 taken from the rest of the file name, so `report.json.xlsx` raised, and `report.psv.xlsx` joined the cells of each
 row into one value. Setting another format with `#format`, such as `format(:psv)`, now raises `ArgumentError` when
-the rows, records or lines are read or written.
+the rows, records or lines are read or written, apart from the new `:text` format, which reads the CSV text of each
+row as it is, see [Text](formats#text).
 
 Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
 `nil` for a spreadsheet.

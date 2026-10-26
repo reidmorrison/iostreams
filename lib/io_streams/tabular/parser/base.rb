@@ -4,6 +4,9 @@ module IOStreams
   class Tabular
     module Parser
       class Base
+        # A line break, which ends a line of text, see .one_row.
+        LINE_BREAK = /\r\n|\r|\n/
+
         # Parameters:
         #   schema: [IOStreams::Schema|nil]
         #     The schema of the rows, which a format needs when the schema says where each value is, such as the
@@ -56,6 +59,38 @@ module IOStreams
           false
         end
 
+        # Returns [String] the supplied text of a row, that a format that holds the text of each row as it is writes in
+        # this format, see .verbatim?, such as `:text` written to a spreadsheet, whose rows are CSV, as one row of this
+        # format: a line break that would end the row, outside a quoted value, see .quote_character, is replaced with a
+        # space, so that the text cannot add rows, as PSV and fixed width do for their values. A line break within a
+        # quoted value is kept, since it is part of the value.
+        #
+        # Defined at the class level since it depends only on how the format quotes its values, see .quote_character.
+        #
+        # Raises `IOStreams::Errors::TypeMismatch` when a quoted value is not closed, which would join the rows after it.
+        def self.one_row(text)
+          quote = quote_character
+          if quote.nil? || !text.include?(quote)
+            return LINE_BREAK.match?(text) ? text.gsub(LINE_BREAK, " ") : text
+          end
+
+          if text.count(quote).odd?
+            raise(IOStreams::Errors::TypeMismatch, "The text of the row opens a quoted value that it does not close, " \
+                                                   "which would join the rows after it: #{text.inspect}")
+          end
+          return text unless LINE_BREAK.match?(text)
+
+          quoted = false
+          text.gsub(/#{Regexp.escape(quote)}|#{LINE_BREAK.source}/) do |match|
+            if match == quote
+              quoted = !quoted
+              match
+            else
+              quoted ? match : " "
+            end
+          end
+        end
+
         # Returns [Module|nil] the format, see `IOStreams::StreamFormat`, whose reader and writer read and write the rows of a
         # format that holds them in a binary layout of its own, rather than as lines of text, such as `IOStreams::Parquet`,
         # see `IOStreams::Tabular#read_rows`, or nil for a format of lines, which a line reader splits.
@@ -68,6 +103,13 @@ module IOStreams
         # Returns [true|false] whether a header row is required for this format.
         def requires_header?
           true
+        end
+
+        # Returns [String] the supplied line of a row of this format, read as it is, as the line that is written for it,
+        # see `IOStreams::Tabular#written_line`: as it is, since it holds one row of this format. A format that holds the
+        # text of each row as it is, see .verbatim?, writes it as one row of its lines instead, see .one_row.
+        def written_line(line)
+          line
         end
       end
     end

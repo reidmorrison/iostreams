@@ -55,10 +55,12 @@ module IOStreams
       # Yields the writer of the supplied mode, whose lines, rows or records are written to the store in slices:
       #   :line   the lines of a file, such as its header row followed by its rows, as `IOStreams::Stream#writer(:line)`
       #           takes them. A line that holds a line ending is split into rows as reading the file back would split
-      #           it, so that a line ending within a quoted value of CSV stays within its row, see
-      #           `IOStreams::Line::Reader`, and a quoted value that is not closed raises
+      #           it, by the format of the stream, so that a line ending within a quoted value of CSV stays within its
+      #           row, see `IOStreams::Line::Reader`, and a quoted value that is not closed raises
       #           `IOStreams::Errors::MalformedDataError`, with the number of the line that it starts on, once the text
       #           written after it exceeds the most that a line reader reads into one line, or when the block returns.
+      #           A line of `:text`, which has no quotes, is split at each line ending, also the CSV text of a row of a
+      #           spreadsheet that holds a quoted line break, which a copy keeps whole instead, see #copy_from.
       #   :array  each row, see `IOStreams::Row::Writer`.
       #   :hash   each record, see `IOStreams::Record::Writer`.
       #
@@ -84,7 +86,10 @@ module IOStreams
       # see `IOStreams::Stream#copy_from`, to the store in slices, see #writer, which takes the options of the copy, such
       # as `validate:`. Each slice holds whether the blank rows of the source are records, as those of a query are, see
       # `IOStreams::Slice#blank_rows?`. The lines of the `:line` mode are in the format of the source, which the slices
-      # carry, unless the stream has a format of its own.
+      # carry, unless the stream has a format of its own, and each one is a row of a slice as the source split it, see
+      # `IOStreams::Stream#lines_quote_character`, rather than split again by the format of the stream, as #writer
+      # splits them, so that the CSV text of a row of a spreadsheet read as `:text` stays whole when it holds a quoted
+      # line break.
       #
       # Raises ArgumentError without a `mode:`, or with `convert: false`, since the store holds slices of rows rather
       # than bytes, or in the `:line` mode when the format of the stream is not that of the source, or in the `:array`

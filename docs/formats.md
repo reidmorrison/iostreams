@@ -197,9 +197,14 @@ end
 # ["Jack,\"two\nlines\""]
 ~~~
 
-So code that reads the text of each row, such as a background job that parses it later, reads a file of lines and a
-spreadsheet alike, whichever the path names. Rows that are not text raise `ArgumentError`, such as those of a query, or a
-slice of CSV, which are already split.
+So code that hands on the text of each row to parse it later, such as a background job, reads a file of lines or a
+spreadsheet without knowing which the path names. The text of a row of a spreadsheet is CSV, header row included, so a
+value that holds a comma, a quote or a line break is quoted within it, as above: code that needs the values of the
+cells of a spreadsheet parses that text as CSV, or reads the spreadsheet with a schema instead, see
+[Excel spreadsheets](#excel-spreadsheets). Only a spreadsheet, which has no lines, is split this way: a CSV file read as
+`:text` is read as the lines of its file, as any file is, so a quoted value that holds a line break is split across two
+rows, where its spreadsheet keeps it in one. Read a CSV file as CSV to keep it in its row. Rows that are not text raise
+`ArgumentError`, such as those of a query, or a slice of CSV, which are already split.
 
 A [schema](#schema) of one field names the value of each row and gives its type, so that `each(:hash)` keys each
 record by it, and `each(:array)` starts with a header row of its name, as for fixed width:
@@ -226,8 +231,16 @@ end
   value, apart from a file whose first line ends with a `\r` alone, as an old Mac wrote it, whose lines end at a `\r`.
 * `writer(:array)` writes the text of the one value of each row, such as `2026-01-02` for a date, and replaces a line
   break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value raises
-  `IOStreams::Errors::TypeMismatch`. Written to a spreadsheet, the text of each row is a row of CSV, whose values fill
-  the cells of its row.
+  `IOStreams::Errors::TypeMismatch`.
+* Written to a spreadsheet, the text of each row is a row of CSV, whose values fill the cells of its row, so a line
+  break within a quoted value is kept, as in the CSV text that reading the spreadsheet gives. Text that is not one row
+  of CSV raises `IOStreams::Errors::TypeMismatch`, rather than join the rows after it, such as `"jill"@example.com`,
+  whose quotes do not enclose the whole value, or a quote that is not closed. To write each line of a file of text into
+  a cell of its own, write it to the spreadsheet as CSV, without `:text`, with a schema of one field:
+  `IOStreams.path("emails.xlsx").schema(schema).copy_from(IOStreams.path("emails.txt").format(:text), mode: :array)`.
+* `writer(:slice)` writes the text of each row of its slices as `writer(:array)` does, so the CSV text of a row of a
+  spreadsheet that holds a line break is one line of a file of plain text, with a space for the line break, and stays
+  as it is in a spreadsheet.
 * A copy of its rows in the `:array` mode, or slices of them written with `writer(:slice)`, to a format that takes its
   columns from the first row written, such as CSV or JSON, needs a schema, which names the column, rather than make the
   first row the header row. Without one, a copy raises `ArgumentError` before the target is opened, so an existing

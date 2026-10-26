@@ -165,6 +165,27 @@ module Tabular
             end
           end
         end
+
+        describe ".one_row" do
+          let(:csv) { IOStreams::Tabular::Parser::Csv }
+
+          it "returns the text of a row of CSV as it is, keeping a line break within a quoted value" do
+            assert_equal "a,b", csv.one_row("a,b")
+            assert_equal %("a ""b""",c), csv.one_row(%("a ""b""",c))
+            assert_equal %(data 1,"more\r\ndata"), csv.one_row(%(data 1,"more\r\ndata"))
+          end
+
+          it "replaces a line break outside a quoted value with a space, so that the text cannot add rows" do
+            assert_equal "a b c", csv.one_row("a\nb\r\nc")
+            assert_equal %("a\nb",c d), csv.one_row(%("a\nb",c\nd))
+          end
+
+          it "raises for text whose quotes do not enclose whole values, or leave one open" do
+            assert_raises(IOStreams::Errors::TypeMismatch) { csv.one_row(%("jill"@example.com)) }
+            assert_raises(IOStreams::Errors::TypeMismatch) { csv.one_row(%(a,"b)) }
+            assert_raises(IOStreams::Errors::TypeMismatch) { csv.one_row(%(a,b"c)) }
+          end
+        end
       end
     end
   end

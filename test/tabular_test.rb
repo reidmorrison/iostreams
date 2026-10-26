@@ -840,6 +840,11 @@ class TabularTest < Minitest::Test
         assert_nil IOStreams::Tabular.new(format: :text).quote_character
         assert_equal '"', IOStreams::Tabular.new(format: :text, text_format: :csv).quote_character
       end
+
+      it "is that of the format of the rows when they do not hold the text as it is, whatever the format of the text" do
+        assert_nil IOStreams::Tabular.new(format: :psv, text_format: :csv).quote_character
+        assert_nil IOStreams::Tabular.new(format: :text, text_format: :array).quote_character
+      end
     end
 
     describe "#encoding" do
@@ -852,6 +857,11 @@ class TabularTest < Minitest::Test
         assert_nil IOStreams::Tabular.new(format: :psv).encoding
         assert_nil IOStreams::Tabular.new(format: :json).encoding
       end
+
+      it "is that of the format of the text when the rows hold it as it is, as the quote character is" do
+        assert_equal "US-ASCII:UTF-8", IOStreams::Tabular.new(format: :text, text_format: :fixed).encoding
+        assert_nil IOStreams::Tabular.new(format: :csv, text_format: :fixed).encoding
+      end
     end
 
     describe ".encoding" do
@@ -862,6 +872,11 @@ class TabularTest < Minitest::Test
       it "is nil for the other formats, and without a format" do
         assert_nil IOStreams::Tabular.encoding(:csv)
         assert_nil IOStreams::Tabular.encoding(nil)
+      end
+
+      it "is that of the format of the text, when the rows hold it as it is" do
+        assert_equal "US-ASCII:UTF-8", IOStreams::Tabular.encoding(:text, text_format: :fixed)
+        assert_nil IOStreams::Tabular.encoding(:text, text_format: nil)
       end
     end
 
@@ -883,8 +898,56 @@ class TabularTest < Minitest::Test
         assert_nil IOStreams::Tabular.quote_character(:text, text_format: nil)
       end
 
+      it "is that of the format of the rows when they do not hold the text as it is" do
+        assert_nil IOStreams::Tabular.quote_character(:psv, text_format: :csv)
+      end
+
       it "raises for an unknown format" do
         assert_raises(ArgumentError) { IOStreams::Tabular.quote_character(:unknown) }
+      end
+    end
+
+    describe ".line_format" do
+      it "is the format of the text when the rows hold it as it is, otherwise the format of the rows" do
+        assert_equal :csv, IOStreams::Tabular.line_format(:text, text_format: :csv)
+        assert_equal :text, IOStreams::Tabular.line_format(:text, text_format: nil)
+        assert_equal :psv, IOStreams::Tabular.line_format(:psv, text_format: :csv)
+        assert_equal :text, IOStreams::Tabular.line_format(:text, text_format: :array)
+      end
+    end
+
+    describe ".verbatim_text?" do
+      it "is true for a format that holds the text of each row as it is, over text of a format of lines of text" do
+        assert IOStreams::Tabular.verbatim_text?(:text, :csv)
+        assert IOStreams::Tabular.verbatim_text?(:text, :json)
+      end
+
+      it "is false for a format that parses its rows, rows that are not text, or no other format of the text" do
+        refute IOStreams::Tabular.verbatim_text?(:psv, :csv)
+        refute IOStreams::Tabular.verbatim_text?(:text, :array)
+        refute IOStreams::Tabular.verbatim_text?(:text, :hash)
+        refute IOStreams::Tabular.verbatim_text?(:text, :parquet)
+        refute IOStreams::Tabular.verbatim_text?(:text, :text)
+        refute IOStreams::Tabular.verbatim_text?(:text, nil)
+      end
+    end
+
+    describe "Settings#rows_format" do
+      let(:settings) do
+        settings        = IOStreams::Tabular::Settings.new
+        settings.format = :text
+        settings
+      end
+
+      it "reads :text over the text of a format of lines that a stream decides, such as the CSV of a spreadsheet" do
+        assert_equal :text, settings.rows_format(nil, :csv)
+      end
+
+      it "raises for :text over rows that are not text, such as the values of a query" do
+        error = assert_raises(ArgumentError) { settings.rows_format(nil, :array) }
+
+        assert_equal "The format of the rows cannot be :text, since the streams read and write them as :array. Set " \
+                     "the format to :array, or to nil.", error.message
       end
     end
 

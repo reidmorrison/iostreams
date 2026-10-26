@@ -541,7 +541,8 @@ A spreadsheet is read as CSV, one line for each row of its worksheet, so its row
 as CSV, and `#format` returns `:csv` for a `.xlsx` or `.xlsm` path, where it returned `nil`. Previously the format was
 taken from the rest of the file name, so `report.json.xlsx` raised, and `report.psv.xlsx` joined the cells of each
 row into one value. Setting another format with `#format`, such as `format(:psv)`, now raises `ArgumentError` when
-the rows, records or lines are read or written.
+the rows, records or lines are read or written, apart from the new `:text` format, which reads the CSV text of each
+row as it is, see [Text](formats#text).
 
 Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
 `nil` for a spreadsheet.

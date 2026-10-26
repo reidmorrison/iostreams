@@ -718,14 +718,13 @@ module IOStreams
       builder.lines_of_file?
     end
 
-    # Returns [String|nil] the quote character within which the lines that this stream reads are split, see
-    # `IOStreams::Tabular.quote_character`: that of the format of the text when a stream decides it, such as the CSV of
-    # a spreadsheet, also when its rows are read as `:text`, otherwise that of the format of the rows, so that a copy of
-    # its lines to a store of slices splits a line that holds a line break where reading them did, see
-    # `IOStreams::Slice::TargetStream`, as the line reader of the `:line` mode does, see #line_reader. Protected, see
-    # #copy_schema.
+    # Returns [String|nil] the quote character within which the lines that this stream reads are split, that of the
+    # format of its lines, see #lines_format, such as the CSV of a spreadsheet, also when its rows are read as `:text`,
+    # as the line reader of the `:line` mode splits them, see #line_reader, so that a copy of its lines to a store of
+    # slices keeps each row that holds a quoted line break whole, see `IOStreams::Slice::TargetStream#copy_rows`.
+    # Protected, see #copy_schema.
     def lines_quote_character
-      IOStreams::Tabular.quote_character(rows_format, text_format: text_format)
+      IOStreams::Tabular.quote_character(lines_format)
     end
 
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
@@ -942,18 +941,30 @@ module IOStreams
       builder.reader(io_stream, &)
     end
 
-    # The lines are read in the encoding of the format, set with #format or detected from the file name, see
-    # `IOStreams::Tabular#encoding`, unless an encoding is set on the encode stream.
+    # The lines are read in the encoding of the format of the lines, see #lines_format, set with #format or detected from
+    # the file name, see `IOStreams::Tabular.encoding`, unless an encoding is set on the encode stream.
     def line_reader(embedded_within: :auto, **args, &)
       reject_unknown_options!(:line, IOStreams::Line::Reader, args)
-      format = rows_format
-      reject_unlined_format!(format)
-      # `:auto` uses the quote character of the format, set with #format or detected from the file name,
-      # such as `"` for CSV, or of the text when a stream decides it, such as the CSV of a spreadsheet,
-      # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or `'"'` (force).
-      embedded_within = lines_quote_character if embedded_within == :auto
+      format = lines_format
+      # `:auto` uses the quote character of the format of the lines, such as `"` for CSV, also the CSV of a
+      # spreadsheet read as `:text`, while distinguishing "not supplied" from an explicit value such as `nil` (disable)
+      # or `'"'` (force).
+      embedded_within = IOStreams::Tabular.quote_character(format) if embedded_within == :auto
 
       open_line_reader(IOStreams::Tabular.encoding(format), embedded_within: embedded_within, **args, &)
+    end
+
+    # Returns [Symbol|nil] the format of the lines that the `:line` mode reads and writes, see
+    # `IOStreams::Tabular.line_format`: that of the rows, see #rows_format, unless they hold the text of the format that
+    # the streams decide as it is, such as `:text` over the CSV of a spreadsheet, when it is that of the text, see
+    # #text_format, which it works out once.
+    #
+    # Raises ArgumentError for a format whose rows are not lines of text, see #reject_unlined_format!.
+    def lines_format
+      text_format = self.text_format
+      format      = tabular_settings.rows_format(file_name, text_format)
+      reject_unlined_format!(format)
+      IOStreams::Tabular.line_format(format, text_format: text_format)
     end
 
     # Yields a line reader of the text read in the supplied encoding, unless an encoding is set on the encode stream.
@@ -1117,8 +1128,7 @@ module IOStreams
       reject_unknown_options!(:line, IOStreams::Line::Writer, args)
       return block.call(io_stream) if open_writer_supplied?(IOStreams::Line::Writer, args)
 
-      format = rows_format
-      reject_unlined_format!(format)
+      format = lines_format
       IOStreams::Line::Writer.check(**args)
       open_line_writer(IOStreams::Tabular.encoding(format), **args, &block)
     end

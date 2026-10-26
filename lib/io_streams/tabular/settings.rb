@@ -60,15 +60,15 @@ module IOStreams
       # Returns [Symbol|nil] the format that the rows, records and lines are read and written in, see #format, once the
       # format of the text of the streams is known, see `IOStreams::Builder#text_format`.
       #
-      # A format that holds the text of each row as it is, such as `:text`, see
-      # `IOStreams::Tabular::Parser::Base.verbatim?`, also reads and writes text in any format of lines, such as the CSV
-      # of a spreadsheet, whose rows are split as that format splits them, see `IOStreams::Tabular#quote_character`.
+      # A format that holds the text of each row as it is, such as `:text`, also reads and writes the text of any format
+      # whose rows are lines of text, such as the CSV of a spreadsheet, whose rows are split as that format splits them,
+      # see `IOStreams::Tabular.verbatim_text?`, but not the values of a query, which `:array` holds.
       #
       # Raises ArgumentError when the format that was set is not the format of that text, such as `:json` for a
       # spreadsheet, whose cells are read and written as CSV, rather than read or write the rows in the wrong format.
       def rows_format(file_name, text_format)
         return format(file_name) { text_format } if @format.nil? || text_format.nil? || @format == text_format
-        return @format if verbatim_text?(text_format)
+        return @format if IOStreams::Tabular.verbatim_text?(@format, text_format)
 
         raise(ArgumentError, "The format of the rows cannot be #{@format.inspect}, since the streams read and write them " \
                              "as #{text_format.inspect}. Set the format to #{text_format.inspect}, or to nil.")
@@ -155,15 +155,6 @@ module IOStreams
       # Does not display the values of sensitive options, see #inspect_fields.
       def inspect
         "#<#{self.class.name}#{inspect_fields}>"
-      end
-
-      private
-
-      # Returns [true|false] whether the format that was set holds the text of each row as it is, see
-      # `IOStreams::Tabular::Parser::Base.verbatim?`, and the supplied format of the text is a format of lines, whose
-      # rows it holds as their text.
-      def verbatim_text?(text_format)
-        IOStreams::Tabular.parser_class(@format).verbatim? && IOStreams::Tabular.lines?(text_format)
       end
     end
   end

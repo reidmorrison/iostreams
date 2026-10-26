@@ -114,10 +114,10 @@ module IOStreams
     #
     #   text_format: [Symbol|nil]
     #     The format of the text whose lines are read and written, when a stream decides it, such as `:csv` for a
-    #     spreadsheet, see `IOStreams::Builder#text_format`, which splits the lines where it expects, see
-    #     #quote_character, also when the rows are read in a format that holds the text of each row as it is, such as
-    #     `:text`, see `IOStreams::Tabular::Parser::Base.verbatim?`. Not an option of a call that reads or writes rows.
-    #     Default: nil, the lines are split where the format of the rows expects.
+    #     spreadsheet, see `IOStreams::Builder#text_format`, in which the rows of a format that holds the text of each
+    #     row as it is, such as `:text`, are split, decoded and written, see .line_format. Not an option of a call that
+    #     reads or writes rows.
+    #     Default: nil, the lines are those of the format of the rows.
     #
     # Raises ArgumentError for a `headerless` that is not true, false or nil.
     def initialize(format: nil, file_name: nil, schema: nil, default_format: :csv, row_format_options: nil,
@@ -132,7 +132,7 @@ module IOStreams
       @schema             = schema
       @row_format_options = row_format_options || {}
       @text_format        = text_format
-      @parser             = self.class.parser_class(@format).new(schema: @schema)
+      @parser             = build_parser
       @mapping            = build_mapping(blank_rows, headerless)
     end
 
@@ -207,11 +207,11 @@ module IOStreams
       @mapping.requires_header?
     end
 
-    # Returns [String] the quote character within which the format embeds field delimiters and newlines,
-    # such as `"` for CSV, or [nil] when the format has no such quoting: that of the format of the text when a stream
-    # decides it, see `text_format:` of #initialize, otherwise that of the format of the rows, see .quote_character.
+    # Returns [String] the quote character within which the format of the lines embeds field delimiters and newlines,
+    # such as `"` for CSV, or [nil] when it has no such quoting, see .quote_character: that of the format of the text
+    # when the rows hold it as it is, see `text_format:` of #initialize, otherwise that of the format of the rows.
     #
-    # So that the lines of the data are split where the format of the text expects.
+    # So that the lines of the data are split where the format of the lines expects.
     def quote_character
       self.class.quote_character(format, text_format: @text_format)
     end
@@ -251,11 +251,11 @@ module IOStreams
       parser.class.row_format.check_stream(:writer, @row_format_options, name: format, arguments: {schema: schema})
     end
 
-    # Returns [String] the encoding that the format reads and writes text in when the caller does not set one on
-    # the encode stream, such as "US-ASCII:UTF-8" for fixed width files, or [nil] for the default encoding of the
-    # encode stream, UTF-8.
+    # Returns [String] the encoding that the format of the lines reads and writes text in when the caller does not set
+    # one on the encode stream, such as "US-ASCII:UTF-8" for fixed width files, or [nil] for the default encoding of the
+    # encode stream, UTF-8, see .encoding, which the lines are split in as #quote_character says.
     def encoding
-      parser.class.encoding
+      self.class.encoding(format, text_format: @text_format)
     end
 
     # Returns [Array] the header row/line after parsing. Without a schema, for a format of keyed records, such as JSON,
@@ -465,6 +465,15 @@ module IOStreams
       yield render_header if @mapping.requires_header? && !@mapping.first_row_header?
     end
 
+    # Returns [String] the supplied line of a row of the format, read as it is, such as a row of a slice of the format
+    # that a writer of slices writes as it is, see `IOStreams::Slice::Writer`, as the line that this tabular writes for
+    # it: as it is, apart from the text of a row of a format that holds it as it is, such as `:text`, which is written
+    # as one row of the lines, see `IOStreams::Tabular::Parser::Base#written_line`, so that a line break within it, such
+    # as in the CSV text of a row of a spreadsheet, does not add rows to a file of plain text.
+    def written_line(line)
+      parser.written_line(line)
+    end
+
     # Yields [String|nil] the line that a writer of rows writes for the row: the header line, when it is the header row,
     # see `IOStreams::Tabular::Mapping#first_row_header?`, whose columns it gives, otherwise the line of the row, see
     # #render, or nil for a blank row, which is written as a blank line. The header row of a format without one, such
@@ -548,19 +557,44 @@ module IOStreams
     end
 
     # Returns [String] the quote character within which the lines of text are split, see #quote_character: that of the
-    # supplied format of the text, when a stream decides it, such as `:csv` for a spreadsheet, see
-    # `IOStreams::Builder#text_format`, since only a format that holds the text of each row as it is, such as `:text`,
-    # reads such text in another format, see `IOStreams::Tabular::Settings#rows_format`, otherwise that of the
-    # registered format of the rows. Returns nil when that format has no such quoting, or is nil.
+    # format of the lines, see .line_format, such as `"` for CSV, or nil when that format has no such quoting, or is
+    # nil.
     def self.quote_character(format, text_format: nil)
-      format = text_format || format
+      format = line_format(format, text_format: text_format)
       parser_class(format).quote_character unless format.nil?
+    end
+
+    # Returns [Symbol|nil] the format of the lines that the rows of the supplied registered format are split from, decoded
+    # from and written to: that of the supplied format of the text, when a stream decides it, see
+    # `IOStreams::Builder#text_format`, and the rows hold that text as it is, see .verbatim_text?, such as `:csv` for
+    # the rows of a spreadsheet read as `:text`, otherwise the format of the rows.
+    def self.line_format(format, text_format: nil)
+      verbatim_text?(format, text_format) ? text_format : format
+    end
+
+    # Returns [true|false] whether the rows of the supplied registered format hold the text of each row of the supplied
+    # format of the text as it is: when the format holds the text of each row as it is, see
+    # `IOStreams::Tabular::Parser::Base.verbatim?`, such as `:text`, and the rows of the format of the text are lines of
+    # text, see .lines_of_text?, such as the CSV of a spreadsheet, rather than the values of a query, which `:array`
+    # holds. So that `IOStreams::Tabular::Settings#rows_format` reads and writes them in it, and the lines are split as
+    # the format of the text splits them, see .line_format.
+    def self.verbatim_text?(format, text_format)
+      return false if format.nil? || text_format.nil? || format == text_format
+
+      parser_class(format).verbatim? && lines_of_text?(text_format)
     end
 
     # Returns [true|false] whether the rows of the registered format are lines of text, see #lines?, which they are when
     # the format is nil.
     def self.lines?(format)
       format.nil? || parser_class(format).row_format.nil?
+    end
+
+    # Returns [true|false] whether each row of the registered format is a line of text, see .lines?, rather than a Ruby
+    # object that holds its values, such as the rows of `:array` and `:hash`, see
+    # `IOStreams::Tabular::Parser::Base.value_form`.
+    def self.lines_of_text?(format)
+      lines?(format) && parser_class(format).value_form != :typed
     end
 
     # Returns [Module|nil] the format whose reader and writer read and write the rows of the registered format of the
@@ -570,9 +604,10 @@ module IOStreams
       @formats[format.to_sym]&.row_format if format.respond_to?(:to_sym)
     end
 
-    # Returns [String] the encoding of the registered format, see #encoding,
-    # or [nil] for the default encoding of the encode stream, or when the format is nil.
-    def self.encoding(format)
+    # Returns [String] the encoding that the lines of text are read and written in, see #encoding: that of the format of
+    # the lines, see .line_format, or [nil] for the default encoding of the encode stream, or when the format is nil.
+    def self.encoding(format, text_format: nil)
+      format = line_format(format, text_format: text_format)
       parser_class(format).encoding unless format.nil?
     end
 
@@ -591,6 +626,19 @@ module IOStreams
     # such as for a blank line.
     def as_header_row(columns)
       IOStreams::Row::HeaderRow.new(columns) if columns
+    end
+
+    # Returns [IOStreams::Tabular::Parser::Base] the parser of the format of the rows, see .parser_class, which for a
+    # format that holds the text of each row as it is, such as `:text`, see `IOStreams::Tabular::Parser::Base.verbatim?`,
+    # takes the parser class of the format of its lines, when it is another, see .line_format, such as CSV for a
+    # spreadsheet, which writes the text of each row as one of its rows.
+    def build_parser
+      parser_class = self.class.parser_class(@format)
+      return parser_class.new(schema: @schema) unless parser_class.verbatim?
+
+      line_format = self.class.line_format(@format, text_format: @text_format)
+      lines       = self.class.parser_class(line_format) unless line_format == @format
+      parser_class.new(schema: @schema, lines: lines)
     end
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the

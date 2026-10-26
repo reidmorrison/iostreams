@@ -104,7 +104,17 @@ class TextFormatTest < Minitest::Test
     end
 
     describe "a spreadsheet" do
-      let(:spreadsheet) { IOStreams.path(File.join(__dir__, "files", "multiline_cell.xlsx")) }
+      # Returns a new path of the spreadsheet, since setting a format on a path changes it.
+      def spreadsheet
+        IOStreams.path(File.join(__dir__, "files", "multiline_cell.xlsx"))
+      end
+
+      # Returns the path of a spreadsheet that is written with its text in a table of shared strings, since creek on
+      # JRuby reads an inline string only up to its first newline.
+      def shared(path)
+        path.option(:xlsx, use_shared_strings: true)
+      end
+
       let(:header) { "first column,second column,third column" }
       let(:row) { %(data 1,data 2,"more\ndata") }
 
@@ -133,14 +143,94 @@ class TextFormatTest < Minitest::Test
         assert_equal [[:text, nil, [[header, nil, 1], [row, nil, 2]]]], described(store.slices)
       end
 
-      it "writes the text of each row as a row of CSV, replacing a line break with a space" do
+      it "splits the lines written to a store of :text at each line ending, as a file of plain text, unlike a copy" do
+        store = Store.new(10)
+        IOStreams.stream(store).format(:text).writer(:line) do |io|
+          read(spreadsheet.format(:text), :line).each { |line| io << line }
+        end
+
+        assert_equal [[:text, nil, [[header, 1, 1], [%(data 1,data 2,"more), 2, 2], [%(data"), 3, 3]]]],
+                     described(store.slices)
+      end
+
+      it "writes the text of each row as a row of CSV, keeping a line break within a quoted value" do
         Dir.mktmpdir do |dir|
-          IOStreams.path(dir, "people.xlsx").format(:text).writer(:array) do |io|
+          shared(IOStreams.path(dir, "people.xlsx")).format(:text).writer(:array) do |io|
             io << ["name,note"]
             io << [%(Jack,"two\nlines")]
+            io << ["Jill,one\nline"]
           end
 
-          assert_equal [%w[name note], ["Jack", "two lines"]], read(IOStreams.path(dir, "people.xlsx"), :array)
+          expected = [%w[name note], ["Jack", "two\nlines"], ["Jill", "one line"]]
+
+          assert_equal expected, read(IOStreams.path(dir, "people.xlsx"), :array)
+        end
+      end
+
+      it "raises for text that is not one row of CSV, rather than write it, or join it to the rows after it" do
+        Dir.mktmpdir do |dir|
+          path   = IOStreams.path(dir, "emails.xlsx").format(:text)
+          quoted = assert_raises(IOStreams::Errors::TypeMismatch) { path.writer(:array) { |io| io << [%("jill"@x)] } }
+          open   = assert_raises(IOStreams::Errors::TypeMismatch) { path.writer(:array) { |io| io << [%(a,"b)] } }
+
+          assert_equal "The text of the row is not a row of CSV, in which a quote encloses a whole value and a quote " \
+                       "within it is doubled: \"\\\"jill\\\"@x\"", quoted.message
+          assert_equal "The text of the row opens a quoted value that it does not close, which would join the rows " \
+                       "after it: \"a,\\\"b\"", open.message
+        end
+      end
+
+      it "raises for a line of plain text copied to it as :text that is not a row of CSV" do
+        Dir.mktmpdir do |dir|
+          target = IOStreams.path(dir, "emails.xlsx").format(:text)
+
+          assert_raises(IOStreams::Errors::TypeMismatch) { target.copy_from(lines, mode: :array) }
+        end
+      end
+
+      it "copies its rows to a spreadsheet as :text alike in the :line and :array modes" do
+        Dir.mktmpdir do |dir|
+          %i[line array].each do |mode|
+            shared(IOStreams.path(dir, "#{mode}.xlsx")).format(:text).copy_from(spreadsheet.format(:text), mode: mode)
+          end
+
+          expected = read(spreadsheet, :array)
+
+          assert_equal [["first column", "second column", "third column"], ["data 1", "data 2", "more\ndata"]], expected
+          assert_equal expected, read(IOStreams.path(dir, "line.xlsx"), :array)
+          assert_equal expected, read(IOStreams.path(dir, "array.xlsx"), :array)
+        end
+      end
+
+      it "writes its slices to a file of plain text one row on each line, replacing a line break as writer(:array) does" do
+        Dir.mktmpdir do |dir|
+          slices = IOStreams.path(dir, "slices.txt").format(:text)
+          rows   = IOStreams.path(dir, "rows.txt").format(:text)
+          slices.writer(:slice) { |io| read(spreadsheet.format(:text), :slice, size: 10).each { |slice| io << slice } }
+          rows.writer(:array) { |io| read(spreadsheet.format(:text), :array).each { |text| io << text } }
+
+          assert_equal %(#{header}\ndata 1,data 2,"more data"\n), slices.read
+          assert_equal rows.read, slices.read
+          assert_equal 2, read(slices, :array).size
+        end
+      end
+
+      it "writes its slices to a spreadsheet, keeping a line break within a quoted value" do
+        Dir.mktmpdir do |dir|
+          target = shared(IOStreams.path(dir, "copy.xlsx")).format(:text)
+          target.writer(:slice) { |io| read(spreadsheet.format(:text), :slice, size: 10).each { |slice| io << slice } }
+
+          assert_equal read(spreadsheet, :array), read(IOStreams.path(dir, "copy.xlsx"), :array)
+        end
+      end
+
+      it "reads each row of the same text of a CSV file as its lines, since only a spreadsheet has no lines" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.csv")
+          path.write(%(#{header}\n#{row}\n))
+
+          assert_equal [header, %(data 1,data 2,"more), %(data")], read(path.format(:text), :line)
+          assert_equal [header, row], read(spreadsheet.format(:text), :line)
         end
       end
 
