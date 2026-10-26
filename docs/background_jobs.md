@@ -424,11 +424,11 @@ end
 ## A file of lines
 
 A file of email addresses, ids or urls, one on each line, has no header row, and its lines are not CSV, which would
-take its first line as the header row. Read it in the `:lines` format, whose rows are the lines as they are, see
-[Lines of text](formats#lines-of-text):
+take its first line as the header row. Read it in the `:text` format, whose rows are the text of each row as it is, see
+[Text](formats#text):
 
 ~~~ruby
-IOStreams.path(url).format(:lines).each(:slice, size: 1_000) do |slice|
+IOStreams.path(url).format(:text).each(:slice, size: 1_000) do |slice|
   SendInvitationsJob.perform_later(slice.to_h)
 end
 ~~~
@@ -444,6 +444,8 @@ end
 ~~~
 
 `slice.each` yields each row as it is, with its line and record number, so a job of a file of lines needs no schema.
+The url can also name a spreadsheet, whose rows are then the CSV text of each row of the sheet, its header row too,
+without a line number, since they are not the lines of the file.
 
 ## Failures
 
@@ -582,8 +584,8 @@ end
   `#format`, so the slices hold text that any job queue or database stores as it is. The header row is matched to the
   schema before the first slice is written, and each slice carries it, exactly as `each(:slice)` gives them.
 * **Lines that are not CSV.** A copy of the lines of a file keeps the format of the file, so read a file of lines in the
-  `:lines` format, see [A file of lines](#a-file-of-lines), to store its lines as they are:
-  `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:lines), mode: :line)`.
+  `:text` format, see [A file of lines](#a-file-of-lines), to store its lines as they are:
+  `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:text), mode: :line)`.
 * **When the last slice is written.** The last slice is written when the block returns, or leaves early, such as with
   `break`, but not when it raises. So a failed write never hands on a part of its last slice. The slices before it
   were already written, so remove them by the id of the upload, as above.

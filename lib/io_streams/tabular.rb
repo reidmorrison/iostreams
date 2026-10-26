@@ -43,9 +43,9 @@ module IOStreams
       autoload :Fixed, "io_streams/tabular/parser/fixed"
       autoload :Hash, "io_streams/tabular/parser/hash"
       autoload :Json, "io_streams/tabular/parser/json"
-      autoload :Lines, "io_streams/tabular/parser/lines"
       autoload :Parquet, "io_streams/tabular/parser/parquet"
       autoload :Psv, "io_streams/tabular/parser/psv"
+      autoload :Text, "io_streams/tabular/parser/text"
     end
 
     attr_reader :format, :parser, :schema
@@ -59,17 +59,19 @@ module IOStreams
     # see `IOStreams::Stream::PATH_SETTINGS`.
     FORMAT_OPTION_NAMES = %i[format file_name schema default_format row_format_options].freeze
 
-    # The options of #initialize that the stream of a source of rows that is not a file supplies, rather than the path
-    # or a call: whether a row whose every value is blank is a blank row, which the rows of a database query are not, see
-    # `IOStreams::Query::Stream`, nor the rows of a slice of them, which carries it, see `IOStreams::Slice::Stream`, and
-    # whether the rows have no header row, which a slice says, see `IOStreams::Slice#header?`.
-    SOURCE_OPTION_NAMES = %i[blank_rows headerless].freeze
+    # The options of #initialize that the stream supplies, rather than the path or a call: those of a source of rows
+    # that is not a file, whether a row whose every value is blank is a blank row, which the rows of a database query
+    # are not, see `IOStreams::Query::Stream`, nor the rows of a slice of them, which carries it, see
+    # `IOStreams::Slice::Stream`, and whether the rows have no header row, which a slice says, see
+    # `IOStreams::Slice#header?`, and the format of the text that its streams decide, such as the CSV of a spreadsheet,
+    # see `IOStreams::Tabular::Settings#tabular`.
+    SOURCE_OPTION_NAMES = %i[blank_rows headerless text_format].freeze
 
     # Parse a delimited data source.
     #
     # Parameters
     #   format: [Symbol]
-    #     A registered format, see .registered_formats: :csv, :hash, :array, :json, :lines, :psv, :fixed or :parquet
+    #     A registered format, see .registered_formats: :csv, :hash, :array, :json, :text, :psv, :fixed or :parquet
     #
     #   file_name: [IOStreams::Path | String]
     #     When `:format` is not supplied the file name can be used to infer the required format.
@@ -110,9 +112,16 @@ module IOStreams
     #     Not an option of a call that reads or writes rows.
     #     Default: nil, as the schema says, otherwise as the format says, such as for a file.
     #
+    #   text_format: [Symbol|nil]
+    #     The format of the text whose lines are read and written, when a stream decides it, such as `:csv` for a
+    #     spreadsheet, see `IOStreams::Builder#text_format`, which splits the lines where it expects, see
+    #     #quote_character, also when the rows are read in a format that holds the text of each row as it is, such as
+    #     `:text`, see `IOStreams::Tabular::Parser::Base.verbatim?`. Not an option of a call that reads or writes rows.
+    #     Default: nil, the lines are split where the format of the rows expects.
+    #
     # Raises ArgumentError for a `headerless` that is not true, false or nil.
     def initialize(format: nil, file_name: nil, schema: nil, default_format: :csv, row_format_options: nil,
-                   blank_rows: true, headerless: nil)
+                   blank_rows: true, headerless: nil, text_format: nil)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
@@ -122,6 +131,7 @@ module IOStreams
 
       @schema             = schema
       @row_format_options = row_format_options || {}
+      @text_format        = text_format
       @parser             = self.class.parser_class(@format).new(schema: @schema)
       @mapping            = build_mapping(blank_rows, headerless)
     end
@@ -198,11 +208,12 @@ module IOStreams
     end
 
     # Returns [String] the quote character within which the format embeds field delimiters and newlines,
-    # such as `"` for CSV, or [nil] when the format has no such quoting.
+    # such as `"` for CSV, or [nil] when the format has no such quoting: that of the format of the text when a stream
+    # decides it, see `text_format:` of #initialize, otherwise that of the format of the rows, see .quote_character.
     #
-    # So that the lines of the data are split where this format, which parses them, expects.
+    # So that the lines of the data are split where the format of the text expects.
     def quote_character
-      parser.class.quote_character
+      self.class.quote_character(format, text_format: @text_format)
     end
 
     # Returns [true|false] whether the rows of the format are lines of text, which a line reader splits and a line writer
@@ -271,8 +282,8 @@ module IOStreams
 
     # Parses the line, or a row already read, as a reader of its records would, see #record_parse, so that a value that
     # is not valid raises, for `validate: true`, see `IOStreams::Slice::Collector` and `IOStreams::Slice::Writer`: as a
-    # row instead, see #row_parse, when nothing names the keys of its records, see #unnamed_columns?, such as the lines of
-    # the :lines format without a schema, which have no records, but are rows.
+    # row instead, see #row_parse, when nothing names the keys of its records, see #unnamed_columns?, such as the rows of
+    # the :text format without a schema, which have no records, but are rows.
     #
     # Returns nil.
     def validate_line(line)
@@ -350,7 +361,7 @@ module IOStreams
     end
 
     # Returns [true|false] whether nothing names the columns of the rows: rows without a header row that have no keys,
-    # such as those of `:lines`, or of a slice of CSV without a header row, see `headerless:` of #initialize, without a
+    # such as those of `:text`, or of a slice of CSV without a header row, see `headerless:` of #initialize, without a
     # schema, whose fields would name them, so that its records cannot be keyed, see #check_records, and its rows cannot
     # give a writer their columns, see #check_unnamed_rows.
     def unnamed_columns?
@@ -359,14 +370,14 @@ module IOStreams
 
     # Raises ArgumentError when a writer of rows would take the columns of the rows from the first row written, writing
     # it as the header row, see #render_row, such as CSV or JSON without a schema, for rows whose columns nothing names,
-    # see #unnamed_columns?, such as the lines of the :lines format, or the rows of a slice without a header row, without
+    # see #unnamed_columns?, such as the rows of the :text format, or the rows of a slice without a header row, without
     # a schema, so that the first of them is not made the header row: before a copy opens its target, see
     # `IOStreams::Stream#check_unnamed_rows`, and before `IOStreams::Slice::Writer` writes the rows of its first slice.
     def check_unnamed_rows
       return unless @mapping.first_row_header?
 
-      raise(ArgumentError, "The rows written have no header row, and no schema names their columns, as for the lines " \
-                           "of the :lines format, or a slice without a header row, so the first of them would be the " \
+      raise(ArgumentError, "The rows written have no header row, and no schema names their columns, as for the rows " \
+                           "of the :text format, or a slice without a header row, so the first of them would be the " \
                            "header row of the #{format.inspect} format: set a schema, whose fields name the columns")
     end
 
@@ -536,9 +547,13 @@ module IOStreams
         raise(ArgumentError, "Unknown Tabular Format: #{format.inspect}")
     end
 
-    # Returns [String] the quote character of the registered format, see #quote_character,
-    # or [nil] when the format has no such quoting, or when the format is nil.
-    def self.quote_character(format)
+    # Returns [String] the quote character within which the lines of text are split, see #quote_character: that of the
+    # supplied format of the text, when a stream decides it, such as `:csv` for a spreadsheet, see
+    # `IOStreams::Builder#text_format`, since only a format that holds the text of each row as it is, such as `:text`,
+    # reads such text in another format, see `IOStreams::Tabular::Settings#rows_format`, otherwise that of the
+    # registered format of the rows. Returns nil when that format has no such quoting, or is nil.
+    def self.quote_character(format, text_format: nil)
+      format = text_format || format
       parser_class(format).quote_character unless format.nil?
     end
 
@@ -566,9 +581,9 @@ module IOStreams
     register_format(:fixed, IOStreams::Tabular::Parser::Fixed)
     register_format(:hash, IOStreams::Tabular::Parser::Hash)
     register_format(:json, IOStreams::Tabular::Parser::Json)
-    register_format(:lines, IOStreams::Tabular::Parser::Lines)
     register_format(:parquet, IOStreams::Tabular::Parser::Parquet)
     register_format(:psv, IOStreams::Tabular::Parser::Psv)
+    register_format(:text, IOStreams::Tabular::Parser::Text)
 
     private
 

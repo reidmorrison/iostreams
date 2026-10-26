@@ -46,6 +46,16 @@ module IOStreams
           false
         end
 
+        # Returns [true|false] whether each row of this format is the text of a row of any format of lines, as it is,
+        # without parsing it, such as `:text`, so that it also reads the rows of text whose format a stream decides,
+        # such as the CSV of a spreadsheet, see `IOStreams::Tabular::Settings#rows_format`, split as that format splits
+        # them, see `IOStreams::Tabular#quote_character`. False for a format that parses its rows.
+        #
+        # Defined at the class level since it is a static property of the format, see `.quote_character`.
+        def self.verbatim?
+          false
+        end
+
         # Returns [Module|nil] the format, see `IOStreams::StreamFormat`, whose reader and writer read and write the rows of a
         # format that holds them in a binary layout of its own, rather than as lines of text, such as `IOStreams::Parquet`,
         # see `IOStreams::Tabular#read_rows`, or nil for a format of lines, which a line reader splits.

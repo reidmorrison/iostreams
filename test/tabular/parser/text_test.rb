@@ -6,8 +6,8 @@ require "bigdecimal"
 module Tabular
   module Parser
     class LinesTest < Minitest::Test
-      describe IOStreams::Tabular::Parser::Lines do
-        let(:parser) { IOStreams::Tabular::Parser::Lines.new }
+      describe IOStreams::Tabular::Parser::Text do
+        let(:parser) { IOStreams::Tabular::Parser::Text.new }
 
         describe "#parse" do
           it "returns the whole line as the one value of its row, quotes, commas and spaces included" do
@@ -24,7 +24,7 @@ module Tabular
           it "raises for anything that is not a line or a row" do
             error = assert_raises(IOStreams::Errors::TypeMismatch) { parser.parse({"email" => "jack@example.com"}) }
 
-            assert_equal "Format is :lines. Invalid input: Hash", error.message
+            assert_equal "Format is :text. Invalid input: Hash", error.message
           end
         end
 
@@ -47,28 +47,35 @@ module Tabular
           it "raises for a row of more than one value, which a line cannot hold" do
             error = assert_raises(IOStreams::Errors::TypeMismatch) { parser.render(%w[a b]) }
 
-            assert_equal 'Each row of the :lines format is one value, not 2: ["a", "b"]', error.message
+            assert_equal 'Each row of the :text format is one value, not 2: ["a", "b"]', error.message
           end
         end
 
         it "has no header row, quote character or encoding of its own" do
           refute_predicate parser, :requires_header?
-          assert_nil IOStreams::Tabular::Parser::Lines.quote_character
-          assert_nil IOStreams::Tabular::Parser::Lines.encoding
-          refute_predicate IOStreams::Tabular::Parser::Lines, :keyed?
+          assert_nil IOStreams::Tabular::Parser::Text.quote_character
+          assert_nil IOStreams::Tabular::Parser::Text.encoding
+          refute_predicate IOStreams::Tabular::Parser::Text, :keyed?
+        end
+
+        it "is the only format that holds the text of each row as it is" do
+          assert_predicate IOStreams::Tabular::Parser::Text, :verbatim?
+          (IOStreams.tabular_formats - [:text]).each do |format|
+            refute_predicate IOStreams::Tabular.parser_class(format), :verbatim?, format
+          end
         end
 
         it "takes a schema of one field, which names the value of each line" do
           schema = IOStreams::Schema.new({"fields" => [{"name" => "email"}]})
 
-          assert_equal ["a"], IOStreams::Tabular::Parser::Lines.new(schema: schema).parse("a")
+          assert_equal ["a"], IOStreams::Tabular::Parser::Text.new(schema: schema).parse("a")
         end
 
         it "raises for a schema of more than one field" do
           schema = IOStreams::Schema.new({"fields" => [{"name" => "email"}, {"name" => "name"}]})
-          error  = assert_raises(ArgumentError) { IOStreams::Tabular::Parser::Lines.new(schema: schema) }
+          error  = assert_raises(ArgumentError) { IOStreams::Tabular::Parser::Text.new(schema: schema) }
 
-          assert_equal "Each line of the :lines format is one value, so its schema has one field, not 2", error.message
+          assert_equal "Each row of the :text format is one value, so its schema has one field, not 2", error.message
         end
       end
     end

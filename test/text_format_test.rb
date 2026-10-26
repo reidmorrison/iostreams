@@ -3,8 +3,8 @@
 require_relative "test_helper"
 require "tmpdir"
 
-# The `:lines` format, whose rows are the lines of the file as they are, see `IOStreams::Tabular::Parser::Lines`.
-class LinesFormatTest < Minitest::Test
+# The `:text` format, whose rows are the text of each row as it is, see `IOStreams::Tabular::Parser::Text`.
+class TextFormatTest < Minitest::Test
   # A store of slices, as an application supplies one, see `IOStreams::Slice::Target`.
   class Store
     include IOStreams::Slice::Target
@@ -21,12 +21,12 @@ class LinesFormatTest < Minitest::Test
     end
   end
 
-  describe "the :lines format" do
+  describe "the :text format" do
     let(:emails) { "jack@example.com\n\"jill\"@example.com\n\n  \nbob,smith@example.com\n" }
     let(:schema) { {"fields" => [{"name" => "email"}]} }
 
     def lines(data = emails)
-      IOStreams.stream(StringIO.new(data)).format(:lines)
+      IOStreams.stream(StringIO.new(data)).format(:text)
     end
 
     def read(stream, mode, **)
@@ -68,9 +68,9 @@ class LinesFormatTest < Minitest::Test
       end
 
       it "raises for records without a schema, which would name their key, before the file is opened" do
-        message = "The :lines rows have no header row, and no keys, so the keys of their records are named by a " \
+        message = "The :text rows have no header row, and no keys, so the keys of their records are named by a " \
                   "schema: set one, whose fields name them"
-        missing = IOStreams.path("/missing/emails.txt").format(:lines)
+        missing = IOStreams.path("/missing/emails.txt").format(:text)
 
         assert_equal(message, assert_raises(ArgumentError) { missing.each(:hash) { flunk } }.message)
         assert_equal(message, assert_raises(ArgumentError) { missing.writer(:hash) { flunk } }.message)
@@ -80,7 +80,7 @@ class LinesFormatTest < Minitest::Test
         two   = {"fields" => [{"name" => "email"}, {"name" => "name"}]}
         error = assert_raises(ArgumentError) { read(lines.schema(two), :array) }
 
-        assert_equal "Each line of the :lines format is one value, so its schema has one field, not 2", error.message
+        assert_equal "Each row of the :text format is one value, so its schema has one field, not 2", error.message
       end
 
       it "reads each line without its line ending, also in a file whose lines end in both ways" do
@@ -97,15 +97,76 @@ class LinesFormatTest < Minitest::Test
         assert_equal ["\"a", "b\""], read(lines("\"a\nb\"\n"), :line)
       end
 
-      it "is not the format of a spreadsheet, whose rows are read as CSV" do
-        spreadsheet = IOStreams.path(File.join(__dir__, "files", "spreadsheet.xlsx")).format(:lines)
+      it "is the format of a file named .text" do
+        assert_equal :text, IOStreams.path("emails.text").format
+        assert_includes IOStreams.tabular_formats, :text
+      end
+    end
 
-        assert_raises(ArgumentError) { read(spreadsheet, :array) }
+    describe "a spreadsheet" do
+      let(:spreadsheet) { IOStreams.path(File.join(__dir__, "files", "multiline_cell.xlsx")) }
+      let(:header) { "first column,second column,third column" }
+      let(:row) { %(data 1,data 2,"more\ndata") }
+
+      it "reads each row as its CSV text, the header row too, keeping a cell with a line break in its row" do
+        assert_equal [[header], [row]], read(spreadsheet.format(:text), :array)
+        assert_equal [header, row], read(spreadsheet.format(:text), :line)
+        assert_equal read(spreadsheet, :line), read(spreadsheet.format(:text), :line)
       end
 
-      it "is the format of a file named .lines" do
-        assert_equal :lines, IOStreams.path("emails.lines").format
-        assert_includes IOStreams.tabular_formats, :lines
+      it "names the text of each row with the field of a schema" do
+        records = read(spreadsheet.format(:text).schema({"fields" => [{"name" => "text"}]}), :hash)
+
+        assert_equal [{"text" => header}, {"text" => row}], records
+      end
+
+      it "reads slices of its rows without line numbers, since they are not the lines of the file" do
+        slices = read(spreadsheet.format(:text), :slice, size: 10)
+
+        assert_equal [[:text, nil, [[header, nil, 1], [row, nil, 2]]]], described(slices)
+      end
+
+      it "copies its rows to a store of slices whole, as reading them split them" do
+        store = Store.new(10)
+        IOStreams.stream(store).copy_from(spreadsheet.format(:text), mode: :line)
+
+        assert_equal [[:text, nil, [[header, nil, 1], [row, nil, 2]]]], described(store.slices)
+      end
+
+      it "writes the text of each row as a row of CSV, replacing a line break with a space" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "people.xlsx").format(:text).writer(:array) do |io|
+            io << ["name,note"]
+            io << [%(Jack,"two\nlines")]
+          end
+
+          assert_equal [%w[name note], ["Jack", "two lines"]], read(IOStreams.path(dir, "people.xlsx"), :array)
+        end
+      end
+
+      it "is not read in a format that parses its rows other than CSV" do
+        error = assert_raises(ArgumentError) { read(spreadsheet.format(:json), :array) }
+
+        assert_equal "The format of the rows cannot be :json, since the streams read and write them as :csv. Set the " \
+                     "format to :csv, or to nil.", error.message
+      end
+    end
+
+    describe "rows that are not text" do
+      it "raises for the rows of a slice in another format, which are already split" do
+        slice = IOStreams::Slice.new(%w[a,b], header: %w[x y], format: :csv)
+        error = assert_raises(ArgumentError) { IOStreams.stream(slice).format(:text) }
+
+        assert_equal "The rows of the slice are :csv, so its format cannot be :text", error.message
+      end
+
+      it "reads the bytes of a file named .parquet once its format is set, as for any format set" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "emails.parquet")
+          path.write("jack@x\n")
+
+          assert_equal [["jack@x"]], read(path.format(:text), :array)
+        end
       end
     end
 
@@ -114,9 +175,9 @@ class LinesFormatTest < Minitest::Test
         slices = read(lines, :slice, size: 2)
 
         expected = [
-          [:lines, nil, [["jack@example.com", 1, 1], [%("jill"@example.com), 2, 2]]],
-          [:lines, nil, [["", 3, 3], ["  ", 4, 4]]],
-          [:lines, nil, [["bob,smith@example.com", 5, 5]]]
+          [:text, nil, [["jack@example.com", 1, 1], [%("jill"@example.com), 2, 2]]],
+          [:text, nil, [["", 3, 3], ["  ", 4, 4]]],
+          [:text, nil, [["bob,smith@example.com", 5, 5]]]
         ]
 
         assert_equal expected, described(slices)
@@ -142,12 +203,12 @@ class LinesFormatTest < Minitest::Test
         assert_equal [["jack@x", 1, 1], ["jill@x", 2, 2]], slices.first.each.to_a
 
         output = StringIO.new
-        IOStreams.stream(output).format(:lines).writer(:slice, validate: true) { |io| slices.each { |slice| io << slice } }
+        IOStreams.stream(output).format(:text).writer(:slice, validate: true) { |io| slices.each { |slice| io << slice } }
 
         assert_equal "jack@x\njill@x\n", output.string
 
         store = Store.new(10)
-        IOStreams.stream(store).format(:lines).writer(:line, validate: true) { |io| io << "jack@x" << "jill@x" }
+        IOStreams.stream(store).format(:text).writer(:line, validate: true) { |io| io << "jack@x" << "jill@x" }
 
         assert_equal [["jack@x", 1, 1], ["jill@x", 2, 2]], store.slices.first.each.to_a
       end
@@ -157,7 +218,7 @@ class LinesFormatTest < Minitest::Test
         hash  = JSON.parse(slice.to_json)
         back  = IOStreams.slice(hash)
 
-        assert_equal({"rows" => ["jack@example.com", "jill@example.com"], "header" => nil, "format" => "lines",
+        assert_equal({"rows" => ["jack@example.com", "jill@example.com"], "header" => nil, "format" => "text",
                       "line_number" => 1, "record_number" => 1}, hash)
         assert_equal slice, back
         assert_equal [["jack@example.com"], ["jill@example.com"]], read(IOStreams.stream(back), :array)
@@ -167,7 +228,7 @@ class LinesFormatTest < Minitest::Test
 
       it "writes its slices to a file of lines, as they are" do
         Dir.mktmpdir do |dir|
-          path = IOStreams.path(dir, "emails.txt").format(:lines)
+          path = IOStreams.path(dir, "emails.txt").format(:text)
           path.writer(:slice) do |io|
             read(lines, :slice, size: 2).each { |slice| io << slice }
           end
@@ -182,7 +243,7 @@ class LinesFormatTest < Minitest::Test
         store = Store.new(2)
         IOStreams.stream(store).copy_from(lines, mode: :line)
 
-        assert_equal [%i[lines lines lines], [nil, nil, nil]], [store.slices.map(&:format), store.slices.map(&:header)]
+        assert_equal [%i[text text text], [nil, nil, nil]], [store.slices.map(&:format), store.slices.map(&:header)]
         assert_equal [1, 3, 5], store.slices.map(&:line_number)
         assert_equal ["jack@example.com", %("jill"@example.com), "", "  ", "bob,smith@example.com"],
                      store.slices.flat_map(&:rows)
@@ -193,28 +254,28 @@ class LinesFormatTest < Minitest::Test
           path = IOStreams.path(dir, "people.csv")
           path.write("name,age\n\"Jack\nSmith\",21\n")
           store = Store.new(10)
-          IOStreams.stream(store).copy_from(IOStreams.path(dir, "people.csv").format(:lines), mode: :line)
+          IOStreams.stream(store).copy_from(IOStreams.path(dir, "people.csv").format(:text), mode: :line)
 
-          assert_equal [[:lines, nil, [["name,age", 1, 1], [%("Jack), 2, 2], [%(Smith",21), 3, 3]]]],
+          assert_equal [[:text, nil, [["name,age", 1, 1], [%("Jack), 2, 2], [%(Smith",21), 3, 3]]]],
                        described(store.slices)
         end
       end
 
       it "splits a line written with line breaks into rows, as reading the file back would" do
         store = Store.new(10)
-        IOStreams.stream(store).format(:lines).writer(:line) do |io|
+        IOStreams.stream(store).format(:text).writer(:line) do |io|
           io << "a\nb"
           io << %("c)
           io << "d"
         end
 
-        assert_equal [[:lines, nil, [["a", 1, 1], ["b", 2, 2], [%("c), 3, 3], ["d", 4, 4]]]], described(store.slices)
+        assert_equal [[:text, nil, [["a", 1, 1], ["b", 2, 2], [%("c), 3, 3], ["d", 4, 4]]]], described(store.slices)
       end
     end
 
     describe "copying its rows" do
       let(:unnamed_message) do
-        "The rows written have no header row, and no schema names their columns, as for the lines of the :lines " \
+        "The rows written have no header row, and no schema names their columns, as for the rows of the :text " \
           "format, or a slice without a header row, so the first of them would be the header row of the %s format: set " \
           "a schema, whose fields name the columns"
       end
@@ -264,7 +325,7 @@ class LinesFormatTest < Minitest::Test
         assert_equal 2, named.copy_from(lines("jack@x\njill@x\n"), mode: :array)
 
         output = StringIO.new
-        IOStreams.stream(output).format(:lines).copy_from(lines("jack@x\njill@x\n"), mode: :array)
+        IOStreams.stream(output).format(:text).copy_from(lines("jack@x\njill@x\n"), mode: :array)
 
         assert_equal "jack@x\njill@x\n", output.string
       end
@@ -273,7 +334,7 @@ class LinesFormatTest < Minitest::Test
     describe "writing" do
       it "writes each row of one value as a line, its text, replacing a line break with a space" do
         output = StringIO.new
-        IOStreams.stream(output).format(:lines).writer(:array) do |io|
+        IOStreams.stream(output).format(:text).writer(:array) do |io|
           io << ["jack@example.com"]
           io << [nil]
           io << ["two\nlines"]
@@ -285,7 +346,7 @@ class LinesFormatTest < Minitest::Test
 
       it "writes the value of the field of the schema of each record" do
         output = StringIO.new
-        IOStreams.stream(output).format(:lines).schema(schema).writer(:hash) do |io|
+        IOStreams.stream(output).format(:text).schema(schema).writer(:hash) do |io|
           io << {"email" => "jack@example.com"}
           io << {"email" => "jill@example.com"}
         end
@@ -297,7 +358,7 @@ class LinesFormatTest < Minitest::Test
         Dir.mktmpdir do |dir|
           csv = IOStreams.path(dir, "people.csv")
           csv.write("name,email\nJack,jack@example.com\nJill,jill@example.com\n")
-          target = IOStreams.path(dir, "emails.txt").format(:lines).schema(schema.merge("fieldsMatch" => "subset"))
+          target = IOStreams.path(dir, "emails.txt").format(:text).schema(schema.merge("fieldsMatch" => "subset"))
           target.copy_from(csv, mode: :hash)
 
           assert_equal "jack@example.com\njill@example.com\n", target.read
@@ -306,10 +367,10 @@ class LinesFormatTest < Minitest::Test
 
       it "raises for a row of more than one value" do
         error = assert_raises(IOStreams::Errors::TypeMismatch) do
-          IOStreams.stream(StringIO.new).format(:lines).writer(:array) { |io| io << %w[a b] }
+          IOStreams.stream(StringIO.new).format(:text).writer(:array) { |io| io << %w[a b] }
         end
 
-        assert_equal 'Each row of the :lines format is one value, not 2: ["a", "b"]', error.message
+        assert_equal 'Each row of the :text format is one value, not 2: ["a", "b"]', error.message
       end
     end
   end

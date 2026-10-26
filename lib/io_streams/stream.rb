@@ -693,7 +693,7 @@ module IOStreams
     end
 
     # Raises ArgumentError, before the target of a copy is opened, see #copy_target, when nothing names the columns of the
-    # supplied rows, see `IOStreams::Row::Reader#unnamed_columns?`, such as the lines of the :lines format without a
+    # supplied rows, see `IOStreams::Row::Reader#unnamed_columns?`, such as the rows of the :text format without a
     # schema, and this stream would take them from the first row written, such as CSV or JSON without a schema, see
     # `IOStreams::Tabular#check_unnamed_rows`: a writer of rows that is already open, see #open_writer?, answers for
     # itself. Protected, see #copy_schema.
@@ -716,6 +716,16 @@ module IOStreams
     # by, see `IOStreams::Slice::TargetStream`. Protected, see #copy_schema.
     def copy_lines_of_file?
       builder.lines_of_file?
+    end
+
+    # Returns [String|nil] the quote character within which the lines that this stream reads are split, see
+    # `IOStreams::Tabular.quote_character`: that of the format of the text when a stream decides it, such as the CSV of
+    # a spreadsheet, also when its rows are read as `:text`, otherwise that of the format of the rows, so that a copy of
+    # its lines to a store of slices splits a line that holds a line break where reading them did, see
+    # `IOStreams::Slice::TargetStream`, as the line reader of the `:line` mode does, see #line_reader. Protected, see
+    # #copy_schema.
+    def lines_quote_character
+      IOStreams::Tabular.quote_character(rows_format, text_format: text_format)
     end
 
     # Returns [IOStreams::Stream] a copy of this stream that reads and writes its data as-is, without
@@ -939,9 +949,9 @@ module IOStreams
       format = rows_format
       reject_unlined_format!(format)
       # `:auto` uses the quote character of the format, set with #format or detected from the file name,
-      # such as `"` for CSV, while distinguishing "not supplied" from an explicit value such as `nil`
-      # (disable) or `'"'` (force).
-      embedded_within = IOStreams::Tabular.quote_character(format) if embedded_within == :auto
+      # such as `"` for CSV, or of the text when a stream decides it, such as the CSV of a spreadsheet,
+      # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or `'"'` (force).
+      embedded_within = lines_quote_character if embedded_within == :auto
 
       open_line_reader(IOStreams::Tabular.encoding(format), embedded_within: embedded_within, **args, &)
     end

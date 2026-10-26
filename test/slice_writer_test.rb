@@ -95,8 +95,8 @@ class SliceWriterTest < Minitest::Test
             end
           end
 
-          assert_equal "The rows written have no header row, and no schema names their columns, as for the lines of " \
-                       "the :lines format, or a slice without a header row, so the first of them would be the header " \
+          assert_equal "The rows written have no header row, and no schema names their columns, as for the rows of " \
+                       "the :text format, or a slice without a header row, so the first of them would be the header " \
                        "row of the #{format.inspect} format: set a schema, whose fields name the columns", error.message
           assert_empty output.string
         end

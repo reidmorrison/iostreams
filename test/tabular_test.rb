@@ -835,6 +835,11 @@ class TabularTest < Minitest::Test
       it "is that of an explicit format over the file name" do
         assert_nil IOStreams::Tabular.new(file_name: "data.csv", format: :psv).quote_character
       end
+
+      it "is that of the format of the text that a stream decides, which splits the text of each row of :text" do
+        assert_nil IOStreams::Tabular.new(format: :text).quote_character
+        assert_equal '"', IOStreams::Tabular.new(format: :text, text_format: :csv).quote_character
+      end
     end
 
     describe "#encoding" do
@@ -871,6 +876,11 @@ class TabularTest < Minitest::Test
 
       it "is nil without a format" do
         assert_nil IOStreams::Tabular.quote_character(nil)
+      end
+
+      it "is that of the format of the text, when one is supplied" do
+        assert_equal '"', IOStreams::Tabular.quote_character(:text, text_format: :csv)
+        assert_nil IOStreams::Tabular.quote_character(:text, text_format: nil)
       end
 
       it "raises for an unknown format" do

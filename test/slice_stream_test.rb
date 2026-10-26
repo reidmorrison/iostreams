@@ -215,8 +215,8 @@ class SliceStreamTest < Minitest::Test
             IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(csv_slice), mode: :array)
           end
 
-          assert_equal "The rows written have no header row, and no schema names their columns, as for the lines of " \
-                       "the :lines format, or a slice without a header row, so the first of them would be the header " \
+          assert_equal "The rows written have no header row, and no schema names their columns, as for the rows of " \
+                       "the :text format, or a slice without a header row, so the first of them would be the header " \
                        "row of the :csv format: set a schema, whose fields name the columns", error.message
           assert_empty output.string
         end

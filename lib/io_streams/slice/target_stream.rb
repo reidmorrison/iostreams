@@ -160,16 +160,19 @@ module IOStreams
       # Yields the writer of the supplied mode, see #writer, with the options of the collector, see #slice_options, whose
       # slices hold whether a row whose every value is blank is a blank row, see `IOStreams::Slice#blank_rows?`, and in
       # the `:line` mode, the line that each row starts on, unless the lines are not those of a file, such as those that
-      # a copy reads from a spreadsheet, see `IOStreams::Stream#copy_lines_of_file?`. Protected, so that a copy writes
-      # with the stream that has the schema of its source, see #copy_rows.
+      # a copy reads from a spreadsheet, see `IOStreams::Stream#copy_lines_of_file?`, and the quote character within
+      # which a line that holds a line break is split, that of the format of the rows unless a copy supplies that of its
+      # source, see `IOStreams::Stream#lines_quote_character`. Protected, so that a copy writes with the stream that has
+      # the schema of its source, see #copy_rows.
       #
       # Returns the result of the block.
-      def write_slices(mode, options, blank_rows: true, lines_of_file: true, &block)
-        tabular = rows_tabular(blank_rows)
+      def write_slices(mode, options, blank_rows: true, lines_of_file: true, quote_character: :auto, &block)
+        tabular         = rows_tabular(blank_rows)
+        quote_character = tabular.quote_character if quote_character == :auto
 
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
           case mode
-          when :line then write_lines(collector, tabular.quote_character, lines_of_file, &block)
+          when :line then write_lines(collector, quote_character, lines_of_file, &block)
           when :array then block.call(IOStreams::Row::Writer.new(collector, tabular: self.tabular))
           when :hash then block.call(IOStreams::Record::Writer.new(collector, tabular: self.tabular))
           end
@@ -463,15 +466,15 @@ module IOStreams
 
       # Writes the rows of the source to the store in slices, see #copy_from, with the schema of the source, unless the
       # stream has its own, see `IOStreams::Stream#with_copy_schema`, and in the `:line` mode the format of its lines,
-      # see #with_lines_format, whose slices hold whether the blank rows of the source are records.
+      # see #with_lines_format, split within the quote character that the source read them by, such as that of the CSV
+      # of a spreadsheet read as `:text`, see `IOStreams::Stream#lines_quote_character`, whose slices hold whether the
+      # blank rows of the source are records.
       def copy_rows(source, rows, mode, options)
         target = copy_target(source, rows, mode)
         target = target.with_lines_format(source) if mode == :line
-        blank_rows    = source.copy_blank_rows?
-        lines_of_file = source.copy_lines_of_file?
-        target.write_slices(mode, options, blank_rows: blank_rows, lines_of_file: lines_of_file) do |output|
-          rows.copy_to(output)
-        end
+        slices = {blank_rows: source.copy_blank_rows?, lines_of_file: source.copy_lines_of_file?}
+        slices[:quote_character] = source.lines_quote_character if mode == :line
+        target.write_slices(mode, options, **slices) { |output| rows.copy_to(output) }
       end
 
       def source_name
