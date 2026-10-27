@@ -3,7 +3,8 @@
 
 IOStreams reads and writes files of any size in Ruby, a block at a time, and makes their format, compression,
 encryption and storage location transparent to your code: CSV, JSON, Excel or Parquet files, compressed with gzip,
-zip, bzip2 or Zstandard, encrypted with PGP, on local disk, AWS S3, an SFTP server or a web server.
+zip, bzip2 or Zstandard, encrypted with PGP, on local disk, AWS S3, Google Cloud Storage (experimental), an SFTP
+server or a web server.
 
 ~~~ruby
 require "iostreams"

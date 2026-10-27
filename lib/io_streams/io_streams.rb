@@ -328,7 +328,8 @@ module IOStreams
   # * Paths are normalized before they are compared, so `..` cannot be used to leave an allowed path:
   #   * Local file names are resolved to their real path, following symbolic links.
   #     A relative path is resolved against the current working directory when it is added.
-  #   * For S3 the bucket must match, and keys containing `.` or `..` segments are denied.
+  #   * For S3 and Google Cloud Storage the scheme and bucket must match, and keys containing `.` or `..` segments
+  #     are denied.
   #   * For SFTP and HTTP the host and port must match, and `.` and `..` segments are resolved.
   # * `#each_child` skips children that are not within the allowed paths, for example a symbolic link
   #   to a file elsewhere.
@@ -520,7 +521,7 @@ module IOStreams
   # Register a URI scheme and the path class that handles it
   #
   # Example:
-  #   register_scheme(:gcs, MyGoogleCloudStoragePath)
+  #   register_scheme(:az, MyAzureBlobStoragePath)
   def self.register_scheme(scheme, klass)
     raise(ArgumentError, "Invalid scheme #{scheme.inspect}") unless scheme.nil? || scheme.to_s.match?(/\A\w+\z/)
 
@@ -588,10 +589,12 @@ module IOStreams
   #    https://hostname/path/file_name
   #    sftp://hostname/path/file_name
   #    s3://bucket/key
+  #    gs://bucket/name
   register_scheme(nil, IOStreams::Paths::File)
   register_scheme(:file, IOStreams::Paths::File)
   register_scheme(:http, IOStreams::Paths::HTTP)
   register_scheme(:https, IOStreams::Paths::HTTP)
   register_scheme(:sftp, IOStreams::Paths::SFTP)
   register_scheme(:s3, IOStreams::Paths::S3)
+  register_scheme(:gs, IOStreams::Paths::GCS)
 end

@@ -43,8 +43,8 @@ To keep code independent of where its files are stored:
 * Do not check the scheme of a path to decide what to do with it.
 * Rescue the kind of failure, such as `IOStreams::Errors::NotFound` for a file that does not exist, rather than the
   exception that one storage raises, such as `Errno::ENOENT`, see [Errors](errors).
-* Keep credentials in configuration too, for example the AWS environment variables or credential files for S3,
-  and the ssh config for SFTP.
+* Keep credentials in configuration too, for example the AWS environment variables or credential files for S3, the
+  HMAC key of a root for Google Cloud Storage, see [Credentials](path#gcs-credentials), and the ssh config for SFTP.
 
 When an application uses several locations, [roots](#add_root) give them names, and each root can be set from
 configuration:
@@ -126,6 +126,7 @@ transfers go through a temp file that holds the whole file:
 | --- | --- | --- | --- |
 | Local file | No temp file | No temp file | |
 | AWS S3 | No temp file: requests the object 8MB at a time, as the application reads it. With the `range` or `part_number` option, downloads the object into a temp file before the block is called | No temp file: uploads the data as it is written, in parts of 8MB or more. With an option that describes the whole object, such as `content_md5` or `checksum_crc32`, writes into a temp file, which is uploaded once the block completes | A single download is pushed by the AWS SDK, so the bytes chosen by `range` or `part_number` are downloaded first. An option that describes the whole object cannot be supplied to each part |
+| Google Cloud Storage | No temp file: requests the object 8MB at a time, as the application reads it | No temp file: uploads the data as it is written, in parts of 8MB or more | |
 | SFTP | Downloads the file into a temp file before the block is called | Writes into a temp file, which is uploaded once the block completes | The `sftp` program transfers local files, and only uploads a regular file |
 | HTTP(S) | No temp file: reads the response one chunk at a time, as the application reads it | Writes into a temp file, which is uploaded with a single PUT once the block completes | An upload needs its `Content-Length`, and is sent again after a `307` or `308` redirect |
 | An IO supplied to `IOStreams.stream` | No temp file | No temp file | |
@@ -183,7 +184,7 @@ Notes:
 * `#copy_from` and `#copy_to` read the source while they write the target, so copying from SFTP to SFTP or
   HTTP holds two temp files at once, each holding the whole file: the download and the upload. S3 copies an
   object to another S3 path itself, without a temp file, when copying with `convert: false`, or with `#move_to`, for
-  an object smaller than 5GB.
+  an object smaller than 5GB, and so does Google Cloud Storage from one `gs://` path to another.
 * An SFTP `IdentityKey` or `HostKey`, and a PGP `import_and_trust_key` when writing, are written into small temp
   files, since `sftp` and `gpg` read them from files.
 * Only the current user can read a temp file, and it is deleted when the block returns or raises. A temp file can

@@ -89,5 +89,27 @@ class S3DependencyTest < Minitest::Test
     it "is not loaded until it is needed" do
       assert_equal "", run_s3('IOStreams.path("s3://bucket/a.csv").display_name')
     end
+
+    describe "for a gs:// path" do
+      it "is not needed to create, join, compare and display a path, with options" do
+        code = <<~RUBY
+          path = IOStreams.path("gs://bucket/a/b.csv?content_type=text/csv", storage_class: "NEARLINE")
+          print path.display_name, " ", path.join("c.csv").to_s, " ", path == IOStreams.path("gs://bucket/a/b.csv")
+        RUBY
+
+        assert_equal "gs://bucket/a/b.csv gs://bucket/a/b.csv/c.csv true", run_s3(code, without_gem: true)
+      end
+
+      it "is not needed to check the options, which Cloud Storage keeps as the metadata of an object" do
+        assert_equal "ArgumentError", run_s3('IOStreams.path("gs://bucket/a.csv", acl: "private")', without_gem: true)
+        assert_equal "ArgumentError", run_s3('IOStreams.path("gs://bucket/a.csv?acl=private")')
+      end
+
+      it "raises LoadError when reading or writing without the gem" do
+        assert_equal "LoadError", run_s3('IOStreams.path("gs://bucket/a.csv").read', without_gem: true)
+        assert_equal "LoadError", run_s3('IOStreams.path("gs://bucket/a.csv").exist?', without_gem: true)
+        assert_equal "LoadError", run_s3('IOStreams.path("gs://bucket/a.csv").writer { |_io| print "written " }', without_gem: true)
+      end
+    end
   end
 end

@@ -7,6 +7,10 @@ module IOStreams
     class S3 < IOStreams::Path
       attr_reader :bucket_name, :options
 
+      # The scheme of the urls of this store, such as `s3` for `s3://bucket/key`, which a subclass for another store that
+      # implements the S3 API replaces, see #url_scheme.
+      URL_SCHEME = "s3"
+
       # Largest file size supported by the S3 copy object api.
       S3_COPY_OBJECT_SIZE_LIMIT = 5 * 1024 * 1024 * 1024
 
@@ -185,7 +189,7 @@ module IOStreams
       #   The Legal Hold status that you want to apply to the specified object.
       def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, region: nil, **args)
         uri = Utils::URI.new(url)
-        raise "Invalid URI. Required Format: 's3://<bucket_name>/<key>'" unless uri.scheme == "s3"
+        raise "Invalid URI. Required Format: '#{url_scheme}://<bucket_name>/<key>'" unless uri.scheme == url_scheme
 
         validate_url!(uri, url)
         @bucket_name = uri.hostname
@@ -197,7 +201,7 @@ module IOStreams
 
         # A copy of each option, so that a Hash supplied as an option, such as `metadata:`, is not shared, see #options.
         @options = Utils.deep_copy(args)
-        Sdk.check_options(@options.keys)
+        check_options!(@options.keys)
         if uri.query
           query = uri.query.transform_keys(&:to_sym)
           check_query!(query, url)
@@ -217,7 +221,7 @@ module IOStreams
       # path can be created again from its url, see `IOStreams::Utils::URI.encode_path`. The key is as it is, so that
       # a key that starts with `/`, which S3 can hold, is `s3://bucket//a.csv`, rather than the key `a.csv`.
       def to_s
-        "s3://#{bucket_name}/#{Utils::URI.encode_path(path)}"
+        "#{url_scheme}://#{bucket_name}/#{Utils::URI.encode_path(path)}"
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -299,7 +303,9 @@ module IOStreams
         target
       end
 
-      # Make S3 perform direct copies within S3 itself, also for `#copy_to` another S3 path, which asks it.
+      # Make S3 perform direct copies within S3 itself, also for `#copy_to` another S3 path, which asks it. Only between
+      # paths of the same scheme, since a path of another store that implements the S3 API, such as `gs://`, holds its
+      # objects in another service, which the client of this path cannot copy from.
       #
       # The copy writes this object, so it is requested with the client and options of this path, such as its `acl`,
       # and the source supplies what S3 needs to read it, such as its customer encryption key, see
@@ -310,7 +316,7 @@ module IOStreams
         return super(source_path, convert: true, **args) if convert
 
         source = to_stream(source_path)
-        return super(source, convert: convert, **args) unless source.is_a?(self.class)
+        return super(source, convert: convert, **args) unless source.is_a?(self.class) && source.url_scheme == url_scheme
 
         bytes = source.object_size.to_i
         return super(source, convert: convert, **args) if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
@@ -444,10 +450,13 @@ module IOStreams
       # for example from the EC2 instance metadata service.
       def client
         Sdk.load
-        @client_cache.client
+        @client_cache.client(client_defaults)
       end
 
       protected
+
+      # Returns [String] the scheme of the urls of this store, see URL_SCHEME.
+      def url_scheme = self.class::URL_SCHEME
 
       # A copy has its own options, so that changing them does not change this path, see #options.
       def initialize_copy(source)
@@ -549,6 +558,35 @@ module IOStreams
 
       private
 
+      # Returns [String] the name of this store in messages, such as `Invalid S3 url`, and the article before it, such
+      # as `is not an S3 option`.
+      def store_label = "S3"
+
+      def store_article = "an"
+
+      # Returns [Hash] the options of a new client that this store needs, which the options of `client:` override.
+      # S3 needs none, since the AWS SDK finds them in its environment. Load the AWS SDK first, see `Sdk.load`.
+      def client_defaults = {}
+
+      # Returns [Array<Symbol>] the supplied option names that no request of this store accepts, see
+      # `Sdk.unknown_options`.
+      def unknown_options(names)
+        Sdk.unknown_options(names)
+      end
+
+      # Raises ArgumentError for an option that no request of this store accepts, so that a misspelled option is
+      # reported. The options that S3 accepts come from the AWS SDK, so it is only loaded when options are supplied.
+      #
+      # Without the AWS SDK the options cannot be checked, but a path can still be displayed, for example by a
+      # process that only enqueues work. Every request needs the SDK, so the options are never used unchecked.
+      def check_options!(names)
+        unknown = unknown_options(names)
+        return if unknown.empty?
+
+        raise(ArgumentError,
+              "Unknown #{store_label} #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
+      end
+
       # Returns [Module] the kind of failure that an exception raised by S3 means, see `Failure.kind`.
       def failure_kind(exception)
         Failure.kind(exception)
@@ -627,39 +665,42 @@ module IOStreams
       def utf8_key(key)
         return key if key.dup.force_encoding(Encoding::UTF_8).valid_encoding?
 
-        raise(ArgumentError, "An S3 key must be valid UTF-8: s3://#{bucket_name}/#{Utils.display_text(key)}")
+        raise(ArgumentError, "#{store_article.capitalize} #{store_label} key must be valid UTF-8: " \
+                             "#{url_scheme}://#{bucket_name}/#{Utils.display_text(key)}")
       end
 
       # Raises ArgumentError for a part of the url that S3 does not use, rather than ignore it.
       def validate_url!(uri, url)
         problem =
           if uri.hostname.to_s.empty?
-            "it must name a bucket, such as 's3://bucket/a.csv'"
+            "it must name a bucket, such as '#{url_scheme}://bucket/a.csv'"
           elsif uri.fragment
-            "percent-encode a '#' in a key as '%23', since it starts a fragment, which an S3 url cannot have"
+            "percent-encode a '#' in a key as '%23', since it starts a fragment, which #{store_article} #{store_label} " \
+              "url cannot have"
           elsif uri.port
             "it cannot have a port. Supply the endpoint of another service that implements the S3 API with " \
               "client: {endpoint: \"https://host:port\"}"
           elsif uri.user || uri.password
             "it cannot have a user name or password. Supply the credentials with access_key_id: and secret_access_key:"
           end
-        raise(Utils::URI.invalid("S3", url, problem)) if problem
+        raise(Utils::URI.invalid(store_label, url, problem)) if problem
       end
 
-      # Raises ArgumentError for a name in the query of the url that no S3 request accepts. A name without a value is
-      # more likely part of a key than a misspelled option, such as the `?` of the pattern `s3://bucket/data/file?.csv`,
-      # so that the message then also says how to write a `?` in a key, rather than only that `.csv` is not an option.
-      # An empty query, of a url that ends with `?`, sets no options. The options are only checked with the AWS SDK, see
-      # `IOStreams::Paths::S3::Sdk.unknown_options`.
+      # Raises ArgumentError for a name in the query of the url that no request of this store accepts. A name without a
+      # value is more likely part of a key than a misspelled option, such as the `?` of the pattern
+      # `s3://bucket/data/file?.csv`, so that the message then also says how to write a `?` in a key, rather than only
+      # that `.csv` is not an option.
+      # An empty query, of a url that ends with `?`, sets no options. The options of S3 are only checked with the AWS
+      # SDK, see `IOStreams::Paths::S3::Sdk.unknown_options`.
       def check_query!(query, url)
-        unknown = Sdk.unknown_options(query.keys)
+        unknown = unknown_options(query.keys)
         return if unknown.empty?
 
         names   = unknown.map { |name| name.to_s.inspect }.join(", ")
-        problem = "its query holds the options of its requests, but #{names} " \
-                  "#{unknown.size == 1 ? 'is not an S3 option' : 'are not S3 options'}"
+        option  = unknown.size == 1 ? "is not #{store_article} #{store_label} option" : "are not #{store_label} options"
+        problem = "its query holds the options of its requests, but #{names} #{option}"
         problem = "#{problem}. Percent-encode a '?' in a key as '%3F'" if unknown.any? { |name| query[name].to_s.empty? }
-        raise(Utils::URI.invalid("S3", url, problem))
+        raise(Utils::URI.invalid(store_label, url, problem))
       end
 
       # Returns [Listing] the listing of the objects in the bucket, which makes each request of this path.
@@ -673,7 +714,7 @@ module IOStreams
       # S3 API may resolve them, so keys containing them are denied.
       def allowed_location
         if path.split("/").intersect?([".", ".."])
-          raise(Errors::AccessDenied, "Access denied to #{self}: '.' and '..' are not allowed in S3 keys")
+          raise(Errors::AccessDenied, "Access denied to #{self}: '.' and '..' are not allowed in #{store_label} keys")
         end
 
         # Without the `/` at its end, found by its last other character, rather than by matching the `/` before the end,
@@ -695,7 +736,7 @@ module IOStreams
       # The child uses this path's client and options, so that it has the same credentials, region
       # and request parameters, such as `request_payer` or an SSE-C key.
       def child_path(key)
-        child      = self.class.new("s3://#{bucket_name}", client: client, **options)
+        child      = self.class.new("#{url_scheme}://#{bucket_name}", client: client, **options)
         child.path = key.dup.freeze
         child
       end

@@ -27,8 +27,14 @@ module IOStreams
         end
 
         # Returns [Aws::S3::Client] the client, created when first needed. Load the AWS SDK first, see `Sdk.load`.
-        def client
-          @client ||= ::Aws::S3::Client.new(@options)
+        #
+        # Parameters:
+        #   defaults: [Hash]
+        #     The options of a new client that the store of the path needs, such as the endpoint of another service
+        #     that implements the S3 API, which the supplied options override. Not used for a supplied client, which
+        #     already has its own.
+        def client(defaults = {})
+          @client ||= ::Aws::S3::Client.new(defaults.merge(@options))
         end
       end
     end

@@ -185,12 +185,13 @@ stream is named `:gzipped` in any case, such as with `option(:Gzipped, level: 9)
 
 ## Registering a storage scheme
 
-A path class reads and writes the files of a store, such as another cloud store, for the urls of its scheme:
+A path class reads and writes the files of a store, such as another cloud store, for the urls of its scheme, for
+example Azure Blob Storage:
 
 ~~~ruby
-IOStreams.register_scheme(:gcs, MyCloudStoragePath)
+IOStreams.register_scheme(:az, MyCloudStoragePath)
 
-IOStreams.path("gcs://bucket/data.csv").each(:hash) do |record|
+IOStreams.path("az://container/data.csv").each(:hash) do |record|
   p record
 end
 ~~~
@@ -260,9 +261,9 @@ store, or resolve `.` and `..`:
 class MyCloudStoragePath < IOStreams::Path
   protected
 
-  # The bucket and the name of the file, without the token that the url can hold.
+  # The container and the name of the file, without the token that the url can hold.
   def identity
-    "gcs://#{bucket_name}/#{path}"
+    "az://#{container_name}/#{path}"
   end
 end
 ~~~
@@ -271,7 +272,7 @@ end
 
 * Once an application adds [allowed paths](security#allowed-paths), every path of a class that cannot say where it is
   is denied. Implement the private method `#allowed_location`, which returns the normalized location of the path, such
-  as `gcs://bucket/data/a.csv`, with `.` and `..` resolved, which IOStreams compares with the allowed paths.
+  as `az://container/data/a.csv`, with `.` and `..` resolved, which IOStreams compares with the allowed paths.
 * Declare the options of the path that hold a secret, such as a password, with `self.sensitive_option_names`, so that
   `IOStreams.redact_path_options` replaces their values.
 * When the url can hold credentials, override `#display_name` to return it without them, since IOStreams uses it in

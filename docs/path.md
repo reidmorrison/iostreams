@@ -2,7 +2,7 @@
 layout: default
 title: Paths
 description: >-
-  Where a file is stored, on local disk, AWS S3, an SFTP server or a web server, the
+  Where a file is stored, on local disk, AWS S3, Google Cloud Storage, an SFTP server or a web server, the
   arguments of each store, and the operations on a path, such as listing, joining,
   moving and deleting files.
 ---
@@ -12,7 +12,8 @@ description: >-
 * TOC
 {:toc}
 
-A path names a file, and the store that holds it: the local file system, AWS S3, an SFTP server, or a web server.
+A path names a file, and the store that holds it: the local file system, AWS S3, Google Cloud Storage, an SFTP server,
+or a web server.
 Every path has the same methods, so the code that reads, writes, lists or deletes a file does not change when the file
 moves to another store.
 
@@ -39,6 +40,7 @@ The scheme of a url chooses the store, and the class of the path:
 |-------------|-------|
 | `example.csv`, `/var/data/example.csv`, `~/data/example.csv`, `file:///var/data/example.csv` | [Local files](#file) |
 | `s3://my-bucket/exports/daily.csv` | [AWS S3](#aws-s3-s3), or another store that implements the S3 API |
+| `gs://my-bucket/exports/daily.csv` | [Google Cloud Storage](#google-cloud-storage-gs), experimental |
 | `sftp://sftp.example.org/inbound/data.csv` | [SFTP](#sftp-sftp) |
 | `http://example.com/files/data.csv`, `https://example.com/files/data.csv` | [HTTP and HTTPS](#http-http-https) |
 
@@ -367,6 +369,157 @@ key ends with `/`, such as the folders that the S3 console creates:
   `IOStreams.path("s3://my-bucket") / "/exports/daily.csv"` is the key `exports/daily.csv`.
 * S3 treats `.` and `..` in a key as ordinary characters, while `#cleanpath` resolves them, and the allowed paths deny
   a key that has them, since some stores that implement the S3 API resolve them.
+
+## Google Cloud Storage {#google-cloud-storage-gs}
+
+> **Experimental**
+>
+> Support for Google Cloud Storage is new, and has not yet been used as widely as S3, so its options and behavior may
+> still change. If a `gs://` path does not work as described here, please
+> [open an issue on GitHub](https://github.com/reidmorrison/iostreams/issues/new), with what you did, what you
+> expected, and what happened instead, such as the exception and its message.
+
+A `gs://` url names a Cloud Storage object, by its bucket and its name, as Google's own tools, such as `gcloud storage`
+and the Cloud console, write it:
+
+~~~ruby
+path = IOStreams.path(
+  "gs://my-bucket/exports/daily.csv",
+  access_key_id:     ENV.fetch("GCS_ACCESS_KEY_ID"),
+  secret_access_key: ENV.fetch("GCS_SECRET_ACCESS_KEY")
+)
+~~~
+
+Read it, write it, list it, copy it and delete it like any other path:
+
+~~~ruby
+path.write("name,login\nJack Jones,jjones\n")
+path.each(:hash) do |record|
+  p record
+end
+~~~
+
+So an application can move its files between S3 and Cloud Storage by changing only the urls in its configuration,
+from `s3://` to `gs://`, and the credentials, as long as it does not use the [request options](#request-options) of S3,
+which a `gs://` path does not take, see [Options](#gcs-options).
+
+### How it works {#gcs-how-it-works}
+
+Cloud Storage implements the S3 API, see
+[Interoperability with other storage providers](https://cloud.google.com/storage/docs/interoperability). A `gs://`
+path makes its requests through that API with the same gem as an S3 path, `aws-sdk-s3`, connected to
+`https://storage.googleapis.com`, so it behaves as an [S3 path](#aws-s3-s3) does:
+
+* Reading requests the object 8MB at a time, as the block reads it, and an object that is replaced while it is read
+  raises, rather than returning parts of both, see [Reading an object](#s3-reading).
+* Writing uploads the data as the block writes it, in parts of 8MB once there is more than one part, and Cloud Storage
+  only stores the object once the block completes, so a partial object is never visible, see
+  [Writing an object](#s3-writing). Add a lifecycle rule to the bucket that aborts incomplete multipart uploads, such
+  as after a day, so that Cloud Storage removes the parts of an upload whose process was killed.
+* A copy as stored from one `gs://` path to another, with `convert: false`, and `#move_to`, ask Cloud Storage to copy
+  the object, without reading its data, for an object smaller than 5GB, see [Copying within S3](#copying-within-s3). A
+  copy between a `gs://` path and an `s3://` path reads the object and uploads it, since they are in different services.
+* The names of objects work as S3 keys do, see [Keys and directories](#keys-and-directories), and the url follows the
+  same rules as that of S3, see [The url](#required-arguments): `gs://my-bucket` is the bucket itself, and only a `%`,
+  `?` or `#` in a name must be percent-encoded. `#delete_all` deletes up to 1,000 objects with each request.
+* A failure raises the same kinds of failure, such as `IOStreams::Errors::NotFound` for an object that does not exist,
+  see [Errors](errors).
+* It needs the `aws-sdk-s3` gem, which IOStreams loads when it is first needed, so a process without the gem can still
+  create, join, compare and display a `gs://` path.
+
+It differs from an S3 path where Cloud Storage needs it to:
+
+* It connects to `https://storage.googleapis.com`, with the bucket in the path of each request, rather than in its
+  host, so that a bucket whose name has a `.` is reached too, and signs each request in the region `auto`.
+* Newer versions of the AWS SDK add a checksum to every request, and ask for one in every response, which not every
+  service that implements the S3 API supports, so a `gs://` path only does so for an operation that requires it, as
+  older versions did.
+* It takes only the options of the metadata of an object, and no `region:`, see [Options](#gcs-options).
+
+### Credentials {#gcs-credentials}
+
+Cloud Storage signs the requests of its S3 API with an HMAC key, which belongs to a service account. Create one in the
+Cloud console, under Cloud Storage, Settings, Interoperability, or with `gcloud storage hmac create`, and supply its
+access id and secret:
+
+| Argument | Meaning | Default |
+|----------|---------|---------|
+| `access_key_id:` | The access id of the HMAC key, such as `GOOG1E...` | The credentials that the AWS SDK finds, such as in its environment variables or credential files |
+| `secret_access_key:` | The secret of the HMAC key | As for `access_key_id:` |
+| `client:` | The `Aws::S3::Client` to use, configured for Cloud Storage, or a Hash of the options of a new client, which replace those that Cloud Storage needs, such as `{endpoint: "https://storage.example.com"}` | A new client for Cloud Storage |
+
+Without them, the AWS SDK finds the credentials as it does for S3, so a process that only uses Cloud Storage can set
+the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables to the HMAC key. A process that uses S3 too
+supplies the HMAC key with its `gs://` paths instead, such as to a [root](config#add_root) that names the bucket, so
+that the code that joins file names to the root does not change:
+
+~~~ruby
+# config/initializers/iostreams.rb
+exports = IOStreams.path(
+  "gs://my-bucket/exports",
+  access_key_id:     ENV.fetch("GCS_ACCESS_KEY_ID"),
+  secret_access_key: ENV.fetch("GCS_SECRET_ACCESS_KEY")
+)
+IOStreams.add_root(:exports, exports)
+
+IOStreams.join("daily.csv", root: :exports).write(report)
+~~~
+
+`secret_access_key:` is sensitive, so `#inspect` and `IOStreams.redact_path_options` do not display it. The client is
+created when it is first needed, and is shared by the paths copied from the path, as for S3.
+
+An organization policy can forbid HMAC keys (`constraints/storage.restrictAuthTypes`), in which case every request
+raises `IOStreams::Errors::PermissionDenied`, see [Native Cloud Storage support](#gcs-native).
+
+### Options {#gcs-options}
+
+The options, supplied as arguments or in the query string of the url, are the metadata that Cloud Storage keeps with an
+object that is written, or copied within Cloud Storage:
+
+| Option | Meaning |
+|--------|---------|
+| `content_type:` | The media type of the object, such as `"text/csv"` |
+| `cache_control:`, `content_disposition:`, `content_encoding:`, `content_language:` | The HTTP headers that Cloud Storage returns with the object |
+| `metadata:` | A Hash of the custom metadata of the object, such as `{"source" => "nightly"}` |
+| `storage_class:` | The storage class of the object, such as `"NEARLINE"`, rather than that of the bucket |
+
+~~~ruby
+path = IOStreams.path("gs://my-bucket/exports/daily.csv", content_type: "text/csv", metadata: {"source" => "nightly"})
+path.write(report)
+~~~
+
+Any other option raises `ArgumentError` when the path is created, including the options of S3 that Cloud Storage does
+not support through its S3 API, or names otherwise, such as `acl:`, `request_payer:`, the customer encryption keys and
+`region:`. The options are checked without the AWS SDK, so they are checked wherever the path is created:
+
+~~~ruby
+IOStreams.path("gs://my-bucket/daily.csv", acl: "public-read")
+# ArgumentError: Unknown GCS option: :acl
+~~~
+
+### Native Cloud Storage support {#gcs-native}
+
+A `gs://` path uses the S3 API of Cloud Storage, rather than Google's own client, the `google-cloud-storage` gem, so
+that it shares the code, the tests and the behavior of S3 paths, and needs no other gem. A native implementation, with
+Google's client, would add what the S3 API of Cloud Storage cannot do:
+
+* **Credentials without an HMAC key**: application default credentials, such as the service account of a GKE
+  workload, a Cloud Run service or a Compute Engine instance, or a service account key file. So no long-lived secret
+  needs to be created, stored and rotated, and an organization whose policy forbids HMAC keys can use Cloud Storage.
+* **Requester pays buckets**, which need the project to bill for each request.
+* **Customer-supplied and Cloud KMS encryption keys** for the objects that are read and written.
+* **Generations and preconditions**, such as reading an earlier generation of an object, or writing an object only
+  when it does not exist yet.
+* **Large copies**: copying an object of any size, and between locations and storage classes, within Cloud Storage
+  with its rewrite API, where a `gs://` path reads and uploads an object of 5GB or more.
+* **Checksums of the data**, the CRC32C that Google's clients compute when they read and write an object.
+* **ACLs and holds** of an object, such as a predefined ACL or an event-based hold.
+* **Independence from the S3 API**, so that a change to the AWS SDK, such as the checksums that newer versions add to
+  each request, cannot break a `gs://` path.
+
+If your application needs any of these, [open an issue on GitHub](https://github.com/reidmorrison/iostreams/issues/new)
+that asks for native Cloud Storage support, and says which of them it needs. A native implementation would keep the
+`gs://` url, so the code and the configuration that use it would not change.
 
 ## SFTP {#sftp-sftp}
 

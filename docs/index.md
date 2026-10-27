@@ -11,7 +11,7 @@ heading: What is IOStreams?
 IOStreams is a streaming library for Ruby that makes the format, compression, encryption and storage location of a
 file transparent to your code. Read and write files of any size, one block at a time, whether they are CSV, JSON,
 Excel or Parquet, compressed with gzip, zip, bzip2 or Zstandard, encrypted with PGP, and whether they are stored on
-local disk, AWS S3, an SFTP server, or a web server.
+local disk, AWS S3, Google Cloud Storage, an SFTP server, or a web server.
 
 ## Why IOStreams?
 
@@ -65,7 +65,7 @@ single background job can process files from many senders, in many formats, with
 
 ### One API, wherever the file is stored
 
-Local disk, AWS S3, S3 compatible stores, SFTP and HTTP(S) share the same `IOStreams.path` interface, and the
+Local disk, AWS S3, S3 compatible stores, Google Cloud Storage, SFTP and HTTP(S) share the same `IOStreams.path` interface, and the
 same operations, such as `#each_child`, `#exist?`, `#delete` and `#move_to`, behave the same way on each of them.
 
 ### Constant memory, even for huge files
@@ -299,6 +299,7 @@ IOStreams.add_allowed_path("/var/my_app/uploads")
 |---------|-----|
 | [Local files](path#file) | `/data/file.csv`, `~/data/file.csv`, `file:///data/file.csv` |
 | [AWS S3](path#aws-s3-s3), and S3 compatible stores | `s3://bucket/key` |
+| [Google Cloud Storage](path#google-cloud-storage-gs) (experimental) | `gs://bucket/name` |
 | [SFTP](path#sftp-sftp) | `sftp://host/path`, `sftp://host/~/path` within the login directory |
 | [HTTP and HTTPS](path#http-http-https) | `https://host/path`, read with GET and written with PUT |
 
@@ -334,7 +335,7 @@ gems of the features that your application uses:
 
 | Feature | Gems and programs |
 |---------|-------------------|
-| AWS S3 | `aws-sdk-s3` |
+| AWS S3, Google Cloud Storage | `aws-sdk-s3` |
 | SFTP | The `sftp` program of OpenSSH, and `sshpass` to log in with a password. `net-sftp` to list, check and delete files, with `ed25519` and `bcrypt_pbkdf` for ed25519 keys |
 | bzip2 | `bzip2-ffi` |
 | Zip | `rubyzip` to read, `zip_kit` to write |
@@ -354,7 +355,7 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 * [Reading and writing](streams): lines, rows, records and text encodings.
 * [Tabular formats](formats): CSV, JSON, Excel, fixed width and Parquet files, and schemas.
 * [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
-* [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
+* [Paths](path): local files, S3, Google Cloud Storage (experimental), SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.
 * [Exporting queries](queries): exporting the rows of an Active Record query to any format and store.
 * [Background jobs](background_jobs): processing a large file or query in background jobs, in parallel, or in one job that
