@@ -27,13 +27,18 @@ module IOStreams
 
         # Returns [Module] the kind of failure that an exception raised by the AWS SDK means, or nil when it is none of
         # them.
-        def self.kind(exception)
+        #
+        # Parameters:
+        #   permission_denied_codes: [Array<String>]
+        #     The error codes of another service that implements the S3 API, other than PERMISSION_DENIED_CODES, that
+        #     also mean the request is not permitted, such as those of Cloud Storage.
+        def self.kind(exception, permission_denied_codes: [])
           # The AWS SDK is loaded when it is first needed, so before then no exception is one of its errors.
           return unless defined?(::Aws::S3::Errors)
 
           case exception
           when Aws::S3::Errors::ServiceError
-            service_kind(exception)
+            service_kind(exception, permission_denied_codes)
           when Aws::Errors::MissingCredentialsError, Aws::Sigv4::Errors::MissingCredentialsError
             Errors::PermissionDenied
           when Seahorse::Client::NetworkingError
@@ -42,16 +47,16 @@ module IOStreams
             Errors::Unavailable unless Errors::Unavailable.unknown_host?(exception.original_error)
           when Aws::S3::MultipartUploadError
             # Raised once the upload of a part fails, with the failure of each part.
-            kind(exception.errors.first) if exception.errors.first
+            kind(exception.errors.first, permission_denied_codes: permission_denied_codes) if exception.errors.first
           end
         end
 
         # Returns [Module] the kind of failure that the error code, or the status, of an S3 response means.
-        def self.service_kind(exception)
+        def self.service_kind(exception, permission_denied_codes)
           code = exception.code
           if NOT_FOUND_CODES.include?(code)
             Errors::NotFound
-          elsif PERMISSION_DENIED_CODES.include?(code)
+          elsif PERMISSION_DENIED_CODES.include?(code) || permission_denied_codes.include?(code)
             Errors::PermissionDenied
           elsif UNAVAILABLE_CODES.include?(code) || UNAVAILABLE_STATUSES.include?(exception.context&.http_response&.status_code)
             Errors::Unavailable

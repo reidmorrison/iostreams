@@ -675,7 +675,7 @@ module Paths
           creates.each do |create|
             error = assert_raises(ArgumentError) { create.call }
 
-            assert_equal "An S3 key must be valid UTF-8: s3://bucket/in/caf\\xE9.csv", error.message
+            assert_equal "S3 keys must be valid UTF-8: s3://bucket/in/caf\\xE9.csv", error.message
           end
         end
       end
@@ -845,7 +845,7 @@ module Paths
           error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/data/file?.csv") }
 
           assert_equal %(Invalid S3 url "s3://bucket/data/file": its query holds the options of its requests, but ".csv" ) +
-                       %(is not an S3 option. Percent-encode a '?' in a key as '%3F'), error.message
+                       %(is not one of the S3 options. Percent-encode a '?' in a key as '%3F'), error.message
           error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?acl=private&bogus=1&key=b") }
           assert_equal %(Invalid S3 url "s3://bucket/a.txt": its query holds the options of its requests, but "bogus", ) +
                        %("key" are not S3 options), error.message
@@ -855,7 +855,7 @@ module Paths
           error = assert_raises(ArgumentError) { IOStreams.path("s3://bucket/a.txt?bucket=other") }
 
           assert_equal %(Invalid S3 url "s3://bucket/a.txt": its query holds the options of its requests, but "bucket" ) +
-                       "is not an S3 option", error.message
+                       "is not one of the S3 options", error.message
         end
 
         it "sets no options for an empty query" do

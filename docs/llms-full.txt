@@ -1838,6 +1838,10 @@ path = IOStreams.path("gs://my-bucket/exports/daily.csv", content_type: "text/cs
 path.write(report)
 ~~~
 
+A copy within Cloud Storage to a path that has any of these options, other than `storage_class:`, gives the object only
+the metadata of that path, as writing it would, rather than the metadata of its source. A copy to a path without them
+keeps the metadata of the source.
+
 Any other option raises `ArgumentError` when the path is created, including the options of S3 that Cloud Storage does
 not support through its S3 API, or names otherwise, such as `acl:`, `request_payer:`, the customer encryption keys and
 `region:`. The options are checked without the AWS SDK, so they are checked wherever the path is created:

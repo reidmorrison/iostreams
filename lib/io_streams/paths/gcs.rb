@@ -30,6 +30,10 @@ module IOStreams
         cache_control content_disposition content_encoding content_language content_type metadata storage_class
       ].freeze
 
+      # The options that are the metadata of the object, which a copy within Cloud Storage only applies with the
+      # metadata directive `REPLACE`, rather than keep the metadata of its source.
+      METADATA_OPTION_NAMES = (OPTION_NAMES - %i[storage_class]).freeze
+
       # The settings of newer versions of the AWS SDK that compute and check the checksums of the requests only when
       # their operation requires one.
       CHECKSUM_SETTINGS = {request_checksum_calculation: "when_required", response_checksum_validation: "when_required"}.freeze
@@ -72,7 +76,9 @@ module IOStreams
       # Without credentials, the AWS SDK finds them in its environment, as for an S3 path, such as in the
       # `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables, or a profile of its credential files.
       #
-      # Options, which apply when the object is written, or copied within Cloud Storage:
+      # Options, which apply when the object is written, or copied within Cloud Storage. A copy that has any of them,
+      # other than `storage_class:`, has only the metadata that this path supplies, as a written object does, rather
+      # than that of its source:
       #   cache_control:, content_disposition:, content_encoding:, content_language:, content_type: [String]
       #     The HTTP headers that Cloud Storage returns with the object.
       #   metadata: [Hash<String,String>]
@@ -82,16 +88,25 @@ module IOStreams
       #
       # Any other option raises ArgumentError.
       def initialize(url, client: nil, access_key_id: nil, secret_access_key: nil, **args)
-        # Before S3 takes `region:` as its argument.
-        check_options!(args.keys)
+        # Cloud Storage has no `region:`, which S3 would otherwise take as its argument.
+        check_options!(%i[region]) if args.key?(:region)
         super
+      end
+
+      protected
+
+      # Returns [Hash] the options of the request, see `S3#options_for`, with the metadata directive `REPLACE` for a copy
+      # that supplies the metadata of the object, since Cloud Storage otherwise keeps that of its source.
+      def options_for(operation)
+        options = super
+        return options unless operation == :copy_object && options.keys.intersect?(METADATA_OPTION_NAMES)
+
+        options.merge(metadata_directive: "REPLACE")
       end
 
       private
 
       def store_label = "GCS"
-
-      def store_article = "a"
 
       # Returns [Hash] the options of a new client that connects to Cloud Storage. Load the AWS SDK first, see
       # `Sdk.load`.
@@ -107,15 +122,9 @@ module IOStreams
       end
 
       # Returns [Module] the kind of failure that an exception raised by Cloud Storage means, see `S3::Failure.kind`,
-      # and PERMISSION_DENIED_CODES.
+      # which also tells PERMISSION_DENIED_CODES, including within the failure of an upload in parts.
       def failure_kind(exception)
-        super || (Errors::PermissionDenied if permission_denied?(exception))
-      end
-
-      # The AWS SDK is loaded when it is first needed, so before then no exception is one of its errors.
-      def permission_denied?(exception)
-        defined?(::Aws::S3::Errors) && exception.is_a?(::Aws::S3::Errors::ServiceError) &&
-          PERMISSION_DENIED_CODES.include?(exception.code)
+        Failure.kind(exception, permission_denied_codes: PERMISSION_DENIED_CODES)
       end
     end
   end

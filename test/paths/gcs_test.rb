@@ -185,7 +185,7 @@ module Paths
         end
 
         it "displays the path with its class" do
-          assert_equal "#<IOStreams::Paths::GCS:gs://bucket/a.csv.gz pipeline={gz: {}}>", IOStreams.path("gs://bucket/a.csv.gz").inspect
+          assert_equal "#<IOStreams::Paths::GCS:gs://bucket/a.csv.gz pipeline=#{{gz: {}}.inspect}>", IOStreams.path("gs://bucket/a.csv.gz").inspect
         end
       end
 
@@ -322,7 +322,7 @@ module Paths
           error = assert_raises(ArgumentError) { IOStreams.path("gs://bucket/data/file?.csv") }
 
           assert_equal %(Invalid GCS url "gs://bucket/data/file": its query holds the options of its requests, but ".csv" ) +
-                       %(is not a GCS option. Percent-encode a '?' in a key as '%3F'), error.message
+                       %(is not one of the GCS options. Percent-encode a '?' in a key as '%3F'), error.message
 
           error = assert_raises(ArgumentError) { IOStreams.path("gs://bucket/a.txt?bogus=1&key=2") }
 
@@ -346,13 +346,13 @@ module Paths
           end
           error = assert_raises(ArgumentError) { IOStreams.path("gs://bucket/a#b.csv") }
 
-          assert_includes error.message, "which a GCS url cannot have"
+          assert_includes error.message, "which GCS urls cannot have"
         end
 
         it "raises for a name that is not valid UTF-8, which Cloud Storage cannot hold" do
           error = assert_raises(ArgumentError) { IOStreams.path("gs://bucket/in").join("caf\xE9.csv".b) }
 
-          assert_equal "A GCS key must be valid UTF-8: gs://bucket/in/caf\\xE9.csv", error.message
+          assert_equal "GCS keys must be valid UTF-8: gs://bucket/in/caf\\xE9.csv", error.message
         end
 
         it "percent-encodes each %, ? and # in the key in its url, so that it can be created again from its url" do
@@ -383,6 +383,30 @@ module Paths
           assert_equal 4, target.copy_from(source, convert: false)
           assert_includes requests.map { |request| request[:operation] }, :copy_object
           assert_equal "data", target.read
+        end
+
+        it "replaces the metadata of the source with that of the target, which Cloud Storage otherwise keeps" do
+          source   = IOStreams.path("gs://bucket/source.csv")
+          target   = IOStreams.path("gs://bucket/target.csv", content_type: "text/csv", metadata: {"source" => "x"})
+          requests = capture_requests(target.client)
+          target.copy_from(source, convert: false)
+          copy = requests.find { |request| request[:operation] == :copy_object }
+
+          assert_equal "REPLACE", copy[:params][:metadata_directive]
+          assert_equal "text/csv", copy[:params][:content_type]
+          assert_equal({"source" => "x"}, copy[:params][:metadata])
+        end
+
+        it "keeps the metadata of the source when the target supplies none, or only its storage class" do
+          source = IOStreams.path("gs://bucket/source.csv")
+          [{}, {storage_class: "NEARLINE"}].each do |options|
+            target   = IOStreams.path("gs://bucket/target.csv", **options)
+            requests = capture_requests(target.client)
+            target.copy_from(source, convert: false)
+            copy = requests.find { |request| request[:operation] == :copy_object }
+
+            refute copy[:params].key?(:metadata_directive), options.inspect
+          end
         end
 
         it "reads and writes rather than copying directly between Cloud Storage and S3, which are other services" do
@@ -427,6 +451,28 @@ module Paths
 
             assert_equal code, error.code
           end
+        end
+
+        it "raises PermissionDenied for those errors of Cloud Storage within the failure of an upload in parts" do
+          client = stub_client(upload_part: "InvalidSecurity")
+          # The AWS SDK only sets the code of an error that it raised for a response.
+          part   = assert_raises(Aws::S3::Errors::InvalidSecurity) do
+            client.upload_part(bucket: "bucket", key: "a.csv", upload_id: "1", part_number: 1, body: "data")
+          end
+          parts  = Aws::S3::MultipartUploadError.new("multipart upload failed", [part])
+          path   = IOStreams.path("gs://bucket/a.csv", client: client)
+
+          IOStreams.temp_file("gcs_test", ".csv") do |file|
+            file.write("a" * (IOStreams::Paths::S3::MULTIPART_UPLOAD_SIZE + 1))
+            # The AWS SDK only uploads a file in parts once it is larger than 100MB.
+            IOStreams::Paths::S3::Sdk.stub(:upload_file, ->(*, **) { raise(parts) }) do
+              error = assert_raises(IOStreams::Errors::PermissionDenied) { path.write_file(file.to_s) }
+
+              assert_same parts, error
+            end
+          end
+
+          assert_nil IOStreams::Paths::S3::Failure.kind(parts), "S3 does not have the code"
         end
 
         it "raises Unavailable when Cloud Storage limits the rate of requests" do

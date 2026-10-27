@@ -304,7 +304,7 @@ module IOStreams
       end
 
       # Make S3 perform direct copies within S3 itself, also for `#copy_to` another S3 path, which asks it. Only between
-      # paths of the same scheme, since a path of another store that implements the S3 API, such as `gs://`, holds its
+      # paths of the same class, since a path of another store that implements the S3 API, such as `gs://`, holds its
       # objects in another service, which the client of this path cannot copy from.
       #
       # The copy writes this object, so it is requested with the client and options of this path, such as its `acl`,
@@ -316,7 +316,7 @@ module IOStreams
         return super(source_path, convert: true, **args) if convert
 
         source = to_stream(source_path)
-        return super(source, convert: convert, **args) unless source.is_a?(self.class) && source.url_scheme == url_scheme
+        return super(source, convert: convert, **args) unless source.instance_of?(self.class)
 
         bytes = source.object_size.to_i
         return super(source, convert: convert, **args) if bytes >= S3_COPY_OBJECT_SIZE_LIMIT
@@ -450,13 +450,10 @@ module IOStreams
       # for example from the EC2 instance metadata service.
       def client
         Sdk.load
-        @client_cache.client(client_defaults)
+        @client_cache.client { client_defaults }
       end
 
       protected
-
-      # Returns [String] the scheme of the urls of this store, see URL_SCHEME.
-      def url_scheme = self.class::URL_SCHEME
 
       # A copy has its own options, so that changing them does not change this path, see #options.
       def initialize_copy(source)
@@ -558,11 +555,11 @@ module IOStreams
 
       private
 
-      # Returns [String] the name of this store in messages, such as `Invalid S3 url`, and the article before it, such
-      # as `is not an S3 option`.
-      def store_label = "S3"
+      # Returns [String] the scheme of the urls of this store, see URL_SCHEME.
+      def url_scheme = self.class::URL_SCHEME
 
-      def store_article = "an"
+      # Returns [String] the name of this store in messages, such as `Invalid S3 url`.
+      def store_label = "S3"
 
       # Returns [Hash] the options of a new client that this store needs, which the options of `client:` override.
       # S3 needs none, since the AWS SDK finds them in its environment. Load the AWS SDK first, see `Sdk.load`.
@@ -665,8 +662,8 @@ module IOStreams
       def utf8_key(key)
         return key if key.dup.force_encoding(Encoding::UTF_8).valid_encoding?
 
-        raise(ArgumentError, "#{store_article.capitalize} #{store_label} key must be valid UTF-8: " \
-                             "#{url_scheme}://#{bucket_name}/#{Utils.display_text(key)}")
+        raise(ArgumentError,
+              "#{store_label} keys must be valid UTF-8: #{url_scheme}://#{bucket_name}/#{Utils.display_text(key)}")
       end
 
       # Raises ArgumentError for a part of the url that S3 does not use, rather than ignore it.
@@ -675,8 +672,7 @@ module IOStreams
           if uri.hostname.to_s.empty?
             "it must name a bucket, such as '#{url_scheme}://bucket/a.csv'"
           elsif uri.fragment
-            "percent-encode a '#' in a key as '%23', since it starts a fragment, which #{store_article} #{store_label} " \
-              "url cannot have"
+            "percent-encode a '#' in a key as '%23', since it starts a fragment, which #{store_label} urls cannot have"
           elsif uri.port
             "it cannot have a port. Supply the endpoint of another service that implements the S3 API with " \
               "client: {endpoint: \"https://host:port\"}"
@@ -697,7 +693,7 @@ module IOStreams
         return if unknown.empty?
 
         names   = unknown.map { |name| name.to_s.inspect }.join(", ")
-        option  = unknown.size == 1 ? "is not #{store_article} #{store_label} option" : "are not #{store_label} options"
+        option  = unknown.size == 1 ? "is not one of the #{store_label} options" : "are not #{store_label} options"
         problem = "its query holds the options of its requests, but #{names} #{option}"
         problem = "#{problem}. Percent-encode a '?' in a key as '%3F'" if unknown.any? { |name| query[name].to_s.empty? }
         raise(Utils::URI.invalid(store_label, url, problem))
