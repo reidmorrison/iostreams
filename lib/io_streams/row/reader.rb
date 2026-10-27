@@ -67,7 +67,7 @@ module IOStreams
       end
 
       # Returns [true|false] whether nothing names the columns of the rows, see `IOStreams::Tabular#unnamed_columns?`, such
-      # as the lines of the :lines format without a schema, so that a copy checks that its target can write them, see
+      # as the rows of the :text format without a schema, so that a copy checks that its target can write them, see
       # `IOStreams::Stream#check_unnamed_rows`. Asked before #each.
       def unnamed_columns?
         @tabular.unnamed_columns?

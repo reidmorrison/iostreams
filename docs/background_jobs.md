@@ -424,11 +424,11 @@ end
 ## A file of lines
 
 A file of email addresses, ids or urls, one on each line, has no header row, and its lines are not CSV, which would
-take its first line as the header row. Read it in the `:lines` format, whose rows are the lines as they are, see
-[Lines of text](formats#lines-of-text):
+take its first line as the header row. Read it in the `:text` format, whose rows are the text of each row as it is, see
+[Text](formats#text):
 
 ~~~ruby
-IOStreams.path(url).format(:lines).each(:slice, size: 1_000) do |slice|
+IOStreams.path(url).format(:text).each(:slice, size: 1_000) do |slice|
   SendInvitationsJob.perform_later(slice.to_h)
 end
 ~~~
@@ -444,6 +444,11 @@ end
 ~~~
 
 `slice.each` yields each row as it is, with its line and record number, so a job of a file of lines needs no schema.
+
+A spreadsheet has no lines: read as `:text`, each row is the CSV text of a row of the sheet, without a line number, its
+header row too, and a value that holds a comma or a quote is quoted, see [Text](formats#text), so this job would send an
+invitation to the header row, and to quoted addresses. Read the email addresses of a spreadsheet as its records
+instead, by a schema that names their column, see [One job per slice](#background-jobs).
 
 ## Failures
 
@@ -582,8 +587,11 @@ end
   `#format`, so the slices hold text that any job queue or database stores as it is. The header row is matched to the
   schema before the first slice is written, and each slice carries it, exactly as `each(:slice)` gives them.
 * **Lines that are not CSV.** A copy of the lines of a file keeps the format of the file, so read a file of lines in the
-  `:lines` format, see [A file of lines](#a-file-of-lines), to store its lines as they are:
-  `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:lines), mode: :line)`.
+  `:text` format, see [A file of lines](#a-file-of-lines), to store its lines as they are:
+  `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:text), mode: :line)`. A copy stores each row as its
+  source read it, so the CSV text of a row of a spreadsheet read as `:text` stays one row when a cell holds a line
+  break, whereas the lines written with `writer(:line)` are split as reading a file of the store's format would split
+  them, see [Writing to a store of slices](#writing-to-a-store-of-slices).
 * **When the last slice is written.** The last slice is written when the block returns, or leaves early, such as with
   `break`, but not when it raises. So a failed write never hands on a part of its last slice. The slices before it
   were already written, so remove them by the id of the upload, as above.
@@ -737,9 +745,11 @@ does not have:
 
 * In the `:line` mode, each line written is a row of the file, after its header row, without a newline after it. A
   line that holds newlines is split into rows the way reading the file back would split it, so a newline inside a
-  quoted CSV value stays in its row. A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError`
-  with the number of the line that it starts on, as reading the file would, once the text written after it reaches
-  640KB, or when the block returns, rather than keeping the lines written after it in memory.
+  quoted CSV value stays in its row, while a line of the `:text` format, which has no quotes, is split at each newline.
+  A quoted value that is not closed raises `IOStreams::Errors::MalformedDataError` with the number of the line that it
+  starts on, as reading the file would, once the text written after it reaches 640KB, or when the block returns, rather
+  than keeping the lines written after it in memory. A copy in the `:line` mode stores each row as its source read it
+  instead, such as the CSV text of a row of a spreadsheet read as `:text` whose cell holds a newline.
 * Each row holds its record number, and in the `:line` mode the line that it starts on, see
   [Find a row in the file](#find-a-row-in-the-file), counting every line written, as reading the file would. The rows
   and records written in the `:array` and `:hash` modes have no line, as for a query.

@@ -92,7 +92,7 @@ module IOStreams
       end
 
       # Returns [true|false] whether nothing names the columns of the rows: for rows without a header row that have no
-      # keys, such as those of `:lines`, or of a slice of CSV without a header row, see #initialize, since without a
+      # keys, such as those of `:text`, or of a slice of CSV without a header row, see #initialize, since without a
       # schema nothing else would, see `IOStreams::Tabular#unnamed_columns?`.
       def unnamed_columns?
         !@requires_header && !@keyed
