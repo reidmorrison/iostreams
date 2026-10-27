@@ -17,8 +17,7 @@ module IOStreams
       # line break replaced with a space, so that a value cannot add records. The characters that no field covers,
       # such as fillers, are spaces.
       class Fixed < Base
-        LINE_BREAK = /\r\n|\r|\n/
-        DIGIT      = /\d/
+        DIGIT = /\d/
 
         # Where a field is in each line: the offset of its first character, and its width, or -1 for the remainder of
         # the line.

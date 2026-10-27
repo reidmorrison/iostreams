@@ -5,9 +5,8 @@ module IOStreams
     module Parser
       # For parsing a single line of Pipe-separated values
       class Psv < Base
-        LINE_BREAK = /\r\n|\r|\n/
         # The characters that a value is cleansed of when it is written, see #render.
-        CLEANSED   = /[|\r\n]/
+        CLEANSED = /[|\r\n]/
 
         # Returns [Array] the parsed PSV line
         def parse(row)

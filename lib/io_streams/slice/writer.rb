@@ -19,7 +19,8 @@ module IOStreams
     # - A slice whose rows are lines of the format of the file, and that has a header row when the file has one, is
     #   written as it is, line for line, without parsing its rows, as `#each(:slice)` reads them, after its header row
     #   is matched to the fields of the schema, which raises `IOStreams::Errors::InvalidHeader` when they do not match.
-    #   `validate: true` also parses each row before it is written.
+    #   `validate: true` also parses each row before it is written. The text of each row of a slice of `:text` is
+    #   written as one row of the file, as `#writer(:array)` writes it, see `IOStreams::Tabular#written_line`.
     # - Any other slice, such as one of CSV written to JSON, of a file without a header row written to one with one, or
     #   of the rows of an Active Record query, is read by its own header row and format, by the schema of the stream,
     #   and each of its rows is written as `#writer(:array)` writes it, see `IOStreams::Row::Writer`, apart from a blank
@@ -120,12 +121,14 @@ module IOStreams
       end
 
       # Writes each row of the slice as it is, see `IOStreams::Tabular#read_line`, which matches the keys of the first
-      # record of a format of keyed records, such as JSON, to the fields of the schema.
+      # record of a format of keyed records, such as JSON, to the fields of the schema, as the line that the file writes
+      # for it, see `IOStreams::Tabular#written_line`, so that the text of a row of `:text` that holds a line break, such
+      # as the CSV text of a row of a spreadsheet, is one line of a file of plain text, as `#writer(:array)` writes it.
       def write_as_is(slice)
         slice.each do |row, _line_number, _record_number|
           @reader.read_line(row) do |line|
             @reader.validate_line(line) if @validate
-            @output << line
+            @output << @tabular.written_line(line)
           end
         end
       end

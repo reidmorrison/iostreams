@@ -22,6 +22,24 @@ module IOStreams
           '"'
         end
 
+        # Returns [String] the supplied text of a row, that a format that holds the text of each row as it is writes as
+        # CSV, such as `:text` written to a spreadsheet, as one row of CSV, see
+        # `IOStreams::Tabular::Parser::Base.one_row`, as it is, once it checks that its quoting is valid.
+        #
+        # Raises `IOStreams::Errors::TypeMismatch` for text that is not one row of CSV, such as `"jill"@example.com`,
+        # whose quotes do not enclose the whole value, rather than write it, so that writing it raises an error of
+        # IOStreams, rather than that of the csv gem that the CSV of a spreadsheet would raise.
+        def self.one_row(text)
+          line = super
+          return line unless line.include?(QUOTE)
+
+          CSV.parse_line(line)
+          line
+        rescue CSV::MalformedCSVError
+          raise(IOStreams::Errors::TypeMismatch, "The text of the row is not a row of CSV, in which a quote encloses a " \
+                                                 "whole value and a quote within it is doubled: #{text.inspect}")
+        end
+
         # Returns [Array] the parsed CSV line
         def parse(row)
           return row if row.is_a?(::Array)

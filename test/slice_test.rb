@@ -265,7 +265,7 @@ class SliceTest < Minitest::Test
         %i[hash array parquet].each do |format|
           assert_predicate IOStreams::Slice.new([], format: format, typed: true), :typed?, format
         end
-        [:csv, :json, :fixed, :lines, nil].each do |format|
+        [:csv, :json, :fixed, :text, nil].each do |format|
           error = assert_raises(ArgumentError, format.inspect) { IOStreams::Slice.new(["12,2026-01-02"], format: format, typed: true) }
           assert_equal "A slice of the #{format.inspect} format cannot be typed, since its rows are text: only the rows of a " \
                        "format whose rows hold the values themselves, such as :hash or :array, can be", error.message

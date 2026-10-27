@@ -60,10 +60,15 @@ module IOStreams
       # Returns [Symbol|nil] the format that the rows, records and lines are read and written in, see #format, once the
       # format of the text of the streams is known, see `IOStreams::Builder#text_format`.
       #
+      # A format that holds the text of each row as it is, such as `:text`, also reads and writes the text of any format
+      # whose rows are lines of text, such as the CSV of a spreadsheet, whose rows are split as that format splits them,
+      # see `IOStreams::Tabular.verbatim_text?`, but not the values of a query, which `:array` holds.
+      #
       # Raises ArgumentError when the format that was set is not the format of that text, such as `:json` for a
       # spreadsheet, whose cells are read and written as CSV, rather than read or write the rows in the wrong format.
       def rows_format(file_name, text_format)
         return format(file_name) { text_format } if @format.nil? || text_format.nil? || @format == text_format
+        return @format if IOStreams::Tabular.verbatim_text?(@format, text_format)
 
         raise(ArgumentError, "The format of the rows cannot be #{@format.inspect}, since the streams read and write them " \
                              "as #{text_format.inspect}. Set the format to #{text_format.inspect}, or to nil.")
@@ -134,7 +139,7 @@ module IOStreams
         format = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
         IOStreams::Tabular.new(file_name: file_name, format: format, schema: @schema_source&.schema || default_schema,
-                               row_format_options: row_format_options, **)
+                               row_format_options: row_format_options, text_format: text_format, **)
       end
 
       # Returns [String] these settings for `#inspect` on a path, see `IOStreams::Path#inspect`, each one only when it is
