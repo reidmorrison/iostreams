@@ -10,7 +10,8 @@ module IOStreams
     #     slices.each { |slice| io << slice }
     #   end
     #
-    # Every slice is of the same file as the first one written: the same header row and format. The rows of every slice
+    # Every slice is of the same file as the first one written, see `IOStreams::Slice#same_file?`: the same header row and
+    # format, and alike in whether its blank rows are records and its values typed. The rows of every slice
     # are read by one reader, see `IOStreams::Tabular#for_format`, as the rows of one file, whether they start with a
     # header row being as the slice says, see `IOStreams::Slice#header?`, whatever the schema says of the file written.
     # The header row of the file is written once, before the rows of the first slice, and each row after it, in the
@@ -96,7 +97,8 @@ module IOStreams
       # once, before its rows.
       def start(slice)
         @first  = slice
-        @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?)
+        @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?,
+                                                    typed: slice.typed?)
         @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header? == @tabular.requires_header?
         @as_is ? start_as_is(slice) : start_rows(slice)
       end
@@ -141,12 +143,19 @@ module IOStreams
         end
       end
 
+      # Raises ArgumentError for a slice whose rows are not read as those of the first slice, see
+      # `IOStreams::Slice#same_file?`, since one reader reads the rows of every slice, see #start.
       def check_same_file(slice)
-        return if slice.header == @first.header && slice.format == @first.format
+        return if slice.same_file?(@first)
 
-        raise(ArgumentError, "Every slice written is of the same file as the first: a slice with the header row " \
-                             "#{slice.header.inspect} and format #{slice.format.inspect} cannot follow one with " \
-                             "#{@first.header.inspect} and #{@first.format.inspect}")
+        raise(ArgumentError, "Every slice written is of the same file as the first: a slice #{described(slice)} " \
+                             "cannot follow one #{described(@first)}")
+      end
+
+      # Returns [String] what describes how the rows of the slice are read, see #check_same_file.
+      def described(slice)
+        "with the header row #{slice.header.inspect}, format #{slice.format.inspect}, blank_rows " \
+          "#{slice.blank_rows?} and typed #{slice.typed?}"
       end
     end
   end

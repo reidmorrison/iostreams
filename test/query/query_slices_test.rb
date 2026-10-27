@@ -41,6 +41,21 @@ class QuerySlicesTest < Minitest::Test
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
 
+      it "holds that the values of its rows are those of the fields of the columns, which Active Record cast" do
+        slices = stored_slices
+
+        assert_equal [true, true], slices.map(&:typed?)
+        assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
+      end
+
+      it "holds that the values are not typed by a schema that was set, which converts them where they are read" do
+        own    = {"fields" => [{"name" => "shipped_on", "type" => "string"}, {"name" => "weight", "type" => "string"}]}
+        slices = []
+        IOStreams.stream(relation).schema(own).each(:slice, size: 5) { |slice| slices << slice }
+
+        assert_equal [false], slices.map(&:typed?)
+      end
+
       it "resumes the slices and records of the query at a record, as a job that resumes them reads them" do
         slices = []
         IOStreams.stream(relation).each(:slice, size: 5, resume_at: 2) { |slice| slices << slice }
@@ -86,12 +101,13 @@ class QuerySlicesTest < Minitest::Test
                      %({"shipped_on":"1969-12-31","weight":null}\n), output.string
       end
 
-      it "holds blank_rows: false in the Hash of each slice" do
+      it "holds blank_rows: false and typed: true in the Hash of each slice" do
         hashes = []
         IOStreams.stream(relation).each(:slice, size: 5) { |slice| hashes << slice.to_h }
 
-        assert_equal [%w[rows header format blank_rows record_number]], hashes.map(&:keys)
+        assert_equal [%w[rows header format blank_rows typed record_number]], hashes.map(&:keys)
         refute hashes.first["blank_rows"]
+        assert hashes.first["typed"]
       end
 
       it "is written as JSON by ActiveSupport, which applies the options of as_json to it as to a Hash" do
@@ -101,7 +117,7 @@ class QuerySlicesTest < Minitest::Test
 
         assert_equal slice.to_h.as_json, slice.as_json
         assert_equal({"rows" => slice.to_h["rows"].as_json}, slice.as_json(only: "rows"))
-        assert_equal %w[rows format blank_rows record_number], slice.as_json(except: "header").keys
+        assert_equal %w[rows format blank_rows typed record_number], slice.as_json(except: "header").keys
       end
 
       it "copies a row whose every value is null from the slice that holds it" do

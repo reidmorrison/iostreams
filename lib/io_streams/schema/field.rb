@@ -383,6 +383,22 @@ module IOStreams
         cast_value(value)
       end
 
+      # Returns the value of this field that a schema rendered as the value itself, see #render's `:typed` form, such as
+      # a record written to a store of slices in the `:hash` format, once the store returns it, converted to the type of
+      # this field as #cast converts it. A store that does not keep the class of a value returns it in another form: BSON
+      # keeps a duration as its number of seconds, which #cast rejects, since a number on its own does not say what it
+      # counts, whereas the value of a duration rendered so is its seconds, as `ActiveSupport::Duration#to_i` gives
+      # them, so it is a duration again. Any other form is converted by #cast, such as the Time that BSON returns for a
+      # Date, which is a Date again.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` as #cast does.
+      def restore(value)
+        return cast(value) unless type == "duration" && value.is_a?(Numeric) && !value.is_a?(::ActiveSupport::Duration)
+        return invalid(value) unless value.finite?
+
+        ::ActiveSupport::Duration.build(value)
+      end
+
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
       # written, see #render: a BigDecimal half up, which is an Integer with no decimals, and a Float as Ruby's `format`
       # rounds it, to the nearest of its binary value, so that a format that holds the number itself, such as Parquet,

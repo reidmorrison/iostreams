@@ -143,7 +143,8 @@ module IOStreams
           @record_number = number if number
           @count        += 1
           @tabular.validate_line(text) if @validate
-          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?)
+          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
+                               typed: @tabular.typed?)
           @slice.add(text, line_number: line_number, record_number: number)
           flush if @slice.size >= @size
         end

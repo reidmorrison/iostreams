@@ -81,8 +81,14 @@ module IOStreams
       # Returns [IOStreams::Tabular] that reads the rows by the schema that was set, otherwise that of the columns of the
       # query, see #schema, see `IOStreams::Stream#tabular`. Each row is a record of the query, whatever its values, so
       # a row whose every value is null or empty text is read, rather than skipped as a blank line of a file is.
+      #
+      # By the schema of the columns, the values of the rows are those of its fields, which Active Record cast, so that
+      # the slices of the rows say so, see `IOStreams::Slice#typed?`, and a store that changes the form of a value, as
+      # BSON keeps a duration as its seconds, does not change the value read from it. A schema that was set describes
+      # the values otherwise, so they are cast to its fields, as any other rows are, see `IOStreams::Schema::Field#cast`.
       def tabular(**)
-        super(default_schema: IOStreams::Schema.new(io_stream.columns.schema), blank_rows: false, **)
+        super(default_schema: IOStreams::Schema.new(io_stream.columns.schema), blank_rows: false,
+              typed: tabular_settings.schema.nil?, **)
       end
 
       # Yields [#each] the rows of the query, once it is open, see `IOStreams::Query#open`, after a header row of the names
