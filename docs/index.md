@@ -311,7 +311,7 @@ IOStreams.add_allowed_path("/var/my_app/uploads")
 | [Fixed width](formats#fixed-width-files) | `.fixed`, or `format(:fixed)` | yes | yes |
 | [Excel spreadsheet](formats#excel-spreadsheets) | `.xlsx`, `.xlsm` | yes | yes |
 | [Apache Parquet](formats#parquet-files) | `.parquet` | yes | yes |
-| [Lines of text](formats#lines-of-text), such as one email address on each line | `.lines`, or `format(:lines)` | yes | yes |
+| [Text](formats#text), such as one email address on each line | `.text`, or `format(:text)` | yes | yes |
 
 | Compression and encryption | Extension |
 |----------------------------|-----------|

@@ -22,14 +22,20 @@ module IOStreams
       #     of a slice, which says whether it carries one, see `IOStreams::Tabular#initialize`.
       #     Default: nil, as the schema says.
       #
+      #   typed: [true|false]
+      #     Whether the values of the rows and records read are those of the fields, such as those of a slice that says so,
+      #     see `IOStreams::Slice#typed?`, so that they are restored to the types of the fields from the forms that a
+      #     store returned them in, see `IOStreams::Schema::Columns#initialize`.
+      #     Default: false
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
       # describe them, see `IOStreams::Schema#check_fields_in_order`.
-      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil)
+      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
-        @columns         = schema.columns
+        @columns         = schema.columns(typed: typed)
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
         # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values
@@ -192,9 +198,11 @@ module IOStreams
       # in the form of its field that the format writes, see `IOStreams::Schema::Field#render`, in the order of the
       # fields, see `IOStreams::Schema::Columns#render`.
       #
-      # Returns nil for a blank row, which is written as a blank line, see #render_blank.
+      # Returns nil for a row or record without values, `[]` or `{}`, which is written as a blank line, see #render_blank,
+      # unless blank rows are records, see `IOStreams::Tabular::Mapping#initialize`, when it is the record of the fields
+      # without their values, as a record of nils is, so that it is read back as a record.
       def render(row)
-        return @columns.render_blank if IOStreams::Utils.blank?(row)
+        return @columns.render_blank if @blank_rows && IOStreams::Utils.blank?(row)
 
         render_fields(row)
       end
@@ -231,7 +239,7 @@ module IOStreams
       def match_header(line)
         return unless @requires_header
 
-        columns = parse(line)
+        columns = parse_columns(line)
         return if columns.nil?
 
         names          = @columns.match(columns)

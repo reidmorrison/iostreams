@@ -1133,6 +1133,32 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { duration.cast(1.5) }
         end
 
+        it "restores the seconds that a store keeps of a duration that it rendered, such as BSON" do
+          assert_equal "PT8H30M", duration.restore(30_600).iso8601
+          assert_equal "PT1.5S", duration.restore(1.5).iso8601
+          assert_instance_of ActiveSupport::Duration, duration.restore(30_600)
+
+          value = duration.cast("P1M2DT3H")
+
+          assert_same value, duration.restore(value)
+          assert_equal({months: 1, days: 2, hours: 3}, duration.restore("P1M2DT3H").parts)
+          assert_nil duration.restore(nil)
+        end
+
+        it "raises to restore what a duration is never stored as" do
+          [Float::INFINITY, Float::NAN, "30600", Date.new(2026, 1, 2)].each do |value|
+            assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { duration.restore(value) }
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "duration", constraints: {required: true}).restore(nil) }
+        end
+
+        it "restores the value of any other field as it casts it, since only a duration has a form of its own" do
+          assert_equal Date.new(2026, 1, 2), field(type: "date").restore(Time.utc(2026, 1, 2))
+          assert_equal 12, field(type: "integer").restore("12")
+          assert_equal 300, field(type: "any").restore(300)
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date").restore(300) }
+        end
+
         it "writes ISO 8601, also in JSON" do
           assert_equal "P1M2DT3H", duration.render("P1M2DT3H", :text)
           # The field loads ActiveSupport::Duration, so it is loaded only once the field is created.

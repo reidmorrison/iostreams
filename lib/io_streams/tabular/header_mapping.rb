@@ -92,7 +92,7 @@ module IOStreams
       end
 
       # Returns [true|false] whether nothing names the columns of the rows: for rows without a header row that have no
-      # keys, such as those of `:lines`, or of a slice of CSV without a header row, see #initialize, since without a
+      # keys, such as those of `:text`, or of a slice of CSV without a header row, see #initialize, since without a
       # schema nothing else would, see `IOStreams::Tabular#unnamed_columns?`.
       def unnamed_columns?
         !@requires_header && !@keyed
@@ -106,7 +106,7 @@ module IOStreams
         return parse_keys(line) if @keyed
         return unless @requires_header
 
-        columns = parse(line)
+        columns = parse_columns(line)
         return if columns.nil?
 
         header.columns = columns
@@ -153,9 +153,10 @@ module IOStreams
       # Returns [String|Array|Hash] the line that the parser renders for the row or record: a record by the columns, see
       # `IOStreams::Tabular::Header#to_hash`, for a format of keyed records, such as JSON, otherwise its values in the
       # order of the columns, see `IOStreams::Tabular::Header#to_array`, see `IOStreams::Tabular::Parser::Base.keyed?`.
-      # Returns nil for a blank row, which is written as a blank line.
+      # Returns nil for a row or record without values, `[]` or `{}`, which is written as a blank line, unless blank rows
+      # are records, see `IOStreams::Tabular::Mapping#initialize`, when it is rendered by the columns as any other.
       def render(row)
-        return if IOStreams::Utils.blank?(row)
+        return if @blank_rows && IOStreams::Utils.blank?(row)
 
         # The columns of a format of keyed records, such as JSON, are known once the first row gives them, when the record
         # written has every one of them, otherwise its keys are its columns.

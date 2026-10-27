@@ -694,6 +694,12 @@ class QueryStreamTest < Minitest::Test
           assert_equal "The rows of the query are :array, so its format cannot be :csv", error.message
         end
 
+        it "cannot be read as :text, since its rows are values rather than text" do
+          error = assert_raises(ArgumentError) { stream.format(:text) }
+
+          assert_equal "The rows of the query are :array, so its format cannot be :text", error.message
+        end
+
         it "raises for the modes of bytes and lines" do
           assert_raises(ArgumentError) { stream.each(:line) { |_line| nil } }
           assert_raises(ArgumentError) { stream.reader { |_io| nil } }

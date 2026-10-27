@@ -226,8 +226,8 @@ module IOStreams
 
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
     # writer holds while it reads or writes the file.
-    def columns
-      Columns.new(self)
+    def columns(typed: false)
+      Columns.new(self, typed: typed)
     end
 
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:

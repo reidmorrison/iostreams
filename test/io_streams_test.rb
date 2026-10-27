@@ -777,7 +777,7 @@ module IOStreams
 
       describe ".tabular_formats" do
         it "includes the registered formats" do
-          %i[array csv fixed hash json lines parquet psv].each do |format|
+          %i[array csv fixed hash json parquet psv text].each do |format|
             assert_includes IOStreams.tabular_formats, format
           end
         end

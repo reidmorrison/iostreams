@@ -541,19 +541,20 @@ A spreadsheet is read as CSV, one line for each row of its worksheet, so its row
 as CSV, and `#format` returns `:csv` for a `.xlsx` or `.xlsm` path, where it returned `nil`. Previously the format was
 taken from the rest of the file name, so `report.json.xlsx` raised, and `report.psv.xlsx` joined the cells of each
 row into one value. Setting another format with `#format`, such as `format(:psv)`, now raises `ArgumentError` when
-the rows, records or lines are read or written.
+the rows, records or lines are read or written, apart from the new `:text` format, which reads the CSV text of each
+row as it is, see [Text](formats#text).
 
 Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
 `nil` for a spreadsheet.
 
-#### A `.lines` file is read in the `:lines` format
+#### A `.text` file is read in the `:text` format
 
-The new `:lines` format reads each line of a file as a row of one value, see
-[Lines of text](formats#lines-of-text), and the name of each tabular format is also the extension that names it, so a
-file named `.lines`, such as `ids.lines`, is read in it. Previously such a file was read as CSV, the default for a file
-whose name has no format extension, so its first line was its header row.
+The new `:text` format reads each row as one value, its text as it is, such as each line of a file, see
+[Text](formats#text), and the name of each tabular format is also the extension that names it, so a file named
+`.text`, such as `ids.text`, is read in it. Previously such a file was read as CSV, the default for a file whose name
+has no format extension, so its first line was its header row.
 
-Fix: set `format(:csv)` on the path of a `.lines` file that holds CSV.
+Fix: set `format(:csv)` on the path of a `.text` file that holds CSV.
 
 #### Spreadsheet date and time cells are read as ISO 8601
 

@@ -770,6 +770,226 @@ class SliceTargetStreamTest < Minitest::Test
       end
     end
 
+    describe "the rows that a program writes" do
+      let(:typed_schema) { {"fields" => [{"name" => "name"}, {"name" => "on", "type" => "date"}]} }
+
+      # Returns [Array] the records of the supplied slice, read by the supplied schema.
+      def read(slice, schema)
+        list = []
+        IOStreams.stream(slice).schema(schema).each(:hash) { |record| list << record }
+        list
+      end
+
+      it "are typed in a format whose rows hold the values themselves, and each one is a record" do
+        stream.format(:hash).schema(typed_schema).writer(:hash) { |io| io << {"name" => "Jack", "on" => Date.new(2026, 1, 2)} }
+        slice = store.slices.first
+
+        assert_predicate slice, :typed?
+        refute_predicate slice, :blank_rows?
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], slice.rows
+      end
+
+      it "are typed in the :array format too, after their header row" do
+        stream.format(:array).schema(typed_schema).writer(:array) { |io| io << ["Jack", Date.new(2026, 1, 2)] }
+        slice = store.slices.first
+
+        assert_predicate slice, :typed?
+        assert_equal %w[name on], slice.header
+        assert_equal [["Jack", Date.new(2026, 1, 2)]], slice.rows
+      end
+
+      it "are not typed in a format of text, whose values the schema converts when they are read, but are each a record" do
+        stream.schema(typed_schema).writer(:hash) { |io| io << {"name" => "Jack", "on" => Date.new(2026, 1, 2)} }
+        slice = store.slices.first
+
+        refute_predicate slice, :typed?
+        refute_predicate slice, :blank_rows?
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], read(slice, typed_schema)
+      end
+
+      it "are not typed without a schema, which converted none of them, so a schema converts them where they are read" do
+        stream.format(:hash).writer(:hash) { |io| io << {"name" => "Jack", "on" => "2026-01-02"} }
+        slice = store.slices.first
+
+        refute_predicate slice, :typed?
+        refute_predicate slice, :blank_rows?
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], read(slice, typed_schema)
+      end
+
+      it "are not typed without a schema in the :array format either" do
+        stream.format(:array).writer(:array) { |io| io << %w[name on] << %w[Jack 2026-01-02] }
+        slice = store.slices.first
+
+        refute_predicate slice, :typed?
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], read(slice, typed_schema)
+      end
+
+      it "are not typed when copied from a file without a schema" do
+        stream.format(:hash).copy_from(IOStreams.stream(StringIO.new("name,on\nJack,2026-01-02\n")), mode: :hash)
+        slice = store.slices.first
+
+        refute_predicate slice, :typed?
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], read(slice, typed_schema)
+      end
+
+      it "are typed when copied from a file by the schema of the stream, which converted them" do
+        stream.format(:hash).schema(typed_schema).copy_from(IOStreams.stream(StringIO.new("name,on\nJack,2026-01-02\n")),
+                                                            mode: :hash)
+        slice = store.slices.first
+
+        assert_predicate slice, :typed?
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], slice.rows
+      end
+
+      it "skip a blank row written before the header row, which is not a record, in a format of text too" do
+        %i[csv array].each do |format|
+          target = Store.new
+          IOStreams.stream(target).format(format).writer(:array) do |io|
+            io << [nil, nil] << %w[name age] << %w[Jack 21] << [nil, nil]
+          end
+          slice = target.slices.first
+
+          assert_equal %w[name age], slice.header, format
+          refute_predicate slice, :blank_rows?, format
+          assert_equal [{"name" => "Jack", "age" => "21"}, {"name" => nil, "age" => nil}],
+                       read(slice, nil), format
+        end
+      end
+
+      it "keep a record without values as a record of its fields, also when it is empty" do
+        amount = {"fields" => [{"name" => "amount", "type" => "integer"}]}
+        %i[hash array json].each do |format|
+          target = Store.new
+          IOStreams.stream(target).format(format).schema(amount).writer(:hash) do |io|
+            io << {} << {"amount" => nil} << {"amount" => 1}
+          end
+
+          assert_equal [{"amount" => nil}, {"amount" => nil}, {"amount" => 1}], read(target.slices.first, amount), format
+        end
+      end
+
+      it "keep an empty record as a record without a schema" do
+        stream.format(:hash).writer(:hash) { |io| io << {} << {"amount" => nil} }
+
+        assert_equal [{}, {"amount" => nil}], store.slices.first.rows
+        assert_equal [{}, {"amount" => nil}], read(store.slices.first, nil)
+      end
+
+      it "are not typed when they are written as lines, which are the blank rows of a file" do
+        stream.writer(:line) { |io| io << "name,on" << "Jack,2026-01-02" }
+        slice = store.slices.first
+
+        refute_predicate slice, :typed?
+        assert_predicate slice, :blank_rows?
+      end
+
+      it "are read back as they were written" do
+        stream.format(:hash).schema(typed_schema).writer(:hash) do |io|
+          io << {"name" => "Jack", "on" => Date.new(2026, 1, 2)}
+          io << {"name" => nil, "on" => nil}
+        end
+
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}, {"name" => nil, "on" => nil}],
+                     read(store.slices.first, typed_schema)
+      end
+
+      it "are restored to the types of their fields, once a store that changed their form returns them" do
+        schema = typed_schema.merge("fields" => typed_schema["fields"] + [{"name" => "wait", "type" => "duration"}])
+        stream.format(:hash).schema(schema).writer(:hash) do |io|
+          io << {"name" => "Jack", "on" => Date.new(2026, 1, 2), "wait" => ActiveSupport::Duration.parse("PT5M")}
+        end
+        hash = store.slices.first.to_h
+        # A store that does not keep the type of a value, as BSON holds a Date as a Time, and a duration as its seconds.
+        stored = hash.merge("rows" => [{"name" => "Jack", "on" => Time.utc(2026, 1, 2), "wait" => 300}])
+
+        assert_equal({"typed" => true, "blank_rows" => false}, hash.slice("typed", "blank_rows"))
+        records = read(IOStreams.slice(stored), schema)
+
+        assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2), "wait" => ActiveSupport::Duration.parse("PT5M")}],
+                     records
+        assert_instance_of ActiveSupport::Duration, records.first["wait"]
+        assert_equal "PT5M", records.first["wait"].iso8601
+      end
+
+      it "raise for the seconds of a duration once the slice is not typed, since a number does not say what it counts" do
+        slice  = IOStreams::Slice.new([{"wait" => 300}], format: :hash)
+        schema = {"fields" => [{"name" => "wait", "type" => "duration"}]}
+
+        assert_raises(IOStreams::Errors::InvalidValue) { read(slice, schema) }
+      end
+
+      it "raise for a value that a duration was not stored as, also when the slice is typed" do
+        schema = {"fields" => [{"name" => "wait", "type" => "duration"}]}
+
+        [Float::INFINITY, Float::NAN, Date.new(2026, 1, 2)].each do |value|
+          slice = IOStreams::Slice.new([{"wait" => value}], format: :hash, typed: true)
+
+          assert_raises(IOStreams::Errors::InvalidValue) { read(slice, schema) }
+        end
+      end
+
+      describe "once stored by a store that changed their form" do
+        let(:schema) do
+          {"fields" => [{"name" => "name"}, {"name" => "on", "type" => "date"}, {"name" => "wait", "type" => "duration"}]}
+        end
+        let(:stored) do
+          IOStreams::Slice.new([{"name" => "Jack", "on" => Time.utc(2026, 1, 2), "wait" => 300}], format: :hash,
+                                                                                                 typed: true, blank_rows: false)
+        end
+
+        it "are written to a file by writer(:slice)" do
+          output = StringIO.new
+          IOStreams.stream(output).format(:csv).schema(schema).writer(:slice) { |io| io << stored }
+
+          assert_equal "name,on,wait\nJack,2026-01-02,PT5M\n", output.string
+        end
+
+        it "are copied to a file by the schema of the slice" do
+          output = StringIO.new
+          IOStreams.stream(output).format(:csv).schema(schema).copy_from(IOStreams.stream(stored).schema(schema), mode: :hash)
+
+          assert_equal "name,on,wait\nJack,2026-01-02,PT5M\n", output.string
+        end
+      end
+
+      it "are still matched to the fields of the schema by their keys" do
+        slice  = IOStreams::Slice.new([{"Full Name" => "Jack", "age" => "21"}], format: :hash, typed: true)
+        schema = {"fields" => [{"name" => "name", "aliases" => ["Full Name"]}, {"name" => "age", "type" => "integer"}]}
+
+        assert_equal [{"name" => "Jack", "age" => 21}], read(slice, schema)
+        assert_raises(IOStreams::Errors::InvalidHeader) { read(slice, schema.merge("fieldsMatch" => "exact", "fields" => [{"name" => "name"}])) }
+      end
+
+      it "without a header row are read by the fields of the schema in order, which must be exact" do
+        ranges = {"header" => false, "fields" => [{"name" => "first_id", "type" => "integer"}, {"name" => "last_id", "type" => "integer"}]}
+        IOStreams.stream(store).format(:array).schema(ranges).writer(:array) { |io| io << [1, 100] << [101, 200] }
+        slice    = store.slices.first
+        in_order = {"fieldsMatch" => "exact", "fields" => [{"name" => "from"}, {"name" => "to"}]}
+
+        assert_predicate slice, :typed?
+        refute_predicate slice, :header?
+        assert_equal [{"from" => 1, "to" => 100}, {"from" => 101, "to" => 200}], read(slice, in_order)
+        assert_raises(ArgumentError) { read(slice, in_order.merge("fieldsMatch" => "equal")) }
+        error = assert_raises(ArgumentError) { IOStreams.stream(slice).each(:hash) { nil } }
+        assert_match(/set one, whose fields name them/, error.message)
+      end
+
+      it "are converted by the schema when the slice is not typed, such as a slice built of values" do
+        slice = IOStreams::Slice.new([{"name" => "Jack", "age" => "21"}], format: :hash)
+
+        assert_equal [{"name" => "Jack", "age" => 21}], read(slice, schema)
+      end
+
+      it "are typed and each a record when the slice is copied, see IOStreams::Slice#with_rows" do
+        stream.format(:hash).schema(typed_schema).writer(:hash) { |io| io << {"name" => "Jack", "on" => Date.new(2026, 1, 2)} }
+        copy = store.slices.first.with_rows([{"name" => "Jill", "on" => Time.utc(2026, 1, 3)}])
+
+        assert_predicate copy, :typed?
+        refute_predicate copy, :blank_rows?
+        assert_equal [{"name" => "Jill", "on" => Date.new(2026, 1, 3)}], read(copy, typed_schema)
+      end
+    end
+
     describe "the last slice" do
       it "is written when the block leaves early with break" do
         stream.writer(:line) do |io|

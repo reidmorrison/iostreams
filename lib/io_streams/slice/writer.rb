@@ -10,7 +10,8 @@ module IOStreams
     #     slices.each { |slice| io << slice }
     #   end
     #
-    # Every slice is of the same file as the first one written: the same header row and format. The rows of every slice
+    # Every slice is of the same file as the first one written, see `IOStreams::Slice#same_file?`: the same header row and
+    # format, and alike in whether its blank rows are records and its values typed. The rows of every slice
     # are read by one reader, see `IOStreams::Tabular#for_format`, as the rows of one file, whether they start with a
     # header row being as the slice says, see `IOStreams::Slice#header?`, whatever the schema says of the file written.
     # The header row of the file is written once, before the rows of the first slice, and each row after it, in the
@@ -18,7 +19,8 @@ module IOStreams
     # - A slice whose rows are lines of the format of the file, and that has a header row when the file has one, is
     #   written as it is, line for line, without parsing its rows, as `#each(:slice)` reads them, after its header row
     #   is matched to the fields of the schema, which raises `IOStreams::Errors::InvalidHeader` when they do not match.
-    #   `validate: true` also parses each row before it is written.
+    #   `validate: true` also parses each row before it is written. The text of each row of a slice of `:text` is
+    #   written as one row of the file, as `#writer(:array)` writes it, see `IOStreams::Tabular#written_line`.
     # - Any other slice, such as one of CSV written to JSON, of a file without a header row written to one with one, or
     #   of the rows of an Active Record query, is read by its own header row and format, by the schema of the stream,
     #   and each of its rows is written as `#writer(:array)` writes it, see `IOStreams::Row::Writer`, apart from a blank
@@ -95,7 +97,8 @@ module IOStreams
       # once, before its rows.
       def start(slice)
         @first  = slice
-        @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?)
+        @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?,
+                                                    typed: slice.typed?)
         @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header? == @tabular.requires_header?
         @as_is ? start_as_is(slice) : start_rows(slice)
       end
@@ -118,12 +121,14 @@ module IOStreams
       end
 
       # Writes each row of the slice as it is, see `IOStreams::Tabular#read_line`, which matches the keys of the first
-      # record of a format of keyed records, such as JSON, to the fields of the schema.
+      # record of a format of keyed records, such as JSON, to the fields of the schema, as the line that the file writes
+      # for it, see `IOStreams::Tabular#written_line`, so that the text of a row of `:text` that holds a line break, such
+      # as the CSV text of a row of a spreadsheet, is one line of a file of plain text, as `#writer(:array)` writes it.
       def write_as_is(slice)
         slice.each do |row, _line_number, _record_number|
           @reader.read_line(row) do |line|
             @reader.validate_line(line) if @validate
-            @output << line
+            @output << @tabular.written_line(line)
           end
         end
       end
@@ -138,12 +143,19 @@ module IOStreams
         end
       end
 
+      # Raises ArgumentError for a slice whose rows are not read as those of the first slice, see
+      # `IOStreams::Slice#same_file?`, since one reader reads the rows of every slice, see #start.
       def check_same_file(slice)
-        return if slice.header == @first.header && slice.format == @first.format
+        return if slice.same_file?(@first)
 
-        raise(ArgumentError, "Every slice written is of the same file as the first: a slice with the header row " \
-                             "#{slice.header.inspect} and format #{slice.format.inspect} cannot follow one with " \
-                             "#{@first.header.inspect} and #{@first.format.inspect}")
+        raise(ArgumentError, "Every slice written is of the same file as the first: a slice #{described(slice)} " \
+                             "cannot follow one #{described(@first)}")
+      end
+
+      # Returns [String] what describes how the rows of the slice are read, see #check_same_file.
+      def described(slice)
+        "with the header row #{slice.header.inspect}, format #{slice.format.inspect}, blank_rows " \
+          "#{slice.blank_rows?} and typed #{slice.typed?}"
       end
     end
   end

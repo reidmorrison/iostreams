@@ -95,8 +95,8 @@ class SliceWriterTest < Minitest::Test
             end
           end
 
-          assert_equal "The rows written have no header row, and no schema names their columns, as for the lines of " \
-                       "the :lines format, or a slice without a header row, so the first of them would be the header " \
+          assert_equal "The rows written have no header row, and no schema names their columns, as for the rows of " \
+                       "the :text format, or a slice without a header row, so the first of them would be the header " \
                        "row of the #{format.inspect} format: set a schema, whose fields name the columns", error.message
           assert_empty output.string
         end
@@ -213,6 +213,20 @@ class SliceWriterTest < Minitest::Test
       error = assert_raises(ArgumentError) { write(slices(csv) + slices("x,y\n1,2\n")) }
 
       assert_match(/\AEvery slice written is of the same file as the first/, error.message)
+    end
+
+    it "raises for a slice whose values or blank rows are read otherwise than those of the first one" do
+      schema = {"fields" => [{"name" => "wait", "type" => "duration"}]}
+      typed  = IOStreams::Slice.new([{"wait" => 300}], format: :hash, typed: true)
+      [IOStreams::Slice.new([{"wait" => "PT5M"}], format: :hash),
+       IOStreams::Slice.new([{"wait" => 300}], format: :hash, typed: true, blank_rows: false)].each do |other|
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(StringIO.new).schema(schema).writer(:slice) { |io| io << typed << other }
+        end
+        assert_equal "Every slice written is of the same file as the first: a slice with the header row nil, format " \
+                     ":hash, blank_rows #{other.blank_rows?} and typed #{other.typed?} cannot follow one with the " \
+                     "header row nil, format :hash, blank_rows true and typed true", error.message
+      end
     end
 
     it "raises for anything but a slice" do

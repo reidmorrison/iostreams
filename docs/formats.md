@@ -21,8 +21,8 @@ tabular format:
 | `:psv` | `.psv` | Pipe separated values, without quoting, see [CSV and PSV files](#csv-and-psv-files) |
 | `:json` | `.json` | A JSON object on its own line, also called JSON Lines, see [JSON files](#json-files) |
 | `:fixed` | `.fixed`, or `format(:fixed)` | Fields at fixed positions in the line, see [Fixed width files](#fixed-width-files) |
-| `:lines` | `.lines`, or `format(:lines)` | The whole line, as it is, such as an email address, see [Lines of text](#lines-of-text) |
 | `:parquet` | `.parquet` | A row of an Apache Parquet file, which has no lines, see [Parquet files](#parquet-files) |
+| `:text` | `.text`, or `format(:text)` | The text of the row, as it is, such as an email address on its own line, see [Text](#text) |
 
 A spreadsheet, `.xlsx` or `.xlsm`, is read and written as CSV, one line for each row of its worksheet, see
 [Excel spreadsheets](#excel-spreadsheets).
@@ -44,7 +44,8 @@ end
 
 The name of a directory, and the name of the file before its first `.`, are never its format, so `json/data.txt` and
 `hash.txt` are not JSON or `:hash`. A file whose name has no format extension is CSV, the default, and a spreadsheet is
-always CSV, whatever the rest of its name says.
+always CSV, whatever the rest of its name says: setting another format on it raises `ArgumentError`, apart from
+`:text`, which reads the CSV text of each row as it is, see [Text](#text).
 
 ### Setting the format {#specifying-the-format}
 
@@ -70,7 +71,7 @@ held in configuration before it is used. The list grows as formats are added, so
 
 ~~~ruby
 IOStreams.tabular_formats
-# => [:array, :csv, :fixed, :hash, :json, :lines, :parquet, :psv]
+# => [:array, :csv, :fixed, :hash, :json, :parquet, :psv, :text]
 
 IOStreams.tabular_formats.include?(:json)
 # => true
@@ -163,17 +164,17 @@ IOStreams.path("people.json").read
 # => "{\"name\":\"Jack\",\"age\":21}\n"
 ~~~
 
-## Lines of text
+## Text
 
-Some files are only lines of text, such as a list of email addresses, ids or urls, one on each line. Set the `:lines`
-format to read each line as a row of one value, the whole line as it is. Unlike CSV, the file has no header row, and a
-quote or a comma is just a character of its line, so each line is a row:
+Some files are only lines of text, such as a list of email addresses, ids or urls, one on each line. Set the `:text`
+format to read each row as one value, its text as it is. Unlike CSV, the file has no header row, and a quote or a comma
+is just a character of its text, so each line is a row:
 
 ~~~ruby
 # emails.txt holds:
 # jack@example.com
 # "jill"@example.com
-IOStreams.path("emails.txt").format(:lines).each(:array) do |row|
+IOStreams.path("emails.txt").format(:text).each(:array) do |row|
   p row
 end
 # ["jack@example.com"]
@@ -181,9 +182,31 @@ end
 ~~~
 
 A file whose name has no format extension, such as `emails.txt`, is otherwise read as CSV, whose first line is its header
-row, so set the format with `format(:lines)`. A file named `.lines` is in it already.
+row, so set the format with `format(:text)`. A file named `.text` is in it already, while one named `.txt` is still read
+as CSV.
 
-A [schema](#schema) of one field names the value of each line and gives its type, so that `each(:hash)` keys each
+A spreadsheet has no lines of its own: it is read as CSV, see [Excel spreadsheets](#excel-spreadsheets). Read as
+`:text`, each row is the CSV text of a row of the sheet, its header row too, so that a cell that holds a line break stays
+in its row, which the CSV quotes it within:
+
+~~~ruby
+IOStreams.path("people.xlsx").format(:text).each(:array) do |row|
+  p row
+end
+# ["name,note"]
+# ["Jack,\"two\nlines\""]
+~~~
+
+So code that hands on the text of each row to parse it later, such as a background job, reads a file of lines or a
+spreadsheet without knowing which the path names. The text of a row of a spreadsheet is CSV, header row included, so a
+value that holds a comma, a quote or a line break is quoted within it, as above: code that needs the values of the
+cells of a spreadsheet parses that text as CSV, or reads the spreadsheet with a schema instead, see
+[Excel spreadsheets](#excel-spreadsheets). Only a spreadsheet, which has no lines, is split this way: a CSV file read as
+`:text` is read as the lines of its file, as any file is, so a quoted value that holds a line break is split across two
+rows, where its spreadsheet keeps it in one. Read a CSV file as CSV to keep it in its row. Rows that are not text raise
+`ArgumentError`, such as those of a query, or a slice of CSV, which are already split.
+
+A [schema](#schema) of one field names the value of each row and gives its type, so that `each(:hash)` keys each
 record by it, and `each(:array)` starts with a header row of its name, as for fixed width:
 
 ~~~ruby
@@ -193,7 +216,7 @@ schema = {
   ]
 }
 
-IOStreams.path("ids.txt").format(:lines).schema(schema).each(:hash) do |record|
+IOStreams.path("ids.txt").format(:text).schema(schema).each(:hash) do |record|
   p record
 end
 # {"id" => 12}
@@ -203,27 +226,37 @@ end
 * `each(:hash)` and `writer(:hash)` need the schema, which names the key of each record, so they raise `ArgumentError`
   without one, before the file is opened, and so does a schema of more than one field.
 * A blank line, or a line of only spaces, is a blank row, see [Blank rows](streams#blank-rows).
-* Its lines end as those of any file do, see [Lines](streams#lines): at a `\n`, without the `\r` before it, so a file
-  whose lines end in both ways is read line by line, while a `\r` alone within a line is a character of its value, apart
-  from a file whose first line ends with a `\r` alone, as an old Mac wrote it, whose lines end at a `\r`.
-* `writer(:array)` writes the text of the one value of each row as a line, such as `2026-01-02` for a date, and replaces
-  a line break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value
-  raises `IOStreams::Errors::TypeMismatch`.
+* The lines of a file end as those of any file do, see [Lines](streams#lines): at a `\n`, without the `\r` before it, so
+  a file whose lines end in both ways is read line by line, while a `\r` alone within a line is a character of its
+  value, apart from a file whose first line ends with a `\r` alone, as an old Mac wrote it, whose lines end at a `\r`.
+* `writer(:array)` writes the text of the one value of each row, such as `2026-01-02` for a date, and replaces a line
+  break within it with a space, as PSV does, so that a value cannot add a row. A row of more than one value raises
+  `IOStreams::Errors::TypeMismatch`.
+* Written to a spreadsheet, the text of each row is a row of CSV, whose values fill the cells of its row, so a line
+  break within a quoted value is kept, as in the CSV text that reading the spreadsheet gives. Text that is not one row
+  of CSV raises `IOStreams::Errors::TypeMismatch`, rather than join the rows after it, such as `"jill"@example.com`,
+  whose quotes do not enclose the whole value, or a quote that is not closed. To write each line of a file of text into
+  a cell of its own, write it to the spreadsheet as CSV, without `:text`, with a schema of one field:
+  `IOStreams.path("emails.xlsx").schema(schema).copy_from(IOStreams.path("emails.txt").format(:text), mode: :array)`.
+* `writer(:slice)` writes the text of each row of its slices as `writer(:array)` does, so the CSV text of a row of a
+  spreadsheet that holds a line break is one line of a file of plain text, with a space for the line break, and stays
+  as it is in a spreadsheet.
 * A copy of its rows in the `:array` mode, or slices of them written with `writer(:slice)`, to a format that takes its
   columns from the first row written, such as CSV or JSON, needs a schema, which names the column, rather than make the
-  first line the header row. Without one, a copy raises `ArgumentError` before the target is opened, so an existing
+  first row the header row. Without one, a copy raises `ArgumentError` before the target is opened, so an existing
   file is kept, while `writer(:slice)`, which only learns the format of the slices from the first one, raises it when
   that slice is written, so, as for any error raised while writing, the file is removed, see
   [Writing](streams#writing). Give the file written a schema, which `writer(:slice)` reads the slices by.
-* `validate: true`, of `each(:slice)` or `writer(:slice)`, parses each line by the schema, or without one as a row,
+* `validate: true`, of `each(:slice)` or `writer(:slice)`, parses each row by the schema, or without one as a row,
   since nothing names the keys of its records.
-* `each(:slice)` reads the lines in slices, each with its line number, to hand them to background jobs, see
-  [Background jobs](background_jobs).
+* `each(:slice)` reads the rows in slices to hand them to background jobs, see [Background jobs](background_jobs), each
+  with its line number when it is a line of the file, and without one for a spreadsheet, whose rows are not.
 
 ## Excel spreadsheets
 
 A spreadsheet is read as CSV, one line for each row of its first worksheet, so the `:line`, `:array` and `:hash` modes
-apply, and a [schema](#schema) can give the type of each column:
+apply, and a [schema](#schema) can give the type of each column. The `:text` format reads the CSV text of each row as it
+is, see [Text](#text):
 
 ~~~ruby
 IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
