@@ -60,6 +60,14 @@ module IOStreams
           end
         end
 
+        # Returns [true|false] whether the client of the loaded AWS SDK takes the option, such as
+        # `request_checksum_calculation`, which only its newer versions take. Load the AWS SDK first, see `.load`.
+        def self.client_option?(name)
+          ::Aws::S3::Client.plugins.any? do |plugin|
+            plugin.respond_to?(:options) && plugin.options.any? { |option| option.name == name }
+          end
+        end
+
         # Returns [true|false] whether the loaded AWS SDK has `Aws::S3::TransferManager`.
         def self.transfer_manager?
           !defined?(::Aws::S3::TransferManager).nil?
@@ -85,21 +93,8 @@ module IOStreams
           end
         end
 
-        # Raises ArgumentError for an option that no S3 operation accepts, so that a misspelled option is reported.
-        # The options that S3 accepts come from the AWS SDK, so it is only loaded when options are supplied.
-        #
-        # Without the AWS SDK the options cannot be checked, but a path can still be displayed, for example by a
-        # process that only enqueues work. Every request needs the SDK, so the options are never used unchecked.
-        def self.check_options(names)
-          unknown = unknown_options(names)
-          return if unknown.empty?
-
-          raise(ArgumentError, "Unknown S3 #{unknown.size == 1 ? 'option' : 'options'}: #{unknown.map(&:inspect).join(', ')}")
-        end
-
-        # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts, see .check_options. None
-        # without any names, so that the AWS SDK is not loaded, nor without the SDK, which the names cannot be checked
-        # without.
+        # Returns [Array<Symbol>] the supplied option names that no S3 operation accepts. None without any names, so
+        # that the AWS SDK is not loaded, nor without the SDK, which the names cannot be checked without.
         def self.unknown_options(names)
           return [] if names.empty? || !available?
 

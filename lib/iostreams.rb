@@ -37,6 +37,7 @@ module IOStreams
 
   module Paths
     autoload :File,        "io_streams/paths/file"
+    autoload :GCS,         "io_streams/paths/gcs"
     autoload :HTTP,        "io_streams/paths/http"
     autoload :Matcher,     "io_streams/paths/matcher"
     autoload :S3,          "io_streams/paths/s3"

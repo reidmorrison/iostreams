@@ -50,8 +50,9 @@ Paths are normalized before they are compared:
 
 * Local file names are resolved to their real path, so neither `..` nor a symbolic link can leave an allowed path. A
   relative allowed path is resolved against the current directory when it is added.
-* S3 paths must be in the same bucket. Keys with `.` or `..` segments are denied, since some services that implement
-  the S3 API resolve them.
+* S3 and Google Cloud Storage paths must be in the same bucket, of the same scheme, so an allowed `gs://` path does
+  not allow the `s3://` path of the same bucket. Keys with `.` or `..` segments are denied, since some services that
+  implement the S3 API resolve them.
 * SFTP and HTTP paths must have the same host and port, and for HTTP the same scheme. `.` and `..` are resolved the way
   the server resolves them, and every HTTP redirect is checked too.
 
@@ -118,7 +119,7 @@ IOStreams.redact_stream_options(pgp: {passphrase: "secret", recipient: "a@b.org"
 ~~~
 
 Each path class and stream declares the options that hold secrets: the SFTP `password` and `IdentityKey`, the S3
-`secret_access_key` and customer encryption keys, the HTTP `password`, `parameters` and cookie headers, and the PGP
+`secret_access_key` and customer encryption keys, the Google Cloud Storage `secret_access_key`, the HTTP `password`, `parameters` and cookie headers, and the PGP
 passphrases. As a precaution, any option whose name contains `passphrase`, `password`, `secret`, `token`,
 `credential`, `auth`, `apikey` or `privatekey` is replaced too, whatever its case, and with or without `_` and `-`,
 such as the headers `Authorization` and `X-Api-Key`, including within a Hash option, such as `ssh_options:` or

@@ -799,7 +799,7 @@ module IOStreams
 
       describe ".schemes" do
         it "includes the registered schemes" do
-          %i[file http https sftp s3].each do |scheme|
+          %i[file http https sftp s3 gs].each do |scheme|
             assert_includes IOStreams.schemes.keys, scheme
           end
         end

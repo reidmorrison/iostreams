@@ -3,7 +3,7 @@
 ## Tests
 
 - `test/test_helper.rb` generates PGP test keys on first run, so a working `gpg` binary is required.
-- S3 and SFTP path tests skip unless env vars are set (`S3_BUCKET_NAME`; `SFTP_HOSTNAME`, `SFTP_USERNAME`, `SFTP_PASSWORD`).
+- S3 and SFTP path tests skip unless env vars are set (`S3_BUCKET_NAME`; `SFTP_HOSTNAME`, `SFTP_USERNAME`, `SFTP_PASSWORD`). The S3 and Google Cloud Storage tests otherwise run against an in-memory store (`test/s3_stub.rb`), and against a real Cloud Storage bucket with `GCS_BUCKET_NAME`, `GCS_ACCESS_KEY_ID` and `GCS_SECRET_ACCESS_KEY` (an HMAC key).
 - The query tests in `test/query/` load Active Record, which changes how ActiveSupport writes JSON, so `bundle exec rake` runs them in a process of their own (`rake query_test`); how they are set up, and run on other versions of Active Record, is in [lib/io_streams/query/CLAUDE.md](lib/io_streams/query/CLAUDE.md).
 - On JRuby, `bundle exec rake` first downloads the zstd-jni jar for `.zst` into `~/.m2/repository` (`bundle exec rake zstd_jni`, see `test/zstd_jni.rb`), since JRuby cannot load the zstd-ruby C extension.
 - The gem itself has zero runtime dependencies; format-specific gems (rubyzip, aws-sdk-s3, nokogiri, etc.) are dev-only and loaded lazily.

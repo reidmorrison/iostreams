@@ -171,6 +171,10 @@ The exception that each storage raises, which is tagged with the kind of failure
 | `PermissionDenied` | `Errno::EACCES` or `Errno::EPERM` | `Aws::S3::Errors::AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken` and the like, `Forbidden` from a HEAD request, or `Aws::Errors::MissingCredentialsError` | `IOStreams::Errors::CommunicationsFailure` when reading or writing, `Net::SFTP::StatusException`, or `Net::SSH::AuthenticationFailed` | `IOStreams::Errors::CommunicationsFailure` for `401 Unauthorized`, `403 Forbidden` or `407 Proxy Authentication Required` |
 | `Unavailable` | Never | `Seahorse::Client::NetworkingError` when S3 cannot be reached, or `Aws::S3::Errors::SlowDown`, `InternalError`, `ServiceUnavailable`, `RequestTimeout`, or a `429`, `500`, `502`, `503` or `504` response, once the AWS SDK has retried the request | `IOStreams::Errors::CommunicationsFailure` when reading or writing, a connection error such as `Errno::ECONNREFUSED` or `SocketError`, or `Net::SSH::Disconnect` | A connection error such as `Errno::ECONNREFUSED`, `SocketError` or `Net::ReadTimeout`, or `IOStreams::Errors::CommunicationsFailure` for `408`, `429`, `500`, `502`, `503` or `504` |
 
+A Google Cloud Storage path makes its requests with the AWS SDK, so it raises the exceptions of the S3 column, and
+also tags `Aws::S3::Errors::AuthenticationRequired`, `InvalidAuthentication` and `InvalidSecurity`, which Cloud Storage
+raises for credentials that are missing or not valid, as `PermissionDenied`.
+
 A host name that does not resolve, such as a mistyped host, is not `Unavailable`, see [Notes](#notes).
 
 SFTP reads and writes files with the `sftp` program, and uses the `net-sftp` gem for everything else, such as
