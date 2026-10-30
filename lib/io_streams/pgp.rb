@@ -262,8 +262,9 @@ module IOStreams
     # Returns [String] containing all the public keys for the supplied email address or key id.
     #
     # Raises ArgumentError when neither :email nor :key_id is supplied.
-    # Raises Pgp::Failure when `email: nil` is supplied without a :key_id, as before :key_id was added.
-    # In v3.0 this will raise ArgumentError instead.
+    # Raises Pgp::Failure when `email: nil` is supplied without a :key_id, as before :key_id was added, which is
+    # deprecated, since v3.0 raises ArgumentError for it instead: it reports a deprecation warning, see
+    # `IOStreams::Deprecation`.
     #
     # email: [String] Email address for requested key.
     #
@@ -276,6 +277,9 @@ module IOStreams
       if email.nil? && key_id.nil?
         raise(ArgumentError, "Either :email, or :key_id must be supplied") if email_omitted
 
+        Deprecation.warn("IOStreams::Pgp.export with email: nil and without a key_id: is deprecated, since v3.0 " \
+                         "raises ArgumentError for it rather than IOStreams::Pgp::Failure: supply the email: or " \
+                         "key_id: of the key")
         raise(Pgp::Failure, "GPG Failed reading key: no email address or key id was supplied")
       end
 
@@ -490,6 +494,10 @@ module IOStreams
     #
     # After importing keys, they are not trusted and the relevant trust level must be set.
     #
+    # Without an :email or :key_id, it raises Pgp::Failure, since gpg rejects the empty user id that it is asked for,
+    # which is deprecated, since v3.0 raises ArgumentError instead: it reports a deprecation warning, see
+    # `IOStreams::Deprecation`.
+    #
     # key_id: [String]
     #   The fingerprint of the key, as hexadecimal digits only.
     #   Raises ArgumentError when it contains any other characters.
@@ -511,6 +519,12 @@ module IOStreams
     #   key at this level allows that attacker to impersonate other recipients.
     #   When the key cannot be fully verified, supply a lower `level`.
     def self.set_trust(email: nil, key_id: nil, level: 5)
+      if email.nil? && key_id.nil?
+        Deprecation.warn("IOStreams::Pgp.set_trust without an email: or key_id: is deprecated, since v3.0 raises " \
+                         "ArgumentError for it rather than IOStreams::Pgp::Failure: supply the email: or key_id: of " \
+                         "the key")
+      end
+
       # The key_id is written into gpg's ownertrust input, where any other character, such as a newline,
       # could add trust lines for other keys.
       if key_id && !key_id.to_s.match?(/\A\h+\z/)

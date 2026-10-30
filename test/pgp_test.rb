@@ -256,9 +256,11 @@ class PgpTest < Minitest::Test
         assert_includes error.message, "Either :email, or :key_id must be supplied"
       end
 
-      it "raises Pgp::Failure for a nil email without a key_id" do
-        assert_raises IOStreams::Pgp::Failure do
-          IOStreams::Pgp.export(email: nil)
+      it "raises Pgp::Failure for a nil email without a key_id, and reports it as deprecated" do
+        assert_deprecated(/IOStreams::Pgp.export with email: nil and without a key_id: is deprecated/) do
+          assert_raises IOStreams::Pgp::Failure do
+            IOStreams::Pgp.export(email: nil)
+          end
         end
       end
 
