@@ -1244,10 +1244,11 @@ class StreamTest < Minitest::Test
 
       it "reports a deprecation warning for column options that are nil, which v3.0 raises for, and reads as before" do
         records = []
-        line    = __LINE__ + 3
+        stream  = IOStreams.stream(StringIO.new(csv))
+        options = {columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil}
+        line    = __LINE__ + 2
         assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: columns:, allowed_columns:, required_columns:, skip_unknown: are deprecated, describe the columns of the file with #schema instead\n\z/) do
-          IOStreams.stream(StringIO.new(csv)).
-            each(:hash, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil) { |record| records << record }
+          stream.each(:hash, **options) { |record| records << record }
         end
 
         assert_equal [{"name" => "Jack", "zip" => "12345"}], records
