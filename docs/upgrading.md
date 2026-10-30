@@ -1798,6 +1798,10 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   writes any String, see [Text and binary data](streams#text-and-binary-data): JSON takes binary text as UTF-8, as
   v2.2 does, and raises `IOStreams::Errors::InvalidEncoding` for text that is not valid UTF-8, with or without a
   schema, while CSV and the other formats of text write its bytes as they are.
+* `#schema` without arguments returns the schema as it was set, a Hash or a String as a frozen copy in both, but a
+  path set as the schema, such as `schema(IOStreams.path("people_schema.json"))`, as a frozen copy only in v3.0, so a
+  method that changes the path that it returns, such as `#option` or `#encoding`, raises `FrozenError`, where v2.2
+  returns the path itself. Change the path before it is set as the schema, or change a copy, `path.schema.dup`.
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2
