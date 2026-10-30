@@ -54,7 +54,9 @@ module IOStreams
         encoding == Encoding::UTF_8
       end
 
-    attr_reader :io_stream
+    IO_STREAM_DEPRECATION = "#io_stream is deprecated, since v3.0 makes it private, keep the IO supplied to " \
+                            "IOStreams.stream instead".freeze
+    private_constant :IO_STREAM_DEPRECATION
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
@@ -69,6 +71,13 @@ module IOStreams
     def initialize_copy(source)
       super
       @builder = @builder&.dup
+    end
+
+    # Deprecated: returns the IO, or other object, supplied to `IOStreams.stream`, which the caller already holds, or nil
+    # for a path. v3.0 makes it private. Reports a deprecation warning, see `IOStreams::Deprecation`.
+    def io_stream
+      Deprecation.warn(IO_STREAM_DEPRECATION)
+      supplied_io
     end
 
     # Ignore the filename and use only the supplied streams.
@@ -590,6 +599,12 @@ module IOStreams
       @builder ||= IOStreams::Builder.new
     end
 
+    # Returns the IO, or other object, supplied to `IOStreams.stream`, or nil for a path, for IOStreams itself, see
+    # #io_stream.
+    def supplied_io
+      @io_stream
+    end
+
     # Raises ArgumentError for a mode that a copy does not convert with, see COPY_MODES, before the source or the target
     # is opened.
     def validate_copy_mode!(mode)
@@ -600,7 +615,7 @@ module IOStreams
     end
 
     def stream_reader(&)
-      builder.reader(io_stream, &)
+      builder.reader(supplied_io, &)
     end
 
     def line_reader(embedded_within: :auto, **args)
@@ -794,11 +809,11 @@ module IOStreams
     end
 
     def stream_writer(&)
-      builder.writer(io_stream, &)
+      builder.writer(supplied_io, &)
     end
 
     def line_writer(**args, &block)
-      return supplied_writer(IOStreams::Line::Writer, args, &block) if io_stream.is_a?(IOStreams::Line::Writer)
+      return supplied_writer(IOStreams::Line::Writer, args, &block) if supplied_io.is_a?(IOStreams::Line::Writer)
 
       writer do |io|
         IOStreams::Line::Writer.stream(io, **args, &block)
@@ -820,7 +835,7 @@ module IOStreams
     # As with a reader, see #rows_reader, with a schema an option that the call cannot supply raises before a deprecation
     # warning is reported for any of its other options, see #warn_write_options.
     def rows_writer(klass, args, &block)
-      return supplied_writer(klass, args, &block) if io_stream.is_a?(klass)
+      return supplied_writer(klass, args, &block) if supplied_io.is_a?(klass)
 
       options = args.except(:delimiter)
       tabular = schema_tabular(options)
@@ -834,7 +849,7 @@ module IOStreams
     # with the supplied options: a line writer supplied to `IOStreams.stream`, which writes them in its own lines, see
     # #supplied_writer, otherwise one of this stream, see #line_writer.
     def rows_line_writer(args, &)
-      return supplied_writer(IOStreams::Line::Writer, args, rows: true, &) if io_stream.is_a?(IOStreams::Line::Writer)
+      return supplied_writer(IOStreams::Line::Writer, args, rows: true, &) if supplied_io.is_a?(IOStreams::Line::Writer)
 
       line_writer(**args, &)
     end
@@ -848,7 +863,7 @@ module IOStreams
     def supplied_writer(klass, args, rows: false)
       warn_supplied_writer_options(klass, args)
       warn_supplied_writer_settings(klass, rows)
-      yield(io_stream)
+      yield(supplied_io)
     end
 
     # Reports a deprecation warning for the options of a call that the supplied writer ignores, see #supplied_writer:

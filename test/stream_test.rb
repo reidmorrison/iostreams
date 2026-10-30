@@ -900,6 +900,33 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#io_stream" do
+      it "reports a deprecation warning, and still returns the IO supplied to IOStreams.stream" do
+        line = __LINE__ + 2
+        io   = assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #io_stream is deprecated, since v3\.0 makes it private, keep the IO supplied to IOStreams\.stream instead/) do
+          stream.io_stream
+        end
+
+        assert_same string_io, io
+      end
+
+      it "reports a deprecation warning for a path, and still returns nil" do
+        assert_nil(assert_deprecated(/#io_stream is deprecated/) { IOStreams.path("data.csv").io_stream })
+      end
+
+      it "reports none when IOStreams reads and writes the IO supplied to it" do
+        output = StringIO.new
+        refute_deprecated do
+          IOStreams.stream(output).writer(:line) do |lines|
+            # An open line writer supplied to IOStreams.stream is written to as it is.
+            IOStreams.stream(lines).writer(:line) { |io| stream.each(:line) { |line| io << line } }
+          end
+        end
+
+        assert_equal data.lines.map(&:chomp), output.string.lines.map(&:chomp)
+      end
+    end
+
     describe "deprecated streams" do
       it "reports a deprecation warning for stream(:none), which still applies no streams" do
         line = __LINE__ + 2
