@@ -186,6 +186,8 @@ module IOStreams
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
 
         super(key)
+        warn_unusable_url(uri)
+        warn_client_arguments(client, access_key_id: access_key_id, secret_access_key: secret_access_key, region: region)
       end
 
       def to_s
@@ -367,6 +369,47 @@ module IOStreams
       end
 
       private
+
+      # Reports a deprecation warning for each part of the url that this path cannot use, which IOStreams 3.0 raises
+      # ArgumentError for when the path is created, so that a mistake in a configured url is reported wherever the
+      # code runs: a url without a bucket, a fragment, which an unencoded `#` starts, and which is not part of the key, a
+      # port, and a user name or password, which are ignored.
+      def warn_unusable_url(uri)
+        url = "s3://#{bucket_name}/#{path}"
+        warn_url(url, "it names no bucket, name one, such as 's3://bucket/#{path}'") if bucket_name.to_s.empty?
+        if uri.fragment
+          warn_url(url, "it has a fragment, which a '#' starts, and which is not part of the key, percent-encode a '#' " \
+                        "in a key as '%23'")
+        end
+        if uri.port
+          warn_url(url, "its port is ignored, supply the endpoint of another service that implements the S3 API with " \
+                        "client: {endpoint: \"https://host:port\"}")
+        end
+        return unless uri.user || uri.password
+
+        warn_url(url, "its user name and password are ignored, supply the credentials with access_key_id: and " \
+                      "secret_access_key:")
+      end
+
+      # Reports that the S3 url is deprecated, since IOStreams 3.0 raises ArgumentError for it, for the supplied reason.
+      def warn_url(url, reason)
+        Deprecation.warn("the S3 url #{Utils.display_text(url).inspect} is deprecated, since #{reason}")
+      end
+
+      # Reports a deprecation warning for the region and credentials supplied with an `Aws::S3::Client`, which ignores
+      # them, since it has its own, and which IOStreams 3.0 raises ArgumentError for when the path is created.
+      def warn_client_arguments(client, **arguments)
+        return if client.nil? || client.is_a?(Hash)
+
+        names = arguments.compact.keys
+        return if names.empty?
+
+        keywords = names.map { |name| "#{name}:" }.join(", ")
+        them     = names.size == 1 ? "it" : "them"
+        Deprecation.warn("#{keywords} #{names.size == 1 ? 'is' : 'are'} deprecated with an Aws::S3::Client as client:, " \
+                         "which ignores #{them}, since it has its own, supply #{them} to Aws::S3::Client.new instead, or " \
+                         "supply client: as a Hash of its options")
+      end
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
       def each_object(prefix)

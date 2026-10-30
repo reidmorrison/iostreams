@@ -486,7 +486,7 @@ module IOStreams
     end
 
     class URI
-      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
+      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query, :fragment
 
       def initialize(url)
         url       = url.gsub(" ", "%20")
@@ -497,6 +497,7 @@ module IOStreams
         @user     = uri.user
         @password = uri.password
         @port     = uri.port
+        @fragment = uri.fragment
         return unless uri.query
 
         @query = {}

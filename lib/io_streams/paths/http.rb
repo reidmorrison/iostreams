@@ -76,6 +76,7 @@ module IOStreams
         @maximum_file_size   = maximum_file_size
         @url                 = parameters ? "#{url}?#{URI.encode_www_form(parameters)}" : url
         super(uri.path)
+        warn_url_without_host(uri)
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -100,6 +101,16 @@ module IOStreams
       private
 
       attr_reader :allow_hosts, :maximum_file_size
+
+      # Reports a deprecation warning for a url without a host, such as `http:///a.csv`, which IOStreams 3.0 raises
+      # ArgumentError for when the path is created, so that a mistake in a configured url is reported wherever the
+      # code runs.
+      def warn_url_without_host(uri)
+        return unless uri.host.to_s.empty?
+
+        Deprecation.warn("the HTTP url #{display_name.inspect} is deprecated, since it names no host, name one, such " \
+                         "as 'https://example.org/a.csv'")
+      end
 
       # Read a file using an http get.
       #

@@ -294,6 +294,77 @@ module Paths
         client
       end
 
+      describe "a url part or argument that the path cannot use, which v3.0 raises ArgumentError for" do
+        it "reports a deprecation warning for a fragment, which an unencoded '#' starts, and still reads the key before it" do
+          line = __LINE__ + 2
+          path = assert_deprecated(%r{s3_test\.rb:#{line}: warning: IOStreams: the S3 url "s3://bucket/a" is deprecated, since it has a fragment, which a '#' starts, and which is not part of the key, percent-encode a '#' in a key as '%23'\n\z}) do
+            IOStreams.path("s3://bucket/a#b.csv")
+          end
+
+          assert_equal "a", path.path
+          assert_equal "a#b.csv", refute_deprecated { IOStreams.path("s3://bucket/a%23b.csv") }.path
+        end
+
+        it "reports a deprecation warning for a port, which is ignored" do
+          path = assert_deprecated(%r{IOStreams: the S3 url "s3://bucket/a\.csv" is deprecated, since its port is ignored, supply the endpoint of another service that implements the S3 API with client: \{endpoint: "https://host:port"\}\n\z}) do
+            IOStreams.path("s3://bucket:9000/a.csv")
+          end
+
+          assert_equal "s3://bucket/a.csv", path.to_s
+        end
+
+        it "reports a deprecation warning for a user name or password, which are ignored, without them" do
+          path = assert_deprecated(%r{IOStreams: the S3 url "s3://bucket/a\.csv" is deprecated, since its user name and password are ignored, supply the credentials with access_key_id: and secret_access_key:\n\z}) do
+            IOStreams.path("s3://AKIA:TOP-SECRET@bucket/a.csv")
+          end
+
+          assert_equal "s3://bucket/a.csv", path.to_s
+          assert_deprecated(/its user name and password are ignored/) { IOStreams.path("s3://AKIA@bucket/a.csv") }
+        end
+
+        it "reports a deprecation warning for a url without a bucket" do
+          path = assert_deprecated(%r{IOStreams: the S3 url "s3:///a\.csv" is deprecated, since it names no bucket, name one, such as 's3://bucket/a\.csv'\n\z}) do
+            IOStreams.path("s3:///a.csv")
+          end
+
+          assert_equal "s3://a.csv", path.to_s
+        end
+
+        it "reports each part that the path cannot use" do
+          assert_deprecated(/has a fragment/, /its port is ignored/, /its user name and password are ignored/) do
+            IOStreams.path("s3://AKIA:TOP-SECRET@bucket:9000/a#b.csv")
+          end
+        end
+
+        it "reports a deprecation warning for the region and credentials supplied with an Aws::S3::Client, which ignores them" do
+          line = __LINE__ + 2
+          path = assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: access_key_id:, secret_access_key:, region: are deprecated with an Aws::S3::Client as client:, which ignores them, since it has its own, supply them to Aws::S3::Client\.new instead, or supply client: as a Hash of its options\n\z/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, access_key_id: "a", secret_access_key: "b", region: "eu-west-1")
+          end
+
+          assert_same client, path.client
+          assert_deprecated(/region: is deprecated with an Aws::S3::Client as client:, which ignores it/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, region: "eu-west-1")
+          end
+        end
+
+        it "reports no deprecation warning for the region and credentials supplied with the options of a new client" do
+          path = refute_deprecated do
+            IOStreams.path("s3://bucket/a.csv", client: {stub_responses: true}, access_key_id: "a", secret_access_key: "b",
+                                                region: "eu-west-1")
+          end
+
+          assert_equal "eu-west-1", path.client.config.region
+        end
+
+        it "reports no deprecation warning for a url that the path can use" do
+          refute_deprecated do
+            IOStreams.path("s3://bucket/data/a%23b.csv", client: client)
+            IOStreams.path("s3://bucket", client: client)
+          end
+        end
+      end
+
       describe "#join" do
         it "joins a name that only shares a prefix with the key" do
           path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)

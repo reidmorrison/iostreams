@@ -76,6 +76,23 @@ module Paths
           end
           assert_includes error.message, "Invalid URL"
         end
+
+        it "reports a deprecation warning for a url without a host, which v3.0 raises ArgumentError for" do
+          line = __LINE__ + 2
+          path = assert_deprecated(%r{http_test\.rb:#{line}: warning: IOStreams: the HTTP url "http:///a\.csv" is deprecated, since it names no host, name one, such as 'https://example\.org/a\.csv'\n\z}) do
+            IOStreams.path("http:///a.csv")
+          end
+
+          assert_equal "/a.csv", path.path
+          assert_deprecated(%r{the HTTP url "https:///a\.csv" is deprecated}) { IOStreams.path("https:///a.csv") }
+        end
+
+        it "reports no deprecation warning for a url with a host, a query, a fragment or credentials" do
+          refute_deprecated do
+            IOStreams.path("https://jack:secret@example.org:8443/a.csv?date=today#top")
+            IOStreams.path("http://example.org")
+          end
+        end
       end
 
       describe ".open (live)" do
