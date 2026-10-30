@@ -104,17 +104,47 @@ class XlsxReaderTest
         assert_equal File.binread(file_name), data
       end
 
-      it "reports none for a format that the file name names, which v3.0 replaces with CSV" do
+      it "reports a deprecation warning for a format that the file name names, which still reads the rows in it" do
         Dir.mktmpdir do |dir|
           name = File.join(dir, "report.psv.xlsx")
           FileUtils.cp(file_name, name)
-          rows = refute_deprecated do
+          line = __LINE__ + 3
+          rows = assert_deprecated(/xlsx_reader_test\.rb:#{line}: warning: IOStreams: the format :psv that the file name names is deprecated when the streams read the rows as :csv, such as those of a spreadsheet, since v3\.0 reads them as :csv whatever the file name, set format\(:csv\) to read them so in both versions\n\z/) do
             rows = []
             IOStreams.path(name).each(:array) { |row| rows << row }
             rows
           end
 
           assert_equal xlsx_contents.map { |row| [row.join(",")] }, rows
+        end
+      end
+
+      it "reports none for format(:csv) on a file name that names another format, which reads the rows as CSV" do
+        Dir.mktmpdir do |dir|
+          name = File.join(dir, "report.psv.xlsx")
+          FileUtils.cp(file_name, name)
+          rows = refute_deprecated do
+            rows = []
+            IOStreams.path(name).format(:csv).each(:array) { |row| rows << row }
+            rows
+          end
+
+          assert_equal xlsx_contents, rows
+        end
+      end
+
+      it "reports none for a file name that names CSV, or no format" do
+        Dir.mktmpdir do |dir|
+          name = File.join(dir, "report.csv.xlsx")
+          FileUtils.cp(file_name, name)
+          rows = refute_deprecated do
+            rows = []
+            IOStreams.path(name).each(:array) { |row| rows << row }
+            IOStreams.path(file_name).each(:array) { |row| rows << row }
+            rows
+          end
+
+          assert_equal xlsx_contents + xlsx_contents, rows
         end
       end
     end

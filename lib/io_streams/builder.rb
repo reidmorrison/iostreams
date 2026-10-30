@@ -223,17 +223,28 @@ module IOStreams
     # A format set with #format= that is not the format of the text that the streams read, see #text_format, such as
     # `:psv` for a spreadsheet, whose rows are read as CSV, is deprecated, since v3.0 raises ArgumentError when its
     # lines, rows or records are read, rather than read them in that format. Reports a deprecation warning when they are
-    # read, as v3.0 raises then, whichever way the streams were set. The format detected from the file name, such as
-    # that of `report.psv.xlsx`, is not reported, since v3.0 reads the rows of a spreadsheet as CSV whatever its name.
+    # read, as v3.0 raises then, whichever way the streams were set.
+    #
+    # So is reading them in the format that the file name names, such as `:psv` for `report.psv.xlsx`, without a format
+    # set, since v3.0 reads them in the format of the text whatever the file name, so that `format(:csv)` reads them
+    # the same in both versions.
     def warn_text_format
-      return if @set_format.nil?
+      format = @set_format || self.format
+      return if format.nil?
 
       text_format = self.text_format
-      return if text_format.nil? || @set_format == text_format
+      return if text_format.nil? || format == text_format
 
-      Deprecation.warn("format(#{@set_format.inspect}) is deprecated when the streams read the rows as " \
-                       "#{text_format.inspect}, such as those of a spreadsheet, since v3.0 raises ArgumentError for " \
-                       "it, set format(#{text_format.inspect}) instead, or no format")
+      if @set_format
+        Deprecation.warn("format(#{format.inspect}) is deprecated when the streams read the rows as " \
+                         "#{text_format.inspect}, such as those of a spreadsheet, since v3.0 raises ArgumentError for " \
+                         "it, set format(#{text_format.inspect}) instead, or no format")
+      else
+        Deprecation.warn("the format #{format.inspect} that the file name names is deprecated when the streams read " \
+                         "the rows as #{text_format.inspect}, such as those of a spreadsheet, since v3.0 reads them as " \
+                         "#{text_format.inspect} whatever the file name, set format(#{text_format.inspect}) to read " \
+                         "them so in both versions")
+      end
     end
 
     # Returns [String] the quote character within which field delimiters and newlines may be

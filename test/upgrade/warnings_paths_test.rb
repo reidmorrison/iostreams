@@ -1,5 +1,6 @@
 require_relative "../test_helper"
 require "csv"
+require "fileutils"
 require "pathname"
 require "stringio"
 require "tmpdir"
@@ -149,6 +150,20 @@ module Upgrade
           end
 
           assert_equal spreadsheet_rows.map(&:to_csv).map(&:chomp), lines
+        end
+
+        it "reads the rows of a spreadsheet whose file name names another format as CSV with format(:csv)" do
+          Dir.mktmpdir do |dir|
+            name = File.join(dir, "report.psv.xlsx")
+            FileUtils.cp(spreadsheet, name)
+            rows = refute_deprecated do
+              rows = []
+              IOStreams.path(name).format(:csv).each(:array) { |row| rows << row }
+              rows
+            end
+
+            assert_equal spreadsheet_rows, rows
+          end
         end
       end
 

@@ -120,7 +120,7 @@ deprecation warning:
 | Changing a root path in place, such as `IOStreams.root.stream(:gz)` or `IOStreams.add_root(:default, "/data").option(...)`, which changes the root for the whole process. v3.0 freezes the root, so changing the path that `IOStreams.add_root` returns raises `FrozenError`, and `IOStreams.root`, `IOStreams.roots` and `IOStreams.join` without elements return copies of it | A copy of the root, such as `IOStreams.root.dup.stream(:gz)`, or a path joined to it, such as `IOStreams.join("a.csv.gz").option(:gz, level: 9)`, which never has the streams, options, encoding, format or schema of the root |
 | `#move_to` onto an existing directory, which moves the file into it, and returns the directory | The file within the directory, such as `path.move_to(IOStreams.path("/archive").join(path.basename))`, which returns the file |
 | A pattern supplied to `#each_child` or `#children` that is not a String, such as a `Pathname` | Its String, such as `pattern.to_s` |
-| A format other than `:csv` set on a spreadsheet, such as `format(:psv)` on an `.xlsx` path, when its lines, rows or records are read | `format(:csv)`, or no format, since a spreadsheet is read as CSV |
+| A format other than `:csv` set on a spreadsheet, such as `format(:psv)` on an `.xlsx` path, or named by its file name, such as `report.psv.xlsx`, when its lines, rows or records are read. v3.0 raises `ArgumentError` for a format that is set, and reads the rows as CSV whatever the file name | `format(:csv)`, which reads the rows as CSV in both versions, or no format on a path whose file name names none, since a spreadsheet is read as CSV |
 
 ### Moving a layout to a schema
 
