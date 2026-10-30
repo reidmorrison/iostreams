@@ -3593,6 +3593,21 @@ deprecation warning:
 | A method of the `File` that a writer block receives for an S3 path without streams, other than `#write`, `#<<`, `#print`, `#puts`, `#printf` and `#flush`, such as `#path` or `#size` | Those methods. Where it must be a `File`, write a local file first, such as with `IOStreams.temp_file`, and copy it to the S3 path with `#copy_to` |
 | `#encoding` or `#cleaner` of the stream that a reader or writer block receives when an encoding is set | The settings of the path: `path.encoding`, or `Encoding.find(path.encoding)` for an `Encoding`, and `path.setting(:encode)[:cleaner]` |
 
+v3.0 changes the result of these calls, so in v2.2 each still gives the result that it gave before, and reports a
+deprecation warning that names another way to write it, which gives the same result in v2.2 and v3.0:
+
+| Deprecated | Use instead |
+|------------|-------------|
+| `IOStreams::Pgp.export(email: nil)` without a `key_id:`, and `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`, which raise `IOStreams::Pgp::Failure`, where v3.0 raises `ArgumentError` | The email or key id of the key |
+| The rows and records of a file named `.text`, such as `ids.text`, which are read and written as CSV, where v3.0 reads and writes them in its `:text` format, as the text of each line | `format(:csv)`, or the format of an extension before `.text`, such as `format(:json)` for `people.json.text` |
+| `each(:array)` and `reader(:array)` of JSON without a schema, which yield each record as a Hash, where v3.0 yields each row as an Array, after a header row of the keys of the first record | `each(:hash)` to read the records, or a schema, with which v2.2 reads the rows as v3.0 does |
+| An SFTP or HTTP(S) url without a path, such as `sftp://host` or `https://host?a=1`, to which v3.0 adds a `/`, which changes its `#to_s` and `#path`, and the directory that SFTP `#each_child` lists, from the login directory to `/` | The url with the `/`, such as `sftp://host/` or `https://host/?a=1` |
+| A name that starts with `/` joined to an S3 bucket, such as `IOStreams.path("s3://bucket").join("/exports/a.csv")`, which is the key `/exports/a.csv`, where v3.0 joins it as the key `exports/a.csv` | The name without the leading `/`, or for an object whose key starts with `/`, its url, such as `IOStreams.path("s3://bucket//exports/a.csv")` |
+| A local file name of `~`, or starting with `~/`, which is within a directory called `~` in the current directory, where v3.0 reads it within the home directory | `File.expand_path("~/data/a.csv")` for the home directory, or `./~/data/a.csv` for the directory called `~` |
+| A `Pathname` supplied to `IOStreams.new`, `#copy_from`, `#copy_to` or `#move_to`, which read and write it as an IO, where v3.0 takes it as the name of a file, applying the streams of its file name, or to `IOStreams.stream`, which raises `ArgumentError` for it in v3.0 | `pathname.to_s` or `IOStreams.path(pathname)`, and `#raw` on the path to read or write the data as it is stored |
+| Reading or writing the path of `IOStreams.temp_file` when its extension names streams, such as `.csv.gz`, which reads and writes the data as it is stored, where v3.0 applies those streams | `#raw` on the path, to read and write the data as it is stored |
+| An option set for another extension of the format of the file, such as `option(:pgp, ...)` for a `.gpg` file, `option(:gz, ...)` for `.gzip`, or `option(:xlsx, ...)` for `.xlsm`, which is ignored, where v3.0 applies it | The option of the extension in the file name, such as `option(:gpg, ...)` |
+
 ### Moving a layout to a schema
 
 `#format_options` is deprecated. It still works, and still reads and writes the file with its layout, as before, so
