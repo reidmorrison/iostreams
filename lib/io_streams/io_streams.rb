@@ -451,14 +451,31 @@ module IOStreams
   # Returns [IOStreams::Extension] the extension registered, whose setters, such as `writer_class=`, are deprecated,
   # see `IOStreams::Extension::Registered`.
   #
+  # Registering `:encode` or `:none`, in any case, is deprecated, see RESERVED_EXTENSIONS. It still registers the
+  # extension, and reports a deprecation warning, see `IOStreams::Deprecation`.
+  #
   # Example:
   #   # MyXls::Reader and MyXls::Writer must implement .open
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
   def self.register_extension(extension, reader_class, writer_class)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
 
+    if (advice = RESERVED_EXTENSIONS[extension.to_s.downcase.to_sym])
+      Deprecation.warn("IOStreams.register_extension(#{extension.inspect}, ...) is deprecated, since #{advice}")
+    end
     @extensions[extension&.to_sym] = Extension.new(reader_class, writer_class).extend(Extension::Registered)
   end
+
+  # The names that IOStreams 3.0 reserves, so that registering an extension of one of them, in any case, which it raises
+  # ArgumentError for, is deprecated, see .register_extension, with why, and what to do instead.
+  RESERVED_EXTENSIONS = {
+    encode: "the encode stream is built in, which IOStreams 3.0 does not let an extension replace: register the " \
+            "reader and writer under another name instead, and apply them with #stream, or set the encoding of the " \
+            "text with #encoding",
+    none:   "IOStreams 3.0 reserves :none, which stream(:none) took to apply no streams, register the stream under " \
+            "another name instead"
+  }.freeze
+  private_constant :RESERVED_EXTENSIONS
 
   # Registers an extension that IOStreams builds in, as .register_extension does, whose methods of a Struct, other than
   # `reader_class` and `writer_class`, are deprecated too, see `IOStreams::Extension::BuiltIn`.
@@ -469,13 +486,22 @@ module IOStreams
 
   # De-Register a file extension
   #
-  # Returns [Symbol] the extension removed, or nil if the extension was not registered
+  # Returns [IOStreams::Extension] the extension removed, or nil if the extension was not registered
+  #
+  # Deregistering `:encode` is deprecated, since the encode stream is built in, which IOStreams 3.0 does not
+  # deregister. It still removes it, so that `#encoding` then raises ArgumentError, and reports a deprecation warning,
+  # see `IOStreams::Deprecation`.
   #
   # Example:
   #   deregister_extension(:xls)
   def self.deregister_extension(extension)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
 
+    if extension.to_sym == :encode
+      Deprecation.warn("IOStreams.deregister_extension(#{extension.inspect}) is deprecated, since the encode stream is " \
+                       "built in, which IOStreams 3.0 does not deregister, so remove it: IOStreams 3.0 applies the " \
+                       "encode stream only where #encoding sets it")
+    end
     @extensions.delete(extension.to_sym)
   end
 

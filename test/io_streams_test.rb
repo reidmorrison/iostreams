@@ -258,6 +258,43 @@ module IOStreams
             IOStreams.register_extension("invalid name", IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
           end
         end
+
+        it "reports no deprecation warning for an extension that IOStreams 3.0 does not reserve" do
+          refute_deprecated { IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer) }
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
+        it "reports a deprecation warning for :encode, and replaces the encode stream as before" do
+          reader = Class.new(IOStreams::Encode::Reader)
+          line   = __LINE__ + 2
+          assert_deprecated(/io_streams_test\.rb:#{line}: warning: IOStreams: IOStreams\.register_extension\(:encode, \.\.\.\) is deprecated, since the encode stream is built in, which IOStreams 3\.0 does not let an extension replace: register the reader and writer under another name instead, and apply them with #stream, or set the encoding of the text with #encoding\n\z/) do
+            IOStreams.register_extension(:encode, reader, IOStreams::Encode::Writer)
+          end
+
+          assert_equal reader, IOStreams.extensions[:encode].reader_class
+        ensure
+          IOStreams.send(:register_built_in_extension, :encode, IOStreams::Encode::Reader, IOStreams::Encode::Writer)
+        end
+
+        it "reports a deprecation warning for :encode in any case, which IOStreams 3.0 also reserves" do
+          assert_deprecated(/IOStreams\.register_extension\("ENCODE", \.\.\.\) is deprecated, since the encode stream is built in/) do
+            IOStreams.register_extension("ENCODE", IOStreams::Encode::Reader, IOStreams::Encode::Writer)
+          end
+        ensure
+          IOStreams.deregister_extension("ENCODE")
+        end
+
+        it "reports a deprecation warning for :none, and registers it as before" do
+          line = __LINE__ + 2
+          assert_deprecated(/io_streams_test\.rb:#{line}: warning: IOStreams: IOStreams\.register_extension\(:none, \.\.\.\) is deprecated, since IOStreams 3\.0 reserves :none, which stream\(:none\) took to apply no streams, register the stream under another name instead\n\z/) do
+            IOStreams.register_extension(:none, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+          end
+
+          assert_equal IOStreams::Gzip::Reader, IOStreams.extensions[:none].reader_class
+        ensure
+          refute_deprecated { IOStreams.deregister_extension(:none) }
+        end
       end
 
       describe ".deregister_extension" do
@@ -272,6 +309,19 @@ module IOStreams
           assert_raises ArgumentError do
             IOStreams.deregister_extension("invalid name")
           end
+        end
+
+        it "reports a deprecation warning for :encode, and removes the encode stream as before" do
+          line = __LINE__ + 2
+          extension = assert_deprecated(/io_streams_test\.rb:#{line}: warning: IOStreams: IOStreams\.deregister_extension\(:encode\) is deprecated, since the encode stream is built in, which IOStreams 3\.0 does not deregister, so remove it: IOStreams 3\.0 applies the encode stream only where #encoding sets it\n\z/) do
+            IOStreams.deregister_extension(:encode)
+          end
+
+          assert_equal IOStreams::Encode::Reader, extension.reader_class
+          refute IOStreams.extensions.key?(:encode)
+          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new("abc")).encoding("UTF-8").read }
+        ensure
+          IOStreams.send(:register_built_in_extension, :encode, IOStreams::Encode::Reader, IOStreams::Encode::Writer)
         end
       end
 
