@@ -162,6 +162,31 @@ module Upgrade
 
           assert_equal [::File, csv, 0, csv, csv.bytesize], data
         end
+
+        it "writes the object with the methods of an IO that write" do
+          refute_deprecated do
+            IOStreams.path("s3://iostreams-upgrade/written.csv").writer do |io|
+              io.write("name,zip\n")
+              io << "Jack,12345\n" << "Jill,23456\n"
+              io.flush
+            end
+          end
+
+          assert_equal csv, IOStreams.path("s3://iostreams-upgrade/written.csv").read
+        end
+
+        it "writes the object from a local File, once it is written there and copied" do
+          name = refute_deprecated do
+            IOStreams.temp_file("people", ".csv") do |temp|
+              path = temp.writer { |io| io.write(csv) && io.path }
+              temp.copy_to(IOStreams.path("s3://iostreams-upgrade/copied.csv"), convert: false)
+              path
+            end
+          end
+
+          assert_kind_of String, name
+          assert_equal csv, IOStreams.path("s3://iostreams-upgrade/copied.csv").read
+        end
       end
 
       describe "an HTTP path" do

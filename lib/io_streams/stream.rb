@@ -70,7 +70,9 @@ module IOStreams
 
     # The deprecation warning of a method of the stream that a writer block receives, see V3_READER_DEPRECATION.
     V3_WRITER_DEPRECATION = "is deprecated on %s that #writer yields, since in v3.0 it is a stream that only writes, " \
-                            "with #write, #<<, #print, #puts and #printf: write it with those".freeze
+                            "with #write, #<<, #print, #puts and #printf: write it with those, or write a local file " \
+                            "first, such as with IOStreams.temp_file, and copy it with #copy_to, where it must be a " \
+                            "File".freeze
     private_constant :V3_WRITER_DEPRECATION
 
     def initialize(io_stream)
@@ -665,7 +667,7 @@ module IOStreams
     # opened, since the streams that v3.0 replaces are those of IOStreams itself, each of which yields one stream.
     def v3_deprecation(type)
       reading       = type == :reader
-      methods, name = builder.v3_stream(type, reading ? v3_source : nil, reading && v3_reads_file?)
+      methods, name = builder.v3_stream(type, reading ? v3_source : v3_target, reading && v3_reads_file?)
       [methods, (reading ? V3_READER_DEPRECATION : V3_WRITER_DEPRECATION) % name] if methods
     end
 
@@ -673,6 +675,13 @@ module IOStreams
     # answers, and its name for a deprecation warning, when it is not the IO that they read in v2.2, see
     # `IOStreams::Builder#v3_stream`, otherwise nil, as for the IO supplied to `IOStreams.stream`, which v3.0 reads too.
     def v3_source
+      nil
+    end
+
+    # Returns [Array(Array<Symbol>, String)|nil] the methods that the IO that the streams of this stream write in v3.0
+    # answers, and its name for a deprecation warning, when it is not the IO that they write in v2.2, see #v3_source,
+    # otherwise nil, as for the IO supplied to `IOStreams.stream`, which v3.0 writes too.
+    def v3_target
       nil
     end
 

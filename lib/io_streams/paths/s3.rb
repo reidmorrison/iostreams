@@ -497,6 +497,26 @@ module IOStreams
         [IOStreams::Reader::V3_READ_METHODS, "the IO of an S3 path"]
       end
 
+      # The methods of the IO that v3.0 uploads the object with, see #v3_target: those of an IO that write, and #flush.
+      V3_UPLOAD_METHODS = %i[write << print puts printf flush].freeze
+      private_constant :V3_UPLOAD_METHODS
+
+      # The options that describe the whole object, with which v3.0 still writes the object into a temp file first, as
+      # does a checksum of its data, such as `checksum_crc32`, see #v3_target.
+      V3_WHOLE_OBJECT_OPTIONS = %i[content_length content_md5 write_offset_bytes].freeze
+      private_constant :V3_WHOLE_OBJECT_OPTIONS
+
+      # Returns [Array(Array<Symbol>, String)|nil] the methods of the IO that v3.0 uploads the object with, in place of the
+      # temp File that v2.2 writes it into, and its name, see `IOStreams::Stream#v3_target`: v3.0 uploads the object as
+      # the application writes it, with an IO that only writes, unless an option describes the whole object, which it
+      # still writes into a temp file first.
+      def v3_target
+        whole_object = options.each_key.any? do |name|
+          V3_WHOLE_OBJECT_OPTIONS.include?(name) || (name.start_with?("checksum_") && name != :checksum_algorithm)
+        end
+        [V3_UPLOAD_METHODS, "the IO of an S3 path"] unless whole_object
+      end
+
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
       def each_object(prefix)
         token = nil

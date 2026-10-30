@@ -1,5 +1,6 @@
 require_relative "../test_helper"
 require_relative "../s3_stub"
+require "digest"
 
 module Paths
   class S3Test < Minitest::Test
@@ -151,6 +152,42 @@ module Paths
         it "writes" do
           assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
           assert_predicate write_path, :exist?
+          assert_equal raw, write_path.read
+        end
+
+        it "reports a deprecation warning for a method of the File that it writes, which v3.0 does not supply" do
+          size = write_path.writer do |io|
+            io.write(raw)
+
+            assert_kind_of ::File, io
+            assert_kind_of String, assert_deprecated(/IOStreams: #path is deprecated on the IO of an S3 path that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts and #printf: write it with those, or write a local file first, such as with IOStreams\.temp_file, and copy it with #copy_to, where it must be a File\n\z/) { io.path }
+            assert_deprecated(/#size is deprecated on the IO of an S3 path that #writer yields/) { io.size }
+          end
+
+          assert_equal raw.bytesize, size
+          assert_equal raw, write_path.read
+        end
+
+        it "reports none for the methods of an IO that write, and #flush" do
+          refute_deprecated do
+            write_path.writer do |io|
+              io.write("a")
+              io << "b"
+              io.print("c")
+              io.printf("%d", 1)
+              io.puts
+              io.flush
+            end
+          end
+
+          assert_equal "abc1\n", write_path.read
+        end
+
+        it "reports none with an option that describes the whole object, which v3.0 still writes into a temp File" do
+          path = IOStreams.path(write_path.to_s, content_md5: Digest::MD5.base64digest(raw))
+          name = refute_deprecated { path.writer { |io| io.write(raw) && io.path } }
+
+          assert_kind_of String, name
           assert_equal raw, write_path.read
         end
       end

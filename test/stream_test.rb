@@ -1094,7 +1094,7 @@ class StreamTest < Minitest::Test
           line = __LINE__ + 4
           path.writer do |io|
             io.write(csv)
-            assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #fileno is deprecated on the :pgp stream that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts and #printf: write it with those\n\z/) do
+            assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #fileno is deprecated on the :pgp stream that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts and #printf: write it with those, or write a local file first, such as with IOStreams\.temp_file, and copy it with #copy_to, where it must be a File\n\z/) do
               io.fileno
             end
           end

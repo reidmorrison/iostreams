@@ -258,7 +258,7 @@ module IOStreams
     # in v2.2 answers others, otherwise nil. The stream closest to the application decides, see
     # `IOStreams::Reader.v3_stream_methods`, apart from the encode stream, which is the stream of IOStreams itself in
     # both versions. Without any streams, the block receives the IO that they would read or write, which the supplied
-    # source describes, see `IOStreams::Stream#v3_source`.
+    # source describes, see `IOStreams::Stream#v3_source` and `IOStreams::Stream#v3_target`.
     #
     # Parameters:
     #   type: [:reader|:writer]
