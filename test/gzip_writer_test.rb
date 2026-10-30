@@ -55,6 +55,22 @@ class GzipWriterTest < Minitest::Test
       end
     end
 
+    describe "the stream supplied to a writer block" do
+      it "answers the path of the file, as Zlib::GzipWriter does for an output stream with one" do
+        Dir.mktmpdir do |dir|
+          name = File.join(dir, "a.csv.gz")
+
+          assert_equal name, IOStreams.path(name).writer(&:path)
+        end
+      end
+
+      it "answers no path for an output stream without one, as Zlib::GzipWriter does" do
+        IOStreams.stream(StringIO.new(+"".b)).stream(:gz).writer do |io|
+          refute_respond_to io, :path
+        end
+      end
+    end
+
     describe ".check" do
       it "accepts the levels of zlib" do
         [nil, -1, 0, 9].each { |level| assert_nil IOStreams::Gzip::Writer.check(level: level) }
