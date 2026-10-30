@@ -69,6 +69,67 @@ module Paths
         end
       end
 
+      # The stream that a writer block of a path without streams writes to, which responds to the same methods as every
+      # other stream, see test/stream_io_test.rb, since a path is configuration.
+      describe "the stream supplied to a writer block" do
+        # A String that IO#puts writes as it is, rather than as its #to_s.
+        let(:subclass) do
+          Class.new(String) do
+            def to_s
+              "not this"
+            end
+          end
+        end
+
+        # An object whose #to_s is not a String, which IO#puts writes as Object#to_s writes it.
+        let(:not_text) do
+          Class.new do
+            def to_s
+              nil
+            end
+          end.new
+        end
+
+        it "responds to the methods of an IO that write" do
+          path.writer do |io|
+            assert_instance_of IOStreams::Paths::S3::Uploader, io
+            assert_equal 8, io.write("id,", "name\n")
+            assert_same io, io << "1," << "Jack\n"
+            assert_nil io.print("2,", "Jill\n")
+            assert_nil io.puts("3,Bob", ["4,Ann"])
+            assert_nil io.printf("%<id>d,%<name>s\n", id: 5, name: "Zoe")
+            assert_same io, io.flush
+          end
+
+          assert_equal "id,name\n1,Jack\n2,Jill\n3,Bob\n4,Ann\n5,Zoe\n", path.read
+        end
+
+        it "writes each object of #puts in its own encoding, like an IO in binary mode" do
+          # Not an empty Array, for which IO#puts writes a newline on JRuby, and nothing on MRI, as #puts does.
+          objects = [
+            "caf\xE9".b.force_encoding("Windows-1252"), nil, ["a", ["b\n"]], "c".encode("UTF-16LE"), "d\n".encode("UTF-16"),
+            subclass.new("e"), not_text
+          ]
+          path.writer { |io| io.puts(*objects) }
+
+          binary_io = StringIO.new(+"".b)
+          binary_io.puts(*objects)
+
+          assert_equal binary_io.string, path.read.b
+        end
+
+        it "writes nothing for an empty string, like an IO" do
+          path.writer do |io|
+            assert_equal 0, io.write("")
+            assert_equal 3, io.write("", "id\n", "")
+            assert_same io, io << ""
+            assert_nil io.print("")
+          end
+
+          assert_equal "id\n", path.read
+        end
+      end
+
       describe "more than one part" do
         let(:data) { Random.new(2).bytes((PART_SIZE * 2) + 10) }
 

@@ -3,9 +3,10 @@
 require "delegate"
 
 module IOStreams
-  # The methods of an IO that write, `#write`, `#<<`, `#print`, `#puts` and `#printf`, for the stream that the writer of
-  # a format supplies to its block, so that the code that writes the data works whichever format the file name names,
-  # since a path is configuration, whose file name can change from `.gz` to `.bz2`.
+  # The methods of an IO that write, `#write`, `#<<`, `#print`, `#puts` and `#printf`, for the stream that a writer block
+  # writes to, that of a format or of a store, so that the code that writes the data works whichever format the file
+  # name names, and whichever store holds the file, since a path is configuration, whose file name can change from `.gz`
+  # to `.bz2`, and whose url from a local file to S3.
   #
   # The class that includes it supplies `#write_data`, which writes [String] data, and returns [Integer] the number of
   # bytes written. The writer of a gem that lacks these methods is wrapped in an Adapter.

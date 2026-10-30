@@ -18,7 +18,14 @@ module IOStreams
       #
       # Used internally by the S3 path, which makes each request, so that it supplies its bucket, key and options, and
       # tags each failure.
+      #
+      # It is the stream that a writer block writes to when the path has no streams, such as `data.csv`, or is written
+      # with `#raw`, so like every other stream it responds to the methods of an IO that write, `#write`, `#<<`,
+      # `#print`, `#puts` and `#printf`, see `IOStreams::Writable`, which writes them through #write_data, and to
+      # `#flush`.
       class Uploader
+        include Writable
+
         # The size of the first parts, and the most that is stored with a single request.
         PART_SIZE = 8 * 1024 * 1024
         # The number of parts uploaded before the size of a part doubles.
@@ -79,16 +86,6 @@ module IOStreams
           @parts      = []
         end
 
-        # Returns [Integer] the number of bytes written, like `IO#write`.
-        def write(*data)
-          data.sum { |item| append(item.to_s) }
-        end
-
-        def <<(data)
-          append(data.to_s)
-          self
-        end
-
         def flush
           self
         end
@@ -115,7 +112,9 @@ module IOStreams
 
         private
 
-        def append(data)
+        # Adds the bytes of the data to the part being written, and starts uploading each part once it is complete, see
+        # `IOStreams::Writable`. Returns [Integer] the number of bytes of the data.
+        def write_data(data)
           @buffer << (data.encoding == Encoding::BINARY ? data : data.b)
           # Holds back the last part until it is complete, so that less than one part is stored with one request.
           while @buffer.bytesize > part_size
