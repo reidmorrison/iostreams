@@ -163,11 +163,51 @@ class UpgradeSchemaRowsTest < Minitest::Test
         IOStreams.stream(out).format(:json).schema(schema).writer(:hash) { |io| io << {"Área".b => "12", "name" => "José".b} }
 
         assert_equal %({"área":"12","name":"José"}\n), out.string.dup.force_encoding(Encoding::UTF_8)
+      end
 
-        error = assert_raises(IOStreams::Errors::InvalidEncoding) do
-          IOStreams.stream(StringIO.new).schema(schema).writer(:array) { |io| io << ["12", "Jos\xE9".b] }
+      it "matches the binary keys of the records written with a schema to the fields that their UTF-8 text names" do
+        csv  = StringIO.new
+        json = StringIO.new
+        IOStreams.stream(csv).format(:csv).schema(schema).writer(:hash) { |io| io << {"Área".b => "12", "name".b => "José"} }
+        IOStreams.stream(json).format(:json).schema(schema).writer(:hash) { |io| io << {"área".b => "12", "Name" => "José"} }
+
+        assert_equal "área,name\n12,José\n".b, csv.string.b
+        assert_equal %({"área":"12","name":"José"}\n).b, json.string.b
+      end
+
+      it "matches the binary columns of a header row written with a schema to the fields that their UTF-8 text names" do
+        out = StringIO.new
+        IOStreams.stream(out).format(:csv).schema(schema).writer(:array) do |io|
+          io << IOStreams::Row::HeaderRow.new(["Name".b, "Área".b])
+          io << %w[José 12]
         end
-        assert_equal "\xE9".b, error.error_char
+
+        assert_equal "área,name\n12,José\n".b, out.string.b
+      end
+
+      it "copies the rows of a file read as binary into a file with a schema, matching its header row to the fields" do
+        Dir.mktmpdir do |dir|
+          ::File.binwrite(::File.join(dir, "people.csv"), "Name,Área\nJosé,12\n")
+          target = IOStreams.path(dir, "copy.csv").schema(schema)
+          target.copy_from(IOStreams.path(dir, "people.csv").encoding("BINARY"), mode: :array)
+
+          assert_equal "área,name\n12,José\n".b, ::File.binread(target.to_s)
+        end
+      end
+
+      it "raises for binary text written with a schema that is not valid UTF-8, which IOStreams 3.0 writes as it is" do
+        out   = StringIO.new
+        write = -> { IOStreams.stream(out).schema(schema).writer(:array) { |io| io << ["12", "Jos\xE9".b] } }
+
+        if IOStreams::VERSION.to_i >= 3
+          # "A schema in v2.2 and v3.0" in docs/upgrading.md of IOStreams 3.0, its bullet on the binary text written.
+          write.call
+
+          assert_equal "área,name\n12,Jos\xE9\n".b, out.string.b
+        else
+          error = assert_raises(IOStreams::Errors::InvalidEncoding, &write)
+          assert_equal "\xE9".b, error.error_char
+        end
       end
 
       it "leaves binary text written that is not UTF-8 for an encoding set on the stream, which reads it as it is" do
