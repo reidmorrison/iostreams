@@ -1288,7 +1288,12 @@ Fix: strip the file name before creating the path, for example when it comes fro
 #### A pattern that is not a String raises `ArgumentError`
 
 `#each_child`, `#children` and `IOStreams.each_child` raise `ArgumentError` for a pattern that is not a String,
-such as `children(false)`, which `Pathname#children` accepts. Previously they raised `NoMethodError`.
+such as `children(false)`, which `Pathname#children` accepts. Previously a local path took a `Pathname`, apart from
+raising `NoMethodError` when it matched no file without `case_sensitive: true`, and any other value raised
+`TypeError`, as every one did on an SFTP path, while an S3 path and `IOStreams.each_child` raised `NoMethodError`,
+or `ArgumentError` for a `Pathname`.
+
+Fix: supply the text of a `Pathname` instead, such as `path.children(pattern.to_s)`.
 
 #### Other `each_child` changes
 
