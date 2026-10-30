@@ -82,9 +82,29 @@ module Paths
           assert_equal expected.sort, actual.sort
         end
 
-        it "finds the files of a pattern that is a Pathname, as v2.1 did, on JRuby too" do
+        it "reports a deprecation warning for a pattern that is not a String, and still finds its files" do
           expected = [file_path.to_s, file_path2.to_s]
-          actual   = root.children(Pathname.new("**/*.txt")).collect(&:to_s)
+          line     = __LINE__ + 2
+          actual   = assert_deprecated(/file_test\.rb:#{line}: warning: IOStreams: a pattern that is not a String is deprecated for #each_child and #children, since v3\.0 raises ArgumentError for it, supply a String instead, such as pattern\.to_s/) do
+            root.children(Pathname.new("**/*.txt")).collect(&:to_s)
+          end
+
+          assert_equal expected.sort, actual.sort
+        end
+
+        it "reports a deprecation warning for a pattern that is not a String when its enumerator is read" do
+          expected   = [file_path.to_s, file_path2.to_s]
+          enumerator = refute_deprecated { root.each_child(Pathname.new("**/*.txt")) }
+          actual     = assert_deprecated(/a pattern that is not a String is deprecated/) do
+            enumerator.first(100).collect(&:to_s)
+          end
+
+          assert_equal expected.sort, actual.sort
+        end
+
+        it "reports none for the String of a pattern" do
+          expected = [file_path.to_s, file_path2.to_s]
+          actual   = refute_deprecated { root.children(Pathname.new("**/*.txt").to_s).collect(&:to_s) }
 
           assert_equal expected.sort, actual.sort
         end

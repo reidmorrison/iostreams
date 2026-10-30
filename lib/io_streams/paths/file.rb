@@ -3,6 +3,11 @@ require "fileutils"
 module IOStreams
   module Paths
     class File < IOStreams::Path
+      # A pattern supplied to #each_child that is not a String, such as a Pathname, is deprecated.
+      PATTERN_DEPRECATION = "a pattern that is not a String is deprecated for #each_child and #children, since v3.0 " \
+                            "raises ArgumentError for it, supply a String instead, such as pattern.to_s".freeze
+      private_constant :PATTERN_DEPRECATION
+
       # Moving a file onto an existing directory is deprecated, see #move_to.
       MOVE_DEPRECATION = "#move_to onto an existing directory is deprecated, since v3.0 raises ArgumentError for it, " \
                          "supply the file within the directory instead, such as " \
@@ -100,12 +105,16 @@ module IOStreams
       # "**.rb"     "./main.rb"      false
       # "**.rb"     "lib/song.rb"    true
       # "*"         "dave/.profile"  true
+      #
+      # A pattern that is not a String, such as a Pathname, is deprecated, and reports a deprecation warning, see
+      # `IOStreams::Deprecation`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
         unless block_given?
           return to_enum(__method__, pattern,
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
+        Deprecation.warn(PATTERN_DEPRECATION) unless pattern.is_a?(String)
         authorize!
 
         # A pattern that is a Pathname is taken by its #to_path, as `::File.join` takes it, which v2.1 joined the pattern

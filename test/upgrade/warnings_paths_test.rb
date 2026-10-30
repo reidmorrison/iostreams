@@ -1,4 +1,5 @@
 require_relative "../test_helper"
+require "pathname"
 require "stringio"
 require "tmpdir"
 require "zlib"
@@ -85,6 +86,21 @@ module Upgrade
             assert_equal "Hello World", moved.read
             refute_predicate source, :exist?
             assert_equal ["a.csv"], Dir.children(File.join(dir, "archive"))
+          end
+        end
+      end
+
+      describe "the String of a pattern, in place of a Pathname" do
+        it "finds the same children" do
+          Dir.mktmpdir do |dir|
+            %w[a.csv b.csv c.txt].each { |name| IOStreams.path(dir, name).write("x\n") }
+            pattern  = Pathname.new("*.csv")
+            children = refute_deprecated { IOStreams.path(dir).children(pattern.to_s) }
+            found    = []
+            refute_deprecated { IOStreams.path(dir).each_child(pattern.to_s) { |child| found << child.basename } }
+
+            assert_equal %w[a.csv b.csv], children.map(&:basename).sort
+            assert_equal %w[a.csv b.csv], found.sort
           end
         end
       end
