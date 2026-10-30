@@ -21,6 +21,16 @@ module IOStreams
 
       attr_reader :directory, :pattern, :flags
 
+      # Returns [String] the pattern, which `#each_child` takes as text.
+      #
+      # Raises ArgumentError for a pattern that is not a String, such as the `false` of `Pathname#children(false)`, or a
+      # Pathname, so that every path, and `IOStreams.each_child` before it finds the path of a url, raises the same way.
+      def self.check_pattern(pattern)
+        return pattern if pattern.is_a?(String)
+
+        raise(ArgumentError, "The pattern must be a String, not #{pattern.inspect}")
+      end
+
       # Parameters
       #   pattern: [String]
       #     The pattern, see `IOStreams::Paths::File#each_child`.
@@ -30,8 +40,10 @@ module IOStreams
       #
       #   hidden: [true|false]
       #     Whether a wildcard matches hidden names, which start with `.`.
+      #
+      # Raises ArgumentError for a pattern that is not a String, see .check_pattern.
       def initialize(pattern, case_sensitive: false, hidden: false)
-        raise(ArgumentError, "The pattern must be a String, not #{pattern.inspect}") unless pattern.is_a?(String)
+        self.class.check_pattern(pattern)
 
         @hidden              = hidden
         @case_sensitive      = case_sensitive
