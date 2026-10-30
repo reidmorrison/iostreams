@@ -8655,6 +8655,12 @@ path.path = "data/out.csv"
 path = root.join("out.csv")
 ```
 
+On an SFTP or HTTP path, `#join` and `#directory` in v2.2 change only its `#path`: its `#to_s`, `#display_name` and
+`#inspect` are still the original url, and an HTTP path still reads it, so
+`IOStreams.path("https://example.com/files").join("report.csv").read` reads `https://example.com/files`. v3.0
+changes the url too, so code that joins names to SFTP or HTTP paths gets other results after the upgrade. In v2.2,
+create such a path with `IOStreams.path` and its whole url instead.
+
 #### `#builder=` is not public
 
 `#builder=` is no longer public on a path or a stream, so calling it raises `NoMethodError`. It takes
