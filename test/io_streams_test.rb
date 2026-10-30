@@ -1,5 +1,6 @@
 require_relative "test_helper"
 require "json"
+require "pp"
 
 module IOStreams
   class PathTest < Minitest::Test
@@ -279,6 +280,128 @@ module IOStreams
           %i[bz2 enc gz gzip zip pgp gpg xlsx xlsm encode].each do |extension|
             assert_includes IOStreams.extensions.keys, extension
           end
+        end
+
+        it "answers the reader and writer classes of each extension, without a deprecation warning" do
+          classes = refute_deprecated do
+            IOStreams.extensions.transform_values { |extension| [extension.reader_class, extension.writer_class] }
+          end
+
+          assert_equal [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer], classes[:gz]
+          assert_equal [IOStreams::Xlsx::Reader, nil], classes[:xlsx]
+        end
+
+        it "displays and compares an extension, without a deprecation warning" do
+          extension = IOStreams.extensions[:gz]
+          plain     = IOStreams::Extension.new(IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+
+          refute_deprecated do
+            assert_equal plain, extension
+            assert_equal plain.hash, extension.hash
+            assert_equal plain.inspect, extension.inspect
+            assert_equal plain.pretty_inspect, extension.pretty_inspect
+            assert_equal [:gz], IOStreams.extensions.select { |_name, ext| ext.eql?(plain) }.keys - [:gzip]
+          end
+        end
+
+        {
+          [:[], 0]                 => IOStreams::Gzip::Reader,
+          %i[[] writer_class]      => IOStreams::Gzip::Writer,
+          [:to_a]                  => [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer],
+          [:values]                => [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer],
+          [:deconstruct]           => [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer],
+          [:to_h]                  => {reader_class: IOStreams::Gzip::Reader, writer_class: IOStreams::Gzip::Writer},
+          [:members]               => %i[reader_class writer_class],
+          [:size]                  => 2,
+          [:length]                => 2,
+          [:values_at, 1]          => [IOStreams::Gzip::Writer],
+          %i[dig reader_class]     => IOStreams::Gzip::Reader,
+          [:deconstruct_keys, nil] => {reader_class: IOStreams::Gzip::Reader, writer_class: IOStreams::Gzip::Writer}
+        }.each_pair do |(name, *args), expected|
+          it "reports a deprecation warning for ##{name} of a built-in extension, which answers as before" do
+            line = __LINE__ + 2
+            result = assert_deprecated(/io_streams_test\.rb:#{line}: warning: IOStreams: ##{Regexp.escape(name.to_s)} on a built-in extension of IOStreams\.extensions is deprecated, since IOStreams 3\.0 returns its format, such as IOStreams::Gzip for :gz, rather than a Struct, use #reader_class and #writer_class instead\n\z/) do
+              IOStreams.extensions[:gz].public_send(name, *args)
+            end
+
+            assert_equal expected, result
+          end
+        end
+
+        it "reports a deprecation warning for the methods of a built-in extension that take a block, and those of Enumerable" do
+          extension = IOStreams.extensions[:gz]
+          classes   = [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer]
+
+          assert_equal classes, assert_deprecated(/#each on a built-in extension/) { extension.each.to_a }
+          assert_equal classes, assert_deprecated(/#each on a built-in extension/) { extension.map(&:itself) }
+          assert_equal classes, assert_deprecated(/#select on a built-in extension/) { extension.select(&:itself) }
+          assert_equal classes, assert_deprecated(/#filter on a built-in extension/) { extension.filter(&:itself) }
+          assert_equal classes, assert_deprecated(/#each_pair on a built-in extension/) { extension.each_pair.map(&:last) }
+          assert_equal({"reader_class" => classes.first, "writer_class" => classes.last},
+                       assert_deprecated(/#to_h on a built-in extension/) { extension.to_h { |name, klass| [name.to_s, klass] } })
+        end
+
+        it "reports a deprecation warning for the methods of a built-in extension that Ruby calls itself" do
+          extension = IOStreams.extensions[:gz]
+          classes   = [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer]
+
+          assert(assert_deprecated(/#each on a built-in extension/) { extension.include?(IOStreams::Gzip::Reader) })
+          assert_equal classes, assert_deprecated(/#to_a on a built-in extension/) { [*extension] }
+
+          matched = assert_deprecated(/#deconstruct_keys on a built-in extension/) do
+            case extension
+            in {reader_class:}
+              reader_class
+            end
+          end
+
+          assert_equal IOStreams::Gzip::Reader, matched
+        end
+
+        it "reports no deprecation warning for the methods of a Struct of a registered extension, which IOStreams 3.0 keeps" do
+          IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+          extension = IOStreams.extensions[:abc123]
+
+          refute_deprecated do
+            assert_equal [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer], extension.to_a
+            assert_equal IOStreams::Gzip::Writer, extension[:writer_class]
+            assert_equal({reader_class: IOStreams::Gzip::Reader, writer_class: IOStreams::Gzip::Writer}, extension.to_h)
+          end
+        ensure
+          IOStreams.deregister_extension(:abc123)
+        end
+
+        %i[gz abc123].each do |name|
+          it "reports a deprecation warning for each setter of the extension registered for :#{name}, which changes it as before" do
+            IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer) if name == :abc123
+            extension = IOStreams.extensions[name]
+            line      = __LINE__ + 2
+            assert_deprecated(/io_streams_test\.rb:#{line}: warning: IOStreams: #writer_class= on an extension of IOStreams\.extensions is deprecated, since it changes the registered extension for the whole process, which IOStreams 3\.0 does not allow, use IOStreams\.register_extension to change it instead\n\z/) do
+              extension.writer_class = IOStreams::Encode::Writer
+            end
+
+            assert_equal IOStreams::Encode::Writer, IOStreams.extensions[name].writer_class
+            assert_deprecated(/#reader_class= on an extension/) { extension.reader_class = IOStreams::Encode::Reader }
+            assert_deprecated(/#\[\]= on an extension/) { extension[:reader_class] = IOStreams::Gzip::Reader }
+            assert_deprecated(/#\[\]= on an extension/) { extension[1] = IOStreams::Gzip::Writer }
+
+            assert_equal [IOStreams::Gzip::Reader, IOStreams::Gzip::Writer],
+                         [IOStreams.extensions[name].reader_class, IOStreams.extensions[name].writer_class]
+          ensure
+            if name == :abc123
+              IOStreams.deregister_extension(:abc123)
+            elsif extension
+              # Restores the built-in extension, which the test changed, for the other tests.
+              IOStreams.send(:register_built_in_extension, :gz, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+            end
+          end
+        end
+
+        it "reports no deprecation warning for the setters of an extension that is not registered" do
+          extension = IOStreams::Extension.new(IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+          refute_deprecated { extension.writer_class = nil }
+
+          assert_nil extension.writer_class
         end
       end
 

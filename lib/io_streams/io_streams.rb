@@ -448,14 +448,24 @@ module IOStreams
 
   # Register a file extension and the reader and writer streaming classes
   #
+  # Returns [IOStreams::Extension] the extension registered, whose setters, such as `writer_class=`, are deprecated,
+  # see `IOStreams::Extension::Registered`.
+  #
   # Example:
   #   # MyXls::Reader and MyXls::Writer must implement .open
   #   register_extension(:xls, MyXls::Reader, MyXls::Writer)
   def self.register_extension(extension, reader_class, writer_class)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
 
-    @extensions[extension&.to_sym] = Extension.new(reader_class, writer_class)
+    @extensions[extension&.to_sym] = Extension.new(reader_class, writer_class).extend(Extension::Registered)
   end
+
+  # Registers an extension that IOStreams builds in, as .register_extension does, whose methods of a Struct, other than
+  # `reader_class` and `writer_class`, are deprecated too, see `IOStreams::Extension::BuiltIn`.
+  def self.register_built_in_extension(extension, reader_class, writer_class)
+    @extensions[extension] = Extension.new(reader_class, writer_class).extend(Extension::BuiltIn)
+  end
+  private_class_method :register_built_in_extension
 
   # De-Register a file extension
   #
@@ -469,7 +479,13 @@ module IOStreams
     @extensions.delete(extension.to_sym)
   end
 
-  # Registered file extensions
+  # Returns [Hash<Symbol, IOStreams::Extension>] the extension registered for each file extension, see
+  # .register_extension.
+  #
+  # Each extension answers `reader_class` and `writer_class`, as the format that IOStreams 3.0 returns for each of
+  # its built-in extensions does, such as `IOStreams::Gzip` for `:gz`. Its other methods of a Struct, such as `to_a`,
+  # `to_h` or `[]`, are deprecated for a built-in extension, see `IOStreams::Extension::BuiltIn`, and its setters, such
+  # as `writer_class=`, for every extension, see `IOStreams::Extension::Registered`.
   def self.extensions
     @extensions.dup
   end
@@ -520,6 +536,64 @@ module IOStreams
     end
   end
 
+  class Extension
+    # Extends each extension registered, see `IOStreams.register_extension`, whose setters, such as `writer_class=`,
+    # and `[]=`, change the extension registered for the whole process, since `IOStreams.extensions` returns a copy of
+    # the registry that shares its extensions, which IOStreams 3.0 freezes. Each reports a deprecation warning, see
+    # `IOStreams::Deprecation`, and then changes it as before.
+    module Registered
+      # The methods that change an extension.
+      SETTERS = %i[reader_class= writer_class= []=].freeze
+
+      SETTERS.each do |name|
+        define_method(name) do |*args|
+          Deprecation.warn("##{name} on an extension of IOStreams.extensions is deprecated, since it changes the " \
+                           "registered extension for the whole process, which IOStreams 3.0 does not allow, use " \
+                           "IOStreams.register_extension to change it instead")
+          super(*args)
+        end
+      end
+    end
+
+    # Extends each extension that IOStreams builds in, such as `:gz`, for which IOStreams 3.0 returns the format that
+    # it registers, such as `IOStreams::Gzip`, rather than a Struct, see `IOStreams.extensions`. The format answers
+    # `reader_class` and `writer_class`, but none of the other methods of a Struct, so each of them reports a
+    # deprecation warning, see `IOStreams::Deprecation`, and then answers as before, as do the methods of `Enumerable`,
+    # which call #each. Its setters are deprecated too, see Registered.
+    module BuiltIn
+      include Registered
+
+      # The methods of a Struct that read an extension, other than `reader_class` and `writer_class`, and other than
+      # those that every object answers, such as `==` and `inspect`.
+      STRUCT_METHODS = %i[[] to_a values deconstruct to_h each each_pair members size length values_at select filter dig
+                          deconstruct_keys].freeze
+
+      STRUCT_METHODS.each do |name|
+        define_method(name) do |*args, &block|
+          Deprecation.warn("##{name} on a built-in extension of IOStreams.extensions is deprecated, since IOStreams " \
+                           "3.0 returns its format, such as IOStreams::Gzip for :gz, rather than a Struct, use " \
+                           "#reader_class and #writer_class instead")
+          super(*args, &block)
+        end
+      end
+
+      # Prints the extension for `pp` as it prints any other Struct, but reads each member with its reader, such as
+      # `reader_class`, rather than with #[], as `pp` does.
+      def pretty_print(printer)
+        printer.group(1, "#<struct #{self.class.name}", ">") do
+          printer.seplist(self.class.members, -> { printer.text(",") }) do |member|
+            printer.breakable
+            printer.text("#{member}=")
+            printer.group(1) do
+              printer.breakable("")
+              printer.pp(public_send(member))
+            end
+          end
+        end
+      end
+    end
+  end
+
   # Hold root paths
   @root_paths = {}
 
@@ -532,16 +606,16 @@ module IOStreams
   @schemes    = {}
 
   # Register File extensions
-  register_extension(:bz2, IOStreams::Bzip2::Reader, IOStreams::Bzip2::Writer)
-  register_extension(:enc, IOStreams::SymmetricEncryption::Reader, IOStreams::SymmetricEncryption::Writer)
-  register_extension(:gz, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
-  register_extension(:gzip, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
-  register_extension(:zip, IOStreams::Zip::Reader, IOStreams::Zip::Writer)
-  register_extension(:pgp, IOStreams::Pgp::Reader, IOStreams::Pgp::Writer)
-  register_extension(:gpg, IOStreams::Pgp::Reader, IOStreams::Pgp::Writer)
-  register_extension(:xlsx, IOStreams::Xlsx::Reader, nil)
-  register_extension(:xlsm, IOStreams::Xlsx::Reader, nil)
-  register_extension(:encode, IOStreams::Encode::Reader, IOStreams::Encode::Writer)
+  register_built_in_extension(:bz2, IOStreams::Bzip2::Reader, IOStreams::Bzip2::Writer)
+  register_built_in_extension(:enc, IOStreams::SymmetricEncryption::Reader, IOStreams::SymmetricEncryption::Writer)
+  register_built_in_extension(:gz, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+  register_built_in_extension(:gzip, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)
+  register_built_in_extension(:zip, IOStreams::Zip::Reader, IOStreams::Zip::Writer)
+  register_built_in_extension(:pgp, IOStreams::Pgp::Reader, IOStreams::Pgp::Writer)
+  register_built_in_extension(:gpg, IOStreams::Pgp::Reader, IOStreams::Pgp::Writer)
+  register_built_in_extension(:xlsx, IOStreams::Xlsx::Reader, nil)
+  register_built_in_extension(:xlsm, IOStreams::Xlsx::Reader, nil)
+  register_built_in_extension(:encode, IOStreams::Encode::Reader, IOStreams::Encode::Writer)
 
   # Register Schemes
   #

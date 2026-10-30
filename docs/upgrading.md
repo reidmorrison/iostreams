@@ -106,6 +106,7 @@ deprecation warning:
 | `#path=` | `#join` or `#directory`, which return a new path without the streams, options, format and schema set on the path, which `#path=` keeps, so set them again, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
 | `IOStreams.enforce_column_restrictions=` and `IOStreams.enforce_column_restrictions?` | A schema, whose `fieldsMatch` and `constraints` apply to every input, including the keys of each JSON record, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema). The setting only applies to the column options, so keep it until they are replaced with a schema, and then remove it |
+| The methods of a Struct, other than `reader_class` and `writer_class`, on the extension that `IOStreams.extensions` returns for a built-in extension, such as `IOStreams.extensions[:gz].to_a`, and the setters of every registered extension, such as `writer_class=` | `reader_class` and `writer_class`, which the format that v3.0 returns for a built-in extension, such as `IOStreams::Gzip`, answers too, and `IOStreams.register_extension` to change a registered extension, which v3.0 freezes |
 | Ruby 3.2, reported once, as IOStreams is loaded, so only while deprecation warnings are on as it is loaded, such as with `RUBYOPT=-W:deprecated` | Ruby 3.3 or later, which v3.0 requires: it cannot be installed on Ruby 3.2 |
 
 ### Moving a layout to a schema
