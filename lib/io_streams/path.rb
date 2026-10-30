@@ -9,6 +9,13 @@ module IOStreams
       @path      = path.frozen? ? path : path.dup.freeze
       @io_stream = nil
       @builder   = nil
+      @root      = false
+    end
+
+    # A copy of a root path is not a root path, see #root!, so that it can be changed.
+    def initialize_copy(source)
+      super
+      @root = false
     end
 
     # Returns [IOStreams::Path] a new path with the elements joined to this path, created with the same arguments as
@@ -314,6 +321,26 @@ module IOStreams
     def permit!
       @permitted_path = path
       self
+    end
+
+    # Makes this path a root path, which `IOStreams.add_root` adds, and the whole process shares, so that changing it in
+    # place reports a deprecation warning, see #warn_change. A copy of it is not a root path, see #initialize_copy.
+    # Returns self
+    def root!
+      @root = true
+      self
+    end
+
+    # Changing a root path in place, see #root!, such as with #stream, is deprecated, since it changes the root for the
+    # whole process, and v3.0 freezes the root: the path that `IOStreams.add_root` returns raises FrozenError, while
+    # `IOStreams.root`, `IOStreams.roots` and `IOStreams.join` without elements return copies of it, which no longer
+    # change the root. A copy of it, or a path joined to it, can be changed in either version.
+    def warn_change(method_name)
+      return unless @root
+
+      Deprecation.warn("#{method_name} is deprecated on a root path, which the whole process shares, since v3.0 " \
+                       "freezes it, change a copy of it instead, such as IOStreams.root.dup, or a path joined to it, " \
+                       "such as IOStreams.join(\"a.csv\")")
     end
 
     # Returns [Hash<Symbol:Hash>] the streams with the values of sensitive options replaced.

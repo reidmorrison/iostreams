@@ -274,10 +274,18 @@ module IOStreams
   end
 
   # Add a named root path
+  #
+  # Returns [IOStreams::Path] the root path, which the whole process shares, see `IOStreams.join`. Changing it in place,
+  # such as with `#stream` or `#option`, whether through this path, `IOStreams.root`, `IOStreams.roots`, or
+  # `IOStreams.join` without elements, is deprecated, since v3.0 freezes it, and reports a deprecation warning: change a
+  # copy of it instead, such as `IOStreams.root.dup`, or a path joined to it, such as `IOStreams.join("a.csv")`.
   def self.add_root(root, *elements, **args)
     raise(ArgumentError, "Invalid characters in root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
 
-    @root_paths[root.to_sym] = path(*elements, **args)
+    path = path(*elements, **args)
+    # The path class of a scheme registered with `IOStreams.register_scheme` need not be an `IOStreams::Path`.
+    path.send(:root!) if path.is_a?(Path)
+    @root_paths[root.to_sym] = path
   end
 
   def self.roots

@@ -85,6 +85,15 @@ IOStreams.root(:downloads).to_s
 # => "s3://my-app-bucket-name/downloads"
 ~~~
 
+The whole process shares a root, so set the streams, options, encoding, format and schema of a file on the path
+joined to the root, rather than on the root itself. A path joined to a root keeps the arguments of the root, such as
+its credentials or S3 options, but not the streams, options, encoding, format or schema set on the root:
+~~~ruby
+IOStreams.join("daily.csv.pgp", root: :uploads).option(:pgp, passphrase: "secret").each(:hash) do |record|
+  p record
+end
+~~~
+
 ## temp_dir
 
 When working with large files the standard temp file system location can be too small to handle downloading large

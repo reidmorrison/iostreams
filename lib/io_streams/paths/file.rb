@@ -3,11 +3,17 @@ require "fileutils"
 module IOStreams
   module Paths
     class File < IOStreams::Path
-      attr_accessor :create_path
+      attr_reader :create_path
 
       def initialize(file_name, create_path: true)
         @create_path = create_path
         super(file_name)
+      end
+
+      # Sets whether writing the file creates its directory first, see #mkpath.
+      def create_path=(create_path)
+        warn_change("#create_path=")
+        @create_path = create_path
       end
 
       # Yields Paths within the current path.

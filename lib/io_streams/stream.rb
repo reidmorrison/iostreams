@@ -88,6 +88,7 @@ module IOStreams
     #
     # IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
     def stream(stream, **)
+      warn_change("#stream")
       builder.stream(stream, **)
       self
     end
@@ -103,6 +104,7 @@ module IOStreams
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
     def option(stream, **)
+      warn_change("#option")
       builder.option(stream, **)
       self
     end
@@ -110,6 +112,7 @@ module IOStreams
     # Adds the options for the specified stream as an option,
     # but if streams have already been added it is instead added as a stream.
     def option_or_stream(stream, **)
+      warn_change("#option_or_stream")
       builder.option_or_stream(stream, **)
       self
     end
@@ -134,6 +137,7 @@ module IOStreams
     # Replaces `stream(:none)`, which is deprecated: it still works, and reports a deprecation warning, see
     # `IOStreams::Deprecation`.
     def raw
+      warn_change("#raw")
       builder.raw
       self
     end
@@ -172,6 +176,7 @@ module IOStreams
     def encoding(encoding = nil, **options)
       return builder.setting(:encode)&.[](:encoding) if encoding.nil? && options.empty?
 
+      warn_change("#encoding")
       builder.encoding(encoding, **options)
       self
     end
@@ -191,6 +196,7 @@ module IOStreams
     # If the stream pipeline has not yet been built it will be built from the file_name if present.
     # Note: Any options must be set _before_ calling this method.
     def remove_from_pipeline(stream_name)
+      warn_change("#remove_from_pipeline")
       builder.remove_from_pipeline(stream_name)
       self
     end
@@ -380,6 +386,7 @@ module IOStreams
       if file_name == :none
         builder.file_name
       else
+        warn_change("#file_name")
         builder.file_name = file_name
         self
       end
@@ -387,6 +394,7 @@ module IOStreams
 
     # Set the original file_name
     def file_name=(file_name)
+      warn_change("#file_name=")
       builder.file_name = file_name
     end
 
@@ -395,6 +403,7 @@ module IOStreams
       if format == :none
         builder.format
       else
+        warn_change("#format")
         builder.format = format
         self
       end
@@ -402,6 +411,7 @@ module IOStreams
 
     # Set the tabular format
     def format=(format)
+      warn_change("#format=")
       builder.format = format
     end
 
@@ -463,7 +473,8 @@ module IOStreams
       # Compared by identity, since a path compares itself to another path, see `IOStreams::Path#==`.
       return builder.schema if schema.equal?(:none)
 
-      self.schema = schema
+      warn_change("#schema")
+      builder.schema = schema
       self
     end
 
@@ -471,6 +482,7 @@ module IOStreams
     #
     # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
     def schema=(schema)
+      warn_change("#schema=")
       builder.schema = schema
     end
 
@@ -603,6 +615,13 @@ module IOStreams
     # #io_stream.
     def supplied_io
       @io_stream
+    end
+
+    # Called with the name of each method that changes this stream in place, such as "#stream", before it changes it,
+    # so that a subclass can report a deprecation warning when changing it is deprecated, see
+    # `IOStreams::Path#warn_change`. A stream reports none.
+    def warn_change(_method_name)
+      nil
     end
 
     # Raises ArgumentError for a mode that a copy does not convert with, see COPY_MODES, before the source or the target

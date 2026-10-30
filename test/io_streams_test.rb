@@ -162,6 +162,103 @@ module IOStreams
             IOStreams.add_root("invalid name", "/tmp")
           end
         end
+
+        describe "changing a root path" do
+          let :schema do
+            {fields: [{name: "name"}]}
+          end
+
+          after do
+            IOStreams.instance_variable_get(:@root_paths).delete(:deprecated_root)
+          end
+
+          # Each method that changes a path in place, how the test calls it, and the method that reads the change back.
+          {
+            "#stream"               => [->(path, _) { path.stream(:gz) }, :pipeline, {gz: {}}],
+            "#option"               => [->(path, _) { path.option(:gz, level: 1) }, :pipeline, {gz: {level: 1}}],
+            "#option_or_stream"     => [->(path, _) { path.option_or_stream(:gz, level: 1) }, :pipeline, {gz: {level: 1}}],
+            "#raw"                  => [->(path, _) { path.raw }, :raw?, true],
+            "#encoding"             => [->(path, _) { path.encoding("UTF-8") }, :encoding, "UTF-8"],
+            "#remove_from_pipeline" => [->(path, _) { path.remove_from_pipeline(:gz) }, :pipeline, {}],
+            "#file_name"            => [->(path, _) { path.file_name("b.json") }, :file_name, "b.json"],
+            "#file_name="           => [->(path, _) { path.file_name = "b.json" }, :file_name, "b.json"],
+            "#format"               => [->(path, _) { path.format(:json) }, :format, :json],
+            "#format="              => [->(path, _) { path.format = :json }, :format, :json],
+            "#schema"               => [->(path, schema) { path.schema(schema) }, :schema, {fields: [{name: "name"}]}],
+            "#schema="              => [->(path, schema) { path.schema = schema }, :schema, {fields: [{name: "name"}]}],
+            "#create_path="         => [->(path, _) { path.create_path = false }, :create_path, false]
+          }.each_pair do |name, (change, reader, expected)|
+            it "reports a deprecation warning for #{name} on the path that it returns, which still changes the root" do
+              root = IOStreams.add_root(:deprecated_root, "/tmp/iostreams/data.csv.gz")
+              # The warning names the line of the lambda, which calls the method.
+              assert_deprecated(/io_streams_test\.rb:\d+: warning: IOStreams: #{Regexp.escape(name)} is deprecated on a root path, which the whole process shares, since v3\.0 freezes it, change a copy of it instead, such as IOStreams\.root\.dup, or a path joined to it, such as IOStreams\.join\("a\.csv"\)/) do
+                change.call(root, schema)
+              end
+
+              assert_equal expected, IOStreams.root(:deprecated_root).public_send(reader)
+            end
+          end
+
+          it "reports one for the root that .root, .roots, .join without elements and .path return, which is the root" do
+            IOStreams.add_root(:deprecated_root, "/tmp/iostreams/data.csv")
+            assert_deprecated(/#stream is deprecated on a root path/) { IOStreams.root(:deprecated_root).stream(:gz) }
+            assert_deprecated(/#format is deprecated on a root path/) { IOStreams.roots[:deprecated_root].format(:json) }
+            assert_deprecated(/#encoding is deprecated on a root path/) do
+              IOStreams.join(root: :deprecated_root).encoding("UTF-8")
+            end
+            assert_deprecated(/#schema is deprecated on a root path/) do
+              IOStreams.path(IOStreams.root(:deprecated_root)).schema(schema)
+            end
+
+            root = IOStreams.root(:deprecated_root)
+
+            assert_equal({encode: {encoding: "UTF-8"}, gz: {}}, root.pipeline)
+            assert_equal :json, root.format
+            assert_equal schema, root.schema
+          end
+
+          it "reports one for a path that is added as a root, which is the root" do
+            path = IOStreams.path("/tmp/iostreams/data.csv")
+            IOStreams.add_root(:deprecated_root, path)
+            assert_deprecated(/#stream is deprecated on a root path/) { path.stream(:gz) }
+
+            assert_equal({gz: {}}, IOStreams.root(:deprecated_root).pipeline)
+          end
+
+          it "reports none for a copy of a root path, or a path joined to it, which do not change the root" do
+            IOStreams.add_root(:deprecated_root, "/tmp/iostreams")
+            copy, joined = refute_deprecated do
+              [
+                IOStreams.root(:deprecated_root).dup.stream(:gz).format(:json),
+                IOStreams.join("a.csv.gz", root: :deprecated_root).option(:gz, level: 1).schema(schema)
+              ]
+            end
+
+            assert_equal({gz: {}}, copy.pipeline)
+            assert_equal :json, copy.format
+            assert_equal({gz: {level: 1}}, joined.pipeline)
+            assert_equal "/tmp/iostreams/a.csv.gz", joined.to_s
+            root = IOStreams.root(:deprecated_root)
+
+            assert_empty root.pipeline
+            assert_nil root.format
+            assert_nil root.schema
+          end
+
+          it "reports none for reading and writing a root path" do
+            Dir.mktmpdir do |dir|
+              root = IOStreams.add_root(:deprecated_root, ::File.join(dir, "data.csv"))
+              rows = refute_deprecated do
+                root.writer(:hash) { |io| io << {"name" => "Jack"} }
+                rows = []
+                root.each(:array) { |row| rows << row }
+                rows
+              end
+
+              assert_equal [%w[name], %w[Jack]], rows
+            end
+          end
+        end
       end
 
       describe ".roots" do

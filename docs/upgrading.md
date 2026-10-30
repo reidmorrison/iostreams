@@ -117,6 +117,7 @@ deprecation warning:
 | A name that is not in lower case, such as `:XZ`, supplied to `IOStreams.register_extension` or `IOStreams.deregister_extension` | The name in lower case, such as `:xz`, as v3.0 registers it, which matches the file names that end in `.xz`, in any case, where `:XZ` matched none |
 | Ruby 3.2, reported once, as IOStreams is loaded, so only while deprecation warnings are on as it is loaded, such as with `RUBYOPT=-W:deprecated` | Ruby 3.3 or later, which v3.0 requires: it cannot be installed on Ruby 3.2 |
 | `#io_stream` | The IO that you supply to `IOStreams.stream`, which the stream reads and writes |
+| Changing a root path in place, such as `IOStreams.root.stream(:gz)` or `IOStreams.add_root(:default, "/data").option(...)`, which changes the root for the whole process. v3.0 freezes the root, so changing the path that `IOStreams.add_root` returns raises `FrozenError`, and `IOStreams.root`, `IOStreams.roots` and `IOStreams.join` without elements return copies of it | A copy of the root, such as `IOStreams.root.dup.stream(:gz)`, or a path joined to it, such as `IOStreams.join("a.csv.gz").option(:gz, level: 9)`, which never has the streams, options, encoding, format or schema of the root |
 
 ### Moving a layout to a schema
 
