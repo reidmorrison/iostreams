@@ -615,8 +615,9 @@ module IOStreams
     protected
 
     # Applies no streams, as `stream(:none)` does, for IOStreams itself, which never uses its own deprecated methods.
-    def no_streams
-      builder.no_streams
+    # `temp_file: true` for the path of `IOStreams.temp_file`, see `IOStreams::Builder#no_streams`.
+    def no_streams(temp_file: false)
+      builder.no_streams(temp_file: temp_file)
       self
     end
 

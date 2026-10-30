@@ -16,6 +16,7 @@ module IOStreams
       @format_option = nil
       @encoding      = nil
       @raw           = false
+      @temp_file     = false
       @schema        = nil
       @schema_source = nil
     end
@@ -135,9 +136,14 @@ module IOStreams
     end
 
     # Applies no streams, including an encoding set with #encoding, as `stream(:none)` does, for IOStreams itself.
-    def no_streams
-      @streams  = {}
-      @encoding = nil
+    #
+    # `temp_file: true` for the path of `IOStreams.temp_file`, which reads and writes its data as it is stored, while
+    # IOStreams v3.0 applies the streams that its file name implies, so that reading or writing it reports a deprecation
+    # warning while they would apply, see #warn_temp_file_streams.
+    def no_streams(temp_file: false)
+      @streams   = {}
+      @encoding  = nil
+      @temp_file = temp_file
       self
     end
 
@@ -164,12 +170,12 @@ module IOStreams
     end
 
     def reader(io_stream, &)
-      warn_encode_extension
+      warn_deprecated_streams
       execute(:reader, pipeline, io_stream, &)
     end
 
     def writer(io_stream, &)
-      warn_encode_extension
+      warn_deprecated_streams
       execute(:writer, pipeline, io_stream, &)
     end
 
@@ -185,6 +191,8 @@ module IOStreams
     def remove_from_pipeline(stream_name)
       @streams ||= build_pipeline
       @encoding  = nil if stream_name.to_sym == :encode
+      # The streams are now those that the application chose, see #warn_temp_file_streams.
+      @temp_file = false
       @streams.delete(stream_name.to_sym)
     end
 
@@ -427,6 +435,14 @@ module IOStreams
       klass.option_names if klass.respond_to?(:option_names)
     end
 
+    # Reports a deprecation warning, when the streams are opened, for those that are deprecated, or whose results
+    # change in IOStreams v3.0.
+    def warn_deprecated_streams
+      warn_encode_extension
+      warn_temp_file_streams
+      warn_extension_options
+    end
+
     # A file name ending in `.encode` is deprecated, since file names do not name the encode stream, see #encoding.
     # Once the encode stream is set, with #encoding or `option(:encode, ...)`, the file name adds nothing to it, so it
     # is only reported when the file name is what applies the encode stream.
@@ -436,6 +452,48 @@ module IOStreams
 
       Deprecation.warn("a file name ending in .encode is deprecated, since file names do not name the encode " \
                        "stream, use #encoding instead")
+    end
+
+    # The path of `IOStreams.temp_file` reads and writes its data as it is stored, see #no_streams, while IOStreams v3.0
+    # applies the streams that its file name implies, so reading or writing it is deprecated while it has no streams of
+    # its own, and its file name implies some, other than `.encode`, which v3.0 no longer applies, see #raw, which reads
+    # and writes the data as it is stored on both.
+    def warn_temp_file_streams
+      return unless @temp_file && streams.empty? && file_name
+      return if (parse_extensions - [:encode]).empty?
+
+      Deprecation.warn("reading or writing the path of IOStreams.temp_file is deprecated when its extension names " \
+                       "streams, such as .gz, since v3.0 applies them, where v2.2 reads and writes the data as it is " \
+                       "stored: call #raw on the path to read and write the data as it is stored")
+    end
+
+    # The options set for another extension of the format of an extension in the file name, such as
+    # `option(:pgp, ...)` for a `.gpg` file, are ignored, while IOStreams v3.0 applies the options of a format to each of
+    # its extensions, and then those set for the extension in the file name, which take precedence. So they are
+    # deprecated unless those of the extension itself set each of them too, with which both apply the same options.
+    def warn_extension_options
+      return if streams || options.nil? || file_name.nil?
+
+      parse_extensions.each do |stream|
+        own = options[stream] || {}
+        options.each_pair do |name, opts|
+          next if name == stream || (opts.keys - own.keys).empty? || !same_format?(name, stream)
+
+          Deprecation.warn("option(:#{name}, ...) is deprecated for a file name with the extension .#{stream}, which " \
+                           "v2.2 does not apply it to, since v3.0 applies the options of a format to each of its " \
+                           "extensions: set them with option(:#{stream}, ...)")
+        end
+      end
+    end
+
+    # Returns [true|false] whether the extensions are of the same format, whose reader and writer they share, such as
+    # `.pgp` and `.gpg`, or `.gz` and `.gzip`.
+    def same_format?(extension, other)
+      registered = IOStreams.extensions[extension]
+      other      = IOStreams.extensions[other]
+      return false if registered.nil? || other.nil?
+
+      registered.reader_class == other.reader_class && registered.writer_class == other.writer_class
     end
 
     def raise_if_raw!(method_name)

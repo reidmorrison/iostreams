@@ -169,5 +169,58 @@ class UpgradeResultsTest < Minitest::Test
         assert_equal "a,b\n", Zlib.gunzip(File.binread(copy.to_s))
       end
     end
+
+    # `IOStreams.temp_file` applies the streams that its extension implies in 3.0.
+    describe "the path of IOStreams.temp_file" do
+      it "reads and writes the data as it is stored with #raw" do
+        IOStreams.temp_file("iostreams", ".csv.gz") do |path|
+          path.raw.write("a,b\n")
+
+          assert_equal "a,b\n", File.binread(path.to_s)
+          assert_equal "a,b\n", path.raw.read
+        end
+      end
+
+      it "applies the streams set on it, and of the extension of a path of its name" do
+        IOStreams.temp_file("iostreams", ".csv.gz") do |path|
+          path.stream(:gz).write("a,b\n")
+
+          assert_equal "a,b\n", Zlib.gunzip(File.binread(path.to_s))
+          assert_equal "a,b\n", IOStreams.path(path.to_s).read
+        end
+      end
+
+      it "reads and writes a file whose extension implies no streams" do
+        IOStreams.temp_file("iostreams", ".csv") do |path|
+          path.write("a,b\n")
+
+          assert_equal "a,b\n", File.read(path.to_s)
+          assert_equal [%w[a b]], read_all(path, :array)
+        end
+      end
+    end
+
+    # An option for a format applies to each of its extensions in 3.0.
+    describe "the options of the extension in the file name" do
+      it "apply to it" do
+        path = IOStreams.path(@dir, "a.gpg").option(:gpg, recipient: "receiver@example.org")
+
+        assert_equal({gpg: {recipient: "receiver@example.org"}}, path.pipeline)
+
+        path.write("hello")
+
+        assert_equal "hello", IOStreams.path(@dir, "a.gpg").option(:gpg, passphrase: "receiver_passphrase").read
+      end
+
+      it "take precedence over those of another extension of its format" do
+        path = IOStreams.path(@dir, "a.gzip").option(:gz, level: 9).option(:gzip, level: 1)
+
+        assert_equal({gzip: {level: 1}}, path.pipeline)
+
+        path.write("a,b\n")
+
+        assert_equal "a,b\n", Zlib.gunzip(File.binread(path.to_s))
+      end
+    end
   end
 end

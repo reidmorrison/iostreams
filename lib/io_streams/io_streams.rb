@@ -227,9 +227,14 @@ module IOStreams
   #   IOStreams.temp_file("export", ".csv") { |path| path.write("Hello World") }
   #
   # Note: The temp file is accessible even when it is not within the allowed paths, see `IOStreams.add_allowed_path`.
+  #
+  # The path reads and writes its data as it is stored, whatever its extension, while IOStreams v3.0 applies the streams
+  # that its extension implies, such as `.gz`, so reading or writing it without #raw, which reads and writes the data
+  # as it is stored on both, is deprecated when its extension implies streams, and reports a deprecation warning, see
+  # `IOStreams::Deprecation`.
   def self.temp_file(basename, extension = "")
     Utils.temp_file_name(basename, extension) do |file_name|
-      yield(Paths::File.new(file_name).send(:permit!).send(:no_streams))
+      yield(Paths::File.new(file_name).send(:permit!).send(:no_streams, temp_file: true))
     end
   end
 

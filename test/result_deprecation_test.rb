@@ -256,5 +256,73 @@ class ResultDeprecationTest < Minitest::Test
         end
       end
     end
+
+    describe "IOStreams.temp_file" do
+      let(:pattern) { /reading or writing the path of IOStreams.temp_file is deprecated when its extension names streams, such as .gz, since v3.0 applies them/ }
+
+      it "reads and writes the data as it is stored, and reports it when its extension names streams" do
+        IOStreams.temp_file("iostreams", ".csv.gz") do |path|
+          assert_deprecated(pattern) { path.write("a,b\n") }
+          assert_equal "a,b\n", File.binread(path.to_s)
+          assert_equal "a,b\n", assert_deprecated(pattern) { path.read }
+          assert_equal [%w[a b]], assert_deprecated(pattern) { read_all(path.dup, :array) }
+        end
+      end
+
+      it "does not report #raw, streams set on it, an extension without streams, a copy without conversion, or its name" do
+        refute_deprecated do
+          IOStreams.temp_file("iostreams", ".csv.gz") do |path|
+            path.raw.write("a,b\n")
+
+            assert_equal "a,b\n", path.raw.read
+            IOStreams.path(@dir, "a.csv").copy_from(path, convert: false)
+
+            assert_equal "a,b\n", File.read(File.join(@dir, "a.csv"))
+            IOStreams.path(path.to_s).write("c,d\n")
+
+            assert_equal "c,d\n", IOStreams.path(path.to_s).read
+          end
+          IOStreams.temp_file("iostreams", ".csv.gz") do |path|
+            path.stream(:gz).write("a,b\n")
+
+            assert_equal "a,b\n", Zlib.gunzip(File.binread(path.to_s))
+          end
+          IOStreams.temp_file("iostreams", ".csv") do |path|
+            path.write("a,b\n")
+
+            assert_equal "a,b\n", path.read
+          end
+        end
+      end
+    end
+
+    describe "an option of another extension of a format" do
+      it "is not applied to the extension in the file name, and is reported, since v3.0 applies it" do
+        path = IOStreams.path(@dir, "a.gpg").option(:pgp, recipient: "receiver@example.org")
+        assert_deprecated(/option\(:pgp, \.\.\.\) is deprecated for a file name with the extension \.gpg, which v2.2 does not apply it to, .*: set them with option\(:gpg, \.\.\.\)/) do
+          error = assert_raises(ArgumentError) { path.write("x") }
+          assert_includes error.message, "Requires either :recipient or :import_and_trust_key"
+        end
+
+        path = IOStreams.path(@dir, "a.gzip").option(:gz, level: 9)
+        assert_deprecated(/option\(:gz, \.\.\.\) is deprecated for a file name with the extension \.gzip/) { path.write("a,b\n") }
+        assert_equal({gzip: {}}, path.pipeline)
+        assert_equal "a,b\n", Zlib.gunzip(File.binread(path.to_s))
+      end
+
+      it "does not report the option of the extension itself, or one that it also sets" do
+        refute_deprecated do
+          path = IOStreams.path(@dir, "a.gpg").option(:gpg, recipient: "receiver@example.org")
+          path.write("x")
+
+          assert_equal "x", IOStreams.path(@dir, "a.gpg").option(:gpg, passphrase: "receiver_passphrase").read
+
+          path = IOStreams.path(@dir, "b.gzip").option(:gz, level: 9).option(:gzip, level: 1)
+          path.write("a,b\n")
+
+          assert_equal({gzip: {level: 1}}, path.pipeline)
+        end
+      end
+    end
   end
 end
