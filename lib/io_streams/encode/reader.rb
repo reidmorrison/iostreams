@@ -84,6 +84,7 @@ module IOStreams
           return
         end
 
+        block = (+block).force_encoding(@encoding) if text_bytes?(size, block)
         block = block.encode(@encoding, **@encoding_options) unless block.encoding == @encoding
         block = @cleaner.call(block, @replace) if @cleaner
         outbuf ? outbuf.replace(block) : block
@@ -101,6 +102,18 @@ module IOStreams
         when Proc
           cleaner
         end
+      end
+
+      private
+
+      # Returns [true|false] whether the binary data that a read of a length returned holds the bytes of text in the
+      # encoding, rather than text to convert into it. Without `replace:` it reads into a buffer of the encoding, whose
+      # bytes are then the text, as `IO#read` keeps the encoding of the buffer that it is supplied. A stream that returns
+      # the bytes as binary instead, since its `#read` takes no buffer, as `Zlib::GzipReader` on JRuby, or makes the
+      # buffer binary, as `Bzip2::FFI::Reader` does, holds the same text, which converting from binary would reject for
+      # each character that is not ASCII. Reading the whole of the data, and `replace:`, still convert it, as before.
+      def text_bytes?(size, block)
+        !size.nil? && @replace.nil? && block.encoding == Encoding::BINARY
       end
     end
   end

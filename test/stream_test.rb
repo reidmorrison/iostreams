@@ -1435,6 +1435,22 @@ class StreamTest < Minitest::Test
         assert_equal({encode: {encoding: "UTF-8", replace: ""}, gz: {}}, path.pipeline)
       end
 
+      it "reads the lines of text in that encoding, and copies them, through each stream that the file name implies" do
+        Dir.mktmpdir do |dir|
+          latin = "name\nJos\xE9\n".b
+
+          %w[people.csv.gz people.csv.bz2 people.csv.enc].each do |name|
+            IOStreams.path(dir, name).write(latin)
+            lines = []
+            IOStreams.path(dir, name).encoding("ISO-8859-1").each(:line) { |line| lines << line }
+            IOStreams.path(dir, "copy.csv").encoding("ISO-8859-1").copy_from(IOStreams.path(dir, name).encoding("ISO-8859-1"))
+
+            assert_equal ["name", "José".encode("ISO-8859-1")], lines, name
+            assert_equal latin, ::File.binread(File.join(dir, "copy.csv")), name
+          end
+        end
+      end
+
       it "works for a stream without a file name" do
         io = StringIO.new("New M\xE9xico\n".b)
 
