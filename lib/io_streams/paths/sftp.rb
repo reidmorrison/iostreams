@@ -207,7 +207,7 @@ module IOStreams
       # Reports a deprecation warning for each part of the url that this path cannot use, which IOStreams 3.0 raises
       # ArgumentError for when the path is created, so that a mistake in a configured url is reported wherever the
       # code runs: a url without a host, a query, whose ssh options are ignored, and a fragment, which an unencoded `#`
-      # starts, and which is not part of the name. A url names the url without its user name, password, query or
+      # starts, and which is not part of the name. Each warning names the url without its user name, password, query or
       # fragment, see #display_name.
       def warn_unusable_url(uri)
         warn_url("it names no host, name one, such as 'sftp://example.org#{path}'") if uri.hostname.to_s.empty?
