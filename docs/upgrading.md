@@ -105,6 +105,7 @@ deprecation warning:
 | A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
 | `#path=` | `#join` or `#directory`, which return a new path without the streams, options, format and schema set on the path, which `#path=` keeps, so set them again, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
+| Ruby 3.2, reported once, as IOStreams is loaded, so only while deprecation warnings are on as it is loaded, such as with `RUBYOPT=-W:deprecated` | Ruby 3.3 or later, which v3.0 requires: it cannot be installed on Ruby 3.2 |
 
 ### Moving a layout to a schema
 

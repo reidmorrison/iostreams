@@ -209,6 +209,38 @@ module IOStreams
         end
       end
 
+      describe "loading" do
+        # Whether this Ruby is older than 3.3, which IOStreams 3.0 requires.
+        def ruby_before_3_3?
+          (RUBY_VERSION.split(".").first(2).map(&:to_i) <=> [3, 3]).negative?
+        end
+
+        it "reports that a Ruby older than 3.3 is deprecated, at the line that required IOStreams, and nothing else" do
+          if ruby_before_3_3?
+            assert_equal 1, IOSTREAMS_LOAD_WARNINGS.size
+            assert_match(/test_helper\.rb:\d+: warning: IOStreams: Ruby #{Regexp.escape(RUBY_VERSION)} is deprecated, since IOStreams 3\.0 requires Ruby 3\.3 or later, so upgrade Ruby\n\z/,
+                         IOSTREAMS_LOAD_WARNINGS.first)
+          else
+            assert_empty IOSTREAMS_LOAD_WARNINGS
+          end
+        end
+
+        %w[3.2.11 3.2.0 3.1.6 2.7.8].each do |version|
+          it "reports that Ruby #{version} is deprecated" do
+            line = __LINE__ + 2
+            assert_deprecated(/io_streams_test\.rb:#{line}: warning: IOStreams: Ruby #{Regexp.escape(version)} is deprecated, since IOStreams 3\.0 requires Ruby 3\.3 or later, so upgrade Ruby\n\z/) do
+              IOStreams.send(:warn_unsupported_ruby, version)
+            end
+          end
+        end
+
+        %w[3.3.0 3.4.11 3.10.0 4.0.7].each do |version|
+          it "reports nothing for Ruby #{version}" do
+            refute_deprecated { IOStreams.send(:warn_unsupported_ruby, version) }
+          end
+        end
+      end
+
       describe ".register_extension" do
         it "registers a new extension" do
           IOStreams.register_extension(:abc123, IOStreams::Gzip::Reader, IOStreams::Gzip::Writer)

@@ -50,11 +50,18 @@ module IOStreams
     def self.warn(message)
       return unless Warning[:deprecated]
 
-      location = application_location
-      text     = "#{PREFIX}#{message}"
-      text     = "#{location.path}:#{location.lineno}: warning: #{text}" if location
-      Kernel.warn(text, category: :deprecated)
-      nil
+      report(message, application_location)
+    end
+
+    # Reports, as .warn does, that the application uses something deprecated while this library is loaded, such as a
+    # version of Ruby that IOStreams 3.0 does not support, at the line of the application that loaded it, see
+    # .loading_location, rather than at a line of a gem that requires it for the application, such as Bundler.
+    #
+    # Returns nil.
+    def self.warn_on_load(message)
+      return unless Warning[:deprecated]
+
+      report(message, loading_location)
     end
 
     # Returns [true|false] whether the message, as `Kernel#warn` passes it to `Warning.warn`, is a warning reported by
@@ -89,6 +96,33 @@ module IOStreams
       candidate
     end
     private_class_method :application_location
+
+    # Returns [Thread::Backtrace::Location|nil] the line of the application that loaded this library, such as its
+    # `require "iostreams"`, or its `Bundler.require`: the first line of the call stack outside this library, Ruby
+    # itself, see .ruby?, and the installed gems, since a gem that loads this library, such as Bundler, Bootsnap, or a gem
+    # that requires it, loads it for the application. Otherwise the first line of an installed gem outside this library,
+    # for an application that is itself an installed gem, or nil when the call stack has neither.
+    def self.loading_location
+      gem_dirs  = installed_gem_dirs
+      candidate = nil
+      Thread.each_caller_location do |location|
+        next if library?(location) || ruby?(location)
+        return location unless gem?(location, gem_dirs)
+
+        candidate ||= location
+      end
+      candidate
+    end
+    private_class_method :loading_location
+
+    # Writes the message as a deprecation warning, see .warn, at the supplied line, or without a line when it is nil.
+    def self.report(message, location)
+      text = "#{PREFIX}#{message}"
+      text = "#{location.path}:#{location.lineno}: warning: #{text}" if location
+      Kernel.warn(text, category: :deprecated)
+      nil
+    end
+    private_class_method :report
 
     # Returns [true|false] whether the line of the call stack is in a file of this library. Code run with `eval` has
     # only the file name that it was given.

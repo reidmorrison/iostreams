@@ -532,4 +532,19 @@ module IOStreams
   register_scheme(:https, IOStreams::Paths::HTTP)
   register_scheme(:sftp, IOStreams::Paths::SFTP)
   register_scheme(:s3, IOStreams::Paths::S3)
+
+  # Reports a deprecation warning when the supplied version of Ruby is older than 3.3, which IOStreams 3.0 requires.
+  #
+  # Called once, as IOStreams is loaded, so that the warning names the line of the application that loaded it, such as
+  # its `Bundler.require`, see `IOStreams::Deprecation.warn_on_load`. It is only reported while deprecation warnings
+  # are on as IOStreams is loaded, such as with `RUBYOPT=-W:deprecated`.
+  def self.warn_unsupported_ruby(version = RUBY_VERSION)
+    return unless (version.split(".").first(2).map(&:to_i) <=> [3, 3]).negative?
+
+    Deprecation.warn_on_load("Ruby #{version} is deprecated, since IOStreams 3.0 requires Ruby 3.3 or later, so " \
+                             "upgrade Ruby")
+  end
+  private_class_method :warn_unsupported_ruby
+
+  warn_unsupported_ruby
 end

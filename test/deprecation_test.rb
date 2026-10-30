@@ -36,6 +36,18 @@ class DeprecationTest < Minitest::Test
       Thread.new { IOStreams::Deprecation.warn(message) }.join
       nil
     end
+
+    # Reports the deprecation as IOStreams does while it is loaded.
+    def self.call_on_load(message)
+      IOStreams::Deprecation.warn_on_load(message)
+    end
+
+    # Reports the deprecation as IOStreams does while it is loaded, in a thread of its own, whose call stack has no
+    # line outside IOStreams.
+    def self.call_on_load_in_thread(message)
+      Thread.new { IOStreams::Deprecation.warn_on_load(message) }.join
+      nil
+    end
   RUBY
 
   # The names of files of the code of Ruby itself.
@@ -204,6 +216,66 @@ class DeprecationTest < Minitest::Test
 
       it "returns nil" do
         assert_nil(assert_deprecated(/old is deprecated/) { IOStreams::Deprecation.warn("old is deprecated") })
+      end
+    end
+
+    describe ".warn_on_load" do
+      it "names the line of the application that loaded IOStreams" do
+        line = __LINE__ + 2
+        assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: old is deprecated\n\z/) do
+          LIBRARY_CALLER.call_on_load("old is deprecated")
+        end
+      end
+
+      it "names the line of the application that loaded IOStreams through a gem, such as Bundler" do
+        code = DeprecationTest.code_in(GEM_FILE, "def self.require(message) = DeprecationTest::LIBRARY_CALLER.call_on_load(message)")
+        line = __LINE__ + 2
+        assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: old is deprecated\n\z/) do
+          code.require("old is deprecated")
+        end
+      end
+
+      RUBY_FILES.each_pair do |name, file|
+        it "names the line of the application that loaded IOStreams through #{name}" do
+          code = DeprecationTest.code_in(file, "def self.require(message) = DeprecationTest::LIBRARY_CALLER.call_on_load(message)")
+          line = __LINE__ + 2
+          assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: old is deprecated\n\z/) do
+            code.require("old is deprecated")
+          end
+        end
+      end
+
+      it "names the line of a gem that loaded IOStreams when the call stack has no line of the application" do
+        code = DeprecationTest.code_in(GEM_FILE, <<~RUBY)
+          def self.require_in_thread(message)
+            Thread.new { DeprecationTest::LIBRARY_CALLER.call_on_load(message) }.join
+          end
+        RUBY
+        assert_deprecated(/\A#{Regexp.escape(GEM_FILE)}:2: warning: IOStreams: old is deprecated\n\z/) do
+          code.require_in_thread("old is deprecated")
+        end
+      end
+
+      it "names no line when the call stack has none outside IOStreams" do
+        assert_deprecated(/\AIOStreams: old is deprecated\n\z/) { LIBRARY_CALLER.call_on_load_in_thread("old is deprecated") }
+      end
+
+      it "reports nothing while deprecation warnings are off" do
+        enabled  = Warning[:deprecated]
+        reported = []
+        warn     = ->(*args, **_kwargs) { reported << args }
+        begin
+          Warning[:deprecated] = false
+          Kernel.stub(:warn, warn) { LIBRARY_CALLER.call_on_load("old is deprecated") }
+        ensure
+          Warning[:deprecated] = enabled
+        end
+
+        assert_empty reported
+      end
+
+      it "returns nil" do
+        assert_nil(assert_deprecated(/old is deprecated/) { IOStreams::Deprecation.warn_on_load("old is deprecated") })
       end
     end
 
