@@ -1470,7 +1470,8 @@ checksum of its data, such as `checksum_crc32`, the data is still written into a
 Otherwise the IO that `#writer` supplies to the block, when the path has no streams, such as `data.csv`, or is
 written with `#raw`, is no longer a `File`. Like every other stream, it responds to the methods of an IO that
 write, `#write`, `#<<`, `#print`, `#puts` and `#printf`, and to `#flush`, so `CSV.new(io)` still writes it, but
-`#pos`, `#size` and `#path` raise `NoMethodError`, as does a library that calls them.
+`#pos`, `#size` and `#path` raise `NoMethodError`, as does a library that calls them. v2.2 reports the calls that
+the application makes itself as deprecated.
 
 Fix: none is needed in most cases. Add a lifecycle rule to the bucket that aborts incomplete multipart uploads,
 for example after a day, so that S3 removes the parts of an upload that was never completed. Rescue the error of
