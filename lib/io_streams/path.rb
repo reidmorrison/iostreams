@@ -216,6 +216,30 @@ module IOStreams
       Utils.redact_options(options, sensitive_option_names)
     end
 
+    # Returns [String|nil] the deprecation warning for the supplied name or url of a path of this class, as the
+    # application supplies it to `IOStreams.path`, when IOStreams v3.0 reads it as another file or url, which says what
+    # to supply instead, so that it names the same one on both, or nil when v3.0 reads it the same way. A path class
+    # whose names v3.0 reads differently overrides it.
+    def self.name_deprecation(_name)
+      nil
+    end
+
+    # Returns [String|nil] the deprecation warning for the supplied name or url, see .name_deprecation, only when
+    # IOStreams v3.0 reads it as another location, which the allowed paths compare, see `IOStreams.add_allowed_path`,
+    # rather than only spelling its url another way. A path class whose names v3.0 reads as another location overrides
+    # it.
+    def self.location_deprecation(_name)
+      nil
+    end
+
+    # Returns [true|false] whether the url has no path, such as `sftp://host`, or `https://host?a=1`, which IOStreams
+    # v3.0 reads with the path `/`, see `IOStreams::Paths::SFTP.name_deprecation`. Its text is checked rather than
+    # parsed, so that a pattern with characters that a url cannot hold, such as braces, can be checked too.
+    def self.url_without_path?(url)
+      url.match?(%r{\A[a-z][a-z0-9+.-]*://[^/?#]*(?:[?#]|\z)}i)
+    end
+    private_class_method :url_without_path?
+
     # Shows the full name of the path, see #display_name, without any credentials, and the options of its streams
     # without the values of sensitive options, such as a passphrase, see `IOStreams.redact_stream_options`.
     def inspect

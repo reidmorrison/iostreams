@@ -27,6 +27,23 @@ module IOStreams
         @create_path = create_path
       end
 
+      # Returns [String|nil] the deprecation warning for a name of `~`, or starting with `~/`, which is within a
+      # directory called `~` in the current directory, while IOStreams v3.0 reads it within the home directory, see
+      # `IOStreams::Path.name_deprecation`. A name such as `~user/a.csv` or `~$Book1.xlsx` is the same on both.
+      def self.name_deprecation(name)
+        return unless name == "~" || name.start_with?("~/")
+
+        "a local file name of ~, or starting with ~/, is deprecated, since v3.0 reads it within the home directory, " \
+          "rather than within a directory called ~ in the current directory: expand it with File.expand_path for the " \
+          "home directory, or start it with ./~/ for the directory called ~"
+      end
+
+      # Returns [String|nil] the deprecation warning for a name of `~`, or starting with `~/`, see .name_deprecation,
+      # which IOStreams v3.0 reads as another directory, and so another allowed path.
+      def self.location_deprecation(name)
+        name_deprecation(name)
+      end
+
       # Yields Paths within the current path.
       #
       # Examples:

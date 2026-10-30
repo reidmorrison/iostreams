@@ -9,6 +9,16 @@ module IOStreams
       # The password, and the query `parameters`, which can hold an access key, see IOStreams::Path.redact_options.
       def self.sensitive_option_names = %i[password parameters]
 
+      # Returns [String|nil] the deprecation warning for an HTTP(S) url without a path, such as `https://host`, or
+      # `https://host?a=1`, which IOStreams v3.0 reads with the path `/`, as `https://host/?a=1`, see
+      # `IOStreams::Path.name_deprecation`.
+      def self.name_deprecation(url)
+        return unless url_without_path?(url)
+
+        "an HTTP url without a path, such as https://host or https://host?a=1, is deprecated, since v3.0 adds a / " \
+          "after the host, https://host/?a=1, which changes its #to_s and #path: supply the url with the /"
+      end
+
       # Stream to/from a remote file over http(s).
       #
       # Parameters:

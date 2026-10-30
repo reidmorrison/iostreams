@@ -88,5 +88,86 @@ class UpgradeResultsTest < Minitest::Test
         assert_instance_of IOStreams::Row::HeaderRow, rows.first
       end
     end
+
+    # An SFTP or HTTP(S) url without a path ends with `/` in 3.0.
+    describe "an SFTP or HTTP url with a path of /" do
+      it "keeps the /" do
+        sftp = IOStreams.path("sftp://example.org/")
+
+        assert_equal "sftp://example.org/", sftp.to_s
+        assert_equal "/", sftp.path
+        assert_equal IOStreams.path("sftp://example.org/"), sftp
+
+        http = IOStreams.path("https://example.org/?a=1")
+
+        assert_equal "https://example.org/?a=1", http.to_s
+        assert_equal "/", http.path
+      end
+
+      it "joins a name within the root directory" do
+        assert_equal "/a.csv", IOStreams.path("sftp://example.org/").join("a.csv").path
+        assert_equal "/a.csv", IOStreams.path("sftp://example.org", "a.csv").path
+        assert_equal "sftp://example.org/a.csv", IOStreams.path("sftp://example.org", "a.csv").to_s
+      end
+    end
+
+    # A name joined to an S3 bucket is a key within it in 3.0.
+    describe "a name joined to an S3 bucket without a leading /" do
+      it "is a key within the bucket" do
+        path = IOStreams.path("s3://bucket").join("exports/a.csv")
+
+        assert_equal "exports/a.csv", path.path
+        assert_equal "s3://bucket/exports/a.csv", path.to_s
+        assert_equal "exports/a.csv", IOStreams.path("s3://bucket/").join("exports", "a.csv").path
+      end
+
+      it "names a key that starts with / in the url" do
+        assert_equal "/exports/a.csv", IOStreams.path("s3://bucket//exports/a.csv").path
+      end
+    end
+
+    # A local `~` is the home directory in 3.0.
+    describe "a local name expanded with File.expand_path, or within ./~" do
+      it "is the file within the home directory, or within the directory called ~" do
+        assert_equal File.join(Dir.home, "data", "a.csv"), IOStreams.path(File.expand_path("~/data/a.csv")).to_s
+        assert_equal "./~/data/a.csv", IOStreams.path("./~/data/a.csv").to_s
+        assert_predicate IOStreams.path("./~/data/a.csv"), :relative?
+      end
+
+      it "reads and writes a file within a directory called ~" do
+        path = IOStreams.path(@dir, "~", "a.csv")
+        path.write("a,b\n")
+
+        assert_equal "a,b\n", File.read(File.join(@dir, "~", "a.csv"))
+        assert_equal "a,b\n", path.read
+      end
+    end
+
+    # A Pathname names a file in 3.0.
+    describe "the name of a Pathname" do
+      let(:pathname) do
+        file_name = File.join(@dir, "data.csv.gz")
+        File.binwrite(file_name, Zlib.gzip("a,b\n"))
+        Pathname.new(file_name)
+      end
+
+      it "is the path of the file, which applies the streams of its file name" do
+        assert_equal "a,b\n", IOStreams.new(pathname.to_s).read
+        assert_equal "a,b\n", IOStreams.path(pathname).read
+        assert_equal File.binread(pathname.to_s), IOStreams.path(pathname).raw.read
+      end
+
+      it "is copied from and to, applying the streams of its file name" do
+        target = IOStreams.path(@dir, "copy.csv")
+        target.copy_from(pathname.to_s)
+
+        assert_equal "a,b\n", File.read(target.to_s)
+
+        copy = Pathname.new(File.join(@dir, "copy.csv.gz"))
+        target.copy_to(copy.to_s)
+
+        assert_equal "a,b\n", Zlib.gunzip(File.binread(copy.to_s))
+      end
+    end
   end
 end

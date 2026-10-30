@@ -44,13 +44,10 @@ module IOStreams
   # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
   # IOStreams.path('blah.zip').stream(:zip).encoding('BINARY').read
   #
+  # A name that IOStreams v3.0 reads as another file or url, such as a local name starting with `~/`, or an SFTP or
+  # HTTP url without a path, is deprecated, and reports a deprecation warning, see `IOStreams::Path.name_deprecation`.
   def self.path(*elements, **args)
-    return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
-
-    elements = elements.collect(&:to_s)
-    path     = Utils::PathName.join(*elements)
-    klass    = path_class(path)
-    args.empty? ? klass.new(path) : klass.new(path, **args)
+    build_path(elements, args, :name_deprecation)
   end
 
   # Returns [Hash] the options for creating the path of the url with `IOStreams.path(url, **options)`, with the value
@@ -93,22 +90,92 @@ module IOStreams
   end
   private_class_method :path_class
 
+  # Returns [IOStreams::Path] the path of the supplied elements, joined into one name or url, created with the supplied
+  # arguments, see .path, reporting the deprecation warning, if any, that the class method of its path class with the
+  # supplied name gives for the name, see `IOStreams::Path.name_deprecation`, as the application supplied it.
+  def self.build_path(elements, args, deprecation)
+    return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
+
+    name  = Utils::PathName.join(*elements.collect(&:to_s))
+    klass = path_class(name)
+    path  = args.empty? ? klass.new(name) : klass.new(name, **args)
+    warn_deprecated_name(klass, deprecation, name)
+    path
+  end
+  private_class_method :build_path
+
+  # Returns [IOStreams::Path] the path of the supplied name or url, as .path does, without reporting a deprecation
+  # warning for the name, for IOStreams itself, which derives it from the name that the application supplied, such as
+  # the directory that a pattern is matched within, see `IOStreams::Paths::Matcher`.
+  def self.path_of(name)
+    path_class(name).new(name)
+  end
+  private_class_method :path_of
+
+  # Reports the deprecation warning that the supplied class method of the path class gives for a name or url that the
+  # application supplied, if any: `:name_deprecation` when IOStreams v3.0 reads it as another file or url, or
+  # `:location_deprecation` when it reads it as another location, which the allowed paths compare, see
+  # `IOStreams::Path.name_deprecation`.
+  def self.warn_deprecated_name(klass, deprecation, name)
+    message = klass.public_send(deprecation, name) if klass.respond_to?(deprecation)
+    Deprecation.warn(message) if message
+  end
+  private_class_method :warn_deprecated_name
+
+  # Reports a deprecation warning for the name of the directory of a pattern, see .warn_deprecated_name. A pattern that
+  # is not a valid url, such as one with braces, is matched within the directory before its first pattern character,
+  # which the warnings do not apply to, see `IOStreams::Paths::Matcher`.
+  def self.warn_deprecated_pattern(pattern)
+    klass = path_class(pattern)
+  rescue ArgumentError, ::URI::Error
+    nil
+  else
+    warn_deprecated_name(klass, :name_deprecation, pattern)
+  end
+  private_class_method :warn_deprecated_pattern
+
+  # Returns [true|false] whether the object is a `Pathname`, which IOStreams v3.0 reads as the name of a file.
+  def self.pathname?(object)
+    return false unless defined?(::Pathname)
+
+    object.is_a?(::Pathname)
+  end
+  private_class_method :pathname?
+
   # For an existing IO Stream
   # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').read
   # IOStreams.stream(io).file_name('blah.zip').encoding('BINARY').each(:line){ ... }
   # IOStreams.stream(io).file_name('blah.csv.zip').each(:line) { ... }
   # IOStreams.stream(io).stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
+  #
+  # A `Pathname` is deprecated, since IOStreams v3.0 raises ArgumentError for it, as for a String: it reports a
+  # deprecation warning, see `IOStreams::Deprecation`.
   def self.stream(io_stream)
     return io_stream if io_stream.is_a?(Stream)
 
+    if pathname?(io_stream)
+      Deprecation.warn("a Pathname supplied to IOStreams.stream is deprecated, since v3.0 raises ArgumentError for it, " \
+                       "as for a String: supply IOStreams.path(pathname) instead, and call #raw on it to read or " \
+                       "write the data as it is stored")
+    end
     Stream.new(io_stream)
   end
 
   # For processing by either a file name or an open IO stream.
+  #
+  # A `Pathname` is deprecated, which it reads and writes as an IO, since IOStreams v3.0 returns the path of the file
+  # that it names, which applies the streams of its file name: it reports a deprecation warning, see
+  # `IOStreams::Deprecation`. So is one supplied to `#copy_from`, `#copy_to` or `#move_to`, which call it.
   def self.new(file_name_or_io)
     return file_name_or_io if file_name_or_io.is_a?(Stream)
+    return path(file_name_or_io) if file_name_or_io.is_a?(String)
+    return stream(file_name_or_io) unless pathname?(file_name_or_io)
 
-    file_name_or_io.is_a?(String) ? path(file_name_or_io) : stream(file_name_or_io)
+    Deprecation.warn("a Pathname supplied to IOStreams.new, #copy_from, #copy_to or #move_to is deprecated, since " \
+                     "v3.0 takes it as the name of a file, applying the streams that its file name implies, rather " \
+                     "than as an IO: supply pathname.to_s instead, and call #raw on its path to read or write the " \
+                     "data as it is stored")
+    Stream.new(file_name_or_io)
   end
 
   # Join the supplied path elements to a root path.
@@ -258,6 +325,7 @@ module IOStreams
   # "**.rb"     "lib/song.rb"    true
   # "*"         "dave/.profile"  true
   def self.each_child(pattern, case_sensitive: false, directories: false, hidden: false, &block)
+    warn_deprecated_pattern(pattern)
     matcher = Paths::Matcher.new(nil, pattern, case_sensitive: case_sensitive, hidden: hidden)
 
     # When the pattern includes an exact file name without any pattern characters
@@ -329,7 +397,7 @@ module IOStreams
   # * A local file could be replaced with a symbolic link after it is checked but before it is opened.
   #   Allowed paths do not prevent this, so do not allow paths where untrusted users can create files.
   def self.add_allowed_path(*elements, **args)
-    location = allowed_location(path(*elements, **args))
+    location = allowed_location(build_path(elements, args, :location_deprecation))
     @allowed_paths_mutex.synchronize { @allowed_paths = (@allowed_paths + [location]).uniq.freeze }
     location
   end
@@ -338,7 +406,7 @@ module IOStreams
   #
   # Returns [String] the normalized path that was removed.
   def self.delete_allowed_path(*elements, **args)
-    location = allowed_location(path(*elements, **args))
+    location = allowed_location(build_path(elements, args, :location_deprecation))
     @allowed_paths_mutex.synchronize { @allowed_paths = (@allowed_paths - [location]).freeze }
     location
   end
@@ -354,7 +422,7 @@ module IOStreams
   #
   # Parameters: Same as `IOStreams.path`
   def self.allowed_path?(*elements, **args)
-    path(*elements, **args).send(:allowed?)
+    build_path(elements, args, :location_deprecation).send(:allowed?)
   end
 
   def self.allowed_location(path)

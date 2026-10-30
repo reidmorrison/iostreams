@@ -39,6 +39,17 @@ module IOStreams
       # The password, and the private key supplied as the ssh option `IdentityKey`, see IOStreams::Path.redact_options.
       def self.sensitive_option_names = %i[password identity_key]
 
+      # Returns [String|nil] the deprecation warning for an SFTP url without a path, such as `sftp://host`, which
+      # IOStreams v3.0 reads as `sftp://host/`, the root directory, see `IOStreams::Path.name_deprecation`, while this
+      # version lists the login directory for it, see #each_child.
+      def self.name_deprecation(url)
+        return unless url_without_path?(url)
+
+        "an SFTP url without a path, such as sftp://host, is deprecated, since v3.0 reads it as sftp://host/, the " \
+          "root directory, which changes its #to_s and #path, and what #each_child lists: supply the url with the /, " \
+          "which v2.2 reads the same way"
+      end
+
       # Stream to a remote file over sftp.
       #
       # url: [String]

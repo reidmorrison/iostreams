@@ -151,5 +151,110 @@ class ResultDeprecationTest < Minitest::Test
         end
       end
     end
+
+    describe "an SFTP or HTTP url without a path" do
+      it "is read as supplied, and reported, since v3.0 adds a / to it" do
+        sftp = assert_deprecated(%r{an SFTP url without a path, such as sftp://host, is deprecated, since v3.0 reads it as sftp://host/, the root directory}) do
+          IOStreams.path("sftp://example.org")
+        end
+        assert_equal "sftp://example.org", sftp.to_s
+        assert_equal "", sftp.path
+
+        %w[https://example.org https://example.org?a=1 http://user:secret@example.org:8080#top].each do |url|
+          http = assert_deprecated(%r{an HTTP url without a path, .* is deprecated, since v3.0 adds a / after the host}) do
+            IOStreams.new(url)
+          end
+          assert_equal url, http.to_s
+        end
+      end
+
+      it "does not report a url with a path, a name joined to it, or an allowed path, which is the same location on both" do
+        refute_deprecated do
+          assert_equal "sftp://example.org/", IOStreams.path("sftp://example.org/").to_s
+          assert_equal "/a.csv", IOStreams.path("sftp://example.org", "a.csv").path
+          assert_equal "https://example.org/?a=1", IOStreams.path("https://example.org/?a=1").to_s
+          assert IOStreams.allowed_path?("https://example.org")
+          assert_equal "sftp://example.org", IOStreams::Paths::Matcher.new(nil, "sftp://example.org/*.csv").path.to_s
+        end
+      end
+    end
+
+    describe "a name starting with / joined to an S3 bucket" do
+      let(:pattern) { %r{joining a name that starts with / to an S3 bucket is deprecated, since v3.0 joins it as a key within the bucket} }
+
+      it "is the key that starts with /, and is reported, since v3.0 joins it as a key within the bucket" do
+        assert_equal "/exports/a.csv", assert_deprecated(pattern) { IOStreams.path("s3://bucket").join("/exports/a.csv").path }
+        assert_equal "/exports/a.csv", assert_deprecated(pattern) { IOStreams.path("s3://bucket/").join("/exports", "a.csv").path }
+      end
+
+      it "does not report a name without a leading /, a key named in the url, or a name joined to a key" do
+        refute_deprecated do
+          assert_equal "exports/a.csv", IOStreams.path("s3://bucket").join("exports/a.csv").path
+          assert_equal "/exports/a.csv", IOStreams.path("s3://bucket//exports/a.csv").path
+          assert_equal "dir/a.csv", IOStreams.path("s3://bucket/dir").join("/a.csv").path
+        end
+      end
+    end
+
+    describe "a local file name of ~" do
+      let(:pattern) { %r{a local file name of ~, or starting with ~/, is deprecated, since v3.0 reads it within the home directory} }
+
+      it "is within a directory called ~, and is reported, since v3.0 reads it within the home directory" do
+        assert_equal "~/data/a.csv", assert_deprecated(pattern) { IOStreams.path("~/data/a.csv").to_s }
+        assert_equal "~/a.csv", assert_deprecated(pattern) { IOStreams.path("~", "a.csv").to_s }
+        assert_equal "~", assert_deprecated(pattern) { IOStreams.new("~").to_s }
+        children = []
+        assert_deprecated(pattern) { IOStreams.each_child("~/iostreams-missing-directory/*.csv") { |child| children << child } }
+        assert_empty children
+        refute assert_deprecated(pattern) { IOStreams.path("~/iostreams-missing.csv").exist? }
+      end
+
+      it "does not report an expanded name, a name within ./~, or other names that start with ~" do
+        refute_deprecated do
+          assert_equal File.join(Dir.home, "a.csv"), IOStreams.path(File.expand_path("~/a.csv")).to_s
+          assert_equal "./~/a.csv", IOStreams.path("./~/a.csv").to_s
+          assert_equal "~user/a.csv", IOStreams.path("~user/a.csv").to_s
+          assert_equal "~$Book1.xlsx", IOStreams.path("~$Book1.xlsx").to_s
+          assert_equal File.join(@dir, "~/a.csv"), IOStreams.path(@dir).join("~/a.csv").to_s
+        end
+      end
+    end
+
+    describe "a Pathname" do
+      let(:pathname) do
+        file_name = File.join(@dir, "data.csv.gz")
+        File.binwrite(file_name, Zlib.gzip("a,b\n"))
+        Pathname.new(file_name)
+      end
+
+      let(:new_pattern) { /a Pathname supplied to IOStreams.new, #copy_from, #copy_to or #move_to is deprecated, since v3.0 takes it as the name of a file/ }
+
+      it "is read as an IO, and reported, since v3.0 reads the file that it names" do
+        stream = assert_deprecated(new_pattern) { IOStreams.new(pathname) }
+        assert_instance_of IOStreams::Stream, stream
+        assert_equal Zlib.gzip("a,b\n").bytesize, stream.read.bytesize
+
+        # A copy to it writes the data as it is stored, where v3.0 compresses it for its .gz file name. A copy from it is
+        # not tested, since on JRuby it never ends: Pathname#read(length) always returns the start of the file.
+        source = IOStreams.path(@dir, "source.csv")
+        source.write("a,b\n")
+        target = Pathname.new(File.join(@dir, "copy.csv.gz"))
+        assert_deprecated(new_pattern) { source.copy_to(target) }
+
+        assert_equal "a,b\n", File.binread(target.to_s)
+
+        assert_deprecated(/a Pathname supplied to IOStreams.stream is deprecated, since v3.0 raises ArgumentError/) do
+          assert_instance_of IOStreams::Stream, IOStreams.stream(pathname)
+        end
+      end
+
+      it "does not report its name, or IOStreams.path, which read the file that it names on both" do
+        refute_deprecated do
+          assert_equal "a,b\n", IOStreams.new(pathname.to_s).read
+          assert_equal "a,b\n", IOStreams.path(pathname).read
+          assert_equal File.binread(pathname.to_s), IOStreams.path(pathname).raw.read
+        end
+      end
+    end
   end
 end

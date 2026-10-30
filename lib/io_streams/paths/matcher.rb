@@ -38,20 +38,22 @@ module IOStreams
 
       private
 
+      # The directory is created without reporting a deprecation warning for its name, see `IOStreams.path`, since it is
+      # derived from the pattern, whose name `IOStreams.each_child` reports instead.
       def extract_optimized_path(path, pattern)
         elements = pattern.split("/")
         index    = elements.find_index { |e| e.match(MATCH_START_CHARS) }
         if index.nil?
           # No index means it has no pattern.
-          @path    = path.nil? ? IOStreams.path(pattern) : path.join(pattern)
+          @path    = path.nil? ? IOStreams.send(:path_of, pattern) : path.join(pattern)
           @pattern = nil
         elsif index.zero?
           # Cannot optimize path since the very first entry contains a wildcard
-          @path    = path || IOStreams.path
+          @path    = path || IOStreams.send(:path_of, "")
           @pattern = pattern
         else
           new_path = elements[0..(index - 1)].join("/")
-          @path    = path.nil? ? IOStreams.path(new_path) : path.join(new_path)
+          @path    = path.nil? ? IOStreams.send(:path_of, new_path) : path.join(new_path)
           @pattern = elements[index..].join("/")
         end
       end

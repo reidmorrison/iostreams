@@ -219,6 +219,20 @@ module IOStreams
         Utils::PathName.join("s3://", bucket_name, path)
       end
 
+      # Joining a name that starts with `/` to the bucket itself, see `IOStreams::Path#join`, gives the key that starts
+      # with `/`, such as `/exports/a.csv`, while IOStreams v3.0 joins it as a key within the bucket, `exports/a.csv`, as
+      # a name joined to the local directory `/` is within it. So it is deprecated, and reports a deprecation warning,
+      # see `IOStreams::Deprecation`.
+      def join(*elements)
+        joined = super
+        if path.empty? && joined.path.start_with?("/")
+          Deprecation.warn("joining a name that starts with / to an S3 bucket is deprecated, since v3.0 joins it as " \
+                           "a key within the bucket, such as exports/a.csv for /exports/a.csv: remove the leading /, " \
+                           "or name a key that starts with / in the url, such as s3://bucket//exports/a.csv")
+        end
+        joined
+      end
+
       # Does not support relative file names since there is no concept of current working directory
       def relative?
         false

@@ -90,7 +90,7 @@ module Paths
         it "reports no deprecation warning for a url with a host, a query, a fragment or credentials" do
           refute_deprecated do
             IOStreams.path("https://jack:secret@example.org:8443/a.csv?date=today#top")
-            IOStreams.path("http://example.org")
+            IOStreams.path("http://example.org/")
           end
         end
       end
