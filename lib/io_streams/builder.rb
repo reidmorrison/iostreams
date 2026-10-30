@@ -61,6 +61,7 @@ module IOStreams
       raise_if_raw!("#option")
       add_option(stream, options)
       warn_deprecated_stream("option", stream)
+      warn_deprecated_options(stream, options)
       self
     end
 
@@ -75,6 +76,7 @@ module IOStreams
       raise_if_raw!("#stream") unless stream == :none
       add_stream(stream, options)
       warn_deprecated_stream("stream", stream)
+      warn_deprecated_options(stream, options)
       self
     end
 
@@ -148,6 +150,7 @@ module IOStreams
       raise_if_raw!("#option_or_stream") unless stream == :none
       streams || file_name.nil? ? add_stream(stream, options) : add_option(stream, options)
       warn_deprecated_stream("option_or_stream", stream)
+      warn_deprecated_options(stream, options)
       self
     end
 
@@ -259,6 +262,31 @@ module IOStreams
           Deprecation.warn("#{method}(:encode, ...) is deprecated, use #encoding instead")
         end
       end
+    end
+
+    # Reports a deprecation warning for each option of the stream that IOStreams 3.0 raises ArgumentError for when it is
+    # set with #option, #stream or #option_or_stream, whether or not the file name includes the stream, so that it is
+    # reported wherever the code runs, rather than only where a file name includes the stream: one that the reader or
+    # the writer of the stream replaces, with the option that replaces it, see `IOStreams::Extension#replaced_option_names`,
+    # and one that neither of them takes, such as a misspelled one, see `IOStreams::Extension#unknown_option_names`. An
+    # option of the other direction is not reported, since v3.0 accepts it, and ignores it, nor are the options of the
+    # encode stream, which is deprecated itself, see #warn_deprecated_stream, or of `:none`, which takes none.
+    def warn_deprecated_options(stream, options)
+      return if options.empty? || %i[encode none].include?(stream)
+
+      extension = IOStreams.extensions[stream]
+      return unless extension
+
+      replaced = extension.replaced_option_names.slice(*options.keys)
+      replaced.each_pair { |name, replacement| Deprecation.warn("#{name}: is deprecated, use #{replacement}: instead") }
+
+      names = extension.unknown_option_names(options.keys - replaced.keys)
+      return if names.empty?
+
+      them = names.size == 1 ? "it" : "them"
+      Deprecation.warn("#{names.map { |name| "#{name}:" }.join(', ')} #{names.size == 1 ? 'is' : 'are'} deprecated " \
+                       "for a #{stream.inspect} stream, since neither its reader nor its writer takes #{them}, so " \
+                       "correct or remove #{them}")
     end
 
     # A file name ending in `.encode` is deprecated, since file names do not name the encode stream, see #encoding.

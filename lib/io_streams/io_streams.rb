@@ -581,6 +581,46 @@ module IOStreams
     def redact_options(options)
       Utils.redact_options(options, sensitive_option_names)
     end
+
+    # Returns [Array<Symbol>] the options that the reader or the writer of this extension takes in IOStreams 3.0, as
+    # each answers them, see `IOStreams::Reader.known_option_names`, or [nil] when they are not known: when either does
+    # not declare its options, as one that an application registers need not, or when this extension cannot be read,
+    # or cannot be written, such as `:xlsx`, which IOStreams 3.0 also writes, with options of its own.
+    def known_option_names
+      classes = [reader_class, writer_class]
+      return if classes.include?(nil)
+
+      names = classes.map { |klass| class_known_option_names(klass) }
+      names.flatten.uniq unless names.include?(nil)
+    end
+
+    # Returns [Array<Symbol>] the supplied names of the options that neither the reader nor the writer of this extension
+    # takes in IOStreams 3.0, see #known_option_names, such as a misspelled one, which IOStreams 3.0 raises
+    # ArgumentError for when it is set, or none when its options are not known. An option of either direction is
+    # known, since one option hash is shared by the reader and the writer of a stream.
+    def unknown_option_names(names)
+      known = known_option_names
+      known ? names - known : []
+    end
+
+    # Returns [Hash<Symbol, Symbol>] the deprecated options that the reader or the writer of this extension still
+    # takes, which IOStreams 3.0 does not, with the option that replaces each, see
+    # `IOStreams::Writer.replaced_option_names`.
+    def replaced_option_names
+      [reader_class, writer_class].each_with_object({}) do |klass, replaced|
+        replaced.merge!(klass.replaced_option_names) if klass.respond_to?(:replaced_option_names)
+      end
+    end
+
+    private
+
+    # Returns [Array<Symbol>|nil] the options that the class takes in IOStreams 3.0, or those that it declares when it
+    # does not answer them, as a class that an application registers need not, or nil when it declares neither.
+    def class_known_option_names(klass)
+      return klass.known_option_names if klass.respond_to?(:known_option_names)
+
+      klass.option_names if klass.respond_to?(:option_names)
+    end
   end
 
   class Extension

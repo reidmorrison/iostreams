@@ -178,15 +178,24 @@ class DeprecationTest < Minitest::Test
       end
 
       it "names the line of the application when IOStreams runs gpg" do
+        # A stream of IOStreams that reports a deprecation as it is opened, within the block that IOStreams supplies to
+        # Open3 while gpg runs.
+        writer = DeprecationTest.code_in(File.join(LIB_DIR, "io_streams", "deprecated_writer.rb"), <<~RUBY)
+          def self.open(io, **)
+            IOStreams::Deprecation.warn("old is deprecated")
+            yield(io)
+          end
+        RUBY
+        IOStreams.register_extension(:deprecated_test, nil, writer)
         Dir.mktmpdir do |dir|
-          path = IOStreams.path(dir, "data.zip.pgp").
-                 option(:zip, zip_file_name: "data.txt").
-                 option(:pgp, recipient: "receiver@example.org")
+          path = IOStreams.path(dir, "data.deprecated_test.pgp").option(:pgp, recipient: "receiver@example.org")
           line = __LINE__ + 2
-          assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: zip_file_name: is deprecated/) do
+          assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: old is deprecated\n\z/) do
             path.write("hello")
           end
         end
+      ensure
+        IOStreams.deregister_extension(:deprecated_test)
       end
 
       it "names no line when the call stack has none outside IOStreams" do

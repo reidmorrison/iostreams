@@ -61,6 +61,9 @@ class StreamOptionsTest < Minitest::Test
     end
 
     describe "an option that no direction accepts" do
+      # It is also reported as deprecated when it is set, see "an option that IOStreams 3.0 raises for when it is set".
+      allow_deprecation(/is deprecated for a :\w+ stream, since neither its reader nor its writer takes it/)
+
       it "lists the valid options" do
         error = assert_raises(ArgumentError) { path("a.csv.enc").option(:enc, compres: false).write(data) }
         assert_equal "Unknown option :compres when writing a :enc stream. " \
@@ -89,6 +92,84 @@ class StreamOptionsTest < Minitest::Test
       end
     end
 
+    describe "an option that IOStreams 3.0 raises for when it is set" do
+      it "reports a deprecation warning for an option that neither the reader nor the writer takes, when it is set" do
+        line = __LINE__ + 2
+        stream = assert_deprecated(/stream_options_test\.rb:#{line}: warning: IOStreams: recipent: is deprecated for a :pgp stream, since neither its reader nor its writer takes it, so correct or remove it\n\z/) do
+          path("a.csv").option(:pgp, recipent: "receiver@example.org")
+        end
+
+        # The file name does not include the stream, so the option is ignored, as before.
+        stream.write(data)
+
+        assert_equal data, path("a.csv").read
+      end
+
+      it "reports each of them in one deprecation warning, for #option, #stream and #option_or_stream" do
+        assert_deprecated(/IOStreams: bogus:, other: are deprecated for a :gz stream, since neither its reader nor its writer takes them, so correct or remove them\n\z/) do
+          path("a.csv").option(:gz, bogus: 1, level: 9, other: 2)
+        end
+        assert_deprecated(/IOStreams: compres: is deprecated for a :enc stream/) { IOStreams.stream(StringIO.new).stream(:enc, compres: false) }
+        assert_deprecated(/IOStreams: compres: is deprecated for a :enc stream/) { path("a.csv").option_or_stream(:enc, compres: false) }
+        assert_deprecated(/IOStreams: compres: is deprecated for a :enc stream/) do
+          IOStreams.stream(StringIO.new).option_or_stream(:enc, compres: false)
+        end
+      end
+
+      it "still raises for it when the stream is used, as before" do
+        stream = assert_deprecated(/bogus: is deprecated for a :gz stream/) { path("a.gz").stream(:gz, bogus: 1) }
+
+        error = assert_raises(ArgumentError) { stream.write(data) }
+        assert_equal "Unknown option :bogus when writing a :gz stream. Valid options: :level.", error.message
+      end
+
+      it "reports a deprecation warning for the options of :zip and :bz2 set on a path without that extension" do
+        assert_deprecated(/entry_filename: is deprecated for a :zip stream/) { path("a.csv").option(:zip, entry_filename: "a.csv") }
+        assert_deprecated(/bogus: is deprecated for a :bz2 stream/) { path("a.csv").option(:bz2, bogus: 1) }
+      end
+
+      it "reports no deprecation warning for an option of the other direction, which IOStreams 3.0 accepts, and ignores" do
+        refute_deprecated do
+          path("a.csv").option(:enc, compress: false, buffer_size: 4096)
+          path("a.csv").option(:pgp, passphrase: "secret", recipient: "receiver@example.org")
+          path("a.csv").option(:bz2, block_size: 1, small: true)
+          path("a.csv").option(:zip, entry_file_name: "a.csv")
+          IOStreams.stream(StringIO.new).stream(:gz, level: 9)
+        end
+      end
+
+      it "reports no deprecation warning for a stream that cannot be written, whose options when writing are not known" do
+        # IOStreams 3.0 also writes xlsx files, with options of their own, such as sheet_name:.
+        refute_deprecated { path("a.csv").option(:xlsx, sheet_name: "Sheet1") }
+      end
+
+      it "reports no deprecation warning for a registered stream that does not declare its options" do
+        reader = Class.new { def self.open(io, **) = yield(io) }
+        IOStreams.register_extension(:strict_test, reader, reader)
+
+        refute_deprecated { IOStreams.stream(StringIO.new(data)).stream(:strict_test, anything: 1) }
+      ensure
+        IOStreams.deregister_extension(:strict_test)
+      end
+
+      it "reports a deprecation warning for a registered stream that declares its options" do
+        reader = Class.new(IOStreams::Reader) { def self.option_names = %i[size] }
+        writer = Class.new(IOStreams::Writer) { def self.option_names = %i[level] }
+        IOStreams.register_extension(:strict_test, reader, writer)
+
+        refute_deprecated { IOStreams.stream(StringIO.new(data)).stream(:strict_test, size: 1, level: 2) }
+        assert_deprecated(/sise: is deprecated for a :strict_test stream/) { IOStreams.stream(StringIO.new(data)).stream(:strict_test, sise: 1) }
+      ensure
+        IOStreams.deregister_extension(:strict_test)
+      end
+
+      it "reports no other deprecation warning for the options of the encode stream, which is deprecated itself" do
+        assert_deprecated(/option\(:encode, \.\.\.\) is deprecated, use #encoding instead\n\z/) do
+          path("a.csv").option(:encode, encoding: "UTF-8", bogus: 1)
+        end
+      end
+    end
+
     describe "gzip" do
       it "writes with a compression level" do
         path("a.gz").option(:gz, level: Zlib::BEST_COMPRESSION).write(data)
@@ -113,7 +194,7 @@ class StreamOptionsTest < Minitest::Test
 
       it "ignores an unknown option when writing, and warns" do
         line   = __LINE__ + 2
-        output = assert_deprecated(/stream_options_test\.rb:#{line}: warning: IOStreams: bogus: is deprecated for a :bz2 stream, which ignores it, so remove it\n\z/) do
+        output = assert_deprecated(/stream_options_test\.rb:#{line}: warning: IOStreams: bogus: is deprecated for a :bz2 stream, since neither its reader nor its writer takes it, so correct or remove it\n\z/) do
           with_logger { path("a.bz2").option(:bz2, bogus: 1).write(data) }
         end
 
@@ -125,7 +206,7 @@ class StreamOptionsTest < Minitest::Test
       it "ignores an unknown option when reading, and warns" do
         path("a.bz2").write(data)
         result = nil
-        output = assert_deprecated(/IOStreams: bogus:, other: are deprecated for a :bz2 stream, which ignores them, so remove them\n\z/) do
+        output = assert_deprecated(/IOStreams: bogus:, other: are deprecated for a :bz2 stream, since neither its reader nor its writer takes them, so correct or remove them\n\z/) do
           with_logger { result = path("a.bz2").option(:bz2, bogus: 1, block_size: 1, other: 2).read }
         end
 

@@ -229,8 +229,11 @@ module IOStreams
         end
 
         it "does not display options whose names suggest a secret" do
-          path = IOStreams.path("a/b/file.csv.pgp").option(:pgp, api_token: "TOP-SECRET", recipient: "a@b.org")
-          str  = path.inspect
+          # :pgp takes no api_token:, which v3.0 raises for when it is set.
+          path = assert_deprecated(/api_token: is deprecated for a :pgp stream/) do
+            IOStreams.path("a/b/file.csv.pgp").option(:pgp, api_token: "TOP-SECRET", recipient: "a@b.org")
+          end
+          str = path.inspect
 
           refute_includes str, "TOP-SECRET"
           assert_includes str, "a@b.org"
