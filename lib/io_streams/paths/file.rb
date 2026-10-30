@@ -100,8 +100,9 @@ module IOStreams
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
 
-        # Dir.each_child("testdir") {|x| puts "Got #{x}" }
-        full_pattern = Utils::PathName.join(path, pattern)
+        # A pattern that is a Pathname is joined by its #to_path, as `::File.join` joins it, which v2.1 joined the pattern
+        # with, and `IOStreams::Utils::PathName.join` does not on JRuby, where it joins the names by their bytes.
+        full_pattern = Utils::PathName.join(path, pattern.respond_to?(:to_path) ? pattern.to_path : pattern)
 
         results = Dir.glob(full_pattern, flags)
 

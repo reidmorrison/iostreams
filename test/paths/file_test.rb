@@ -1,4 +1,5 @@
 require_relative "../test_helper"
+require "pathname"
 
 module Paths
   class FileTest < Minitest::Test
@@ -77,6 +78,13 @@ module Paths
         it "with no block returns enumerator" do
           expected = [file_path.to_s, file_path2.to_s]
           actual   = root.each_child("**/*").first(100).collect(&:to_s)
+
+          assert_equal expected.sort, actual.sort
+        end
+
+        it "finds the files of a pattern that is a Pathname, as v2.1 did, on JRuby too" do
+          expected = [file_path.to_s, file_path2.to_s]
+          actual   = root.children(Pathname.new("**/*.txt")).collect(&:to_s)
 
           assert_equal expected.sort, actual.sort
         end
