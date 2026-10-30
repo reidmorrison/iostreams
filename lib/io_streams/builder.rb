@@ -12,7 +12,7 @@ module IOStreams
       @streams       = nil
       @options       = nil
       @format        = nil
-      @format_set    = false
+      @set_format    = nil
       @format_option = nil
       @encoding      = nil
       @raw           = false
@@ -194,18 +194,46 @@ module IOStreams
       @format ||= file_name ? Tabular.format_from_file_name(file_name) : nil
     end
 
+    # Sets the tabular format, or nil to detect it from the file name, see #format. Unlike the format detected, which
+    # #format keeps once it is detected, the one set is also kept on its own, see #warn_text_format.
     def format=(format)
       unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
         raise(ArgumentError, "Invalid format: #{format.inspect}")
       end
 
       @format     = format
-      @format_set = !format.nil?
+      @set_format = format
     end
 
     # Returns [true|false] whether a format was set, see #format=, rather than taken from the file name, see #format.
     def format_set?
-      @format_set
+      !@set_format.nil?
+    end
+
+    # Returns [Symbol|nil] the tabular format of the text that the stream closest to the application reads, when that
+    # stream decides it, such as `:csv` for a spreadsheet, whose rows it reads as CSV, see
+    # `IOStreams::Xlsx::Reader.text_format`, otherwise nil, for a stream whose data is the text, such as gzip. The encode
+    # stream converts that text, so it is the stream after it.
+    def text_format
+      stream = pipeline.each_key.find { |name| name != :encode }
+      klass  = stream && IOStreams.extensions[stream]&.reader_class
+      klass.text_format if klass.respond_to?(:text_format)
+    end
+
+    # A format set with #format= that is not the format of the text that the streams read, see #text_format, such as
+    # `:psv` for a spreadsheet, whose rows are read as CSV, is deprecated, since v3.0 raises ArgumentError when its
+    # lines, rows or records are read, rather than read them in that format. Reports a deprecation warning when they are
+    # read, as v3.0 raises then, whichever way the streams were set. The format detected from the file name, such as
+    # that of `report.psv.xlsx`, is not reported, since v3.0 reads the rows of a spreadsheet as CSV whatever its name.
+    def warn_text_format
+      return if @set_format.nil?
+
+      text_format = self.text_format
+      return if text_format.nil? || @set_format == text_format
+
+      Deprecation.warn("format(#{@set_format.inspect}) is deprecated when the streams read the rows as " \
+                       "#{text_format.inspect}, such as those of a spreadsheet, since v3.0 raises ArgumentError for " \
+                       "it, set format(#{text_format.inspect}) instead, or no format")
     end
 
     # Returns [String] the quote character within which field delimiters and newlines may be

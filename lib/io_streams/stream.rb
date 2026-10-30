@@ -398,7 +398,11 @@ module IOStreams
       builder.file_name = file_name
     end
 
-    # Set/get the tabular format_options
+    # Set/get the tabular format
+    #
+    # A format other than `:csv` set on a spreadsheet, such as `format(:psv)` on an `.xlsx` path, is deprecated, since
+    # its rows are read as CSV, and reports a deprecation warning when its lines, rows or records are read, see
+    # `IOStreams::Builder#warn_text_format`.
     def format(format = :none)
       if format == :none
         builder.format
@@ -637,7 +641,12 @@ module IOStreams
       builder.reader(supplied_io, &)
     end
 
+    # Yields the reader of the lines of this stream, which the readers of its rows and records read too.
+    #
+    # A format set with #format that is not that of the text of its streams, such as `:psv` for a spreadsheet, whose
+    # rows are read as CSV, reports a deprecation warning, see `IOStreams::Builder#warn_text_format`.
     def line_reader(embedded_within: :auto, **args)
+      builder.warn_text_format
       # `:auto` defers the decision to the resolved tabular format (e.g. CSV quotes with `"`),
       # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or
       # `'"'` (force). Centralizing this in the builder keeps all format-based decisions there.

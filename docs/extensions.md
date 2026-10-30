@@ -58,6 +58,7 @@ end
 ~~~
 
 Notes:
+* Its rows are read as CSV, so leave the format of the path unset, or set it to `format(:csv)`.
 * Since the underlying `creek` gem operates on files, when reading from a stream (for example S3 or HTTP)
   the contents are first downloaded into a temp file.
 * Writing xlsx files is not supported.

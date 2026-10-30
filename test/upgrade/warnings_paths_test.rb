@@ -1,4 +1,5 @@
 require_relative "../test_helper"
+require "csv"
 require "pathname"
 require "stringio"
 require "tmpdir"
@@ -9,6 +10,17 @@ require "zlib"
 module Upgrade
   class WarningsPathsTest < Minitest::Test
     describe "the forms that the deprecation warnings for paths recommend" do
+      let :spreadsheet do
+        File.expand_path("../files/spreadsheet.xlsx", __dir__)
+      end
+
+      let :spreadsheet_rows do
+        [
+          ["first column", "second column", "third column"],
+          ["data 1", "data 2", "more data"]
+        ]
+      end
+
       describe "the IO supplied to IOStreams.stream, in place of #io_stream" do
         it "is the IO that the stream reads" do
           io    = StringIO.new("name\nJack\n")
@@ -102,6 +114,41 @@ module Upgrade
             assert_equal %w[a.csv b.csv], children.map(&:basename).sort
             assert_equal %w[a.csv b.csv], found.sort
           end
+        end
+      end
+
+      describe "format(:csv), or no format, for a spreadsheet, in place of another format" do
+        it "reads its rows as CSV with format(:csv)" do
+          rows = refute_deprecated do
+            rows = []
+            IOStreams.path(spreadsheet).format(:csv).each(:array) { |row| rows << row }
+            rows
+          end
+
+          assert_equal spreadsheet_rows, rows
+        end
+
+        it "reads its rows and records as CSV without a format" do
+          rows, records = refute_deprecated do
+            rows    = []
+            records = []
+            IOStreams.path(spreadsheet).each(:array) { |row| rows << row }
+            IOStreams.path(spreadsheet).each(:hash) { |record| records << record }
+            [rows, records]
+          end
+
+          assert_equal spreadsheet_rows, rows
+          assert_equal [{"first_column" => "data 1", "second_column" => "data 2", "third_column" => "more data"}], records
+        end
+
+        it "reads its lines as the CSV of each row with format(:csv)" do
+          lines = refute_deprecated do
+            lines = []
+            IOStreams.path(spreadsheet).format(:csv).each(:line) { |line| lines << line }
+            lines
+          end
+
+          assert_equal spreadsheet_rows.map(&:to_csv).map(&:chomp), lines
         end
       end
 

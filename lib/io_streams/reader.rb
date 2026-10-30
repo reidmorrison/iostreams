@@ -18,6 +18,13 @@ module IOStreams
       []
     end
 
+    # Returns [Symbol|nil] the tabular format of the text that this reader turns its data into, such as `:csv` for a
+    # spreadsheet, otherwise nil, for a reader whose data is the text, such as gzip, see
+    # `IOStreams::Builder#text_format`.
+    def self.text_format
+      nil
+    end
+
     # When a Reader does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(input_stream, **args, &block)

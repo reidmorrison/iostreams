@@ -7,6 +7,12 @@ module IOStreams
         []
       end
 
+      # Returns [Symbol] the tabular format of the text that a workbook is read as: CSV, one line for each row of its
+      # worksheet, see #file.
+      def self.text_format
+        :csv
+      end
+
       # Convert a xlsx, or xlsm file into CSV format.
       def self.file(file_name, &block)
         # Stream into a temp file as csv
