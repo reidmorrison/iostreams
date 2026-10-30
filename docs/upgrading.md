@@ -1800,7 +1800,8 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
 described below. Most applications upgrade without any code changes. The changes that would break
-existing code were postponed to v3.0, and log a warning in v2.1. See [Upgrading to v3.0](#upgrading-to-v30).
+existing code were postponed to v3.0, and log a warning in v2.1, apart from `IOStreams::Pgp.export(email: nil)`,
+which logs none, since `IOStreams::Pgp.export` logs only at debug level. See [Upgrading to v3.0](#upgrading-to-v30).
 
 ### Changes that may need code changes
 
