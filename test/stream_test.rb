@@ -1088,6 +1088,39 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "reports a deprecation warning for a method of the IO of gpg when writing PGP, which still works" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.csv.pgp").option(:pgp, **pgp_writer[:pgp])
+          line = __LINE__ + 4
+          path.writer do |io|
+            io.write(csv)
+            assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #fileno is deprecated on the :pgp stream that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts and #printf: write it with those\n\z/) do
+              io.fileno
+            end
+          end
+
+          assert_equal csv, IOStreams.path(dir, "people.csv.pgp").option(:pgp, **pgp_reader).read
+        end
+      end
+
+      it "reports none for the methods of an IO that write, when writing PGP" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.csv.pgp").option(:pgp, **pgp_writer[:pgp])
+          refute_deprecated do
+            path.writer do |io|
+              io.write("name,")
+              io << "zip\n"
+              io.print("Jack,")
+              io.printf("%d", 12_345)
+              io.puts
+              io.flush
+            end
+          end
+
+          assert_equal csv, IOStreams.path(dir, "people.csv.pgp").option(:pgp, **pgp_reader).read
+        end
+      end
+
       it "reports none for a stream that v3.0 supplies in the same form" do
         Dir.mktmpdir do |dir|
           plain   = write_file(dir, "people.csv")

@@ -18,6 +18,13 @@ module IOStreams
       []
     end
 
+    # Returns [Array<Symbol>|nil] the methods that the stream that v3.0 supplies to a writer block, in place of the one
+    # that this writer yields, answers, when it does not answer all of the methods of that one, otherwise nil, for a
+    # writer whose stream answers the same methods in both versions, see `IOStreams::Reader.v3_stream_methods`.
+    def self.v3_stream_methods(_reads_file)
+      nil
+    end
+
     # When a Writer does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(output_stream, **args, &block)

@@ -2,6 +2,7 @@ require_relative "../test_helper"
 require "aws-sdk-s3"
 require "csv"
 require "socket"
+require "stringio"
 require "tmpdir"
 require_relative "../s3_stub"
 
@@ -187,6 +188,33 @@ module Upgrade
           end
 
           assert_equal [::File, csv, 0, csv], data
+        end
+      end
+
+      describe "the methods of an IO that write, when writing PGP" do
+        it "write the data that is read" do
+          Dir.mktmpdir do |dir|
+            refute_deprecated do
+              IOStreams.path(dir, "people.csv.pgp").option(:pgp, **pgp_writer).writer do |io|
+                io.write("name,zip\n")
+                io << "Jack," << "12345\n"
+                io.print("Jill,")
+                io.printf("%d", 23_456)
+                io.puts
+              end
+            end
+
+            assert_equal csv, reader_path(dir, "people.csv.pgp").read
+          end
+        end
+
+        it "write to an IO supplied to IOStreams.stream" do
+          output = StringIO.new
+          refute_deprecated do
+            IOStreams.stream(output).stream(:pgp, **pgp_writer).writer { |io| io.write(csv) }
+          end
+
+          assert_equal csv, IOStreams.stream(StringIO.new(output.string)).stream(:pgp, **pgp_reader).read
         end
       end
     end

@@ -306,11 +306,18 @@ module IOStreams
     # `IOStreams.stream`, which writes with its own settings, and ignores them, and the streams, encoding, format and
     # schema set on such a stream, see #supplied_writer. Each reports a deprecation warning, see
     # `IOStreams::Deprecation`.
+    #
+    # The stream that the block of the `:stream` mode receives reports a deprecation warning for each of its methods that
+    # the application calls, and that the stream that v3.0 supplies in its place does not answer, such as `#fileno` of
+    # the IO of gpg's input when writing PGP, see #v3_deprecation.
     def writer(mode = :stream, **args, &)
       case mode
       when :stream
         warn_ignored_options(args.keys, "in the :stream mode")
-        stream_writer(&)
+        deprecation = v3_deprecation(:writer) if block_given?
+        return stream_writer(&) unless deprecation
+
+        stream_writer { |io| yield(Deprecation::Methods.deprecate(io, *deprecation)) }
       when :line
         line_writer(**args, &)
       when :array
