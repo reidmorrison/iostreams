@@ -907,6 +907,14 @@ class UpgradeSchemaTest < Minitest::Test
           assert_equal "42,12.50,2026-10-13,true\n", written
         end
 
+        it "is ignored by a format without a header row, such as JSON, whose fieldsMatch can then be any of them" do
+          partial = headerless.merge(fieldsMatch: "partial")
+
+          assert_equal [{"id" => 42}], read(%({"id":"0042","notes":"x"}\n), file_name: "people.json", schema: partial)
+          assert_equal %({"id":42,"pay":null,"joined":null,"active":null}\n), write([{"id" => 42, "notes" => "x"}], file_name: "people.json", schema: partial)
+          assert_raises(ArgumentError) { read("0042\n", schema: partial) }
+        end
+
         it "is read by #copy_from and #copy_to, whose options only apply to the target" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "people.csv").schema(headerless)
@@ -1029,6 +1037,11 @@ class UpgradeSchemaTest < Minitest::Test
 
           assert_raises(ArgumentError) { read_fixed("abcdef\n", schema: schema) }
         end
+
+        it "raises without a schema, which gives the width of each field" do
+          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new("abc\n")).format(:fixed).each(:hash) { |row| row } }
+          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).format(:fixed).writer(:hash) { |io| io << {"a" => "b"} } }
+        end
       end
 
       describe "supplied to each call" do
@@ -1047,6 +1060,16 @@ class UpgradeSchemaTest < Minitest::Test
             IOStreams.path(dir, "a.csv").write(csv)
 
             assert_raises(ArgumentError) { IOStreams.path(dir, "b.json").copy_from(IOStreams.path(dir, "a.csv"), mode: :hash, schema: people) }
+          end
+        end
+
+        it "raises for an option that the call does not take, with a schema and without one" do
+          [IOStreams.stream(StringIO.new(csv)).schema(people), IOStreams.stream(StringIO.new(csv))].each do |input|
+            assert_raises(ArgumentError) { input.each(:hash, delimitr: "\n") { |row| row } }
+            assert_raises(ArgumentError) { input.each(:array, delimitr: "\n") { |row| row } }
+          end
+          [IOStreams.stream(StringIO.new).schema(people), IOStreams.stream(StringIO.new)].each do |output|
+            assert_raises(ArgumentError) { output.writer(:hash, delimitr: "\n") { |io| io << record } }
           end
         end
       end

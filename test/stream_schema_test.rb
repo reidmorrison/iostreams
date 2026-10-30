@@ -260,12 +260,9 @@ class StreamSchemaTest < Minitest::Test
       describe "a file without a header row" do
         let(:headerless) { people.merge(header: false) }
 
-        it "is ignored by a format without a header row, such as JSON, whose fieldsMatch can then be any of them" do
-          partial = headerless.merge(fieldsMatch: "partial")
-
-          assert_equal [{"id" => 42}], read(%({"id":"0042","notes":"x"}\n), file_name: "people.json", schema: partial)
-          assert_equal %({"id":42,"pay":null,"joined":null,"active":null}\n), write([{"id" => 42, "notes" => "x"}], file_name: "people.json", schema: partial)
-          error = assert_raises(ArgumentError) { read("0042\n", schema: partial) }
+        # The rest of this is tested in test/upgrade/schema_test.rb.
+        it "names the fieldsMatch that a schema with header: false needs for a format with a header row" do
+          error = assert_raises(ArgumentError) { read("0042\n", schema: headerless.merge(fieldsMatch: "partial")) }
           assert_match(/\AA schema with header: false has the fields in order, so fieldsMatch must be "exact"/, error.message)
         end
 

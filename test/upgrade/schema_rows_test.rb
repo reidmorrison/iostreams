@@ -201,6 +201,14 @@ class UpgradeSchemaRowsTest < Minitest::Test
           assert_equal Encoding::UTF_8, lines.last.encoding
         end
 
+        it "raises for a line that is not valid UTF-8, naming its line" do
+          error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+            read(stream("área,name\n12,Jos\xE9\n".b).schema(schema), :line)
+          end
+          assert_equal "\xE9".b, error.error_char
+          assert_equal 2, error.line_number
+        end
+
         it "names the line of an invalid character within a quoted value" do
           error = assert_raises(IOStreams::Errors::InvalidEncoding) do
             read(stream(%(área,name\n12,"Jack\nJos\xE9"\n).b).format(:csv).schema(schema), :line)

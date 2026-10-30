@@ -128,12 +128,11 @@ class SchemaRowsTest < Minitest::Test
       end
 
       describe "in lines" do
-        it "raises for a line that is not valid UTF-8, naming its line, as IOStreams 3.0 does" do
+        # The class, character and line of the error are tested in test/upgrade/schema_rows_test.rb.
+        it "reports no byte offset for a line that is not valid UTF-8, unlike IOStreams 3.0, and names the line in its message" do
           error = assert_raises(IOStreams::Errors::InvalidEncoding) do
             read(stream("área,name\n12,Jos\xE9\n".b).schema(schema), :line)
           end
-          assert_equal "\xE9".b, error.error_char
-          assert_equal 2, error.line_number
           assert_nil error.byte_offset
           assert_equal %("\\xE9" is not valid UTF-8 on line 2. Set the encoding of the file with #encoding), error.message
         end
