@@ -449,7 +449,7 @@ module IOStreams
   # Register a file extension and the reader and writer streaming classes
   #
   # Returns [IOStreams::Extension] the extension registered, whose setters, such as `writer_class=`, are deprecated,
-  # see `IOStreams::Extension::Registered`.
+  # see `IOStreams::Extension::Deprecations`.
   #
   # Registering `:encode` or `:none`, in any case, is deprecated, see RESERVED_EXTENSIONS. It still registers the
   # extension, and reports a deprecation warning, see `IOStreams::Deprecation`.
@@ -463,7 +463,7 @@ module IOStreams
     if (advice = RESERVED_EXTENSIONS[extension.to_s.downcase.to_sym])
       Deprecation.warn("IOStreams.register_extension(#{extension.inspect}, ...) is deprecated, since #{advice}")
     end
-    @extensions[extension&.to_sym] = Extension.new(reader_class, writer_class).extend(Extension::Registered)
+    @extensions[extension&.to_sym] = Extension.registered(reader_class, writer_class)
   end
 
   # The names that IOStreams 3.0 reserves, so that registering an extension of one of them, in any case, which it raises
@@ -478,9 +478,9 @@ module IOStreams
   private_constant :RESERVED_EXTENSIONS
 
   # Registers an extension that IOStreams builds in, as .register_extension does, whose methods of a Struct, other than
-  # `reader_class` and `writer_class`, are deprecated too, see `IOStreams::Extension::BuiltIn`.
+  # `reader_class` and `writer_class`, are deprecated too, see `IOStreams::Extension::Deprecations`.
   def self.register_built_in_extension(extension, reader_class, writer_class)
-    @extensions[extension] = Extension.new(reader_class, writer_class).extend(Extension::BuiltIn)
+    @extensions[extension] = Extension.registered(reader_class, writer_class, built_in: true)
   end
   private_class_method :register_built_in_extension
 
@@ -510,8 +510,8 @@ module IOStreams
   #
   # Each extension answers `reader_class` and `writer_class`, as the format that IOStreams 3.0 returns for each of
   # its built-in extensions does, such as `IOStreams::Gzip` for `:gz`. Its other methods of a Struct, such as `to_a`,
-  # `to_h` or `[]`, are deprecated for a built-in extension, see `IOStreams::Extension::BuiltIn`, and its setters, such
-  # as `writer_class=`, for every extension, see `IOStreams::Extension::Registered`.
+  # `to_h` or `[]`, are deprecated for a built-in extension, and its setters, such as `writer_class=`, for every
+  # extension, see `IOStreams::Extension::Deprecations`.
   def self.extensions
     @extensions.dup
   end
@@ -563,42 +563,53 @@ module IOStreams
   end
 
   class Extension
-    # Extends each extension registered, see `IOStreams.register_extension`, whose setters, such as `writer_class=`,
-    # and `[]=`, change the extension registered for the whole process, since `IOStreams.extensions` returns a copy of
-    # the registry that shares its extensions, which IOStreams 3.0 freezes. Each reports a deprecation warning, see
-    # `IOStreams::Deprecation`, and then changes it as before.
-    module Registered
-      # The methods that change an extension.
-      SETTERS = %i[reader_class= writer_class= []=].freeze
-
-      SETTERS.each do |name|
-        define_method(name) do |*args|
-          Deprecation.warn("##{name} on an extension of IOStreams.extensions is deprecated, since it changes the " \
-                           "registered extension for the whole process, which IOStreams 3.0 does not allow, use " \
-                           "IOStreams.register_extension to change it instead")
-          super(*args)
-        end
-      end
+    # Returns [IOStreams::Extension] a new extension of the supplied reader and writer classes, as
+    # `IOStreams.register_extension` registers it, whose setters are deprecated, or as IOStreams registers one that it
+    # builds in (built_in: true), whose other methods of a Struct are deprecated too, see Deprecations.
+    def self.registered(reader_class, writer_class, built_in: false)
+      new(reader_class, writer_class).tap { |extension| extension.send(:registered!, built_in) }
     end
 
-    # Extends each extension that IOStreams builds in, such as `:gz`, for which IOStreams 3.0 returns the format that
-    # it registers, such as `IOStreams::Gzip`, rather than a Struct, see `IOStreams.extensions`. The format answers
-    # `reader_class` and `writer_class`, but none of the other methods of a Struct, so each of them reports a
-    # deprecation warning, see `IOStreams::Deprecation`, and then answers as before, as do the methods of `Enumerable`,
-    # which call #each. Its setters are deprecated too, see Registered.
-    module BuiltIn
-      include Registered
+    # Reports a deprecation warning, see `IOStreams::Deprecation`, for the methods of a Struct of a registered extension
+    # that IOStreams 3.0 does not answer, see .registered, and then does as before. It is prepended to the class, rather
+    # than extended onto each extension, so that an extension keeps its class, which JRuby's `Struct#eql?` compares.
+    #
+    # - The setters of a registered extension, such as `writer_class=`, and `[]=`, change the extension registered for
+    #   the whole process, since `IOStreams.extensions` returns a copy of the registry that shares its extensions, which
+    #   IOStreams 3.0 freezes.
+    # - For an extension that IOStreams builds in, such as `:gz`, IOStreams 3.0 returns the format that it registers,
+    #   such as `IOStreams::Gzip`, rather than a Struct, see `IOStreams.extensions`. The format answers `reader_class`
+    #   and `writer_class`, but none of the other methods of a Struct, such as #to_a, nor those of `Enumerable`, which
+    #   call #each.
+    #
+    # An extension that is not registered, such as one that an application creates, reports nothing.
+    module Deprecations
+      # The methods that change an extension.
+      SETTERS = %i[reader_class= writer_class= []=].freeze
 
       # The methods of a Struct that read an extension, other than `reader_class` and `writer_class`, and other than
       # those that every object answers, such as `==` and `inspect`.
       STRUCT_METHODS = %i[[] to_a values deconstruct to_h each each_pair members size length values_at select filter dig
                           deconstruct_keys].freeze
 
+      SETTERS.each do |name|
+        define_method(name) do |*args|
+          if @registered
+            Deprecation.warn("##{name} on an extension of IOStreams.extensions is deprecated, since it changes the " \
+                             "registered extension for the whole process, which IOStreams 3.0 does not allow, use " \
+                             "IOStreams.register_extension to change it instead")
+          end
+          super(*args)
+        end
+      end
+
       STRUCT_METHODS.each do |name|
         define_method(name) do |*args, &block|
-          Deprecation.warn("##{name} on a built-in extension of IOStreams.extensions is deprecated, since IOStreams " \
-                           "3.0 returns its format, such as IOStreams::Gzip for :gz, rather than a Struct, use " \
-                           "#reader_class and #writer_class instead")
+          if @built_in
+            Deprecation.warn("##{name} on a built-in extension of IOStreams.extensions is deprecated, since IOStreams " \
+                             "3.0 returns its format, such as IOStreams::Gzip for :gz, rather than a Struct, use " \
+                             "#reader_class and #writer_class instead")
+          end
           super(*args, &block)
         end
       end
@@ -617,7 +628,16 @@ module IOStreams
           end
         end
       end
+
+      private
+
+      # Marks this extension as registered, see .registered, by IOStreams itself when built_in.
+      def registered!(built_in)
+        @registered = true
+        @built_in   = built_in
+      end
     end
+    prepend Deprecations
   end
 
   # Hold root paths

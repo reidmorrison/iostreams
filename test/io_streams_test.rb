@@ -385,8 +385,9 @@ module IOStreams
           assert_equal classes, assert_deprecated(/#each on a built-in extension/) { extension.each.to_a }
           assert_equal classes, assert_deprecated(/#each on a built-in extension/) { extension.map(&:itself) }
           assert_equal classes, assert_deprecated(/#select on a built-in extension/) { extension.select(&:itself) }
-          assert_equal classes, assert_deprecated(/#filter on a built-in extension/) { extension.filter(&:itself) }
-          assert_equal classes, assert_deprecated(/#each_pair on a built-in extension/) { extension.each_pair.map(&:last) }
+          # JRuby's Struct#filter is the one of Enumerable, which calls #each, which reports one of its own.
+          assert_equal classes, assert_deprecated(/#filter on a built-in extension/, /#(filter|each) on a built-in extension/) { extension.filter(&:itself) }
+          assert_equal classes, assert_deprecated(/#each_pair on a built-in extension/) { [].tap { |list| extension.each_pair { |_name, klass| list << klass } } }
           assert_equal({"reader_class" => classes.first, "writer_class" => classes.last},
                        assert_deprecated(/#to_h on a built-in extension/) { extension.to_h { |name, klass| [name.to_s, klass] } })
         end
