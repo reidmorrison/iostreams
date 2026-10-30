@@ -1729,11 +1729,43 @@ from the deprecation warnings, v2.2 changes no existing behavior, other than the
 | `#schema` | `#format_options`, and `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` | [Moving a layout to a schema](#moving-a-layout-to-a-schema), and [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
 | `IOStreams.tabular_formats` | `IOStreams::Tabular.registered_formats`, which is internal | |
 
-v2.2 also reports a deprecation warning for most of what v3.0 removes, or raises `ArgumentError` for, such as
-`format:` supplied to each call of `#each`, `#reader` or `#writer`, the options that a writer ignores, the Zip
-writer's `zip_file_name`, and a file name ending in `.encode`. v2.2 does not deprecate
-`IOStreams.enforce_column_restrictions=`, which it still follows, while v3.0 removes it with the column options, see
-[enforce_column_restrictions](#enforce_column_restrictions).
+v2.2 also reports a deprecation warning for most of what v3.0 removes, or raises `ArgumentError` for, and for the
+calls whose result v3.0 changes when another way to write them, which the warning names, gives the same result in
+v2.2 and v3.0. Each still works, and gives the same result, as before. They are, by the groups of
+[Upgrading to v3.0](#upgrading-to-v30), whose sections say when v2.2 reports their change:
+
+* Ruby 3.2, see [Ruby 3.3 or later is required](#ruby-33-or-later-is-required).
+* [Text and encodings](#text-and-encodings): a file name ending in `.encode`.
+* [Rows and records](#rows-and-records): `format:`, `file_name:`, `original_file_name:`, `default_format:` and
+  `format_options:` supplied to each call, even when they are nil; the column options, even when they are nil, and
+  `IOStreams.enforce_column_restrictions=`, see
+  [Moving the column options to a schema](#moving-the-column-options-to-a-schema); those of them that only apply when
+  reading, supplied to a writer or a copy; `embedded_within:` when reading rows and records; `each(:array)` of JSON or
+  fixed width without a schema; the rows and records of a `.text` file without `#format`; and a format other than
+  `:csv` for a spreadsheet.
+* [Reading, writing and options](#reading-writing-and-options): an option that neither the reader nor the writer of a
+  stream takes, when it is set; an option set for another extension of the format of the file name, such as
+  `option(:pgp, ...)` for a `.gpg` file; the options that a mode or a copy ignores; options and settings for a line,
+  row or record writer supplied to `IOStreams.stream`; `#io_stream`; and the path of `IOStreams.temp_file` whose
+  extension names streams, read or written without `#raw`.
+* [Compression and encryption](#compression-and-encryption) and [PGP](#pgp): the methods of the stream that a reader
+  or writer block receives that the stream of v3.0 does not have, such as `#rewind` of a `Zlib::GzipReader`, or
+  `#encoding` of the encode stream; an option of `.bz2` that neither its reader nor its writer takes; the Zip writer's
+  `zip_file_name`; and `IOStreams::Pgp.export` or `IOStreams::Pgp.set_trust` without an email or key id.
+* [Paths](#paths) and [Local files](#local-files): `#path=` and `#builder=`; changing a root path in place; a url part
+  or S3 argument that a path ignores; a pattern of `#each_child` that is not a String; a `Pathname` supplied to
+  `IOStreams.new`, a copy or `IOStreams.stream`; a local file name of `~`, or starting with `~/`; and a local
+  `#move_to` onto an existing directory.
+* [S3](#s3), [SFTP](#sftp) and [HTTP](#http): the methods of the `File` that the block of an S3 or HTTP(S) path
+  without streams receives, other than those of an IO that read or write; an S3 option that no S3 request takes, or
+  that the path sets itself, such as `key:`; a name that starts with `/` joined to an S3 bucket; and an SFTP or
+  HTTP(S) url without a path.
+* [Extending IOStreams](#extending-iostreams): the methods of a Struct on a built-in extension of
+  `IOStreams.extensions`, other than `reader_class` and `writer_class`, and the setters of a registered extension;
+  registering `:encode` or `:none`; and deregistering `:encode`.
+
+v2.2 does not report `IOStreams::Schema.from_layout`, which v3.0 removes with `#format_options`, see
+[Moving a layout to a schema](#moving-a-layout-to-a-schema).
 
 To prepare for v3.0: upgrade to v2.2, run your tests, which show the deprecation warnings, and move each use to what
 replaces it. Then read [Upgrading to v3.0](#upgrading-to-v30), since v3.0 also changes behavior that cannot be
@@ -1783,6 +1815,11 @@ schema does in v3.0, so check that it reads the files of the application before 
 column of a layout becomes a field, and what reads differently, are in
 [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema).
 
+`from_layout` is only for moving off a layout, since v3.0 removes it, with `#format_options`: convert each layout with
+it once, such as in a console, and save the schema that it returns, such as in a JSON file, or as a Hash in the code,
+which `#schema` then sets, rather than call it each time a file is read or written, which breaks once the application
+upgrades to v3.0. It reports no deprecation warning.
+
 ### Moving the column options to a schema
 
 A schema replaces `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:` in
@@ -1790,6 +1827,15 @@ v2.2, as in v3.0, including `required_columns:` alone, `cleanse_header: false` a
 schema properties `keyType`, `extraColumns` and `skip`, which IOStreams adds. The property of a schema that replaces
 each one, and what reads differently, are in
 [The column options of each call are removed](#the-column-options-of-each-call-are-removed).
+
+v2.2 reports each of them as deprecated, even when it is nil, since v3.0 raises `ArgumentError` for them whatever
+their value. With a schema, v2.2 raises `ArgumentError` for `columns:`, `allowed_columns:` and `required_columns:`,
+unless they are nil, and for `cleanse_header:`, even when it is nil, while a nil one, and `skip_unknown:`, which a
+schema accepts, have no effect, and report a deprecation warning, so remove them.
+
+`IOStreams.enforce_column_restrictions=` is deprecated too, since it only applies to the column options. v2.2 still
+follows it, so keep setting it to true, as [v2.1 recommends](#column-restrictions-on-uploaded-files), until the
+column options are replaced with a schema, which applies to every input, and then remove it.
 
 ### A schema in v2.2 and v3.0
 
@@ -1987,7 +2033,7 @@ input in an initializer, new in v2.1, and check whether any uploads were affecte
 IOStreams.enforce_column_restrictions = true
 ~~~
 
-v3.0 removes it, with the column options, since a schema applies to every input, see
+v2.2 deprecates it, and v3.0 removes it, with the column options, since a schema applies to every input, see
 [enforce_column_restrictions](#enforce_column_restrictions).
 
 ## Upgrading to v2.0
