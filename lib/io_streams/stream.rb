@@ -265,7 +265,8 @@ module IOStreams
     # such as `format:`, for the `:array` and `:hash` modes, see #reader, and the options that only apply when
     # reading, such as `allowed_columns:`, which a writer ignores. So are the options supplied when the stream is a
     # line, row or record writer that is already open, such as the one that `writer(:line)` yields, handed to
-    # `IOStreams.stream`, which writes with its own settings, and ignores them. Each reports a deprecation warning, see
+    # `IOStreams.stream`, which writes with its own settings, and ignores them, and the streams, encoding, format and
+    # schema set on such a stream, see #supplied_writer. Each reports a deprecation warning, see
     # `IOStreams::Deprecation`.
     def writer(mode = :stream, **args, &)
       case mode
@@ -824,24 +825,67 @@ module IOStreams
       options = args.except(:delimiter)
       tabular = schema_tabular(options)
       warn_write_options(options)
-      line_writer(**args.slice(:delimiter)) do |io|
+      rows_line_writer(args.slice(:delimiter)) do |io|
         klass.stream(io, **tabular_options(tabular, options), &block)
       end
     end
 
+    # Yields the line writer that the rows or records of this stream are written to, in its format and by its schema,
+    # with the supplied options: a line writer supplied to `IOStreams.stream`, which writes them in its own lines, see
+    # #supplied_writer, otherwise one of this stream, see #line_writer.
+    def rows_line_writer(args, &)
+      return supplied_writer(IOStreams::Line::Writer, args, rows: true, &) if io_stream.is_a?(IOStreams::Line::Writer)
+
+      line_writer(**args, &)
+    end
+
     # Yields this stream's IO, which is a writer of the supplied class that is already open, such as the one that
     # `writer(:line)` yields, handed to code that writes with `IOStreams.stream(io).writer(:line)`, which then writes into
-    # it. It writes with its own settings, so it ignores the options of the call, which are deprecated, since v3.0 raises
-    # ArgumentError for them: each that is not nil reports a deprecation warning.
-    def supplied_writer(klass, args)
-      names = args.compact.keys
-      unless names.empty?
-        Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated for the #{klass.name} " \
-                         "supplied to IOStreams.stream, which is already open and writes with its own settings, so " \
-                         "#{names.size == 1 ? 'it is' : 'they are'} ignored: set #{names.size == 1 ? 'it' : 'them'} " \
-                         "where that writer is opened instead, or remove #{names.size == 1 ? 'it' : 'them'}")
-      end
+    # it. It writes with its own settings, so it ignores the options of the call, the streams, options and encoding of
+    # this stream, and its format and schema, other than those of the rows or records that are written to a line writer
+    # (rows: true), which apply, see #rows_line_writer. Each is deprecated, since v3.0 raises ArgumentError for it, see
+    # #warn_supplied_writer_options and #warn_supplied_writer_settings.
+    def supplied_writer(klass, args, rows: false)
+      warn_supplied_writer_options(klass, args)
+      warn_supplied_writer_settings(klass, rows)
       yield(io_stream)
+    end
+
+    # Reports a deprecation warning for the options of a call that the supplied writer ignores, see #supplied_writer:
+    # each of them, even when it is nil, other than a nil `delimiter:`, the only option of a writer of v3.0, which
+    # accepts it, and raises ArgumentError for any other.
+    def warn_supplied_writer_options(klass, args)
+      names = args.reject { |name, value| name == :delimiter && value.nil? }.keys
+      warn_supplied_writer(klass, keywords(names), names.size) unless names.empty?
+    end
+
+    # Reports a deprecation warning for the settings of this stream that the supplied writer ignores, see
+    # #supplied_writer: the streams of its pipeline, which #stream, #option, #encoding and the file name set, and,
+    # unless the rows or records of this stream are written to it, which apply them, a format set with #format, rather
+    # than taken from the file name, and a schema.
+    def warn_supplied_writer_settings(klass, rows)
+      streams = builder.pipeline.keys
+      unless streams.empty?
+        list = streams.map(&:inspect).join(", ")
+        warn_supplied_writer(klass, "the #{streams.size == 1 ? 'stream' : 'streams'} #{list} that #stream, #option, " \
+                                    "#encoding or #file_name set", streams.size)
+      end
+      return if rows
+
+      settings = []
+      settings << "#format" if builder.format_set?
+      settings << "#schema" unless builder.schema.nil?
+      warn_supplied_writer(klass, settings.join(" and "), settings.size) unless settings.empty?
+    end
+
+    # Reports that what the subject names, of the supplied count, is deprecated for the supplied writer, which is
+    # already open, and ignores it.
+    def warn_supplied_writer(klass, subject, count)
+      them = count == 1 ? "it" : "them"
+      Deprecation.warn("#{subject} #{count == 1 ? 'is' : 'are'} deprecated for the #{klass.name} supplied to " \
+                       "IOStreams.stream, which is already open and writes with its own settings, so " \
+                       "#{count == 1 ? 'it is' : 'they are'} ignored: set #{them} where that writer is opened instead, " \
+                       "or remove #{them}")
     end
   end
 end

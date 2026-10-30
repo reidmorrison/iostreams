@@ -1461,17 +1461,114 @@ class StreamTest < Minitest::Test
         assert_equal "Jack\nJill,23456\n", io.string
       end
 
-      it "reports no deprecation warning for options that are nil, or none" do
+      it "reports no deprecation warning for a nil delimiter, or no options" do
         io = StringIO.new
 
         IOStreams.stream(io).writer(:array) do |rows|
           refute_deprecated do
-            IOStreams.stream(rows).writer(:array, columns: nil, delimiter: nil) { |writer| writer << %w[Jack 12345] }
+            IOStreams.stream(rows).writer(:array, delimiter: nil) { |writer| writer << %w[Jack 12345] }
             IOStreams.stream(rows).writer(:array) { |writer| writer << %w[Jill 23456] }
           end
         end
 
         assert_equal "Jack,12345\nJill,23456\n", io.string
+      end
+
+      it "reports a deprecation warning for any other option that is nil, which v3.0 raises for, as it does for any option but delimiter:" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:hash) do |records|
+          assert_deprecated(/IOStreams: columns:, format: are deprecated for the IOStreams::Record::Writer supplied to IOStreams.stream, which is already open/) do
+            IOStreams.stream(records).writer(:hash, columns: nil, format: nil, delimiter: nil) { |writer| writer << {"name" => "Jack"} }
+          end
+        end
+
+        assert_equal "name\nJack\n", io.string
+      end
+
+      it "reports a deprecation warning for the streams and encoding of the stream, which it ignores" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:line) do |lines|
+          line = __LINE__ + 2
+          assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: the stream :gz that #stream, #option, #encoding or #file_name set is deprecated for the IOStreams::Line::Writer supplied to IOStreams.stream, which is already open and writes with its own settings, so it is ignored: set it where that writer is opened instead, or remove it\n\z/) do
+            IOStreams.stream(lines).stream(:gz).writer(:line) { |writer| writer << "Jack" }
+          end
+          assert_deprecated(/IOStreams: the stream :encode that #stream, #option, #encoding or #file_name set is deprecated for the IOStreams::Line::Writer/) do
+            IOStreams.stream(lines).encoding("UTF-8").writer(:line) { |writer| writer << "Jill" }
+          end
+          assert_deprecated(/IOStreams: the streams :gz, :pgp that #stream, #option, #encoding or #file_name set are deprecated for the IOStreams::Line::Writer supplied to IOStreams.stream, which is already open and writes with its own settings, so they are ignored: set them where that writer is opened instead, or remove them/) do
+            IOStreams.stream(lines).file_name("data.csv.gz.pgp").writer(:line) { |writer| writer << "Joe" }
+          end
+        end
+
+        assert_equal "Jack\nJill\nJoe\n", io.string
+      end
+
+      it "reports a deprecation warning for the streams of the stream that the rows of a line writer are written to" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:line) do |lines|
+          assert_deprecated(/IOStreams: the stream :gz that #stream, #option, #encoding or #file_name set is deprecated for the IOStreams::Line::Writer/) do
+            IOStreams.stream(lines).stream(:gz).writer(:array) { |writer| writer << %w[Jack 12345] }
+          end
+        end
+
+        assert_equal "Jack,12345\n", io.string
+      end
+
+      it "reports a deprecation warning for the format and schema of the stream, which a row or record writer ignores" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:hash) do |records|
+          line = __LINE__ + 2
+          assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #format is deprecated for the IOStreams::Record::Writer supplied to IOStreams.stream, which is already open and writes with its own settings, so it is ignored: set it where that writer is opened instead, or remove it\n\z/) do
+            IOStreams.stream(records).format(:json).writer(:hash) { |writer| writer << {"name" => "Jack"} }
+          end
+          assert_deprecated(/IOStreams: #format and #schema are deprecated for the IOStreams::Record::Writer supplied to IOStreams.stream, which is already open and writes with its own settings, so they are ignored/) do
+            IOStreams.stream(records).format(:csv).schema(fields: [{name: "name"}]).writer(:hash) { |writer| writer << {"name" => "Jill"} }
+          end
+        end
+
+        assert_equal "name\nJack\nJill\n", io.string
+      end
+
+      it "reports a deprecation warning for the format and schema of the stream, which a line writer ignores when it writes lines" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:line) do |lines|
+          assert_deprecated(/IOStreams: #schema is deprecated for the IOStreams::Line::Writer supplied to IOStreams.stream/) do
+            IOStreams.stream(lines).schema(fields: [{name: "name"}]).writer(:line) { |writer| writer << "Jack" }
+          end
+        end
+
+        assert_equal "Jack\n", io.string
+      end
+
+      it "reports no deprecation warning for the format and schema of the rows and records written to a line writer, which apply them" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:line) do |lines|
+          refute_deprecated do
+            IOStreams.stream(lines).format(:json).writer(:hash) { |writer| writer << {"name" => "Jack"} }
+            IOStreams.stream(lines).schema(fields: [{name: "name"}]).writer(:array) { |writer| writer << %w[Jill] }
+          end
+        end
+
+        assert_equal %({"name":"Jack"}\nname\nJill\n), io.string
+      end
+
+      it "reports no deprecation warning for a format that the file name implies, or for #raw, which apply no setting" do
+        io = StringIO.new
+
+        IOStreams.stream(io).writer(:line) do |lines|
+          refute_deprecated do
+            IOStreams.stream(lines).file_name("data.json").writer(:line) { |writer| writer << "Jack" }
+            IOStreams.stream(lines).raw.writer(:line) { |writer| writer << "Jill" }
+          end
+        end
+
+        assert_equal "Jack\nJill\n", io.string
       end
     end
 

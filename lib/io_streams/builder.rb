@@ -12,6 +12,7 @@ module IOStreams
       @streams       = nil
       @options       = nil
       @format        = nil
+      @format_set    = false
       @format_option = nil
       @encoding      = nil
       @raw           = false
@@ -198,7 +199,13 @@ module IOStreams
         raise(ArgumentError, "Invalid format: #{format.inspect}")
       end
 
-      @format = format
+      @format     = format
+      @format_set = !format.nil?
+    end
+
+    # Returns [true|false] whether a format was set, see #format=, rather than taken from the file name, see #format.
+    def format_set?
+      @format_set
     end
 
     # Returns [String] the quote character within which field delimiters and newlines may be
