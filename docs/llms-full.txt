@@ -1828,10 +1828,11 @@ IOStreams.path("example.csv.pgp").
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
 that lists the valid options. The exception is BZip2, which ignores options it does not accept and
 logs a warning instead. One that neither reading nor writing takes also reports a deprecation warning,
-since in v3.0 it will raise an `ArgumentError` too.
+since in v3.0 it will raise an `ArgumentError` too, while v3.0 ignores an option of the other direction.
 
 Options for a stream that is not in the pipeline are still ignored, as described above,
-since they are not passed to any reader or writer.
+since they are not passed to any reader or writer. One that neither direction accepts reports a
+deprecation warning when it is set, for every stream, since v3.0 raises an `ArgumentError` for it then.
 
 #### Stream
 
@@ -1962,7 +1963,8 @@ IOStreams.path("sample.csv.bz2").option(:bz2, small: true).read
 Options are strict, so an option that a stream does not accept raises an `ArgumentError`.
 See [Streams](streams#reading-and-writing-need-separate-options). The exception is BZip2, which
 ignores any other option and logs a warning. One that neither reading nor writing takes also reports a
-deprecation warning, since in v3.0 it will raise an `ArgumentError` too.
+deprecation warning when it is set, since in v3.0 it will raise an `ArgumentError` too, while v3.0
+ignores an option of the other direction, as BZip2 does.
 
 ## Reading an Excel Spreadsheet
 
@@ -3985,12 +3987,14 @@ since v2.2 still applies it, see [Header options](formats#header-options).
 
 ### BZip2 options are strict
 
-The BZip2 reader and writer ignore any option they do not accept, and log a warning. In v3.0 it will
-raise `ArgumentError`, like every other stream. They accept `autoclose`, `first_only` and `small` when
+The BZip2 reader and writer ignore any option they do not accept, and log a warning. In v3.0 an option
+that neither of them takes, such as a misspelled one, raises `ArgumentError` when it is set, like that of
+every other stream, while an option of the other direction, such as `block_size` when reading, is
+accepted, and ignored, as v2.1 and v2.2 do. They accept `autoclose`, `first_only` and `small` when
 reading, and `autoclose`, `block_size` and `work_factor` when writing.
 
-To prepare: remove the option, or use a separate path for reading and for writing. See
-[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
+To prepare: remove an option that neither of them takes, which v2.2 reports as deprecated when it is
+set, see [Deprecated, and what replaces it](#deprecated-and-what-replaces-it).
 
 ### PGP `export` without an email or key id
 

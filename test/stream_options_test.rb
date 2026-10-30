@@ -211,18 +211,22 @@ class StreamOptionsTest < Minitest::Test
         end
 
         assert_equal data, result
-        assert_includes output, "Ignoring unknown options :bogus, :block_size, :other when reading a :bz2 stream. " \
-                                "Valid options: :autoclose, :first_only, :small."
+        assert_includes output, "Ignoring unknown options :bogus, :other when reading a :bz2 stream. " \
+                                "Valid options: :autoclose, :first_only, :small. In v3.0 this will raise ArgumentError."
+        assert_includes output, "Ignoring :block_size when reading a :bz2 stream, since it only applies when writing."
       end
 
-      it "ignores an option of the other direction, which is not deprecated" do
+      it "ignores an option of the other direction, which is not deprecated, and which v3.0 also ignores" do
         output = refute_deprecated { with_logger { path("a.bz2").option(:bz2, first_only: true).write(data) } }
 
-        assert_includes output, "Ignoring unknown option :first_only when writing a :bz2 stream."
+        assert_includes output, "Ignoring :first_only when writing a :bz2 stream, since it only applies when reading."
+        refute_includes output, "v3.0"
 
         output = refute_deprecated { with_logger { path("a.bz2").option(:bz2, block_size: 1, work_factor: 30).read } }
 
-        assert_includes output, "Ignoring unknown options :block_size, :work_factor when reading a :bz2 stream."
+        assert_includes output, "Ignoring :block_size, :work_factor when reading a :bz2 stream, since they only apply " \
+                                "when writing."
+        refute_includes output, "v3.0"
       end
 
       def with_logger

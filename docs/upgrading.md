@@ -537,12 +537,14 @@ since v2.2 still applies it, see [Header options](formats#header-options).
 
 ### BZip2 options are strict
 
-The BZip2 reader and writer ignore any option they do not accept, and log a warning. In v3.0 it will
-raise `ArgumentError`, like every other stream. They accept `autoclose`, `first_only` and `small` when
+The BZip2 reader and writer ignore any option they do not accept, and log a warning. In v3.0 an option
+that neither of them takes, such as a misspelled one, raises `ArgumentError` when it is set, like that of
+every other stream, while an option of the other direction, such as `block_size` when reading, is
+accepted, and ignored, as v2.1 and v2.2 do. They accept `autoclose`, `first_only` and `small` when
 reading, and `autoclose`, `block_size` and `work_factor` when writing.
 
-To prepare: remove the option, or use a separate path for reading and for writing. See
-[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
+To prepare: remove an option that neither of them takes, which v2.2 reports as deprecated when it is
+set, see [Deprecated, and what replaces it](#deprecated-and-what-replaces-it).
 
 ### PGP `export` without an email or key id
 

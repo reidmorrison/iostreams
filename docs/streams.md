@@ -281,10 +281,11 @@ IOStreams.path("example.csv.pgp").
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError`
 that lists the valid options. The exception is BZip2, which ignores options it does not accept and
 logs a warning instead. One that neither reading nor writing takes also reports a deprecation warning,
-since in v3.0 it will raise an `ArgumentError` too.
+since in v3.0 it will raise an `ArgumentError` too, while v3.0 ignores an option of the other direction.
 
 Options for a stream that is not in the pipeline are still ignored, as described above,
-since they are not passed to any reader or writer.
+since they are not passed to any reader or writer. One that neither direction accepts reports a
+deprecation warning when it is set, for every stream, since v3.0 raises an `ArgumentError` for it then.
 
 #### Stream
 
