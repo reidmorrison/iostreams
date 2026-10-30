@@ -19,9 +19,9 @@ module IOStreams
       ::Encoding::UTF_32 => "\x00\x00\x00\n"
     }.transform_values(&:b).freeze
 
-    # Like `IO#write`: writes each object as a String, and returns [Integer] the number of bytes written.
+    # Like `IO#write`: writes the text of each object, see #text_of, and returns [Integer] the number of bytes written.
     def write(*objects)
-      objects.sum { |object| write_data(object.to_s) }
+      objects.sum { |object| write_data(text_of(object)) }
     end
 
     # Returns self, so that writes can be chained, such as `io << "a" << "b"`.
@@ -30,9 +30,22 @@ module IOStreams
       self
     end
 
-    # Like `IO#print`: writes each object. Returns nil.
+    # Like `IO#print`: writes the text of each object, with the output field separator `$,` between them, and the output
+    # record separator `$\` after them, when each one is set. Returns nil.
+    #
+    # Without any objects `IO#print` writes `$_`, the last line that its caller read, such as with `Kernel#gets`, which a
+    # method written in Ruby cannot read, since it belongs to the method that read it, so only `$\` is written.
     def print(*objects)
-      write(*objects)
+      field_separator = $,
+      if field_separator.nil?
+        write(*objects)
+      else
+        objects.each_with_index do |object, index|
+          write(field_separator) if index.positive?
+          write(object)
+        end
+      end
+      write($\) unless $\.nil?
       nil
     end
 
@@ -62,7 +75,7 @@ module IOStreams
 
     # Returns [String|nil] the supplied lines, which are still to be written, with the lines of the objects, as
     # `IO#puts` writes them: each element of an Array, "[...]" for an Array within itself, otherwise the text of the
-    # object, see #puts_text, each followed by a newline unless it already ends with one, see #puts_line.
+    # object, see #text_of, each followed by a newline unless it already ends with one, see #puts_line.
     #
     # Parameters
     #   arrays: [Array<Array>|nil]
@@ -72,7 +85,7 @@ module IOStreams
         array = ::Array.try_convert(object) unless object.is_a?(::String)
         lines =
           if array.nil?
-            puts_line(puts_text(object), lines)
+            puts_line(text_of(object), lines)
           elsif arrays&.any? { |outer| outer.equal?(array) }
             puts_line("[...]", lines)
           else
@@ -82,13 +95,17 @@ module IOStreams
       lines
     end
 
-    # Returns [String] the text of the object as `IO#puts` writes it: a String itself, otherwise its #to_s, or the text
-    # that `Object#to_s` returns, such as "#<Object:0x...>", when that is not a String.
-    def puts_text(object)
-      return object if object.is_a?(::String)
+    # Returns [String] the text of the object as an IO writes it, for each of these methods: a String itself, otherwise
+    # its #to_s, or the text that `Object#to_s` returns, such as "#<Object:0x...>", when that is not a String.
+    #
+    # The text of a String subclass is returned as a String, since its #to_s can return other text, which the writer of
+    # a gem would write instead, as `Bzip2::FFI::Writer#write` does.
+    def text_of(object)
+      text = object.is_a?(::String) ? object : object.to_s
+      return text if text.instance_of?(::String)
+      return ::String.new(text) if text.is_a?(::String)
 
-      text = object.to_s
-      text.is_a?(::String) ? text : ::Kernel.instance_method(:to_s).bind_call(object)
+      ::Kernel.instance_method(:to_s).bind_call(object)
     end
 
     # Returns [String|nil] the supplied lines with the line added, followed by a newline unless it ends with one, see
@@ -101,7 +118,7 @@ module IOStreams
     def puts_line(line, lines)
       if line.encoding.ascii_compatible?
         if lines.nil?
-          # A String, rather than a copy of a String subclass, whose `#to_s` #write would write instead.
+          # A String of its own, which the lines are added to, rather than the caller's.
           lines = ::String.new(line)
         elsif lines.encoding == line.encoding || ::Encoding.compatible?(lines, line)
           lines << line

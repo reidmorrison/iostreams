@@ -127,6 +127,20 @@ def temp_files_created(&)
   names
 end
 
+# Runs the block with the output field separator `$,` and the output record separator `$\`, which `IO#print` writes,
+# set to the supplied text, without the deprecation warnings that Ruby reports for `$,`, and then unsets them.
+def with_print_separators(field, record)
+  deprecated           = Warning[:deprecated]
+  Warning[:deprecated] = false
+  $,                   = field
+  $\                   = record
+  yield
+ensure
+  $,                   = nil
+  $\                   = nil
+  Warning[:deprecated] = deprecated
+end
+
 # Runs the block with a stub gpg executable that runs the supplied shell script instead of the real gpg.
 def with_gpg_stub(script)
   Dir.mktmpdir do |dir|

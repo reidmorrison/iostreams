@@ -118,6 +118,23 @@ module Paths
           assert_equal binary_io.string, path.read.b
         end
 
+        it "writes the text of each object, and the separators of #print, like an IO" do
+          # The separators are set only while #print writes, since `$,` also separates the values of `Array#join`, which
+          # the AWS SDK could call to build its requests.
+          write = lambda do |io|
+            with_print_separators(",", "\n") do
+              assert_nil io.print("id", "name")
+              assert_nil io.print(subclass.new("1"), "Jack")
+            end
+            io.write(subclass.new("2"), ",", not_text, "\n")
+          end
+          binary_io = StringIO.new(+"".b)
+          path.writer(&write)
+          write.call(binary_io)
+
+          assert_equal binary_io.string, path.read.b
+        end
+
         it "writes nothing for an empty string, like an IO" do
           path.writer do |io|
             assert_equal 0, io.write("")
