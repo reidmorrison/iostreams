@@ -186,17 +186,10 @@ for JSON and `:hash` input, when `columns` are supplied, and with `cleanse_heade
 warning is logged when applying them would change the records read.
 
 Since the format is usually inferred from the file name, renaming an uploaded file from `.csv` to
-`.json` bypasses them. When they restrict which columns an upload can set, apply them to every input
-in an initializer:
-
-~~~ruby
-IOStreams.enforce_column_restrictions = true
-~~~
-
-They then also apply to the supplied `columns`, to a header row read with `cleanse_header: false`,
-and, for formats without a header row such as JSON, to the keys of each record. When either
-`allowed_columns` or `required_columns` is set, JSON keys are cleansed the same way as a header row,
-unless `cleanse_header: false` is supplied. This will be the default in v3.0.
+`.json` bypasses them. A [schema](#schema) applies to every input instead, including the keys of each
+JSON record. `IOStreams.enforce_column_restrictions = true` applies the options to every input too,
+but it is deprecated with them, see
+[Moving the column options to a schema](upgrading#moving-the-column-options-to-a-schema).
 
 Example, reading a headerless CSV file:
 

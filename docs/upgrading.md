@@ -87,9 +87,9 @@ Each of these still works as before in v2.2, and reports a deprecation warning:
 | `#format_options`, and `format_options:` supplied to each call | `#schema`, which gives the `width` of each field of a fixed width file, see [Moving a layout to a schema](#moving-a-layout-to-a-schema) |
 | `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:`, unless they are nil, and `cleanse_header:`, even when it is nil | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
 
-`IOStreams.enforce_column_restrictions=` is not deprecated in v2.2, which still follows it, so keep setting it to
-true as [v2.1 recommends](#column-restrictions-on-uploaded-files) until the column options are replaced with a
-schema, to which it does not apply.
+`IOStreams.enforce_column_restrictions=` is deprecated too, see below, since it only applies to the column options.
+v2.2 still follows it, so keep setting it to true, as [v2.1 recommends](#column-restrictions-on-uploaded-files),
+until the column options are replaced with a schema, which applies to every input, and then remove it.
 
 v3.0 removes these, or raises `ArgumentError` for them, so in v2.2 each still works as before, and reports a
 deprecation warning:
@@ -105,6 +105,7 @@ deprecation warning:
 | A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
 | `#path=` | `#join` or `#directory`, which return a new path without the streams, options, format and schema set on the path, which `#path=` keeps, so set them again, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
+| `IOStreams.enforce_column_restrictions=` and `IOStreams.enforce_column_restrictions?` | A schema, whose `fieldsMatch` and `constraints` apply to every input, including the keys of each JSON record, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema). The setting only applies to the column options, so keep it until they are replaced with a schema, and then remove it |
 | Ruby 3.2, reported once, as IOStreams is loaded, so only while deprecation warnings are on as it is loaded, such as with `RUBYOPT=-W:deprecated` | Ruby 3.3 or later, which v3.0 requires: it cannot be installed on Ruby 3.2 |
 
 ### Moving a layout to a schema
@@ -496,7 +497,8 @@ IOStreams.enforce_column_restrictions = true
 ~~~
 
 See [Column restrictions apply to every input](#column-restrictions-apply-to-every-input) for what
-it changes.
+it changes. v2.2 deprecates this setting, with the column options that it applies to: a schema applies to every input
+instead, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema).
 
 ## Coming in v3.0
 
@@ -508,17 +510,19 @@ v3.0 makes many more changes, see its
 
 ### Column restrictions apply to every input
 
-When reading records, `allowed_columns`, `required_columns` and `skip_unknown` will apply to every
-input. In v2.1 they are ignored for JSON and `:hash` input, when `columns:` is supplied, and with
-`cleanse_header: false`.
+v3.0 removes the column options of each call, `columns:`, `allowed_columns:`, `required_columns:`,
+`skip_unknown:` and `cleanse_header:`, and `IOStreams.enforce_column_restrictions=` with them, which
+v2.2 deprecates. A schema describes the columns of the file instead, and its `fieldsMatch` and
+`constraints` apply to every input: a header row, the columns of a file without one, and the keys of
+each JSON record. In v2.1 and v2.2 the column options are ignored for JSON and `:hash` input, when
+`columns:` is supplied, and with `cleanse_header: false`, unless `IOStreams.enforce_column_restrictions`
+is true, so renaming an upload from `.csv` to `.json` bypasses them.
 
-When either `allowed_columns` or `required_columns` is set, JSON keys will be cleansed the same way
-as a header row, for example `"Name"` becomes `"name"`. Unknown keys will be skipped, or raise
-`IOStreams::Errors::InvalidHeader` when `skip_unknown: false`, and a record that is missing a
-required column will raise `IOStreams::Errors::InvalidHeader`.
-
-To prepare: set `IOStreams.enforce_column_restrictions = true`, and check that the JSON files you
-read with these options have the expected keys. See [Header options](formats#header-options).
+To prepare: describe the columns with a schema, see
+[Moving the column options to a schema](#moving-the-column-options-to-a-schema), and check that it reads
+the files of the application as the column options did. Until then, keep
+`IOStreams.enforce_column_restrictions = true` where the column options restrict what an upload can set,
+since v2.2 still applies it, see [Header options](formats#header-options).
 
 ### BZip2 options are strict
 

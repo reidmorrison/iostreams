@@ -1344,11 +1344,43 @@ class StreamTest < Minitest::Test
         assert_equal({"name" => "Jack", "zip" => 12_345}, tabular.record_parse("Jack12345"))
       end
 
-      it "reports no deprecation warning for enforce_column_restrictions = true, which v2.1 recommends" do
-        enforced = IOStreams.enforce_column_restrictions?
-        refute_deprecated { IOStreams.enforce_column_restrictions = true }
+      it "reports a deprecation warning for enforce_column_restrictions =, which v2.1 recommends, and still applies it" do
+        json = %({"Name":"x","admin":true}\n)
+        line = __LINE__ + 2
+        assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: IOStreams\.enforce_column_restrictions= is deprecated, since it only applies to the column options, such as allowed_columns:, which are deprecated: describe the columns of the file with #schema instead, whose fieldsMatch and constraints apply to every input, and then remove it\n\z/) do
+          IOStreams.enforce_column_restrictions = true
+        end
+        # Reading with a column option reports only that it is deprecated, while the setting still applies it to JSON.
+        records = []
+        assert_deprecated(/IOStreams: allowed_columns: is deprecated, describe the columns of the file with #schema instead\n\z/) do
+          IOStreams.stream(StringIO.new(json)).format(:json).each(:hash, allowed_columns: ["name"]) { |record| records << record }
+        end
+
+        assert_equal [{"name" => "x"}], records
       ensure
-        IOStreams.enforce_column_restrictions = enforced
+        assert_deprecated(/enforce_column_restrictions= is deprecated/) { IOStreams.enforce_column_restrictions = false }
+      end
+
+      it "reports a deprecation warning for enforce_column_restrictions?, and returns the setting" do
+        line = __LINE__ + 2
+        enforced = assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: IOStreams\.enforce_column_restrictions\? is deprecated, since it only applies to the column options/) do
+          IOStreams.enforce_column_restrictions?
+        end
+
+        refute enforced
+      end
+
+      it "reports no deprecation warning for enforce_column_restrictions when IOStreams::Tabular applies the setting" do
+        assert_deprecated(/enforce_column_restrictions= is deprecated/) { IOStreams.enforce_column_restrictions = true }
+        tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"])
+        records = []
+        refute_deprecated do
+          tabular.read_record_line(%({"Name":"x","admin":true})) { |record| records << record }
+        end
+
+        assert_equal [{"name" => "x"}], records
+      ensure
+        assert_deprecated(/enforce_column_restrictions= is deprecated/) { IOStreams.enforce_column_restrictions = false }
       end
     end
 

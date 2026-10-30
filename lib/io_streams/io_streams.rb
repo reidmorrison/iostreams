@@ -387,20 +387,45 @@ module IOStreams
   # Since the format is usually inferred from the file name, set this to true when the allowed columns
   # restrict what an uploaded file can set, so that renaming the file to `.json` cannot bypass them.
   #
-  # Default: false. It will default to true in v3.0.
+  # Default: false.
   #
   # Example:
   #   IOStreams.enforce_column_restrictions = true
+  #
+  # Deprecated: it only applies to the column options, which are deprecated, see `IOStreams::Stream#each`, and which
+  # v3.0 removes, with this setting. Describe the columns of the file with `IOStreams::Stream#schema` instead, whose
+  # `fieldsMatch` and `constraints` apply to every input. It still applies to the column options, and reports a
+  # deprecation warning, see `IOStreams::Deprecation`, so keep it until they are replaced with a schema.
   def self.enforce_column_restrictions=(enforce)
     raise(ArgumentError, "enforce_column_restrictions must be true or false") unless [true, false].include?(enforce)
 
+    Deprecation.warn("IOStreams.enforce_column_restrictions= #{ENFORCE_COLUMN_RESTRICTIONS_DEPRECATION}")
     @enforce_column_restrictions = enforce
   end
 
   # Returns [true|false] whether column restrictions apply to every input, see `IOStreams.enforce_column_restrictions=`.
+  #
+  # Deprecated, as `IOStreams.enforce_column_restrictions=` is. It reports a deprecation warning, see
+  # `IOStreams::Deprecation`.
   def self.enforce_column_restrictions?
+    Deprecation.warn("IOStreams.enforce_column_restrictions? #{ENFORCE_COLUMN_RESTRICTIONS_DEPRECATION}")
     @enforce_column_restrictions
   end
+
+  # Returns [true|false] whether column restrictions apply to every input, see `IOStreams.enforce_column_restrictions=`,
+  # for IOStreams itself, which never uses its own deprecated methods, see `IOStreams::Tabular::HeaderMapping`.
+  def self.column_restrictions_enforced?
+    @enforce_column_restrictions
+  end
+  private_class_method :column_restrictions_enforced?
+
+  # Why `IOStreams.enforce_column_restrictions=` and `IOStreams.enforce_column_restrictions?` are deprecated, and what
+  # to use instead.
+  ENFORCE_COLUMN_RESTRICTIONS_DEPRECATION =
+    "is deprecated, since it only applies to the column options, such as allowed_columns:, which are deprecated: " \
+    "describe the columns of the file with #schema instead, whose fieldsMatch and constraints apply to every input, " \
+    "and then remove it".freeze
+  private_constant :ENFORCE_COLUMN_RESTRICTIONS_DEPRECATION
 
   @enforce_column_restrictions = false
 

@@ -246,7 +246,7 @@ module IOStreams
       # `cleanse_header: false`, renaming them when `cleanse`. Unless `IOStreams.enforce_column_restrictions?`, only warn
       # when they would change the columns.
       def restrict_header(cleanse)
-        return header.cleanse!(rename: cleanse) if IOStreams.enforce_column_restrictions?
+        return header.cleanse!(rename: cleanse) if IOStreams.send(:column_restrictions_enforced?)
         return if @warned
 
         columns = header.columns
@@ -268,7 +268,7 @@ module IOStreams
       # `IOStreams.enforce_column_restrictions?`, only warn when they would change the record.
       def restrict(record)
         return record unless record.is_a?(Hash) && restricted? && header.columns.nil?
-        return header.restrict_hash(record, rename: @cleanse) if IOStreams.enforce_column_restrictions?
+        return header.restrict_hash(record, rename: @cleanse) if IOStreams.send(:column_restrictions_enforced?)
         return record if @warned
 
         warn_restriction if changed_by_restriction? { header.restrict_hash(record, rename: @cleanse) != record }
@@ -286,7 +286,7 @@ module IOStreams
         @warned = true
         IOStreams.logger&.warn(
           "allowed_columns and required_columns are not applied to this input, but would change the records read. " \
-          "In v3.0 they will apply to every input. Set `IOStreams.enforce_column_restrictions = true` to apply them now."
+          "They are deprecated: describe the columns with #schema instead, which applies to every input."
         )
       end
     end

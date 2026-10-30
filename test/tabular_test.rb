@@ -2,6 +2,13 @@ require_relative "test_helper"
 
 class TabularTest < Minitest::Test
   describe IOStreams::Tabular do
+    # Sets `IOStreams.enforce_column_restrictions`, which is deprecated, and still applies to the column options.
+    def enforce_column_restrictions(enforce)
+      assert_deprecated(/IOStreams\.enforce_column_restrictions= is deprecated/) do
+        IOStreams.enforce_column_restrictions = enforce
+      end
+    end
+
     let :format do
       :csv
     end
@@ -557,13 +564,13 @@ class TabularTest < Minitest::Test
       end
 
       it "applies the column restrictions without renaming the columns for cleanse: false, once they are enforced" do
-        IOStreams.enforce_column_restrictions = true
+        enforce_column_restrictions(true)
         tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["First Name"])
         tabular.read_header("First Name,Age", cleanse: false)
 
         assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
       ensure
-        IOStreams.enforce_column_restrictions = false
+        enforce_column_restrictions(false)
       end
 
       it "returns nil for a blank line, or a format without a header row" do
@@ -623,20 +630,20 @@ class TabularTest < Minitest::Test
       end
 
       it "applies the column restrictions to the keys of each JSON record, renaming them as the header row is cleansed" do
-        IOStreams.enforce_column_restrictions = true
+        enforce_column_restrictions(true)
         line = %({"Name":"x","admin":true})
 
         assert_equal [{"name" => "x"}], read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["name"]), line)
         assert_equal [{"Name" => "x"}],
                      read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"], cleanse_header: false), line)
       ensure
-        IOStreams.enforce_column_restrictions = false
+        enforce_column_restrictions(false)
       end
     end
 
     describe "#restrict_columns" do
       it "applies the column restrictions to the columns supplied, renaming them as the header row read is cleansed" do
-        IOStreams.enforce_column_restrictions = true
+        enforce_column_restrictions(true)
         tabular = IOStreams::Tabular.new(columns: ["First Name", "Age"], allowed_columns: ["first_name"])
         tabular.restrict_columns
 
@@ -647,7 +654,7 @@ class TabularTest < Minitest::Test
 
         assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
       ensure
-        IOStreams.enforce_column_restrictions = false
+        enforce_column_restrictions(false)
       end
 
       it "leaves the columns until the header row is read, and without restrictions" do

@@ -146,12 +146,7 @@ IOStreams also logs warnings for behavior that will change in the next major ver
 
 ## enforce_column_restrictions
 
-Applies `allowed_columns`, `required_columns` and `skip_unknown` to every input when reading
-records, including JSON records, so that renaming an uploaded file from `.csv` to `.json` cannot
-bypass them. Set it in an initializer:
-
-~~~ruby
-IOStreams.enforce_column_restrictions = true
-~~~
-
-Default: false. It will default to true in v3.0. See [Header options](formats#header-options).
+Deprecated in v2.2, and removed in v3.0, with the column options that it applies to every input,
+such as `allowed_columns`. A [schema](formats#schema) applies to every input instead, including the
+keys of each JSON record, see
+[Moving the column options to a schema](upgrading#moving-the-column-options-to-a-schema).
