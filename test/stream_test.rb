@@ -1206,7 +1206,7 @@ class StreamTest < Minitest::Test
 
       it "reports a deprecation warning for format_options: supplied to a call, which still applies" do
         records = []
-        assert_deprecated(/format_options: is deprecated for each call, set a schema on the path with #schema instead, which gives the width of each field of a fixed width file, such as schema\(IOStreams::Schema.from_layout\(\*\*format_options\)\)/) do
+        assert_deprecated(/format_options: is deprecated for each call, set a schema on the path with #schema instead, which gives the width of each field of a fixed width file, such as the schema that IOStreams::Schema.from_layout returns for the layout, converted once and saved, since v3.0 removes from_layout/) do
           IOStreams.stream(StringIO.new("Jack12345\n")).format(:fixed).
             each(:hash, format_options: {layout: layout}) { |record| records << record }
         end

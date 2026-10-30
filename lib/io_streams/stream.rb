@@ -12,7 +12,8 @@ module IOStreams
       default_format:     "set the format on the path with #format instead, when the path has none, such as " \
                           "path.format(:json) unless path.format",
       format_options:     "set a schema on the path with #schema instead, which gives the width of each field of a " \
-                          "fixed width file, such as schema(IOStreams::Schema.from_layout(**format_options))"
+                          "fixed width file, such as the schema that IOStreams::Schema.from_layout returns for the " \
+                          "layout, converted once and saved, since v3.0 removes from_layout"
     }.freeze
     private_constant :PATH_SETTINGS
 
