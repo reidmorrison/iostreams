@@ -1267,7 +1267,8 @@ so store its path again from `#each_child`.
 #### `#size` raises for a file that does not exist
 
 `#size` on an S3, SFTP or HTTP path now raises `IOStreams::Errors::NotFound` when the file does not exist, as it
-already did for a local file, which raises `Errno::ENOENT`, like `File.size`. Previously it returned `nil`.
+already did for a local file, which raises `Errno::ENOENT`, like `File.size`. Previously an S3 path returned `nil`,
+while SFTP and HTTP paths raised `NotImplementedError` for every file, since they had no `#size`.
 `#size?` still returns `nil` when the file does not exist, like `File.size?`, and also when it is empty.
 
 Fix: where your code checks for a `nil` size to find a file that does not exist, call `#size?` when an empty file can
