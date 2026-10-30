@@ -220,7 +220,7 @@ Fix: use `#read`, or `each(:line)`, which return UTF-8 text, or call `force_enco
 #### A `.encode` file name does not apply the encode stream
 
 The `:encode` stream converts the text that the application reads or writes, and is applied with
-`#option` or `#stream`. A file name ending in `.encode`, such as `notes.encode`, no longer applies it,
+`#encoding`. A file name ending in `.encode`, such as `notes.encode`, no longer applies it,
 since file names do not name it. Previously the data of such a file was read and written through it.
 
 Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
