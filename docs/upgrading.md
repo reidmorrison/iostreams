@@ -40,7 +40,7 @@ Start with the changes that apply to your application:
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
-| Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) |
+| Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) and [S3 objects are written without a temp file](#s3-objects-are-written-without-a-temp-file) |
 | Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
 | Uses `~` in local file names, root paths from `IOStreams.add_root`, or compares paths | [Paths](#paths) and [Local files](#local-files) |
@@ -1440,11 +1440,18 @@ request, as before. More is uploaded in parts:
 With an option that describes the whole object, `content_md5`, `content_length`, `write_offset_bytes`, or the
 checksum of its data, such as `checksum_crc32`, the data is still written into a temp file first.
 
+Otherwise the IO that `#writer` supplies to the block, when the path has no streams, such as `data.csv`, or is
+written with `#raw`, is no longer a `File`. Like every other stream, it responds to the methods of an IO that
+write, `#write`, `#<<`, `#print`, `#puts` and `#printf`, and to `#flush`, so `CSV.new(io)` still writes it, but
+`#pos`, `#size` and `#path` raise `NoMethodError`, as does a library that calls them.
+
 Fix: none is needed in most cases. Add a lifecycle rule to the bucket that aborts incomplete multipart uploads,
 for example after a day, so that S3 removes the parts of an upload that was never completed. Rescue the error of
 the request, or the kind of failure, instead of `Aws::S3::MultipartUploadError`. Code that compares the ETag of an
 object with the MD5 digest of its data can no longer do so for an object larger than 8MB, so compare a digest
-that the application records itself instead.
+that the application records itself instead. Replace calls such as `#pos` or `#size` on the IO, and where the IO
+must be a `File`, write a local file first, and copy it to S3, for example with
+`IOStreams.path("s3://bucket/a.csv").copy_from(local_path, convert: false)`.
 
 #### Unknown S3 options raise `ArgumentError`
 
