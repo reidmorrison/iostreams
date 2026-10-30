@@ -85,7 +85,7 @@ Each of these still works as before in v2.2, and reports a deprecation warning:
 | `stream(:encode, ...)` | `#encoding`, with the same options. Like any stream set with `#stream`, `stream(:encode, ...)` stops the streams being taken from the file name, while `#encoding` keeps them, so `IOStreams.path("data.csv.gz").encoding("BINARY")` reads the decompressed data. To read or write the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for such a file name, use `#raw`, and to read a file that is not named for its format, set the file name that names its format with `#file_name`, then `#encoding` |
 | `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
 | `#format_options`, and `format_options:` supplied to each call | `#schema`, which gives the `width` of each field of a fixed width file, see [Moving a layout to a schema](#moving-a-layout-to-a-schema) |
-| `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:`, unless they are nil, and `cleanse_header:`, even when it is nil | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
+| `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:`, even when they are nil, since v3.0 raises `ArgumentError` for them whatever their value | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
 
 `IOStreams.enforce_column_restrictions=` is deprecated too, see below, since it only applies to the column options.
 v2.2 still follows it, so keep setting it to true, as [v2.1 recommends](#column-restrictions-on-uploaded-files),
@@ -220,9 +220,9 @@ named as the column was cleansed. With `cleanse_header: false`, they are the col
 them as they are.
 
 With a schema, `columns:`, `allowed_columns:` and `required_columns:` raise `ArgumentError`, unless they are nil, and
-so does `cleanse_header:`, even when it is nil. `skip_unknown:` only applies to `allowed_columns:`, so it is accepted,
-and has no effect, so that code can supply the same options with and without a schema. The property of a schema
-that replaces each one:
+so does `cleanse_header:`, even when it is nil. `skip_unknown:` only applies to `allowed_columns:`, so it is accepted.
+A nil one, and `skip_unknown:`, have no effect with a schema, and report a deprecation warning, since v3.0 raises
+`ArgumentError` for them, so remove them. The property of a schema that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|

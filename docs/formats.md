@@ -144,16 +144,16 @@ In addition to `layout`, the `:fixed` format takes one more option:
 ## Header options
 
 When reading or writing records (`:hash`), the following options control the header row.
-They are deprecated, and report a deprecation warning when they are not nil, as does `cleanse_header`, even
-when it is nil: a [schema](#schema) describes the columns of the file on its path instead, see
+They are deprecated, and report a deprecation warning, as does `cleanse_header`, even when they
+are nil: a [schema](#schema) describes the columns of the file on its path instead, see
 [Moving the column options to a schema](upgrading#moving-the-column-options-to-a-schema). They still work
 as before without a schema. A writer ignores `allowed_columns`, `required_columns` and `skip_unknown`, which
-only apply when reading, so when writing they report a deprecation warning even when they are nil.
+only apply when reading.
 
 With a [schema](#schema), which describes the columns of the file instead, `columns`,
 `allowed_columns` and `required_columns` raise `ArgumentError` unless they are nil, and so
 does `cleanse_header`, even when it is nil. `skip_unknown` only applies to `allowed_columns`,
-so it is accepted, and has no effect.
+so it is accepted. A nil one, and `skip_unknown`, have no effect.
 
 * `columns: [Array<String>]`
   When reading, supplies the header columns for files that do not include a header row.

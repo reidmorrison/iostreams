@@ -69,20 +69,21 @@ module IOStreams
 
     # Returns [Array<Symbol>] the names of the supplied options of a reader of rows or records, see
     # `IOStreams::Row::Reader`, that are deprecated, since a schema describes the columns of the file instead, see
-    # `IOStreams::Schema`: the options of the header that are not nil, see `IOStreams::Tabular::Header`, and the
-    # `cleanse_header` option of the reader, even when it is nil, which does not cleanse the header row.
+    # `IOStreams::Schema`: the options of the header, see `IOStreams::Tabular::Header`, and the `cleanse_header` option
+    # of the reader, even when they are nil, since IOStreams 3.0 raises ArgumentError for them, whatever their value.
     def self.deprecated_read_option_names(options)
-      names = options.compact.keys & Header::OPTION_NAMES
+      names = options.keys & Header::OPTION_NAMES
       names << :cleanse_header if options.key?(:cleanse_header)
       names
     end
 
     # Returns [Array<Symbol>] the names of the supplied options of a writer of rows or records, see
     # `IOStreams::Row::Writer`, that are deprecated, since a schema describes the columns of the file instead: the
-    # options of the header that are not nil, other than those that only apply when reading a header, see
-    # `IOStreams::Tabular::Header::READ_OPTION_NAMES`, which writing does not apply.
+    # options of the header, even when they are nil, as for a reader, see .deprecated_read_option_names, other than
+    # those that only apply when reading a header, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`, which writing
+    # does not apply.
     def self.deprecated_write_option_names(options)
-      options.compact.keys & (Header::OPTION_NAMES - Header::READ_OPTION_NAMES)
+      options.keys & (Header::OPTION_NAMES - Header::READ_OPTION_NAMES)
     end
 
     attr_reader :format, :parser

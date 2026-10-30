@@ -1242,11 +1242,22 @@ class StreamTest < Minitest::Test
         assert_equal [{"First Name" => "Jack"}], records
       end
 
-      it "reports no deprecation warning for column options that are nil" do
+      it "reports a deprecation warning for column options that are nil, which v3.0 raises for, and reads as before" do
         records = []
-        refute_deprecated do
+        line    = __LINE__ + 3
+        assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: columns:, allowed_columns:, required_columns:, skip_unknown: are deprecated, describe the columns of the file with #schema instead\n\z/) do
           IOStreams.stream(StringIO.new(csv)).
             each(:hash, columns: nil, allowed_columns: nil, required_columns: nil, skip_unknown: nil) { |record| records << record }
+        end
+
+        assert_equal [{"name" => "Jack", "zip" => "12345"}], records
+      end
+
+      it "reports a deprecation warning for column options that are nil with a schema, which accepts them, where they have no effect" do
+        records = []
+        assert_deprecated(/IOStreams: columns:, allowed_columns:, required_columns: are deprecated, and have no effect with a schema, which describes the columns of the file, so remove them\n\z/) do
+          IOStreams.stream(StringIO.new(csv)).schema(fields: [{name: "name"}, {name: "zip"}]).
+            each(:hash, columns: nil, allowed_columns: nil, required_columns: nil) { |record| records << record }
         end
 
         assert_equal [{"name" => "Jack", "zip" => "12345"}], records
@@ -1258,7 +1269,7 @@ class StreamTest < Minitest::Test
           # Without a schema, skip_unknown: false raises for a column that allowed_columns: does not list, such as notes.
           IOStreams.stream(StringIO.new("name,zip,notes\nJack,12345,x\n")).
             schema(fieldsMatch: "subset", fields: [{name: "name"}, {name: "zip"}]).
-            each(:hash, skip_unknown: false, columns: nil) { |record| records << record }
+            each(:hash, skip_unknown: false) { |record| records << record }
         end
 
         assert_equal [{"name" => "Jack", "zip" => "12345"}], records
@@ -1298,9 +1309,9 @@ class StreamTest < Minitest::Test
         assert_equal [{"name" => "Jack", "zip" => "12345"}], records
       end
 
-      it "reports no deprecation warning for columns: nil when writing" do
+      it "reports a deprecation warning for columns: nil when writing, which v3.0 raises for, and writes as before" do
         io = StringIO.new
-        refute_deprecated do
+        assert_deprecated(/IOStreams: columns: is deprecated, describe the columns of the file with #schema instead\n\z/) do
           IOStreams.stream(io).writer(:hash, columns: nil) { |writer| writer << {"name" => "Jack", "zip" => 12_345} }
         end
 
@@ -1310,7 +1321,8 @@ class StreamTest < Minitest::Test
       it "reports a deprecation warning for an option that only applies when reading supplied to a writer, even when it is nil" do
         io = StringIO.new
         # v3.0 raises ArgumentError for it, even when it is nil.
-        assert_deprecated(/IOStreams: allowed_columns:, skip_unknown: are deprecated when writing, since they only apply when reading and are ignored, describe the columns that are written with #schema instead/) do
+        assert_deprecated(/IOStreams: allowed_columns:, skip_unknown: are deprecated when writing, since they only apply when reading and are ignored, describe the columns that are written with #schema instead/,
+                          /IOStreams: columns: is deprecated, describe the columns of the file with #schema instead/) do
           IOStreams.stream(io).writer(:hash, allowed_columns: nil, skip_unknown: nil, columns: nil) { |writer| writer << {"name" => "Jack", "zip" => 12_345} }
         end
 
@@ -1331,6 +1343,26 @@ class StreamTest < Minitest::Test
         io = StringIO.new
         assert_deprecated(/IOStreams: allowed_columns: is deprecated when writing/) do
           IOStreams.stream(io).writer(:hash, allowed_columns: ["name"]) { |writer| writer << {"name" => "Jack"} }
+        end
+      end
+
+      it "reports no deprecation warning for nil column options supplied to IOStreams::Tabular, as Rocket Job 7.1 supplies them" do
+        # Rocket Job 7.1's input and output categories, without a schema, or a format, or the column options set.
+        input, output = refute_deprecated do
+          [
+            IOStreams::Tabular.new(columns: nil, format: nil, format_options: nil, file_name: nil, allowed_columns: nil,
+                                   required_columns: nil, skip_unknown: false),
+            IOStreams::Tabular.new(columns: nil, format: nil, format_options: nil, file_name: nil)
+          ]
+        end
+
+        refute_deprecated do
+          # As Rocket Job 7.1 reads the header row of an upload, and cleanses it.
+          input.parse_header("Name,Zip")
+          input.header.cleanse!
+
+          assert_equal({"name" => "Jack", "zip" => "12345"}, input.record_parse("Jack,12345"))
+          assert_equal "Jack,12345", output.render(%w[Jack 12345])
         end
       end
 
