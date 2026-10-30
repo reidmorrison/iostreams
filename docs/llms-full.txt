@@ -7549,11 +7549,13 @@ To write the text in the encoding of `io` instead, as before, do not set an enco
 
 With the `:encode` stream, data read from a file is treated as already being in the requested encoding,
 so valid characters are kept instead of being replaced, and an invalid character raises
-`Encoding::UndefinedConversionError` unless `replace:` is supplied. Previously reading lines let invalid
-characters through without raising.
+`IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, unless `replace:` is supplied.
+Previously reading lines, rows or records with an invalid character, such as with `encoding("UTF-8")` or
+`option(:encode, encoding: "UTF-8")`, raised `ArgumentError: invalid byte sequence in UTF-8`, which
+`IOStreams::Errors::InvalidEncoding` is not, so code that rescues `ArgumentError` there no longer catches it.
 
-Fix: supply `replace:`, for example `encoding("UTF-8", replace: "")`, to replace
-invalid characters instead of raising.
+Fix: supply `replace:`, for example `encoding("UTF-8", replace: "")`, to replace invalid characters instead of
+raising, or rescue `IOStreams::Errors::InvalidEncoding` rather than `ArgumentError`.
 
 Data read through the encode stream is treated as bytes in the requested encoding whichever streams it
 was read through. Previously reading the whole of a `.gz` or `.enc` file converted it from
