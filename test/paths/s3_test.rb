@@ -365,6 +365,63 @@ module Paths
         end
       end
 
+      describe "an option that no S3 request takes, or that the path sets itself, which v3.0 raises ArgumentError for" do
+        it "reports a deprecation warning for an option that no S3 request takes, and keeps it as before" do
+          line = __LINE__ + 2
+          path = assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: the S3 option acll: is deprecated, since no S3 request takes it, so correct or remove it\n\z/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, acll: "public-read")
+          end
+
+          assert_equal({acll: "public-read"}, path.options)
+        end
+
+        it "reports a deprecation warning for an option that the path sets itself, which it overrides" do
+          path = assert_deprecated(/IOStreams: the S3 options key:, bucket: are deprecated, since the path sets them itself, and overrides them, so remove them\n\z/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, key: "b.csv", bucket: "other")
+          end
+
+          assert_equal "a.csv", path.path
+          assert_equal "bucket", path.bucket_name
+        end
+
+        it "reports a deprecation warning for an option named with a String, which the AWS SDK does not take" do
+          assert_deprecated(/IOStreams: the S3 option "acl" is deprecated, since no S3 request takes it/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, **{"acl" => "public-read"})
+          end
+        end
+
+        it "reports a deprecation warning for a name in the query of the url that no S3 request takes" do
+          path = assert_deprecated(%r{IOStreams: "acll" in the query of the S3 url "s3://bucket/a\.csv" is deprecated, since no S3 request takes it, so correct or remove it\n\z}) do
+            IOStreams.path("s3://bucket/a.csv?acll=public-read", client: client)
+          end
+
+          assert_equal({acll: "public-read"}, path.options)
+          assert_deprecated(%r{"key" in the query of the S3 url "s3://bucket/a\.csv" is deprecated, since the path sets it itself}) do
+            IOStreams.path("s3://bucket/a.csv?key=b.csv", client: client)
+          end
+        end
+
+        it "says how to write a '?' in a key, for a name in the query without a value" do
+          path = assert_deprecated(%r{IOStreams: "\.csv" in the query of the S3 url "s3://bucket/data/file" is deprecated, since no S3 request takes it, so correct or remove it, and percent-encode a '\?' in a key as '%3F'\n\z}) do
+            IOStreams.path("s3://bucket/data/file?.csv", client: client)
+          end
+
+          assert_equal "data/file", path.path
+          assert_equal "data/file?.csv", refute_deprecated { IOStreams.path("s3://bucket/data/file%3F.csv", client: client) }.path
+        end
+
+        it "reports no deprecation warning for the options of S3 requests, as options or in the query of the url" do
+          path = refute_deprecated do
+            IOStreams.path("s3://bucket/a.csv?request_payer=requester", client: client, acl: "bucket-owner-full-control",
+                                                                         server_side_encryption: "AES256", max_keys: 5)
+          end
+
+          assert_equal({acl: "bucket-owner-full-control", server_side_encryption: "AES256", max_keys: 5, request_payer: "requester"},
+                       path.options)
+          refute_deprecated { IOStreams.path("s3://bucket/a.csv?", client: client) }
+        end
+      end
+
       describe "#join" do
         it "joins a name that only shares a prefix with the key" do
           path = IOStreams::Paths::S3.new("s3://bucket/reports", client: client)

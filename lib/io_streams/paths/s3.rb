@@ -182,12 +182,36 @@ module IOStreams
           @client_options[:region]            = region if region
         end
 
-        @options = args
+        option_names = args.keys
+        @options     = args
         @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
 
         super(key)
         warn_unusable_url(uri)
         warn_client_arguments(client, access_key_id: access_key_id, secret_access_key: secret_access_key, region: region)
+        warn_unusable_options(option_names)
+        warn_unusable_query(uri.query) if uri.query
+      end
+
+      # The S3 requests whose parameters IOStreams 3.0 takes as the options of a path, see .known_option_names.
+      OPTION_OPERATIONS = %i[get_object head_object put_object copy_object delete_object delete_objects list_objects_v2].freeze
+      private_constant :OPTION_OPERATIONS
+
+      # The parameters of the S3 requests that a path sets itself, such as `key`, which it overrides, and those of a
+      # listing that would change which keys it returns, or how, which IOStreams 3.0 does not take as the options of a
+      # path, see .known_option_names.
+      PATH_PARAMETERS = %i[
+        bucket key body response_target copy_source prefix continuation_token delimiter delete encoding_type start_after
+      ].freeze
+      private_constant :PATH_PARAMETERS
+
+      # Returns [Array<Symbol>] the options of a path that IOStreams 3.0 takes, which raises ArgumentError for any other
+      # when the path is created: the parameters of its S3 requests, see OPTION_OPERATIONS, as the AWS SDK names them,
+      # other than those that the path sets itself, see PATH_PARAMETERS. Load the AWS SDK first.
+      def self.known_option_names
+        @known_option_names ||=
+          (OPTION_OPERATIONS.flat_map { |operation| ::Aws::S3::Client.api.operation(operation).input.shape.member_names }.uniq -
+            PATH_PARAMETERS).freeze
       end
 
       def to_s
@@ -409,6 +433,51 @@ module IOStreams
         Deprecation.warn("#{keywords} #{names.size == 1 ? 'is' : 'are'} deprecated with an Aws::S3::Client as client:, " \
                          "which ignores #{them}, since it has its own, supply #{them} to Aws::S3::Client.new instead, or " \
                          "supply client: as a Hash of its options")
+      end
+
+      # Reports a deprecation warning for the options of this path that IOStreams 3.0 raises ArgumentError for when the
+      # path is created, see #unusable_option_names: one that the path sets itself, such as `key:`, which it overrides,
+      # and one that no S3 request takes, such as a misspelled one, which the AWS SDK raises for once the path is used.
+      def warn_unusable_options(names)
+        unusable_option_names(names).each_pair do |set_by_path, unusable|
+          list = unusable.map { |name| name.is_a?(Symbol) ? "#{name}:" : name.inspect }.join(", ")
+          warn_unusable("the S3 #{unusable.size == 1 ? 'option' : 'options'} #{list}", unusable.size, set_by_path)
+        end
+      end
+
+      # Reports a deprecation warning for the names in the query of the url of this path that IOStreams 3.0 raises
+      # ArgumentError for when the path is created, as for an option, see #warn_unusable_options. A name without a
+      # value is more likely part of a key, such as the `?` of `s3://bucket/data/file?.csv`, so the warning then also
+      # says how to write a `?` in a key.
+      def warn_unusable_query(query)
+        url = Utils.display_text("s3://#{bucket_name}/#{path}").inspect
+        unusable_option_names(query.keys.map(&:to_sym)).each_pair do |set_by_path, unusable|
+          names  = unusable.map(&:to_s)
+          encode = ", and percent-encode a '?' in a key as '%3F'" if names.any? { |name| query[name].to_s.empty? }
+          warn_unusable("#{names.map(&:inspect).join(', ')} in the query of the S3 url #{url}", names.size, set_by_path,
+                        encode)
+        end
+      end
+
+      # Returns [Hash<true|false, Array>] the supplied names of options that IOStreams 3.0 raises ArgumentError for: by
+      # whether the path sets them itself (true), see PATH_PARAMETERS, or no S3 request of a path takes them (false),
+      # see .known_option_names, without either when there are none.
+      def unusable_option_names(names)
+        set_by_path = names & PATH_PARAMETERS
+        {true => set_by_path, false => names - set_by_path - self.class.known_option_names}.reject { |_, list| list.empty? }
+      end
+
+      # Reports that the options, which the subject names, are deprecated, since the path sets them itself, or since no
+      # S3 request takes them, followed by the supplied advice.
+      def warn_unusable(subject, count, set_by_path, advice = nil)
+        them   = count == 1 ? "it" : "them"
+        reason =
+          if set_by_path
+            "the path sets #{them} itself, and overrides #{them}, so remove #{them}"
+          else
+            "no S3 request takes #{them}, so correct or remove #{them}"
+          end
+        Deprecation.warn("#{subject} #{count == 1 ? 'is' : 'are'} deprecated, since #{reason}#{advice}")
       end
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
