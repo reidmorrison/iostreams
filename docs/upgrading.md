@@ -1788,8 +1788,9 @@ v2.2 and v3.0. Each still works, and gives the same result, as before. They are,
   `zip_file_name`; and `IOStreams::Pgp.export` or `IOStreams::Pgp.set_trust` without an email or key id.
 * [Paths](#paths) and [Local files](#local-files): `#path=` and `#builder=`; changing a root path in place; a url part
   or S3 argument that a path ignores; a pattern of `#each_child` that is not a String; a `Pathname` supplied to
-  `IOStreams.new`, a copy or `IOStreams.stream`; a local file name of `~`, or starting with `~/`; and a local
-  `#move_to` onto an existing directory.
+  `IOStreams.new`, `#copy_from`, `#copy_to` or `#move_to`, which v3.0 takes as the name of a file, applying the
+  streams of its file name, rather than as an IO, or to `IOStreams.stream`, which raises `ArgumentError` for it in
+  v3.0; a local file name of `~`, or starting with `~/`; and a local `#move_to` onto an existing directory.
 * [S3](#s3), [SFTP](#sftp) and [HTTP](#http): the methods of the `File` that the block of an S3 or HTTP(S) path
   without streams receives, other than those of an IO that read or write; an S3 option that no S3 request takes, or
   that the path sets itself, such as `key:`; a name that starts with `/` joined to an S3 bucket; and an SFTP or
