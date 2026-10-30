@@ -80,6 +80,12 @@ Metrics/MethodLength:
 # Soften limits
 Metrics/ModuleLength:
   Max: 250
+  Exclude:
+    # Holds the public module methods, the one entry point of the API, see CLAUDE.md, and the registries of extensions
+    # and schemes.
+    - "lib/io_streams/io_streams.rb"
+    # Excluded in .rubocop_todo.yml too, whose Exclude this list replaces.
+    - "lib/io_streams/pgp.rb"
 
 Metrics/ParameterLists:
   CountKeywordArgs: false
