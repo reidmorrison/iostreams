@@ -134,6 +134,18 @@ module Upgrade
         end
       end
 
+      describe "the path of a local gzip file that a writer block writes" do
+        it "is the name of the file" do
+          Dir.mktmpdir do |dir|
+            name = File.join(dir, "people.csv.gz")
+            path = refute_deprecated { IOStreams.path(name).writer { |io| io.write(csv) && io.path } }
+
+            assert_equal name, path
+            assert_equal csv, IOStreams.path(name).read
+          end
+        end
+      end
+
       describe "an S3 path" do
         before do
           S3Stub.install
@@ -167,12 +179,15 @@ module Upgrade
           refute_deprecated do
             IOStreams.path("s3://iostreams-upgrade/written.csv").writer do |io|
               io.write("name,zip\n")
-              io << "Jack,12345\n" << "Jill,23456\n"
+              io << "Jack,12345\n"
+              io.puts("Jill,23456")
+              io.print("Jim,", "34567\n")
+              io.printf("%<name>s,%<zip>05d\n", name: "Joe", zip: 4567)
               io.flush
             end
           end
 
-          assert_equal csv, IOStreams.path("s3://iostreams-upgrade/written.csv").read
+          assert_equal "#{csv}Jim,34567\nJoe,04567\n", IOStreams.path("s3://iostreams-upgrade/written.csv").read
         end
 
         it "writes the object from a local File, once it is written there and copied" do
