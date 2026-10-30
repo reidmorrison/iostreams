@@ -487,6 +487,16 @@ module IOStreams
         Deprecation.warn("#{subject} #{words.are} deprecated, since #{reason}#{advice}")
       end
 
+      # Returns [Array(Array<Symbol>, String)|nil] the methods of the IO that v3.0 reads the object from, in place of the
+      # temp File that v2.2 downloads it into, and its name, see `IOStreams::Stream#v3_source`: v3.0 reads the object as
+      # the application reads it, with an IO that only reads, unless the `range` or `part_number` option chooses the
+      # bytes to read, which it still downloads into a temp file.
+      def v3_source
+        return if options.key?(:range) || options.key?(:part_number)
+
+        [IOStreams::Reader::V3_READ_METHODS, "the IO of an S3 path"]
+      end
+
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
       def each_object(prefix)
         token = nil

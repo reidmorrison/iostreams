@@ -137,6 +137,29 @@ module Paths
           assert_equal body, IOStreams::Paths::HTTP.new("#{@server.base_url}/file").read
         end
 
+        it "reports a deprecation warning for a method of the File that it reads, which v3.0 does not supply" do
+          start_server { |_path| TestHTTPServer.response(200, body: body) }
+          line = __LINE__ + 4
+          data = IOStreams.path("#{@server.base_url}/file").reader do |io|
+            first = io.read
+            assert_deprecated(/http_test\.rb:#{line}: warning: IOStreams: #rewind is deprecated on the IO of an HTTP path that #reader yields, since in v3\.0 it is a stream that only reads/) do
+              io.rewind
+            end
+            assert_kind_of ::File, io
+            assert_equal body.bytesize, assert_deprecated(/#size is deprecated on the IO of an HTTP path/) { io.size }
+            [first, io.read]
+          end
+
+          assert_equal [body, body], data
+        end
+
+        it "reports none for the methods of an IO that read" do
+          start_server { |_path| TestHTTPServer.response(200, body: body) }
+          data = refute_deprecated { IOStreams.path("#{@server.base_url}/file").reader { |io| [io.read(5), io.read, io.eof?] } }
+
+          assert_equal ["Hello", " World", true], data
+        end
+
         it "raises when the server returns 404 Not Found" do
           start_server { |_path| TestHTTPServer.response(404) }
 

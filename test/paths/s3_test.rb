@@ -83,6 +83,58 @@ module Paths
         it "reads" do
           assert_equal raw, existing_path.read
         end
+
+        it "reports a deprecation warning for a method of the File that it reads, which v3.0 does not supply" do
+          line = __LINE__ + 4
+          data = existing_path.reader do |io|
+            first = io.read
+            assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: #rewind is deprecated on the IO of an S3 path that #reader yields, since in v3\.0 it is a stream that only reads, with #read, #readpartial, #gets, #readline, #readlines, #each_line, #each and #eof\?: read it with those, open the reader again to read it from the start, or copy the data into a local file first, such as with IOStreams\.temp_file and #copy_to, where it must be a File\n\z/) do
+              io.rewind
+            end
+            assert_kind_of ::File, io
+            assert_kind_of String, assert_deprecated(/#path is deprecated on the IO of an S3 path/) { io.path }
+            assert_equal raw.bytesize, assert_deprecated(/#size is deprecated on the IO of an S3 path/) { io.size }
+            [first, io.read]
+          end
+
+          assert_equal [raw, raw], data
+        end
+
+        it "reports a deprecation warning for a method of the File that it reads as it is stored" do
+          path = root_path.join("test.csv.gz")
+          path.write(raw)
+          data = path.raw.reader do |io|
+            assert_deprecated(/#rewind is deprecated on the IO of an S3 path/) { io.rewind }
+            io.read
+          end
+
+          assert_equal raw, Zlib.gunzip(data)
+        end
+
+        it "reports a deprecation warning for a method of the stream of the object, or of PGP that reads it" do
+          gzipped = root_path.join("test.csv.gz")
+          gzipped.write(raw)
+          encrypted = root_path.join("test.csv.pgp").option(:pgp, recipient: "receiver@example.org")
+          encrypted.write(raw)
+
+          gzipped.reader { |io| assert_deprecated(/#rewind is deprecated on the :gz stream/) { io.rewind } }
+          root_path.join("test.csv.pgp").option(:pgp, passphrase: "receiver_passphrase").reader do |io|
+            assert_deprecated(/#fileno is deprecated on the :pgp stream that #reader yields/) { io.fileno }
+          end
+        end
+
+        it "reports none for the methods of an IO that read" do
+          data = refute_deprecated { existing_path.reader { |io| [io.gets, io.read, io.eof?] } }
+
+          assert_equal [raw.lines.first, raw.lines.drop(1).join, true], data
+        end
+
+        it "reports none with the range option, which v3.0 still reads from a temp File" do
+          path = IOStreams.path(existing_path.to_s, range: "bytes=0-4")
+          data = refute_deprecated { path.reader { |io| io.read && io.rewind && io.read } }
+
+          assert_kind_of String, data
+        end
       end
 
       describe "#size" do

@@ -112,6 +112,17 @@ module IOStreams
                          "as 'https://example.org/a.csv'")
       end
 
+      # The methods of the IO that v3.0 reads the response from, see #v3_source: those of an IO that read, and #close.
+      V3_SOURCE_METHODS = [*IOStreams::Reader::V3_READ_METHODS, :close].freeze
+      private_constant :V3_SOURCE_METHODS
+
+      # Returns [Array(Array<Symbol>, String)] the methods of the IO that v3.0 reads the response from, in place of the
+      # temp File that v2.2 downloads it into, and its name, see `IOStreams::Stream#v3_source`: v3.0 reads the response as
+      # the application reads it, with an IO that only reads.
+      def v3_source
+        [V3_SOURCE_METHODS, "the IO of an HTTP path"]
+      end
+
       # Read a file using an http get.
       #
       # For example:
