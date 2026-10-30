@@ -145,22 +145,25 @@ old forms:
 
 | Removed                                            | Use instead                       |
 |----------------------------------------------------|-----------------------------------|
-| `option(:encode, encoding: "Windows-1252:UTF-8")`  | `encoding("Windows-1252:UTF-8")`  |
+| `option(:encode, encoding: "Windows-1252")`        | `encoding("Windows-1252")`        |
 | `option(:encode, encoding: "UTF-8", replace: "?")` | `encoding("UTF-8", replace: "?")` |
 | `option(:encode, replace: " ")`                    | `encoding(replace: " ")`          |
 | `stream(:encode, encoding: "BINARY")`              | `encoding("BINARY")`              |
 
 ~~~ruby
 # Before, removed in v3.0
-IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252:UTF-8")
+IOStreams.path("legacy.csv").option(:encode, encoding: "Windows-1252")
 IOStreams.path("people.txt").option(:encode, replace: " ")
 IOStreams.stream(io).stream(:encode, encoding: "BINARY")
 
 # After
-IOStreams.path("legacy.csv").encoding("Windows-1252:UTF-8")
+IOStreams.path("legacy.csv").encoding("Windows-1252")
 IOStreams.path("people.txt").encoding(replace: " ")
 IOStreams.stream(io).encoding("BINARY")
 ~~~
+
+An internal encoding, such as `encoding("Windows-1252:UTF-8")`, which converts the text to UTF-8 as it is read, is
+only in v3.0: v2.2 raises `ArgumentError` for it, as `option(:encode, ...)` does.
 
 To keep reading the data as it is stored, as `stream(:encode, encoding: "BINARY")` did for a file name
 with extensions, use `#raw`. For another encoding, such as a plain file whose name ends in `.gz`, set
