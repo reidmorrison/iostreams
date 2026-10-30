@@ -41,5 +41,52 @@ class UpgradeResultsTest < Minitest::Test
         assert_nil IOStreams::Pgp.set_trust(email: "missing@iostreams.net")
       end
     end
+
+    # A file named `.text` is read in the `:text` format in 3.0.
+    describe "a file named .text with format(:csv)" do
+      let(:path) do
+        File.write(File.join(@dir, "ids.text"), "id,name\n1,\"a,b\"\n2,\"c\nd\"\n")
+        IOStreams.path(@dir, "ids.text").format(:csv)
+      end
+
+      it "reads its lines, rows and records as CSV" do
+        assert_equal ["id,name", "1,\"a,b\"", "2,\"c\nd\""], read_all(path, :line)
+        assert_equal [%w[id name], ["1", "a,b"], ["2", "c\nd"]], read_all(path, :array)
+        assert_equal [{"id" => "1", "name" => "a,b"}, {"id" => "2", "name" => "c\nd"}], read_all(path, :hash)
+      end
+
+      it "writes its rows and records as CSV" do
+        target = IOStreams.path(@dir, "out.text").format(:csv)
+        target.writer(:array) do |rows|
+          rows << %w[id name]
+          rows << ["1", "a,b"]
+        end
+
+        assert_equal "id,name\n1,\"a,b\"\n", File.read(target.to_s)
+
+        target.writer(:hash) { |records| records << {"id" => "2", "name" => "c"} }
+
+        assert_equal "id,name\n2,c\n", File.read(target.to_s)
+      end
+    end
+
+    # `each(:array)` yields the rows of JSON as Arrays in 3.0.
+    describe "the records of JSON" do
+      let(:path) do
+        File.write(File.join(@dir, "people.json"), %({"name":"Jack","age":21}\n{"age":22,"name":"Jill"}\n))
+        IOStreams.path(@dir, "people.json")
+      end
+
+      it "are Hashes read with each(:hash)" do
+        assert_equal [{"name" => "Jack", "age" => 21}, {"age" => 22, "name" => "Jill"}], read_all(path, :hash)
+      end
+
+      it "are rows read with a schema, after a header row of the names of its fields" do
+        rows = read_all(path.schema(fields: [{name: "name"}, {name: "age", type: "integer"}], fieldsMatch: "equal"), :array)
+
+        assert_equal [%w[name age], ["Jack", 21], ["Jill", 22]], rows
+        assert_instance_of IOStreams::Row::HeaderRow, rows.first
+      end
+    end
   end
 end

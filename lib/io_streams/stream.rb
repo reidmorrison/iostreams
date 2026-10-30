@@ -21,6 +21,11 @@ module IOStreams
                                  "field of a fixed width file".freeze
     private_constant :FORMAT_OPTIONS_DEPRECATION
 
+    # The options of a call that choose the format of the file, in place of the format of its path, see
+    # #warn_text_file_format.
+    TEXT_FORMAT_SETTINGS = %i[format file_name original_file_name default_format].freeze
+    private_constant :TEXT_FORMAT_SETTINGS
+
     # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
     COPY_MODES = %i[line array hash].freeze
     private_constant :COPY_MODES
@@ -783,9 +788,13 @@ module IOStreams
     # Iterate over a file / stream returning each line as an array, one at a time.
     #
     # Supplying `embedded_within:` is deprecated, since the format of the file decides where its lines are split, and
-    # reports a deprecation warning, see `IOStreams::Deprecation`.
-    def row_reader(delimiter: nil, embedded_within: :auto, **args, &)
-      rows_reader(IOStreams::Row::Reader, delimiter, embedded_within, args, &)
+    # reports a deprecation warning, see `IOStreams::Deprecation`. So are the rows of a file whose rows are its records,
+    # such as JSON without a schema, see #warn_record_rows.
+    def row_reader(delimiter: nil, embedded_within: :auto, **args)
+      rows_reader(IOStreams::Row::Reader, delimiter, embedded_within, args) do |reader|
+        warn_record_rows(reader)
+        yield reader
+      end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
@@ -804,6 +813,7 @@ module IOStreams
     def rows_reader(klass, delimiter, embedded_within, args)
       tabular = schema_tabular(args)
       warn_read_options(embedded_within, args)
+      warn_text_file_format(args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield klass.new(io, **tabular_options(tabular, args))
       end
@@ -914,6 +924,34 @@ module IOStreams
                        "#{words.them}")
     end
 
+    # The rows and records of a file named `.text` without a format, such as `ids.text`, are deprecated, since IOStreams
+    # v3.0 reads and writes them in its `:text` format, as the text of each line, see
+    # `IOStreams::Builder#text_file_format`, while this version reads them as CSV, or in the format of an extension
+    # before `.text`, which `#format` sets on both. A call that supplies the format, or a file name that names it, which
+    # is deprecated itself, see #warn_path_settings, is not reported.
+    def warn_text_file_format(args)
+      return if args.keys.intersect?(TEXT_FORMAT_SETTINGS)
+
+      format = builder.text_file_format
+      return unless format
+
+      Deprecation.warn("the rows and records of a file named .text without #format are deprecated, since v3.0 reads " \
+                       "and writes them in its :text format, as the text of each line, rather than as " \
+                       "#{format.to_s.upcase}: set format(:#{format}) on the path")
+    end
+
+    # The rows of a file whose rows are its records, such as JSON without a schema, see
+    # `IOStreams::Row::Reader#record_rows?`, are deprecated, since IOStreams v3.0 reads them as Arrays, after a header
+    # row of the keys of the first record, while this version reads each record as a Hash, as `each(:hash)` does on both.
+    def warn_record_rows(reader)
+      return unless reader.record_rows?
+
+      Deprecation.warn("each(:array) and reader(:array) of a file whose rows are records, such as JSON without a " \
+                       "schema, are deprecated, since v3.0 yields each row as an Array, after a header row of the " \
+                       "keys of the first record, rather than each record as a Hash: read the records with " \
+                       "each(:hash), or set a schema")
+    end
+
     def warn_embedded_within(embedded_within)
       return if embedded_within == :auto
 
@@ -1005,6 +1043,7 @@ module IOStreams
       options = args.except(:delimiter)
       tabular = schema_tabular(options)
       warn_write_options(options)
+      warn_text_file_format(options)
       rows_line_writer(args.slice(:delimiter)) do |io|
         klass.stream(io, **tabular_options(tabular, options), &block)
       end

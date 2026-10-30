@@ -212,10 +212,13 @@ class SchemaTest < Minitest::Test
     describe ".from_layout" do
       let(:layout) { [{size: 10, key: :name}, {size: 2}, {size: 5, key: :zip, type: :integer}] }
 
-      # Returns [Array] the records that the layout reads from the data, or the rows with mode: :array.
+      # Returns [Array] the records that the layout reads from the data, or the rows with mode: :array, whose rows are
+      # its records, which v3.0 reads as Arrays.
       def layout_read(data, columns = layout, mode: :hash)
-        records = []
-        assert_deprecated(/#format_options is deprecated/) do
+        records  = []
+        patterns = [/#format_options is deprecated/]
+        patterns << /each\(:array\) and reader\(:array\) of a file whose rows are records/ if mode == :array
+        assert_deprecated(*patterns) do
           IOStreams.stream(StringIO.new(data)).format(:fixed).format_options(layout: columns).
             each(mode) { |record| records << record }
         end

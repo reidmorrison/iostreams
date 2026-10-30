@@ -20,8 +20,9 @@ module IOStreams
     #   the file that is copied.
     # * Cleanses the header row, `#cleanse_header!`, when the keys of the records are the columns of the file.
     # * Answers the questions of the protocol: whether the file has a header row, `#requires_header?`, whether it is
-    #   still to be read, `#header?`, whether the rows read start with a header row, `#rows_header?`, and the columns of
-    #   the rows of a file without one, `#headerless_columns`.
+    #   still to be read, `#header?`, whether the rows read start with a header row, `#rows_header?`, whether they are
+    #   records rather than Arrays, `#record_rows?`, and the columns of the rows of a file without one,
+    #   `#headerless_columns`.
     #
     # Each reader and writer has its own, through its Tabular, since it holds the columns of one file.
     class Mapping
@@ -56,6 +57,11 @@ module IOStreams
 
       # Returns [true|false] whether the rows read start with a header row, see `IOStreams::Tabular#rows_header?`.
       def rows_header?
+        raise NotImplementedError
+      end
+
+      # Returns [true|false] whether the rows read are the records of the file, see `IOStreams::Tabular#record_rows?`.
+      def record_rows?
         raise NotImplementedError
       end
 

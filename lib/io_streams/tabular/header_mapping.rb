@@ -67,6 +67,13 @@ module IOStreams
         header?
       end
 
+      # Returns [true|false] whether the rows read are the records of the file, see `IOStreams::Tabular#record_rows?`:
+      # those of a format without a header row, such as JSON, whose parser reads each line into a record, keyed by the
+      # names of its values, see #read_row.
+      def record_rows?
+        !@parser.requires_header?
+      end
+
       # Returns [nil] only the fields of a schema are the columns of a file without a header row, see
       # `IOStreams::Tabular#headerless_columns`.
       def headerless_columns

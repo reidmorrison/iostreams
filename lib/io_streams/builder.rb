@@ -285,6 +285,17 @@ module IOStreams
       [methods, "the #{name.inspect} stream", (klass.v3_stream_advice if klass.respond_to?(:v3_stream_advice))]
     end
 
+    # Returns [Symbol|nil] the format that the rows and records of this file are read and written in, when IOStreams
+    # v3.0 reads and writes them in its `:text` format instead, as the text of each line: when no format was set, so
+    # that it is taken from a file name whose format extension is `.text`, see `IOStreams::Tabular.text_file_format`,
+    # unless a stream reads the lines in a format of its own, such as the CSV of a spreadsheet, which v3.0 reads them
+    # in, whatever format the file name names. Returns nil otherwise.
+    def text_file_format
+      return if format_set? || file_name.nil? || text_format
+
+      Tabular.text_file_format(file_name)
+    end
+
     # Returns [String] the quote character within which field delimiters and newlines may be
     # embedded for the current tabular format, or [nil] when the format has no such quoting,
     # or when the format cannot be determined.

@@ -84,7 +84,9 @@ class SchemaRowsTest < Minitest::Test
           assert stream("name\nJack\n").reader(:array, &:header?)
           assert stream(%({"name":"Jack"}\n)).format(:json).schema(fields: [{name: "name"}]).reader(:array, &:header?)
           assert stream("Jack\n").schema(header: false, fields: [{name: "name"}]).reader(:array, &:header?)
-          refute stream(%({"name":"Jack"}\n)).format(:json).reader(:array, &:header?)
+          refute(assert_deprecated(/whose rows are records, such as JSON without a schema/) do
+            stream(%({"name":"Jack"}\n)).format(:json).reader(:array, &:header?)
+          end)
           refute(assert_deprecated(/columns: is deprecated/) { stream("Jack\n").reader(:array, columns: %w[name], &:header?) })
         end
       end

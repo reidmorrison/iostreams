@@ -61,6 +61,12 @@ module IOStreams
         @tabular.rows_header?
       end
 
+      # Returns [true|false] whether the rows that #each yields are the records of the file, Hashes rather than Arrays,
+      # see `IOStreams::Tabular#record_rows?`, such as those of JSON without a schema.
+      def record_rows?
+        @tabular.record_rows?
+      end
+
       # Yields each row, an Array, after the header row of a file with one, which it yields first, see
       # `IOStreams::Tabular#read_row`. With a schema, the header row is an `IOStreams::Row::HeaderRow` of the names of
       # the fields, also for a file without a header row, such as fixed width or JSON.
