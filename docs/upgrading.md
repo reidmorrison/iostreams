@@ -591,9 +591,9 @@ UTC. To get a local time, convert it, such as with `Time.parse(value).localtime`
 #### The column options of each call are removed
 
 `columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` raise `ArgumentError`, as
-for any other option that a mode does not take, which v2.2 reports as deprecated, and
-`IOStreams.enforce_column_restrictions=`, which only applied to them, is removed, see
-[enforce_column_restrictions](#enforce_column_restrictions). A [schema](formats#schema) describes the columns of the
+for any other option that a mode does not take, and `IOStreams.enforce_column_restrictions=`, which only applied to
+them, is removed, see [enforce_column_restrictions](#enforce_column_restrictions). v2.2 reports all of them as
+deprecated, the options even when they are nil. A [schema](formats#schema) describes the columns of the
 file on its path instead, so that every reader and writer of the path, including a copy, checks them the same way. Its
 fields name the keys of the records read, and each column of the header row is matched to a field whatever its case, spaces
 and punctuation, or to one of the `aliases` of a field, see [Matching columns to fields](formats#matching-columns-to-fields).
@@ -782,10 +782,11 @@ value.
 ##### enforce_column_restrictions
 
 `IOStreams.enforce_column_restrictions=` and `IOStreams.enforce_column_restrictions?` are removed, since they only
-applied to the column options above. v2.2 still follows it without a deprecation warning, so remove the line that
-sets it, such as the one that v2.1 suggested, see
-[Column restrictions on uploaded files](#column-restrictions-on-uploaded-files). A schema applies to every input,
-including the keys of JSON records, so renaming an uploaded file from `.csv` to `.json` cannot bypass it.
+applied to the column options above. v2.2 reports both as deprecated, but still follows the setting, so keep the line
+that sets it, such as the one that v2.1 suggested, see
+[Column restrictions on uploaded files](#column-restrictions-on-uploaded-files), until the column options are
+replaced with a schema, and then remove it. A schema applies to every input, including the keys of JSON records, so
+renaming an uploaded file from `.csv` to `.json` cannot bypass it.
 
 #### `embedded_within:` for rows and records is removed
 
