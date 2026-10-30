@@ -11,7 +11,8 @@ module IOStreams
       # Extends the supplied object, which IOStreams hands to the application, with a module that reports a deprecation
       # warning for each of its public methods that the object in its place in v3.0 does not answer: those other than
       # the supplied methods, which that object answers, and the methods of every object. Each warning is the name of the
-      # method, such as `#rewind`, followed by the supplied message, such as "is deprecated on ...".
+      # method, such as `#rewind`, followed by the supplied message, such as "is deprecated on ...", or by the message of
+      # its name when the message is a Hash, such as one that names what replaces it, otherwise that of nil.
       #
       # The module is prepended to the singleton class of the object, rather than extending it, so that its methods
       # come before those that the object defines on itself, such as the `#path` of a `Zlib::GzipReader`. The object
@@ -33,11 +34,12 @@ module IOStreams
       end
 
       # Defines a method for each of the supplied names that reports the deprecation warning of its name, followed by the
-      # supplied message, when the application calls it, and then calls the method of the object.
+      # supplied message, or its own message when it is a Hash, see .deprecate, when the application calls it, and then
+      # calls the method of the object.
       def initialize(names, message)
         super()
         names.each do |name|
-          warning = "##{name} #{message}".freeze
+          warning = "##{name} #{message.is_a?(Hash) ? message.fetch(name) { message.fetch(nil) } : message}".freeze
           define_method(name) do |*args, **kwargs, &block|
             ::IOStreams::Deprecation.warn_call(warning) if ::Warning[:deprecated]
             super(*args, **kwargs, &block)

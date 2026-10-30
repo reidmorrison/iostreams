@@ -5,6 +5,23 @@ module IOStreams
         %i[encoding cleaner replace]
       end
 
+      # The methods that the stream that v3.0 supplies to a reader block for the encoding answers: those of an IO that
+      # read, and #input_stream, see .v3_stream_methods.
+      V3_METHODS = [*V3_READ_METHODS, :input_stream].freeze
+      private_constant :V3_METHODS
+
+      # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a reader block for the encoding answers,
+      # in place of this reader, see `IOStreams::Reader.v3_stream_methods`. It has no #encoding or #cleaner, which the
+      # settings of the path replace, see .v3_stream_advice.
+      def self.v3_stream_methods(_reads_file)
+        V3_METHODS
+      end
+
+      # Returns [Hash<Symbol:String>] what replaces #encoding and #cleaner, see `IOStreams::Reader.v3_stream_advice`.
+      def self.v3_stream_advice
+        V3_STREAM_ADVICE
+      end
+
       attr_reader :encoding, :cleaner
 
       NOT_PRINTABLE = /[^[:print:]|\r\n]/

@@ -216,6 +216,20 @@ module Upgrade
         end
       end
 
+      describe "the settings of the path, in place of #encoding and #cleaner of the encode stream" do
+        it "return the encoding and the cleaner that were set" do
+          Dir.mktmpdir do |dir|
+            write_file(dir, "people.csv")
+            path   = IOStreams.path(dir, "people.csv").encoding("UTF-8", cleaner: :printable)
+            values = refute_deprecated do
+              [path.encoding, Encoding.find(path.encoding), path.setting(:encode)[:cleaner], path.reader(&:read)]
+            end
+
+            assert_equal ["UTF-8", Encoding::UTF_8, :printable, csv], values
+          end
+        end
+      end
+
       describe "the methods of an IO that write, when writing PGP" do
         it "write the data that is read" do
           Dir.mktmpdir do |dir|

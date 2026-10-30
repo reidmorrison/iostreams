@@ -75,6 +75,12 @@ module IOStreams
                             "File".freeze
     private_constant :V3_WRITER_DEPRECATION
 
+    # The deprecation warning of a method of the stream that a reader or writer block receives, which v3.0 removes, and
+    # which the stream names the replacement of, after the name of the method, with the name of the stream, the method
+    # that yields it, and the replacement, see #v3_deprecation.
+    V3_REMOVED_DEPRECATION = "is deprecated on %s that %s yields, since v3.0 removes it, %s".freeze
+    private_constant :V3_REMOVED_DEPRECATION
+
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
       raise(ArgumentError, "io_stream must not be a string: #{io_stream.inspect}") if io_stream.is_a?(String)
@@ -665,10 +671,20 @@ module IOStreams
     # `IOStreams::Builder#v3_stream`, otherwise nil, so that #reader and #writer extend the stream with them, see
     # `IOStreams::Deprecation::Methods`, and otherwise hand the block on unchanged. Known before the streams are
     # opened, since the streams that v3.0 replaces are those of IOStreams itself, each of which yields one stream.
+    #
+    # A stream that names what replaces some of its methods, such as the encode stream, whose #encoding the #encoding of
+    # the path replaces, has a deprecation warning for each of them, see `IOStreams::Deprecation::Methods.deprecate`.
     def v3_deprecation(type)
-      reading       = type == :reader
-      methods, name = builder.v3_stream(type, reading ? v3_source : v3_target, reading && v3_reads_file?)
-      [methods, (reading ? V3_READER_DEPRECATION : V3_WRITER_DEPRECATION) % name] if methods
+      reading               = type == :reader
+      methods, name, advice = builder.v3_stream(type, reading ? v3_source : v3_target, reading && v3_reads_file?)
+      return unless methods
+
+      message = (reading ? V3_READER_DEPRECATION : V3_WRITER_DEPRECATION) % name
+      return [methods, message] unless advice
+
+      # Kernel.format, since #format is the tabular format of this stream.
+      messages = advice.transform_values { |use| Kernel.format(V3_REMOVED_DEPRECATION, name, "##{type}", use) }
+      [methods, messages.merge(nil => message)]
     end
 
     # Returns [Array(Array<Symbol>, String)|nil] the methods that the IO that the streams of this stream read in v3.0

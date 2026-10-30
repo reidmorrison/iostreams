@@ -253,12 +253,12 @@ module IOStreams
       end
     end
 
-    # Returns [Array(Array<Symbol>, String)|nil] the methods that the stream that the application's block receives in
-    # v3.0 answers, and its name for a deprecation warning, such as "the :gz stream", when the stream that it receives
-    # in v2.2 answers others, otherwise nil. The stream closest to the application decides, see
-    # `IOStreams::Reader.v3_stream_methods`, apart from the encode stream, which is the stream of IOStreams itself in
-    # both versions. Without any streams, the block receives the IO that they would read or write, which the supplied
-    # source describes, see `IOStreams::Stream#v3_source` and `IOStreams::Stream#v3_target`.
+    # Returns [Array(Array<Symbol>, String, Hash|nil)|nil] the methods that the stream that the application's block
+    # receives in v3.0 answers, its name for a deprecation warning, such as "the :gz stream", and what replaces each
+    # method that v3.0 removes, when the stream says, see `IOStreams::Reader.v3_stream_advice`, when the stream that it
+    # receives in v2.2 answers others, otherwise nil. The stream closest to the application decides, see
+    # `IOStreams::Reader.v3_stream_methods`. Without any streams, the block receives the IO that they would read or
+    # write, which the supplied source describes, see `IOStreams::Stream#v3_source` and `IOStreams::Stream#v3_target`.
     #
     # Parameters:
     #   type: [:reader|:writer]
@@ -274,11 +274,12 @@ module IOStreams
       streams = pipeline
       name    = streams.each_key.first
       return source if name.nil?
-      return if name == :encode
 
       klass   = IOStreams.extensions[name]&.public_send(:"#{type}_class")
       methods = klass.v3_stream_methods(reads_file && streams.size == 1) if klass.respond_to?(:v3_stream_methods)
-      [methods, "the #{name.inspect} stream"] if methods
+      return unless methods
+
+      [methods, "the #{name.inspect} stream", (klass.v3_stream_advice if klass.respond_to?(:v3_stream_advice))]
     end
 
     # Returns [String] the quote character within which field delimiters and newlines may be

@@ -1121,6 +1121,38 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "reports a deprecation warning for #encoding and #cleaner of the encode stream, which still return them" do
+        Dir.mktmpdir do |dir|
+          path   = write_file(dir, "people.csv").encoding("UTF-8", cleaner: :printable)
+          values = path.reader do |io|
+            [
+              assert_deprecated(/IOStreams: #encoding is deprecated on the :encode stream that #reader yields, since v3\.0 removes it, use the #encoding of the path instead, which returns the encoding that was set, such as "UTF-8", or Encoding\.find\(path\.encoding\) for its Encoding\n\z/) { io.encoding },
+              assert_deprecated(/IOStreams: #cleaner is deprecated on the :encode stream that #reader yields, since v3\.0 removes it, use path\.setting\(:encode\)\[:cleaner\] instead, which returns the cleaner that was set, such as :printable\n\z/) { io.cleaner },
+              refute_deprecated { io.read }
+            ]
+          end
+
+          assert_equal Encoding::UTF_8, values[0]
+          assert_kind_of Proc, values[1]
+          assert_equal csv, values[2]
+          assert_equal Encoding::UTF_8, Encoding.find(path.encoding)
+          assert_equal :printable, path.setting(:encode)[:cleaner]
+        end
+      end
+
+      it "reports a deprecation warning for #encoding of the encode stream when writing, which still returns it" do
+        Dir.mktmpdir do |dir|
+          path     = IOStreams.path(dir, "people.csv").encoding("UTF-8")
+          encoding = path.writer do |io|
+            io.write(csv)
+            assert_deprecated(/#encoding is deprecated on the :encode stream that #writer yields, since v3\.0 removes it/) { io.encoding }
+          end
+
+          assert_equal Encoding::UTF_8, encoding
+          assert_equal csv, IOStreams.path(dir, "people.csv").read
+        end
+      end
+
       it "reports none for a stream that v3.0 supplies in the same form" do
         Dir.mktmpdir do |dir|
           plain   = write_file(dir, "people.csv")

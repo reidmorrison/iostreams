@@ -3591,6 +3591,7 @@ deprecation warning:
 | A method of the `File` that a reader block receives for an S3 or HTTP(S) path without streams, or read with `#raw`, other than those of an IO that read, such as `#rewind`, `#size` or `#path` | The same, copying the object into a local file with `copy_to(temp, convert: false)` |
 | A method of the IO that a writer block receives when writing PGP, other than `#write`, `#<<`, `#print`, `#puts`, `#printf` and `#flush`, such as `#fileno` | Those methods. Where it must be an IO, write a local file first, such as with `IOStreams.temp_file`, and copy it with `#copy_to` |
 | A method of the `File` that a writer block receives for an S3 path without streams, other than `#write`, `#<<`, `#print`, `#puts`, `#printf` and `#flush`, such as `#path` or `#size` | Those methods. Where it must be a `File`, write a local file first, such as with `IOStreams.temp_file`, and copy it to the S3 path with `#copy_to` |
+| `#encoding` or `#cleaner` of the stream that a reader or writer block receives when an encoding is set | The settings of the path: `path.encoding`, or `Encoding.find(path.encoding)` for an `Encoding`, and `path.setting(:encode)[:cleaner]` |
 
 ### Moving a layout to a schema
 

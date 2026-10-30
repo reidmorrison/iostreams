@@ -42,6 +42,13 @@ module IOStreams
       nil
     end
 
+    # Returns [Hash<Symbol:String>|nil] what the application uses in place of each method of the stream that this reader
+    # yields that v3.0 removes, when it is not the methods that the stream of v3.0 answers, see .v3_stream_methods, such as
+    # a setting of the path, otherwise nil, see `IOStreams::Builder#v3_stream`.
+    def self.v3_stream_advice
+      nil
+    end
+
     # When a Reader does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(input_stream, **args, &block)

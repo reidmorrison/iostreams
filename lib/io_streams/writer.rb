@@ -25,6 +25,12 @@ module IOStreams
       nil
     end
 
+    # Returns [Hash<Symbol:String>|nil] what the application uses in place of each method of the stream that this writer
+    # yields that v3.0 removes, see `IOStreams::Reader.v3_stream_advice`.
+    def self.v3_stream_advice
+      nil
+    end
+
     # When a Writer does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(output_stream, **args, &block)
