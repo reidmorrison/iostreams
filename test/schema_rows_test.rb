@@ -179,15 +179,6 @@ class SchemaRowsTest < Minitest::Test
 
       let(:people) { {fields: [{name: "name"}, {name: "age", type: "integer"}]} }
 
-      it "copies a file without a schema into a file with one, skipping its blank rows, and taking its text as UTF-8" do
-        path("in.csv").write("Age,Name\n21,Jack\n\n22,José\n")
-        path("out.csv").schema(people).copy_from(path("in.csv"), mode: :array)
-        path("out.json").schema(people).copy_from(path("in.csv"), mode: :hash)
-
-        assert_equal "name,age\nJack,21\nJosé,22\n".b, path("out.csv").read
-        assert_equal %({"name":"Jack","age":21}\n{"name":"José","age":22}\n).b, path("out.json").read
-      end
-
       it "copies a file with a schema into a file whose columns are supplied, which name the values instead of its header row" do
         source = path("in.csv").schema(people)
         source.write("name,age\nJack,21\n")

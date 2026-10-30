@@ -329,6 +329,17 @@ class UpgradeSchemaRowsTest < Minitest::Test
 
       let(:people) { {fields: [{name: "name"}, {name: "age", type: "integer"}]} }
 
+      it "copies a file without a schema into a file with one, skipping its blank rows, and taking its text as UTF-8" do
+        path("in.csv").write("Age,Name\n21,Jack\n\n22,José\n")
+        path("out.csv").schema(people).copy_from(path("in.csv"), mode: :array)
+        path("out.json").schema(people).copy_from(path("in.csv"), mode: :hash)
+
+        # The bytes written are compared, since #read returns them as binary text in IOStreams 2.2, and as UTF-8 in 3.0,
+        # see "Text is read as UTF-8" in docs/upgrading.md of IOStreams 3.0.
+        assert_equal "name,age\nJack,21\nJosé,22\n".b, ::File.binread(path("out.csv").to_s)
+        assert_equal %({"name":"Jack","age":21}\n{"name":"José","age":22}\n).b, ::File.binread(path("out.json").to_s)
+      end
+
       it "copies a file with a schema into a file without one, skipping its blank rows" do
         source = path("in.csv").schema(people)
         source.write("name,age\nJack,21\n\nJill,22\n")
