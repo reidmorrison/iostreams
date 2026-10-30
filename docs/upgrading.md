@@ -1768,7 +1768,11 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   and it writes a `BigDecimal` that a copy reads from a file with a schema as `0.125e2`, see
   [`BigDecimal` and `Time` values are written as their usual text](#bigdecimal-and-time-values-are-written-as-their-usual-text).
 * A writer with a schema in v2.2 takes binary text written to it, such as the values that v2.2 reads without a
-  schema, as UTF-8, while v3.0 reads text as UTF-8 to begin with.
+  schema, as UTF-8, and raises `IOStreams::Errors::InvalidEncoding` for text that is not valid UTF-8, unless an
+  encoding is set with `#encoding`, while v3.0 reads text as UTF-8 to begin with. v3.0 still matches a binary key of
+  a record, or column of a header row, written to the field that its UTF-8 text names, but writes each value as it
+  writes any String, see [Text and binary data](streams#text-and-binary-data), and compares a key or column that is
+  not valid UTF-8 as it is, rather than raise `IOStreams::Errors::InvalidEncoding`.
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2

@@ -119,13 +119,14 @@ module IOStreams
       # row written after it. The header row of the file is still the names of the fields, so the rows are written in
       # the order of the fields, with no value for a field that the header row does not have.
       #
-      # The columns without a name at the end of the header row are not columns, as when reading, see #match.
+      # The columns without a name at the end of the header row are not columns, as when reading, see #match. A column
+      # that is binary text is matched by the UTF-8 text of its bytes, see #written_labels.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when a column is not a field, unless `fieldsMatch` skips it, since a
       # file that is written always has every field, or when no column is a field, so that the rows after it would have
       # no value, see `IOStreams::Schema#check_written_columns`.
       def match_written(labels)
-        labels = named(labels)
+        labels = named(written_labels(labels))
         found, unknown, positions = find_fields(labels, "column")
         @schema.check_written_columns(found, unknown, fields_in_order: @fields_in_order)
         @written       = @schema.fields.map { |field| [field, field.skip? ? nil : positions[field]] }
@@ -263,6 +264,26 @@ module IOStreams
         last ? labels[0..last] : []
       end
 
+      # Returns [Array] the columns of a header row written, or the keys of a record written, see #match_written and
+      # #write_plan, with each one that is binary text, whose bytes are UTF-8 that is not ASCII, as that UTF-8 text, so
+      # that it is the field that it names, as a writer with a schema in IOStreams 2.2 takes it. The labels written are
+      # the application's own names for the fields, which it can hold as binary, such as the columns of a file read
+      # with `encoding("BINARY")` that it copies, whereas the columns of a file read with an encoding are in that
+      # encoding, so they are compared as they are, see #match.
+      #
+      # Any other label is compared as it is, see `IOStreams::Schema#field_for`, including binary text that is not valid
+      # UTF-8, which is not checked, as the bytes of the values written are not: it is a column or key that is not a
+      # field, unless a field is named by its bytes, or by its ASCII letters once compared loosely, see
+      # `IOStreams::Schema.match_key`.
+      def written_labels(labels)
+        labels.map do |label|
+          next label unless label.is_a?(String) && label.encoding == ::Encoding::BINARY && !label.ascii_only?
+
+          text = label.dup.force_encoding(::Encoding::UTF_8)
+          text.valid_encoding? ? text : label
+        end
+      end
+
       # Returns [Array<Array(IOStreams::Schema::Field, Integer)>] each field of the columns, in the order of the fields,
       # with the position of its column, see #match.
       #
@@ -395,12 +416,13 @@ module IOStreams
       # each list of keys, which are compared as a Hash compares them, see #read_plan. When `fieldsMatch` skips the keys
       # that are not fields, of two keys that are the same field, such as `"zip"` and `:zip`, the one that is its name
       # supplies it. A field that is skipped, see `IOStreams::Schema::Field#skip?`, takes no value, so that it is written
-      # empty, whatever the key of its column holds.
+      # empty, whatever the key of its column holds. A key that is binary text is matched by the UTF-8 text of its bytes,
+      # see #written_labels, while its value is still taken by the key itself.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when a key is not a field, unless `fieldsMatch` skips it.
       def write_plan(keys)
         @write_plan = @write_plans.fetch(keys) do
-          _found, unknown, positions = find_fields(keys, "key", by_name: @schema.skip_unknown?)
+          _found, unknown, positions = find_fields(written_labels(keys), "key", by_name: @schema.skip_unknown?)
           @schema.check_unknown(unknown, noun: "key", fields_in_order: @fields_in_order)
           @write_plans.clear if @write_plans.size >= PLANS
           @write_plans[keys] = @schema.fields.each_with_index.map do |field, index|

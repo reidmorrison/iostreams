@@ -1855,6 +1855,36 @@ class StreamTest < Minitest::Test
           assert_equal [{"first_name" => "Jack", "date_of_birth" => Date.new(2001, 2, 3)}],
                        read(written, schema: {fields: [{name: "first_name"}, {name: "date_of_birth", type: "date"}]})
         end
+
+        describe "binary text written" do
+          let(:places) { {fields: [{name: "área"}, {name: "name"}]} }
+
+          it "matches a binary key of a record to the field that its UTF-8 text names, and writes its value" do
+            assert_equal "área,name\n12,José\n", write([{"Área".b => "12", "name".b => "José"}], schema: places)
+            assert_equal %({"área":"12","name":"José"}\n), write([{"área".b => "12", "Name" => "José"}], file_name: "places.json", schema: places)
+          end
+
+          it "matches a binary column of a header row, such as that of a file read with encoding(\"BINARY\") that is copied" do
+            assert_equal "área,name\n12,José\n", write([header_row("Name".b, "Área".b), %w[José 12]], :array, schema: places)
+
+            Dir.mktmpdir do |dir|
+              IOStreams.path(dir, "source.csv").write("Name,Área\nJosé,12\n")
+              target = IOStreams.path(dir, "target.csv").schema(places)
+              target.copy_from(IOStreams.path(dir, "source.csv").encoding("BINARY"), mode: :array)
+
+              assert_equal "área,name\n12,José\n", target.read
+            end
+          end
+
+          it "takes a binary key that is not valid UTF-8 as a key that is not a field, as it does any other" do
+            latin = {"\xC1rea".b => "12", "name" => "José"}
+
+            error = assert_raises(IOStreams::Errors::InvalidHeader) { write([latin], schema: places) }
+            assert_equal 'The keys of a record do not match the schema: the key "\xC1rea" is not a field of the schema, which ' \
+                         'fieldsMatch "exact" does not accept; "subset" and "partial" skip them', error.message
+            assert_equal "área,name\n,José\n", write([latin], schema: places.merge(fieldsMatch: "subset"))
+          end
+        end
       end
 
       describe "matching columns to their cleansed names" do
