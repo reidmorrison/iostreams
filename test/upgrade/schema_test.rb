@@ -123,6 +123,42 @@ class UpgradeSchemaTest < Minitest::Test
         assert_equal people, stream.schema
       end
 
+      it "returns nil for a path without a schema, and the path itself when one is set" do
+        path = IOStreams.path("people.csv")
+
+        assert_nil path.schema
+        assert_same path, path.schema(people)
+        assert_same path, path.schema("people.json")
+        assert_same path, path.schema(IOStreams.path("people.json"))
+        assert_same path, path.schema(nil)
+        assert_nil path.schema
+      end
+
+      it "keeps the String of a path or url as it was set, when the String supplied is changed afterwards" do
+        supplied = +"s3://bucket/people.json"
+        stream.schema(supplied)
+        supplied << ".gz"
+
+        assert_equal "s3://bucket/people.json", stream.schema
+        assert_predicate stream.schema, :frozen?
+        refute_predicate supplied, :frozen?
+      end
+
+      # Changes the streams of the path supplied, since IOStreams 3.0 cannot change the name of a path.
+      it "keeps a path as it was set, when the path supplied is changed afterwards" do
+        Dir.mktmpdir do |dir|
+          supplied = IOStreams.path(dir, "people.json")
+          supplied.write(JSON.generate(people))
+          stream.schema(supplied)
+          supplied.stream(:gz)
+
+          assert_kind_of IOStreams::Path, stream.schema
+          assert_equal supplied.to_s, stream.schema.to_s
+          assert_empty stream.schema.pipeline
+          assert_equal [record], read(csv, schema: stream.schema)
+        end
+      end
+
       it "checks a schema in a Hash when it is set" do
         assert_raises(ArgumentError) { stream.schema(fields: [{name: "id", type: "money"}]) }
         assert_nil stream.schema
@@ -370,6 +406,26 @@ class UpgradeSchemaTest < Minitest::Test
           copy.each(:hash) { |row| rows << row }
 
           assert_equal [record], rows
+        end
+      end
+
+      it "reads the schema from a file the first time that a writer needs it" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.csv").schema(::File.join(dir, "people.json"))
+          IOStreams.path(dir, "people.json").write(JSON.generate(people))
+          path.writer(:hash) { |io| io << record }
+
+          assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", path.read
+        end
+      end
+
+      it "raises for a schema file that does not hold a valid schema, once a reader needs it" do
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "people.json").write(JSON.generate(fields: [{name: "id", type: "money"}]))
+          IOStreams.path(dir, "people.csv").write(csv)
+          path = IOStreams.path(dir, "people.csv").schema(::File.join(dir, "people.json"))
+
+          assert_raises(ArgumentError) { path.each(:hash) { |row| row } }
         end
       end
 
