@@ -1881,6 +1881,27 @@ class StreamTest < Minitest::Test
             end
           end
 
+          it "is written to JSON as UTF-8, with and without a schema, as IOStreams 2.2 writes it with one" do
+            assert_equal %({"área":"12","name":"José"}\n),
+                         write([{"Área".b => "12", "name" => "José".b}], file_name: "places.json", schema: places)
+
+            out = StringIO.new
+            IOStreams.stream(out).format(:json).writer(:hash) { |io| io << {"Área".b => "José".b} }
+
+            assert_equal %({"Área":"José"}\n), out.string
+          end
+
+          it "raises InvalidEncoding for text written to JSON that is not valid UTF-8, with and without a schema" do
+            error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+              write([{"área" => "12", "name" => "Jos\xE9".b}], file_name: "places.json", schema: places)
+            end
+            assert_equal "\xE9".b, error.error_char
+
+            assert_raises(IOStreams::Errors::InvalidEncoding) do
+              IOStreams.stream(StringIO.new).format(:json).writer(:hash) { |io| io << {"name" => "Jos\xE9".b} }
+            end
+          end
+
           it "takes a binary key that is not valid UTF-8 as a key that is not a field, as it does any other" do
             latin = {"\xC1rea".b => "12", "name" => "José"}
 

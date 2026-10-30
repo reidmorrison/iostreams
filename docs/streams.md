@@ -337,8 +337,11 @@ as `"UTF-16LE"`, or supply `replace:`, which reads it big-endian, as Unicode rea
 file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`
 returns up to 128 bytes of binary data, whether the file is plain, compressed or encrypted.
 
-Writing writes the bytes of each String as they are, unless an encoding is set. Fixed width files are the exception:
-they are written as ASCII.
+Writing writes the bytes of each String as they are, unless an encoding is set. Fixed width files and JSON are the
+exceptions: fixed width files are written as ASCII, and JSON, which holds only UTF-8 text, writes a binary String,
+such as one read with `encoding("BINARY")`, as the UTF-8 text of its bytes, also as a key, and within the JSON of a
+Hash or an Array value in another format, such as CSV, while text that is not valid UTF-8 raises
+`IOStreams::Errors::InvalidEncoding`.
 
 ### Character encoding
 

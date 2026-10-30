@@ -292,8 +292,9 @@ A Parquet file needs the type of every column, so a column of `any`, or a number
   text as a column of another name, such as `details::text AS details_json` on PostgreSQL, which is a `string`. On
   MySQL and SQLite, whose computed columns are `any`, give such a column the type `string` in the schema, see below.
 * A binary column is `any` too, and its bytes are not text: CSV writes them as they are, which is not valid UTF-8, so
-  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises. Leave it out, or select it as text,
-  such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or `TO_BASE64(image) AS image_base64` on MySQL.
+  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises it as it writes them. Leave it out,
+  or select it as text, such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or
+  `TO_BASE64(image) AS image_base64` on MySQL.
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
 To give a column a type, set the schema of the query. It replaces the schema of every column, so start from the one

@@ -239,8 +239,8 @@ module IOStreams
       # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
       # as a plain decimal, such as "12.5" rather than "0.125e2", a Time or DateTime in ISO 8601, such as
       # "2026-10-13T09:30:00Z", with as many digits of its fraction of a second as it needs, a Date in ISO 8601, such as
-      # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which is what the JSON format writes
-      # for it, see .any_json, and any other value with `to_s`.
+      # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which the JSON format writes for it,
+      # see `IOStreams::Tabular::Parser::Json.generate`, and any other value with `to_s`.
       #
       # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
       # without a schema.
@@ -257,7 +257,7 @@ module IOStreams
         return value.iso8601 if value.is_a?(Date)
         return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
         # The JSON that the JSON format writes, rather than `to_s`, whose text only Ruby reads, and which Ruby 3.4 changed.
-        return any_json(value).to_json if value.is_a?(::Hash) || value.is_a?(::Array)
+        return IOStreams::Tabular::Parser::Json.generate(value) if value.is_a?(::Hash) || value.is_a?(::Array)
 
         value.to_s
       end

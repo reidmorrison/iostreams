@@ -1065,8 +1065,11 @@ as `"UTF-16LE"`, or supply `replace:`, which reads it big-endian, as Unicode rea
 file, such as an image, whose bytes are unchanged. The `:stream` mode of `#reader` reads bytes, so `io.read(128)`
 returns up to 128 bytes of binary data, whether the file is plain, compressed or encrypted.
 
-Writing writes the bytes of each String as they are, unless an encoding is set. Fixed width files are the exception:
-they are written as ASCII.
+Writing writes the bytes of each String as they are, unless an encoding is set. Fixed width files and JSON are the
+exceptions: fixed width files are written as ASCII, and JSON, which holds only UTF-8 text, writes a binary String,
+such as one read with `encoding("BINARY")`, as the UTF-8 text of its bytes, also as a key, and within the JSON of a
+Hash or an Array value in another format, such as CSV, while text that is not valid UTF-8 raises
+`IOStreams::Errors::InvalidEncoding`.
 
 ### Character encoding
 
@@ -4512,8 +4515,9 @@ A Parquet file needs the type of every column, so a column of `any`, or a number
   text as a column of another name, such as `details::text AS details_json` on PostgreSQL, which is a `string`. On
   MySQL and SQLite, whose computed columns are `any`, give such a column the type `string` in the schema, see below.
 * A binary column is `any` too, and its bytes are not text: CSV writes them as they are, which is not valid UTF-8, so
-  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises. Leave it out, or select it as text,
-  such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or `TO_BASE64(image) AS image_base64` on MySQL.
+  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises it as it writes them. Leave it out,
+  or select it as text, such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or
+  `TO_BASE64(image) AS image_base64` on MySQL.
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
 To give a column a type, set the schema of the query. It replaces the schema of every column, so start from the one
@@ -7951,6 +7955,18 @@ writes JSON, as in Rails.
 
 Fix: to write another form, convert the value to text before writing it.
 
+#### Text written to JSON is UTF-8
+
+JSON holds only UTF-8 text, so the JSON format writes a binary String, such as one read with `encoding("BINARY")`,
+as the UTF-8 text of its bytes, in a key or a value, as v2.2 does with a schema, and raises
+`IOStreams::Errors::InvalidEncoding` for text that is not valid UTF-8, also in the JSON of a `Hash` or an `Array`
+value in another format. Previously, without a schema, text that is not valid UTF-8 raised the json gem's
+`JSON::GeneratorError`, as binary text did with some versions of the json gem, such as 3.1, while others wrote it,
+some with a warning, and JRuby's json 2 could write the bytes of text that is not valid UTF-8, which is not valid JSON.
+
+Fix: rescue `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, rather than
+`JSON::GeneratorError`, for text that is not valid UTF-8.
+
 #### A fixed width number that holds no number raises
 
 Reading an `:integer` or `:float` column of a fixed width file that holds no number, such as `N/A` or `12-`, now
@@ -9205,9 +9221,11 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
 * A writer with a schema in v2.2 takes binary text written to it, such as the values that v2.2 reads without a
   schema, as UTF-8, and raises `IOStreams::Errors::InvalidEncoding` for text that is not valid UTF-8, unless an
   encoding is set with `#encoding`, while v3.0 reads text as UTF-8 to begin with. v3.0 still matches a binary key of
-  a record, or column of a header row, written to the field that its UTF-8 text names, but writes each value as it
-  writes any String, see [Text and binary data](streams#text-and-binary-data), and compares a key or column that is
-  not valid UTF-8 as it is, rather than raise `IOStreams::Errors::InvalidEncoding`.
+  a record, or column of a header row, written to the field that its UTF-8 text names, and compares a key or column
+  that is not valid UTF-8 as it is, rather than raise `IOStreams::Errors::InvalidEncoding`. It writes each value as it
+  writes any String, see [Text and binary data](streams#text-and-binary-data): JSON takes binary text as UTF-8, as
+  v2.2 does, and raises `IOStreams::Errors::InvalidEncoding` for text that is not valid UTF-8, with or without a
+  schema, while CSV and the other formats of text write its bytes as they are.
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2
