@@ -207,6 +207,35 @@ module Paths
             end
           end
         end
+
+        it "reports a deprecation warning for an existing directory, and still moves the file into it" do
+          Dir.mktmpdir do |dir|
+            archive = ::File.join(dir, "archive")
+            Dir.mkdir(archive)
+            source = IOStreams.path(dir, "a.csv")
+            source.write("Hello World")
+            line     = __LINE__ + 2
+            response = assert_deprecated(/file_test\.rb:#{line}: warning: IOStreams: #move_to onto an existing directory is deprecated, since v3\.0 raises ArgumentError for it, supply the file within the directory instead, such as move_to\(IOStreams\.path\(directory\)\.join\(path\.basename\)\)/) do
+              source.move_to(archive)
+            end
+
+            assert_equal archive, response.to_s
+            refute_predicate source, :exist?
+            assert_equal "Hello World", ::File.read(::File.join(archive, "a.csv"))
+          end
+        end
+
+        it "reports none for the file within the directory" do
+          Dir.mktmpdir do |dir|
+            archive = IOStreams.path(dir, "archive").mkdir
+            source  = IOStreams.path(dir, "a.csv")
+            source.write("Hello World")
+            response = refute_deprecated { source.move_to(archive.join(source.basename)) }
+
+            assert_equal ::File.join(archive.to_s, "a.csv"), response.to_s
+            assert_equal "Hello World", response.read
+          end
+        end
       end
 
       describe "#delete" do

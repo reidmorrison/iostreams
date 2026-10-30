@@ -3,6 +3,12 @@ require "fileutils"
 module IOStreams
   module Paths
     class File < IOStreams::Path
+      # Moving a file onto an existing directory is deprecated, see #move_to.
+      MOVE_DEPRECATION = "#move_to onto an existing directory is deprecated, since v3.0 raises ArgumentError for it, " \
+                         "supply the file within the directory instead, such as " \
+                         "move_to(IOStreams.path(directory).join(path.basename))".freeze
+      private_constant :MOVE_DEPRECATION
+
       attr_reader :create_path
 
       def initialize(file_name, create_path: true)
@@ -137,12 +143,16 @@ module IOStreams
       #
       # Notes:
       # - Can copy across buckets.
+      # - A target that is an existing directory, which the file is moved into, as `mv` does, returning the directory, is
+      #   deprecated, and reports a deprecation warning, see `IOStreams::Deprecation`: supply the file within it instead,
+      #   such as `move_to(IOStreams.path("/archive").join(path.basename))`.
       def move_to(target_path)
         target = IOStreams.new(target_path)
         return super(target) unless target.is_a?(self.class)
 
         authorize!
         target.authorize!
+        Deprecation.warn(MOVE_DEPRECATION) if ::File.directory?(target.path)
         target.mkpath
         # In case the file is being moved across partitions
         FileUtils.move(path, target.to_s)

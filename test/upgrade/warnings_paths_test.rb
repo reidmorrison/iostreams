@@ -72,6 +72,23 @@ module Upgrade
         end
       end
 
+      describe "#move_to the file within a directory, in place of the directory" do
+        it "moves the file into the directory, and returns the file" do
+          Dir.mktmpdir do |dir|
+            archive = IOStreams.path(dir, "archive")
+            archive.mkdir
+            source = IOStreams.path(dir, "a.csv")
+            source.write("Hello World")
+            moved = refute_deprecated { source.move_to(IOStreams.path(archive.to_s).join(source.basename)) }
+
+            assert_equal File.join(dir, "archive", "a.csv"), moved.to_s
+            assert_equal "Hello World", moved.read
+            refute_predicate source, :exist?
+            assert_equal ["a.csv"], Dir.children(File.join(dir, "archive"))
+          end
+        end
+      end
+
       private
 
       def records(path)
