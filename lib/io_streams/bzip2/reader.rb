@@ -16,6 +16,13 @@ module IOStreams
         OPTION_NAMES
       end
 
+      # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a reader block, in place of the
+      # `Bzip2::FFI::Reader` that this reader yields, answers: those of an IO that read, see
+      # `IOStreams::Reader.v3_stream_methods`.
+      def self.v3_stream_methods(_reads_file)
+        V3_READ_METHODS
+      end
+
       # Read from a Bzip2 stream, decompressing the contents as it is read
       #
       # Any other option is ignored, and logs a warning. One that the writer does not take either also reports a

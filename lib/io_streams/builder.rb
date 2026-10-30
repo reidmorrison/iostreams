@@ -253,6 +253,34 @@ module IOStreams
       end
     end
 
+    # Returns [Array(Array<Symbol>, String)|nil] the methods that the stream that the application's block receives in
+    # v3.0 answers, and its name for a deprecation warning, such as "the :gz stream", when the stream that it receives
+    # in v2.2 answers others, otherwise nil. The stream closest to the application decides, see
+    # `IOStreams::Reader.v3_stream_methods`, apart from the encode stream, which is the stream of IOStreams itself in
+    # both versions. Without any streams, the block receives the IO that they would read or write, which the supplied
+    # source describes, see `IOStreams::Stream#v3_source`.
+    #
+    # Parameters:
+    #   type: [:reader|:writer]
+    #   source: [Array(Array<Symbol>, String)|nil]
+    #     The methods and the name of the IO that the streams read or write in v3.0, when it differs from the one in
+    #     v2.2, otherwise nil.
+    #   reads_file: [true|false]
+    #     Whether the streams read a regular local file in v3.0.
+    #
+    # Asked before the streams are opened, so it raises nothing, not even for a stream without a class of the type, which
+    # raises as before once it is opened.
+    def v3_stream(type, source, reads_file)
+      streams = pipeline
+      name    = streams.each_key.first
+      return source if name.nil?
+      return if name == :encode
+
+      klass   = IOStreams.extensions[name]&.public_send(:"#{type}_class")
+      methods = klass.v3_stream_methods(reads_file && streams.size == 1) if klass.respond_to?(:v3_stream_methods)
+      [methods, "the #{name.inspect} stream"] if methods
+    end
+
     # Returns [String] the quote character within which field delimiters and newlines may be
     # embedded for the current tabular format, or [nil] when the format has no such quoting,
     # or when the format cannot be determined.

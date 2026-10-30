@@ -58,6 +58,21 @@ module IOStreams
                             "IOStreams.stream instead".freeze
     private_constant :IO_STREAM_DEPRECATION
 
+    # The deprecation warning of a method of the stream that a reader block receives, which the stream that v3.0
+    # supplies in its place does not answer, after the name of the method, with the name of the stream, see
+    # #v3_deprecation.
+    V3_READER_DEPRECATION = "is deprecated on %s that #reader yields, since in v3.0 it is a stream that only reads, " \
+                            "with #read, #readpartial, #gets, #readline, #readlines, #each_line, #each and #eof?: read " \
+                            "it with those, open the reader again to read it from the start, or copy the data into a " \
+                            "local file first, such as with IOStreams.temp_file and #copy_to, where it must be a " \
+                            "File".freeze
+    private_constant :V3_READER_DEPRECATION
+
+    # The deprecation warning of a method of the stream that a writer block receives, see V3_READER_DEPRECATION.
+    V3_WRITER_DEPRECATION = "is deprecated on %s that #writer yields, since in v3.0 it is a stream that only writes, " \
+                            "with #write, #<<, #print, #puts and #printf: write it with those".freeze
+    private_constant :V3_WRITER_DEPRECATION
+
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
       raise(ArgumentError, "io_stream must not be a string: #{io_stream.inspect}") if io_stream.is_a?(String)
@@ -249,11 +264,18 @@ module IOStreams
     # Supplying options to the `:stream` mode, which ignores them, is deprecated, and reports a deprecation warning,
     # see `IOStreams::Deprecation`. So is supplying the settings of the file, such as `format:`, to the `:array` and
     # `:hash` modes, which are set on the path instead, such as with #format.
+    #
+    # The stream that the block of the `:stream` mode receives reports a deprecation warning for each of its methods that
+    # the application calls, and that the stream that v3.0 supplies in its place does not answer, such as `#rewind` of the
+    # `Zlib::GzipReader` of a `.gz` file, see #v3_deprecation.
     def reader(mode = :stream, **args, &)
       case mode
       when :stream
         warn_ignored_options(args.keys, "in the :stream mode")
-        stream_reader(&)
+        deprecation = v3_deprecation(:reader) if block_given?
+        return stream_reader(&) unless deprecation
+
+        stream_reader { |io| yield(Deprecation::Methods.deprecate(io, *deprecation)) }
       when :line
         line_reader(**args, &)
       when :array
@@ -626,6 +648,36 @@ module IOStreams
     # `IOStreams::Path#warn_change`. A stream reports none.
     def warn_change(_method_name)
       nil
+    end
+
+    # Returns [Array(Array<Symbol>, String)|nil] the methods that the stream that the block of the :stream mode of the
+    # supplied type receives answers in v3.0, and the deprecation warning of each of its other methods that the
+    # application calls, after the name of the method, when the stream that it receives in v2.2 answers others, see
+    # `IOStreams::Builder#v3_stream`, otherwise nil, so that #reader and #writer extend the stream with them, see
+    # `IOStreams::Deprecation::Methods`, and otherwise hand the block on unchanged. Known before the streams are
+    # opened, since the streams that v3.0 replaces are those of IOStreams itself, each of which yields one stream.
+    def v3_deprecation(type)
+      reading       = type == :reader
+      methods, name = builder.v3_stream(type, reading ? v3_source : nil, reading && v3_reads_file?)
+      [methods, (reading ? V3_READER_DEPRECATION : V3_WRITER_DEPRECATION) % name] if methods
+    end
+
+    # Returns [Array(Array<Symbol>, String)|nil] the methods that the IO that the streams of this stream read in v3.0
+    # answers, and its name for a deprecation warning, when it is not the IO that they read in v2.2, see
+    # `IOStreams::Builder#v3_stream`, otherwise nil, as for the IO supplied to `IOStreams.stream`, which v3.0 reads too.
+    def v3_source
+      nil
+    end
+
+    # Returns [true|false] whether the streams of this stream read a regular local file in v3.0: the IO supplied to
+    # `IOStreams.stream`, when it is an open File, or the File of a Tempfile, which gpg reads itself in v3.0, see
+    # `IOStreams::Pgp::Reader.v3_stream_methods`.
+    def v3_reads_file?
+      io = supplied_io
+      io = io.__getobj__ if defined?(::Delegator) && io.is_a?(::Delegator)
+      io.is_a?(::File) && !io.closed? && io.stat.file?
+    rescue IOError, SystemCallError
+      false
     end
 
     # Raises ArgumentError for a mode that a copy does not convert with, see COPY_MODES, before the source or the target

@@ -11,6 +11,19 @@ module IOStreams
         %i[passphrase]
       end
 
+      # The methods that the stream that v3.0 supplies to a reader block for PGP answers, when gpg does not read a regular
+      # local file, see .v3_stream_methods: those of an IO that read, and #binmode and #binmode?.
+      V3_METHODS = [*V3_READ_METHODS, :binmode, :binmode?].freeze
+      private_constant :V3_METHODS
+
+      # Returns [Array<Symbol>|nil] the methods that the stream that v3.0 supplies to a reader block, in place of the IO
+      # of gpg's output that this reader yields, answers, see `IOStreams::Reader.v3_stream_methods`: nil when it reads a
+      # regular local file, which gpg reads itself in v3.0, so that the block receives gpg's output in both versions,
+      # otherwise those of the stream that v3.0 supplies, which feeds gpg the data that it reads.
+      def self.v3_stream_methods(reads_file)
+        V3_METHODS unless reads_file
+      end
+
       # Passphrase to use to open the private key to decrypt the received file
       class << self
         attr_writer :default_passphrase

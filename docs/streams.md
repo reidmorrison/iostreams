@@ -21,6 +21,12 @@ IOStreams.path("example.csv").reader do |io|
 end
 ~~~
 
+The stream that the block receives answers the methods of an IO that read, such as `#read` and `#eof?`. Rely on
+those, rather than on the class of the stream, which depends on how the file is stored, such as a `Zlib::GzipReader`
+for a `.gz` file. Where a library needs a `File`, copy the data into a local file first, such as with
+`IOStreams.temp_file` and `#copy_to`, and read that file. To read the data from the start again, open the reader
+again.
+
 Read one line at a time from the file:
 ~~~ruby
 IOStreams.path("example.csv").each do |line|

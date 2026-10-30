@@ -332,6 +332,13 @@ module IOStreams
       self
     end
 
+    # Returns [true|false] whether the streams of this path read a regular local file in v3.0: the file itself, or the
+    # temp file that it is downloaded into, as v2.2 reads, unless v3.0 reads it from another IO, see #v3_source, such as
+    # an S3 object, see `IOStreams::Stream#v3_reads_file?`.
+    def v3_reads_file?
+      v3_source.nil?
+    end
+
     # Changing a root path in place, see #root!, such as with #stream, is deprecated, since it changes the root for the
     # whole process. v3.0 keeps its own frozen copy of the root instead, so that changing a path no longer changes the
     # root: the path that `IOStreams.add_root` returns is that copy, so changing it raises FrozenError, while a path

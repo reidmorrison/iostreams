@@ -326,6 +326,137 @@ class DeprecationTest < Minitest::Test
         assert_equal %("acl", level:), IOStreams::Deprecation::Words.new(["acl", :level]).keywords
       end
     end
+
+    describe ".warn_call" do
+      # An object whose #old method reports a deprecation warning when the application calls it, as
+      # `IOStreams::Deprecation::Methods` defines it, and calls the method of the object.
+      let :object do
+        object = Object.new
+        object.define_singleton_method(:old) { :old }
+        IOStreams::Deprecation::Methods.deprecate(object, [], "is deprecated")
+      end
+
+      it "reports a deprecation warning at the line of the application that called the method" do
+        line   = __LINE__ + 1
+        result = assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: #old is deprecated\n\z/) { object.old }
+
+        assert_equal :old, result
+      end
+
+      {
+        "IOStreams"                                => File.join(LIB_DIR, "io_streams", "deprecated_caller.rb"),
+        "a gem"                                    => GEM_FILE,
+        "the standard library"                     => RUBY_FILES["the standard library"],
+        "the standard library in the jar of JRuby" => RUBY_FILES["the standard library in the jar of JRuby"]
+      }.each_pair do |name, file|
+        it "reports none when #{name} called the method" do
+          code = DeprecationTest.code_in(file, "def self.call(object) = object.old")
+
+          assert_equal(:old, refute_deprecated { code.call(object) })
+        end
+      end
+
+      # A core method calls the method for its caller. Ruby names the line that called a core method written in C in its
+      # place, and CRuby 4.0 does the same for one written in Ruby, so the call is reported at that line on each version.
+      RUBY_FILES.slice("a core method of CRuby written in Ruby", "a core method of JRuby").each_pair do |name, file|
+        it "reports a deprecation warning at the line of the application that called #{name} that called the method" do
+          code   = DeprecationTest.code_in(file, "def self.call(object) = object.old")
+          line   = __LINE__ + 2
+          result = assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: #old is deprecated\n\z/) do
+            code.call(object)
+          end
+
+          assert_equal :old, result
+        end
+      end
+
+      it "reports a deprecation warning at the line of the application that handed the method to a core method" do
+        line   = __LINE__ + 2
+        result = assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: #old is deprecated\n\z/) do
+          object.then(&:old)
+        end
+
+        assert_equal :old, result
+      end
+
+      it "reports nothing while deprecation warnings are off" do
+        enabled  = Warning[:deprecated]
+        reported = []
+        warn     = ->(*args, **_kwargs) { reported << args }
+        begin
+          Warning[:deprecated] = false
+          Kernel.stub(:warn, warn) { IOStreams::Deprecation.warn_call("old is deprecated") }
+        ensure
+          Warning[:deprecated] = enabled
+        end
+
+        assert_empty reported
+      end
+    end
+  end
+
+  describe IOStreams::Deprecation::Methods do
+    describe ".deprecate" do
+      let :io do
+        StringIO.new("a\nb\n")
+      end
+
+      it "reports a deprecation warning for each public method other than those that it keeps, which still works" do
+        IOStreams::Deprecation::Methods.deprecate(io, %i[gets read], "is deprecated on the test stream")
+
+        assert_equal("a\n", refute_deprecated { io.gets })
+        assert_equal 2, assert_deprecated(/IOStreams: #pos is deprecated on the test stream\n\z/) { io.pos }
+        assert_equal 0, assert_deprecated(/#rewind is deprecated/) { io.rewind }
+        assert_equal %w[a b], assert_deprecated(/#each_line is deprecated/) { io.each_line.map(&:chomp) }
+        assert_equal 0, assert_deprecated(/#rewind is deprecated/) { io.rewind }
+        assert_equal("a\nb\n", refute_deprecated { io.read })
+      end
+
+      it "reports none for the methods of every object" do
+        IOStreams::Deprecation::Methods.deprecate(io, [], "is deprecated")
+
+        refute_deprecated do
+          assert_kind_of String, io.inspect
+          assert_respond_to io, :rewind
+          assert_equal io, io
+        end
+      end
+
+      it "keeps the class of the object, and the methods that it answers" do
+        methods = io.public_methods.sort
+        result  = IOStreams::Deprecation::Methods.deprecate(io, [], "is deprecated")
+
+        assert_same io, result
+        assert_instance_of StringIO, io
+        assert_equal methods, io.public_methods.sort
+        refute_respond_to io, :path
+      end
+
+      it "passes positional and keyword arguments, and blocks, on to the method of the object" do
+        object = Object.new
+        object.define_singleton_method(:call) { |value, key: nil, &block| [value, key, block&.call] }
+        IOStreams::Deprecation::Methods.deprecate(object, [], "is deprecated")
+
+        assert_equal [{key: 1}, nil, nil], assert_deprecated(/#call is deprecated/) { object.call({key: 1}) }
+        assert_equal [1, 2, :block], assert_deprecated(/#call is deprecated/) { object.call(1, key: 2) { :block } }
+      end
+
+      it "leaves a frozen object as it is" do
+        text = "frozen"
+
+        assert_same text, IOStreams::Deprecation::Methods.deprecate(text, [], "is deprecated")
+        assert_equal(6, refute_deprecated { text.size })
+      end
+
+      it "builds the module once for each class of object" do
+        other = StringIO.new
+        IOStreams::Deprecation::Methods.deprecate(io, %i[read], "is deprecated")
+        IOStreams::Deprecation::Methods.deprecate(other, %i[read], "is deprecated")
+
+        assert_same io.singleton_class.ancestors.first, other.singleton_class.ancestors.first
+        assert_kind_of IOStreams::Deprecation::Methods, io.singleton_class.ancestors.first
+      end
+    end
   end
 
   describe DeprecationCheck do

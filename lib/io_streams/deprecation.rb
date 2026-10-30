@@ -13,6 +13,7 @@ module IOStreams
   # Each warning names the line of the application that used what is deprecated, rather than a line of IOStreams, of
   # Ruby itself, or of a gem that IOStreams called with a block, see .application_location.
   module Deprecation
+    autoload :Methods,     "io_streams/deprecation/methods"
     autoload :OptionNames, "io_streams/deprecation/option_names"
     autoload :Words,       "io_streams/deprecation/words"
 
@@ -34,10 +35,17 @@ module IOStreams
     WARNING = /\A(?:.+:\d+: warning: )?#{Regexp.escape(PREFIX)}/
     private_constant :WARNING
 
-    # The start of the paths of the code of Ruby itself, rather than of a file of it: the core methods that CRuby
-    # writes in Ruby, such as `Kernel#tap`, and the standard library of JRuby, when it is loaded from its jar.
-    RUBY_PATHS = ["<internal:", "uri:classloader:"].freeze
-    private_constant :RUBY_PATHS
+    # The start of the paths of the core methods that Ruby writes in Ruby, such as `Kernel#tap`, see .core?.
+    CORE_PATH = "<internal:"
+    private_constant :CORE_PATH
+
+    # The start of the paths of the standard library of JRuby, when it is loaded from its jar.
+    JAR_PATH = "uri:classloader:"
+    private_constant :JAR_PATH
+
+    # The files of this module, whose methods find the line that called a deprecated method, see .calling_location.
+    OWN_FILES = ["#{__dir__}/deprecation.rb", "#{__dir__}/deprecation/methods.rb"].freeze
+    private_constant :OWN_FILES
 
     # The directory of the standard library of Ruby.
     RUBY_LIB_DIRS = [RbConfig::CONFIG["rubylibdir"]].compact.map { |dir| "#{dir}/" }.freeze
@@ -65,6 +73,25 @@ module IOStreams
       return unless on?
 
       report(message, loading_location)
+    end
+
+    # Reports, as .warn does, that the application called a deprecated method of an object that IOStreams handed it,
+    # such as the stream that a reader block receives, which calls this from that method, see
+    # `IOStreams::Deprecation::Methods`, when the line that called the method, see .calling_location, is the
+    # application's own: not a line of IOStreams, which calls the methods of the object for itself, of a gem, such as the
+    # gem whose object it is, which calls its own methods, or of a library that the application handed the object to,
+    # including the standard library of Ruby, see .standard_library?. So a method that the application hands IOStreams
+    # as the block itself, such as `reader(&:rewind)`, is not reported, since IOStreams calls it, while one that it hands
+    # a core method of Ruby, such as `io.then(&:rewind)`, is, since the core method calls it for the application.
+    #
+    # Returns nil.
+    def self.warn_call(message)
+      return unless Warning[:deprecated]
+
+      location = calling_location
+      return if location.nil? || library?(location) || standard_library?(location) || gem?(location, installed_gem_dirs)
+
+      warn(message)
     end
 
     # Returns [true|false] whether the message, as `Kernel#warn` passes it to `Warning.warn`, is a warning reported by
@@ -125,6 +152,21 @@ module IOStreams
     end
     private_class_method :loading_location
 
+    # Returns [Thread::Backtrace::Location|nil] the line that called the deprecated method that called .warn_call: the
+    # first line of the call stack outside the files of this module, other than a line of a core method, see .core?,
+    # which calls the method for its caller, such as `Kernel#then` in `io.then(&:rewind)`. Ruby names the line that
+    # called a core method written in C in its place, and CRuby 4.0 does the same for one written in Ruby, so skipping
+    # the lines that earlier versions name gives the same line on each version of Ruby.
+    def self.calling_location
+      Thread.each_caller_location do |location|
+        next if OWN_FILES.include?(location.absolute_path || location.path) || core?(location)
+
+        return location
+      end
+      nil
+    end
+    private_class_method :calling_location
+
     # Writes the message as a deprecation warning, see .warn, at the supplied line, or without a line when it is nil.
     def self.report(message, location)
       text = "#{PREFIX}#{message}"
@@ -142,13 +184,29 @@ module IOStreams
     end
     private_class_method :library?
 
-    # Returns [true|false] whether the line of the call stack is in the code of Ruby itself: a core method, see
-    # RUBY_PATHS, including one of JRuby, written in Java, or a file of the standard library of Ruby.
+    # Returns [true|false] whether the line of the call stack is in the code of Ruby itself: a core method, see .core?,
+    # or a file of its standard library, see .standard_library?.
     def self.ruby?(location)
-      path = location.path
-      path.start_with?(*RUBY_PATHS) || path.end_with?(".java") || in_dirs?(location, RUBY_LIB_DIRS)
+      core?(location) || standard_library?(location)
     end
     private_class_method :ruby?
+
+    # Returns [true|false] whether the line of the call stack is in a core method of Ruby that is not written in C: one
+    # written in Ruby, such as `Kernel#tap`, in a file whose name starts with `<internal:`, which CRuby before 4.0 and
+    # JRuby name in the call stack, or one of JRuby written in Java. Ruby names the line that called a core method
+    # written in C in its place, as CRuby 4.0 does for one written in Ruby.
+    def self.core?(location)
+      path = location.path
+      path.start_with?(CORE_PATH) || path.end_with?(".java")
+    end
+    private_class_method :core?
+
+    # Returns [true|false] whether the line of the call stack is in a file of the standard library of Ruby, see
+    # RUBY_LIB_DIRS, or of that of JRuby, when it is loaded from its jar.
+    def self.standard_library?(location)
+      location.path.start_with?(JAR_PATH) || in_dirs?(location, RUBY_LIB_DIRS)
+    end
+    private_class_method :standard_library?
 
     # Returns [true|false] whether the line of the call stack is in a file of a gem, in one of the directories of the
     # installed gems.

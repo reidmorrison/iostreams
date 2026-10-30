@@ -25,6 +25,23 @@ module IOStreams
       nil
     end
 
+    # The methods of an IO that read, which every stream that v3.0 supplies to a reader block answers, see
+    # .v3_stream_methods.
+    V3_READ_METHODS = %i[read readpartial gets readline readlines each_line each eof? eof closed?].freeze
+
+    # Returns [Array<Symbol>|nil] the methods that the stream that v3.0 supplies to a reader block, in place of the one
+    # that this reader yields, answers, when it does not answer all of the methods of that one, such as when it is the
+    # reader of a gem, otherwise nil, for a reader that yields the same kind of stream in both versions, see
+    # `IOStreams::Builder#v3_stream`.
+    #
+    # Parameters:
+    #   reads_file: [true|false]
+    #     Whether this reader reads a regular local file in v3.0, rather than another stream, an IO that is not a
+    #     file, or the object of an S3 or HTTP path, which v3.0 reads without a temp file.
+    def self.v3_stream_methods(_reads_file)
+      nil
+    end
+
     # When a Reader does not support streams, we copy the stream to a local temp file
     # and then pass that filename in for this reader.
     def self.stream(input_stream, **args, &block)
