@@ -9,6 +9,8 @@
 /spec/reports/
 /test/tmp/
 /test/version_tmp/
+# The v2.2 upgrade suite, which lives on the v2 branch, and which `rake upgrade_test` extracts, see test/upgrade_suite.rb
+/test/upgrade/
 /tmp/
 
 ## Documentation cache and generated files:
