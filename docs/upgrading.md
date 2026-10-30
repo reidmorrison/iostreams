@@ -23,7 +23,7 @@ and fixes bugs whose fixes change behavior that existing code may depend on. In 
 `IOStreams.logger` for each option that it ignored, and reading records logged one when `allowed_columns` or
 `required_columns` would have changed the records read, so check your logs from v2.1 for those warnings before
 upgrading, see [BZip2 options are strict](#bzip2-options-are-strict) and
-[The column options of each call are removed](#the-column-options-of-each-call-are-removed). v2.2 reports a deprecation warning for most of what v3.0 removes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22). Every change is
+[The column options of each call are removed](#the-column-options-of-each-call-are-removed). v2.2 reports a deprecation warning for most of what v3.0 removes, and for some of the results that it changes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22): each section below says when v2.2 reports its change. Every change is
 listed in the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md); this section describes those that
 may need a change to your application, grouped by what they affect, each with its fix.
@@ -53,7 +53,8 @@ Start with the changes that apply to your application:
 
 v3.0 requires Ruby 3.3 or later. Ruby 3.2 reached its end of life in March 2026, and its timeout library leaves the
 block that a `Timeout` interrupts as `break` does, so IOStreams would keep a partial write that a `Timeout`
-interrupted, rather than discard it.
+interrupted, rather than discard it. v2.2 reports Ruby 3.2 as deprecated once, as IOStreams is loaded, so only while
+deprecation warnings are already on, such as with `RUBYOPT=-W:deprecated`.
 
 Fix: upgrade to Ruby 3.3 or later before upgrading IOStreams.
 
@@ -221,7 +222,8 @@ Fix: use `#read`, or `each(:line)`, which return UTF-8 text, or call `force_enco
 
 The `:encode` stream converts the text that the application reads or writes, and is applied with
 `#encoding`. A file name ending in `.encode`, such as `notes.encode`, no longer applies it,
-since file names do not name it. Previously the data of such a file was read and written through it.
+since file names do not name it. Previously the data of such a file was read and written through it. v2.2 reports
+such a file name as deprecated, unless `#encoding` sets the encode stream.
 
 Fix: none is needed, unless a file name ending in `.encode` was used to apply the encode stream.
 Apply it with `#encoding` instead.
@@ -254,7 +256,8 @@ Reading and writing rows and records, with the `:array` and `:hash` modes.
 `each(:array)` and `reader(:array)` now yield each row of every format as an Array, as they already did for CSV and
 spreadsheets, so that the rows can be written with `writer(:array)`, and copied with
 `copy_from(source, mode: :array)`. Previously the rows of JSON and fixed width files were the Hashes that
-`each(:hash)` reads, which neither could take.
+`each(:hash)` reads, which neither could take. v2.2 reports `each(:array)` and `reader(:array)` of such a file without
+a schema as deprecated, while with a schema it reads the rows as v3.0 does.
 
 A fixed width file, and a JSON or Parquet file with a schema, have no header row of their own, so the first row is a
 header row of the names of the fields, and each row after it is the values of the fields, in order, with `nil` for a
@@ -350,7 +353,8 @@ Like its file name, the format describes the file, so it is set on the path, whe
 mode, which splits and decodes the lines for the format. They also raise for `file_name:` and `default_format:`,
 which set the format of one call by another name, and for `original_file_name:`, which was never documented, and
 which set the format of a stream without one in the `:array` and `:hash` modes, see
-[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
+[Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call). v2.2 reports each
+of them as deprecated, even when it is nil.
 
 Fix: set the format on the path with `#format`, and the layout of a fixed width file with `#schema`, see
 [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema). A file name supplied to a call
@@ -392,7 +396,9 @@ end
 schema replaces it: it gives the `width` of each field of a fixed width file, and the type of each field of every
 format, and can be held in a JSON file, see [Schema](formats#schema). v2.2 deprecates `#format_options`, and its
 `IOStreams::Schema.from_layout` returns the schema of a layout, so convert each layout with v2.2 before upgrading, save
-the schema, for example as JSON, and set it with `#schema`, see [Moving a layout to a schema](#moving-a-layout-to-a-schema):
+the schema, for example as JSON, and set it with `#schema`, see [Moving a layout to a schema](#moving-a-layout-to-a-schema).
+v3.0 also removes `from_layout`, which v2.2 does not report as deprecated, so convert each layout once, rather than
+each time a file is read or written:
 
 ~~~ruby
 # With v2.2, once for each layout
@@ -474,7 +480,8 @@ before writing it.
 `#writer`, `#copy_from` and `#copy_to` raise `ArgumentError` for the options that only apply when reading, such as
 `embedded_within:` and `buffer_size:`, as for the column options, which v3.0 removes, see
 [The column options of each call are removed](#the-column-options-of-each-call-are-removed). Previously a writer ignored `allowed_columns:`, `required_columns:` and `skip_unknown:`, and since a copy uses its
-options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column.
+options to write the target, `copy_from(source, mode: :hash, allowed_columns: ["name"])` copied every column. v2.2
+reports them as deprecated when writing or copying, even when they are nil.
 
 Fix: to choose the columns that are written, set a schema on the target, whose fields are the columns written. To
 read the source of a copy in a particular way, set what describes it on its path, such as its schema, or read it with
@@ -563,7 +570,8 @@ as CSV, and `#format` returns `:csv` for a `.xlsx` or `.xlsm` path, where it ret
 taken from the rest of the file name, so `report.json.xlsx` raised, and `report.psv.xlsx` joined the cells of each
 row into one value. Setting another format with `#format`, such as `format(:psv)`, now raises `ArgumentError` when
 the rows, records or lines are read or written, apart from the new `:text` format, which reads the CSV text of each
-row as it is, see [Text](formats#text).
+row as it is, see [Text](formats#text). v2.2 reports another format, set with `#format` or named by the file name, as
+deprecated when the lines, rows or records are read.
 
 Fix: remove a `#format` that names another format from a spreadsheet path, and code that expects `#format` to be
 `nil` for a spreadsheet.
@@ -573,7 +581,8 @@ Fix: remove a `#format` that names another format from a spreadsheet path, and c
 The new `:text` format reads each row as one value, its text as it is, such as each line of a file, see
 [Text](formats#text), and the name of each tabular format is also the extension that names it, so a file named
 `.text`, such as `ids.text`, is read in it. Previously such a file was read as CSV, the default for a file whose name
-has no format extension, so its first line was its header row.
+has no format extension, so its first line was its header row. v2.2 reports reading or writing the rows and records
+of such a file without `#format` as deprecated.
 
 Fix: set `format(:csv)` on the path of a `.text` file that holds CSV.
 
@@ -808,7 +817,8 @@ An option supplied to `#option` or `#stream` that neither the reader nor the wri
 accepts now raises `ArgumentError` when it is set, even when the file name does not include that stream.
 Previously it was only checked once the stream was used, so for example
 `IOStreams.path("data.csv").option(:pgp, recipent: "partner@example.org")` was ignored, and only raised
-for a `.pgp` file, which could be only in production when the path comes from configuration.
+for a `.pgp` file, which could be only in production when the path comes from configuration. v2.2 reports such an
+option as deprecated when it is set, apart from an option of `.xlsx` or `.xlsm`, which v2.2 can only read.
 
 Fix: correct or remove the option. See
 [Options for reading and writing](streams#options-for-reading-and-writing).
@@ -817,7 +827,8 @@ Fix: correct or remove the option. See
 
 `#reader` and `#writer` in the `:stream` mode, which is the default, `#copy_from` and `#copy_to` without
 a `mode:`, and `#copy_from` and `#copy_to` with `convert: false`, now raise `ArgumentError` for any
-option, instead of ignoring it. Options for the `:line`, `:array` and `:hash` modes already raised.
+option, instead of ignoring it. v2.2 reports such an option as deprecated. Options for the `:line`, `:array` and
+`:hash` modes already raised.
 
 Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
 example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
@@ -828,7 +839,8 @@ An option set for one extension of a format now also applies to the format's oth
 to a `.gpg` file, `option(:gz, ...)` to a `.gzip` file, and `option(:xlsx, ...)` to a `.xlsm` file, and the other
 way around. Previously it only applied to a file name with the same extension, so for example the `passphrase`,
 and the `signer` that reading checks, were dropped for a `.gpg` file, which then raised
-`IOStreams::Pgp::Failure` when it was read, or was read without checking who signed it.
+`IOStreams::Pgp::Failure` when it was read, or was read without checking who signed it. v2.2 reports an option set
+for another extension of the format as deprecated, since it does not apply it.
 
 When options are set for more than one extension of a format, such as with both `option(:pgp, ...)` and
 `option(:gpg, ...)`, they are combined, and those for the extension in the file name take precedence.
@@ -846,7 +858,7 @@ Fix: supply a block, for example `path.each(:line) { |line| lines << line }`.
 A line, row or record writer that is already open, such as the one that `writer(:line)` yields, can still be handed to
 code that calls `IOStreams.stream(io).writer(:line)`, which then writes into it. Options of that call, such as
 `delimiter:`, streams, an encoding, and for lines, a format or a schema, now raise `ArgumentError`, since
-the open writer writes with its own settings. Previously they were ignored.
+the open writer writes with its own settings. Previously they were ignored. v2.2 reports them as deprecated.
 
 Fix: set them where the writer is opened, or open a new writer for the data that needs them.
 
@@ -854,7 +866,7 @@ Fix: set them where the writer is opened, or open a new writer for the data that
 
 `#io_stream` is no longer public on a stream or a path, so calling it raises `NoMethodError`. It returned the IO, or
 the other object, that was supplied to `IOStreams.stream`, which the caller already holds, or nil for a path, and it
-was never documented.
+was never documented. v2.2 reports it as deprecated.
 
 Fix: keep the IO that you supply to `IOStreams.stream`, and use it instead.
 
@@ -890,7 +902,8 @@ compress data before it is encrypted.
 The path that `IOStreams.temp_file` yields applies the streams that its extension implies, like any
 other path. Previously it had `stream(:none)`, so its data was read and written as stored, whatever
 its extension. For example, writing to a temp file with the extension `.csv.gz` now compresses the
-data. A temp file whose extension implies no streams, such as `.csv`, is unchanged.
+data. A temp file whose extension implies no streams, such as `.csv`, is unchanged. v2.2 reports reading or writing
+the path of a temp file whose extension names streams as deprecated, unless `#raw` is called on it.
 
 Fix: to read or write the data as stored, as before, call `#raw` on the path:
 
@@ -939,13 +952,17 @@ as a `Zlib::GzipReader`, a `Bzip2::FFI::Reader`, a `Zip::InputStream` or a `Symm
 Like every other stream, it responds to the methods of an IO that read, `#read`, `#readpartial`, `#gets`,
 `#readline`, `#readlines`, `#each_line`, `#each` and `#eof?`, which behave as they do for an IO whichever
 streams the data uses, so a library that reads an IO, such as `CSV.new(io)`, reads any stream. The other
-methods of those readers, such as `#rewind`, `#pos`, `#lineno`, `#getc` and `#size`, raise `NoMethodError`.
+methods of those readers, such as `#rewind`, `#pos`, `#lineno`, `#getc` and `#size`, raise `NoMethodError`,
+which v2.2 reports as deprecated when the application calls them itself.
 The `.bz2` stream now also has `#readpartial`, `#gets` and `#each_line`.
 
 With an encoding set with `#encoding`, the stream reads like an IO that converts text, such as
 `File.open(name, "r:Windows-1252:UTF-8")`, where in v2.1 it had only `#read`: what it reads is in the encoding
 that is read, and `read(length)` returns whole characters, up to `length` bytes of them, where in v2.1 it returned
-`length` bytes, which could end within a character, or more when it converted the text from another encoding.
+`length` bytes, which could end within a character, or more when it converted the text from another encoding. It no
+longer has the `#encoding` and `#cleaner` of the encode stream, nor does the stream of a writer block. v2.2 reports
+calling them as deprecated: ask the path for them instead, with `path.encoding`, or `Encoding.find(path.encoding)`
+for an `Encoding`, and `path.setting(:encode)[:cleaner]`.
 
 Fix: replace calls such as `#rewind` or `#size` on the stream. Read lines with `each(:line)` or
 `reader(:line)`. Where the stream must be a `File`, copy the file into a local file first, for example with
@@ -1024,9 +1041,9 @@ Fix: discard what `io` holds after a failure.
 #### BZip2 options are strict
 
 The BZip2 reader and writer now raise `ArgumentError` for an option that neither of them accepts, like
-every other stream. Previously they ignored it. They accept `autoclose`, `first_only` and `small` when
-reading, and `autoclose`, `block_size` and `work_factor` when writing, and each ignores the options of
-the other.
+every other stream. Previously they ignored it, and logged a warning, and v2.2 also reports it as deprecated when it
+is set. They accept `autoclose`, `first_only` and `small` when reading, and `autoclose`, `block_size` and
+`work_factor` when writing, and each ignores the options of the other.
 
 Fix: correct or remove the option. See
 [Options for reading and writing](streams#options-for-reading-and-writing).
@@ -1034,7 +1051,8 @@ Fix: correct or remove the option. See
 #### Zip `zip_file_name` is removed
 
 The Zip writer no longer accepts `zip_file_name`, which the documentation replaced with `entry_file_name`
-long ago, and `option(:zip, zip_file_name: "a.csv")` raises `ArgumentError`.
+long ago, and `option(:zip, zip_file_name: "a.csv")` raises `ArgumentError`. v2.2 reports `zip_file_name` as
+deprecated when it is set, even when it is nil.
 
 Fix: use `entry_file_name`, which names the file within the zip file when writing, and chooses the file
 to read: `option(:zip, entry_file_name: "a.csv")`.
@@ -1108,7 +1126,8 @@ and HTTP paths only upload a file once it is complete.
 
 The stream supplied to the block when writing PGP, or when reading PGP from an IO that is not a local file,
 is no longer an `IO`. It responds to `#write`, `#<<`, `#print`, `#puts` and `#printf` when writing, and to
-`#read`, `#readpartial`, `#gets`, `#each_line` and `#eof?` when reading.
+`#read`, `#readpartial`, `#gets`, `#each_line` and `#eof?` when reading. v2.2 reports the calls of its other methods
+that the application makes itself, such as `#fileno`, as deprecated.
 
 Fix: discard the output after a failure, for example by not sending a response body, or by writing to a
 local path, or to a temp file that you only copy once the block completes. Use only the methods above on the
@@ -1124,7 +1143,8 @@ Fix: rescue `IOStreams::Pgp::Failure` rather than `Errno::ENOENT` or `SystemCall
 #### PGP `export` without an email or key id
 
 `IOStreams::Pgp.export(email: nil)` without a `key_id:` now raises `ArgumentError`, instead of
-`IOStreams::Pgp::Failure`, and so does `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`.
+`IOStreams::Pgp::Failure`, and so does `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`. v2.2 reports both
+as deprecated.
 
 Fix: rescue `ArgumentError` rather than `IOStreams::Pgp::Failure` for these, or supply the email or key id.
 
@@ -1156,7 +1176,7 @@ the path or stream supplied, instead of the same object. `IOStreams.join` withou
 `IOStreams.root`, `IOStreams.roots`, and `Path#join` without any elements also return copies.
 The copy keeps the streams and options, and is equal to the original with `==`, but changing it, for
 example with `#stream` or `#option`, no longer changes the original, or a root path for the whole
-process.
+process. v2.2 reports changing a root path this way as deprecated, but not another path or stream.
 
 Fix: code that relied on changing the original through the returned object should keep and use the
 returned object instead:
@@ -1178,7 +1198,8 @@ To change the streams of a root, supply them each time the root is used, for exa
 
 `IOStreams.add_root` now freezes the root path it adds, and returns it, so changing the returned path,
 for example with `#stream` or `#option`, raises `FrozenError` instead of changing the root for the
-whole process.
+whole process. v2.2 reports changing a root path in place as deprecated, also through `IOStreams.root`,
+`IOStreams.roots` and `IOStreams.join` without elements, which return copies of it in v3.0.
 
 Fix: change the copy that `IOStreams.root` or `IOStreams.join` returns instead, each time the root is
 used:
@@ -1208,7 +1229,8 @@ names as they are written with `#to_s`, such as `path.to_s == name`.
 
 #### `#path` is read-only
 
-`Path#path=` is no longer public, so changing the name of an existing path raises `NoMethodError`.
+`Path#path=` is no longer public, so changing the name of an existing path raises `NoMethodError`, which v2.2
+reports as deprecated.
 A path is a `Hash` key for its location, so changing it in place meant it could no longer be found in
 a `Hash` or `Set` that held it.
 
@@ -1234,9 +1256,9 @@ create such a path with `IOStreams.path` and its whole url instead.
 
 #### `#builder=` is not public
 
-`#builder=` is no longer public on a path or a stream, so calling it raises `NoMethodError`. It takes
-an internal object, so the only use outside IOStreams was `path.builder = nil`, to remove the streams
-and options set with `#stream` or `#option`.
+`#builder=` is no longer public on a path or a stream, so calling it raises `NoMethodError`, which v2.2 reports as
+deprecated. It takes an internal object, so the only use outside IOStreams was `path.builder = nil`, to remove the
+streams and options set with `#stream` or `#option`.
 
 Fix: create the path again with `IOStreams.path`, which has no streams or options, or use the path
 that `#join` or `#directory` returns, which does not keep them.
@@ -1244,7 +1266,8 @@ that `#join` or `#directory` returns, which does not keep them.
 #### Url parts that a path cannot use raise `ArgumentError`
 
 Creating a path now raises `ArgumentError` for a part of its url that the path would ignore, so that a
-mistake in a configured url is reported wherever the code runs:
+mistake in a configured url is reported wherever the code runs. v2.2 reports each of these as deprecated when the
+path is created:
 
 * An S3 url with a fragment, such as an unencoded `#` in `s3://bucket/a#b.csv`, which read the key `a`. Encode
   it as `%23`.
@@ -1319,7 +1342,8 @@ Fix: strip the file name before creating the path, for example when it comes fro
 such as `children(false)`, which `Pathname#children` accepts. Previously a local path took a `Pathname`, apart from
 raising `NoMethodError` when it matched no file without `case_sensitive: true`, and any other value raised
 `TypeError`, as every one did on an SFTP path, while an S3 path and `IOStreams.each_child` raised `NoMethodError`,
-or `ArgumentError` for a `Pathname`.
+or `ArgumentError` for a `Pathname`. v2.2 reports a pattern that is not a String as deprecated for a local path and
+`IOStreams.each_child`.
 
 Fix: supply the text of a `Pathname` instead, such as `path.children(pattern.to_s)`.
 
@@ -1357,8 +1381,9 @@ A local file name of `~`, or starting with `~/`, is now within the current user'
 `IOStreams.path("~/data/example.csv")` is `/home/user/data/example.csv`. This matches an SFTP url, where
 `sftp://hostname/~/data/example.csv` is within the login directory, so a configured path can change between local
 files and SFTP without changing the code. Previously `~` was a directory called `~` in the current directory,
-so files written to `~/data/example.csv` are in `./~/data/example.csv`. A warning is logged via `IOStreams.logger`
-when the current directory contains a directory called `~`. A name such as `~user/a.csv` or `~$Book1.xlsx` is unchanged.
+so files written to `~/data/example.csv` are in `./~/data/example.csv`. v2.2 reports such a name as deprecated. A
+warning is logged via `IOStreams.logger` when the current directory contains a directory called `~`. A name such as
+`~user/a.csv` or `~$Book1.xlsx` is unchanged.
 
 Fix: move any files that were written to the `~` directory, or use `./~/data/example.csv` to keep using it.
 
@@ -1383,7 +1408,7 @@ Fix: rescue `IOStreams::Errors::PermissionDenied` where an unreadable directory 
 #### A local `move_to` onto a directory raises `ArgumentError`
 
 A local `#move_to` onto an existing directory now raises `ArgumentError`, like every other path, rather than move
-the file into the directory, like `mv`, and return the directory.
+the file into the directory, like `mv`, and return the directory. v2.2 reports such a move as deprecated.
 
 Fix: join the name of the file to the directory, such as
 `path.move_to(IOStreams.path("/archive").join(path.basename))`.
@@ -1411,7 +1436,8 @@ failure can occur:
 * The IO that `#reader` supplies to the block, when the path has no streams, such as `data.csv`, or is read with
   `#raw`, is no longer a `File`. Like every other stream, it responds to the methods of an IO that read, such as
   `#read`, `#gets` and `#each_line`, so `CSV.new(io)` still reads it, but `#rewind`, `#pos`, `#size` and `#path`
-  raise `NoMethodError`, as does a library that calls them.
+  raise `NoMethodError`, as does a library that calls them. v2.2 reports the calls that the application makes itself
+  as deprecated.
 
 With the `range` or `part_number` option, which choose the bytes of the object to read, the object is still
 downloaded into a temp file first.
@@ -1458,9 +1484,9 @@ must be a `File`, write a local file first, and copy it to S3, for example with
 
 An option supplied to an S3 path, or in the query string of its url, that no S3 request accepts now
 raises `ArgumentError` when the path is created, as does a request parameter that the path sets itself,
-such as `key` or `bucket`. Each S3 request is supplied the options that it accepts, so for example
-`acl` applies when writing and copying, and `request_payer` to every request, including `#exist?`,
-`#size`, `#delete` and `#each_child`.
+such as `key` or `bucket`. v2.2 reports both as deprecated when the path is created. Each S3 request is
+supplied the options that it accepts, so for example `acl` applies when writing and copying, and `request_payer` to
+every request, including `#exist?`, `#size`, `#delete` and `#each_child`.
 
 Fix: correct or remove the option.
 
@@ -1486,8 +1512,9 @@ or remove the trailing `/` that it expected.
 
 A name that starts with `/` joined to the bucket itself, such as `IOStreams.path("s3://bucket") / "/exports/a.csv"`,
 or `IOStreams.join("/exports/a.csv")` with the root `s3://bucket`, is now the key `exports/a.csv`. Previously it was
-the key `/exports/a.csv`, which S3 holds as another object, although its url was `s3://bucket/exports/a.csv`. A key
-that starts with `/` now keeps it in its url, such as `s3://bucket//exports/a.csv`.
+the key `/exports/a.csv`, which S3 holds as another object, although its url was `s3://bucket/exports/a.csv`. v2.2
+reports joining such a name to a bucket as deprecated. A key that starts with `/` now keeps it in its url, such as
+`s3://bucket//exports/a.csv`.
 
 Fix: to read an object written with such a key by a previous version, name it in the url, such as
 `IOStreams.path("s3://bucket//exports/a.csv")`, or copy it to the key without the `/`.
@@ -1528,9 +1555,9 @@ Paths of `sftp://` urls.
 
 `IOStreams.path("sftp://host")` is now the root directory `/`, like `sftp://host/`, so `#each_child`
 lists `/` instead of the login directory. Previously the children it returned were in `/` regardless, so
-reading a listed file read the wrong file. Reading, writing and `#join` already used `/`, so for example
-`IOStreams.path("sftp://host").join("a.csv")` is still `/a.csv`. A path starting with `~` is now within
-the login directory, as curl does, for example `sftp://host/~/data/a.csv`.
+reading a listed file read the wrong file. v2.2 reports such a url as deprecated. Reading, writing and `#join`
+already used `/`, so for example `IOStreams.path("sftp://host").join("a.csv")` is still `/a.csv`. A path starting
+with `~` is now within the login directory, as curl does, for example `sftp://host/~/data/a.csv`.
 
 Fix: use `sftp://host/~` to list the login directory. On a server that confines users to their own
 directory, which is then `/`, no change is needed. An allowed path that starts with `sftp://host/~/`
@@ -1541,7 +1568,8 @@ now refers to the login directory, not to a directory named `~`.
 `#to_s` of an SFTP or HTTP url without a path now ends with `/`, like the root of an S3 bucket,
 `s3://bucket/`. For example `IOStreams.path("sftp://host").to_s` is `sftp://host/`, and
 `IOStreams.path("https://host?a=1").to_s` is `https://host/?a=1`. Previously the url was returned as
-supplied, so `sftp://host` and `sftp://host/` were not equal, although they are the same location.
+supplied, so `sftp://host` and `sftp://host/` were not equal, although they are the same location. v2.2 reports such
+a url as deprecated.
 
 Fix: compare paths with paths, such as `path == IOStreams.path("sftp://host")`, or compare `#to_s` with
 the url ending with `/`.
@@ -1587,8 +1615,8 @@ runs, as before. This changes:
 * The IO that `#reader` supplies to the block, when the path has no streams, such as `data.csv`, or is read with
   `#raw`, is no longer a `File`. Like every other stream, it responds to the methods of an IO that read, such as
   `#read`, `#gets` and `#each_line`, so `CSV.new(io)` still reads it, but `#rewind`, `#pos`, `#size` and `#path`
-  raise `NoMethodError`, as does a library that calls them. It can only be read by the thread that called
-  `#reader`.
+  raise `NoMethodError`, as does a library that calls them. v2.2 reports the calls that the application makes itself
+  as deprecated. It can only be read by the thread that called `#reader`.
 * The connection stays open while the block runs, and is closed once it returns, so a block that is slow to
   read can reach the idle timeout of the server, or of a proxy in between.
 * A failure to read the file part way through, or a body that exceeds `maximum_file_size`, now raises from
@@ -1610,7 +1638,8 @@ can compress while it sends it, or with `copy_to(local_path, convert: false)` to
 `#path` of an `http://` or `https://` path is now decoded, like S3 and SFTP paths, so
 `IOStreams.path("https://example.com/my%20file.csv").path` is `/my file.csv`, and `#basename` is
 `my file.csv`. Previously it was `/my%20file.csv`. `#to_s` still returns the url unchanged. A url without
-a path, such as `https://example.com`, now has the path `/`, where it was empty.
+a path, such as `https://example.com`, now has the path `/`, where it was empty. v2.2 reports such a url as
+deprecated.
 
 Fix: use `#to_s` where the url is needed, and remove any code that decodes the `#path` of an HTTP path.
 
@@ -1654,7 +1683,9 @@ Applications that register their own formats with `IOStreams.register_extension`
 `reader_class` and `writer_class` as before, but not the methods of a struct, such as `to_a`, `to_h`,
 `==` or `[]`. An extension registered with its reader and writer classes is still an
 `IOStreams::Extension`, which is now frozen, so its setters, such as `writer_class=`, raise `FrozenError`.
-Previously the setters changed the registered extension for the whole process.
+Previously the setters changed the registered extension for the whole process. v2.2 reports the methods of a struct
+on a built-in extension, such as `to_a`, `to_h` and `[]`, and the setters of every registered extension, as
+deprecated.
 
 An extension registered with just its reader and writer classes is neither compressed nor encrypted.
 So after replacing a built-in extension that is, such as `:xlsx`, `:gz` or `:pgp`, with your own reader
@@ -1677,6 +1708,8 @@ rather than the data of a file format. It is applied with `#encoding`, see
   keyword. Previously it replaced the reader and writer of the encode stream for the whole process.
 * `IOStreams.deregister_extension(:encode)` returns `nil`, and leaves the encode stream in place.
 
+v2.2 reports registering and deregistering `:encode` as deprecated.
+
 Fix: none is needed, unless code read `:encode` from `IOStreams.extensions`, or registered its own reader
 and writer as `:encode`. Register them under another name instead, and apply them with `#stream`, for
 example `stream(:my_text).stream(:gz)`.
@@ -1686,7 +1719,7 @@ example `stream(:my_text).stream(:gz)`.
 `:none` is a reserved keyword, so that `stream(:none)`, which applied no streams, keeps raising
 `ArgumentError`, see [`#raw` replaces `stream(:none)`](#raw-replaces-streamnone), rather than apply an extension of
 that name, so `IOStreams.register_extension(:none, ...)` raises `ArgumentError`. Previously it registered a stream
-that `stream(:none)` could not apply.
+that `stream(:none)` could not apply. v2.2 reports registering it as deprecated.
 
 Fix: register the stream under another name.
 
