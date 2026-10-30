@@ -388,7 +388,8 @@ has been checked against the files of the application, since it reads some of th
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
 described below. Most applications upgrade without any code changes. The changes that would break
-existing code are postponed to v3.0, and log a warning in v2.1. See [Coming in v3.0](#coming-in-v30).
+existing code are postponed to v3.0, see [Coming in v3.0](#coming-in-v30), which says which of them
+log a warning.
 
 ### Changes that may need code changes
 
@@ -538,11 +539,14 @@ instead, see [Moving the column options to a schema](#moving-the-column-options-
 
 ## Coming in v3.0
 
-These changes are postponed to v3.0 since they could break existing code. Each one logs a warning
-in v2.1 and v2.2 via `IOStreams.logger` when it would change the result, so check your logs for them.
+These changes are postponed to v3.0 since they could break existing code. v2.1 and v2.2 log a warning
+via `IOStreams.logger` when the column restrictions or the BZip2 options would change the result, so
+check your logs for them, and v2.2 reports PGP `export` without an email or key id as deprecated.
 v3.0 makes many more changes, see its
 [upgrading guide](https://github.com/reidmorrison/iostreams/blob/main/docs/upgrading.md#upgrading-to-v30), and
-[Upgrading to v2.2](#upgrading-to-v22) for the deprecations that v2.2 reports to prepare for it.
+[Upgrading to v2.2](#upgrading-to-v22) for the deprecations that v2.2 reports to prepare for it. v3.0 also changes
+what the encode stream reads and writes, which v2.2 cannot report, see
+[What `#encoding` reads and writes in v3.0](#what-encoding-reads-and-writes-in-v30).
 
 ### Column restrictions apply to every input
 
@@ -574,8 +578,52 @@ set, see [Deprecated, and what replaces it](#deprecated-and-what-replaces-it).
 ### PGP `export` without an email or key id
 
 `IOStreams::Pgp.export(email: nil)` without a `key_id:` raises `IOStreams::Pgp::Failure`, as it did
-before v2.1. In v3.0 it will raise `ArgumentError`. Calling it without either argument already raises
-`ArgumentError`.
+before v2.1, and so does `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`, since gpg rejects
+the empty user id that it is asked for. In v3.0 they raise `ArgumentError`, so v2.2 reports them as
+deprecated. Calling `export` without either argument already raises `ArgumentError`.
+
+To prepare: supply the email or key id of the key, or rescue `ArgumentError` as well as
+`IOStreams::Pgp::Failure`.
+
+### What `#encoding` reads and writes in v3.0
+
+`#encoding` sets the encode stream with the same options, and the same results, as `option(:encode, ...)`,
+which it replaces. v3.0 changes what that stream reads and writes, so these results of `#encoding` change
+on upgrading, while the call stays the same, which v2.2 cannot report as deprecated. Each says what gives
+the same result in v2.2 and v3.0, where something does:
+
+- **`replace:` keeps the valid characters.** v2.2 takes the data read as binary, so `replace:` replaces
+  each byte that is not ASCII, even of a valid character: `encoding("UTF-8", replace: "")` reads
+  `José,\xFF` as `Jos,`, while v3.0 takes the data as text in the encoding, and only replaces what is not
+  valid in it, `José,`. So does `encoding("Windows-1252", replace: "")` for Windows-1252 text. To keep
+  only ASCII on both, use `encoding("US-ASCII", replace: "")`. To keep the valid UTF-8 characters on
+  both, read with `encoding("BINARY")`, and replace the others yourself, such as with
+  `line.force_encoding("UTF-8").scrub("")`.
+- **Text that is not valid in the encoding raises `IOStreams::Errors::InvalidEncoding`**, an
+  `Encoding::UndefinedConversionError`, on every read, naming its line. v2.2 raises `ArgumentError` for
+  lines, rows and records, and `Encoding::UndefinedConversionError` for `#read`, and a write raises
+  `Encoding::UndefinedConversionError` on both. To prepare, rescue
+  `ArgumentError, Encoding::UndefinedConversionError`.
+- **A byte order mark is removed** from the start of the data, so the first line, or the first value of
+  the first row, no longer starts with `"\uFEFF"`, which v2.2 keeps with `encoding("UTF-8")`. To get the
+  same on both, remove it yourself, such as with `line.delete_prefix("\uFEFF")`.
+- **`read(length)` returns whole characters**, at least one, so that a character is not split between
+  reads. v2.2 returns `length` bytes, which can end within a character, in the same String for each
+  read. To read the same bytes on both, read without `#encoding`, or with `encoding("BINARY")`.
+- **Text written to a `StringIO` keeps the encoding that is set.** v3.0 writes the bytes of the
+  encoding, such as of Windows-1252 for `IOStreams.stream(io).encoding("Windows-1252")`, while in v2.2 a
+  `StringIO` of a UTF-8 String, such as `StringIO.new`, converts them back to UTF-8. Supply a `StringIO`
+  of a binary String, `StringIO.new("".b)`, which holds the bytes of the encoding on both.
+- **`#read` of the whole file takes the data as text in the encoding**, as reading lines does. v2.2
+  converts it into the encoding instead: from binary for most files, so that `encoding("UTF-8").read`
+  raises `Encoding::UndefinedConversionError` for any character that is not ASCII, and from
+  `Encoding.default_external` for a `.gz` or `.enc` file, so that `encoding("Windows-1252").read` converts
+  UTF-8 text into Windows-1252, and raises for Windows-1252 text. To get the same on both, read the lines,
+  rows or records, or `#read` without `#encoding`, and call `force_encoding` on the String, such as
+  `read.force_encoding("Windows-1252")`.
+
+See the [upgrading guide](https://github.com/reidmorrison/iostreams/blob/main/docs/upgrading.md#text-and-encodings)
+of v3.0 for the other changes to text, such as reading it as UTF-8 by default.
 
 ## Upgrading to v2.0
 
