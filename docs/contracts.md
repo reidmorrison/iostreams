@@ -68,10 +68,53 @@ Every one of them yields the same record:
 * Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
   field passes through, such as a `BigDecimal` of a Parquet file or a query. A value that cannot be of the type of its
   field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
+* A column whose type the source declares, such as a Parquet file, a query or the schema of a file, and which can never
+  be the type of its field, such as a `boolean` for `amount`, raises `IOStreams::Errors::IncompatibleType` before the
+  first row, see [Types that never fit](#types-that-never-fit).
 * For a `number` field, JSON reads the digits of the number exactly, rather than through a `Float`.
 * The `:stream` and `:line` modes read bytes and lines as they are stored, so a contract converts nothing there.
 
 `#as` returns the path, so that it chains, and `as(nil)` removes the contract.
+
+## Checking a source before the work starts
+
+`#validate_contract!` asks whether a source meets the contract without reading its rows, such as in the web request
+that accepts an upload, before any job starts. It checks the columns, such as the header row of a CSV file or the keys
+of the first JSON record, and the types that a source declares, but not the values, which reading checks.
+
+~~~ruby
+source = IOStreams.path(upload_url).as(Orders::CONTRACT)
+
+source.contract_valid?
+# => true or false
+
+source.validate_contract!
+# => true, or raises as reading would, such as IOStreams::Errors::InvalidHeader naming each missing column
+
+source.contract_errors
+# => every problem, or [] when there is none
+~~~
+
+`#contract_errors` returns each problem as an exception, not raised, so that an upload screen lists them all at once:
+an `IOStreams::Errors::InvalidHeader` for each problem of the columns, such as the required fields that the source
+does not have, and an `IOStreams::Errors::IncompatibleType` for each column whose declared type never fits its field.
+Each raises `ArgumentError` when no contract is set.
+
+### Types that never fit
+
+A source that declares the type of each column, such as a Parquet file, a query or the schema of a file, meets the
+contract before the first row. A value converts only when nothing is lost, so a column whose type can never be that of
+its field raises `IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
+
+| The source declares | The field's type that takes it |
+|---------------------|--------------------------------|
+| `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read; a `string` field takes neither an `object` nor an `array` |
+| `integer` or `number` | `integer`, `number`, `string` or `any`, where an `integer` field raises for a value with a fraction |
+| `datetime` | `datetime`, `date`, `time`, `string` or `any` |
+| any other type | its own, `string` or `any` |
+
+Text, such as that of a CSV file, and JSON, each of whose values has its own type, declare no types that could raise,
+so their values are checked as they are read.
 
 ## Writing through a contract
 

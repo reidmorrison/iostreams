@@ -49,6 +49,13 @@ module IOStreams
     class InvalidValue < Error
     end
 
+    # A column whose type, which its source declares, such as a Parquet file, a database query, or the schema of a file,
+    # can never be the type of its field in a contract, such as a boolean for a number, see `IOStreams::Stream#as`. It
+    # is raised when the stream opens, before the first row, and is not an `InvalidHeader`, which a missing column
+    # raises, so that code that rescues `InvalidHeader` for missing columns does not rescue it.
+    class IncompatibleType < Error
+    end
+
     class MalformedDataError < RuntimeError
       attr_reader :line_number
 

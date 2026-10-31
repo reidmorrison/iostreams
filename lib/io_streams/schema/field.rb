@@ -138,6 +138,25 @@ module IOStreams
       # The text of the numbers that are not finite, whose case does not matter.
       SPECIAL_NUMBERS = {"nan" => Float::NAN, "inf" => Float::INFINITY, "-inf" => -Float::INFINITY}.freeze
 
+      # The types of the values of a column that a source declares, such as a Parquet file or a database query, that a
+      # field of each type converts, see #converts?: a value of its own type passes through, and one of another type
+      # converts only when nothing is lost, see #cast, such as a whole number to an integer, or a time at midnight to a
+      # date. A field of type "any" takes every value, and text, of type "string", is parsed, or a value of type "any"
+      # checked, as each one is read, so a field of any type takes them too, apart from a string, which raises for a
+      # Hash or an Array, so takes neither an object nor an array.
+      CONVERTED_TYPES = {
+        "string"   => %w[string any integer number boolean date datetime time duration],
+        "integer"  => %w[integer number],
+        "number"   => %w[integer number],
+        "boolean"  => %w[boolean],
+        "date"     => %w[date datetime],
+        "datetime" => %w[datetime],
+        "time"     => %w[time datetime],
+        "duration" => %w[duration],
+        "object"   => %w[object],
+        "array"    => %w[array]
+      }.freeze
+
       # The types whose values are numbers. A constant, so that using it does not create an Array each time, as an
       # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
@@ -339,6 +358,15 @@ module IOStreams
         end
       end
       private_class_method :time_text, :textual?
+
+      # Returns [true|false] whether a value of the supplied type, which a source declares for a column, such as a Parquet
+      # file or a database query, can be one of this field, see CONVERTED_TYPES, so that a column whose values never can,
+      # such as a boolean for a number, raises before the first row, see `IOStreams::Schema#check_types`.
+      def converts?(source_type)
+        return true if type == "any" || (%w[string any].include?(source_type) && type != "string")
+
+        CONVERTED_TYPES.fetch(type).include?(source_type)
+      end
 
       # Returns [true|false] whether the values of this field are numbers, which a fixed width file zero fills.
       def numeric?

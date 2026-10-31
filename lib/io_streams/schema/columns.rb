@@ -99,6 +99,25 @@ module IOStreams
         names
       end
 
+      # Raises as reading would when the supplied columns of a source do not match the fields, see #match, or for the keys
+      # of a record of a format whose records supply their own keys, such as JSON, see #check_keys, without reading a row,
+      # see `IOStreams::Stream#validate_contract!`.
+      def check_meeting(labels, keyed:)
+        keyed ? check_keys(labels) : match(labels)
+        nil
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidHeader>] each way that the supplied columns of a source, or the keys of
+      # a record of a format whose records supply their own keys, do not match the fields, see #check_meeting, not
+      # raised, see `IOStreams::Stream#contract_errors`.
+      def meeting_errors(labels, keyed:)
+        noun = keyed ? "key" : "column"
+        found, unknown, _positions = find_fields(keyed ? labels : named(labels), noun)
+        @schema.column_errors(found, unknown, ordered: !keyed, noun: noun)
+      rescue IOStreams::Errors::InvalidHeader => e
+        [e]
+      end
+
       # Returns [Array<String|Symbol>] the key of each field whose values the rows and records read have, in the order of
       # the fields, see `IOStreams::Schema#key`, whatever the columns of a file are.
       def field_keys

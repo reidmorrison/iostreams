@@ -579,6 +579,17 @@ class QueryStreamTest < Minitest::Test
           assert_equal "total,label\n12.5,a\n3.0,b\n100.25,c\n", output.string
         end
 
+        it "raises IncompatibleType before the first row for a column whose type never fits its field of a contract" do
+          contract = IOStreams::Contract.new(fields: [{name: "paid", type: "number"}])
+          stream   = IOStreams.stream(orders.select(:paid)).as(contract)
+
+          error = assert_raises(IOStreams::Errors::IncompatibleType) { each(stream) }
+          assert_includes error.message, "boolean"
+          assert_equal [IOStreams::Errors::IncompatibleType], stream.contract_errors.map(&:class)
+          assert_raises(IOStreams::Errors::IncompatibleType) { stream.validate_contract! }
+          assert IOStreams.stream(orders.select(:paid)).as(fields: [{name: "paid", type: "boolean"}]).validate_contract!
+        end
+
         it "raises before the first row for a required field of a contract that the query has no column for" do
           contract = IOStreams::Contract.new(fieldsMatch: "partial", fields: [{name: "zip", constraints: {required: true}}])
 

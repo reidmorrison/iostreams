@@ -391,6 +391,14 @@ module IOStreams
       @mapping.read_header(line)
     end
 
+    # Raises `IOStreams::Errors::IncompatibleType` for a column of the supplied schema that a source declares when it is
+    # opened, such as a Parquet file, whose type can never be that of its field of the contract that its rows are read
+    # through, without a schema, see `IOStreams::Schema#check_types`. A schema of the file reads its rows instead, which
+    # the contract met when it was set, see `IOStreams::Tabular::Settings#tabular`.
+    def check_declared_types(declared)
+      @contract.check_types(declared) if @contract && @file_schema.nil?
+    end
+
     # Returns [IOStreams::Schema] the schema that the file declares by the supplied first row that its rows start with,
     # see `IOStreams::Stream#infer_schema`: the header row as read, or the keys of the first record of a format of keyed
     # records, such as JSON, see #read_row, or nil for a file without rows, which declares no fields. With a schema, that

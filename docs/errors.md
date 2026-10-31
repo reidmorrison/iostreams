@@ -134,6 +134,10 @@ IOStreams raises these classes itself:
     reading, a header row, or the keys of a JSON record, has columns that `fieldsMatch` does not allow, or is missing
     a required field, or a row has values after its last column that the schema does not skip, and when writing, the
     keys of a record, or the columns or values of a row, that the schema does not skip.
+  * `IOStreams::Errors::IncompatibleType`: a column whose type its source declares, such as a Parquet file, a query or
+    the schema of a file, can never be the type of its field in a [contract](contracts), such as a boolean for a
+    number. It is raised when the stream opens, before the first row, and is not an `InvalidHeader`, so that code that
+    rescues `InvalidHeader` for missing columns does not rescue it.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format, such as, with a schema, a
     row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.

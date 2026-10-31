@@ -179,7 +179,9 @@ module IOStreams
       #
       #   contract: [true|false]
       #     Whether the rows are read through the contract, when one is set, see #contract=, rather than as the source
-      #     declares them, see `IOStreams::Stream#infer_schema`.
+      #     declares them, see `IOStreams::Stream#infer_schema`. A contract meets the types that a schema of the file, or
+      #     the default schema, declares, which raises `IOStreams::Errors::IncompatibleType` for a column whose type can
+      #     never be that of its field, see `IOStreams::Schema#check_types`.
       #     Default: true
       #
       #   The other options are those that the source of the rows supplies, see
@@ -189,6 +191,7 @@ module IOStreams
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
         meets              = (@contract if contract)
         schema             = file_schema || (default_schema unless meets)
+        meets.schema.check_types(file_schema || default_schema) if meets && (file_schema || default_schema)
         IOStreams::Tabular.new(file_name: file_name, format: format, schema: schema, contract: meets&.schema,
                                row_format_options: row_format_options, text_format: text_format, **)
       end

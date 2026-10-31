@@ -342,24 +342,46 @@ module IOStreams
     #   noun: [String]
     #     What the columns are, "column" or "key", for the message.
     def check_columns(found, unknown, ordered:, noun:)
-      problems = []
-      problems << unknown_problem(unknown, noun) unless unknown.empty? || skip_unknown?
-      missing = missing_fields(found)
-      if every_field? && !missing.empty?
-        problems << "missing the #{plural('field', missing)} #{names_of(missing)}, which fieldsMatch #{fields_match.inspect} " \
-                    "requires; \"superset\" and \"partial\" accept missing fields"
-      else
-        required = missing.select(&:required?)
-        problems << "missing the required #{plural('field', required)} #{names_of(required)}" unless required.empty?
-      end
-      if fields_match == "partial" && found.empty?
-        problems << "no #{noun} is a field of the schema, but fieldsMatch \"partial\" needs at least one"
-      end
-      if ordered && fields_match == "exact" && problems.empty? && found != fields
-        problems << "the #{noun}s are not in the order of the fields, #{names_of(fields)}, which fieldsMatch \"exact\" " \
-                    "requires; \"equal\" accepts any order"
-      end
+      problems = column_problems(found, unknown, ordered: ordered, noun: noun)
       raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{problems.join('; ')}") unless problems.empty?
+    end
+
+    # Returns [Array<IOStreams::Errors::InvalidHeader>] each way that the columns of a header row, or the keys of a
+    # record, do not match the fields, see #check_columns, which raises them as one, not raised, so that every problem
+    # can be listed at once, such as for an upload screen, see `IOStreams::Stream#contract_errors`.
+    def column_errors(found, unknown, ordered:, noun:)
+      column_problems(found, unknown, ordered: ordered, noun: noun).map do |problem|
+        IOStreams::Errors::InvalidHeader.new("#{subject(noun)} #{problem}")
+      end
+    end
+
+    # Raises `IOStreams::Errors::IncompatibleType` for each column of the supplied schema of a source, such as that of
+    # a Parquet file or a database query, whose declared type can never be the type of its field, such as a boolean for
+    # a number, see `IOStreams::Schema::Field#converts?`, before the first row is read, see `IOStreams::Stream#as`.
+    def check_types(source)
+      errors = type_errors(source)
+      raise(IOStreams::Errors::IncompatibleType, errors.map(&:message).join("; ")) unless errors.empty?
+    end
+
+    # Returns [Array<IOStreams::Errors::IncompatibleType>] each column of the supplied schema of a source whose declared
+    # type can never be the type of its field, see #check_types, not raised. A column that is no field, or several,
+    # is left to the matching of the columns, see #column_errors.
+    def type_errors(source)
+      source.fields.filter_map do |column|
+        next if column.skip?
+
+        field = begin
+          field_for(column.name)
+        rescue IOStreams::Errors::InvalidHeader
+          nil
+        end
+        next if field.nil? || field.converts?(column.type)
+
+        IOStreams::Errors::IncompatibleType.new(
+          "The column #{column.name.to_s.inspect} holds values of type #{column.type}, which the #{field.type} field " \
+          "#{field.name.to_s.inspect} never accepts"
+        )
+      end
     end
 
     # Raises `IOStreams::Errors::InvalidHeader` when a record or row that is written has columns, keys or values that
@@ -486,6 +508,29 @@ module IOStreams
     def missing_fields(found)
       found = found.each_with_object({}.compare_by_identity) { |field, set| set[field] = true }
       fields.reject { |field| found.key?(field) }
+    end
+
+    # Returns [Array<String>] each way that the columns of a header row, or the keys of a record, do not match the
+    # fields, see #check_columns.
+    def column_problems(found, unknown, ordered:, noun:)
+      problems = []
+      problems << unknown_problem(unknown, noun) unless unknown.empty? || skip_unknown?
+      missing = missing_fields(found)
+      if every_field? && !missing.empty?
+        problems << "missing the #{plural('field', missing)} #{names_of(missing)}, which fieldsMatch #{fields_match.inspect} " \
+                    "requires; \"superset\" and \"partial\" accept missing fields"
+      else
+        required = missing.select(&:required?)
+        problems << "missing the required #{plural('field', required)} #{names_of(required)}" unless required.empty?
+      end
+      if fields_match == "partial" && found.empty?
+        problems << "no #{noun} is a field of the schema, but fieldsMatch \"partial\" needs at least one"
+      end
+      if ordered && fields_match == "exact" && problems.empty? && found != fields
+        problems << "the #{noun}s are not in the order of the fields, #{names_of(fields)}, which fieldsMatch \"exact\" " \
+                    "requires; \"equal\" accepts any order"
+      end
+      problems
     end
 
     # Returns [true|false] whether every field must be one of the columns.
